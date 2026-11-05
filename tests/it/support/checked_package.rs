@@ -24,6 +24,8 @@
 #![allow(dead_code)] // Each test binary uses a different subset of these helpers.
 
 use quire_contract_model::{
+    CheckedExtensionClauseSchema, CheckedExtensionDefinition, CheckedExtensionGrammarSchema,
+    CheckedExtensionNodeSchema, CheckedExtensionProduction, CheckedExtensionTypedNodeSchema,
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageEvidence, CheckedPackageIncomplete,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
@@ -36,6 +38,33 @@ use std::collections::{BTreeMap, HashMap};
 #[path = "protocol_ports.rs"]
 mod protocol_ports;
 pub use protocol_ports::role_port_fixture;
+
+pub fn retention_definition() -> CheckedExtensionDefinition {
+    CheckedExtensionDefinition {
+        grammar_schema: CheckedExtensionGrammarSchema {
+            productions: vec![CheckedExtensionProduction {
+                keyword: "retention".into(),
+                clauses: vec!["subject".into(), "days".into()],
+            }],
+        },
+        typed_node_schema: CheckedExtensionTypedNodeSchema {
+            nodes: vec![CheckedExtensionNodeSchema {
+                keyword: "retention".into(),
+                node_kind: "retention".into(),
+                clauses: vec![
+                    CheckedExtensionClauseSchema {
+                        name: "subject".into(),
+                        type_ref: "Text".into(),
+                    },
+                    CheckedExtensionClauseSchema {
+                        name: "days".into(),
+                        type_ref: "Int[1, 3650]".into(),
+                    },
+                ],
+            }],
+        },
+    }
+}
 
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const FIXTURE_PACKAGE: &str = "test/families";

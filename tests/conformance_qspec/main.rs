@@ -48,6 +48,7 @@ mod extension;
 mod fairness_targets;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;
+use fixture_support::retention_definition;
 mod fma_application;
 mod grouped_ordinal;
 mod hybrid;
@@ -249,33 +250,6 @@ fn read_package_with_document(
     domain_document: &Path,
 ) -> Result<CheckedPackageV2ReadResult, String> {
     read_package_with_document_and_extensions(package, name, domain_document, true)
-}
-
-fn retention_definition() -> CheckedExtensionDefinition {
-    CheckedExtensionDefinition {
-        grammar_schema: CheckedExtensionGrammarSchema {
-            productions: vec![CheckedExtensionProduction {
-                keyword: "retention".into(),
-                clauses: vec!["subject".into(), "days".into()],
-            }],
-        },
-        typed_node_schema: CheckedExtensionTypedNodeSchema {
-            nodes: vec![CheckedExtensionNodeSchema {
-                keyword: "retention".into(),
-                node_kind: "retention".into(),
-                clauses: vec![
-                    CheckedExtensionClauseSchema {
-                        name: "subject".into(),
-                        type_ref: "Text".into(),
-                    },
-                    CheckedExtensionClauseSchema {
-                        name: "days".into(),
-                        type_ref: "Int[1, 3650]".into(),
-                    },
-                ],
-            }],
-        },
-    }
 }
 
 fn quota_definition() -> CheckedExtensionDefinition {

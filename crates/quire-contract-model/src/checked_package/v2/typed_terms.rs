@@ -1550,6 +1550,24 @@ pub(in crate::checked_package) enum CheckedTermView<'a> {
     },
 }
 
+/// An edge exposed by the bounded selected ordinary-term visitor.
+#[allow(dead_code)] // The complete selected closure reader will use this visitor.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SelectedTermEdge<'a> {
+    Reference,
+    Type,
+    OperationMember,
+    Dependency(&'a str),
+    Unsupported,
+}
+
+/// One charged step of a borrowed ordinary-term walk.
+#[allow(dead_code)] // The complete selected closure reader will use this visitor.
+pub(super) enum SelectedTermVisit<'a> {
+    Term,
+    Edge(SelectedTermEdge<'a>, &'a CheckedNodeId),
+}
+
 impl CheckedTerm {
     /// Read a scalar literal without inspecting its JSON wire payload.
     /// Returns `None` for another term or a directly decoded malformed literal.
@@ -1639,6 +1657,112 @@ pub(super) enum TermConversionCause {
 }
 
 impl CheckedTerm {
+    /// Inspect ordinary typed-term IDs without recursing through nested terms.
+    /// The caller charges each term and edge before following it. Specialized
+    /// bodies are reported instead of silently losing their IDs.
+    #[allow(dead_code)] // The complete selected closure reader will use this visitor.
+    pub(super) fn visit_selected_edges<'a, E>(
+        &'a self,
+        at: &'a CheckedNodeId,
+        mut visit: impl FnMut(SelectedTermVisit<'a>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut pending = vec![self];
+        while let Some(current) = pending.pop() {
+            visit(SelectedTermVisit::Term)?;
+            match current {
+                Self::Literal { type_id, .. } => {
+                    visit(SelectedTermVisit::Edge(SelectedTermEdge::Type, type_id))?
+                }
+                Self::Reference { target } => {
+                    visit(SelectedTermVisit::Edge(SelectedTermEdge::Reference, target))?
+                }
+                Self::Application {
+                    operation,
+                    result_type,
+                    arguments,
+                    ..
+                } => {
+                    visit(SelectedTermVisit::Edge(SelectedTermEdge::Type, result_type))?;
+                    let Ok(read) = operation.read() else {
+                        visit(SelectedTermVisit::Edge(SelectedTermEdge::Unsupported, at))?;
+                        continue;
+                    };
+                    if let Some(member) = read.member {
+                        let mut member_id = |id| {
+                            visit(SelectedTermVisit::Edge(
+                                SelectedTermEdge::OperationMember,
+                                id,
+                            ))
+                        };
+                        match member {
+                            CheckedOperationMember::Field { declaration, .. }
+                            | CheckedOperationMember::Position { declaration, .. }
+                            | CheckedOperationMember::Element { declaration }
+                            | CheckedOperationMember::Operation { declaration, .. }
+                            | CheckedOperationMember::TypeArgument { declaration } => {
+                                member_id(declaration)?;
+                            }
+                            CheckedOperationMember::RelationshipEnd {
+                                declaration,
+                                destination_type,
+                                population,
+                                ..
+                            } => {
+                                member_id(declaration)?;
+                                member_id(destination_type)?;
+                                if let Some(population) = population {
+                                    member_id(population)?;
+                                }
+                            }
+                            CheckedOperationMember::Fairness { target, .. } => {
+                                let id = match target {
+                                    CheckedFairnessTarget::Operation { declaration, .. }
+                                    | CheckedFairnessTarget::HybridTransition {
+                                        declaration, ..
+                                    } => declaration,
+                                    CheckedFairnessTarget::ProtocolRoot { node }
+                                    | CheckedFairnessTarget::AttemptNode { node }
+                                    | CheckedFairnessTarget::CompensationTemplate { node } => node,
+                                    CheckedFairnessTarget::ParallelBranch { parallel, .. } => {
+                                        parallel
+                                    }
+                                };
+                                member_id(id)?;
+                            }
+                            CheckedOperationMember::ProfileOperator { .. }
+                            | CheckedOperationMember::StateClause { .. }
+                            | CheckedOperationMember::TemporalInterval { .. } => {}
+                        }
+                    }
+                    pending.extend(arguments.iter().rev());
+                }
+                Self::Aggregate { members } => pending.extend(members.iter().rev()),
+                Self::Binding { value, .. } => pending.push(value),
+                Self::DependencyReference { package, node } => {
+                    visit(SelectedTermVisit::Edge(
+                        SelectedTermEdge::Dependency(package),
+                        node,
+                    ))?;
+                }
+                Self::Frame { .. }
+                | Self::AbstractionRelation { .. }
+                | Self::ExtensionForm { .. }
+                | Self::OperationAnchorBody(_)
+                | Self::Refinement { .. } => {
+                    visit(SelectedTermVisit::Edge(SelectedTermEdge::Unsupported, at))?
+                }
+                Self::NominalBody(body) => {
+                    let mut targets = Vec::new();
+                    body.visit_reference_targets(&mut |id| targets.push(id));
+                    for id in targets {
+                        visit(SelectedTermVisit::Edge(SelectedTermEdge::Reference, id))?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Return nested reference targets in term order, excluding type IDs and
     /// other node identities.
     pub fn reference_targets(&self) -> Vec<&CheckedNodeId> {
