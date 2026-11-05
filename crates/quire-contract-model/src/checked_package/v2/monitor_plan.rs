@@ -332,6 +332,16 @@ impl<'a> CheckedMonitorEntryRef<'a> {
     pub fn body(&self) -> &'a CheckedTerm {
         &self.package.terms[self.entry.position]
     }
+    /// Read this admitted entry's ordered parameter handles and expression body.
+    ///
+    /// The read charges only this entry's body and references. Its handles do
+    /// not claim complete type closure, and no expression is executed.
+    pub fn callable(
+        &self,
+        work_limit: u64,
+    ) -> Result<super::CheckedCallableRead, super::CheckedCallableReadError> {
+        super::callable::monitor_entry_callable(self.package, self.node_id(), work_limit)
+    }
     /// Exact parameter types in signature order.
     pub fn parameter_types(&self) -> impl ExactSizeIterator<Item = &'a CheckedNodeId> + 'a {
         self.entry

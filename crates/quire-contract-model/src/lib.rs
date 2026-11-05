@@ -142,6 +142,7 @@ pub use canonical::{
     CANONICAL_PROFILE,
 };
 pub use certificate_member::CertificateMember;
+pub use checked_package::CheckedCallableRead;
 pub use checked_package::{
     encode_checked_package_v2, read_checked_package, BoundedDomainForm, CheckedArtifactLocator,
     CheckedArtifactRef, CheckedAuthoredCompositeDomain, CheckedCallable, CheckedCallableIdentity,

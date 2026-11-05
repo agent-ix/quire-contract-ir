@@ -42,6 +42,25 @@ pub struct CheckedCallable {
     pub frame: Option<CheckedNodeId>,
 }
 
+/// A selective callable result and its charged projection work.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedCallableRead {
+    callable: Option<CheckedCallable>,
+    work: u64,
+}
+
+impl CheckedCallableRead {
+    /// The selected callable, if the requested node defines one.
+    pub fn callable(&self) -> Option<&CheckedCallable> {
+        self.callable.as_ref()
+    }
+
+    /// Number of charged projection visits, including an absent result.
+    pub const fn work(&self) -> u64 {
+        self.work
+    }
+}
+
 /// One complete table or no table at all on refusal.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedCallableTable {
@@ -226,13 +245,13 @@ fn reference_owner_matches(
 impl CheckedPackageV2 {
     /// Read one executable source-declared function without operation rows.
     ///
-    /// A present node that is not an executable source function returns
-    /// `None`. This read does not scan unrelated operation anchors.
+    /// A present node that is not an executable source function has no
+    /// callable in the read result. This read does not scan unrelated nodes.
     pub fn source_callable(
         &self,
         node: &CheckedNodeId,
         work_limit: u64,
-    ) -> Result<Option<CheckedCallable>, CheckedCallableReadError> {
+    ) -> Result<CheckedCallableRead, CheckedCallableReadError> {
         let mut budget = Budget {
             work: 0,
             limit: work_limit,
@@ -251,16 +270,22 @@ impl CheckedPackageV2 {
         ) || found.declaration.is_none()
             || !matches!(found.owner, Some(CheckedNodeOwner::Source { .. }))
         {
-            return Ok(None);
+            return Ok(CheckedCallableRead {
+                callable: None,
+                work: budget.work,
+            });
         }
         let parsed = function_body(self, node, &mut budget)?;
-        Ok(parsed.body.map(|body| CheckedCallable {
-            identity: CheckedCallableIdentity::Function(node.clone()),
-            parameters: parsed.parameters,
-            body,
-            context: None,
-            frame: None,
-        }))
+        Ok(CheckedCallableRead {
+            callable: parsed.body.map(|body| CheckedCallable {
+                identity: CheckedCallableIdentity::Function(node.clone()),
+                parameters: parsed.parameters,
+                body,
+                context: None,
+                frame: None,
+            }),
+            work: budget.work,
+        })
     }
 
     /// Read selected function bodies and model operation anchors as one bounded table.
@@ -435,6 +460,32 @@ impl CheckedPackageV2 {
             work: budget.work,
         })
     }
+}
+
+pub(super) fn monitor_entry_callable(
+    package: &CheckedPackageV2,
+    node: &CheckedNodeId,
+    work_limit: u64,
+) -> Result<CheckedCallableRead, CheckedCallableReadError> {
+    let mut budget = Budget {
+        work: 0,
+        limit: work_limit,
+    };
+    budget.charge(node)?;
+    let parsed = function_body(package, node, &mut budget)?;
+    let body = parsed
+        .body
+        .ok_or_else(|| budget.error(CheckedCallableReadErrorCode::MissingBody, node))?;
+    Ok(CheckedCallableRead {
+        callable: Some(CheckedCallable {
+            identity: CheckedCallableIdentity::Function(node.clone()),
+            parameters: parsed.parameters,
+            body,
+            context: None,
+            frame: None,
+        }),
+        work: budget.work,
+    })
 }
 
 #[cfg(test)]
@@ -673,8 +724,8 @@ mod tests {
         );
     }
 
-    /// Trace: FR-354-AC-3.
-    #[trace("FR-354-AC-3")]
+    /// Trace: FR-354-AC-3, FR-354-AC-7.
+    #[trace("FR-354-AC-3", "FR-354-AC-7")]
     #[test]
     fn source_owned_anchor_refuses_without_a_selected_operation_witness() {
         let package = fixture(true);
@@ -682,8 +733,24 @@ mod tests {
         let function = package
             .source_callable(&node_id('4'), 100)
             .expect("source function read")
-            .expect("body function");
+            .callable()
+            .expect("body function")
+            .clone();
         assert_eq!(function.body, node_id('3'));
+        let read = package
+            .source_callable(&node_id('4'), 4)
+            .expect("exact work");
+        assert_eq!(read.work(), 4);
+        assert_eq!(read.callable(), Some(&function));
+        let denied = package.source_callable(&node_id('4'), 3).unwrap_err();
+        assert_eq!(denied.code, CheckedCallableReadErrorCode::WorkLimit);
+        assert_eq!(denied.work, 4);
+        assert_eq!(denied.locus, node_id('4'));
+        let cloned = package.clone();
+        assert_eq!(cloned.source_callable(&node_id('4'), 4), Ok(read));
+        let absent = package.source_callable(&node_id('7'), 1).unwrap();
+        assert_eq!(absent.work(), 1);
+        assert_eq!(absent.callable(), None);
         let error = package
             .callable_table(&selected, 100)
             .expect_err("source anchor");
@@ -696,5 +763,20 @@ mod tests {
                 .code,
             CheckedCallableReadErrorCode::UnknownNode,
         );
+    }
+
+    /// Trace: FR-038-AC-426, FR-354-AC-7.
+    #[trace("FR-038-AC-426", "FR-354-AC-7")]
+    #[test]
+    fn selective_body_parser_ignores_an_unrelated_malformed_function() {
+        let mut package = fixture(false);
+        package.terms[4] = CheckedTerm::Reference {
+            target: node_id('9'),
+        };
+        let read = monitor_entry_callable(&package, &node_id('4'), 4).unwrap();
+        assert_eq!(read.work(), 4);
+        let callable = read.callable().expect("selected body");
+        assert_eq!(callable.body, node_id('3'));
+        assert_eq!(callable.parameters, vec![node_id('2')]);
     }
 }
