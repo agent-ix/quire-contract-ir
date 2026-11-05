@@ -157,7 +157,10 @@ fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
     let callable = selected.callable().expect("entry has a body");
     assert_eq!(
         callable.identity,
-        CheckedCallableIdentity::Function(view.on_gap().node_id().clone())
+        CheckedCallableIdentity::MonitorEntry {
+            plan: view.node_id().clone(),
+            entry: view.on_gap().node_id().clone(),
+        }
     );
     assert_eq!(callable.parameters.len(), 2);
     assert_ne!(callable.parameters[0], callable.parameters[1]);

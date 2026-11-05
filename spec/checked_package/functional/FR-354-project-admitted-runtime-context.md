@@ -119,7 +119,8 @@ missing frame. The table SHALL NOT treat a call expression or a similarly
 named declaration as proof of a callable definition.
 The selective source-function read SHALL return its charged work on success,
 including an absent callable. A borrowed admitted monitor-entry view SHALL
-provide a selective bounded callable read with the entry's identity, ordered
+provide a selective bounded callable read with the admitted root and entry
+identities, ordered
 parameter handles and expression body handle. This read SHALL inspect only the
 selected entry and its referenced terms, without scanning unrelated graph nodes
 or requiring operation-member rows. It SHALL return charged work on success and

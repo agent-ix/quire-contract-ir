@@ -5337,7 +5337,7 @@ expose `node_id` and `result_type` as `&'a CheckedNodeId`, `body` as
 `&'a CheckedTerm`, and `parameter_types` as an exact-size borrowed iterator
 of `&'a CheckedNodeId` in signature order.
 Each entry view SHALL also provide a bounded callable read returning its admitted
-entry identity, ordered parameter node handles and expression body handle with
+root and entry identities, ordered parameter node handles and expression body handle with
 charged work on success. The read SHALL use the existing admitted entry
 association, inspect no unrelated graph nodes, and refuse with charged work
 one unit below its exact successful limit. It SHALL NOT claim complete type

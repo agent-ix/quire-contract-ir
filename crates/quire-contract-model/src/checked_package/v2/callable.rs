@@ -15,6 +15,13 @@ use thiserror::Error;
 pub enum CheckedCallableIdentity {
     /// A declared function or a selected model-owned body function.
     Function(CheckedNodeId),
+    /// An anonymous entry reached through an admitted monitor plan.
+    MonitorEntry {
+        /// The admitted monitor-plan root.
+        plan: CheckedNodeId,
+        /// The selected entry function.
+        entry: CheckedNodeId,
+    },
     /// An operation anchor joined to its original and stage-selected member identities.
     Operation {
         /// The admitted operation anchor.
@@ -464,6 +471,7 @@ impl CheckedPackageV2 {
 
 pub(super) fn monitor_entry_callable(
     package: &CheckedPackageV2,
+    plan: &CheckedNodeId,
     node: &CheckedNodeId,
     work_limit: u64,
 ) -> Result<CheckedCallableRead, CheckedCallableReadError> {
@@ -478,7 +486,10 @@ pub(super) fn monitor_entry_callable(
         .ok_or_else(|| budget.error(CheckedCallableReadErrorCode::MissingBody, node))?;
     Ok(CheckedCallableRead {
         callable: Some(CheckedCallable {
-            identity: CheckedCallableIdentity::Function(node.clone()),
+            identity: CheckedCallableIdentity::MonitorEntry {
+                plan: plan.clone(),
+                entry: node.clone(),
+            },
             parameters: parsed.parameters,
             body,
             context: None,
@@ -773,9 +784,16 @@ mod tests {
         package.terms[4] = CheckedTerm::Reference {
             target: node_id('9'),
         };
-        let read = monitor_entry_callable(&package, &node_id('4'), 4).unwrap();
+        let read = monitor_entry_callable(&package, &node_id('1'), &node_id('4'), 4).unwrap();
         assert_eq!(read.work(), 4);
         let callable = read.callable().expect("selected body");
+        assert_eq!(
+            callable.identity,
+            CheckedCallableIdentity::MonitorEntry {
+                plan: node_id('1'),
+                entry: node_id('4'),
+            }
+        );
         assert_eq!(callable.body, node_id('3'));
         assert_eq!(callable.parameters, vec![node_id('2')]);
     }
