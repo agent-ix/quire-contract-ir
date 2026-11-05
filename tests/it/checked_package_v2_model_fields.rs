@@ -2879,6 +2879,12 @@ fn admitted_native_record_late_unsupported_field_respects_exact_work_boundary() 
                 form: "model/record_value_type".into(),
                 work: COMPLETE_WORK,
             };
+            for limit in [COMPLETE_WORK, 100] {
+                assert_eq!(
+                    admitted.project_exact_type(&structural, &witnesses, limit),
+                    Err(unsupported.clone()),
+                );
+            }
             drop(admitted);
             for limit in [COMPLETE_WORK, 100] {
                 for _ in 0..2 {
