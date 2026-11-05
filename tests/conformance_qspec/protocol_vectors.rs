@@ -327,7 +327,7 @@ fn qspec_k10_acyclic_protocol_member_admits_a_lone_group_label() {
     );
 }
 
-#[trace("TC-947", "FR-038-AC-463", "FR-038-AC-464")]
+#[trace("TC-048", "FR-038-AC-463", "FR-038-AC-464")]
 #[test]
 fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
     use quire_contract_model::{
