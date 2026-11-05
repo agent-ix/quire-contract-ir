@@ -2191,6 +2191,39 @@ fn tc_048_the_profile_fit_admits_each_interval_shape_per_profile() {
     }
 }
 
+#[trace("TC-048", "FR-038-AC-104", "FR-038-AC-122")]
+#[test]
+fn tc_048_finite_window_refuses_timed_and_open_interval_members() {
+    const FINITE_WINDOW: &str = "quire.temporal.timestamped-event.finite-window/v1";
+    let (baseline, _) = with_root(FINITE_WINDOW, "eventually", closed("0", "3"), None, 1);
+    admitted(
+        "a closed interval under the finite-window profile",
+        &baseline,
+    );
+
+    for (case, member, pointer) in [
+        (
+            "a timed_interval member",
+            json!({"kind": "timed_interval", "interval": {"lower": "0", "upper": "3"}}),
+            "/body/operation/member",
+        ),
+        (
+            "an open temporal_interval member",
+            json!({"kind": "temporal_interval", "interval": {"lower": "0", "upper": null}}),
+            "/body",
+        ),
+    ] {
+        let (package, root) = with_root(FINITE_WINDOW, "eventually", member, None, 1);
+        expect(
+            case,
+            &package,
+            Code::InvalidPackage,
+            Cause::OperationMemberMismatch,
+            &at_node(root, pointer),
+        );
+    }
+}
+
 /// The profile fit reads only the formula nodes reachable from the clause: a
 /// second clause whose tree shares no node with the first is fitted against its
 /// own profile law and tree, not the first's.
