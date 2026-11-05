@@ -10,9 +10,9 @@ use crate::fixture_support::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    BoundedDomainForm, CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    LiteralKind, ScalarTypeForm,
+    BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageReadLimits,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2, LiteralKind, ScalarTypeForm,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -450,6 +450,27 @@ fn published_carried_quantity_positions_lower_without_covering_a_bare_unit() {
     package.parameter("dec_parameter", "q_dec");
     package.record("rat_record", &["q_rat"]);
     package.record("mixed_record", &["unit_m", "q_int"]);
+    let conversion = vectors["wire"]
+        .as_array()
+        .expect("published wire vectors")
+        .iter()
+        .find(|case| case["id"] == "CQ-W15")
+        .expect("published carried-source conversion");
+    assert_eq!(conversion["expected"], "admitted");
+    assert_eq!(conversion["application"]["operand_types"][0], "q_pm2");
+    assert_eq!(conversion["application"]["result_type"], "q_dec");
+    let application = package.application(conversion, all);
+    let nodes = package.wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    package.ids.insert(
+        "source_parameter".into(),
+        nodes[application - 1]["node_id"].clone(),
+    );
+    package.ids.insert(
+        "quantity_application".into(),
+        nodes[application]["node_id"].clone(),
+    );
     let fixture_ids = package.ids.clone();
     let CheckedPackageV2ReadResult::Admitted(admitted) = package.read() else {
         panic!("published carried quantity forms must admit through the public reader");
@@ -465,7 +486,20 @@ fn published_carried_quantity_positions_lower_without_covering_a_bare_unit() {
         let wire = serde_json::to_value(actual).expect("encoded admitted node ID");
         resolved_fixture_id(&wire, &graph_ids) == resolved(name)
     };
-    let requests = ["int_record", "dec_parameter", "rat_record", "mixed_record"];
+    let source_parameter = admitted
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| same_id(&node.node_id, "source_parameter"))
+        .expect("admitted conversion source parameter");
+    assert!(same_id(&source_parameter.semantic_type, "q_pm2"));
+    let requests = [
+        "int_record",
+        "dec_parameter",
+        "rat_record",
+        "mixed_record",
+        "quantity_application",
+    ];
     let request_ids = requests
         .iter()
         .map(|name| resolved(name))
@@ -482,15 +516,46 @@ fn published_carried_quantity_positions_lower_without_covering_a_bare_unit() {
     };
     let records = admitted.lower(&request_ids, &profile).records;
     assert_eq!(records.len(), requests.len());
-    for (index, (request, carried)) in [
-        ("int_record", "q_int"),
-        ("dec_parameter", "q_dec"),
-        ("rat_record", "q_rat"),
+    for (index, (request, carried, carrier, form)) in [
+        (
+            "int_record",
+            "q_int",
+            "int_pm2",
+            BoundedDomainForm::IntegerRange,
+        ),
+        (
+            "dec_parameter",
+            "q_dec",
+            "dec_cents",
+            BoundedDomainForm::DecimalRange,
+        ),
+        (
+            "rat_record",
+            "q_rat",
+            "rat_r",
+            BoundedDomainForm::RationalRange,
+        ),
     ]
     .into_iter()
     .enumerate()
     {
-        let carrier = all[carried]["carrier"].as_str().expect("published carrier");
+        assert_eq!(
+            all[carried]["carrier"], carrier,
+            "{carried} carrier identity"
+        );
+        let carrier_kind = admitted
+            .graph()
+            .nodes
+            .iter()
+            .zip(admitted.node_kinds())
+            .find(|(node, _)| same_id(&node.node_id, carrier))
+            .map(|(_, kind)| *kind)
+            .expect("admitted carrier node");
+        assert_eq!(
+            carrier_kind,
+            CheckedNodeKind::BoundedDomain(form),
+            "{carried}"
+        );
         let unit = all[carried]["unit"].as_str().expect("published unit");
         match &records[index] {
             CompleteLoweringRecordV2::Lowered { node } => {
@@ -516,6 +581,19 @@ fn published_carried_quantity_positions_lower_without_covering_a_bare_unit() {
             assert!(same_id(unbounded_type, "unit_m"));
         }
         other => panic!("bare unit beside a carried field must refuse: {other:?}"),
+    }
+    match &records[4] {
+        CompleteLoweringRecordV2::Lowered { node } => {
+            assert!(same_id(&node.node.node_id, "quantity_application"));
+            assert!(same_id(&node.semantic_type, "q_dec"));
+            assert!(
+                node.dependencies
+                    .iter()
+                    .any(|id| same_id(id, "source_parameter")),
+                "carried-typed source parameter must be in the application closure"
+            );
+        }
+        other => panic!("carried-source quantity-result application must lower: {other:?}"),
     }
 }
 
