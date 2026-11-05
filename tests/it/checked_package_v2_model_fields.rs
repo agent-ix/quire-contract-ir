@@ -2793,6 +2793,154 @@ fn admitted_record_with_unsupported_field_refuses_without_view() {
     assert_eq!(refusal.at.as_deref(), Some(&structural));
 }
 
+/// Trusted native rows exercise a late unsupported member and bounded whole-record reads.
+#[test]
+fn admitted_native_record_late_unsupported_field_respects_exact_work_boundary() {
+    // Independently counted: requested node + semantic type + two witness rows + two fields.
+    const COMPLETE_WORK: u64 = 6;
+    const BEFORE_SECOND_FIELD: u64 = 5;
+    for (name, second_type) in [
+        ("LateUnsupported", "ix://quire/native/Float32"),
+        ("CompleteInteger", "ix://quire/native/Integer"),
+    ] {
+        let mut selected = document(vec![typed_object(
+            name,
+            "record",
+            &[],
+            &[
+                field("first", "ix://quire/native/Integer"),
+                field("second", second_type),
+            ],
+        )]);
+        selected["constructs"]
+            .as_array_mut()
+            .expect("construct catalog")
+            .push(json!({
+                "kind": {"module": IDENTITY, "name": "record"},
+                "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+            }));
+        let admitted = admit(&selected, &[(name, "record_value_type")], &[]);
+        let structural: CheckedNodeId =
+            serde_json::from_value(node_id(&declaration_key(name, "record_value_type")))
+                .expect("structural record ID");
+        let key = NodeKey::new("checked", vec![PathSegment::Text(name.into())], 0)
+            .expect("Exact record key");
+        let members = ["first", "second"].map(|field_name| {
+            MemberId::new(MemberOwner::Node(key.clone()), field_name).expect("Exact field member")
+        });
+        let field_rows =
+            ["first", "second"]
+                .into_iter()
+                .zip(&members)
+                .map(|(field_name, member)| {
+                    SelectedExactFieldRow::new(
+                        structural.clone(),
+                        IDENTITY,
+                        orders(name),
+                        format!("{}/{field_name}", orders(name)),
+                        member.clone(),
+                    )
+                });
+        let witnesses = SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            [SelectedExactDeclarationRow::new(
+                structural.clone(),
+                IDENTITY,
+                SelectedExactDeclarationForm::RecordValueType,
+                orders(name),
+                SelectedExactIdentity::Record(key.clone()),
+            )],
+            field_rows,
+        )
+        .expect("both native field witnesses join this independently admitted record");
+        let cloned = admitted.clone();
+        drop(selected);
+        let exhausted = quire_contract_model::ExactTypeProjectionError {
+            code: ExactTypeProjectionErrorCode::ExhaustedWork,
+            requested: Box::new(structural.clone()),
+            at: Some(Box::new(structural.clone())),
+            form: "record_field".into(),
+            work: BEFORE_SECOND_FIELD,
+        };
+        for package in [&admitted, &cloned] {
+            for _ in 0..2 {
+                assert_eq!(
+                    package.project_exact_type(&structural, &witnesses, BEFORE_SECOND_FIELD),
+                    Err(exhausted.clone()),
+                    "the second field must consume work before its leaf is inspected",
+                );
+            }
+        }
+        if name == "LateUnsupported" {
+            let unsupported = quire_contract_model::ExactTypeProjectionError {
+                code: ExactTypeProjectionErrorCode::UnsupportedExactType,
+                requested: Box::new(structural.clone()),
+                at: Some(Box::new(structural.clone())),
+                form: "model/record_value_type".into(),
+                work: COMPLETE_WORK,
+            };
+            drop(admitted);
+            for limit in [COMPLETE_WORK, 100] {
+                for _ in 0..2 {
+                    assert_eq!(
+                        cloned.project_exact_type(&structural, &witnesses, limit),
+                        Err(unsupported.clone()),
+                        "a late unsupported field refuses the entire result",
+                    );
+                }
+            }
+        } else {
+            let projected = admitted
+                .project_exact_type(&structural, &witnesses, COMPLETE_WORK)
+                .expect("both Integer fields fit the independently counted allowance");
+            assert_eq!(projected.node(), &structural);
+            assert_eq!(projected.type_node(), &structural);
+            assert_eq!(projected.work(), COMPLETE_WORK);
+            assert_eq!(projected.value_type(), &ValueType::Composite(key.clone()));
+            let view = projected.record_view().expect("complete record view");
+            assert_eq!(view.record_key(), &key);
+            let actual = view
+                .fields()
+                .iter()
+                .map(|field| {
+                    (
+                        field.ir_identity().to_owned(),
+                        field.name().to_owned(),
+                        field.member_id().clone(),
+                        field.presence(),
+                        field.value_type().clone(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let expected = ["first", "second"]
+                .into_iter()
+                .zip(members)
+                .map(|(field_name, member)| {
+                    (
+                        format!("{}/{field_name}", orders(name)),
+                        field_name.to_owned(),
+                        member,
+                        Presence::Required,
+                        ValueType::Integer,
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected);
+            assert_eq!(
+                admitted.project_exact_type(&structural, &witnesses, COMPLETE_WORK),
+                Ok(projected.clone())
+            );
+            drop(admitted);
+            for _ in 0..2 {
+                assert_eq!(
+                    cloned.project_exact_type(&structural, &witnesses, COMPLETE_WORK),
+                    Ok(projected.clone())
+                );
+            }
+        }
+    }
+}
+
 /// A selected record's nested record and object-reference fields resolve by
 /// admitted target declaration and consume work at each target.
 #[test]
