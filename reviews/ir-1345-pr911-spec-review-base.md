@@ -30,3 +30,9 @@ FAIL — AC-73 and TC-050 do not require a positive control for each published c
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | AC-73 and TC-050 leave integer_range, decimal_range and rational_range carrier coverage unspecified; an implementation accepting only one form could pass the stated controls. Require an admitted carried_quantity value position for each carrier form. | FR-038-AC-73; TC-050 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-73 and TC-050 now require distinct admitted carried quantity positions for integer_range, decimal_range and rational_range, each with a lower outcome. |
