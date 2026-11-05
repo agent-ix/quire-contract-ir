@@ -24,8 +24,10 @@ The complete closure remains planned under IR-721. QSL-1630 retains the complete
 atom, guard and helper bodies in its plan identity; QSL-1631 supplies the
 final-emission source enum declaration/member rows. Collections are structural
 Exact `ValueType::Collection` values and require no declaration identity row.
-Source union admission/projection remains the existing IR-1323 prerequisite,
-followed by the matching final-emission producer handoff. Generated source
+Merged IR PR #905 (IR-1323) implements complete IR-side selected source
+union-row joins and Exact projection under FR-352. Genuine QSL final-emission
+union rows and opaque Exact payload authority remain open under QSL-1723 and
+IR-1343; a native row join does not establish either producer guarantee. Generated source
 record/member identity handoff also remains unavailable; model-selected rows
 are not evidence for those source declarations. Merged QSL-1463 retains
 final-emission model declaration/field, source-unit and equality producer/fact
@@ -52,7 +54,10 @@ occurrences. A caller-created name, structural key or Exact key alone SHALL NOT
 establish producer authority. This requirement defines no new QSL witness
 carrier. Existing final-emission tuple, source enum declaration/member,
 model enum declaration/member, source-unit, model declaration/field and equality
-rows retain their distinct admitted ownership channels. They SHALL NOT be
+rows retain their distinct admitted ownership channels. FR-352 accepts complete
+IR-owned selected source union rows, but a successful native join SHALL NOT
+authenticate caller-created opaque Exact payloads or establish genuine QSL
+final-emission handoff. These rows SHALL NOT be
 presented as a complete witness set when a reachable source record/member or
 union has no authentic handoff. In that case the complete-closure read SHALL
 return the native typed unavailable-witness or projection refusal; it SHALL
@@ -141,7 +146,11 @@ QSL-issued `MemberId`, producer order, presence and admitted field type.
 Repeated selected IDs SHALL produce one item. The read SHALL inspect only the selected facts and the
 admitted facts needed to validate them; it SHALL NOT traverse the selected
 monitor root, its four entry signatures or bodies, or infer a reachable
-declaration closure. QSL's current generated PlanRoot reaches source-owned
+declaration closure. Merged IR PR #906 exposes selective bounded callable
+reads for admitted monitor entries. PR #907 also permits direct admitted Value
+bodies for ordinary source functions; monitor entries still require expression
+bodies. These reads preserve admitted handles and charged work, without
+certifying complete monitor type closure. QSL's current generated PlanRoot reaches source-owned
 records and an `Outcome` union for which the authentic final declaration/member
 handoff is not yet available. Collections remain structural, and delivered
 source enum rows do not fill the source record or union gap. Therefore this
@@ -211,15 +220,28 @@ result alone SHALL NOT authorize either construction.
   equality producer/fact rows. QSL-1630 and QSL-1631 are delivered: the former
   binds the complete checked bodies to plan identity; the latter retains source
   enum declaration/member rows. Collections need no declaration row. Source
-  union identity admission/projection is owned by existing IR-1323 and must
-  precede its matching final producer rows; authentic generated source
-  record/member identity handoff is also required. No delivered enum or model
-  row substitutes for either missing channel. AC-1 through AC-4 remain planned
+  union native row joining and projection are implemented by IR PR #905
+  (IR-1323), including complete ordered member/payload correspondence and
+  distinct type-handle and settled-key roles. Its native row tests do not
+  establish genuine QSL output or authenticate opaque Exact payload values;
+  QSL-1723 and IR-1343 remain open. Authentic generated source record/member
+  identity handoff is also still required. No delivered enum or model row
+  substitutes for either missing producer channel. IR PR #906 implements
+  selective monitor-entry callable reads; PR #907 extends ordinary source
+  function bodies to direct admitted Values. Neither completes monitor closure. AC-1 through AC-4 remain planned
   until complete closure and its real producer handoff are implemented and
   exercised. The first selected-fact read does not satisfy those criteria.
   `quire-integration` owns
   AC-9's merged, executed real-emission QSL-to-IR integration test using the
   available IR selected-fact API; IR owns AC-5's explicitly selected fixture.
+- Driver PR #117 delivers partial admission through opaque
+  `AdmittedMonitorSelection` and the public `lower_scalar_functions` helper
+  returning owned native RT function/expression arenas for an
+  eleven-operator scalar component. This does not implement full `Layout`, the
+  complete canonical `TypeEnvironment`, full `ProgramParts` or the complete
+  monitor preparer. Those remain PLANNED/UNRUN with source record/member
+  handoff and AC-1 through AC-4; partial admission does not authorize a partial
+  executable owner.
 - RT FR-276 and its `ProgramParts` own the final immutable executable program.
   The driver consumes the future complete-closure IR projection to construct the canonical
   semantic-value `TypeEnvironment` passed to RT.
