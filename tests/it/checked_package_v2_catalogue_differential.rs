@@ -174,6 +174,76 @@ fn ieee_law(f: &mut Fixture, position: usize) {
         json!([{"role":"ieee_profile", "definition":definition}]);
     settle(&mut f.package);
 }
+
+fn selected_catalog_law(f: &mut Fixture, position: usize, role: &str) {
+    let catalog: Value = serde_json::from_str(
+        quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
+    )
+    .expect("reader catalog");
+    let definition = catalog["law_roles"][role][0].clone();
+    f.package["lock"]["definition_selections"]
+        .as_array_mut()
+        .expect("selections")
+        .push(definition.clone());
+    f.package["semantic_graph"]["nodes"][position]["body"]["operation"]["laws"]
+        .as_array_mut()
+        .expect("laws")
+        .push(json!({"role": role, "definition": definition}));
+    settle(&mut f.package);
+}
+
+fn text_or_string_conversion(identity: &str) -> Option<Value> {
+    let (source, destination) = identity
+        .strip_prefix("quire.op.text.to_")
+        .map(|to| ("text", to))
+        .or_else(|| {
+            identity
+                .strip_prefix("quire.op.string.to_")
+                .map(|to| ("string", to))
+        })?;
+    if !matches!(
+        destination,
+        "integer" | "decimal" | "rational" | "float32" | "float64" | "quantity"
+    ) {
+        return None;
+    }
+    let mut f = fixture();
+    let source_type = if source == "text" {
+        f.text.clone()
+    } else {
+        scalar(&mut f, "string")
+    };
+    let destination_type = match destination {
+        "integer" => f.integer.clone(),
+        "rational" => f.rational.clone(),
+        "quantity" => f.unit.clone(),
+        other => scalar(&mut f, other),
+    };
+    let rounding = matches!(destination, "decimal" | "float32" | "float64" | "quantity");
+    let mode = if rounding {
+        json!({"kind": "rounding", "value": "exact"})
+    } else {
+        Value::Null
+    };
+    let at = application(
+        &mut f,
+        "convert",
+        "conversion",
+        identity,
+        mode,
+        &destination_type,
+        &destination_type,
+        vec![json!({"term": "literal", "type": node_id(&source_type),
+            "value_kind": source, "value": "1"})],
+    );
+    if source == "text" {
+        selected_catalog_law(&mut f, at, "text_profile");
+    }
+    if matches!(destination, "float32" | "float64") {
+        selected_catalog_law(&mut f, at, "ieee_profile");
+    }
+    Some(f.package)
+}
 fn numeric_literal(ty: &str, form: &str) -> Value {
     match form {
         "float32" => json!({"term":"literal", "type":node_id(ty),
@@ -297,20 +367,74 @@ fn simple_fixture(entry: &Value) -> Option<Value> {
     Some(f.package)
 }
 
-fn unavailable_class(identity: &str) -> &'static str {
-    match identity.split('.').nth(2).expect("operation family") {
-        "control" | "temporal" | "state" | "claim" | "protocol" => {
-            "requires control, temporal, state, claim, or protocol context not built here"
-        }
-        "ieee" => "requires an IEEE profile and typed operands not built here",
-        "model" => "requires selected model declarations not built here",
-        _ => "requires typed operands or member fixtures not built here",
+fn unavailable_reason(entry: &Value) -> Option<&'static str> {
+    let operator = entry["operator"].as_str()?;
+    let laws = entry["laws"].as_array()?;
+    let operands = entry["operands"].as_array()?;
+    if matches!(
+        operator,
+        "temporal" | "temporal_formula" | "temporal_fairness"
+    ) {
+        return Some("requires a reached temporal formula or clause context");
     }
+    if matches!(
+        operator,
+        "state_clause" | "state_transition" | "pre" | "claim" | "protocol_control"
+    ) {
+        return Some("requires a state, claim or protocol context");
+    }
+    if matches!(operator, "case" | "conditional" | "let") {
+        return Some("requires a control-flow binder or branch context");
+    }
+    if matches!(operator, "deref" | "reaches") {
+        return Some("requires selected model declarations and reference targets");
+    }
+    if matches!(operator, "collection" | "quantify") {
+        return Some("requires a typed collection and member or binder context");
+    }
+    for (role, reason) in [
+        (
+            "ieee_profile",
+            "requires a selected IEEE profile and typed float operands",
+        ),
+        (
+            "text_profile",
+            "requires a selected text profile and typed text operands",
+        ),
+        (
+            "integer_division",
+            "requires a selected integer division law",
+        ),
+    ] {
+        if laws.iter().any(|law| law == role) {
+            return Some(reason);
+        }
+    }
+    for operand in operands {
+        let reason = match operand.as_str()? {
+            "decimal" => "requires a typed decimal operand",
+            "quantity" => "requires a typed quantity operand",
+            "enum_kind" | "ordered_enum" => "requires a declared enum operand",
+            "structural_kind" => "requires a structural operand",
+            "string" | "uuid" | "timestamp" => "requires a typed native scalar operand",
+            "bytes" => "requires a typed byte sequence operand",
+            "json_object" => "requires a typed JSON object operand",
+            "reference" => "requires a typed reference operand",
+            "option" => "requires a typed option operand",
+            "function" => "requires a typed function operand",
+            _ => continue,
+        };
+        return Some(reason);
+    }
+    None
 }
 
 // A fresh package is built for each identity. These are the entries for which
 // the existing nominal/structural fixture helpers produce a valid source.
 pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
+    if let Some(package) = text_or_string_conversion(identity) {
+        return Some(package);
+    }
     if identity == "quire.op.numeric.narrow" {
         return Some(crate::admitted_result_context::fixture());
     }
@@ -903,8 +1027,14 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
     .expect("reader's catalogue is JSON");
     let entries = catalog["operations"].as_array().expect("operations");
     let mut admitted = BTreeSet::new();
-    let mut unavailable = BTreeSet::new();
-    let mut unavailable_classes = BTreeMap::new();
+    let mut unavailable = BTreeMap::new();
+    assert!(
+        unavailable_reason(&json!({
+            "operator": "binary", "operands": ["integer", "integer"], "laws": []
+        }))
+        .is_none(),
+        "an arbitrary new operation needs an admitted control or a specific fixture gap"
+    );
     for entry in entries {
         let identity = entry["identity"].as_str().expect("identity");
         let external = match identity {
@@ -924,52 +1054,51 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
             );
             admitted.insert(identity.to_owned());
         } else if let Some(package) = admitted_fixture(identity).or_else(|| simple_fixture(entry)) {
-            assert!(
-                matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
-                "{identity}: {:?}",
-                read(&package)
-            );
+            let result = read(&package);
+            let CheckedPackageV2ReadResult::Admitted(admitted_package) = result else {
+                panic!("{identity}: {result:?}");
+            };
+            if identity.starts_with("quire.op.text.to_")
+                || identity.starts_with("quire.op.string.to_")
+            {
+                let position = package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("nodes")
+                    .iter()
+                    .position(|node| node["body"]["operation"]["identity"] == identity)
+                    .expect("conversion application");
+                let body = serde_json::to_value(&admitted_package.graph().nodes[position].body)
+                    .expect("typed conversion body");
+                let source = identity.split('.').nth(2).expect("source family");
+                assert_eq!(body["operation"]["identity"], identity);
+                assert_eq!(body["arguments"][0]["value_kind"], source);
+                assert_eq!(body["arguments"][0]["value"], "1");
+                assert_eq!(
+                    body["operation"]["member"]["declaration"],
+                    body["result_type"]
+                );
+                assert_eq!(
+                    serde_json::to_value(&admitted_package.graph().nodes[position].semantic_type)
+                        .expect("typed result"),
+                    body["result_type"]
+                );
+            }
             admitted.insert(identity.to_owned());
         } else {
             assert!(
                 entry["result"] != "member" && entry["member"] != "type_argument",
                 "member-result or type-argument lookalike {identity} needs an admitted control"
             );
-            unavailable.insert(identity.to_owned());
-            *unavailable_classes
-                .entry(unavailable_class(identity))
-                .or_insert(0usize) += 1;
+            let reason = unavailable_reason(entry)
+                .unwrap_or_else(|| panic!("{identity} needs an admitted control or a catalog-derived fixture gap: {entry}"));
+            assert!(!reason.is_empty(), "{identity}: empty fixture-gap reason");
+            unavailable.insert(identity.to_owned(), reason);
         }
     }
-    assert_eq!(entries.len(), 160, "catalogue entry count changed");
     assert_eq!(
-        admitted.len(),
-        57,
-        "57 of 160 entries have behavioral controls"
-    );
-    assert_eq!(unavailable.len(), 103, "unavailable fixture count changed");
-    assert_eq!(
-        unavailable_classes,
-        BTreeMap::from([
-            (
-                "requires control, temporal, state, claim, or protocol context not built here",
-                25
-            ),
-            (
-                "requires an IEEE profile and typed operands not built here",
-                15
-            ),
-            ("requires selected model declarations not built here", 3),
-            (
-                "requires typed operands or member fixtures not built here",
-                60
-            ),
-        ])
-    );
-    assert_eq!(
-        unavailable,
-        expected_unavailable(),
-        "an entry needs an admitted fixture or an explicit gap reason"
+        admitted.len() + unavailable.len(),
+        entries.len(),
+        "each catalog entry has an admitted control or an explicit unavailable reason"
     );
 
     // Each selected entry has an admitted witness and a mismatched-result
@@ -994,6 +1123,7 @@ fn tc_048_every_catalogue_entry_retains_its_constructible_admission() {
             | "quire.op.collection.count"
             | "quire.op.collection.sum.integer"
             | "quire.op.collection.size" => "rational",
+            "quire.op.text.to_integer" | "quire.op.string.to_integer" => "rational",
             _ => "integer",
         };
         let key = if identity == "quire.op.numeric.narrow" {
@@ -1092,117 +1222,4 @@ fn tc_048_member_kind_mismatch_precedes_member_result_check() {
         serde_json::to_value(refusal.locus).expect("locus"),
         package["semantic_graph"]["nodes"][position]["node_id"]
     );
-}
-
-fn expected_unavailable() -> BTreeSet<String> {
-    // Every identity here is outside the member-result selector. The exact
-    // inventory ensures a new or newly selected entry needs an admission control.
-    [
-        "quire.op.control.case",
-        "quire.op.string.eq",
-        "quire.op.string.ne",
-        "quire.op.temporal.always",
-        "quire.op.temporal.and",
-        "quire.op.temporal.eventually",
-        "quire.op.temporal.fair",
-        "quire.op.temporal.false",
-        "quire.op.temporal.historically",
-        "quire.op.temporal.holds",
-        "quire.op.temporal.implies",
-        "quire.op.temporal.not",
-        "quire.op.temporal.once",
-        "quire.op.temporal.or",
-        "quire.op.temporal.release",
-        "quire.op.temporal.since",
-        "quire.op.temporal.triggered",
-        "quire.op.temporal.true",
-        "quire.op.temporal.until",
-        "quire.op.timestamp.eq",
-        "quire.op.timestamp.ne",
-        "quire.op.uuid.eq",
-        "quire.op.uuid.ne",
-        "quire.op.claim.clause",
-        "quire.op.collection.bag",
-        "quire.op.collection.contains",
-        "quire.op.collection.exists",
-        "quire.op.collection.filter",
-        "quire.op.collection.flat_map",
-        "quire.op.collection.flatten",
-        "quire.op.collection.forall",
-        "quire.op.collection.map",
-        "quire.op.collection.ordered_set",
-        "quire.op.collection.sequence",
-        "quire.op.collection.set",
-        "quire.op.control.if",
-        "quire.op.control.let",
-        "quire.op.decimal.add",
-        "quire.op.decimal.div",
-        "quire.op.decimal.eq",
-        "quire.op.decimal.ge",
-        "quire.op.decimal.gt",
-        "quire.op.decimal.le",
-        "quire.op.decimal.lt",
-        "quire.op.decimal.mul",
-        "quire.op.decimal.ne",
-        "quire.op.decimal.negate",
-        "quire.op.decimal.sub",
-        "quire.op.enum.eq",
-        "quire.op.enum.ge",
-        "quire.op.enum.gt",
-        "quire.op.enum.le",
-        "quire.op.enum.lt",
-        "quire.op.enum.ne",
-        "quire.op.function.call",
-        "quire.op.ieee.bit_identical",
-        "quire.op.ieee.float32.add",
-        "quire.op.ieee.float32.div",
-        "quire.op.ieee.float32.fma",
-        "quire.op.ieee.float32.mul",
-        "quire.op.ieee.float32.sqrt",
-        "quire.op.ieee.float32.sub",
-        "quire.op.ieee.float64.add",
-        "quire.op.ieee.float64.div",
-        "quire.op.ieee.float64.fma",
-        "quire.op.ieee.float64.mul",
-        "quire.op.ieee.float64.sqrt",
-        "quire.op.ieee.float64.sub",
-        "quire.op.ieee.numeric_equal",
-        "quire.op.ieee.total_order",
-        "quire.op.integer.div",
-        "quire.op.integer.rem",
-        "quire.op.model.deref",
-        "quire.op.model.reaches",
-        "quire.op.model.reaches_field",
-        "quire.op.option.present",
-        "quire.op.option.value",
-        "quire.op.protocol.control",
-        "quire.op.quantity.add",
-        "quire.op.quantity.div",
-        "quire.op.quantity.eq",
-        "quire.op.quantity.ge",
-        "quire.op.quantity.gt",
-        "quire.op.quantity.le",
-        "quire.op.quantity.lt",
-        "quire.op.quantity.mul",
-        "quire.op.quantity.ne",
-        "quire.op.quantity.pow",
-        "quire.op.quantity.sub",
-        "quire.op.reference.ne",
-        "quire.op.state.clause",
-        "quire.op.state.pre",
-        "quire.op.state.transition",
-        "quire.op.structural.eq",
-        "quire.op.structural.ne",
-        "quire.op.temporal.clause",
-        "quire.op.text.eq",
-        "quire.op.text.ge",
-        "quire.op.text.gt",
-        "quire.op.text.le",
-        "quire.op.text.lt",
-        "quire.op.text.ne",
-        "quire.op.text.size",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
 }

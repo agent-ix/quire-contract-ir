@@ -11,7 +11,8 @@
 //!    order, each taken through its checks before the next clause is read:
 //!    the profile identity (`unknown_profile`), the `over` reference, each
 //!    fairness member's resolution, the profile fit of every interval and of the
-//!    fairness argument, and the interval bounds,
+//!    fairness argument, the interval bounds, then reachable aggregate atoms
+//!    in ascending formula identity order,
 //!
 //! and reports the first defect. Operand family and count and `result_type`
 //! stay the operation step's. The step reads only a well-formed member: a
@@ -30,19 +31,19 @@ use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::natural::{compare_rationals, coprime};
 use super::operation_catalog::operation_catalog;
-use super::operations::OperationWire;
+use super::operations::{resolve_family, OperationWire};
 use super::structural::reference_target;
 use super::{
     member_pointer, ApplicationOperator, CheckedDiagnosticV2, CheckedNodeKind,
-    CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm, CheckedTermView, FairnessGranularity,
-    FairnessKind, HybridForm, IntervalEnd, IntervalFit, LawRole, ModelForm, OperationMemberKind,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalForm, TemporalProfile, ValueForm,
-    WorkMeter,
+    CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm, CheckedTermView, ClockConfiguration,
+    FairnessGranularity, FairnessKind, HybridForm, IntervalEnd, IntervalFit, LawRole, ModelForm,
+    OperationMemberKind, RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalBinding, TemporalForm,
+    TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    JsonPointer,
+    CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, JsonPointer,
 };
 use crate::checked_package::terms::visit_terms;
 use quire_walk::{walk, Children, Walk};
@@ -500,6 +501,13 @@ pub(in crate::checked_package) fn member_is_well_formed(
     }
 }
 
+/// The clause context shared by the temporal checks.
+pub(super) struct TemporalContext<'a> {
+    pub(super) lock: &'a CheckedPackageLockV2,
+    pub(super) diagnostics: &'a [CheckedDiagnosticV2],
+    pub(super) bindings: Option<&'a [TemporalBinding]>,
+}
+
 /// The temporal step. See the module documentation for the order.
 pub(super) fn validate_temporal(
     terms: &[Option<CheckedTerm>],
@@ -507,8 +515,7 @@ pub(super) fn validate_temporal(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
-    lock: &CheckedPackageLockV2,
-    diagnostics: &[CheckedDiagnosticV2],
+    context: TemporalContext<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = StepGraph {
@@ -522,13 +529,25 @@ pub(super) fn validate_temporal(
             return Err(failure);
         }
     }
-    validate_diagnostic_references(nodes, kinds, diagnostics)?;
+    validate_diagnostic_references(nodes, kinds, context.diagnostics)?;
+    let clock_units = aggregate_clock_units(context.bindings);
     let mut covered = BTreeSet::new();
     for &position in index.values() {
         if graph.kinds.get(position)
             == Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
         {
-            check_clause(position, &graph, terms, lock, meter, &mut covered)?;
+            check_clause(
+                position,
+                &graph,
+                terms,
+                context.lock,
+                clock_units
+                    .get(&graph.nodes[position].node_id)
+                    .copied()
+                    .flatten(),
+                meter,
+                &mut covered,
+            )?;
         }
     }
     // A formula node no clause reaches is no clause's to fit, but its
@@ -818,14 +837,16 @@ fn selected_under_another_role(
 }
 
 /// One clause's checks, in order: profile identity, `over`, fairness
-/// resolution, profile fit, interval bounds. A part of the clause the
+/// resolution, profile fit, interval bounds, aggregate arguments. A part of the clause the
 /// operation step refuses (an unreadable `operation`, a missing law, a
 /// missing argument) is skipped here.
+#[ix_trace_rs::string_edge]
 fn check_clause(
     position: usize,
     graph: &StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
     lock: &CheckedPackageLockV2,
+    clock_unit: Option<&str>,
     meter: &mut WorkMeter,
     covered: &mut BTreeSet<usize>,
 ) -> Result<(), ValidationFailure> {
@@ -982,7 +1003,8 @@ fn check_clause(
 
     // Profile fit of every interval, then of the fairness argument, then the
     // bounds of every interval.
-    let intervals = formula_intervals(arguments.get(5).copied(), graph, meter, &at_node, covered)?;
+    let FormulaReach { intervals, reached } =
+        formula_intervals(arguments.get(5).copied(), graph, meter, &at_node, covered)?;
     if let Some(profile) = profile {
         let fit = profile.interval_fit();
         for (formula, interval) in &intervals {
@@ -1009,6 +1031,27 @@ fn check_clause(
     for (formula, interval) in &intervals {
         check_bounds(*formula, interval, graph, meter)?;
     }
+    let mut aggregates = reached
+        .into_iter()
+        .filter(|&formula| {
+            operation_of(&graph.nodes[formula]).is_some_and(|operation| {
+                operation.identity.as_ref() == "quire.op.temporal.aggregate"
+            })
+        })
+        .collect::<Vec<_>>();
+    aggregates.sort_by(|&left, &right| graph.nodes[left].node_id.cmp(&graph.nodes[right].node_id));
+    let clock_unit = clock_unit.map(|name| CheckedNodeId {
+        package: node.node_id.package.clone(),
+        path: vec![
+            CheckedNodePathSegment::Name("scalar_type".into()),
+            CheckedNodePathSegment::Name("unit".into()),
+            CheckedNodePathSegment::Name(name.into()),
+        ],
+        ordinal: 0,
+    });
+    for formula in aggregates {
+        check_aggregate(formula, profile, clock_unit.as_ref(), graph, meter)?;
+    }
     Ok(())
 }
 
@@ -1027,6 +1070,420 @@ fn interval_fits(fit: IntervalFit, interval: &Interval) -> bool {
             Interval::Unbounded | Interval::LowerBounded | Interval::Timed { .. },
         ) => false,
     }
+}
+
+const AGGREGATE_NAMES: [&str; 11] = [
+    "kind",
+    "q",
+    "predicate",
+    "value",
+    "filter",
+    "window_kind",
+    "lower",
+    "upper",
+    "min_count",
+    "comparison",
+    "threshold",
+];
+
+fn aggregate_refusal(
+    position: usize,
+    at: JsonPointer,
+    code: CheckedPackageRefusalCode,
+    cause: CheckedPackageRefusalCause,
+    graph: &StepGraph<'_, '_>,
+) -> ValidationFailure {
+    ValidationFailure::refused_at(code, at, Some(cause), graph.nodes[position].node_id.clone())
+}
+
+#[ix_trace_rs::string_edge]
+fn aggregate_literal<'a>(term: &'a Value, kind: &str) -> Option<&'a str> {
+    if term.get("term")?.as_str()? != "literal" || term.get("value_kind")?.as_str()? != kind {
+        return None;
+    }
+    term.get("value")?.as_str()
+}
+
+fn magnitude(text: &str) -> (&str, &str) {
+    text.split_once('/').unwrap_or((text, "1"))
+}
+
+#[derive(Clone, Eq, PartialEq)]
+struct AggregateFamily {
+    kind: AggregateFamilyKind,
+    unit: Option<CheckedNodeId>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AggregateFamilyKind {
+    Boolean,
+    Integer,
+    Rational,
+    Quantity,
+}
+
+impl AggregateFamilyKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "boolean" => Some(Self::Boolean),
+            "integer" => Some(Self::Integer),
+            "rational" => Some(Self::Rational),
+            "quantity" => Some(Self::Quantity),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AggregateKind {
+    Count,
+    Sum,
+    Min,
+    Max,
+    Fraction,
+    Quantile,
+}
+
+impl AggregateKind {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "count" => Some(Self::Count),
+            "sum" => Some(Self::Sum),
+            "min" => Some(Self::Min),
+            "max" => Some(Self::Max),
+            "fraction" => Some(Self::Fraction),
+            "quantile" => Some(Self::Quantile),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AggregateWindow {
+    Positions,
+    Duration,
+}
+
+impl AggregateWindow {
+    #[ix_trace_rs::string_edge]
+    fn from_wire(text: &str) -> Option<Self> {
+        match text {
+            "positions" => Some(Self::Positions),
+            "duration" => Some(Self::Duration),
+            _ => None,
+        }
+    }
+}
+
+#[ix_trace_rs::string_edge]
+fn aggregate_family(term: &Value, graph: &StepGraph<'_, '_>) -> Option<AggregateFamily> {
+    let (family, type_id) = match term.get("term")?.as_str()? {
+        "literal" => (
+            AggregateFamilyKind::from_wire(term.get("value_kind")?.as_str()?)?,
+            CheckedNodeId::from_value(term.get("type")?)?,
+        ),
+        "reference" => {
+            let target = reference_target(term)?;
+            let (node, _) = graph.node(&target)?;
+            let type_id = node.semantic_type.clone();
+            let family = AggregateFamilyKind::from_wire(resolve_family(
+                &type_id,
+                graph.nodes,
+                graph.kinds,
+                graph.index,
+            )?)?;
+            (family, type_id)
+        }
+        _ => return None,
+    };
+    Some(AggregateFamily {
+        kind: family,
+        unit: (family == AggregateFamilyKind::Quantity).then_some(type_id),
+    })
+}
+
+#[ix_trace_rs::string_edge]
+fn aggregate_presence(kind: AggregateKind, name: &str) -> (bool, bool) {
+    match name {
+        "q" => (
+            kind == AggregateKind::Quantile,
+            kind == AggregateKind::Quantile,
+        ),
+        "predicate" => (
+            kind == AggregateKind::Fraction,
+            kind == AggregateKind::Fraction,
+        ),
+        "value" => (
+            matches!(
+                kind,
+                AggregateKind::Sum
+                    | AggregateKind::Min
+                    | AggregateKind::Max
+                    | AggregateKind::Quantile
+            ),
+            matches!(
+                kind,
+                AggregateKind::Sum
+                    | AggregateKind::Min
+                    | AggregateKind::Max
+                    | AggregateKind::Quantile
+            ),
+        ),
+        "filter" => (true, false),
+        _ => (true, true),
+    }
+}
+
+/// One scan of the occurrence rows records a clock unit only if every row
+/// for a clause names the same timestamp unit. A mixed clock has no single
+/// duration encoding and its aggregate bounds must refuse.
+fn aggregate_clock_units(
+    bindings: Option<&[TemporalBinding]>,
+) -> BTreeMap<&CheckedNodeId, Option<&str>> {
+    let mut units = BTreeMap::new();
+    for row in bindings.into_iter().flatten() {
+        let unit = match &row.clock {
+            ClockConfiguration::TimestampedEvent { timestamp_unit } => {
+                Some(timestamp_unit.as_ref())
+            }
+            _ => None,
+        };
+        units
+            .entry(&row.declaration)
+            .and_modify(|shared| {
+                if *shared != unit {
+                    *shared = None;
+                }
+            })
+            .or_insert(unit);
+    }
+    units
+}
+
+#[ix_trace_rs::string_edge]
+fn check_aggregate(
+    formula: usize,
+    profile: Option<TemporalProfile>,
+    clock_unit: Option<&CheckedNodeId>,
+    graph: &StepGraph<'_, '_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    use CheckedPackageRefusalCause as Cause;
+    use CheckedPackageRefusalCode as Code;
+
+    let body = node_pointer(formula).key("body");
+    let argument = body.clone().key("arguments").index(0);
+    let fail = |code, cause, at| aggregate_refusal(formula, at, code, cause, graph);
+    let window = match profile {
+        Some(TemporalProfile::EventPositionFalseExtension) => AggregateWindow::Positions,
+        Some(TemporalProfile::TimestampedEventFiniteWindow) => AggregateWindow::Duration,
+        _ => return Err(fail(Code::InvalidPackage, Cause::InvalidValue, body)),
+    };
+    let Some(members) = application_arguments(&graph.nodes[formula].body)
+        .and_then(|arguments| arguments.first())
+        .and_then(aggregate_members)
+    else {
+        return Ok(());
+    };
+
+    let mut held = BTreeMap::<&str, usize>::new();
+    let mut last_rank = None;
+    for (at, candidate) in members.iter().enumerate() {
+        let rank = match CheckedTerm::view(candidate) {
+            Some(CheckedTermView::Binding { name, .. }) => {
+                AGGREGATE_NAMES.iter().position(|known| *known == name)
+            }
+            _ => None,
+        };
+        let pointer = argument.clone().key("members").index(at);
+        let Some(rank) = rank else {
+            return Err(fail(Code::InvalidPackage, Cause::UnknownMember, pointer));
+        };
+        let name = AGGREGATE_NAMES[rank];
+        if held.contains_key(name) {
+            return Err(fail(Code::InvalidPackage, Cause::DuplicateMember, pointer));
+        }
+        if last_rank.is_some_and(|last| rank < last) {
+            return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+        }
+        held.insert(name, at);
+        last_rank = Some(rank);
+    }
+    let Some(&kind_at) = held.get("kind") else {
+        return Err(fail(Code::InvalidPackage, Cause::MissingMember, argument));
+    };
+    let value_of = |name: &str| &members[held[name]]["value"];
+    let value_pointer = |at: usize| argument.clone().key("members").index(at).key("value");
+    let Some(kind_text) = aggregate_literal(value_of("kind"), "text") else {
+        return Err(fail(
+            Code::InvalidPackage,
+            Cause::WrongValueKind,
+            value_pointer(kind_at),
+        ));
+    };
+    let Some(kind) = AggregateKind::from_wire(kind_text) else {
+        return Err(fail(
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            value_pointer(kind_at),
+        ));
+    };
+    for (at, candidate) in members.iter().enumerate() {
+        let name = candidate["name"].as_str().unwrap_or("");
+        if !aggregate_presence(kind, name).0 {
+            return Err(fail(
+                Code::InvalidPackage,
+                Cause::UnknownMember,
+                argument.clone().key("members").index(at),
+            ));
+        }
+    }
+    for name in AGGREGATE_NAMES {
+        if aggregate_presence(kind, name).1 && !held.contains_key(name) {
+            return Err(fail(Code::InvalidPackage, Cause::MissingMember, argument));
+        }
+    }
+
+    let value_family = held
+        .get("value")
+        .and_then(|_| aggregate_family(value_of("value"), graph));
+    for name in AGGREGATE_NAMES {
+        let Some(&at) = held.get(name) else { continue };
+        let term = value_of(name);
+        let pointer = value_pointer(at);
+        match name {
+            "q" => {
+                let Some(text) = aggregate_literal(term, "rational") else {
+                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                };
+                let (numerator, denominator) = magnitude(text);
+                if numerator == "0"
+                    || numerator.starts_with('-')
+                    || compare_rationals((numerator, denominator), ("1", "1"), meter, &|| {
+                        pointer.clone()
+                    })? != Ordering::Less
+                {
+                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                }
+            }
+            "predicate" | "filter" => {
+                if aggregate_family(term, graph)
+                    .as_ref()
+                    .map(|family| family.kind)
+                    != Some(AggregateFamilyKind::Boolean)
+                {
+                    return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
+                }
+            }
+            "value" => {
+                if !aggregate_family(term, graph)
+                    .as_ref()
+                    .is_some_and(|family| {
+                        matches!(
+                            family.kind,
+                            AggregateFamilyKind::Integer
+                                | AggregateFamilyKind::Rational
+                                | AggregateFamilyKind::Quantity
+                        )
+                    })
+                {
+                    return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
+                }
+            }
+            "window_kind" | "comparison" => {
+                let Some(text) = aggregate_literal(term, "text") else {
+                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                };
+                let parsed_window = (name == "window_kind")
+                    .then(|| AggregateWindow::from_wire(text))
+                    .flatten();
+                let valid = if name == "window_kind" {
+                    parsed_window.is_some()
+                } else {
+                    matches!(text, "<" | "<=" | "=" | ">=" | ">")
+                };
+                if !valid {
+                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                }
+                if name == "window_kind" && parsed_window != Some(window) {
+                    return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
+                }
+            }
+            "lower" | "upper" => {
+                let required = if window == AggregateWindow::Positions {
+                    "integer"
+                } else {
+                    "quantity"
+                };
+                let Some(text) = aggregate_literal(term, required) else {
+                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                };
+                let bound_type = CheckedNodeId::from_value(&term["type"]);
+                if window == AggregateWindow::Duration && bound_type.as_ref() != clock_unit {
+                    return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
+                }
+                if text.starts_with('-') {
+                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                }
+                if name == "upper" {
+                    let Some(lower) = aggregate_literal(value_of("lower"), required) else {
+                        return Err(fail(
+                            Code::InvalidPackage,
+                            Cause::WrongValueKind,
+                            value_pointer(held["lower"]),
+                        ));
+                    };
+                    if compare_rationals(magnitude(lower), magnitude(text), meter, &|| {
+                        argument.clone()
+                    })? == Ordering::Greater
+                    {
+                        return Err(fail(Code::InvalidPackage, Cause::InvalidValue, argument));
+                    }
+                }
+            }
+            "min_count" => {
+                let Some(text) = aggregate_literal(term, "integer") else {
+                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                };
+                if text.starts_with('-')
+                    || (text == "0" && !matches!(kind, AggregateKind::Count | AggregateKind::Sum))
+                {
+                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                }
+            }
+            "threshold" => {
+                let expected = match kind {
+                    AggregateKind::Count => Some(AggregateFamily {
+                        kind: AggregateFamilyKind::Integer,
+                        unit: None,
+                    }),
+                    AggregateKind::Fraction => Some(AggregateFamily {
+                        kind: AggregateFamilyKind::Rational,
+                        unit: None,
+                    }),
+                    _ => value_family.clone(),
+                };
+                let actual = aggregate_family(term, graph);
+                if expected
+                    .as_ref()
+                    .is_some_and(|family| family.kind == AggregateFamilyKind::Quantity)
+                    && actual
+                        .as_ref()
+                        .is_some_and(|family| family.kind == AggregateFamilyKind::Quantity)
+                    && expected != actual
+                {
+                    return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
+                }
+                if expected != actual {
+                    return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// The well-formed fairness member of the `temporal`/`fairness` node a clause's
@@ -1130,13 +1587,18 @@ fn resolve_fairness(
 /// nodes reachable from the clause's formula argument by operand references,
 /// each visited once and charged one unit of work. A node that is no formula
 /// node ends its branch.
+struct FormulaReach {
+    intervals: Vec<(usize, Interval)>,
+    reached: BTreeSet<usize>,
+}
+
 fn formula_intervals(
     root: Option<&Value>,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
     covered: &mut BTreeSet<usize>,
-) -> Result<Vec<(usize, Interval)>, ValidationFailure> {
+) -> Result<FormulaReach, ValidationFailure> {
     let mut pending: Vec<usize> = root
         .and_then(reference_target)
         .and_then(|target| graph.index.get(&target).copied())
@@ -1163,7 +1625,10 @@ fn formula_intervals(
             .collect();
         pending.extend(operands.into_iter().rev());
     }
-    Ok(intervals)
+    Ok(FormulaReach {
+        intervals,
+        reached: seen,
+    })
 }
 
 #[cfg(test)]
@@ -1300,6 +1765,7 @@ mod tests {
     }
 
     fn step(nodes: &[CheckedSemanticNodeV2]) -> Result<(), ValidationFailure> {
+        let package_lock = lock();
         let kinds: Vec<CheckedNodeKind> = nodes
             .iter()
             .map(|node| {
@@ -1318,8 +1784,11 @@ mod tests {
             &kinds,
             &index,
             &ModelOwners::default(),
-            &lock(),
-            &[],
+            TemporalContext {
+                lock: &package_lock,
+                diagnostics: &[],
+                bindings: None,
+            },
             &mut WorkMeter::new(1_000),
         )
     }

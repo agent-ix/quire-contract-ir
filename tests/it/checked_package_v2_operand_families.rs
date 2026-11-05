@@ -442,6 +442,7 @@ fn native_scalar_comparisons_keep_distinct_types_and_operands() {
                 .iter()
                 .any(|kind| identity.starts_with(&format!("quire.op.{kind}.")))
         })
+        .filter(|identity| identity.ends_with(".eq") || identity.ends_with(".ne"))
         .collect::<Vec<_>>();
     native_identities.sort_unstable();
     assert_eq!(

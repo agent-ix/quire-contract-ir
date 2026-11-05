@@ -216,6 +216,9 @@ pub enum CheckedPackageRefusalCause {
     /// of a member of its union type (QSpec FR-440 reader join 2); paired with
     /// `ill_typed`.
     TypeMismatch,
+    /// `unit-mismatch`: an aggregate window or threshold uses a unit or
+    /// window form incompatible with the clause's temporal clock or value.
+    UnitMismatch,
     /// `non-boolean-root`: a hybrid invariant, guard or initial condition is not Boolean.
     NonBooleanRoot,
     /// `missing-timed-model`: timed clauses have no root.
