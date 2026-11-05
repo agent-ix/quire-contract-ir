@@ -1103,7 +1103,10 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         projection_methods,
-        BTreeSet::from(["node", "type_node", "value_type", "record_view", "source_record_view", "work"]),
+        BTreeSet::from([
+            "node", "type_node", "value_type", "record_view", "source_record_view",
+            "source_tuple_view", "work",
+        ]),
         "projection exposes only borrowed type reads and charged work, no expression constructor, checker or evaluator"
     );
     let forbidden = |item: &PublicName| {
