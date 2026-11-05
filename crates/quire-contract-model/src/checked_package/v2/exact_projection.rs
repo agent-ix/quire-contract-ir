@@ -708,6 +708,12 @@ impl SelectedExactIdentities {
                 .values()
                 .map(|row| row.type_handle.clone()),
         );
+        handles.extend(
+            selected
+                .source_records
+                .values()
+                .map(|row| row.record_key.clone()),
+        );
         for row in rows {
             let id = &row.structural_node;
             if package.node(id).is_none() {

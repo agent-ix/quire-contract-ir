@@ -84,6 +84,20 @@ fn source_record_with_members() -> Value {
         .find(|node| node["semantic_form"] == "integer")
         .expect("integer type")["node_id"]
         .clone();
+    let option = node_id("option-integer");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    nodes.insert(
+        nodes.len() - 1,
+        json!({
+            "node_id": option, "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "composite_type", "semantic_form": "option",
+            "semantic_type": option, "dependencies": [integer],
+            "occurrences": [{"role":"type","ordinal":0}],
+            "body": {"term":"aggregate","members":[{"term":"reference","target":integer}]},
+        }),
+    );
     let record = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .unwrap()
@@ -91,9 +105,11 @@ fn source_record_with_members() -> Value {
         .unwrap();
     record["body"] = json!({"term":"aggregate","members":[
         {"term":"binding","name":"active","value":{"term":"reference","target":boolean}},
-        {"term":"binding","name":"count","value":{"term":"reference","target":integer}},
+        {"term":"binding","name":"count","value":{"term":"aggregate","members":[
+            {"term":"binding","name":"optional","value":{"term":"reference","target":option}}
+        ]}},
     ]});
-    record["dependencies"] = json!([boolean, integer]);
+    record["dependencies"] = json!([boolean, option]);
     settle(&mut package);
     package
 }
@@ -127,7 +143,7 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
     .expect("producer key");
     let members = [
         ("active", "boolean", ValueType::Boolean),
-        ("count", "integer", ValueType::Integer),
+        ("count", "option", ValueType::Integer),
     ]
     .into_iter()
     .map(|(name, form, value_type)| {
@@ -142,7 +158,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         SelectedSourceRecordMemberRow {
             original_member_identity: name.into(),
             admitted_name: name.into(),
-            presence: Presence::Required,
+            presence: if name == "count" {
+                Presence::Optional
+            } else {
+                Presence::Required
+            },
             type_node,
             value_type,
         }
@@ -176,6 +196,10 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         .expect("record Exact projection");
     assert_eq!(projected.value_type(), &ValueType::Composite(key));
     assert_eq!(projected.source_record_view(), Some(&row));
+    assert_eq!(
+        projected.source_record_view().unwrap().members[1].presence,
+        Presence::Optional
+    );
     assert!(projected.record_view().is_none());
     let exact = projected.work();
     assert_eq!(
@@ -202,6 +226,22 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
             .project_exact_type(&record, &identities, exact - 1)
             .unwrap_err(),
         denied
+    );
+    let mut opaque = row.clone();
+    opaque.members[0].value_type = ValueType::String;
+    let opaque_identities = SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [opaque.clone()], 100)
+        .expect("opaque producer type remains a producer claim");
+    let opaque_projection = package
+        .project_exact_type(&record, &opaque_identities, 100)
+        .expect("structural join does not invent a different Exact field type");
+    assert_eq!(
+        opaque_projection.source_record_view().unwrap().members[0].value_type,
+        ValueType::String
+    );
+    assert_ne!(
+        opaque_projection.source_record_view().unwrap().members[0].value_type,
+        ValueType::Boolean
     );
     let absent = package
         .project_exact_type(&record, &SelectedExactIdentities::empty(), 100)
@@ -234,7 +274,7 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         },
         {
             let mut r = row.clone();
-            r.members[0].presence = Presence::Optional;
+            r.members[1].presence = Presence::Required;
             r
         },
         {
