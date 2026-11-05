@@ -12,8 +12,10 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode, SelectedExactIdentities,
+    SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
 };
+use quire_exact::{NodeKey, PathSegment, Presence, ValueType};
 use serde_json::{json, Value};
 
 fn source_package_form(tag: &str, form: &str, name: &str) -> Value {
@@ -49,6 +51,191 @@ fn source_package_form(tag: &str, form: &str, name: &str) -> Value {
 
 fn source_package() -> Value {
     source_package_form("composite_type", "record", "Point")
+}
+
+fn source_record_with_members() -> Value {
+    let mut package = source_package();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let boolean = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "boolean")
+        .expect("boolean type")["node_id"]
+        .clone();
+    let integer = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "integer")
+        .expect("integer type")["node_id"]
+        .clone();
+    let record = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap();
+    record["body"] = json!({"term":"aggregate","members":[
+        {"term":"binding","name":"active","value":{"term":"reference","target":boolean}},
+        {"term":"binding","name":"count","value":{"term":"reference","target":integer}},
+    ]});
+    record["dependencies"] = json!([boolean, integer]);
+    settle(&mut package);
+    package
+}
+
+/// Trace: FR-357-AC-10, TC-048.
+#[trace("TC-048", "FR-357-AC-10")]
+#[test]
+fn selected_source_record_requires_complete_ordered_producer_rows() {
+    let wire = source_record_with_members();
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+        panic!("source record fixture admits")
+    };
+    let record = package
+        .graph()
+        .nodes
+        .last()
+        .expect("record")
+        .node_id
+        .clone();
+    let source = &package.lock().sources[0];
+    let key = NodeKey::new(
+        "qsl-record-stage",
+        vec![PathSegment::Text("Point".into())],
+        0,
+    )
+    .expect("producer key");
+    let members = [
+        ("active", "boolean", ValueType::Boolean),
+        ("count", "integer", ValueType::Integer),
+    ]
+    .into_iter()
+    .map(|(name, form, value_type)| {
+        let type_node = package
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.semantic_form.as_ref() == form)
+            .expect("field type")
+            .node_id
+            .clone();
+        SelectedSourceRecordMemberRow {
+            original_member_identity: name.into(),
+            admitted_name: name.into(),
+            presence: Presence::Required,
+            type_node,
+            value_type,
+        }
+    })
+    .collect();
+    let row = SelectedSourceRecordRow {
+        structural_node: record.clone(),
+        source_authority: source.authority.clone(),
+        source_identity: source.identity.clone(),
+        qualified_declaration: vec!["Example".into(), "Point".into()],
+        record_key: key.clone(),
+        members,
+    };
+    let identities = SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [row.clone()], 100)
+        .expect("complete source row");
+    assert_eq!(identities.source_record_rows().next(), Some(&row));
+    let projected = package
+        .project_exact_type(&record, &identities, 100)
+        .expect("record Exact projection");
+    assert_eq!(projected.value_type(), &ValueType::Composite(key));
+    assert_eq!(projected.source_record_view(), Some(&row));
+    assert!(projected.record_view().is_none());
+    let exact = projected.work();
+    assert_eq!(
+        package
+            .project_exact_type(&record, &identities, exact)
+            .unwrap(),
+        projected
+    );
+    let denied = package
+        .project_exact_type(&record, &identities, exact - 1)
+        .unwrap_err();
+    assert_eq!(denied.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(denied.work, exact - 1);
+    let cloned = package.clone();
+    assert_eq!(
+        cloned
+            .project_exact_type(&record, &identities, exact)
+            .unwrap(),
+        projected
+    );
+    assert_eq!(
+        cloned
+            .project_exact_type(&record, &identities, exact - 1)
+            .unwrap_err(),
+        denied
+    );
+    let absent = package
+        .project_exact_type(&record, &SelectedExactIdentities::empty(), 100)
+        .unwrap_err();
+    assert_eq!(
+        absent.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+
+    let variants = [
+        {
+            let mut r = row.clone();
+            r.members.swap(0, 1);
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members.pop();
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members[0].admitted_name = "renamed".into();
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members[0].type_node = record.clone();
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members[0].presence = Presence::Optional;
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.source_identity = "foreign-source".into();
+            r
+        },
+    ];
+    for variant in variants {
+        let refusal = SelectedExactIdentities::empty()
+            .with_source_record_rows(&package, [variant], 100)
+            .unwrap_err();
+        assert_eq!(
+            refusal.code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        assert_eq!(refusal.at.as_deref(), Some(&record));
+    }
+    let duplicate = SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [row.clone(), row.clone()], 200)
+        .unwrap_err();
+    assert_eq!(
+        duplicate.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+    let mut foreign = row;
+    foreign.structural_node.package = "other-package".into();
+    assert_eq!(
+        SelectedExactIdentities::empty()
+            .with_source_record_rows(&package, [foreign], 100)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::ForeignNode
+    );
 }
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
