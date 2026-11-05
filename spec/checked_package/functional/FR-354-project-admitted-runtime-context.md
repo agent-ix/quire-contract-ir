@@ -118,10 +118,12 @@ For ordinary source and table callables, that handle MAY name an admitted
 expression or value node, including a directly returned parameter or literal.
 The reader SHALL retain the node's admitted form without evaluating it.
 
+The callable table SHALL preserve an intentionally empty operation frame and
+distinguish it from a missing frame.
+The table SHALL NOT treat a call expression or a similarly named declaration
+as proof of a callable definition.
+
 An admitted monitor-plan entry SHALL continue to require an expression body.
-It SHALL preserve an intentionally empty frame and distinguish it from a
-missing frame. The table SHALL NOT treat a call expression or a similarly
-named declaration as proof of a callable definition.
 The selective source-function read SHALL return its charged work on success,
 including an absent callable. A borrowed admitted monitor-entry view SHALL
 provide a selective bounded callable read with the admitted root and entry
