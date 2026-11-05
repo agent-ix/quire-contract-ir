@@ -118,6 +118,9 @@
 //! use quire_contract_model::CheckedRevision;
 //! ```
 
+#[cfg(all(test, feature = "qspec-conformance"))]
+extern crate self as quire_contract_model;
+
 mod binding;
 mod canonical;
 mod certificate_member;

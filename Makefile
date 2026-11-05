@@ -100,6 +100,7 @@ conformance-qspec-compile:
 .PHONY: conformance-qspec
 conformance-qspec:
 	$(CARGO) test $(LOCKED) --workspace --lib ir1083_
+	$(CARGO) test $(LOCKED) -p quire-contract-model --lib --features qspec-conformance selected_closure_walk -- --include-ignored
 	$(CARGO) test $(LOCKED) --test conformance_qspec
 	$(CARGO) test $(LOCKED) -p quire-contract-model --test monitor_plan_public
 	@output=$$(QSPEC_CONFORMANCE=1 $(CARGO) test $(LOCKED) --test conformance_qspec tc_048_qspec_all_positive_packages_and_owner_identities -- --exact 2>&1); \
