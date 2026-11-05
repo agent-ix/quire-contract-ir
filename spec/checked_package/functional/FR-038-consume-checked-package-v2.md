@@ -4773,12 +4773,12 @@ position.
 For that application, the Integer type and literal node remain in its closure
 and dependencies.
 This exemption belongs to the actual admitted literal body, not the node's
-`literal` form alone: a `value`/`literal` node whose body is a reference or
-other nonliteral term still makes its Integer `semantic_type` a typed edge
-subject to the ordinary bound rule. Another reachable parameter or composite
-position typed at the same Integer node still raises `requires_bound`; a
-bounded domain elsewhere does not cover that position. The separate rule for
-bare `unit` and `compound_unit` quantity positions is unchanged.
+`literal` form alone. QSpec FR-322 refuses a `value`/`literal` with a
+nonliteral body during strict admission, before lowering. A reader-admitted
+`value`/`parameter` typed at the same Integer node remains a bound-required
+position, as does a composite field at that type; a bounded domain elsewhere
+does not cover either position. The separate rule for bare `unit` and
+`compound_unit` quantity positions is unchanged.
 
 A type that is unbounded by form is unbounded at a position when either of these
 holds, and a `bounded_domain` elsewhere in the closure never covers a position:
@@ -5868,7 +5868,7 @@ copying QSL execution semantics into IR.
 | FR-038-AC-468 | For effective record fields with nested `Option` and `Collection` member types, the accessor returns each field in effective declaration order with its exact derived kind, element and bounds; an optional String field whose derived type is `Option(String)` and a required field declared with `Option(Integer)` remain distinguishable by their optional flags. `field(name)` returns the same field as `fields()` and returns `None` for an absent name. A field with no derived member type remains in the returned list with `member_type` `None`. | Test |
 | FR-038-AC-469 | `model_record_fields` returns distinct typed `UnknownNode`, `NotModelRecordType` and `AmbiguousField(name)` errors for an absent graph node, an admitted non-record node and an admitted selected record with conflicting effective field names, respectively; each returns no partial field list. Equal calls and a cloned admitted package return equal values, and none of these calls panics. | Test |
 | FR-038-AC-470 | Given a strict admitted monitor root and an independently selected final-emission clause ID plus full claim occurrence, its borrowed bounded clock read returns that root, exact selected clause and occurrence, admitted `ClockConfiguration`, clock name and claim name with charged work. Two claim occurrences of one admitted clause retain their distinct clock configurations. Wrong clause, wrong role, absent occurrence and an admitted claim without a configured clock give distinct typed refusals with native loci and no partial value; a missing clock row for a configured claim or a missing claim-name row refuses during strict admission before a root can be read. Exact allowance succeeds, one below reports the first uncharged locus, and a cloned package returns equal values or first stops. Unrelated graph nodes are not inspected, and no QSL authority, event semantics or complete type closure is asserted. | Test |
-| FR-038-AC-471 | Under a bounds-required profile, a reader-admitted QSL-shaped `quantity.pow` application with a quantity-literal base, an exact `compound_unit` result and a referenced `value`/`literal` Integer exponent whose body is the canonical literal `2` lowers without `requires_bound` from that exponent; its lowered dependencies retain both the literal and Integer type keys, its checked exponent retains value `2`, and its checked result retains the selected compound-unit type. Replacing that exponent node's body with a nonliteral reference while keeping form `literal` and Integer typing, or using a plain Integer parameter as the exponent, returns `requires_bound` naming Integer. A separate field or parameter position typed at that same Integer still returns `requires_bound` despite the literal; a bare quantity field or parameter still returns `requires_bound` naming its exact `unit` or `compound_unit` type. | Test |
+| FR-038-AC-471 | Under a bounds-required profile, a reader-admitted QSL-shaped `quantity.pow` application with a quantity-literal base, an exact `compound_unit` result and a referenced `value`/`literal` Integer exponent whose body is the canonical literal `2` lowers without `requires_bound` from that exponent; its lowered dependencies retain both the literal and Integer type keys, its checked exponent retains value `2`, and its checked result retains the selected compound-unit type. A reader-admitted variant using a `value`/`parameter` typed at plain Integer as the exponent returns `requires_bound` naming Integer. A separate record field typed at that same Integer still returns `requires_bound` despite the literal; a bare quantity field or parameter still returns `requires_bound` naming its exact `unit` or `compound_unit` type. A `value`/`literal` node with a nonliteral body is refused by strict admission before this lowering rule is reached. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
