@@ -4,14 +4,14 @@
 use super::extension::integer_range_bounds;
 use super::model_members::DeclarationForm;
 use super::model_members::{CollectionKind as CheckedCollectionKind, MemberType};
-use super::structural::reference_type_target_typed;
+use super::structural::{reference_type_target_typed, typed_aggregate};
 use super::{
     BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
-    CompositeTypeForm, ModelForm, ScalarTypeForm,
+    CheckedTerm, CompositeTypeForm, ModelForm, ScalarTypeForm,
 };
 use quire_exact::{
     CardinalityBound, CollectionKind, CollectionType, EffectiveId, FieldDeclaration, Integer,
-    IntegerInterval, MemberId, MemberOwner, NodeKey, Presence, UnitId, ValueType,
+    IntegerInterval, MemberId, MemberOwner, NodeKey, Presence, UnionMember, UnitId, ValueType,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -23,7 +23,7 @@ pub enum SelectedExactIdentity {
     Record(NodeKey),
     /// A selected object declaration's effective identity.
     Object(EffectiveId),
-    /// A selected union declaration's structural key.
+    /// A declaration-only union key; insufficient for complete projection.
     Union(NodeKey),
     /// A selected declared unit's identity.
     DeclaredUnit(UnitId),
@@ -278,6 +278,126 @@ impl SelectedEnumDeclarationRow {
     }
 }
 
+/// One sealed union member binding and its positional payload types.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedUnionMemberRow {
+    /// The QSL-issued sealed member identity.
+    pub member: UnionMember,
+    /// Final-emission IR payload type nodes in declared position order.
+    pub payload_nodes: Vec<CheckedNodeId>,
+    /// Payload types in declared position order.
+    pub payload: Vec<ValueType>,
+}
+
+impl SelectedUnionMemberRow {
+    /// Carry one sealed member and its complete positional payload types.
+    pub fn new(
+        member: UnionMember,
+        payload_nodes: Vec<CheckedNodeId>,
+        payload: Vec<ValueType>,
+    ) -> Self {
+        Self {
+            member,
+            payload_nodes,
+            payload,
+        }
+    }
+}
+
+/// One source-owned selected union's complete QSL-stage declaration witness.
+///
+/// IR validates its structural join and member census. Opaque Exact identities
+/// and payload types remain producer facts; caller-created rows are not QSL
+/// authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedSourceUnionRow {
+    /// The union declaration's admitted structural node.
+    pub structural_node: CheckedNodeId,
+    /// Authority of the selected raw source.
+    pub source_authority: Box<str>,
+    /// Identity of the selected raw source.
+    pub source_identity: Box<str>,
+    /// Original qualified declaration segments in that source.
+    pub qualified_declaration: Vec<Box<str>>,
+    /// QSL's union type handle used by `ValueType::Composite`.
+    pub type_handle: NodeKey,
+    /// QSL's settled union declaration key used by sealed member bindings.
+    pub settled_key: NodeKey,
+    /// Every sealed member and ordered payload type, in declaration order.
+    pub members: Vec<SelectedUnionMemberRow>,
+}
+
+impl SelectedSourceUnionRow {
+    /// Carry the complete selected source-union claim.
+    pub fn new(
+        structural_node: CheckedNodeId,
+        source_authority: impl Into<Box<str>>,
+        source_identity: impl Into<Box<str>>,
+        qualified_declaration: Vec<Box<str>>,
+        type_handle: NodeKey,
+        settled_key: NodeKey,
+        members: Vec<SelectedUnionMemberRow>,
+    ) -> Self {
+        Self {
+            structural_node,
+            source_authority: source_authority.into(),
+            source_identity: source_identity.into(),
+            qualified_declaration,
+            type_handle,
+            settled_key,
+            members,
+        }
+    }
+}
+
+fn source_union_row_matches(package: &CheckedPackageV2, row: &SelectedSourceUnionRow) -> bool {
+    let id = &row.structural_node;
+    let Some(node) = package.node(id) else {
+        return false;
+    };
+    let selected_source = package.lock().sources.iter().any(|source| {
+        source.authority == row.source_authority && source.identity == row.source_identity
+    });
+    let matching_owner = matches!(
+        &node.owner,
+        Some(CheckedNodeOwner::Source { authority, identity })
+            if authority == &row.source_authority && identity == &row.source_identity
+    );
+    let matching_declaration = node
+        .declaration
+        .as_ref()
+        .is_some_and(|declaration| declaration.qualified_name == row.qualified_declaration);
+    let admitted_members = package.term(id).and_then(typed_aggregate);
+    package.node_kind(id) == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Union))
+        && selected_source
+        && matching_owner
+        && matching_declaration
+        && admitted_members.as_ref().is_some_and(|members| {
+            members.len() == row.members.len()
+                && members
+                    .iter()
+                    .zip(&row.members)
+                    .all(|(admitted, supplied)| {
+                        let CheckedTerm::Binding { name, value } = admitted else {
+                            return false;
+                        };
+                    name.as_ref() == supplied.member.identifier()
+                        && typed_aggregate(value).is_some_and(|payload| {
+                            payload.len() == supplied.payload.len()
+                                && payload.len() == supplied.payload_nodes.len()
+                                && payload.iter().zip(&supplied.payload_nodes).all(
+                                    |(admitted, claimed)| {
+                                        matches!(admitted, CheckedTerm::Reference { target } if target == claimed)
+                                    },
+                                )
+                        })
+                            && supplied.member.declaration() == &row.settled_key
+                            && supplied.member.variant().owner() == &row.settled_key
+                        && supplied.member.variant().case() == name.as_ref()
+                    })
+        })
+}
+
 /// One source-owned enum case's QSL-stage Exact member identity.
 ///
 /// The enum-member form is fixed by this row type. A later admitted join must
@@ -323,16 +443,17 @@ impl SelectedEnumMemberRow {
     }
 }
 
-/// Selected-model identities supplied by the checking stage alongside a package.
+/// Selected identities supplied by the checking stage alongside a package.
 ///
 /// An empty selection supports scalar reads. Identity-bearing reads refuse
-/// until the selected-model stage supplies a complete identity witness.
+/// until the selected stage supplies a complete identity witness.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SelectedExactIdentities {
     declarations: Arc<BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>>,
     fields: Arc<Vec<SelectedExactFieldRow>>,
     admitted_tuples: BTreeMap<CheckedNodeId, NodeKey>,
     admitted_source_units: BTreeMap<CheckedNodeId, UnitId>,
+    source_unions: Arc<BTreeMap<CheckedNodeId, SelectedSourceUnionRow>>,
 }
 
 impl SelectedExactIdentities {
@@ -456,6 +577,68 @@ impl SelectedExactIdentities {
     /// The validated effective-field rows in producer order.
     pub fn field_rows(&self) -> &[SelectedExactFieldRow] {
         &self.fields
+    }
+
+    /// Join complete source-owned union rows to this package's selected lock.
+    ///
+    /// The source stage supplies opaque keys, sealed members and payload types.
+    /// This check establishes only their structural correspondence with the
+    /// admitted package; it does not authenticate a caller as that stage.
+    pub fn with_source_union_rows(
+        &self,
+        package: &CheckedPackageV2,
+        rows: impl IntoIterator<Item = SelectedSourceUnionRow>,
+    ) -> Result<Self, ExactTypeProjectionError> {
+        let mut selected = self.clone();
+        let mut handles = self
+            .declarations
+            .values()
+            .filter_map(|row| match &row.exact_identity {
+                SelectedExactIdentity::Record(key)
+                | SelectedExactIdentity::Union(key)
+                | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => Some(key.clone()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        let mut settled_keys = selected
+            .source_unions
+            .values()
+            .map(|row| row.settled_key.clone())
+            .collect::<BTreeSet<_>>();
+        handles.extend(
+            selected
+                .source_unions
+                .values()
+                .map(|row| row.type_handle.clone()),
+        );
+        for row in rows {
+            let id = &row.structural_node;
+            if package.node(id).is_none() {
+                return Err(selected_declaration_error(package, id));
+            }
+            if !source_union_row_matches(package, &row) {
+                return Err(witness_error(
+                    id,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                ));
+            }
+            if selected.source_unions.contains_key(id)
+                || !handles.insert(row.type_handle.clone())
+                || !settled_keys.insert(row.settled_key.clone())
+            {
+                return Err(witness_error(
+                    id,
+                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                ));
+            }
+            Arc::make_mut(&mut selected.source_unions).insert(id.clone(), row);
+        }
+        Ok(selected)
+    }
+
+    /// Validated source union rows, keyed by the full admitted structural node.
+    pub fn source_union_rows(&self) -> impl Iterator<Item = &SelectedSourceUnionRow> {
+        self.source_unions.values()
     }
 
     pub(super) fn with_admitted_type_rows(
@@ -1164,10 +1347,25 @@ impl CheckedPackageV2 {
                 ValueType::Composite(record_key.clone())
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
-                return Err(refuse(
-                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                    work,
-                ));
+                let row = identities.source_unions.get(type_id).ok_or_else(|| {
+                    refuse(
+                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                        work,
+                    )
+                })?;
+                for member in &row.members {
+                    charge_work(requested, type_id, "union_member", &mut work, work_limit)?;
+                    for _ in &member.payload_nodes {
+                        charge_work(requested, type_id, "union_payload", &mut work, work_limit)?;
+                    }
+                }
+                if !source_union_row_matches(self, row) {
+                    return Err(refuse(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                        work,
+                    ));
+                }
+                ValueType::Composite(row.type_handle.clone())
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::Unit) => {
                 match identities

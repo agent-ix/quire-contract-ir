@@ -129,8 +129,8 @@ pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
     SelectedEnumDeclarationRow, SelectedEnumMemberRow, SelectedExactDeclarationForm,
     SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
-    SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView, SelectedSourceUnitRow,
-    SelectedTupleDeclarationRow,
+    SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView, SelectedSourceUnionRow,
+    SelectedSourceUnitRow, SelectedTupleDeclarationRow, SelectedUnionMemberRow,
 };
 pub use operation_effects::{
     CheckedOperationEffect, CheckedOperationEffectOrigin, CheckedOperationEffectProvenance,

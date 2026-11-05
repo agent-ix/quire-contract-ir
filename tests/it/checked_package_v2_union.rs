@@ -18,8 +18,10 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExactTypeProjectionErrorCode,
+    SelectedExactIdentities, SelectedSourceUnionRow, SelectedUnionMemberRow,
 };
+use quire_exact::{NodeKey, PathSegment, UnionMember, ValueType};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
@@ -405,6 +407,198 @@ fn tc_048_the_union_nodes_and_the_case_over_them_admit() {
     ] {
         assert!(kinds.contains(&form), "{form:?}");
     }
+}
+
+fn union_witness(
+    package: &Value,
+) -> (
+    CheckedPackageV2,
+    quire_contract_model::CheckedNodeId,
+    SelectedSourceUnionRow,
+) {
+    let admitted = admitted("union witness", package);
+    let id: quire_contract_model::CheckedNodeId = serde_json::from_value(
+        package["semantic_graph"]["nodes"][position_of(package, "shape")]["node_id"].clone(),
+    )
+    .expect("union node id");
+    let source = fixture_source();
+    let authority = source["authority"].as_str().expect("source authority");
+    let identity = source["identity"].as_str().expect("source identity");
+    let key = |name: &str| {
+        NodeKey::new("qsl-union-stage", vec![PathSegment::Text(name.into())], 0).expect("stage key")
+    };
+    let handle = key("shape-type-handle");
+    let settled = key("shape-settled");
+    let members = [("Circle", 1), ("Rect", 2), ("Empty", 0)]
+        .into_iter()
+        .map(|(name, arity)| {
+            SelectedUnionMemberRow::new(
+                UnionMember::from_admitted(settled.clone(), name).expect("sealed member"),
+                vec![typed_node_id(INTEGER_KEY); arity],
+                vec![ValueType::Integer; arity],
+            )
+        })
+        .collect();
+    let row = SelectedSourceUnionRow::new(
+        id.clone(),
+        authority,
+        identity,
+        vec!["shape".into()],
+        handle,
+        settled,
+        members,
+    );
+    (admitted, id, row)
+}
+
+#[trace("FR-352-AC-16")]
+#[test]
+fn selected_source_union_projects_only_with_complete_member_witness() {
+    let package = shape_package();
+    let (admitted, id, row) = union_witness(&package);
+    let identities = SelectedExactIdentities::empty()
+        .with_source_union_rows(&admitted, [row.clone()])
+        .expect("complete source union row");
+    let retained = identities.source_union_rows().next().expect("union row");
+    assert_eq!(retained.settled_key, row.settled_key);
+    assert_eq!(retained.members, row.members);
+    let complete = admitted
+        .project_exact_type(&id, &identities, 8)
+        .expect("projection");
+    assert_eq!(
+        complete.value_type(),
+        &ValueType::Composite(row.type_handle)
+    );
+    assert_eq!(complete.work(), 8);
+    assert_eq!(
+        admitted.clone().project_exact_type(&id, &identities, 8),
+        Ok(complete)
+    );
+    let exhausted = admitted
+        .project_exact_type(&id, &identities, 7)
+        .unwrap_err();
+    assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(exhausted.work, 7);
+}
+
+#[trace("FR-352-AC-17")]
+#[test]
+fn selected_source_union_refuses_missing_and_mismatched_rows() {
+    let package = shape_package();
+    let (admitted, id, row) = union_witness(&package);
+    let missing = admitted
+        .project_exact_type(&id, &SelectedExactIdentities::empty(), 8)
+        .unwrap_err();
+    assert_eq!(
+        missing.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    let variants = [
+        {
+            let mut row = row.clone();
+            row.structural_node = typed_node_id(INTEGER_KEY);
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.source_authority = "other-authority".into();
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.source_identity = "other-source".into();
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.qualified_declaration = vec!["other".into()];
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.members.pop();
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.members.push(row.members[0].clone());
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.members.swap(0, 1);
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.members[0].payload.clear();
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.members[0].payload_nodes.clear();
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.members[0].payload_nodes[0] = typed_node_id(BOOLEAN_KEY);
+            row
+        },
+        {
+            let mut row = row.clone();
+            row.members[0].payload_nodes[0].package = "other-package".into();
+            row
+        },
+        {
+            let mut row = row.clone();
+            let other = NodeKey::new("other", vec![PathSegment::Text("union".into())], 0).unwrap();
+            row.members[0].member = UnionMember::from_admitted(other, "Circle").unwrap();
+            row
+        },
+    ];
+    for mismatch in variants {
+        let error = SelectedExactIdentities::empty()
+            .with_source_union_rows(&admitted, [mismatch])
+            .unwrap_err();
+        assert_eq!(
+            error.code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+    }
+    let duplicate = SelectedExactIdentities::empty()
+        .with_source_union_rows(&admitted, [row.clone(), row.clone()])
+        .unwrap_err();
+    assert_eq!(
+        duplicate.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+    let mut foreign = row;
+    foreign.structural_node.package = "other-package".into();
+    let error = SelectedExactIdentities::empty()
+        .with_source_union_rows(&admitted, [foreign])
+        .unwrap_err();
+    assert_eq!(error.code, ExactTypeProjectionErrorCode::ForeignNode);
+
+    let selected = SelectedExactIdentities::empty()
+        .with_source_union_rows(&admitted, [union_witness(&package).2])
+        .unwrap();
+    let mut changed_nodes = common();
+    changed_nodes.push(union_type(
+        "shape",
+        &[
+            ("Circle", &["boolean"]),
+            ("Rect", &["integer", "integer"]),
+            ("Empty", &[]),
+        ],
+    ));
+    let stale_package = self::admitted("changed union body", &package_of(changed_nodes));
+    let stale = stale_package
+        .project_exact_type(&id, &selected, 8)
+        .unwrap_err();
+    assert_eq!(
+        stale.code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-99")]
