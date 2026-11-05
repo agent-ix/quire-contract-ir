@@ -114,9 +114,16 @@ row before returning a callable view. A source-declared operation anchor with
 no selected model member SHALL return typed unavailable-witness. A pure
 function node with no operation anchor needs no operation-member row.
 A callable body handle SHALL resolve only to a term of that admitted package.
-It SHALL preserve an intentionally empty frame and distinguish it from a
-missing frame. The table SHALL NOT treat a call expression or a similarly
-named declaration as proof of a callable definition.
+For ordinary source and table callables, that handle MAY name an admitted
+expression or value node, including a directly returned parameter or literal.
+The reader SHALL retain the node's admitted form without evaluating it.
+
+The callable table SHALL preserve an intentionally empty operation frame and
+distinguish it from a missing frame.
+The table SHALL NOT treat a call expression or a similarly named declaration
+as proof of a callable definition.
+
+An admitted monitor-plan entry SHALL continue to require an expression body.
 The selective source-function read SHALL return its charged work on success,
 including an absent callable. A borrowed admitted monitor-entry view SHALL
 provide a selective bounded callable read with the admitted root and entry
@@ -181,6 +188,7 @@ typed outcomes.
 | FR-354-AC-9 | Captured protocol semantic location reads preserve the exact application, occurrence, per-term ordinal, closed origin and child path; two terms sharing one application occurrence remain distinct. Foreign, absent or non-application targets, missing source occurrences, duplicate keys and malformed origin or ordinal shapes refuse before admission. An absent sidecar and an absent selected row return distinct typed outcomes; a bounded read returns the complete borrowed row at its exact work limit and reports charged exhaustion one below without a partial value or source-region inference. | Test |
 | FR-354-AC-10 | A selected `Ledger` with own `pay` and `payTaxed` operations (the QSL `child_composite` signature pattern) exposes them in declaration order with their selected declaring owner and original member identities, ordered typed parameters, optional result and producer-declared effects, including an empty effect and a nonempty effect in the test case, sufficient for QSL `ObjectTypeDeclaration::with_operations`; inherited visibility does not change ownership or add an own operation to the subtype. | Test |
 | FR-354-AC-11 | A missing, foreign, duplicate or conflicting operation/effect fact, wrong document, owner or member, a producer row with no admission-retained own operation, or unrepresentable admission-retained signature or producer effect returns a named typed outcome without any partial declaration view; an admitted signature without the required producer effect fact refuses. The operation signature comes only from the admission-retained selected `OperationDecl`; the QSpec STD-640 producer effect row contains no parameter or result signature to compare. Repeated bounded reads of the admitted package and its clone agree, and a limit one below the charged work reports exhaustion without a partial view. | Test |
+| FR-354-AC-12 | A strictly admitted ordinary source function whose body directly references a parameter or literal value returns that admitted Value node as its callable body through source_callable and the general callable table; an expression body remains valid. The selective read reports its charged work and succeeds at that exact limit, refuses one below with WorkLimit, charged work and the selected function locus, and agrees across a package clone. A body reference to a scalar type or foreign-owned value refuses with MalformedBody. An admitted monitor-plan entry still accepts only an expression body. | Test |
 
 ## Dependencies
 

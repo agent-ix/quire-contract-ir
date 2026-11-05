@@ -40,7 +40,8 @@ pub struct CheckedCallable {
     pub identity: CheckedCallableIdentity,
     /// Parameter node handles in producer order.
     pub parameters: Vec<CheckedNodeId>,
-    /// The admitted expression body handle.
+    /// The admitted callable body node. Ordinary functions may return an
+    /// expression or value node; monitor entries return an expression node.
     pub body: CheckedNodeId,
     /// The model context for an operation, absent for a plain function.
     pub context: Option<CheckedNodeId>,
@@ -155,10 +156,29 @@ struct ParsedFunction<'a> {
     clause: Option<&'a str>,
 }
 
+#[derive(Clone, Copy)]
+enum BodyRootPolicy {
+    Ordinary,
+    MonitorEntry,
+}
+
+impl BodyRootPolicy {
+    fn accepts(self, kind: Option<CheckedNodeKind>) -> bool {
+        match self {
+            Self::Ordinary => matches!(
+                kind,
+                Some(CheckedNodeKind::Expression(_) | CheckedNodeKind::Value(_))
+            ),
+            Self::MonitorEntry => matches!(kind, Some(CheckedNodeKind::Expression(_))),
+        }
+    }
+}
+
 fn function_body<'a>(
     package: &'a CheckedPackageV2,
     node: &CheckedNodeId,
     budget: &mut Budget,
+    body_root_policy: BodyRootPolicy,
 ) -> Result<ParsedFunction<'a>, CheckedCallableReadError> {
     let Some(CheckedTerm::Aggregate { members }) = package.term(node) else {
         return Err(budget.error(CheckedCallableReadErrorCode::MalformedBody, node));
@@ -198,10 +218,8 @@ fn function_body<'a>(
                 let CheckedTerm::Reference { target } = value.as_ref() else {
                     return Err(budget.error(CheckedCallableReadErrorCode::MalformedBody, node));
                 };
-                if !matches!(
-                    package.node_kind(target),
-                    Some(CheckedNodeKind::Expression(_))
-                ) || !reference_owner_matches(package, node, target)
+                if !body_root_policy.accepts(package.node_kind(target))
+                    || !reference_owner_matches(package, node, target)
                     || body.replace(target.clone()).is_some()
                 {
                     return Err(budget.error(CheckedCallableReadErrorCode::MalformedBody, node));
@@ -282,7 +300,7 @@ impl CheckedPackageV2 {
                 work: budget.work,
             });
         }
-        let parsed = function_body(self, node, &mut budget)?;
+        let parsed = function_body(self, node, &mut budget, BodyRootPolicy::Ordinary)?;
         Ok(CheckedCallableRead {
             callable: parsed.body.map(|body| CheckedCallable {
                 identity: CheckedCallableIdentity::Function(node.clone()),
@@ -345,7 +363,7 @@ impl CheckedPackageV2 {
                 parameters,
                 body,
                 clause,
-            } = function_body(self, &node.node_id, &mut budget)?;
+            } = function_body(self, &node.node_id, &mut budget, BodyRootPolicy::Ordinary)?;
             if let Some(CheckedNodeOwner::Model {
                 identity,
                 node: member,
@@ -480,7 +498,7 @@ pub(super) fn monitor_entry_callable(
         limit: work_limit,
     };
     budget.charge(node)?;
-    let parsed = function_body(package, node, &mut budget)?;
+    let parsed = function_body(package, node, &mut budget, BodyRootPolicy::MonitorEntry)?;
     let body = parsed
         .body
         .ok_or_else(|| budget.error(CheckedCallableReadErrorCode::MissingBody, node))?;
@@ -672,10 +690,10 @@ mod tests {
         );
     }
 
-    /// Trace: FR-354-AC-3.
-    #[trace("FR-354-AC-3")]
+    /// Trace: FR-354-AC-3, FR-354-AC-12.
+    #[trace("FR-354-AC-3", "FR-354-AC-12")]
     #[test]
-    fn callable_rejects_nonexpression_body_and_foreign_owned_references() {
+    fn callable_rejects_invalid_body_and_foreign_owned_references() {
         let mut package = fixture(false);
         let malformed = |target| CheckedTerm::Aggregate {
             members: vec![CheckedTerm::Binding {
@@ -687,7 +705,7 @@ mod tests {
         assert_eq!(
             package
                 .source_callable(&node_id('4'), 100)
-                .expect_err("scalar is not an expression body")
+                .expect_err("scalar type is not a callable body")
                 .code,
             CheckedCallableReadErrorCode::MalformedBody,
         );
@@ -730,6 +748,22 @@ mod tests {
             package
                 .source_callable(&node_id('4'), 100)
                 .expect_err("parameter belongs to another source")
+                .code,
+            CheckedCallableReadErrorCode::MalformedBody,
+        );
+
+        package.terms[3] = malformed(node_id('2'));
+        assert_eq!(
+            package
+                .source_callable(&node_id('4'), 100)
+                .expect_err("direct value belongs to another source")
+                .code,
+            CheckedCallableReadErrorCode::MalformedBody,
+        );
+        package.wire.semantic_graph.nodes[1].owner = None;
+        assert_eq!(
+            monitor_entry_callable(&package, &node_id('1'), &node_id('4'), 100)
+                .expect_err("monitor entries require an expression body")
                 .code,
             CheckedCallableReadErrorCode::MalformedBody,
         );

@@ -17,10 +17,11 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedParameterDeclaration, CheckedParameterDeclarationError,
-    CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    CheckedCallableIdentity, CheckedCallableReadErrorCode, CheckedNodeId, CheckedNodeKind,
+    CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedParameterDeclaration, CheckedParameterDeclarationError, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2, SelectedOperationMembers, ValueForm,
 };
 use serde_json::{json, Value};
 use std::sync::LazyLock;
@@ -688,6 +689,90 @@ fn admitted_with(extra: Vec<Value>) -> CheckedPackageV2 {
 
 fn id_of(key: &str) -> CheckedNodeId {
     serde_json::from_value(node_id(key)).expect("node id")
+}
+
+/// Trace: FR-354-AC-12.
+#[trace("FR-354-AC-12")]
+#[test]
+fn admitted_source_callable_returns_direct_parameter_and_literal_values() {
+    for literal_result in [false, true] {
+        let mut wire = parameters_package();
+        let parameter_keys = [node_key(&wire, P1), node_key(&wire, P1 + 1)];
+        let result_key = if literal_result {
+            let (key, node) = integer_literal_node();
+            wire["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("nodes")
+                .push(node);
+            key
+        } else {
+            parameter_keys[0].clone()
+        };
+        let function = wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .iter_mut()
+            .find(|node| node["node_tag"] == "function" && node.get("declaration").is_some())
+            .expect("declared function");
+        function["body"]["members"][1]["value"] = reference(&result_key);
+        if literal_result {
+            function["semantic_type"] = node_id(&INTEGER);
+        }
+        let mut dependencies = parameter_keys.to_vec();
+        if literal_result {
+            dependencies.push(result_key.clone());
+        }
+        dependencies.sort();
+        dependencies.dedup();
+        function["dependencies"] =
+            Value::Array(dependencies.iter().map(|key| node_id(key)).collect());
+        rebuild_source_map(&mut wire);
+        let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+            panic!("direct value function admits")
+        };
+        let function_id = id_of("qualified:both");
+        let result_id = id_of(&result_key);
+        let projected = package.source_callable(&function_id, u64::MAX).unwrap();
+        assert_eq!(projected.work(), 5);
+        let callable = projected.callable().expect("executable function");
+        assert_eq!(
+            callable.identity,
+            CheckedCallableIdentity::Function(function_id.clone())
+        );
+        assert_eq!(callable.parameters, parameter_keys.map(|key| id_of(&key)));
+        assert_eq!(callable.body, result_id);
+        assert_eq!(
+            package.node_kind(&callable.body),
+            Some(CheckedNodeKind::Value(if literal_result {
+                ValueForm::Literal
+            } else {
+                ValueForm::Parameter
+            }))
+        );
+        let exact = package
+            .source_callable(&function_id, projected.work())
+            .unwrap();
+        assert_eq!(exact, projected);
+        let denied = package
+            .source_callable(&function_id, projected.work() - 1)
+            .unwrap_err();
+        assert_eq!(denied.code, CheckedCallableReadErrorCode::WorkLimit);
+        assert_eq!(denied.work, projected.work());
+        assert_eq!(denied.locus, function_id);
+        let clone = package.clone();
+        assert_eq!(
+            clone.source_callable(&function_id, projected.work()),
+            Ok(projected)
+        );
+        let selected = SelectedOperationMembers::from_stage_rows(&package, [], 0).unwrap();
+        let table = package.callable_table(&selected, u64::MAX).unwrap();
+        let table_function = table
+            .rows()
+            .iter()
+            .find(|row| row.identity == CheckedCallableIdentity::Function(function_id.clone()))
+            .expect("declared function row");
+        assert_eq!(table_function.body, result_id);
+    }
 }
 
 /// An integer `value`/`literal` node, which is not a parameter.
