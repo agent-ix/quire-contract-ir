@@ -750,26 +750,6 @@ impl SelectedExactIdentities {
     ) -> Result<Self, ExactTypeProjectionError> {
         let mut selected = self.clone();
         let mut work = 0;
-        let mut handles = self
-            .declarations
-            .values()
-            .filter_map(|row| match &row.exact_identity {
-                SelectedExactIdentity::Record(key)
-                | SelectedExactIdentity::Union(key)
-                | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => Some(key.clone()),
-                _ => None,
-            })
-            .collect::<BTreeSet<_>>();
-        handles.extend(
-            self.source_unions
-                .values()
-                .map(|row| row.type_handle.clone()),
-        );
-        handles.extend(
-            self.source_records
-                .values()
-                .map(|row| row.record_key.clone()),
-        );
         for row in rows {
             let id = &row.structural_node;
             charge_work(id, id, "source_record_row", &mut work, work_limit)?;
@@ -820,7 +800,44 @@ impl SelectedExactIdentities {
                 error.work = work;
                 return Err(error);
             }
-            if selected.source_records.contains_key(id) || !handles.insert(row.record_key.clone()) {
+            let mut conflicting_handle = false;
+            for declaration in selected.declarations.values() {
+                charge_work(
+                    id,
+                    &declaration.structural_node,
+                    "record_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= matches!(
+                    &declaration.exact_identity,
+                    SelectedExactIdentity::Record(key)
+                        | SelectedExactIdentity::Union(key)
+                        | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key))
+                        if key == &row.record_key
+                );
+            }
+            for union in selected.source_unions.values() {
+                charge_work(
+                    id,
+                    &union.structural_node,
+                    "record_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= union.type_handle == row.record_key;
+            }
+            for record in selected.source_records.values() {
+                charge_work(
+                    id,
+                    &record.structural_node,
+                    "record_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= record.record_key == row.record_key;
+            }
+            if selected.source_records.contains_key(id) || conflicting_handle {
                 let mut error =
                     witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
                 error.work = work;
@@ -1558,6 +1575,19 @@ impl CheckedPackageV2 {
                     )
                 })?;
                 charge_work(requested, type_id, "source_record", &mut work, work_limit)?;
+                for _ in &self.lock().sources {
+                    charge_work(requested, type_id, "selected_source", &mut work, work_limit)?;
+                }
+                for segment in &row.qualified_declaration {
+                    charge_work_amount(
+                        requested,
+                        type_id,
+                        "record_declaration",
+                        &mut work,
+                        work_limit,
+                        u64::try_from(segment.len()).unwrap_or(u64::MAX),
+                    )?;
+                }
                 for member in &row.members {
                     charge_work(
                         requested,
