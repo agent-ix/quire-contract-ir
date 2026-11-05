@@ -256,10 +256,6 @@ pub enum CheckedMonitorClockReadErrorCode {
     WrongRole,
     /// The clause has no such admitted claim occurrence.
     UnknownOccurrence,
-    /// The selected occurrence has no admitted clock binding.
-    MissingClock,
-    /// The selected occurrence has no admitted clause name.
-    MissingName,
     /// The next inspection exceeds the caller's allowance.
     WorkLimit,
 }
@@ -421,7 +417,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             |row| (&row.declaration, row.occurrence),
             &mut budget,
         )?
-        .ok_or_else(|| budget.error(CheckedMonitorClockReadErrorCode::MissingClock, clause))?;
+        .expect("strict admission requires a clock for every configured claim");
         let name = selected_row(
             self.package,
             self.package.temporal_clause_names().unwrap_or_default(),
@@ -430,7 +426,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             |row| (&row.declaration, row.occurrence),
             &mut budget,
         )?
-        .ok_or_else(|| budget.error(CheckedMonitorClockReadErrorCode::MissingName, clause))?;
+        .expect("strict admission requires a name for every claim");
         Ok(CheckedMonitorClockRead {
             root: self.node_id(),
             clause: self.clause(),

@@ -7,7 +7,7 @@ use super::monitor_plan_fixtures::*;
 use super::*;
 use quire_contract_model::CheckedMonitorPlanRef;
 use quire_contract_model::{
-    CheckedMonitorClockReadErrorCode, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedMonitorClockReadErrorCode, CheckedOccurrence, CheckedOccurrenceRole, ClockConfiguration,
 };
 use std::collections::BTreeSet;
 
@@ -33,12 +33,19 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     finish(&mut wire);
     assert_eq!(wire["temporal_bindings"].as_array().unwrap().len(), 2);
     assert_eq!(wire["temporal_clause_names"].as_array().unwrap().len(), 2);
-    wire["temporal_bindings"][1]["clock"]["sequence_authority"] = json!("other-events");
+    wire["temporal_bindings"][0]["clock"]["sequence_authority"] = json!("first-events");
+    wire["temporal_bindings"][1]["clock"]["sequence_authority"] = json!("second-events");
     wire["temporal_clause_names"][1]["name"] = json!("Clause1");
-    assert_eq!(
-        wire["temporal_bindings"][1]["clock"]["sequence_authority"],
-        "other-events"
-    );
+
+    for row in ["temporal_bindings", "temporal_clause_names"] {
+        let mut missing = wire.clone();
+        missing[row].as_array_mut().unwrap().remove(1);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&missing).unwrap() else {
+            panic!("missing {row} row must refuse admission");
+        };
+        assert_eq!(refusal.code, Code::InvalidPackage);
+        assert!(!refusal.loci.is_empty());
+    }
 
     let package = admitted(&wire);
     let plan = package
@@ -48,7 +55,7 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     assert_eq!(
         package.temporal_bindings().unwrap()[1].clock,
         quire_contract_model::ClockConfiguration::EventPosition {
-            sequence_authority: "other-events".into()
+            sequence_authority: "second-events".into()
         }
     );
     let selected = plan.clause().clone();
@@ -73,7 +80,18 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     assert_eq!(read1.claim_name(), "Clause1");
     assert_eq!(read0.clock_name(), "model-steps");
     assert_eq!(read1.clock_name(), "model-steps");
-    assert_ne!(read0.clock(), read1.clock());
+    assert_eq!(
+        read0.clock(),
+        &ClockConfiguration::EventPosition {
+            sequence_authority: "first-events".into()
+        }
+    );
+    assert_eq!(
+        read1.clock(),
+        &ClockConfiguration::EventPosition {
+            sequence_authority: "second-events".into()
+        }
+    );
     let exact = read1.work();
     assert_eq!(
         plan.clock_for_claim(&selected, &second, exact)
@@ -99,30 +117,60 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
         read1
     );
     let foreign = plan.state();
+    let wrong_clause = plan.clock_for_claim(foreign, &first, 100).unwrap_err();
     assert_eq!(
-        plan.clock_for_claim(foreign, &first, 100).unwrap_err().code,
+        wrong_clause.code,
         CheckedMonitorClockReadErrorCode::WrongClause
     );
+    assert_eq!(wrong_clause.at.as_ref(), foreign);
+    assert_eq!(wrong_clause.occurrence, first);
+    assert_eq!(wrong_clause.attempted_work, 0);
     let declaration = CheckedOccurrence {
         role: CheckedOccurrenceRole::Declaration,
         ordinal: 0,
     };
-    assert_eq!(
-        plan.clock_for_claim(&selected, &declaration, 100)
-            .unwrap_err()
-            .code,
-        CheckedMonitorClockReadErrorCode::WrongRole
-    );
+    let wrong_role = plan
+        .clock_for_claim(&selected, &declaration, 100)
+        .unwrap_err();
+    assert_eq!(wrong_role.code, CheckedMonitorClockReadErrorCode::WrongRole);
+    assert_eq!(wrong_role.at.as_ref(), &selected);
+    assert_eq!(wrong_role.occurrence, declaration);
+    assert_eq!(wrong_role.attempted_work, 0);
     let missing = CheckedOccurrence {
         role: CheckedOccurrenceRole::Claim,
         ordinal: 2,
     };
+    let unknown = plan.clock_for_claim(&selected, &missing, 100).unwrap_err();
     assert_eq!(
-        plan.clock_for_claim(&selected, &missing, 100)
-            .unwrap_err()
-            .code,
+        unknown.code,
         CheckedMonitorClockReadErrorCode::UnknownOccurrence
     );
+    assert_eq!(unknown.at.as_ref(), &selected);
+    assert_eq!(unknown.occurrence, missing);
+    assert_eq!(unknown.attempted_work, 0);
+
+    let mut extended = wire.clone();
+    append(
+        &mut extended,
+        "scalar_type",
+        "string",
+        None,
+        json!({"term":"aggregate","members":[]}),
+        "unrelated-clock-read",
+    );
+    finish(&mut extended);
+    extended["temporal_bindings"][0]["clock"]["sequence_authority"] = json!("first-events");
+    extended["temporal_bindings"][1]["clock"]["sequence_authority"] = json!("second-events");
+    extended["temporal_clause_names"][1]["name"] = json!("Clause1");
+    let extended_package = admitted(&extended);
+    let extended_read = extended_package
+        .monitor_plans()
+        .next()
+        .unwrap()
+        .clock_for_claim(&selected, &second, exact)
+        .unwrap();
+    assert_eq!(extended_read.work(), exact);
+    assert_eq!(extended_read.clock(), read1.clock());
 }
 fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
     assert_eq!(
