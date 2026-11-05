@@ -998,7 +998,8 @@ enum QuantityChain {
     /// A `bounded_domain` other than `model_population`: the chain continues
     /// through its own `semantic_type`, its base type.
     Base,
-    /// Any other node: the chain ends and holds no quantity.
+    /// Any other node, including an already bounded carried quantity: the
+    /// chain ends without a bare quantity to refuse.
     Other,
 }
 
@@ -1008,9 +1009,9 @@ fn quantity_chain(kind: CheckedNodeKind) -> QuantityChain {
     use CheckedNodeKind as K;
     match kind {
         K::Extension(_) | K::Hybrid(_) | K::TimedModel(_) => QuantityChain::Other,
-        K::ScalarType(
-            ScalarTypeForm::Unit | ScalarTypeForm::CompoundUnit | ScalarTypeForm::CarriedQuantity,
-        ) => QuantityChain::Quantity,
+        K::ScalarType(ScalarTypeForm::Unit | ScalarTypeForm::CompoundUnit) => {
+            QuantityChain::Quantity
+        }
         K::ScalarType(
             ScalarTypeForm::Integer
             | ScalarTypeForm::Rational
@@ -1024,6 +1025,7 @@ fn quantity_chain(kind: CheckedNodeKind) -> QuantityChain {
             | ScalarTypeForm::Float64
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::DimensionEquivalence
+            | ScalarTypeForm::CarriedQuantity
             | ScalarTypeForm::Enum,
         ) => QuantityChain::Other,
         K::BoundedDomain(BoundedDomainForm::ModelPopulation) => QuantityChain::Other,

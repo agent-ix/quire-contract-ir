@@ -10,8 +10,9 @@ use crate::fixture_support::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    BoundedDomainForm, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedTerm, LiteralKind, ScalarTypeForm,
+    BoundedDomainForm, CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    LiteralKind, ScalarTypeForm,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -354,6 +355,53 @@ impl Package {
         at
     }
 
+    fn record(&mut self, name: &str, fields: &[&str]) {
+        let id = node_id(&format!("quantity/bounded-record/{name}"));
+        let types = fields
+            .iter()
+            .map(|field| self.ids[*field].clone())
+            .collect::<Vec<_>>();
+        let members = types
+            .iter()
+            .enumerate()
+            .map(|(index, ty)| {
+                json!({"term":"binding","name":format!("field{index}"),
+                    "value":{"term":"reference","target":ty}})
+            })
+            .collect::<Vec<_>>();
+        self.wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"composite_type","semantic_form":"record",
+                "semantic_type":id,"dependencies":types,
+                "occurrences":[{"role":"type","ordinal":0}],
+                "body":{"term":"aggregate","members":members},
+            }));
+        self.ids.insert(name.to_owned(), id);
+    }
+
+    fn parameter(&mut self, name: &str, ty: &str) {
+        let id = node_id(&format!("quantity/bounded-parameter/{name}"));
+        let body = json!({"term":"aggregate","members":[
+            {"term":"binding","name":"name","value":{"term":"literal",
+                "type":self.ids["text"],"value_kind":"text","value":name}},
+            {"term":"binding","name":"level","value":{"term":"literal",
+                "type":self.ids["integer"],"value_kind":"integer","value":"0"}},
+        ]});
+        self.wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"value","semantic_form":"parameter",
+                "semantic_type":self.ids[ty],"dependencies":[],
+                "occurrences":[{"role":"expression","ordinal":0}],"body":body,
+            }));
+        self.ids.insert(name.to_owned(), id);
+    }
+
     fn read(mut self) -> CheckedPackageV2ReadResult {
         settle(&mut self.wire);
         index_fixture_node_ids(&mut self.wire);
@@ -385,6 +433,89 @@ impl Package {
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&self.wire),
         )
+    }
+}
+
+/// Trace: FR-038-AC-73; TC-050.
+#[trace("TC-050", "FR-038-AC-73")]
+#[test]
+fn published_carried_quantity_positions_lower_without_covering_a_bare_unit() {
+    let vectors = vectors();
+    let all = &vectors["nodes"];
+    let mut package = Package::new();
+    for name in ["q_int", "q_dec", "q_rat", "text", "integer"] {
+        package.add(name, all);
+    }
+    package.record("int_record", &["q_int"]);
+    package.parameter("dec_parameter", "q_dec");
+    package.record("rat_record", &["q_rat"]);
+    package.record("mixed_record", &["unit_m", "q_int"]);
+    let fixture_ids = package.ids.clone();
+    let CheckedPackageV2ReadResult::Admitted(admitted) = package.read() else {
+        panic!("published carried quantity forms must admit through the public reader");
+    };
+    let graph_ids = admitted
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| json!({"node_id":node.node_id}))
+        .collect::<Vec<_>>();
+    let resolved = |name: &str| resolved_fixture_id(&fixture_ids[name], &graph_ids);
+    let same_id = |actual: &CheckedNodeId, name: &str| {
+        let wire = serde_json::to_value(actual).expect("encoded admitted node ID");
+        resolved_fixture_id(&wire, &graph_ids) == resolved(name)
+    };
+    let requests = ["int_record", "dec_parameter", "rat_record", "mixed_record"];
+    let request_ids = requests
+        .iter()
+        .map(|name| resolved(name))
+        .collect::<Vec<_>>();
+    let profile = CompleteLoweringProfileV2 {
+        reference: quire_contract_model::LoweringProfileRef {
+            authority: "quire".into(),
+            identity: "complete-v1".into(),
+        },
+        required_source_selections: Vec::new(),
+        supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+        require_bounds: true,
+        work_limit: 100_000,
+    };
+    let records = admitted.lower(&request_ids, &profile).records;
+    assert_eq!(records.len(), requests.len());
+    for (index, (request, carried)) in [
+        ("int_record", "q_int"),
+        ("dec_parameter", "q_dec"),
+        ("rat_record", "q_rat"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let carrier = all[carried]["carrier"].as_str().expect("published carrier");
+        let unit = all[carried]["unit"].as_str().expect("published unit");
+        match &records[index] {
+            CompleteLoweringRecordV2::Lowered { node } => {
+                assert!(same_id(&node.node.node_id, request), "{request}");
+                assert!(
+                    node.bounds.iter().any(|id| same_id(id, carrier)),
+                    "{request}: carrier bound missing"
+                );
+                assert!(
+                    node.dependencies.iter().any(|id| same_id(id, unit)),
+                    "{request}: unit dependency missing"
+                );
+            }
+            other => panic!("{request} should lower at its carried type: {other:?}"),
+        }
+    }
+    match &records[3] {
+        CompleteLoweringRecordV2::RequiresBound {
+            node_id,
+            unbounded_type,
+        } => {
+            assert!(same_id(node_id, "mixed_record"));
+            assert!(same_id(unbounded_type, "unit_m"));
+        }
+        other => panic!("bare unit beside a carried field must refuse: {other:?}"),
     }
 }
 
