@@ -96,3 +96,28 @@ scope:
     that holds a third binding, and a `model_member` Group that is empty each refuse
     `malformed_wire`; a `model_member` on a role whose `model` is the text of an existing
     `model_root` node refuses `'
+
+## Supplemental review round 1
+
+The final aggregate gate found three API inventory assertion failures missed in the original review. The doc-only correction removes the associated method and enum variant from the crate-root item table and explicitly assigns them to the already inventoried CheckedPackageV2 and CheckedProtocolRefusalDetail types. Both remain documented with FR-038 ownership above that table. The exact exported_items()/expected_items() assertions, inventory parser, source API, trace bindings, public-reader tests and scanner gates are unchanged. Inspected the correction diff and the unchanged inventory guard implementation independently. Coder evidence reports all 25 public_interface tests passing. Five scanner failures in the first gate were missing-executable setup errors; the root lead corrected PATH without scanner code changes. No Cargo or aggregate gate was repeated in this supplemental review. No open or new finding: the doc correction is review-mergeable, subject to the lead's final aggregate gate. Existing repository baseline and unavailable evidence-advisor qualifications remain unchanged.
+
+```yaml
+clean: true
+scope:
+- id: FR-019
+  path: spec/model/functional/FR-019-rust-library-interface.md
+  role: examined
+  excerpt: 'The borrowed
+
+    protocol role member read and refusal variant documented above belong to the
+
+    already listed CheckedPackageV2 and CheckedProtocolRefusalDetail types; they
+
+    add no crate-root export.'
+- id: public_interface_inventory
+  path: tests/it/public_interface.rs
+  role: examined
+  excerpt: assert_eq!(exported_items(), expected_items());
+findings: []
+dispositions: []
+```
