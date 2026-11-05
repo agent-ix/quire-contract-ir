@@ -68,7 +68,7 @@ mod typed_terms;
 mod vocabulary;
 
 pub use callable::{
-    CheckedCallable, CheckedCallableIdentity, CheckedCallableReadError,
+    CheckedCallable, CheckedCallableIdentity, CheckedCallableRead, CheckedCallableReadError,
     CheckedCallableReadErrorCode, CheckedCallableTable,
 };
 pub use checked_term_data::*;
@@ -1365,8 +1365,9 @@ impl CheckedPackageV2 {
         &self.kinds
     }
 
-    /// The retained admitted family and form of one graph node.
-    pub(crate) fn node_kind(&self, id: &CheckedNodeId) -> Option<CheckedNodeKind> {
+    /// The retained admitted family and form of one graph node by its ID.
+    /// Returns `None` for an ID absent from this package.
+    pub fn node_kind(&self, id: &CheckedNodeId) -> Option<CheckedNodeKind> {
         self.kinds.get(*self.node_index.get(id)?).copied()
     }
 

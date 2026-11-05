@@ -4,8 +4,9 @@
 //! FR-019-AC-23: default-feature external consumer of the borrowed monitor API.
 
 use quire_contract_model::{
+    ApplicationOperator, CheckedCallableIdentity, CheckedCallableReadErrorCode,
     CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef, CheckedNodeId,
-    CheckedPackageV2, CheckedRational, CheckedTerm,
+    CheckedNodeKind, CheckedPackageV2, CheckedRational, CheckedTerm, ExpressionForm,
 };
 
 fn entry<'a>(entry: CheckedMonitorEntryRef<'a>) {
@@ -109,6 +110,7 @@ fn evidence(wire: &Value) -> CheckedPackageEvidence {
     "TC-048",
     "FR-019-AC-23",
     "FR-038-AC-426",
+    "FR-354-AC-7",
     "FR-038-AC-433",
     "FR-038-AC-434"
 )]
@@ -148,9 +150,80 @@ fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
         ["4", "7"]
     );
     assert_eq!(view.on_gap().parameter_types().len(), 2);
+    let selected = view
+        .on_gap()
+        .callable(u64::MAX)
+        .expect("admitted entry callable");
+    let callable = selected.callable().expect("entry has a body");
+    assert_eq!(
+        callable.identity,
+        CheckedCallableIdentity::MonitorEntry {
+            plan: view.node_id().clone(),
+            entry: view.on_gap().node_id().clone(),
+        }
+    );
+    assert_eq!(callable.parameters.len(), 2);
+    assert_ne!(callable.parameters[0], callable.parameters[1]);
+    assert_eq!(
+        package.node_kind(&callable.body),
+        Some(CheckedNodeKind::Expression(ExpressionForm::Conditional))
+    );
+    assert!(matches!(
+        package.term(&callable.body),
+        Some(CheckedTerm::Application { operator: ApplicationOperator::Conditional, arguments, .. })
+            if arguments.len() == 3
+    ));
+    let mut absent = callable.body.clone();
+    absent.ordinal = u64::MAX;
+    assert_eq!(package.node_kind(&absent), None);
+    assert_eq!(callable.context, None);
+    assert_eq!(callable.frame, None);
+    let exact = view
+        .on_gap()
+        .callable(selected.work())
+        .expect("exact work limit");
+    assert_eq!(exact, selected);
+    let denied = view.on_gap().callable(selected.work() - 1).unwrap_err();
+    assert_eq!(denied.code, CheckedCallableReadErrorCode::WorkLimit);
+    assert_eq!(denied.work, selected.work());
+    assert_eq!(denied.locus, *view.on_gap().node_id());
+    let cloned = package.clone();
+    assert_eq!(
+        cloned
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .on_gap()
+            .callable(selected.work()),
+        Ok(selected.clone())
+    );
     let CheckedTerm::Aggregate { members } = view.on_gap().body() else {
         panic!("ordinary optional-measure function")
     };
+    let CheckedTerm::Binding { value, .. } = &members[0] else {
+        panic!("ordered parameter binding")
+    };
+    let CheckedTerm::Aggregate {
+        members: parameters,
+    } = value.as_ref()
+    else {
+        panic!("ordered parameters")
+    };
+    let expected_parameters = parameters
+        .iter()
+        .map(|parameter| match parameter {
+            CheckedTerm::Reference { target } => target.clone(),
+            _ => panic!("admitted parameter reference"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(callable.parameters, expected_parameters);
+    let CheckedTerm::Binding { value, .. } = &members[1] else {
+        panic!("body binding")
+    };
+    let CheckedTerm::Reference { target } = value.as_ref() else {
+        panic!("body reference")
+    };
+    assert_eq!(&callable.body, target);
     let CheckedTerm::Binding { name, .. } = &members[2] else {
         panic!("measure binding")
     };

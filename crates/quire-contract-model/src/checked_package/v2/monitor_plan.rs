@@ -175,6 +175,7 @@ pub struct CheckedMonitorPlanRef<'a> {
 #[derive(Clone, Copy)]
 pub struct CheckedMonitorEntryRef<'a> {
     package: &'a CheckedPackageV2,
+    plan: &'a CheckedNodeId,
     entry: &'a Entry,
 }
 /// One admitted buffer premise, with no host-width capacity restriction.
@@ -221,6 +222,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
     fn entry(&self, slot: usize) -> CheckedMonitorEntryRef<'a> {
         CheckedMonitorEntryRef {
             package: self.package,
+            plan: self.node_id(),
             entry: &self.plan.entries[slot],
         }
     }
@@ -331,6 +333,16 @@ impl<'a> CheckedMonitorEntryRef<'a> {
     /// Complete ordinary function body, retained without execution.
     pub fn body(&self) -> &'a CheckedTerm {
         &self.package.terms[self.entry.position]
+    }
+    /// Read this admitted entry's ordered parameter handles and expression body.
+    ///
+    /// The read charges only this entry's body and references. Its handles do
+    /// not claim complete type closure, and no expression is executed.
+    pub fn callable(
+        &self,
+        work_limit: u64,
+    ) -> Result<super::CheckedCallableRead, super::CheckedCallableReadError> {
+        super::callable::monitor_entry_callable(self.package, self.plan, self.node_id(), work_limit)
     }
     /// Exact parameter types in signature order.
     pub fn parameter_types(&self) -> impl ExactSizeIterator<Item = &'a CheckedNodeId> + 'a {
