@@ -35,3 +35,9 @@ FR-038-AC-471 starts with a reader-admitted QSL-shaped package and then says rep
 - FR-038-AC-73, role: context_only. Bare unit and compound-unit positions retain `requires_bound`.
 - QSpec FR-142-AC-6, role: context_only. Integer power yields the canonical compound identity.
 - QSpec FR-322 "Node dependencies", role: context_only. A `value`/`literal` body holds literals only and has no dependencies.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1: AC-471 uses a reader-admitted Integer parameter for the bound refusal and states that strict admission rejects a nonliteral `value`/`literal` body before lowering. |
