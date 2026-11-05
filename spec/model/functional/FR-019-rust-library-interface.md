@@ -260,7 +260,10 @@ default-feature build, grouped by the module that defines them. Planned
 exceptions are marked in their row. An item's own
 public fields, variants, associated constants and inherent methods are part
 of the item and are not listed separately unless an independent public
-operation has its own owning requirement, as listed below.
+operation has its own owning requirement, as listed below. The borrowed
+protocol role member read and refusal variant documented above belong to the
+already listed CheckedPackageV2 and CheckedProtocolRefusalDetail types; they
+add no crate-root export.
 
 | Module | Public items | Owning requirement |
 | --- | --- | --- |
@@ -276,7 +279,6 @@ operation has its own owning requirement, as listed below.
 | `limits` | constants `MAX_SEMANTIC_COLLECTION_ITEMS`, `MAX_SEMANTIC_DEPTH`, `MAX_SEMANTIC_NODES`, `MAX_WIRE_JSON_DEPTH` | FR-019 |
 | `output_mapping` | functions `assemble_output_package`, `map_admitted_request`, `map_admitted_request_controlled`; types `AdmittedMappingObligation`, `AdmittedMappingRequest`, `CompletedMappings`, `GeneratedOutputPackage`, `MappingCancellation`, `MappingCancellationToken`, `MappingCandidate`, `MappingCause`, `MappingCondition`, `MappingDependencyKind`, `MappingDependencyRef`, `MappingDisposition`, `MappingExecutionControl`, `MappingLimits`, `MappingRecordSource`, `MappingRequestError`, `MappingRequestErrorCode`, `MappingSourcePackageRef`, `MappingWorkBudget`, `ModelSourceSelection`, `NativeSourceSelection`, `ObservationAdequacyRef`, `ObservationAdequacyState`, `OutputByteRegion`, `OutputCapability`, `OutputGeneratorIdentity`, `OutputMappingProfile`, `OutputMappingRecord`, `OutputTargetFamily`, `ProtocolAdequacyRef`, `ProtocolAdequacyState`, `RequestedMappingObligation`, `SemanticSourceSelection`, `SourceFactState`, `StructuralObservationOutcome`, `StructuralObservationRef`, `StructuralObserverIdentity`; trait `OutputMapper`; constants `OUTPUT_MAPPING_REVISION` | FR-032 through FR-034, STD-003 |
 | `checked_package` | function `read_checked_package`; types `CheckedArtifactLocator`, `CheckedArtifactRef`, `CheckedCapability`, `CheckedNodeId`, `CheckedNodePathSegment`, `CheckedOccurrence`, `CheckedOccurrenceRole`, `CheckedPackageDispatchResult`, `CheckedPackageEvidence`, `CheckedPackageEvidenceInsertionError`, `CheckedPackageIncomplete`, `CheckedPackageLimit`, `CheckedPackageReadLimits`, `CheckedPackageRefusal`, `CheckedPackageRefusalCause`, `CheckedPackageRefusalCode`, `CheckedSelection`, `CheckedSourceMapEntry`, `CheckedSourceRef`, `CheckedSourceRegion`, `CheckedTerminalDuplicate`, `JsonPointer` | FR-038, FR-047, FR-062 |
-| `checked_package` (borrowed protocol role member) | associated method `CheckedPackageV2::protocol_role_model_member`; refusal variant `CheckedProtocolRefusalDetail::ModelMember` | FR-038-AC-463, FR-038-AC-464 |
 | `checked_package` (V2 borrowed monitor plans) | types `CheckedMonitorPlanRef`, `CheckedMonitorEntryRef`, `CheckedMonitorBufferRef` | FR-038 |
 | `checked_package` (V2 refusal locations) | type `CheckedPackageRefusalLocation`, the public record type of the refusal's loci array | FR-038-AC-368 |
 | `checked_package` (V2 reader) | types `CheckedCollectionKind`, `CheckedDeclaration`, `CheckedDependencySelection`, `CheckedDiagnosticCause`, `CheckedDiagnosticCode`, `CheckedDiagnosticStage`, `CheckedDiagnosticV2`, `CheckedDiagnosticsV2`, `CheckedMemberType`, `CheckedModelField`, `CheckedModelFieldsError`, `CheckedModelObjectFields`, `CheckedModelVariantBody`, `CheckedModelVariantCase`, `CheckedVariantPayloadType`, `CheckedNodeOwner`, `CheckedNodeProjectionV2`, `CheckedPackageLockV2`, `CheckedPackageV2`, `CheckedPackageV2ReadResult`, `CheckedProtocolActivation`, `CheckedProtocolActivationRow`, `CheckedProtocolDecisionRead`, `CheckedProtocolRefusalDetail`, `CheckedSemanticGraphV2`, `CheckedSemanticNodeV2`; constant `CHECKED_PACKAGE_V2` | FR-038, FR-040, FR-065, FR-069 |
