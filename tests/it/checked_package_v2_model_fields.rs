@@ -80,7 +80,12 @@ fn selected_record_fields_expose_presence_and_shape_without_exact_member_project
     );
     let note = fields.field("note").expect("optional note");
     assert!(note.optional());
-    assert_eq!(note.member_type(), Some(&CheckedMemberType::String));
+    assert_eq!(
+        note.member_type(),
+        Some(&CheckedMemberType::Option(Box::new(
+            CheckedMemberType::String
+        )))
+    );
     let maybe_count = fields.field("maybe_count").expect("required option");
     assert!(!maybe_count.optional());
     assert_eq!(
