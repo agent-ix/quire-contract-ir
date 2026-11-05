@@ -113,6 +113,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         .expect("record")
         .node_id
         .clone();
+    assert!(package
+        .graph()
+        .nodes
+        .iter()
+        .any(|node| node.semantic_form.as_ref() == "enum"));
     let source = &package.lock().sources[0];
     let key = NodeKey::new(
         "qsl-record-stage",
@@ -230,6 +235,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         {
             let mut r = row.clone();
             r.members[0].presence = Presence::Optional;
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members[1].original_member_identity = r.members[0].original_member_identity.clone();
             r
         },
         {
