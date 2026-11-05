@@ -403,7 +403,7 @@ fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
                     .position(|node| node["semantic_form"] == "protocol_clause")
                     .unwrap();
                 package["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]
-                    ["members"] = json!([{"term":"reference","target":first},{"term":"reference","target":second_id}]);
+                    ["members"] = json!([{"term":"reference","target":second_id},{"term":"reference","target":first}]);
                 fixture_support::settle(&mut package);
                 fixture_support::settle(&mut package);
                 let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
