@@ -167,6 +167,7 @@ pub use checked_package::{
     CheckedMemberType, CheckedModelField, CheckedModelFieldsError, CheckedModelObjectFields,
     CheckedModelOperation, CheckedModelOperations, CheckedModelRecordField,
     CheckedModelRecordFields, CheckedModelRecordFieldsError, CheckedMonitorBufferRef,
+    CheckedMonitorClockRead, CheckedMonitorClockReadError, CheckedMonitorClockReadErrorCode,
     CheckedMonitorEntryRef, CheckedMonitorPlanRef, CheckedNodeId, CheckedNodeKind,
     CheckedNodeOwner, CheckedNodePathSegment, CheckedNodeProjectionV2, CheckedNodeTag,
     CheckedOccurrence, CheckedOccurrenceRole, CheckedOperationEffect, CheckedOperationEffectOrigin,

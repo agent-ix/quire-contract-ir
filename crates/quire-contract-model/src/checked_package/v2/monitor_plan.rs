@@ -5,9 +5,9 @@
 
 use super::model_members::DomainModel;
 use super::{
-    CheckedNodeId, CheckedNodeKind, CheckedPackageV2, CheckedRational, CheckedTerm,
-    CompositeTypeForm, FunctionForm, LiteralKind, RawSemanticNodeV2, ScalarTypeForm, TemporalForm,
-    ValueForm, WorkMeter,
+    CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
+    CheckedRational, CheckedTerm, ClockConfiguration, CompositeTypeForm, FunctionForm, LiteralKind,
+    RawSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -204,6 +204,144 @@ pub struct CheckedMonitorBufferRef<'a> {
     buffer: &'a Buffer,
 }
 
+/// An admitted clock and claim name for one selected monitor clause occurrence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedMonitorClockRead<'a> {
+    root: &'a CheckedNodeId,
+    clause: &'a CheckedNodeId,
+    occurrence: CheckedOccurrence,
+    clock: &'a ClockConfiguration,
+    clock_name: &'a str,
+    claim_name: &'a str,
+    work: u64,
+}
+
+impl<'a> CheckedMonitorClockRead<'a> {
+    /// The selected admitted monitor root.
+    pub fn root(&self) -> &'a CheckedNodeId {
+        self.root
+    }
+    /// The root's admitted temporal clause.
+    pub fn clause(&self) -> &'a CheckedNodeId {
+        self.clause
+    }
+    /// The exact selected claim occurrence.
+    pub fn occurrence(&self) -> &CheckedOccurrence {
+        &self.occurrence
+    }
+    /// The admitted closed clock configuration.
+    pub fn clock(&self) -> &'a ClockConfiguration {
+        self.clock
+    }
+    /// The clause's exact admitted clock name.
+    pub fn clock_name(&self) -> &'a str {
+        self.clock_name
+    }
+    /// The selected claim's original admitted name.
+    pub fn claim_name(&self) -> &'a str {
+        self.claim_name
+    }
+    /// Work charged by this read.
+    pub fn work(&self) -> u64 {
+        self.work
+    }
+}
+
+/// Stable cause of a selected monitor clock refusal.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedMonitorClockReadErrorCode {
+    /// The selected clause is not this monitor root's clause.
+    WrongClause,
+    /// The selected occurrence is not a claim.
+    WrongRole,
+    /// The clause has no such admitted claim occurrence.
+    UnknownOccurrence,
+    /// The selected occurrence has no admitted clock binding.
+    MissingClock,
+    /// The selected occurrence has no admitted clause name.
+    MissingName,
+    /// The next inspection exceeds the caller's allowance.
+    WorkLimit,
+}
+
+/// Typed first refusal, without a partial clock view.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("selected monitor clock refused: {code:?} at {at:?}")]
+pub struct CheckedMonitorClockReadError {
+    /// Stable cause.
+    pub code: CheckedMonitorClockReadErrorCode,
+    /// First selected clause or inspected row node.
+    pub at: Box<CheckedNodeId>,
+    /// Exact requested occurrence.
+    pub occurrence: CheckedOccurrence,
+    /// Work charged before refusal.
+    pub work: u64,
+    /// First refused charge, zero for semantic refusal.
+    pub attempted_work: u64,
+}
+
+struct ClockBudget<'a> {
+    occurrence: &'a CheckedOccurrence,
+    work: u64,
+    limit: u64,
+}
+
+impl ClockBudget<'_> {
+    fn error(
+        &self,
+        code: CheckedMonitorClockReadErrorCode,
+        at: &CheckedNodeId,
+    ) -> CheckedMonitorClockReadError {
+        CheckedMonitorClockReadError {
+            code,
+            at: Box::new(at.clone()),
+            occurrence: self.occurrence.clone(),
+            work: self.work,
+            attempted_work: 0,
+        }
+    }
+
+    fn charge(&mut self, at: &CheckedNodeId) -> Result<(), CheckedMonitorClockReadError> {
+        if self.work >= self.limit {
+            let mut error = self.error(CheckedMonitorClockReadErrorCode::WorkLimit, at);
+            error.attempted_work = 1;
+            return Err(error);
+        }
+        self.work += 1;
+        Ok(())
+    }
+}
+
+fn selected_row<'a, T>(
+    package: &CheckedPackageV2,
+    rows: &'a [T],
+    clause: &CheckedNodeId,
+    ordinal: u64,
+    key: impl Fn(&T) -> (&CheckedNodeId, u64),
+    budget: &mut ClockBudget<'_>,
+) -> Result<Option<&'a T>, CheckedMonitorClockReadError> {
+    let selected_key = package
+        .structural_key(clause)
+        .expect("admitted monitor clause key");
+    let mut low = 0;
+    let mut high = rows.len();
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let row = &rows[middle];
+        let (id, row_ordinal) = key(row);
+        budget.charge(id)?;
+        let row_key = package
+            .structural_key(id)
+            .expect("admitted temporal row key");
+        match (row_key, row_ordinal).cmp(&(selected_key, ordinal)) {
+            std::cmp::Ordering::Less => low = middle + 1,
+            std::cmp::Ordering::Greater => high = middle,
+            std::cmp::Ordering::Equal => return Ok(Some(row)),
+        }
+    }
+    Ok(None)
+}
+
 impl CheckedPackageV2 {
     /// Admitted monitor roots, in ascending resolved structural-key order.
     pub fn monitor_plans(&self) -> impl ExactSizeIterator<Item = CheckedMonitorPlanRef<'_>> {
@@ -239,6 +377,69 @@ impl<'a> CheckedMonitorPlanRef<'a> {
     /// The selected temporal clause.
     pub fn clause(&self) -> &'a CheckedNodeId {
         self.id(0)
+    }
+    /// Join one independently selected claim occurrence to this root's admitted clock and name.
+    ///
+    /// The caller supplies a final-emission clause ID and its full occurrence;
+    /// this read neither chooses a claim nor executes the monitor.
+    pub fn clock_for_claim(
+        &self,
+        clause: &CheckedNodeId,
+        occurrence: &CheckedOccurrence,
+        work_limit: u64,
+    ) -> Result<CheckedMonitorClockRead<'a>, CheckedMonitorClockReadError> {
+        let mut budget = ClockBudget {
+            occurrence,
+            work: 0,
+            limit: work_limit,
+        };
+        budget.charge(self.node_id())?;
+        budget.charge(clause)?;
+        if clause != self.clause() {
+            return Err(budget.error(CheckedMonitorClockReadErrorCode::WrongClause, clause));
+        }
+        if occurrence.role != CheckedOccurrenceRole::Claim {
+            return Err(budget.error(CheckedMonitorClockReadErrorCode::WrongRole, clause));
+        }
+        let admitted = self.package.node(clause).expect("admitted monitor clause");
+        let mut found = false;
+        for candidate in &admitted.occurrences {
+            budget.charge(clause)?;
+            if candidate == occurrence {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return Err(budget.error(CheckedMonitorClockReadErrorCode::UnknownOccurrence, clause));
+        }
+        let binding = selected_row(
+            self.package,
+            self.package.temporal_bindings().unwrap_or_default(),
+            clause,
+            occurrence.ordinal,
+            |row| (&row.declaration, row.occurrence),
+            &mut budget,
+        )?
+        .ok_or_else(|| budget.error(CheckedMonitorClockReadErrorCode::MissingClock, clause))?;
+        let name = selected_row(
+            self.package,
+            self.package.temporal_clause_names().unwrap_or_default(),
+            clause,
+            occurrence.ordinal,
+            |row| (&row.declaration, row.occurrence),
+            &mut budget,
+        )?
+        .ok_or_else(|| budget.error(CheckedMonitorClockReadErrorCode::MissingName, clause))?;
+        Ok(CheckedMonitorClockRead {
+            root: self.node_id(),
+            clause: self.clause(),
+            occurrence: occurrence.clone(),
+            clock: &binding.clock,
+            clock_name: &binding.clock_name,
+            claim_name: &name.name,
+            work: budget.work,
+        })
     }
     /// The monitor State record type.
     pub fn state(&self) -> &'a CheckedNodeId {

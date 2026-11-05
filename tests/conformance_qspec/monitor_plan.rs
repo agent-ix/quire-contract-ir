@@ -6,6 +6,9 @@
 use super::monitor_plan_fixtures::*;
 use super::*;
 use quire_contract_model::CheckedMonitorPlanRef;
+use quire_contract_model::{
+    CheckedMonitorClockReadErrorCode, CheckedOccurrence, CheckedOccurrenceRole,
+};
 use std::collections::BTreeSet;
 
 fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
@@ -13,6 +16,113 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("monitor recipe must admit: {other:?}"),
     }
+}
+
+/// Trace: FR-038-AC-470, TC-048.
+#[trace("TC-048", "FR-038-AC-470")]
+#[test]
+fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
+    let (mut wire, root) = materialize(&recipes()["base"]);
+    let clause =
+        wire["semantic_graph"]["nodes"][root]["body"]["members"][0]["value"]["target"].clone();
+    let at = position(&wire, &clause);
+    wire["semantic_graph"]["nodes"][at]["occurrences"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"role":"claim","ordinal":1}));
+    let mut second_binding = wire["temporal_bindings"][0].clone();
+    second_binding["occurrence"] = json!(1);
+    second_binding["clock"]["sequence_authority"] = json!("other-events");
+    wire["temporal_bindings"]
+        .as_array_mut()
+        .unwrap()
+        .push(second_binding);
+    let mut second_name = wire["temporal_clause_names"][0].clone();
+    second_name["occurrence"] = json!(1);
+    second_name["name"] = json!("Clause1");
+    wire["temporal_clause_names"]
+        .as_array_mut()
+        .unwrap()
+        .push(second_name);
+    finish(&mut wire);
+
+    let package = admitted(&wire);
+    let plan = package
+        .monitor_plans()
+        .next()
+        .expect("admitted monitor root");
+    let selected = plan.clause().clone();
+    let first = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Claim,
+        ordinal: 0,
+    };
+    let second = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Claim,
+        ordinal: 1,
+    };
+    let read0 = plan
+        .clock_for_claim(&selected, &first, 100)
+        .expect("first claim clock");
+    let read1 = plan
+        .clock_for_claim(&selected, &second, 100)
+        .expect("second claim clock");
+    assert_eq!(read0.root(), plan.node_id());
+    assert_eq!(read1.clause(), &selected);
+    assert_eq!(read1.occurrence(), &second);
+    assert_eq!(read0.claim_name(), "Clause0");
+    assert_eq!(read1.claim_name(), "Clause1");
+    assert_eq!(read0.clock_name(), "model-steps");
+    assert_eq!(read1.clock_name(), "model-steps");
+    assert_ne!(read0.clock(), read1.clock());
+    let exact = read1.work();
+    assert_eq!(
+        plan.clock_for_claim(&selected, &second, exact)
+            .unwrap()
+            .work(),
+        exact
+    );
+    let denied = plan
+        .clock_for_claim(&selected, &second, exact - 1)
+        .unwrap_err();
+    assert_eq!(denied.code, CheckedMonitorClockReadErrorCode::WorkLimit);
+    assert_eq!(denied.work, exact - 1);
+    assert_eq!(denied.at.as_ref(), &selected);
+    assert_eq!(denied.attempted_work, 1);
+    let cloned = package.clone();
+    assert_eq!(
+        cloned
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .clock_for_claim(&selected, &second, exact)
+            .unwrap(),
+        read1
+    );
+    let foreign = plan.state();
+    assert_eq!(
+        plan.clock_for_claim(foreign, &first, 100).unwrap_err().code,
+        CheckedMonitorClockReadErrorCode::WrongClause
+    );
+    let declaration = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Declaration,
+        ordinal: 0,
+    };
+    assert_eq!(
+        plan.clock_for_claim(&selected, &declaration, 100)
+            .unwrap_err()
+            .code,
+        CheckedMonitorClockReadErrorCode::WrongRole
+    );
+    let missing = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Claim,
+        ordinal: 2,
+    };
+    assert_eq!(
+        plan.clock_for_claim(&selected, &missing, 100)
+            .unwrap_err()
+            .code,
+        CheckedMonitorClockReadErrorCode::UnknownOccurrence
+    );
 }
 fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
     assert_eq!(
