@@ -3269,6 +3269,35 @@ settled until the owner confirms):
    have an accessor? Decided no: no consumer reads them (CG's frame object is an
    object type); they return `NotModelObjectType`.
 
+### Typed accessor for selected model record fields
+
+`CheckedPackageV2` shall export `model_record_fields(&self, record:
+&CheckedNodeId) -> Result<CheckedModelRecordFields,
+CheckedModelRecordFieldsError>`. It shall read the effective fields already
+retained for the selected model record declaration, in effective declaration
+order, without projecting any field into an Exact value type, reparsing a
+selected document, or deriving a second field table. The read shall not charge
+admission work or change the admitted package.
+
+The returned immutable `CheckedModelRecordFields` shall expose `fields()` and
+`field(&str)`. Each `CheckedModelRecordField` shall expose its selected IR
+`identity`, `name`, `optional` declaration flag and derived
+`Option<&CheckedMemberType>`. `optional` describes field presence independently
+of an `Option` member type; `CheckedMemberType` retains the admitted nested
+`Option` and `Collection` kinds, elements and bounds. A field whose declared
+type has no derived `CheckedMemberType` remains present with `member_type`
+`None`; it does not make the whole read fail. The field lookup shall return the
+same item as `fields()` or `None` for an absent name.
+
+The closed `CheckedModelRecordFieldsError` shall distinguish `UnknownNode`
+when the graph lacks the node, `NotModelRecordType` when it exists but is not
+a selected model record declaration, and `AmbiguousField` carrying the retained
+ambiguous name when effective fields conflict. The accessor shall return no
+partial field list on error and shall not panic. It shall not relax the
+complete-declaration requirement of `project_exact_type`: that projection
+still refuses `UnresolvedSelectedDeclaration` when a member references an
+unselected object declaration.
+
 ### Typed clause-context integer comparisons
 
 For a caller-supplied `state`/`state_clause` node id and one authentic `claim`
@@ -5787,6 +5816,9 @@ copying QSL execution semantics into IR.
 | FR-038-AC-464 | Implemented. Empty/malformed member identities, a missing/extra/reordered Group binding or unsupported term shape refuse `malformed_wire`. A different package, nonexistent declaration, non-Port declaration or member on a whole-model role refuses `invalid_model_binding`/`malformed-declaration` at the role node, retaining the supplied package/node texts; a nonexistent whole-model selection refuses `missing_declaration`/`missing-selection` first. Published FR-465 role-vector cases are read by reference; no selected kind is inferred from a declaration name. | Test (TC-048; QSpec FR-465-AC-12, TC-947) |
 | FR-038-AC-465 | Implemented. A protocol slot's lexical let/query/count/sum binders are in scope only inside their bound expression bodies, including nested binders and shared graph nodes reached under different lexical scopes. Genuine local reads do not produce `BinderScope`; the reader walks admitted terms with finite metered work and does not scan unrelated graph nodes to infer local ownership. | Test (TC-048) |
 | FR-038-AC-466 | Implemented. A local binder does not scope its own let initializer or an unrelated sibling expression, and a same-name local binding does not forgive a known protocol binder unavailable at that stage. Such external reads retain the typed BinderScope owner/name/stage/read refusal. Barred model-state reads retain their existing precedence and `ModelStateRead` detail. | Test (TC-048) |
+| FR-038-AC-467 | For an admitted selected `Receipt` model record whose effective field refers to an `Other` object declaration present in the selected document but absent from the selected graph, `model_record_fields(Receipt)` returns that field's authentic selected IR identity, name, optional flag and `CheckedMemberType::Reference(Other)` without requiring an Exact projection of `Other`; `project_exact_type(Receipt)` still refuses `UnresolvedSelectedDeclaration`. The accessor reads the retained table without a second derivation or admission charge. | Test |
+| FR-038-AC-468 | For effective record fields with nested `Option` and `Collection` member types, the accessor returns each field in effective declaration order with its exact derived kind, element and bounds; an optional String field whose derived type is `Option(String)` and a required field declared with `Option(Integer)` remain distinguishable by their optional flags. `field(name)` returns the same field as `fields()` and returns `None` for an absent name. A field with no derived member type remains in the returned list with `member_type` `None`. | Test |
+| FR-038-AC-469 | `model_record_fields` returns distinct typed `UnknownNode`, `NotModelRecordType` and `AmbiguousField(name)` errors for an absent graph node, an admitted non-record node and an admitted selected record with conflicting effective field names, respectively; each returns no partial field list. Equal calls and a cloned admitted package return equal values, and none of these calls panics. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

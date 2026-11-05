@@ -114,7 +114,8 @@ pub use model_enum_witness::{
 };
 pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
-    CheckedModelObjectFields, CheckedModelVariantBody, CheckedModelVariantCase,
+    CheckedModelObjectFields, CheckedModelRecordField, CheckedModelRecordFields,
+    CheckedModelRecordFieldsError, CheckedModelVariantBody, CheckedModelVariantCase,
     CheckedVariantPayloadType,
 };
 pub use monitor_plan::{CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef};

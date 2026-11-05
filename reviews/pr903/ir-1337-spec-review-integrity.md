@@ -1,0 +1,31 @@
+---
+id: SR-2026110414560027
+title: Integrity review of IR-1337 requirements
+type: SpecReview
+analysis: integrity
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md,
+  spec/model/functional/FR-019-rust-library-interface.md
+review_set: subset
+---
+
+## Summary
+
+Ticket: IR-1337. The new section and AC-467 through AC-469 consistently distinguish field presence, optional member type, and Exact projection. IDs are unique and sequential; error, unmapped-type, clone and ambiguity outcomes are explicit.
+
+## Reviewed scope
+
+- FR-038 (examined, spec/checked_package/functional/FR-038-consume-checked-package-v2.md): CheckedPackageV2 shall export model_record_fields for a selected model record; it shall read the admission-retained effective field table without Exact projection or second derivation, expose field presence and member type, and return typed errors without partial fields.
+- FR-038-AC-467 (examined, spec/checked_package/functional/FR-038-consume-checked-package-v2.md): For an admitted selected `Receipt` model record whose effective field refers to an `Other` object declaration present in the selected document but absent from the selected graph, `model_record_fields(Receipt)` returns that field's authentic selected IR identity, name, optional flag and `CheckedMemberType::Reference(Other)` without requiring an Exact projection of `Other`; `project_exact_type(Receipt)` still refuses `UnresolvedSelectedDeclaration`. The accessor reads the retained table without a second derivation or admission charge.
+- FR-038-AC-468 (examined, spec/checked_package/functional/FR-038-consume-checked-package-v2.md): For effective record fields with nested `Option` and `Collection` member types, the accessor returns each field in effective declaration order with its exact derived kind, element and bounds; an optional String field whose derived type is `Option(String)` and a required field declared with `Option(Integer)` remain distinguishable by their optional flags. `field(name)` returns the same field as `fields()` and returns `None` for an absent name. A field with no derived member type remains in the returned list with `member_type` `None`.
+- FR-038-AC-469 (examined, spec/checked_package/functional/FR-038-consume-checked-package-v2.md): `model_record_fields` returns distinct typed `UnknownNode`, `NotModelRecordType` and `AmbiguousField(name)` errors for an absent graph node, an admitted non-record node and an admitted selected record with conflicting effective field names, respectively; each returns no partial field list. Equal calls and a cloned admitted package return equal values, and none of these calls panics.
+- FR-019 (examined, spec/model/functional/FR-019-rust-library-interface.md): The V2 reader API inventory adds CheckedModelRecordField, CheckedModelRecordFields, and CheckedModelRecordFieldsError.
+
+## Verdict
+
+**PASS** for the changed PR surface. No new relationships edge, external tool dependency, or copied authority was introduced.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | low | No findings (placeholder) | - |
