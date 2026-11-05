@@ -358,7 +358,10 @@ fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
         };
         let refuse = |package: &Value, code: Code, cause: Option<Cause>| {
             assert!(
-                row["Expected"].as_str().unwrap().contains(code.as_str()),
+                row["Expected"]
+                    .as_str()
+                    .unwrap()
+                    .contains(serde_json::to_value(code).unwrap().as_str().unwrap()),
                 "owner oracle {id}: {row}"
             );
             let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
@@ -402,6 +405,7 @@ fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
                 package["semantic_graph"]["nodes"][clause]["body"]["arguments"][3]["value"]
                     ["members"] = json!([{"term":"reference","target":first},{"term":"reference","target":second_id}]);
                 fixture_support::settle(&mut package);
+                fixture_support::settle(&mut package);
                 let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
                     panic!("{id} positive: {:?}", read(&package))
                 };
@@ -439,6 +443,7 @@ fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
                         package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"] = json!({"term":"literal","type":fixture_support::node_id(&fixture_support::family_key("a1a1")),"value_kind":"text","value":"test/families"});
                     }
                     fixture_support::settle(&mut package);
+                    fixture_support::settle(&mut package);
                     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
                         panic!("{id} legacy")
                     };
@@ -462,6 +467,7 @@ fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
                         ["members"][0]["value"]["value"] = json!(package_name);
                     package["semantic_graph"]["nodes"][role]["body"]["arguments"][2]["value"]
                         ["members"][1]["value"]["value"] = json!(node);
+                    fixture_support::settle(&mut package);
                     fixture_support::settle(&mut package);
                     let failure = refuse(
                         &package,
@@ -488,12 +494,14 @@ fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
                         _ => unreachable!(),
                     }
                     fixture_support::settle(&mut package);
+                    fixture_support::settle(&mut package);
                     refuse(&package, Code::MalformedWire, None);
                 }
             }
             "RL30" | "RL31" => {
                 let mut package = base.clone();
                 package["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"] = json!({"term":"literal","type":fixture_support::node_id(&fixture_support::family_key("a1a1")),"value_kind":"text","value":if id=="RL30" {"test/families"} else {"missing/model"}});
+                fixture_support::settle(&mut package);
                 fixture_support::settle(&mut package);
                 if id == "RL30" {
                     refuse(

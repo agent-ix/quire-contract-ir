@@ -4035,6 +4035,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         Ok(scope)
     }
 
+    #[string_edge]
     fn slot(
         &self,
         owner: usize,
