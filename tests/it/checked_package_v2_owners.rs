@@ -155,7 +155,8 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
             SelectedTuplePositionRow {
                 ordinal: 0,
                 type_node: serde_json::from_value(boolean).unwrap(),
-                value_type: ValueType::Boolean,
+                // Opaque producer claims are retained, not rederived from IR.
+                value_type: ValueType::Uuid,
             },
             SelectedTuplePositionRow {
                 ordinal: 1,
@@ -188,6 +189,10 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
         .unwrap();
     assert_eq!(projected.value_type(), &ValueType::Composite(key));
     assert_eq!(projected.source_tuple_view(), Some(&row));
+    assert_eq!(
+        projected.source_tuple_view().unwrap().positions[0].value_type,
+        ValueType::Uuid
+    );
     let exact = projected.work();
     assert_eq!(
         package
@@ -265,13 +270,15 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
         );
     }
-    let foreign = SelectedSourceTupleRow {
-        structural_node: crate::support::checked_package::typed_node_id("foreign-tuple"),
-        ..row.clone()
-    };
-    assert!(SelectedExactIdentities::empty()
+    let mut foreign = row.clone();
+    foreign.structural_node.package = "other-package".into();
+    let foreign_id = foreign.structural_node.clone();
+    let refusal = SelectedExactIdentities::empty()
         .with_source_tuple_rows(&package, [foreign], 100)
-        .is_err());
+        .unwrap_err();
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ForeignNode);
+    assert_eq!(refusal.requested.as_ref(), &foreign_id);
+    assert_eq!(refusal.at.as_deref(), Some(&foreign_id));
     assert_eq!(
         SelectedExactIdentities::empty()
             .with_source_tuple_rows(&package, [row.clone(), row], 200)
