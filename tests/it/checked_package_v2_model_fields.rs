@@ -48,6 +48,7 @@ fn selected_record_fields_expose_presence_and_shape_without_exact_member_project
                 field("note", "ix://quire/native/String").optional(),
                 field("maybe_count", &orders("OptInt")),
                 field("nested", &orders("OptInt")).many((0, Some(3), true, false)),
+                field("text", "ix://quire/native/Text"),
             ],
         ),
         object("Other", &[], &[]),
@@ -69,7 +70,7 @@ fn selected_record_fields_expose_presence_and_shape_without_exact_member_project
             .iter()
             .map(|field| field.name())
             .collect::<Vec<_>>(),
-        ["link", "note", "maybe_count", "nested"]
+        ["link", "note", "maybe_count", "nested", "text"]
     );
     let link = fields.field("link").expect("link field");
     assert_eq!(link.identity(), format!("{}/link", orders("Receipt")));
@@ -107,10 +108,17 @@ fn selected_record_fields_expose_presence_and_shape_without_exact_member_project
         })
     );
     assert_eq!(fields.field("absent"), None);
+    assert_eq!(
+        fields
+            .field("text")
+            .expect("unmapped text field")
+            .member_type(),
+        None
+    );
     assert_eq!(admitted.clone().model_record_fields(&receipt), Ok(fields));
 
     let key = NodeKey::new("checked", vec![PathSegment::Text("Receipt".into())], 0).unwrap();
-    let names = ["link", "note", "maybe_count", "nested"];
+    let names = ["link", "note", "maybe_count", "nested", "text"];
     let declaration = SelectedExactDeclarationRow::new(
         receipt.clone(),
         IDENTITY,
@@ -135,6 +143,63 @@ fn selected_record_fields_expose_presence_and_shape_without_exact_member_project
     assert_eq!(
         refusal.code,
         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+    );
+}
+
+/// Trace: FR-038-AC-469.
+#[trace("FR-038-AC-469")]
+#[test]
+fn selected_record_fields_distinguish_missing_wrong_kind_and_ambiguous_declarations() {
+    let mut selected = document(vec![
+        typed_object(
+            "Receipt",
+            "record",
+            &[],
+            &[field("id", "ix://quire/native/Integer")],
+        ),
+        object("Other", &[], &[]),
+        typed_object(
+            "Base",
+            "record",
+            &[],
+            &[field("a", "ix://quire/native/Integer")],
+        ),
+        typed_object(
+            "Ambiguous",
+            "record",
+            &["Base"],
+            &[field("a", "ix://quire/native/Integer")],
+        ),
+    ]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind": {"module": IDENTITY, "name": "record"},
+        "construct": {"meaning": "quire.meaning.model.record-value-type/v1"},
+    }));
+    let admitted = admit(
+        &selected,
+        &[
+            ("Receipt", "record_value_type"),
+            ("Other", OBJECT),
+            ("Ambiguous", "record_value_type"),
+        ],
+        &[],
+    );
+    let record_id = |short: &str| -> CheckedNodeId {
+        serde_json::from_value(node_id(&declaration_key(short, "record_value_type")))
+            .expect("record node id")
+    };
+    assert_eq!(
+        admitted.model_record_fields(&record_id("Missing")),
+        Err(CheckedModelRecordFieldsError::UnknownNode)
+    );
+    assert_eq!(
+        admitted.model_record_fields(&declaration_id("Other")),
+        Err(CheckedModelRecordFieldsError::NotModelRecordType)
+    );
+    let expected = Err(CheckedModelRecordFieldsError::AmbiguousField("a".into()));
+    assert_eq!(
+        admitted.model_record_fields(&record_id("Ambiguous")),
+        expected
     );
 }
 
