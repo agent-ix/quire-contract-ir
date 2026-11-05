@@ -31,3 +31,9 @@ FAIL — acceptance evidence omits the compound_unit half of the new positive ru
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | AC-73 and TC-050 omit a bounded_domain over compound_unit positive case despite FR-038 permitting both underlying forms. Add the compound-unit domain control and expected lower outcome. | FR-038-AC-73; TC-050 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | AC-73 now states both bounded unit and bounded compound-unit positive cases; TC-050 calls and expects both to lower. Fixed AC excerpt: A record field declared at a `bounded_domain` over a `unit` and a parameter declared at a `bounded_domain` over a `compound_unit` each lower; a second record field declared directly at that `unit` in the same closure still refuses naming the `unit`, so the domain elsewhere never covers it. |
