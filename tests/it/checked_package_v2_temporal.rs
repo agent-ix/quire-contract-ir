@@ -2191,7 +2191,7 @@ fn tc_048_the_profile_fit_admits_each_interval_shape_per_profile() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-104", "FR-038-AC-122")]
+#[trace("TC-048", "FR-038-AC-104")]
 #[test]
 fn tc_048_finite_window_refuses_timed_and_open_interval_members() {
     const FINITE_WINDOW: &str = "quire.temporal.timestamped-event.finite-window/v1";
