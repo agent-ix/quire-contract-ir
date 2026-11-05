@@ -118,6 +118,20 @@ IR SHALL retain [FR-354](./FR-354-project-admitted-runtime-context.md)'s
 existing joins and refusal rules for model-selected declarations. IR SHALL
 include those declarations only when reachable from the selected closure.
 
+For a QSL-selected source record, IR SHALL accept one complete row carrying
+the final admitted record node, selected source authority and identity,
+original qualified declaration, QSL-issued opaque record key, and every
+declared member in producer order. Each member row SHALL retain its original
+declared field identity, final admitted binding name, declared presence,
+final emitted type node and QSL-issued opaque field value type. IR SHALL
+check the row against the selected source, admitted owner, declaration,
+record form, complete ordered member census, binding names and type-node
+references. It SHALL not infer a source `MemberId` or compare the opaque
+record key and value types against invented IR values. An absent selected row
+or a mismatched, duplicate or foreign row SHALL refuse without a partial
+source record view. This row join and single-type projection alone SHALL not
+certify monitor-entry reachability or the complete selected closure.
+
 IR SHALL join each required QSL row to the selected source or document, final
 admitted structural node, original declaration/member identity, form and
 occurrence. Missing, foreign, duplicate, conflicting or stale-after-rewrite
@@ -204,6 +218,7 @@ result alone SHALL NOT authorize either construction.
 | FR-357-AC-7 | Implemented (IR-721 selected facts). The bounded read inspects the explicitly selected admitted facts without traversing monitor entries or scanning unrelated graph nodes. Locating selected witnesses in full-emission row slices charges every inspected row and index entry, including unrelated rows; adding unrelated rows either raises required work or causes a charged first-row-locus stop at the former allowance. The exact allowance succeeds and one less refuses with attempted work and first uncharged locus. Equal inputs and allowance, including a package clone, yield equal results or first stops. | Test |
 | FR-357-AC-8 | Implemented (IR-721 selected facts; API and dependency inspection). Public API and dependency inspection shows the read takes an admitted package, explicit selected model declaration/field IDs and equality application/occurrence pairs, IR-owned row slices and a work allowance, performs no QSL/RT dependency or source recheck, and returns neither an IR environment nor `ProgramParts`. A caller adapts QSL-owned equality emission rows without changing their values; IR checks admitted joins but does not claim to authenticate arbitrary caller-created Exact payloads. | Inspection |
 | FR-357-AC-9 | Implemented (`quire-integration` PR #47; explicit selected-fact scope only). A `quire-integration` test obtains a real final `PlanRoot.emission` through QSL, selects admitted IDs from its available model declaration/field rows and one equality application/occurrence pair, translates QSL equality rows without changing their values, and exercises the public IR selected-fact read on those explicit IDs. It verifies successful joins for representable selected model facts and an opaque FR-353 equality decision or its native typed missing-witness result for the selected equality. The executed PR #47 control observed opaque equality success; the missing-witness alternative remains source-reviewed rather than an observed result. It does not traverse four monitor entries or claim a complete generated-source closure, `TypeEnvironment` or RT `ProgramParts`, and it adds no QSL dependency to IR. | Test |
+| FR-357-AC-10 | Implemented (IR-owned strict fixture; QSL producer handoff pending). A complete source record row joins one selected admitted source record with its original declaration identity, producer-claimed opaque record key and every member's original field identity, admitted name, presence, final type node and opaque value type in producer order. The selected record projects its opaque `ValueType::Composite` and exposes the complete joined member rows without creating a `MemberId`. Missing, foreign, duplicate, reordered, omitted, renamed or stale type-node rows refuse with a typed cause and no partial record view. Equal package clones and rows agree; an unrelated unsupported declaration is ignored. This explicit record projection does not claim four-entry closure or QSL producer authentication. | Test |
 
 ## Dependencies
 
@@ -224,8 +239,11 @@ result alone SHALL NOT authorize either construction.
   (IR-1323), including complete ordered member/payload correspondence and
   distinct type-handle and settled-key roles. Its native row tests do not
   establish genuine QSL output or authenticate opaque Exact payload values;
-  QSL-1723 and IR-1343 remain open. Authentic generated source record/member
-  identity handoff is also still required. No delivered enum or model row
+  QSL-1723 and IR-1343 remain open. QSL-1727 proposes final-emission source
+  record/member rows with original field names, declared presence and opaque
+  Exact types; AC-10 joins those rows structurally once delivered. No source
+  `MemberId` is retained by QSL's checking stage or invented by IR. No
+  delivered enum or model row
   substitutes for either missing producer channel. IR PR #906 implements
   selective monitor-entry callable reads; PR #907 extends ordinary source
   function bodies to direct admitted Values. Neither completes monitor closure. AC-1 through AC-4 remain planned

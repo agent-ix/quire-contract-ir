@@ -4,16 +4,18 @@
 //! Owner-wire admission and refusal cases built from this crate's public wire vocabulary.
 
 use crate::support::checked_package::{
-    bounds_body, canonical, evidence_for, evidence_with_document, integer_key, node_id,
-    reassign_node_id, refresh_identity, refresh_identity_projection, resolved_fixture_id,
+    boolean_key, bounds_body, canonical, evidence_for, evidence_with_document, integer_key,
+    node_id, reassign_node_id, refresh_identity, refresh_identity_projection, resolved_fixture_id,
     select_model, settle, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode, SelectedExactIdentities,
+    SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
 };
+use quire_exact::{NodeKey, PathSegment, Presence, ValueType};
 use serde_json::{json, Value};
 
 fn source_package_form(tag: &str, form: &str, name: &str) -> Value {
@@ -49,6 +51,269 @@ fn source_package_form(tag: &str, form: &str, name: &str) -> Value {
 
 fn source_package() -> Value {
     source_package_form("composite_type", "record", "Point")
+}
+
+fn source_record_with_members() -> Value {
+    let mut package = source_package();
+    for (name, form) in [(boolean_key(), "boolean"), (integer_key(), "integer")] {
+        let id = node_id(&name);
+        let nodes = package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        nodes.insert(
+            nodes.len() - 1,
+            json!({
+                "node_id": id, "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": "scalar_type", "semantic_form": form,
+                "semantic_type": id, "dependencies": [],
+                "occurrences": [{"role":"type","ordinal":0}],
+                "body": {"term":"aggregate","members":[]},
+            }),
+        );
+    }
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes");
+    let boolean = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "boolean")
+        .expect("boolean type")["node_id"]
+        .clone();
+    let integer = nodes
+        .iter()
+        .find(|node| node["semantic_form"] == "integer")
+        .expect("integer type")["node_id"]
+        .clone();
+    let option = node_id("option-integer");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    nodes.insert(
+        nodes.len() - 1,
+        json!({
+            "node_id": option, "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "composite_type", "semantic_form": "option",
+            "semantic_type": option, "dependencies": [integer],
+            "occurrences": [{"role":"type","ordinal":0}],
+            "body": {"term":"aggregate","members":[{"term":"reference","target":integer}]},
+        }),
+    );
+    let record = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap();
+    record["body"] = json!({"term":"aggregate","members":[
+        {"term":"binding","name":"active","value":{"term":"reference","target":boolean}},
+        {"term":"binding","name":"count","value":{"term":"aggregate","members":[
+            {"term":"binding","name":"optional","value":{"term":"reference","target":option}}
+        ]}},
+    ]});
+    record["dependencies"] = json!([boolean, option]);
+    settle(&mut package);
+    package
+}
+
+/// Trace: FR-357-AC-10, TC-048.
+#[trace("TC-048", "FR-357-AC-10")]
+#[test]
+fn selected_source_record_requires_complete_ordered_producer_rows() {
+    let wire = source_record_with_members();
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+        panic!("source record fixture admits")
+    };
+    let record = package
+        .graph()
+        .nodes
+        .last()
+        .expect("record")
+        .node_id
+        .clone();
+    assert!(package
+        .graph()
+        .nodes
+        .iter()
+        .any(|node| node.semantic_form.as_ref() == "enum"));
+    let source = &package.lock().sources[0];
+    let key = NodeKey::new(
+        "qsl-record-stage",
+        vec![PathSegment::Text("Point".into())],
+        0,
+    )
+    .expect("producer key");
+    let members = [
+        ("active", "boolean", ValueType::Boolean),
+        ("count", "option", ValueType::Integer),
+    ]
+    .into_iter()
+    .map(|(name, form, value_type)| {
+        let type_node = package
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.semantic_form.as_ref() == form)
+            .expect("field type")
+            .node_id
+            .clone();
+        SelectedSourceRecordMemberRow {
+            original_member_identity: name.into(),
+            admitted_name: name.into(),
+            presence: if name == "count" {
+                Presence::Optional
+            } else {
+                Presence::Required
+            },
+            type_node,
+            value_type,
+        }
+    })
+    .collect();
+    let row = SelectedSourceRecordRow {
+        structural_node: record.clone(),
+        source_authority: source.authority.clone(),
+        source_identity: source.identity.clone(),
+        qualified_declaration: vec!["Example".into(), "Point".into()],
+        record_key: key.clone(),
+        members,
+    };
+    let identities = SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [row.clone()], 100)
+        .expect("complete source row");
+    let join_exact = (0..=100)
+        .find(|&limit| {
+            SelectedExactIdentities::empty()
+                .with_source_record_rows(&package, [row.clone()], limit)
+                .is_ok()
+        })
+        .expect("bounded join succeeds");
+    assert!(join_exact > 0);
+    assert!(SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [row.clone()], join_exact - 1)
+        .is_err_and(|error| error.code == ExactTypeProjectionErrorCode::ExhaustedWork));
+    assert_eq!(identities.source_record_rows().next(), Some(&row));
+    let projected = package
+        .project_exact_type(&record, &identities, 100)
+        .expect("record Exact projection");
+    assert_eq!(projected.value_type(), &ValueType::Composite(key));
+    assert_eq!(projected.source_record_view(), Some(&row));
+    assert_eq!(
+        projected.source_record_view().unwrap().members[1].presence,
+        Presence::Optional
+    );
+    assert!(projected.record_view().is_none());
+    let exact = projected.work();
+    assert_eq!(
+        package
+            .project_exact_type(&record, &identities, exact)
+            .unwrap(),
+        projected
+    );
+    let denied = package
+        .project_exact_type(&record, &identities, exact - 1)
+        .unwrap_err();
+    assert_eq!(denied.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert!(denied.work < exact);
+    assert_eq!(denied.at.as_deref(), Some(&row.members[1].type_node));
+    let cloned = package.clone();
+    assert_eq!(
+        cloned
+            .project_exact_type(&record, &identities, exact)
+            .unwrap(),
+        projected
+    );
+    assert_eq!(
+        cloned
+            .project_exact_type(&record, &identities, exact - 1)
+            .unwrap_err(),
+        denied
+    );
+    let mut opaque = row.clone();
+    opaque.members[0].value_type = ValueType::String;
+    let opaque_identities = SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [opaque.clone()], 100)
+        .expect("opaque producer type remains a producer claim");
+    let opaque_projection = package
+        .project_exact_type(&record, &opaque_identities, 100)
+        .expect("structural join does not invent a different Exact field type");
+    assert_eq!(
+        opaque_projection.source_record_view().unwrap().members[0].value_type,
+        ValueType::String
+    );
+    assert_ne!(
+        opaque_projection.source_record_view().unwrap().members[0].value_type,
+        ValueType::Boolean
+    );
+    let absent = package
+        .project_exact_type(&record, &SelectedExactIdentities::empty(), 100)
+        .unwrap_err();
+    assert_eq!(
+        absent.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+
+    let variants = [
+        {
+            let mut r = row.clone();
+            r.members.swap(0, 1);
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members.pop();
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members[0].admitted_name = "renamed".into();
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members[0].type_node = record.clone();
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members[1].presence = Presence::Required;
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.members[1].original_member_identity = r.members[0].original_member_identity.clone();
+            r
+        },
+        {
+            let mut r = row.clone();
+            r.source_identity = "foreign-source".into();
+            r
+        },
+    ];
+    for variant in variants {
+        let refusal = SelectedExactIdentities::empty()
+            .with_source_record_rows(&package, [variant], 100)
+            .unwrap_err();
+        assert_eq!(
+            refusal.code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        assert_eq!(refusal.at.as_deref(), Some(&record));
+    }
+    let duplicate = SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [row.clone(), row.clone()], 200)
+        .unwrap_err();
+    assert_eq!(
+        duplicate.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+    let mut foreign = row;
+    foreign.structural_node.package = "other-package".into();
+    assert_eq!(
+        SelectedExactIdentities::empty()
+            .with_source_record_rows(&package, [foreign], 100)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::ForeignNode
+    );
 }
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {

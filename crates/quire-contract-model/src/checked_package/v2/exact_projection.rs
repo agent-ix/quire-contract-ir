@@ -327,6 +327,41 @@ pub struct SelectedSourceUnionRow {
     pub members: Vec<SelectedUnionMemberRow>,
 }
 
+/// One QSL-stage member of a source-owned record, in declaration order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedSourceRecordMemberRow {
+    /// Original declared field name in the selected source.
+    pub original_member_identity: Box<str>,
+    /// Name of the admitted record binding.
+    pub admitted_name: Box<str>,
+    /// Declared presence, independent of the field's Exact value type.
+    pub presence: Presence,
+    /// Final emitted type node referenced by the binding.
+    pub type_node: CheckedNodeId,
+    /// QSL-issued Exact value type after presence handling.
+    pub value_type: ValueType,
+}
+
+/// One complete QSL-stage source-record declaration and ordered member witness.
+///
+/// IR checks admitted structural correspondence; caller-created opaque Exact
+/// keys and types do not thereby acquire QSL producer authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedSourceRecordRow {
+    /// Final admitted record declaration node.
+    pub structural_node: CheckedNodeId,
+    /// Selected raw source authority.
+    pub source_authority: Box<str>,
+    /// Selected raw source identity.
+    pub source_identity: Box<str>,
+    /// Original qualified declaration segments.
+    pub qualified_declaration: Vec<Box<str>>,
+    /// QSL-issued Exact record type handle.
+    pub record_key: NodeKey,
+    /// Every declared member in producer order.
+    pub members: Vec<SelectedSourceRecordMemberRow>,
+}
+
 impl SelectedSourceUnionRow {
     /// Carry the complete selected source-union claim.
     pub fn new(
@@ -398,6 +433,67 @@ fn source_union_row_matches(package: &CheckedPackageV2, row: &SelectedSourceUnio
         })
 }
 
+fn source_record_row_matches(package: &CheckedPackageV2, row: &SelectedSourceRecordRow) -> bool {
+    let Some(node) = package.node(&row.structural_node) else {
+        return false;
+    };
+    let selected_source = package.lock().sources.iter().any(|source| {
+        source.authority == row.source_authority && source.identity == row.source_identity
+    });
+    let matching_owner = matches!(
+        &node.owner,
+        Some(CheckedNodeOwner::Source { authority, identity })
+            if authority == &row.source_authority && identity == &row.source_identity
+    );
+    let matching_declaration = node
+        .declaration
+        .as_ref()
+        .is_some_and(|declaration| declaration.qualified_name == row.qualified_declaration);
+    let Some(bindings) = package.term(&row.structural_node).and_then(typed_aggregate) else {
+        return false;
+    };
+    let mut original_names = BTreeSet::new();
+    package.node_kind(&row.structural_node)
+        == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Record))
+        && selected_source
+        && matching_owner
+        && matching_declaration
+        && bindings.len() == row.members.len()
+        && bindings
+            .iter()
+            .zip(&row.members)
+            .all(|(binding, supplied)| {
+                let CheckedTerm::Binding { name, value } = binding else {
+                    return false;
+                };
+                if supplied.original_member_identity.is_empty()
+                    || !original_names.insert(supplied.original_member_identity.as_ref())
+                    || name.as_ref() != supplied.admitted_name.as_ref()
+                {
+                    return false;
+                }
+                let (optional, target) = match value.as_ref() {
+                    CheckedTerm::Reference { target } => (false, target),
+                    CheckedTerm::Aggregate { members } => {
+                        let [CheckedTerm::Binding { name, value }] = members.as_slice() else {
+                            return false;
+                        };
+                        if name.internal_kind() != super::TermBindingName::Optional {
+                            return false;
+                        }
+                        let CheckedTerm::Reference { target } = value.as_ref() else {
+                            return false;
+                        };
+                        (true, target)
+                    }
+                    _ => return false,
+                };
+                target == &supplied.type_node
+                    && package.node(target).is_some()
+                    && optional == (supplied.presence == Presence::Optional)
+            })
+}
+
 /// One source-owned enum case's QSL-stage Exact member identity.
 ///
 /// The enum-member form is fixed by this row type. A later admitted join must
@@ -454,6 +550,7 @@ pub struct SelectedExactIdentities {
     admitted_tuples: BTreeMap<CheckedNodeId, NodeKey>,
     admitted_source_units: BTreeMap<CheckedNodeId, UnitId>,
     source_unions: Arc<BTreeMap<CheckedNodeId, SelectedSourceUnionRow>>,
+    source_records: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceRecordRow>>>,
 }
 
 impl SelectedExactIdentities {
@@ -611,6 +708,12 @@ impl SelectedExactIdentities {
                 .values()
                 .map(|row| row.type_handle.clone()),
         );
+        handles.extend(
+            selected
+                .source_records
+                .values()
+                .map(|row| row.record_key.clone()),
+        );
         for row in rows {
             let id = &row.structural_node;
             if package.node(id).is_none() {
@@ -639,6 +742,121 @@ impl SelectedExactIdentities {
     /// Validated source union rows, keyed by the full admitted structural node.
     pub fn source_union_rows(&self) -> impl Iterator<Item = &SelectedSourceUnionRow> {
         self.source_unions.values()
+    }
+
+    /// Join complete source-owned record rows to this package under a finite allowance.
+    ///
+    /// The join checks admitted structural facts. It does not authenticate
+    /// caller-created opaque Exact keys or member value types as QSL output.
+    pub fn with_source_record_rows(
+        &self,
+        package: &CheckedPackageV2,
+        rows: impl IntoIterator<Item = SelectedSourceRecordRow>,
+        work_limit: u64,
+    ) -> Result<Self, ExactTypeProjectionError> {
+        let mut selected = self.clone();
+        let mut work = 0;
+        for row in rows {
+            let id = &row.structural_node;
+            charge_work(id, id, "source_record_row", &mut work, work_limit)?;
+            for _ in &package.lock().sources {
+                charge_work(id, id, "selected_source", &mut work, work_limit)?;
+            }
+            for segment in &row.qualified_declaration {
+                charge_work_amount(
+                    id,
+                    id,
+                    "record_declaration",
+                    &mut work,
+                    work_limit,
+                    u64::try_from(segment.len()).unwrap_or(u64::MAX),
+                )?;
+            }
+            for member in &row.members {
+                charge_work(
+                    id,
+                    &member.type_node,
+                    "source_record_member",
+                    &mut work,
+                    work_limit,
+                )?;
+                charge_work_amount(
+                    id,
+                    &member.type_node,
+                    "source_record_member_identity",
+                    &mut work,
+                    work_limit,
+                    u64::try_from(
+                        member
+                            .original_member_identity
+                            .len()
+                            .saturating_add(member.admitted_name.len()),
+                    )
+                    .unwrap_or(u64::MAX),
+                )?;
+            }
+            if package.node(id).is_none() {
+                let mut error = selected_declaration_error(package, id);
+                error.work = work;
+                return Err(error);
+            }
+            if !source_record_row_matches(package, &row) {
+                let mut error =
+                    witness_error(id, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
+                error.work = work;
+                return Err(error);
+            }
+            let mut conflicting_handle = false;
+            for declaration in selected.declarations.values() {
+                charge_work(
+                    id,
+                    &declaration.structural_node,
+                    "record_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= matches!(
+                    &declaration.exact_identity,
+                    SelectedExactIdentity::Record(key)
+                        | SelectedExactIdentity::Union(key)
+                        | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key))
+                        if key == &row.record_key
+                );
+            }
+            for union in selected.source_unions.values() {
+                charge_work(
+                    id,
+                    &union.structural_node,
+                    "record_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= union.type_handle == row.record_key;
+            }
+            for record in selected.source_records.values() {
+                charge_work(
+                    id,
+                    &record.structural_node,
+                    "record_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= record.record_key == row.record_key;
+            }
+            if selected.source_records.contains_key(id) || conflicting_handle {
+                let mut error =
+                    witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
+                error.work = work;
+                return Err(error);
+            }
+            Arc::make_mut(&mut selected.source_records).insert(id.clone(), Arc::new(row));
+        }
+        Ok(selected)
+    }
+
+    /// Validated source record rows, keyed by the final admitted node.
+    pub fn source_record_rows(&self) -> impl Iterator<Item = &SelectedSourceRecordRow> {
+        self.source_records.values().map(Arc::as_ref)
     }
 
     pub(super) fn with_admitted_type_rows(
@@ -758,6 +976,7 @@ pub struct ExactTypeProjection {
     type_node: CheckedNodeId,
     value_type: ValueType,
     record_view: Option<SelectedRecordView>,
+    source_record_view: Option<Arc<SelectedSourceRecordRow>>,
     work: u64,
 }
 
@@ -780,6 +999,13 @@ impl ExactTypeProjection {
     /// The complete selected record view, when this projection is a record.
     pub fn record_view(&self) -> Option<&SelectedRecordView> {
         self.record_view.as_ref()
+    }
+
+    /// Complete structurally joined source record row, when this type is a source record.
+    ///
+    /// Its opaque key and member types remain QSL producer claims.
+    pub fn source_record_view(&self) -> Option<&SelectedSourceRecordRow> {
+        self.source_record_view.as_deref()
     }
 
     /// Work units charged by this complete projection.
@@ -1199,6 +1425,7 @@ impl CheckedPackageV2 {
             work: charged,
         };
         let mut record_view = None;
+        let mut source_record_view = None;
         let value_type = match kind {
             CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => ValueType::Boolean,
             CheckedNodeKind::ScalarType(ScalarTypeForm::Integer) => ValueType::Integer,
@@ -1346,6 +1573,59 @@ impl CheckedPackageV2 {
                 });
                 ValueType::Composite(record_key.clone())
             }
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Record) => {
+                let row = identities.source_records.get(type_id).ok_or_else(|| {
+                    refuse(
+                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                        work,
+                    )
+                })?;
+                charge_work(requested, type_id, "source_record", &mut work, work_limit)?;
+                for _ in &self.lock().sources {
+                    charge_work(requested, type_id, "selected_source", &mut work, work_limit)?;
+                }
+                for segment in &row.qualified_declaration {
+                    charge_work_amount(
+                        requested,
+                        type_id,
+                        "record_declaration",
+                        &mut work,
+                        work_limit,
+                        u64::try_from(segment.len()).unwrap_or(u64::MAX),
+                    )?;
+                }
+                for member in &row.members {
+                    charge_work(
+                        requested,
+                        &member.type_node,
+                        "source_record_member",
+                        &mut work,
+                        work_limit,
+                    )?;
+                    charge_work_amount(
+                        requested,
+                        &member.type_node,
+                        "source_record_member_identity",
+                        &mut work,
+                        work_limit,
+                        u64::try_from(
+                            member
+                                .original_member_identity
+                                .len()
+                                .saturating_add(member.admitted_name.len()),
+                        )
+                        .unwrap_or(u64::MAX),
+                    )?;
+                }
+                if !source_record_row_matches(self, row) {
+                    return Err(refuse(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                        work,
+                    ));
+                }
+                source_record_view = Some(Arc::clone(row));
+                ValueType::Composite(row.record_key.clone())
+            }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
                 let row = identities.source_unions.get(type_id).ok_or_else(|| {
                     refuse(
@@ -1395,6 +1675,7 @@ impl CheckedPackageV2 {
             type_node: type_id.clone(),
             value_type,
             record_view,
+            source_record_view,
             work,
         })
     }

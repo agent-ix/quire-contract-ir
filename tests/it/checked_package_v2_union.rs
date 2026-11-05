@@ -19,9 +19,10 @@ use quire_contract_model::{
     CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ExactTypeProjectionErrorCode,
-    SelectedExactIdentities, SelectedSourceUnionRow, SelectedUnionMemberRow,
+    SelectedExactIdentities, SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
+    SelectedSourceUnionRow, SelectedUnionMemberRow,
 };
-use quire_exact::{NodeKey, PathSegment, UnionMember, ValueType};
+use quire_exact::{NodeKey, PathSegment, Presence, UnionMember, ValueType};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
@@ -160,6 +161,70 @@ fn union_type(name: &str, members: &[(&str, &[&str])]) -> Value {
     );
     node["declaration"] = json!({"qualified_name": [name]});
     owned_structural_node(node, source_owner(&fixture_source()))
+}
+
+fn source_record_type(name: &str) -> Value {
+    let mut record = node(
+        name,
+        "composite_type",
+        "record",
+        name,
+        &["integer"],
+        "declaration",
+        aggregate(vec![binding("n", reference("integer"))]),
+    );
+    record["declaration"] = json!({"qualified_name": [name]});
+    owned_structural_node(record, source_owner(&fixture_source()))
+}
+
+/// Trace: FR-357-AC-10, FR-352-AC-16.
+#[trace("FR-357-AC-10", "FR-352-AC-16")]
+#[test]
+fn source_record_and_union_reject_one_opaque_type_handle_in_either_order() {
+    let mut nodes = common();
+    nodes.push(shape());
+    nodes.push(source_record_type("point"));
+    let wire = package_of(nodes);
+    let (admitted, _, union) = union_witness(&wire);
+    let record_id: quire_contract_model::CheckedNodeId = serde_json::from_value(
+        wire["semantic_graph"]["nodes"][position_of(&wire, "point")]["node_id"].clone(),
+    )
+    .expect("record node");
+    let source = fixture_source();
+    let record = SelectedSourceRecordRow {
+        structural_node: record_id,
+        source_authority: source["authority"].as_str().unwrap().into(),
+        source_identity: source["identity"].as_str().unwrap().into(),
+        qualified_declaration: vec!["point".into()],
+        record_key: union.type_handle.clone(),
+        members: vec![SelectedSourceRecordMemberRow {
+            original_member_identity: "n".into(),
+            admitted_name: "n".into(),
+            presence: Presence::Required,
+            type_node: typed_node_id(INTEGER_KEY),
+            value_type: ValueType::Integer,
+        }],
+    };
+    let record_first = SelectedExactIdentities::empty()
+        .with_source_record_rows(&admitted, [record.clone()], 100)
+        .expect("record structural join");
+    let union_after = record_first
+        .with_source_union_rows(&admitted, [union.clone()])
+        .unwrap_err();
+    assert_eq!(
+        union_after.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+    let union_first = SelectedExactIdentities::empty()
+        .with_source_union_rows(&admitted, [union])
+        .expect("union structural join");
+    let record_after = union_first
+        .with_source_record_rows(&admitted, [record], 100)
+        .unwrap_err();
+    assert_eq!(
+        record_after.code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
 }
 
 /// A union value of type `ty` constructing `member` over `payload` (value nodes).
