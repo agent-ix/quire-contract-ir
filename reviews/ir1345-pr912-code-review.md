@@ -31,3 +31,9 @@ FAIL (change scope) — one medium finding.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The test takes each expected carrier from the same QSpec row it loads and checks only membership in lowered bounds. It never checks the admitted carrier forms. If q_dec and q_rat point at integer_range carriers, all three positive assertions still pass, leaving the decimal_range and rational_range obligations unproved. | tests/conformance_qspec/carried_quantity.rs:487-512; FR-038-AC-73 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The test fixes q_int, q_dec and q_rat to distinct published carrier IDs and checks each admitted carrier kind against the specified integer, decimal or rational form. |

@@ -31,3 +31,9 @@ FAIL (change scope) — one medium finding.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | TC-050 requires a quantity-result application over parameters declared at a carried type to lower. The new request set has only records and a parameter; the existing TC-050 application uses an int09 parameter. No tagged test would fail if a carried-parameter application still returned RequiresBound. | tests/conformance_qspec/carried_quantity.rs:468-483; FR-038-AC-73 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The test adds published CQ-W15, asserts its source parameter is typed at q_pm2, and requires the quantity-result application to lower with that parameter in its closure. |
