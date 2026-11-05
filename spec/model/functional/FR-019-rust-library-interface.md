@@ -215,8 +215,7 @@ model APIs; their owning requirements retain those API obligations, including
 the planned IR-1141 structural selection controls of FR-053.
 FR-038-AC-324 specifies the planned `CheckedProtocolActivation` and
 `CheckedProtocolActivationRow` types and the associated
-`CheckedPackageV2::protocol_activation_relation` method.
-They SHALL enter
+`CheckedPackageV2::protocol_activation_relation` method. They SHALL enter
 the implemented Public items inventory when the reader exports them;
 until then FR-038 retains the full API and behavior obligation.
 

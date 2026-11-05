@@ -2550,7 +2550,6 @@ fn check_compensation(
 }
 
 #[string_edge]
-#[string_edge]
 fn role_member_texts(term: &CheckedTerm) -> Option<(&str, &str)> {
     if !group_fields_fit(term, &[("package", Shape::Text), ("node", Shape::Text)]) {
         return None;
@@ -2604,6 +2603,7 @@ fn check_role_member(
     Ok(())
 }
 
+#[string_edge]
 fn check_member(
     check: &MemberCheck<'_>,
     form: ProtocolForm,
