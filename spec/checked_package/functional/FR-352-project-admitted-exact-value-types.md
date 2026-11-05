@@ -67,6 +67,16 @@ admission authority.
   QSL-issued opaque Exact `ValueType`. A tuple position has no invented field
   name or `MemberId`; `AdmittedComposite::node()` is not substituted for the
   type handle.
+- For a selected source enum, one complete checking/emission-stage
+  `SelectedSourceEnumRow` joins a `SelectedEnumDeclarationRow` and all
+  `SelectedEnumMemberRow`s in admitted canonical case order. The declaration
+  carries its final structural node, selected source, original qualified
+  declaration, QSL-issued declaration `NodeKey`, and QSL-issued opaque
+  `EnumShape`. Each case carries its final emitted enum-value node, original
+  case, QSL-issued member `NodeKey` and `VariantId`. IR does not derive a
+  `VariantId` from a key or case spelling. The current QSL `AdmittedEnum`
+  facade does not expose the shape; a future same-emission producer handoff
+  must supply it from checking-stage authority.
 - For an admitted equality application, QSL checking/emission-stage identity
   rows from the same package construction. An application row carries the full
   emitted `CheckedNodeId`, its exact authored occurrence, the selected producer
@@ -284,6 +294,19 @@ opaque position `ValueType`s for a downstream `TypeEnvironment`; IR SHALL NOT
 infer them, mint the handle or treat arbitrary caller rows as producer authority.
 The join and projection SHALL charge every inspected row and position under a
 finite allowance and expose no partial tuple view on refusal.
+For a selected source enum, IR SHALL join the complete row to the admitted
+enum declaration's exact form, source owner, selected source and original
+qualified declaration. It SHALL compare the admitted ordered flag and every
+canonical case in position order, join each case to its final admitted
+enum-value node and declaring enum, and require the opaque `EnumShape` to have
+the same ordered flag, count and corresponding QSL-issued `VariantId` at each
+rank. A missing, foreign, stale, wrong-form, duplicate, reordered, extra or
+incomplete declaration/member row SHALL refuse at a typed locus before an
+Exact enum value type or partial view is returned. The read SHALL charge
+inspected rows and cases under a finite allowance, preserve the opaque
+declaration/member keys and case identities, and ignore unrelated admitted
+nodes. Structural correspondence SHALL NOT authenticate caller-created
+opaque keys, shape or variants as QSL output.
 The projection SHALL
 terminate or report work exhaustion within the caller's finite limit;
 neither recursion depth nor expansion of a cyclic type may bypass the limit.
@@ -317,6 +340,7 @@ AC-6 and AC-11; this projection alone does not satisfy those criteria.
 | FR-352-AC-16 | A complete IR-side selected source union row joins one admitted union by structural node, selected source authority and identity, source owner, original qualified declaration, QSL-issued type handle and settled key, and all sealed members with ordered final-emission payload `CheckedNodeId`s and corresponding `ValueType`s. An IR caller can inspect the validated settled key and ordered bindings; the general projection returns `Composite` with the type handle, including when it differs from the settled key. A projection at the exact finite allowance succeeds, one unit less exhausts with charged work, and equal reads of a package clone agree. This IR-side row test does not assert that QSL currently emits the row. | Test |
 | FR-352-AC-17 | A missing row or a bare union declaration key returns `UnavailableIdentityWitness`. A foreign or stale structural node or payload node, unselected or mismatched source, wrong declaration form or qualified name, duplicate union row, missing/reordered/extra member, wrong member identifier, settled-key owner or payload count refuses with a named typed outcome before `Composite` or a partial union view. A caller-created row is not authenticated as QSL output by the IR join. | Test |
 | FR-352-AC-18 | A complete IR-owned selected source tuple row joins the selected source, admitted tuple form and original qualified declaration, one QSL-issued `AdmittedComposite::key()` type handle, and every ordered zero-based position with its final emitted type node and opaque `ValueType`. Exact projection returns `Composite` of that handle and the complete ordered tuple view, with exact-limit and clone equality. Missing, foreign, duplicate, stale, wrong-form, reordered, changed-type or incomplete rows refuse at a typed structural locus with no partial view; a bare key and caller-created opaque values do not establish QSL producer authority. This IR-owned row qualification does not claim the final QSL producer supplies positions or satisfy FR-357's monitor closure. | Test |
+| FR-352-AC-19 | A selected source enum row with one QSL-issued declaration key, opaque `EnumShape`, and all case rows in admitted canonical order joins the selected source, original declaration, ordered flag, final declaration and enum-value nodes, case names, member keys and `VariantId`s at their exact ranks. Exact projection returns `Enum` of the supplied shape and a complete ordered view; exact allowance and package clone agree. Missing, foreign, duplicate, wrong-form, reordered, changed-case, changed-variant, extra or incomplete rows refuse with typed locus and no partial view; unrelated admitted nodes do not affect the result. The IR-owned fixture proves structural joins but does not authenticate a caller as QSL or satisfy FR-357 AC1-4/AC11. | Test |
 
 ## Dependencies
 
