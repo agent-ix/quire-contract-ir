@@ -118,7 +118,10 @@ pub use model_fields::{
     CheckedModelRecordFieldsError, CheckedModelVariantBody, CheckedModelVariantCase,
     CheckedVariantPayloadType,
 };
-pub use monitor_plan::{CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef};
+pub use monitor_plan::{
+    CheckedMonitorBufferRef, CheckedMonitorClockRead, CheckedMonitorClockReadError,
+    CheckedMonitorClockReadErrorCode, CheckedMonitorEntryRef, CheckedMonitorPlanRef,
+};
 pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use selected_facts::{
     SelectedFactEquality, SelectedFactEqualityId, SelectedFactField, SelectedFactFieldId,

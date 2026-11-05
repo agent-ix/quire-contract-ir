@@ -5349,6 +5349,21 @@ The admitted package SHALL expose indexed native family/form lookup by node ID,
 including an entry's reached expression body. An absent ID SHALL return no kind;
 the lookup SHALL preserve the admitted form without a driver-specific classifier
 or a graph scan.
+The borrowed plan view SHALL provide a bounded read for an independently selected
+final-emission temporal-clause node ID and full `CheckedOccurrence` with `Claim`
+role. It SHALL require the node ID to equal that plan's admitted clause and the
+occurrence to belong to that admitted clause. It SHALL join the exact
+`(declaration, occurrence ordinal)` to the admitted temporal binding and clause
+name rows, returning the selected root ID, clause ID, occurrence, exact
+`ClockConfiguration`, clock name, claim name and charged work without creating
+a clock or executing event semantics. Wrong clause, wrong role, absent claim
+occurrence, clock binding or clause name SHALL refuse with a distinct typed
+cause and native clause/row locus, without a partial value. The read SHALL
+charge each inspected identity or row under a finite allowance, succeed at its
+exact allowance and refuse one unit below with charged work and the first
+uncharged locus. Equal admitted inputs, including a package clone, SHALL give
+equal results or first stops. It SHALL inspect no unrelated graph node and
+SHALL NOT select by a caller-supplied name, path or row index.
 The plan's `counter_width_bits`
 SHALL return `u8`, `max_reading_gap` SHALL return `u64`, and `counter` SHALL return the exact nonempty `&'a str`. `tick_unit` SHALL
 return `&'a CheckedNodeId`. `max_event_rate` and `uncertainty` SHALL return
@@ -5833,6 +5848,7 @@ copying QSL execution semantics into IR.
 | FR-038-AC-467 | For an admitted selected `Receipt` model record whose effective field refers to an `Other` object declaration present in the selected document but absent from the selected graph, `model_record_fields(Receipt)` returns that field's authentic selected IR identity, name, optional flag and `CheckedMemberType::Reference(Other)` without requiring an Exact projection of `Other`; `project_exact_type(Receipt)` still refuses `UnresolvedSelectedDeclaration`. The accessor reads the retained table without a second derivation or admission charge. | Test |
 | FR-038-AC-468 | For effective record fields with nested `Option` and `Collection` member types, the accessor returns each field in effective declaration order with its exact derived kind, element and bounds; an optional String field whose derived type is `Option(String)` and a required field declared with `Option(Integer)` remain distinguishable by their optional flags. `field(name)` returns the same field as `fields()` and returns `None` for an absent name. A field with no derived member type remains in the returned list with `member_type` `None`. | Test |
 | FR-038-AC-469 | `model_record_fields` returns distinct typed `UnknownNode`, `NotModelRecordType` and `AmbiguousField(name)` errors for an absent graph node, an admitted non-record node and an admitted selected record with conflicting effective field names, respectively; each returns no partial field list. Equal calls and a cloned admitted package return equal values, and none of these calls panics. | Test |
+| FR-038-AC-470 | Given a strict admitted monitor root and an independently selected final-emission clause ID plus full claim occurrence, its borrowed bounded clock read returns that root, exact selected clause and occurrence, admitted `ClockConfiguration`, clock name and claim name with charged work. Two claim occurrences of one admitted clause retain their distinct clock configurations. Wrong clause, wrong role, absent occurrence and an admitted claim without a configured clock give distinct typed refusals with native loci and no partial value; a missing clock row for a configured claim or a missing claim-name row refuses during strict admission before a root can be read. Exact allowance succeeds, one below reports the first uncharged locus, and a cloned package returns equal values or first stops. Unrelated graph nodes are not inspected, and no QSL authority, event semantics or complete type closure is asserted. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
