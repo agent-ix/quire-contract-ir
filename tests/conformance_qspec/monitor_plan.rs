@@ -30,21 +30,11 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
         .as_array_mut()
         .unwrap()
         .push(json!({"role":"claim","ordinal":1}));
-    let mut second_binding = wire["temporal_bindings"][0].clone();
-    second_binding["occurrence"] = json!(1);
-    second_binding["clock"]["sequence_authority"] = json!("other-events");
-    wire["temporal_bindings"]
-        .as_array_mut()
-        .unwrap()
-        .push(second_binding);
-    let mut second_name = wire["temporal_clause_names"][0].clone();
-    second_name["occurrence"] = json!(1);
-    second_name["name"] = json!("Clause1");
-    wire["temporal_clause_names"]
-        .as_array_mut()
-        .unwrap()
-        .push(second_name);
     finish(&mut wire);
+    assert_eq!(wire["temporal_bindings"].as_array().unwrap().len(), 2);
+    assert_eq!(wire["temporal_clause_names"].as_array().unwrap().len(), 2);
+    wire["temporal_bindings"][1]["clock"]["sequence_authority"] = json!("other-events");
+    wire["temporal_clause_names"][1]["name"] = json!("Clause1");
     assert_eq!(
         wire["temporal_bindings"][1]["clock"]["sequence_authority"],
         "other-events"
