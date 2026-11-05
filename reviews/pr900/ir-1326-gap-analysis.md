@@ -24,3 +24,13 @@ A manual criterion-to-test check compared the new trace tags and assertions with
 ## Coverage
 
 Plan completion: not assessed. Scoped manual criterion-to-test review; no production code changed. FR-038-AC-104's finite-window open interval refusal is asserted at the application body. QSL FR-337-AC-24's finite-window timed_interval mutation is asserted at the operation member. FR-038-AC-122's actual rational timed form is tested in `tc_048_the_timed_form_fits_only_the_timed_profile`. The QSL prose's member-locus statement for the open interval conflicts with IR's application-locus rule and is an upstream cross-spec question, already routed to planning; it is not a defect in this IR test.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Commit 81c43a67 removes the FR-038-AC-122 tag; the test retains TC-048 and FR-038-AC-104, and its two refusal assertions are unchanged. |
+
+## Current verdict
+
+**PASS** — The only review finding is fixed. The retained FR-038-AC-104 trace matches the open-interval refusal, and the timed-form AC-122 remains covered by its dedicated test.
