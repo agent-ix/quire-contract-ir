@@ -60,7 +60,8 @@ node key.
 Under a bounds-required profile, lower a record whose field is typed at a
 `unit` node, a parameter typed at a `compound_unit` node, and
 `Sequence<Quantity>[0,3]` whose element type is a `unit` node. Lower a record
-whose field is declared at a `bounded_domain` over a `unit` node. Lower a
+whose field is declared at a `bounded_domain` over a `unit` node and a
+parameter declared at a `bounded_domain` over a `compound_unit` node. Lower a
 record with both a field declared directly at that `unit` and a field declared
 at the domain over it. Lower a `unit` declaration and a `compound_unit` node
 as the requested node, a record
@@ -69,10 +70,10 @@ annotation, and an application whose `result_type` is a quantity over
 parameters typed at a bounded type.
 
 The first three return `requires_bound` naming the exact `unit` or
-`compound_unit` node at the offending position. The domain-typed record
-lowers. The mixed record returns `requires_bound` naming its directly used
-`unit`, despite the domain elsewhere in its closure. The requested nodes, the
-annotation-only record and the application lower.
+`compound_unit` node at the offending position. The domain-typed record and
+parameter each lower. The mixed record returns `requires_bound` naming its
+directly used `unit`, despite the domain elsewhere in its closure. The
+requested nodes, the annotation-only record and the application lower.
 
 ## Shared closure work (FR-038-AC-308)
 
