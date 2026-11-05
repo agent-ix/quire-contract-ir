@@ -7,8 +7,8 @@ use crate::support::checked_package::{
     admitted_protocol_families, application_node_key, canonical, evidence_for,
     evidence_with_document, family_key, family_model_document, node_id, protocol_named_node,
     protocol_role_node, reassign_node_id, rebuild_source_map, refresh_identity,
-    refresh_identity_projection, refusal, refusal_at_id, rename_node, select_model,
-    selected_interface_model_node, settle, v2_all_families,
+    refresh_identity_projection, refusal, refusal_at_id, rename_node, role_port_fixture,
+    select_model, selected_interface_model_node, settle, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -10670,4 +10670,470 @@ fn qspec_typed_fairness_reader_vectors_match_owner_refusals() {
             vector["id"]
         );
     }
+}
+
+fn slot_application(
+    package: &mut Value,
+    form: &str,
+    operation: &str,
+    result: &Value,
+    arguments: Value,
+    member: Value,
+) -> Value {
+    let target = boolean_expression(package, "quire.op.boolean.not", &[]);
+    let at = node_position_for_key(package, &target);
+    let node = &mut package["semantic_graph"]["nodes"][at];
+    node["semantic_form"] = json!(form);
+    node["semantic_type"] = result.clone();
+    node["body"]["operator"] = json!(form);
+    node["body"]["operation"]["identity"] = json!(operation);
+    node["body"]["operation"]["member"] = member;
+    node["body"]["result_type"] = result.clone();
+    node["body"]["arguments"] = arguments;
+    target
+}
+
+fn set_recovery_predicate(package: &mut Value, compensation: usize, target: &Value) {
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][12]["value"]["members"]
+        [1]["value"] = json!({"term":"reference", "target":target});
+}
+
+fn slot_let_fixture(initializer_reads_local: bool) -> (Value, usize) {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    let boolean = node_id(&family_key("aaaa"));
+    let local = clause_parameter(&mut package, "slot_local", "8");
+    let at = node_position_for_key(&package, &local);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = boolean.clone();
+    let initializer = if initializer_reads_local {
+        json!({"term":"reference", "target":local})
+    } else {
+        json!({"term":"literal", "type":boolean, "value_kind":"boolean", "value":true})
+    };
+    let expression = slot_application(
+        &mut package,
+        "let",
+        "quire.op.control.let",
+        &boolean,
+        json!([{"term":"binding", "name":"slot_local", "value":initializer}, {"term":"reference", "target":local}]),
+        Value::Null,
+    );
+    set_recovery_predicate(&mut package, compensation, &expression);
+    settle(&mut package);
+    (package, compensation)
+}
+
+#[trace("FR-038-AC-465")]
+#[test]
+fn recovery_slot_let_body_reads_its_own_local_binder() {
+    let (package, _) = slot_let_fixture(false);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
+}
+
+#[trace("FR-038-AC-466")]
+#[test]
+fn recovery_slot_let_initializer_cannot_read_its_local_binder() {
+    let (package, compensation) = slot_let_fixture(true);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("out-of-scope local must refuse")
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert!(
+        matches!(refusal.protocol_detail.as_deref(), Some(CheckedProtocolRefusalDetail::BinderScope {name, stage, read, ..}) if name.as_ref()=="slot_local" && stage.as_ref()=="recovery" && read.as_ref()=="stage")
+    );
+    assert_eq!(
+        refusal.locus,
+        Some(
+            serde_json::from_value(
+                package["semantic_graph"]["nodes"][compensation]["node_id"].clone()
+            )
+            .unwrap()
+        )
+    );
+}
+
+#[trace("FR-038-AC-463")]
+#[test]
+fn role_accepts_a_selected_port_member_without_changing_legacy_roles() {
+    let (package, document, _) = role_port_fixture();
+    let result = CheckedPackageV2::read(
+        &canonical(&package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_with_document(&package, "test/families", &document),
+    );
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "{result:?}"
+    );
+    assert!(matches!(
+        read(&admitted_protocol_families()),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
+}
+
+#[trace("FR-038-AC-465")]
+#[test]
+fn recovery_slots_bind_sum_count_and_quantifier_parameters() {
+    for operation in [
+        "quire.op.collection.sum.integer",
+        "quire.op.collection.count",
+        "quire.op.collection.forall",
+    ] {
+        let (mut package, _, compensation) = package_with_admitted_compensation();
+        let integer = node_id(&family_key("a3a3"));
+        let boolean = node_id(&family_key("aaaa"));
+        let local = clause_parameter(&mut package, "slot_item", "8");
+        let at = node_position_for_key(&package, &local);
+        package["semantic_graph"]["nodes"][at]["semantic_type"] = integer.clone();
+        let mut sequence = package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| {
+                node["node_tag"] == "composite_type" && node["semantic_form"] == "reference"
+            })
+            .unwrap()
+            .clone();
+        let sequence_type = node_id("fixture/protocol-body/slot-sequence");
+        sequence["node_id"] = sequence_type.clone();
+        sequence["semantic_form"] = json!("sequence");
+        sequence["semantic_type"] = sequence_type.clone();
+        sequence["body"] =
+            json!({"term":"aggregate", "members":[{"term":"reference", "target":integer}]});
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(sequence);
+        let literal =
+            |n| json!({"term":"literal", "type":integer, "value_kind":"integer", "value":n});
+        let source = slot_application(
+            &mut package,
+            "collection",
+            "quire.op.collection.sequence",
+            &sequence_type,
+            json!([literal("1"), literal("2")]),
+            Value::Null,
+        );
+        let predicate = slot_application(
+            &mut package,
+            "binary",
+            "quire.op.integer.ge",
+            &boolean,
+            json!([{"term":"reference", "target":local},literal("0")]),
+            Value::Null,
+        );
+        let is_sum = operation.ends_with("sum.integer");
+        let is_quantifier = operation.ends_with("forall");
+        let result_type = if is_quantifier { &boolean } else { &integer };
+        let query = slot_application(
+            &mut package,
+            if is_quantifier {
+                "quantify"
+            } else {
+                "collection"
+            },
+            operation,
+            result_type,
+            json!([{"term":"reference", "target":source}, {"term":"binding", "name":"slot_item", "value":{"term":"reference", "target":if is_sum {local} else {predicate}}}]),
+            if is_quantifier {
+                Value::Null
+            } else {
+                json!({"kind":"type_argument", "declaration":integer})
+            },
+        );
+        let top = if is_quantifier {
+            query
+        } else {
+            slot_application(
+                &mut package,
+                "binary",
+                "quire.op.integer.ge",
+                &boolean,
+                json!([{"term":"reference", "target":query},literal("0")]),
+                Value::Null,
+            )
+        };
+        set_recovery_predicate(&mut package, compensation, &top);
+        settle(&mut package);
+        assert!(
+            matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+            "{operation}: {:?}",
+            read(&package)
+        );
+    }
+}
+
+#[trace("FR-038-AC-465", "FR-038-AC-466")]
+#[test]
+fn local_scope_is_nested_and_does_not_leak_through_a_shared_node() {
+    let (mut package, compensation) = slot_let_fixture(false);
+    let first = package["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|node| node["body"]["operation"]["identity"] == "quire.op.control.let")
+        .unwrap();
+    let outer = package["semantic_graph"]["nodes"][first]["body"]["arguments"][1]["target"].clone();
+    let boolean = node_id(&family_key("aaaa"));
+    let inner = clause_parameter(&mut package, "slot_inner", "9");
+    let at = node_position_for_key(&package, &inner);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = boolean.clone();
+    let conjunction = boolean_expression(
+        &mut package,
+        "quire.op.boolean.and",
+        &[outer.clone(), inner.clone()],
+    );
+    let inner_let = slot_application(
+        &mut package,
+        "let",
+        "quire.op.control.let",
+        &boolean,
+        json!([{"term":"binding","name":"slot_inner","value":{"term":"reference","target":outer}},{"term":"reference","target":conjunction}]),
+        Value::Null,
+    );
+    package["semantic_graph"]["nodes"][first]["body"]["arguments"][1] =
+        json!({"term":"reference","target":inner_let});
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "{:?}",
+        read(&package)
+    );
+    let let_id = package["semantic_graph"]["nodes"][first]["node_id"].clone();
+    let outside = boolean_expression(&mut package, "quire.op.boolean.and", &[let_id, outer]);
+    set_recovery_predicate(&mut package, compensation, &outside);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("local cannot leak into a sibling")
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert!(
+        matches!(refusal.protocol_detail.as_deref(),Some(CheckedProtocolRefusalDetail::BinderScope{name,stage,read,..}) if name.as_ref()=="slot_local" && stage.as_ref()=="recovery" && read.as_ref()=="stage")
+    );
+}
+
+#[trace("FR-038-AC-466")]
+#[test]
+fn same_name_let_cannot_launder_a_forward_protocol_capture() {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    let capture = &package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][5]
+        ["value"]["members"][0];
+    let binder = capture["members"][0]["value"]["target"].clone();
+    let initializer = capture["members"][1]["value"].clone();
+    let at = node_position_for_key(&package, &binder);
+    let name =
+        package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["value"].clone();
+    let ty = package["semantic_graph"]["nodes"][at]["semantic_type"].clone();
+    let expression = slot_application(
+        &mut package,
+        "let",
+        "quire.op.control.let",
+        &ty,
+        json!([{"term":"binding","name":name,"value":initializer},{"term":"reference","target":binder}]),
+        Value::Null,
+    );
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][5]["value"]["members"]
+        [0]["members"][1]["value"] = json!({"term":"reference","target":expression});
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("a self/forward capture is not an expression-local variable")
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert!(
+        matches!(refusal.protocol_detail.as_deref(),Some(CheckedProtocolRefusalDetail::BinderScope{stage,read,..}) if stage.as_ref()=="registration-capture" && read.as_ref()=="forward")
+    );
+}
+
+#[trace("FR-038-AC-466")]
+#[test]
+fn unused_local_binding_does_not_hide_barred_initializer_model_state() {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    let clause = clause_position(&package);
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let boolean = node_id(&family_key("aaaa"));
+    let expression = slot_application(
+        &mut package,
+        "let",
+        "quire.op.control.let",
+        &boolean,
+        json!([{"term":"binding","name":"over","value":{"term":"reference","target":over}},{"term":"literal","type":boolean,"value_kind":"boolean","value":true}]),
+        Value::Null,
+    );
+    set_recovery_predicate(&mut package, compensation, &expression);
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("barred model-state read must refuse before binder scope")
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert!(
+        matches!(refusal.protocol_detail.as_deref(),Some(CheckedProtocolRefusalDetail::ModelStateRead{slot}) if slot.as_ref()=="recovery.predicate")
+    );
+}
+
+fn read_port(package: &Value, document: &Value) -> CheckedPackageV2ReadResult {
+    CheckedPackageV2::read(
+        &canonical(package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_with_document(package, "test/families", document),
+    )
+}
+
+#[trace("FR-038-AC-464")]
+#[test]
+fn port_roles_refuse_wrong_selected_identity_and_member_kind() {
+    let (package, document, role) = role_port_fixture();
+    for (package_name, node) in [
+        ("other/package", "ix://test/families/PumpOutlet"),
+        ("test/families", "ix://test/families/Account"),
+        ("test/families", "ix://test/families/PortNamedPart"),
+        ("test/families", "ix://test/families/PortNamedConnection"),
+        ("test/families", "not-a-declaration"),
+    ] {
+        let mut wrong = package.clone();
+        let group =
+            &mut wrong["semantic_graph"]["nodes"][role]["body"]["arguments"][2]["value"]["members"];
+        group[0]["value"]["value"] = json!(package_name);
+        group[1]["value"]["value"] = json!(node);
+        settle(&mut wrong);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_port(&wrong, &document) else {
+            panic!("invalid member must refuse")
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            "{refusal:?}"
+        );
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MalformedDeclaration)
+        );
+        assert_protocol_refusal_at(&refusal, &wrong, role);
+        assert!(
+            matches!(refusal.protocol_detail.as_deref(),Some(CheckedProtocolRefusalDetail::ModelMember{package,node:actual}) if package.as_ref()==package_name && actual.as_ref()==node)
+        );
+    }
+}
+
+#[trace("FR-038-AC-464")]
+#[test]
+fn role_member_group_is_closed_nonempty_and_selection_checks_precede_member_checks() {
+    let (package, document, role) = role_port_fixture();
+    let original =
+        package["semantic_graph"]["nodes"][role]["body"]["arguments"][2]["value"].clone();
+    for variant in 0..7 {
+        let mut wrong = package.clone();
+        let member = &mut wrong["semantic_graph"]["nodes"][role]["body"]["arguments"][2]["value"];
+        match variant {
+            0 | 1 => member["members"][variant]["value"]["value"] = json!(""),
+            2 => member["members"]
+                .as_array_mut()
+                .unwrap()
+                .push(original["members"][0].clone()),
+            3 => member["members"] = json!([]),
+            4 => member["members"].as_array_mut().unwrap().reverse(),
+            5 => member["members"][0]["value"]["value"] = json!(7),
+            6 => *member = json!({"term":"reference","target":node_id(&family_key("1515"))}),
+            _ => unreachable!(),
+        }
+        settle(&mut wrong);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_port(&wrong, &document) else {
+            panic!("invalid member layout {variant}")
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::MalformedWire,
+            "{variant}: {refusal:?}"
+        );
+    }
+    for (identity, code, cause) in [
+        (
+            "test/families",
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            CheckedPackageRefusalCause::MalformedDeclaration,
+        ),
+        (
+            "missing/model",
+            CheckedPackageRefusalCode::MissingDeclaration,
+            CheckedPackageRefusalCause::MissingSelection,
+        ),
+    ] {
+        let mut wrong = package.clone();
+        wrong["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"] = json!({"term":"literal","type":node_id(&family_key("a1a1")),"value_kind":"text","value":identity});
+        settle(&mut wrong);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_port(&wrong, &document) else {
+            panic!("a whole-model role cannot carry a member")
+        };
+        assert_eq!(refusal.code, code);
+        assert_eq!(refusal.cause, Some(cause));
+        assert_protocol_refusal_at(&refusal, &wrong, role);
+    }
+}
+
+#[trace("FR-038-AC-463")]
+#[test]
+fn port_member_borrowed_read_and_typed_writer_preserve_the_exact_pair() {
+    let (package, document, role) = role_port_fixture();
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read_port(&package, &document) else {
+        panic!("Port role admits")
+    };
+    let id: CheckedNodeId =
+        serde_json::from_value(package["semantic_graph"]["nodes"][role]["node_id"].clone())
+            .unwrap();
+    assert_eq!(
+        admitted.protocol_role_model_member(&id),
+        Some(("test/families", "ix://test/families/PumpOutlet"))
+    );
+    let encoded = quire_contract_model::encode_checked_package_v2(
+        admitted.name(),
+        admitted.lock(),
+        admitted.graph(),
+        quire_contract_model::CheckedPackageSourceCorrespondenceRef {
+            source_map: admitted.source_map(),
+            refinement_step_rows: admitted.refinement_step_rows(),
+        },
+        quire_contract_model::CheckedPackageSidecarsRef {
+            checked_term_data: admitted.checked_term_data(),
+            temporal_bindings: admitted.temporal_bindings(),
+            temporal_clause_names: admitted.temporal_clause_names(),
+            schedulability_claims: admitted.schedulability_claim_rows(),
+            operation_effects: admitted.operation_effect_rows(),
+        },
+        admitted.capability_report(),
+        admitted.diagnostics(),
+        quire_canonical::Limits::new(1 << 24),
+    )
+    .unwrap();
+    let CheckedPackageV2ReadResult::Admitted(again) = CheckedPackageV2::read(
+        &encoded,
+        CheckedPackageReadLimits::bounded(),
+        &evidence_with_document(&package, "test/families", &document),
+    ) else {
+        panic!("typed re-encoding admits")
+    };
+    assert_eq!(admitted, again);
+    assert_eq!(
+        again.protocol_role_model_member(&id),
+        admitted.protocol_role_model_member(&id)
+    );
+    let mut legacy = package.clone();
+    legacy["semantic_graph"]["nodes"][role]["body"]["arguments"]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    settle(&mut legacy);
+    let CheckedPackageV2ReadResult::Admitted(legacy_read) = read_port(&legacy, &document) else {
+        panic!("two-argument role stays valid")
+    };
+    assert_eq!(legacy_read.protocol_role_model_member(&id), None);
+    legacy["semantic_graph"]["nodes"][role]["body"]["arguments"][0]["value"] = json!({"term":"literal","type":node_id(&family_key("a1a1")),"value_kind":"text","value":"test/families"});
+    settle(&mut legacy);
+    assert!(matches!(
+        read_port(&legacy, &document),
+        CheckedPackageV2ReadResult::Admitted(_)
+    ));
 }

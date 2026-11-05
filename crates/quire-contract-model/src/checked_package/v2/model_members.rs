@@ -569,7 +569,7 @@ pub(super) struct DomainModel {
     /// Systems connection declarations that also back relation nodes.
     pub(super) relation_nodes: BTreeSet<Box<str>>,
     /// Types of every other FR-208 meaning, by IR node identity.
-    pub(super) other_types: BTreeSet<Box<str>>,
+    other_types: BTreeMap<Box<str>, meaning::Kind>,
     /// The field tables of [`Self::object_types`], empty until the lock stage
     /// builds them (`build_field_tables`).
     pub(super) fields: FieldTables,
@@ -1035,6 +1035,11 @@ pub(super) mod probe {
 }
 
 impl DomainModel {
+    /// Whether the admitted selected declaration has the systems Port meaning.
+    pub(super) fn is_systems_port(&self, node: &str) -> bool {
+        self.other_types.get(node) == Some(&meaning::Kind::SystemsPort)
+    }
+
     fn selected_type_ref(&self, name: &str) -> Option<SelectedTypeRef> {
         let mut current: Box<str> = name.into();
         let mut seen = BTreeSet::new();
@@ -3354,7 +3359,7 @@ pub(super) fn read_semantic_ir(
         populations: BTreeSet::new(),
         population_members: BTreeMap::new(),
         relation_nodes: BTreeSet::new(),
-        other_types: BTreeSet::new(),
+        other_types: BTreeMap::new(),
         fields: FieldTables::default(),
     };
     for population in list(document, "populations")? {
@@ -3515,7 +3520,7 @@ pub(super) fn read_semantic_ir(
             | meaning::Kind::SystemsPart
             | meaning::Kind::SystemsPort
             | meaning::Kind::SystemsAllocation => {
-                model.other_types.insert((*node).into());
+                model.other_types.insert((*node).into(), meaning);
                 if matches!(
                     meaning,
                     meaning::Kind::EventType
@@ -4064,7 +4069,7 @@ impl References<'_> {
             || self.model.record_types.contains_key(node)
             || self.model.collection_types.contains_key(node)
             || self.scope.records.contains(node)
-            || self.model.other_types.contains(node)
+            || self.model.other_types.contains_key(node)
             || self.scope.relationships.contains(node)
     }
 

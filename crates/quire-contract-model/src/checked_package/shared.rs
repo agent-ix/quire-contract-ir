@@ -388,6 +388,13 @@ pub enum CheckedTerminalDuplicate {
 /// Protocol control information retained at a typed reader refusal.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum CheckedProtocolRefusalDetail {
+    /// A role's supplied selected member does not name an eligible Port.
+    ModelMember {
+        /// The supplied selected package identity.
+        package: Box<str>,
+        /// The supplied original declaration identity.
+        node: Box<str>,
+    },
     /// A protocol expression reads a binder outside its stage's readable set.
     BinderScope {
         /// The binder's declared name.

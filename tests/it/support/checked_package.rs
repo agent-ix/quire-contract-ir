@@ -33,6 +33,10 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
+#[path = "protocol_ports.rs"]
+mod protocol_ports;
+pub use protocol_ports::role_port_fixture;
+
 pub const COMPLETE_VALUE_FEATURE: &str = "quire.value.complete/v1";
 pub const FIXTURE_PACKAGE: &str = "test/families";
 const FAMILY_MODEL_IDENTITY: &str = "test/families";

@@ -219,6 +219,11 @@ FR-038-AC-324 specifies the planned `CheckedProtocolActivation` and
 the implemented Public items inventory when the reader exports them;
 until then FR-038 retains the full API and behavior obligation.
 
+The borrowed `CheckedPackageV2::protocol_role_model_member` method returns
+the admitted selected-package and Port declaration text pair of FR-038-AC-463,
+with no replacement identity carrier. The implemented typed refusal context is
+`CheckedProtocolRefusalDetail::ModelMember` (FR-038-AC-464).
+
 The authenticated schedulability carrier of FR-038-AC-396 through
 FR-038-AC-400 is implemented. The borrowed
 `CheckedSchedulabilityClaimRef<'a>` and the associated
@@ -255,7 +260,10 @@ default-feature build, grouped by the module that defines them. Planned
 exceptions are marked in their row. An item's own
 public fields, variants, associated constants and inherent methods are part
 of the item and are not listed separately unless an independent public
-operation has its own owning requirement, as listed below.
+operation has its own owning requirement, as listed below. The borrowed
+protocol role member read and refusal variant documented above belong to the
+already listed CheckedPackageV2 and CheckedProtocolRefusalDetail types; they
+add no crate-root export.
 
 | Module | Public items | Owning requirement |
 | --- | --- | --- |
