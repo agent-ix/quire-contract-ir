@@ -45,12 +45,22 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
         .unwrap()
         .push(second_name);
     finish(&mut wire);
+    assert_eq!(
+        wire["temporal_bindings"][1]["clock"]["sequence_authority"],
+        "other-events"
+    );
 
     let package = admitted(&wire);
     let plan = package
         .monitor_plans()
         .next()
         .expect("admitted monitor root");
+    assert_eq!(
+        package.temporal_bindings().unwrap()[1].clock,
+        quire_contract_model::ClockConfiguration::EventPosition {
+            sequence_authority: "other-events".into()
+        }
+    );
     let selected = plan.clause().clone();
     let first = CheckedOccurrence {
         role: CheckedOccurrenceRole::Claim,
