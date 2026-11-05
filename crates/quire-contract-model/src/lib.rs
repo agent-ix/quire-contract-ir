@@ -224,12 +224,13 @@ pub use checked_package::{
     SelectedOperationIdentity, SelectedOperationMemberError, SelectedOperationMemberErrorCode,
     SelectedOperationMemberRow, SelectedOperationMembers, SelectedRecordFieldView,
     SelectedRecordView, SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
-    SelectedSourceUnionRow, SelectedSourceUnitRow, SelectedTupleDeclarationRow,
-    SelectedTypeDeclarations, SelectedTypeDeclarationsError, SelectedTypeDimension,
-    SelectedTypeObject, SelectedTypeObjectField, SelectedTypeObjectOperation,
-    SelectedTypeOperationParameter, SelectedTypeRecord, SelectedTypeTuple, SelectedTypeUnit,
-    SelectedUnionMemberRow, StateForm, TemporalBinding, TemporalClauseName, TemporalForm,
-    TimedModelForm, ValueForm, CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
+    SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
+    SelectedTupleDeclarationRow, SelectedTuplePositionRow, SelectedTypeDeclarations,
+    SelectedTypeDeclarationsError, SelectedTypeDimension, SelectedTypeObject,
+    SelectedTypeObjectField, SelectedTypeObjectOperation, SelectedTypeOperationParameter,
+    SelectedTypeRecord, SelectedTypeTuple, SelectedTypeUnit, SelectedUnionMemberRow, StateForm,
+    TemporalBinding, TemporalClauseName, TemporalForm, TimedModelForm, ValueForm,
+    CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
 };
 
 pub use checked_package::CheckedFieldReadForm;

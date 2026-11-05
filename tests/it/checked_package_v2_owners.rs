@@ -13,7 +13,8 @@ use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode, SelectedExactIdentities,
-    SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
+    SelectedSourceRecordMemberRow, SelectedSourceRecordRow, SelectedSourceTupleRow,
+    SelectedTuplePositionRow,
 };
 use quire_exact::{NodeKey, PathSegment, Presence, ValueType};
 use serde_json::{json, Value};
@@ -112,6 +113,172 @@ fn source_record_with_members() -> Value {
     record["dependencies"] = json!([boolean, option]);
     settle(&mut package);
     package
+}
+
+/// Trace: FR-352-AC-18.
+#[trace("FR-352-AC-18")]
+#[test]
+fn selected_source_tuple_requires_complete_ordered_position_rows() {
+    let mut wire = source_record_with_members();
+    let tuple = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap();
+    tuple["semantic_form"] = json!("tuple");
+    let boolean = node_id(&boolean_key());
+    let integer = node_id(&integer_key());
+    tuple["dependencies"] = json!([boolean, integer]);
+    tuple["body"] = json!({"term":"aggregate","members":[
+        {"term":"reference","target":boolean},
+        {"term":"reference","target":integer}
+    ]});
+    settle(&mut wire);
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+        panic!("source tuple fixture admits")
+    };
+    let structural_node = package.graph().nodes.last().unwrap().node_id.clone();
+    let source = &package.lock().sources[0];
+    let key = NodeKey::new(
+        "qsl-tuple-stage",
+        vec![PathSegment::Text("Point".into())],
+        0,
+    )
+    .unwrap();
+    let row = SelectedSourceTupleRow {
+        structural_node: structural_node.clone(),
+        source_authority: source.authority.clone(),
+        source_identity: source.identity.clone(),
+        qualified_declaration: vec!["Example".into(), "Point".into()],
+        type_handle: key.clone(),
+        positions: vec![
+            SelectedTuplePositionRow {
+                ordinal: 0,
+                type_node: serde_json::from_value(boolean).unwrap(),
+                value_type: ValueType::Boolean,
+            },
+            SelectedTuplePositionRow {
+                ordinal: 1,
+                type_node: serde_json::from_value(integer).unwrap(),
+                value_type: ValueType::Integer,
+            },
+        ],
+    };
+    let identities = SelectedExactIdentities::empty()
+        .with_source_tuple_rows(&package, [row.clone()], 100)
+        .unwrap();
+    let join_exact = (0..=100)
+        .find(|&limit| {
+            SelectedExactIdentities::empty()
+                .with_source_tuple_rows(&package, [row.clone()], limit)
+                .is_ok()
+        })
+        .unwrap();
+    assert!(join_exact > 0);
+    assert_eq!(
+        SelectedExactIdentities::empty()
+            .with_source_tuple_rows(&package, [row.clone()], join_exact - 1)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::ExhaustedWork
+    );
+    assert_eq!(identities.source_tuple_rows().next(), Some(&row));
+    let projected = package
+        .project_exact_type(&structural_node, &identities, 100)
+        .unwrap();
+    assert_eq!(projected.value_type(), &ValueType::Composite(key));
+    assert_eq!(projected.source_tuple_view(), Some(&row));
+    let exact = projected.work();
+    assert_eq!(
+        package
+            .project_exact_type(&structural_node, &identities, exact)
+            .unwrap(),
+        projected
+    );
+    assert_eq!(
+        package
+            .project_exact_type(&structural_node, &identities, exact - 1)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::ExhaustedWork
+    );
+    assert_eq!(
+        package
+            .clone()
+            .project_exact_type(&structural_node, &identities, exact)
+            .unwrap(),
+        projected
+    );
+    assert_eq!(
+        package
+            .project_exact_type(&structural_node, &SelectedExactIdentities::empty(), 100)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    let mut changed = row.clone();
+    changed.positions[1].type_node = changed.positions[0].type_node.clone();
+    assert_eq!(
+        SelectedExactIdentities::empty()
+            .with_source_tuple_rows(&package, [changed], 100)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut reordered = row.clone();
+    reordered.positions.swap(0, 1);
+    assert_eq!(
+        SelectedExactIdentities::empty()
+            .with_source_tuple_rows(&package, [reordered], 100)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut incomplete = row.clone();
+    incomplete.positions.pop();
+    assert_eq!(
+        SelectedExactIdentities::empty()
+            .with_source_tuple_rows(&package, [incomplete], 100)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    for changed in [
+        SelectedSourceTupleRow {
+            source_identity: "foreign".into(),
+            ..row.clone()
+        },
+        SelectedSourceTupleRow {
+            qualified_declaration: vec!["Other".into(), "Point".into()],
+            ..row.clone()
+        },
+        SelectedSourceTupleRow {
+            structural_node: row.positions[0].type_node.clone(),
+            ..row.clone()
+        },
+    ] {
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_tuple_rows(&package, [changed], 100)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+    }
+    let foreign = SelectedSourceTupleRow {
+        structural_node: crate::support::checked_package::typed_node_id("foreign-tuple"),
+        ..row.clone()
+    };
+    assert!(SelectedExactIdentities::empty()
+        .with_source_tuple_rows(&package, [foreign], 100)
+        .is_err());
+    assert_eq!(
+        SelectedExactIdentities::empty()
+            .with_source_tuple_rows(&package, [row.clone(), row], 200)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
 }
 
 /// Trace: FR-357-AC-10, TC-048.
