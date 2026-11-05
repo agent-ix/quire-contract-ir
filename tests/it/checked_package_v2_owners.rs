@@ -4,8 +4,8 @@
 //! Owner-wire admission and refusal cases built from this crate's public wire vocabulary.
 
 use crate::support::checked_package::{
-    bounds_body, canonical, evidence_for, evidence_with_document, integer_key, node_id,
-    reassign_node_id, refresh_identity, refresh_identity_projection, resolved_fixture_id,
+    boolean_key, bounds_body, canonical, evidence_for, evidence_with_document, integer_key,
+    node_id, reassign_node_id, refresh_identity, refresh_identity_projection, resolved_fixture_id,
     select_model, settle, v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
@@ -55,6 +55,22 @@ fn source_package() -> Value {
 
 fn source_record_with_members() -> Value {
     let mut package = source_package();
+    for (name, form) in [(boolean_key(), "boolean"), (integer_key(), "integer")] {
+        let id = node_id(&name);
+        let nodes = package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes");
+        nodes.insert(
+            nodes.len() - 1,
+            json!({
+                "node_id": id, "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": "scalar_type", "semantic_form": form,
+                "semantic_type": id, "dependencies": [],
+                "occurrences": [{"role":"type","ordinal":0}],
+                "body": {"term":"aggregate","members":[]},
+            }),
+        );
+    }
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes");
