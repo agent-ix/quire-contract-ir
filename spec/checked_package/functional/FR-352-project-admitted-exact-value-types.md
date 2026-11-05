@@ -49,6 +49,15 @@ admission authority.
   operation identity. The latter is the stage's existing operation identity;
   this contract does not mint an Exact key for an operation. The row is
   producer input alongside the package, not a new QSpec wire member.
+- For a source-owned selected union, one QSL checking/emission-stage
+  `SelectedSourceUnionRow` from the same final checked-package emission. It
+  carries the full union structural node, selected source authority and
+  identity, original qualified declaration, QSL-issued union type handle
+  (`AdmittedComposite::key()`), settled union key
+  (`AdmittedComposite::node()`), and every QSL-issued sealed `UnionMember`
+  binding with its ordered final-emission IR payload `CheckedNodeId`s and
+  corresponding QSL-issued payload `ValueType`s. The type handle and settled
+  key are distinct roles even when their values happen to agree.
 - For an admitted equality application, QSL checking/emission-stage identity
   rows from the same package construction. An application row carries the full
   emitted `CheckedNodeId`, its exact authored occurrence, the selected producer
@@ -235,6 +244,23 @@ union may use `Composite(NodeKey)` only when its selected union declaration
 and payload identity have an authoritative exact witness. A selected union
 declaration key alone does not witness its payload identity or establish a
 complete union projection.
+For a source-owned union, IR SHALL join the complete selected union row to the
+admitted union's full structural node, selected source in the package lock,
+source owner and original qualified declaration. It SHALL compare the sealed
+members in admitted declaration order by identifier and every positional
+payload structural node, require equal payload `ValueType` and node counts,
+and require each binding's declaration and variant owner to equal the
+settled union key, and refuse a missing, foreign, stale, wrong-form, duplicate,
+conflicting or incomplete row before projection. The QSL-issued payload
+`ValueType`s and opaque keys remain producer facts; IR SHALL NOT mint them,
+recheck source, or infer payload types from display names. The validated row SHALL
+retain its settled key and full ordered member bindings for a downstream
+`TypeEnvironment` consumer. Projection SHALL emit `Composite` with the union
+type handle only after this complete join; a bare `NodeKey` or declaration-only
+row SHALL remain `UnavailableIdentityWitness`. The join and projection SHALL
+be read-only, deterministic, bounded by the finite inspected row and admitted
+body, and charge each inspected union member and payload position against the
+caller's projection work limit. No union row is added to the QSpec wire.
 The missing-witness refusal does not satisfy QSL's required successful union
 reader and evaluation parity under
 [FR-390](ix://agent-ix/quire-spec-language/FR-390) AC-27.
@@ -268,6 +294,8 @@ AC-6 and AC-11; this projection alone does not satisfy those criteria.
 | FR-352-AC-13 | IMPLEMENTED (IR-1324). An admitted selected record with a required collection field whose element type is an option alias returns an Exact `Collection<Option<Integer>>` with its admitted kind and bound and the inner Exact `Option<Integer>` intact. An optional collection field of native Integer reports `Presence::Optional` after consuming its outer presence layer and retains Exact `Collection<Integer>` with its kind and bound. A required `[1,1]` field typed by an admitted option alias retains Exact `Option<Integer>`. The already supported optional field of native String reports `Presence::Optional` and Exact `String`. No positive case uses an optional `[1,1]` field typed by an option value type or an `Option<Option<T>>` alias chain. | Test |
 | FR-352-AC-14 | IMPLEMENTED (IR-1324). A nested member reference to a witnessed record in a selected cyclic nominal graph retains `Composite` with that record's original Exact `NodeKey` and terminates without expanding the cycle. A missing, foreign, conflicting or wrong-form nested identity refuses with its native typed cause and first referenced declaration; an unrepresentable nested leaf refuses as `UnsupportedExactType`. Neither refusal exposes a partial record view. | Test |
 | FR-352-AC-15 | IMPLEMENTED (IR-1324). A selected record with a deep admitted chain of sequence member types, including an alternating sequence and option chain in which each option's inner target is a sequence rather than an option directly or through aliases, projects using bounded iterative work and a small host stack. At the exact work allowance it returns the complete view; one less refuses with typed work exhaustion, charged work and first uncharged member locus. Equal admitted inputs and allowances, including a package clone, return equal views or equal first stops. | Test |
+| FR-352-AC-16 | A complete IR-side selected source union row joins one admitted union by structural node, selected source authority and identity, source owner, original qualified declaration, QSL-issued type handle and settled key, and all sealed members with ordered final-emission payload `CheckedNodeId`s and corresponding `ValueType`s. An IR caller can inspect the validated settled key and ordered bindings; the general projection returns `Composite` with the type handle, including when it differs from the settled key. A projection at the exact finite allowance succeeds, one unit less exhausts with charged work, and equal reads of a package clone agree. This IR-side row test does not assert that QSL currently emits the row. | Test |
+| FR-352-AC-17 | A missing row or a bare union declaration key returns `UnavailableIdentityWitness`. A foreign or stale structural node or payload node, unselected or mismatched source, wrong declaration form or qualified name, duplicate union row, missing/reordered/extra member, wrong member identifier, settled-key owner or payload count refuses with a named typed outcome before `Composite` or a partial union view. A caller-created row is not authenticated as QSL output by the IR join. | Test, Inspection |
 
 ## Dependencies
 
