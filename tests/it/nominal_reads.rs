@@ -129,27 +129,43 @@ fn source_enum_row(package: &CheckedPackageV2, ordered: bool) -> SelectedSourceE
 }
 
 /// Trace: FR-352-AC-19.
-#[trace("FR-352-AC-19")]
+#[trace("FR-352-AC-19", "FR-358-AC-2")]
 #[test]
 fn source_enum_exact_projection_requires_complete_canonical_rows() {
     for ordered in [false, true] {
         let package = fixture(ordered);
         let row = source_enum_row(&package, ordered);
         let id = row.declaration.structural_node.clone();
+        let (budgeted, _) = crate::native_join_budget::assert_exact_join(&id, &id, |budget| {
+            SelectedExactIdentities::empty().with_source_enum_rows(&package, [row.clone()], budget)
+        });
         let selected = SelectedExactIdentities::empty()
-            .with_source_enum_rows(&package, [row.clone()], 1000)
+            .with_source_enum_rows(
+                &package,
+                [row.clone()],
+                &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX),
+            )
             .expect("complete source enum join");
+        assert_eq!(selected, budgeted);
         let join_exact = (0..=1000)
             .find(|&limit| {
                 SelectedExactIdentities::empty()
-                    .with_source_enum_rows(&package, [row.clone()], limit)
+                    .with_source_enum_rows(
+                        &package,
+                        [row.clone()],
+                        &mut quire_contract_model::NativeJoinBudget::new(limit, u64::MAX),
+                    )
                     .is_ok()
             })
             .unwrap();
         assert!(join_exact > 0);
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_enum_rows(&package, [row.clone()], join_exact - 1)
+                .with_source_enum_rows(
+                    &package,
+                    [row.clone()],
+                    &mut quire_contract_model::NativeJoinBudget::new(join_exact - 1, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::ExhaustedWork
@@ -187,7 +203,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         let minimal = minimal_enum_fixture(ordered);
         let minimal_row = source_enum_row(&minimal, ordered);
         let minimal_selected = SelectedExactIdentities::empty()
-            .with_source_enum_rows(&minimal, [minimal_row], 1000)
+            .with_source_enum_rows(
+                &minimal,
+                [minimal_row],
+                &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX),
+            )
             .unwrap();
         assert_eq!(
             minimal
@@ -206,7 +226,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         let mut changed_case = row.clone();
         changed_case.members[1].case = "OTHER".into();
         let refusal = SelectedExactIdentities::empty()
-            .with_source_enum_rows(&package, [changed_case], 1000)
+            .with_source_enum_rows(
+                &package,
+                [changed_case],
+                &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(
             refusal.code,
@@ -218,7 +242,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         changed_variant.members[1].variant = changed_variant.members[0].variant.clone();
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_enum_rows(&package, [changed_variant], 1000)
+                .with_source_enum_rows(
+                    &package,
+                    [changed_variant],
+                    &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -227,7 +255,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         reordered.members.swap(0, 1);
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_enum_rows(&package, [reordered], 1000)
+                .with_source_enum_rows(
+                    &package,
+                    [reordered],
+                    &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -236,7 +268,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         incomplete.members.pop();
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_enum_rows(&package, [incomplete], 1000)
+                .with_source_enum_rows(
+                    &package,
+                    [incomplete],
+                    &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -245,7 +281,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         extra.members.push(extra.members[0].clone());
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_enum_rows(&package, [extra], 1000)
+                .with_source_enum_rows(
+                    &package,
+                    [extra],
+                    &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -253,7 +293,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         let mut duplicate_key = row.clone();
         duplicate_key.members[1].member_key = duplicate_key.members[0].member_key.clone();
         let refusal = SelectedExactIdentities::empty()
-            .with_source_enum_rows(&package, [duplicate_key], 1000)
+            .with_source_enum_rows(
+                &package,
+                [duplicate_key],
+                &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(
             refusal.code,
@@ -264,7 +308,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         wrong_source.declaration.source_identity = "other-source".into();
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_enum_rows(&package, [wrong_source], 1000)
+                .with_source_enum_rows(
+                    &package,
+                    [wrong_source],
+                    &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -273,7 +321,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         wrong_form.declaration.structural_node = row.members[0].structural_node.clone();
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_enum_rows(&package, [wrong_form], 1000)
+                .with_source_enum_rows(
+                    &package,
+                    [wrong_form],
+                    &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -282,7 +334,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         wrong_member_node.members[0].structural_node =
             serde_json::from_value(node_id("value/enum_value/OtherStatus/ACTIVE")).unwrap();
         let refusal = SelectedExactIdentities::empty()
-            .with_source_enum_rows(&package, [wrong_member_node], 1000)
+            .with_source_enum_rows(
+                &package,
+                [wrong_member_node],
+                &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(
             refusal.code,
@@ -297,7 +353,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
             EnumShape::new(!ordered, row.declaration.shape.variants().cloned());
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_enum_rows(&package, [wrong_ordered], 1000)
+                .with_source_enum_rows(
+                    &package,
+                    [wrong_ordered],
+                    &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -306,13 +366,21 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         foreign.declaration.structural_node.package = "other-package".into();
         let foreign_id = foreign.declaration.structural_node.clone();
         let refusal = SelectedExactIdentities::empty()
-            .with_source_enum_rows(&package, [foreign], 1000)
+            .with_source_enum_rows(
+                &package,
+                [foreign],
+                &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ForeignNode);
         assert_eq!(refusal.at.as_deref(), Some(&foreign_id));
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_enum_rows(&package, [row.clone(), row], 2000)
+                .with_source_enum_rows(
+                    &package,
+                    [row.clone(), row],
+                    &mut quire_contract_model::NativeJoinBudget::new(2000, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::ConflictingIdentityWitness
@@ -344,7 +412,11 @@ fn source_enum_member_from_another_selected_source_refuses() {
     let row = source_enum_row(&package, false);
     let member_id = row.members[0].structural_node.clone();
     let refusal = SelectedExactIdentities::empty()
-        .with_source_enum_rows(&package, [row], 1000)
+        .with_source_enum_rows(
+            &package,
+            [row],
+            &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         refusal.code,

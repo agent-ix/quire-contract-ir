@@ -5,8 +5,9 @@
 
 use crate::support::checked_package::{
     boolean_key, bounds_body, canonical, evidence_for, evidence_with_document, integer_key,
-    node_id, reassign_node_id, refresh_identity, refresh_identity_projection, resolved_fixture_id,
-    select_model, settle, v2_all_families, v2_nominal,
+    node_id, nominal_fixture_members, nominal_package, reassign_node_id, refresh_identity,
+    refresh_identity_projection, resolved_fixture_id, select_model, settle, v2_all_families,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -16,7 +17,7 @@ use quire_contract_model::{
     SelectedSourceRecordMemberRow, SelectedSourceRecordRow, SelectedSourceTupleRow,
     SelectedTuplePositionRow,
 };
-use quire_exact::{NodeKey, PathSegment, Presence, ValueType};
+use quire_exact::{EffectiveId, NodeKey, OriginalDeclarationKey, PathSegment, Presence, ValueType};
 use serde_json::{json, Value};
 
 fn source_package_form(tag: &str, form: &str, name: &str) -> Value {
@@ -116,7 +117,7 @@ fn source_record_with_members() -> Value {
 }
 
 /// Trace: FR-352-AC-18.
-#[trace("FR-352-AC-18")]
+#[trace("FR-352-AC-18", "FR-358-AC-2")]
 #[test]
 fn selected_source_tuple_requires_complete_ordered_position_rows() {
     let mut wire = source_record_with_members();
@@ -165,20 +166,40 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
             },
         ],
     };
+    let (budgeted, _) = crate::native_join_budget::assert_exact_join(
+        &structural_node,
+        &structural_node,
+        |budget| {
+            SelectedExactIdentities::empty().with_source_tuple_rows(&package, [row.clone()], budget)
+        },
+    );
     let identities = SelectedExactIdentities::empty()
-        .with_source_tuple_rows(&package, [row.clone()], 100)
+        .with_source_tuple_rows(
+            &package,
+            [row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .unwrap();
+    assert_eq!(identities, budgeted);
     let join_exact = (0..=100)
         .find(|&limit| {
             SelectedExactIdentities::empty()
-                .with_source_tuple_rows(&package, [row.clone()], limit)
+                .with_source_tuple_rows(
+                    &package,
+                    [row.clone()],
+                    &mut quire_contract_model::NativeJoinBudget::new(limit, u64::MAX),
+                )
                 .is_ok()
         })
         .unwrap();
     assert!(join_exact > 0);
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [row.clone()], join_exact - 1)
+            .with_source_tuple_rows(
+                &package,
+                [row.clone()],
+                &mut quire_contract_model::NativeJoinBudget::new(join_exact - 1, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::ExhaustedWork
@@ -225,7 +246,11 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     changed.positions[1].type_node = changed.positions[0].type_node.clone();
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [changed], 100)
+            .with_source_tuple_rows(
+                &package,
+                [changed],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -234,7 +259,11 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     reordered.positions.swap(0, 1);
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [reordered], 100)
+            .with_source_tuple_rows(
+                &package,
+                [reordered],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -243,7 +272,11 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     incomplete.positions.pop();
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [incomplete], 100)
+            .with_source_tuple_rows(
+                &package,
+                [incomplete],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -264,7 +297,11 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     ] {
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_tuple_rows(&package, [changed], 100)
+                .with_source_tuple_rows(
+                    &package,
+                    [changed],
+                    &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -274,14 +311,22 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     foreign.structural_node.package = "other-package".into();
     let foreign_id = foreign.structural_node.clone();
     let refusal = SelectedExactIdentities::empty()
-        .with_source_tuple_rows(&package, [foreign], 100)
+        .with_source_tuple_rows(
+            &package,
+            [foreign],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ForeignNode);
     assert_eq!(refusal.requested.as_ref(), &foreign_id);
     assert_eq!(refusal.at.as_deref(), Some(&foreign_id));
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [row.clone(), row], 200)
+            .with_source_tuple_rows(
+                &package,
+                [row.clone(), row],
+                &mut quire_contract_model::NativeJoinBudget::new(200, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::ConflictingIdentityWitness
@@ -289,7 +334,7 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
 }
 
 /// Trace: FR-357-AC-10, TC-048.
-#[trace("TC-048", "FR-357-AC-10")]
+#[trace("TC-048", "FR-357-AC-10", "FR-358-AC-2", "FR-358-AC-3")]
 #[test]
 fn selected_source_record_requires_complete_ordered_producer_rows() {
     let wire = source_record_with_members();
@@ -350,19 +395,52 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         record_key: key.clone(),
         members,
     };
+    let (budgeted, base_charge) =
+        crate::native_join_budget::assert_exact_join(&record, &record, |budget| {
+            SelectedExactIdentities::empty().with_source_record_rows(
+                &package,
+                [row.clone()],
+                budget,
+            )
+        });
+    let mut dynamic = row.clone();
+    dynamic.members[1].value_type = ValueType::Reference(EffectiveId::new(
+        None,
+        OriginalDeclarationKey::new("p".repeat(64), "n".repeat(64)),
+    ));
+    let mut dynamic_budget = quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let retained_dynamic = SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [dynamic.clone()], &mut dynamic_budget)
+        .expect("opaque dynamic Exact type remains a producer claim");
+    assert_eq!(retained_dynamic.source_record_rows().next(), Some(&dynamic));
+    assert!(dynamic_budget.consumed().storage >= base_charge.storage + 128);
+    assert!(dynamic_budget.consumed().work > base_charge.work);
     let identities = SelectedExactIdentities::empty()
-        .with_source_record_rows(&package, [row.clone()], 100)
+        .with_source_record_rows(
+            &package,
+            [row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect("complete source row");
+    assert_eq!(identities, budgeted);
     let join_exact = (0..=100)
         .find(|&limit| {
             SelectedExactIdentities::empty()
-                .with_source_record_rows(&package, [row.clone()], limit)
+                .with_source_record_rows(
+                    &package,
+                    [row.clone()],
+                    &mut quire_contract_model::NativeJoinBudget::new(limit, u64::MAX),
+                )
                 .is_ok()
         })
         .expect("bounded join succeeds");
     assert!(join_exact > 0);
     assert!(SelectedExactIdentities::empty()
-        .with_source_record_rows(&package, [row.clone()], join_exact - 1)
+        .with_source_record_rows(
+            &package,
+            [row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(join_exact - 1, u64::MAX)
+        )
         .is_err_and(|error| error.code == ExactTypeProjectionErrorCode::ExhaustedWork));
     assert_eq!(identities.source_record_rows().next(), Some(&row));
     let projected = package
@@ -404,7 +482,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
     let mut opaque = row.clone();
     opaque.members[0].value_type = ValueType::String;
     let opaque_identities = SelectedExactIdentities::empty()
-        .with_source_record_rows(&package, [opaque.clone()], 100)
+        .with_source_record_rows(
+            &package,
+            [opaque.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect("opaque producer type remains a producer claim");
     let opaque_projection = package
         .project_exact_type(&record, &opaque_identities, 100)
@@ -464,7 +546,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
     ];
     for variant in variants {
         let refusal = SelectedExactIdentities::empty()
-            .with_source_record_rows(&package, [variant], 100)
+            .with_source_record_rows(
+                &package,
+                [variant],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(
             refusal.code,
@@ -473,7 +559,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         assert_eq!(refusal.at.as_deref(), Some(&record));
     }
     let duplicate = SelectedExactIdentities::empty()
-        .with_source_record_rows(&package, [row.clone(), row.clone()], 200)
+        .with_source_record_rows(
+            &package,
+            [row.clone(), row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(200, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         duplicate.code,
@@ -483,7 +573,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
     foreign.structural_node.package = "other-package".into();
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_record_rows(&package, [foreign], 100)
+            .with_source_record_rows(
+                &package,
+                [foreign],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::ForeignNode
@@ -2253,4 +2347,269 @@ fn tc_228_model_owner_is_closed_and_required_on_the_graph_node() {
         CheckedPackageRefusalCode::MalformedWire,
         &format!("{prefix}/owner"),
     );
+}
+
+/// A single admitted source supplies every native join family. Each row is
+/// populated, so the cumulative budget includes the family's validation and
+/// retained map entries rather than only an empty Arc handle.
+#[trace("FR-358", "FR-358-AC-3", "FR-358-AC-4")]
+#[test]
+fn native_budget_counts_nonempty_source_families_on_one_package() {
+    use quire_contract_model::{
+        NativeJoinBudget, NativeJoinCharge, SelectedEnumDeclarationRow, SelectedEnumMemberRow,
+        SelectedSourceCollectionRow, SelectedSourceEnumRow, SelectedSourceUnionRow,
+        SelectedTuplePositionRow, SelectedUnionMemberRow,
+    };
+    use quire_exact::{CollectionKind, CollectionType, EnumShape, UnionMember, VariantId};
+
+    let mut members = nominal_fixture_members();
+    members[1].0["members"] = json!(["ACTIVE"]);
+    members.truncate(2);
+    let mut wire = nominal_package(&members);
+    let source = wire["lock"]["sources"][0].clone();
+    let owner =
+        json!({"kind":"source", "authority":source["authority"], "identity":source["identity"]});
+    let integer = node_id("native-budget-integer");
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "node_id":integer, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"scalar_type", "semantic_form":"integer", "semantic_type":integer,
+            "dependencies":[], "occurrences":[{"role":"type","ordinal":0}],
+            "body":{"term":"aggregate","members":[]}
+        }));
+    for (name, form, body, role) in [
+        (
+            "Union",
+            "union",
+            json!({"term":"aggregate","members":[
+                {"term":"binding","name":"One","value":{"term":"aggregate","members":[
+                    {"term":"reference","target":integer}
+                ]}}
+            ]}),
+            "declaration",
+        ),
+        (
+            "Record",
+            "record",
+            json!({"term":"aggregate","members":[
+                {"term":"binding","name":"n","value":{"term":"reference","target":integer}}
+            ]}),
+            "declaration",
+        ),
+        (
+            "Tuple",
+            "tuple",
+            json!({"term":"aggregate","members":[
+                {"term":"reference","target":integer}
+            ]}),
+            "declaration",
+        ),
+        (
+            "Sequence",
+            "sequence",
+            json!({"term":"aggregate","members":[
+                {"term":"reference","target":integer}
+            ]}),
+            "type",
+        ),
+    ] {
+        let id = node_id(&format!("native-budget-{name}"));
+        let mut node = json!({
+            "node_id":id, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"composite_type", "semantic_form":form, "semantic_type":id,
+            "dependencies":[integer], "occurrences":[{"role":role,"ordinal":0}],
+            "body":body
+        });
+        if role == "declaration" {
+            node["owner"] = owner.clone();
+            node["declaration"] = json!({"qualified_name":["Example",name]});
+        }
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(node);
+    }
+    settle(&mut wire);
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+        panic!("combined native join fixture admits");
+    };
+    let named = |form: &str| {
+        package
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.semantic_form.as_ref() == form)
+            .expect("named node")
+            .node_id
+            .clone()
+    };
+    let integer = named("integer");
+    let union_id = named("union");
+    let record_id = named("record");
+    let tuple_id = named("tuple");
+    let sequence_id = named("sequence");
+    let enum_id = named("enum");
+    let case_id = named("enum_value");
+    let selected_source = &package.lock().sources[0];
+    let source_authority = selected_source.authority.clone();
+    let source_identity = selected_source.identity.clone();
+    let key = |name: &str| {
+        NodeKey::new(
+            "native-budget-fixture",
+            vec![PathSegment::Text(name.into())],
+            0,
+        )
+        .unwrap()
+    };
+    let settled = key("settled");
+    let union = SelectedSourceUnionRow::new(
+        union_id.clone(),
+        source_authority.clone(),
+        source_identity.clone(),
+        vec!["Example".into(), "Union".into()],
+        key("union"),
+        settled.clone(),
+        vec![SelectedUnionMemberRow::new(
+            UnionMember::from_admitted(settled, "One").unwrap(),
+            vec![integer.clone()],
+            vec![ValueType::Integer],
+        )],
+    );
+    let mut long_source = union.clone();
+    long_source.source_authority = "x".repeat(4096).into();
+    let mut short_text = NativeJoinBudget::new(128, u64::MAX);
+    let error = SelectedExactIdentities::empty()
+        .with_source_union_rows(&package, [long_source], &mut short_text)
+        .expect_err("union source text must be charged before comparison");
+    assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(error.at.as_deref(), Some(&union_id));
+    assert_eq!(
+        short_text.first_unpaid().unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
+    assert!(short_text.first_unpaid().unwrap().amount >= 4096);
+    let record = SelectedSourceRecordRow {
+        structural_node: record_id.clone(),
+        source_authority: source_authority.clone(),
+        source_identity: source_identity.clone(),
+        qualified_declaration: vec!["Example".into(), "Record".into()],
+        record_key: key("record"),
+        members: vec![SelectedSourceRecordMemberRow {
+            original_member_identity: "n".into(),
+            admitted_name: "n".into(),
+            presence: Presence::Required,
+            type_node: integer.clone(),
+            value_type: ValueType::Integer,
+        }],
+    };
+    let tuple = SelectedSourceTupleRow {
+        structural_node: tuple_id.clone(),
+        source_authority: source_authority.clone(),
+        source_identity: source_identity.clone(),
+        qualified_declaration: vec!["Example".into(), "Tuple".into()],
+        type_handle: key("tuple"),
+        positions: vec![SelectedTuplePositionRow {
+            ordinal: 0,
+            type_node: integer.clone(),
+            value_type: ValueType::Integer,
+        }],
+    };
+    let variant = VariantId::new(key("variant-owner"), "opaque-A").unwrap();
+    let source_enum = SelectedSourceEnumRow {
+        declaration: SelectedEnumDeclarationRow {
+            structural_node: enum_id.clone(),
+            source_authority: source_authority.clone(),
+            source_identity: source_identity.clone(),
+            qualified_declaration: vec!["Example".into(), "Status".into()],
+            node_key: key("enum"),
+            shape: EnumShape::new(false, vec![variant.clone()]),
+        },
+        members: vec![SelectedEnumMemberRow {
+            structural_node: case_id,
+            source_authority,
+            source_identity,
+            declaration_node: enum_id,
+            declaration_qualified_name: vec!["Example".into(), "Status".into()],
+            case: "ACTIVE".into(),
+            member_key: key("member"),
+            variant,
+        }],
+    };
+    let mut storage_limit = 0;
+    let mut denied_lookup = false;
+    for _ in 0..128 {
+        let mut trial = NativeJoinBudget::new(u64::MAX, storage_limit);
+        let error = SelectedExactIdentities::empty()
+            .with_source_enum_rows(&package, [source_enum.clone()], &mut trial)
+            .expect_err("storage bound stops before a complete enum row");
+        let denied = trial.first_unpaid().expect("first denied storage charge");
+        assert_eq!(
+            denied.kind,
+            quire_contract_model::NativeJoinChargeKind::Storage
+        );
+        if error.form.as_ref() == "enum_case_source_index_key" {
+            assert!(denied.amount > 2);
+            assert!(trial.last_success_delta().is_none());
+            denied_lookup = true;
+            break;
+        }
+        storage_limit = trial.consumed().storage + u64::try_from(denied.amount).unwrap();
+    }
+    assert!(
+        denied_lookup,
+        "enum source-index key must require a storage charge"
+    );
+    let collection = SelectedSourceCollectionRow {
+        structural_node: sequence_id.clone(),
+        base_node: sequence_id,
+        element_node: integer,
+        value_type: ValueType::collection(CollectionType::new(
+            CollectionKind::Sequence,
+            ValueType::Integer,
+            None,
+        )),
+    };
+    let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let mut deltas = Vec::new();
+    let stage = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut budget).unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let union_selected = stage
+        .with_source_union_rows(&package, [union.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let record_selected = union_selected
+        .with_source_record_rows(&package, [record.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let tuple_selected = record_selected
+        .with_source_tuple_rows(&package, [tuple.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let enum_selected = tuple_selected
+        .with_source_enum_rows(&package, [source_enum.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let complete = enum_selected
+        .with_source_collection_rows(&package, [collection.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    assert_eq!(complete.source_union_rows().next(), Some(&union));
+    assert_eq!(complete.source_record_rows().next(), Some(&record));
+    assert_eq!(complete.source_tuple_rows().next(), Some(&tuple));
+    assert_eq!(complete.source_enum_rows().next(), Some(&source_enum));
+    assert_eq!(complete.source_collection_rows().next(), Some(&collection));
+    assert!(deltas[0].storage > 0);
+    assert!(deltas[1..]
+        .iter()
+        .all(|delta| delta.work > 0 && delta.storage > 0));
+    let sum = deltas
+        .into_iter()
+        .fold(NativeJoinCharge::default(), |sum, delta| NativeJoinCharge {
+            work: sum.work + delta.work,
+            storage: sum.storage + delta.storage,
+        });
+    assert_eq!(budget.consumed(), sum);
+    assert_eq!(budget.first_unpaid(), None);
 }

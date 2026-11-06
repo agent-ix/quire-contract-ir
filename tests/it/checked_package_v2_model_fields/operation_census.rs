@@ -86,6 +86,7 @@ fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
             )),
         )],
         [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect("selected object identity");
     let projected = admitted

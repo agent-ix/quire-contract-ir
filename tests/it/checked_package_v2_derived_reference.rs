@@ -76,8 +76,13 @@ fn admitted_reference_requires_selected_exact_identity_row() {
         other => panic!("reference fixture must admit: {other:?}"),
     };
     let id: CheckedNodeId = serde_json::from_value(reference).expect("reference ID");
-    let rows = SelectedExactIdentities::from_stage_rows(&admitted, [], [])
-        .expect("empty selected identity rows");
+    let rows = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [],
+        [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .expect("empty selected identity rows");
     let refusal = admitted
         .project_exact_type(&id, &rows, 3)
         .expect_err("missing object row");

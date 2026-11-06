@@ -206,20 +206,36 @@ fn source_record_and_union_reject_one_opaque_type_handle_in_either_order() {
         }],
     };
     let record_first = SelectedExactIdentities::empty()
-        .with_source_record_rows(&admitted, [record.clone()], 100)
+        .with_source_record_rows(
+            &admitted,
+            [record.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect("record structural join");
     let union_after = record_first
-        .with_source_union_rows(&admitted, [union.clone()])
+        .with_source_union_rows(
+            &admitted,
+            [union.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         union_after.code,
         ExactTypeProjectionErrorCode::ConflictingIdentityWitness
     );
     let union_first = SelectedExactIdentities::empty()
-        .with_source_union_rows(&admitted, [union])
+        .with_source_union_rows(
+            &admitted,
+            [union],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect("union structural join");
     let record_after = union_first
-        .with_source_record_rows(&admitted, [record], 100)
+        .with_source_record_rows(
+            &admitted,
+            [record],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         record_after.code,
@@ -516,14 +532,22 @@ fn union_witness(
     (admitted, id, row)
 }
 
-#[trace("FR-352-AC-16")]
+#[trace("FR-352-AC-16", "FR-358-AC-2")]
 #[test]
 fn selected_source_union_projects_only_with_complete_member_witness() {
     let package = shape_package();
     let (admitted, id, row) = union_witness(&package);
+    let (budgeted, _) = crate::native_join_budget::assert_exact_join(&id, &id, |budget| {
+        SelectedExactIdentities::empty().with_source_union_rows(&admitted, [row.clone()], budget)
+    });
     let identities = SelectedExactIdentities::empty()
-        .with_source_union_rows(&admitted, [row.clone()])
+        .with_source_union_rows(
+            &admitted,
+            [row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect("complete source union row");
+    assert_eq!(identities, budgeted);
     let retained = identities.source_union_rows().next().expect("union row");
     assert_eq!(retained.settled_key, row.settled_key);
     assert_eq!(retained.members, row.members);
@@ -623,7 +647,11 @@ fn selected_source_union_refuses_missing_and_mismatched_rows() {
     ];
     for mismatch in variants {
         let error = SelectedExactIdentities::empty()
-            .with_source_union_rows(&admitted, [mismatch])
+            .with_source_union_rows(
+                &admitted,
+                [mismatch],
+                &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(
             error.code,
@@ -631,7 +659,11 @@ fn selected_source_union_refuses_missing_and_mismatched_rows() {
         );
     }
     let duplicate = SelectedExactIdentities::empty()
-        .with_source_union_rows(&admitted, [row.clone(), row.clone()])
+        .with_source_union_rows(
+            &admitted,
+            [row.clone(), row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         duplicate.code,
@@ -640,12 +672,20 @@ fn selected_source_union_refuses_missing_and_mismatched_rows() {
     let mut foreign = row;
     foreign.structural_node.package = "other-package".into();
     let error = SelectedExactIdentities::empty()
-        .with_source_union_rows(&admitted, [foreign])
+        .with_source_union_rows(
+            &admitted,
+            [foreign],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(error.code, ExactTypeProjectionErrorCode::ForeignNode);
 
     let selected = SelectedExactIdentities::empty()
-        .with_source_union_rows(&admitted, [union_witness(&package).2])
+        .with_source_union_rows(
+            &admitted,
+            [union_witness(&package).2],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap();
     let mut changed_nodes = common();
     changed_nodes.push(union_type(

@@ -111,8 +111,13 @@ fn exact_scalar_projection_uses_publicly_admitted_package() {
     checked_package::rebuild_source_map(&mut document);
     refresh_identity(&mut document);
     let package = admitted(&document);
-    let identities =
-        SelectedExactIdentities::from_stage_rows(&package, [], []).expect("scalar rows");
+    let identities = SelectedExactIdentities::from_stage_rows(
+        &package,
+        [],
+        [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .expect("scalar rows");
     for (id, expected) in expected {
         let id = serde_json::from_value(id).expect("structural ID");
         let projected = package

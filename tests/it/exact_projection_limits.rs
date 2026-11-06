@@ -179,7 +179,7 @@ fn admitted_selected_record_cycle_projects_complete_views_and_charges_inner_targ
         let field_rows = (0..COUNT).map(|index| SelectedExactFieldRow::new(
             serde_json::from_value(id(index)).unwrap(), MODEL, original(index), format!("{}/next", original(index)), member(index),
         )).collect::<Vec<_>>();
-        let identities = SelectedExactIdentities::from_stage_rows(&admitted, declaration_rows.clone(), field_rows.clone()).expect("stage rows join the admitted selected model");
+        let identities = SelectedExactIdentities::from_stage_rows(&admitted, declaration_rows.clone(), field_rows.clone(), &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)).expect("stage rows join the admitted selected model");
         drop(bytes);
         drop(evidence);
         drop(wire);
@@ -216,7 +216,7 @@ fn admitted_selected_record_cycle_projects_complete_views_and_charges_inner_targ
         }
         let requested: CheckedNodeId = serde_json::from_value(id(0)).unwrap();
         let target: CheckedNodeId = serde_json::from_value(id(1)).unwrap();
-        let missing = SelectedExactIdentities::from_stage_rows(&admitted, declaration_rows.into_iter().filter(|row| row.structural_node != target), field_rows.into_iter().filter(|row| row.record_node != target)).unwrap();
+        let missing = SelectedExactIdentities::from_stage_rows(&admitted, declaration_rows.into_iter().filter(|row| row.structural_node != target), field_rows.into_iter().filter(|row| row.record_node != target), &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)).unwrap();
         let error = admitted.project_exact_type(&requested, &missing, work).expect_err("a nested record cannot borrow another declaration's identity");
         assert_eq!(error.code, ExactTypeProjectionErrorCode::UnavailableIdentityWitness);
         assert_eq!(error.requested.as_ref(), &requested);

@@ -203,6 +203,101 @@ fn equality_admission_api_and_resolved_dependency_direction() {
         }
     }
 }
+
+/// The native budget is a public IR boundary with one mandatory signature for
+/// each selected-identity acquisition operation.
+#[trace("FR-358-AC-6")]
+#[test]
+fn native_join_budget_public_boundary_is_cycle_free_and_mandatory() {
+    use syn::{FnArg, ImplItem, Item, Type, Visibility};
+
+    let graph = metadata(&[]);
+    let model = package(&graph, "quire-contract-model");
+    let model_id = model["id"].as_str().expect("resolved model ID");
+    production_graph(&graph, model_id, true).expect("no QSL or runtime dependency or cycle");
+
+    fn exports(tree: &syn::UseTree, name: &str) -> bool {
+        match tree {
+            syn::UseTree::Path(path) => exports(&path.tree, name),
+            syn::UseTree::Name(item) => item.ident == name,
+            syn::UseTree::Rename(item) => item.rename == name,
+            syn::UseTree::Group(group) => group.items.iter().any(|item| exports(item, name)),
+            syn::UseTree::Glob(_) => panic!("native API export must be explicit"),
+        }
+    }
+    let public_api = syn::parse_file(include_str!("../../crates/quire-contract-model/src/lib.rs"))
+        .expect("public API syntax");
+    for name in [
+        "NativeJoinBudget",
+        "NativeJoinCharge",
+        "NativeJoinChargeKind",
+        "NativeJoinDeniedCharge",
+    ] {
+        assert!(
+            public_api.items.iter().any(|item| matches!(item,
+                Item::Use(export) if matches!(export.vis, Visibility::Public(_))
+                    && exports(&export.tree, name))),
+            "{name} must be explicitly exported"
+        );
+    }
+
+    let source = syn::parse_file(include_str!(
+        "../../crates/quire-contract-model/src/checked_package/v2/exact_projection.rs"
+    ))
+    .expect("selected-identity API syntax");
+    let expected = [
+        "from_stage_rows",
+        "with_source_union_rows",
+        "with_source_record_rows",
+        "with_source_tuple_rows",
+        "with_source_enum_rows",
+        "with_source_collection_rows",
+    ];
+    let mut found = BTreeSet::new();
+    for item in source.items {
+        let Item::Impl(implementation) = item else {
+            continue;
+        };
+        let Type::Path(owner) = implementation.self_ty.as_ref() else {
+            continue;
+        };
+        if !owner.path.is_ident("SelectedExactIdentities") {
+            continue;
+        }
+        for member in implementation.items {
+            let ImplItem::Fn(method) = member else {
+                continue;
+            };
+            let name = method.sig.ident.to_string();
+            if !expected.contains(&name.as_str()) {
+                continue;
+            }
+            assert!(
+                found.insert(name.clone()),
+                "{name} has more than one public path"
+            );
+            assert!(
+                matches!(method.vis, Visibility::Public(_)),
+                "{name} must be public"
+            );
+            assert!(
+                matches!(method.sig.inputs.last(), Some(FnArg::Typed(argument))
+                    if matches!(argument.ty.as_ref(), Type::Reference(reference)
+                        if reference.mutability.is_some()
+                            && matches!(reference.elem.as_ref(), Type::Path(path)
+                                if path.path.is_ident("NativeJoinBudget")))),
+                "{name} must end with &mut NativeJoinBudget"
+            );
+            assert!(
+                matches!(method.sig.inputs.first(), Some(FnArg::Receiver(_)))
+                    == (name != "from_stage_rows"),
+                "{name} receiver shape"
+            );
+        }
+    }
+    assert_eq!(found, expected.into_iter().map(str::to_owned).collect());
+}
+
 const FORBIDDEN_DOWNSTREAM_CRATES: [&str; 2] = ["quire-contract-codegen", "quire-contract-runtime"];
 
 fn forbidden(package: &Value) -> bool {

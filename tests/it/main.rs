@@ -11,6 +11,7 @@
 //! is now a single shared module (`crate::support::*`) instead of a
 //! `#[path = "support/…"]` copy compiled into each of several binaries.
 
+mod native_join_budget;
 mod support;
 
 mod application_node_identity;
