@@ -45,10 +45,10 @@ use super::model_fields::{
 };
 use super::selected_document::json_number;
 use super::{
-    CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm, ValidationFailure,
-    WorkMeter,
+    CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm, NativeJoinBudget,
+    NativeJoinChargeKind, ValidationFailure, WorkMeter,
 };
-use crate::checked_package::common::{pointer_from_steps, Step};
+use crate::checked_package::common::{Step, pointer_from_steps};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageLimit, CheckedPackageRefusalCause,
@@ -56,7 +56,7 @@ use crate::checked_package::shared::{
 };
 use ix_trace_rs::string_edge;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// The fixed declaration body shape in raw intake and admitted typed nodes.
 pub(super) trait EmptyAggregateBody {
@@ -82,7 +82,7 @@ pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/
 
 mod intake_origin;
 mod option_types;
-use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
+use intake_origin::{IntakeDeclarationOrigin, OriginView, retained_origin};
 
 const NATIVE_PREFIX: &str = "ix://quire/native/";
 
@@ -992,6 +992,63 @@ pub(super) struct Budget<'w> {
     bytes: u64,
 }
 
+#[derive(Debug)]
+pub(super) struct RuntimeTypeBudgetDenied;
+
+fn runtime_charge(
+    budget: &mut Option<&mut NativeJoinBudget>,
+    kind: NativeJoinChargeKind,
+    amount: u128,
+) -> Result<(), RuntimeTypeBudgetDenied> {
+    if budget
+        .as_deref_mut()
+        .is_some_and(|budget| !budget.charge(kind, amount))
+    {
+        return Err(RuntimeTypeBudgetDenied);
+    }
+    Ok(())
+}
+
+fn runtime_work(
+    budget: &mut Option<&mut NativeJoinBudget>,
+    amount: u128,
+) -> Result<(), RuntimeTypeBudgetDenied> {
+    runtime_charge(budget, NativeJoinChargeKind::Work, amount)
+}
+
+fn runtime_storage(
+    budget: &mut Option<&mut NativeJoinBudget>,
+    amount: u128,
+) -> Result<(), RuntimeTypeBudgetDenied> {
+    runtime_charge(budget, NativeJoinChargeKind::Storage, amount)
+}
+
+fn runtime_text_storage(value: &str) -> u128 {
+    u128::try_from(value.len())
+        .unwrap_or(u128::MAX)
+        .saturating_add(1)
+}
+
+fn runtime_node_storage(value: &CheckedNodeId) -> u128 {
+    value.path.iter().fold(
+        2_u128.saturating_add(value.package.len() as u128),
+        |amount, segment| {
+            amount.saturating_add(match segment {
+                CheckedNodePathSegment::Name(name) => runtime_text_storage(name),
+                CheckedNodePathSegment::Node(_) | CheckedNodePathSegment::Index(_) => 1,
+            })
+        },
+    )
+}
+
+fn runtime_declaration_storage(identity: &str, form: DeclarationForm, node: &str) -> u128 {
+    runtime_text_storage(identity)
+        .saturating_add(runtime_text_storage(form.tag()))
+        .saturating_add(runtime_text_storage(form.form()))
+        .saturating_add(runtime_text_storage(node))
+        .saturating_add(1)
+}
+
 impl<'w> Budget<'w> {
     pub(super) fn new(meter: &'w mut WorkMeter, root: usize, bytes: u64) -> Self {
         Self { meter, root, bytes }
@@ -1262,44 +1319,76 @@ impl DomainModel {
 
     /// FR-322 step 4's element type of a declared `typeRef`.
     pub(super) fn element_type(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
+        self.element_type_runtime_inner(type_ref, None)
+            .ok()
+            .flatten()
+    }
+
+    pub(super) fn element_type_runtime(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
+        self.element_type_runtime_inner(type_ref, Some(budget))
+    }
+
+    fn element_type_runtime_inner(
+        &self,
+        type_ref: &SelectedTypeRef,
+        mut budget: Option<&mut NativeJoinBudget>,
+    ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
+        runtime_storage(&mut budget, 2)?;
         let mut current = type_ref;
         let mut seen = BTreeSet::new();
         let mut layers = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
+            runtime_work(&mut budget, 1)?;
             let Some(definition) = self.collection_types.get(name) else {
                 break;
             };
+            runtime_storage(&mut budget, runtime_text_storage(name))?;
             if !seen.insert(name.clone()) {
-                return None;
+                return Ok(None);
             }
             match definition {
                 SelectedTypeDefinition::Sequence(items) => {
+                    runtime_storage(&mut budget, 1)?;
                     layers.push(SelectedValueLayer::Sequence);
                     current = items;
                 }
                 SelectedTypeDefinition::Option(inner) => {
+                    runtime_storage(&mut budget, 1)?;
                     layers.push(SelectedValueLayer::Option);
                     current = inner;
                 }
                 SelectedTypeDefinition::Reference(target) => {
                     current = target;
                 }
-                SelectedTypeDefinition::Map(_) => return None,
+                SelectedTypeDefinition::Map(_) => return Ok(None),
             }
         }
-        let mut element = self.element_type_leaf(current)?;
+        let Some(mut element) = self.element_type_leaf_runtime(current, &mut budget)? else {
+            return Ok(None);
+        };
         for layer in layers.into_iter().rev() {
             element = match layer {
-                SelectedValueLayer::Option => MemberType::Option(Box::new(element)),
-                SelectedValueLayer::Sequence => MemberType::Collection {
-                    kind: CollectionKind::Sequence,
-                    element: Box::new(element),
-                    bounds: None,
-                },
-                SelectedValueLayer::Map => return None,
+                SelectedValueLayer::Option => {
+                    runtime_storage(&mut budget, 2)?;
+                    MemberType::Option(Box::new(element))
+                }
+                SelectedValueLayer::Sequence => {
+                    // Charge the wrapper and its owned child before construction.
+                    runtime_storage(&mut budget, 2)?;
+                    MemberType::Collection {
+                        kind: CollectionKind::Sequence,
+                        element: Box::new(element),
+                        bounds: None,
+                    }
+                }
+                SelectedValueLayer::Map => return Ok(None),
             };
         }
-        Some(element)
+        Ok(Some(element))
     }
 
     /// A Duration member has no type when its chosen owner declares no `s`
@@ -1329,14 +1418,48 @@ impl DomainModel {
         !self.unit_refs.contains_key(unit_name.as_str())
     }
 
-    fn element_type_leaf(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
+    fn duration_unit_node(
+        &self,
+        budget: &mut Option<&mut NativeJoinBudget>,
+    ) -> Result<Option<&CheckedNodeId>, RuntimeTypeBudgetDenied> {
+        const UNIT_PREFIX: &str = "ix://quire/unit/";
+        for (key, node) in self.unit_refs.iter() {
+            runtime_work(budget, key.len() as u128 + 1)?;
+            let Some(resolved) = key.strip_prefix(DURATION_RESOLVED_PREFIX) else {
+                continue;
+            };
+            let matches = if self.own_seconds_declared {
+                resolved
+                    .strip_prefix(UNIT_PREFIX)
+                    .and_then(|name| name.strip_suffix("/s"))
+                    == Some(self.identity.as_ref())
+            } else {
+                resolved == "ix://quire/unit/s"
+            };
+            if matches {
+                return Ok(Some(node));
+            }
+        }
+        Ok(None)
+    }
+
+    fn element_type_leaf_runtime(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Option<&mut NativeJoinBudget>,
+    ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
+        runtime_work(budget, 1)?;
         let type_ref = match type_ref {
-            SelectedTypeRef::Map(_, _) => return None,
+            SelectedTypeRef::Map(_, _) => return Ok(None),
             SelectedTypeRef::Unit(name) => {
-                return self.unit_refs.get(name).cloned().map(MemberType::Quantity);
+                let Some(node) = self.unit_refs.get(name) else {
+                    return Ok(None);
+                };
+                runtime_storage(budget, runtime_node_storage(node).saturating_add(1))?;
+                return Ok(Some(MemberType::Quantity(node.clone())));
             }
             SelectedTypeRef::Native(native) => {
-                return match native {
+                let value = match native {
                     NativeTypeRef::Boolean => Some(MemberType::Boolean),
                     NativeTypeRef::Integer => Some(MemberType::Integer),
                     NativeTypeRef::Float32 => Some(MemberType::Float32),
@@ -1348,56 +1471,93 @@ impl DomainModel {
                     NativeTypeRef::JsonObject => Some(MemberType::JsonObject),
                     NativeTypeRef::Clock => Some(MemberType::Clock),
                     NativeTypeRef::Duration => {
-                        let selected = format!("ix://quire/unit/{}/s", self.identity);
-                        let owner_unit = if self.own_seconds_declared {
-                            selected
-                        } else {
-                            "ix://quire/unit/s".to_owned()
+                        let Some(node) = self.duration_unit_node(budget)? else {
+                            return Ok(None);
                         };
-                        self.unit_refs
-                            .get(format!("{DURATION_RESOLVED_PREFIX}{owner_unit}").as_str())
-                            .cloned()
-                            .map(MemberType::Quantity)
+                        runtime_storage(budget, runtime_node_storage(node).saturating_add(1))?;
+                        Some(MemberType::Quantity(node.clone()))
                     }
                     NativeTypeRef::Rational | NativeTypeRef::Decimal | NativeTypeRef::Text => None,
                 };
+                if value.is_some() && !matches!(native, NativeTypeRef::Duration) {
+                    runtime_storage(budget, 1)?;
+                }
+                return Ok(value);
             }
             SelectedTypeRef::Declared(name) => name.as_ref(),
         };
         if let Some(bounds) = self.value_types.get(type_ref) {
-            return bounds.as_ref().map(|bounds| match bounds {
-                ValueBounds::Integer(range) => MemberType::IntRange(*range),
-                ValueBounds::Rational(bounds, None) => MemberType::RationalRange(*bounds),
+            let Some(bounds) = bounds.as_ref() else {
+                return Ok(None);
+            };
+            return Ok(Some(match bounds {
+                ValueBounds::Integer(range) => {
+                    runtime_storage(budget, 1)?;
+                    MemberType::IntRange(*range)
+                }
+                ValueBounds::Rational(bounds, None) => {
+                    runtime_storage(budget, 1)?;
+                    MemberType::RationalRange(*bounds)
+                }
                 ValueBounds::Rational(bounds, Some(unit)) => {
+                    runtime_storage(budget, runtime_node_storage(unit).saturating_add(1))?;
                     MemberType::CarriedRational(*bounds, unit.clone())
                 }
-                ValueBounds::Text(bounds) => MemberType::TextBounds(bounds.clone()),
-            });
+                ValueBounds::Text(bounds) => {
+                    runtime_storage(
+                        budget,
+                        runtime_text_storage(&bounds.profile).saturating_add(1),
+                    )?;
+                    MemberType::TextBounds(bounds.clone())
+                }
+            }));
         }
         if self.record_types.contains_key(type_ref) {
-            return Some(MemberType::Record(declaration_id(
+            runtime_storage(
+                budget,
+                runtime_declaration_storage(
+                    &self.identity,
+                    DeclarationForm::RecordValueType,
+                    type_ref,
+                ),
+            )?;
+            return Ok(Some(MemberType::Record(declaration_id(
                 &self.identity,
                 DeclarationForm::RecordValueType,
                 type_ref,
-            )));
+            ))));
         }
         if self.tuple_types.contains_key(type_ref) {
-            return Some(MemberType::Tuple(declaration_id(
+            runtime_storage(
+                budget,
+                runtime_declaration_storage(
+                    &self.identity,
+                    DeclarationForm::TupleValueType,
+                    type_ref,
+                ),
+            )?;
+            return Ok(Some(MemberType::Tuple(declaration_id(
                 &self.identity,
                 DeclarationForm::TupleValueType,
                 type_ref,
-            )));
+            ))));
         }
         if self.variant_types.contains_key(type_ref) {
-            return Some(MemberType::Variant(declaration_id(
+            runtime_storage(
+                budget,
+                runtime_declaration_storage(&self.identity, DeclarationForm::VariantType, type_ref),
+            )?;
+            return Ok(Some(MemberType::Variant(declaration_id(
                 &self.identity,
                 DeclarationForm::VariantType,
                 type_ref,
-            )));
+            ))));
         }
-        let object = self.object_types.get(type_ref)?;
+        let Some(object) = self.object_types.get(type_ref) else {
+            return Ok(None);
+        };
         if object.interface {
-            return None;
+            return Ok(None);
         }
         // The field tables of the lock stage reach this before
         // `ModelOwners::new` does, so an encoder refusal here is `None`, not a
@@ -1411,11 +1571,15 @@ impl DomainModel {
         } else {
             DeclarationForm::ObjectType
         };
-        Some(MemberType::Reference(declaration_id(
+        runtime_storage(
+            budget,
+            runtime_declaration_storage(&self.identity, form, type_ref),
+        )?;
+        Ok(Some(MemberType::Reference(declaration_id(
             &self.identity,
             form,
             type_ref,
-        )))
+        ))))
     }
 
     /// Render the selected field type used by a timed clock-place path.
@@ -1440,7 +1604,7 @@ impl DomainModel {
                     current = values;
                 }
                 SelectedTypeDefinition::Option(_) | SelectedTypeDefinition::Reference(_) => {
-                    return None
+                    return None;
                 }
             }
         }
@@ -1508,6 +1672,78 @@ impl DomainModel {
             (true, _, slot) => MemberType::Option(Box::new(slot)),
             (false, _, slot) => slot,
         })
+    }
+
+    pub(super) fn slot_type_runtime(
+        &self,
+        slot: &TypedSlot,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
+        let Some(type_ref) = slot.type_ref.as_ref() else {
+            return Ok(None);
+        };
+        let Some(element) = self.element_type_runtime(type_ref, budget)? else {
+            return Ok(None);
+        };
+        let multiplicity = slot.multiplicity;
+        if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
+            return Ok(Some(element));
+        }
+        let kind = CollectionKind::of(multiplicity.ordered, multiplicity.unique);
+        let bounds = match (multiplicity.lower, multiplicity.upper) {
+            (0, None) => None,
+            (_, None) => return Ok(None),
+            (lower, Some(upper)) => Some((lower, upper)),
+        };
+        budget
+            .charge(NativeJoinChargeKind::Storage, 2)
+            .then_some(())
+            .ok_or(RuntimeTypeBudgetDenied)?;
+        Ok(Some(MemberType::Collection {
+            kind,
+            element: Box::new(element),
+            bounds,
+        }))
+    }
+
+    pub(super) fn field_type_runtime(
+        &self,
+        field: &FieldDecl,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
+        let Some(slot) = self.slot_type_runtime(&field.slot, budget)? else {
+            return Ok(None);
+        };
+        let result = match (field.optional, field.slot.type_ref.as_ref(), slot) {
+            (
+                true,
+                Some(SelectedTypeRef::Native(NativeTypeRef::Clock)),
+                MemberType::Collection {
+                    kind,
+                    element,
+                    bounds,
+                },
+            ) => {
+                budget
+                    .charge(NativeJoinChargeKind::Storage, 2)
+                    .then_some(())
+                    .ok_or(RuntimeTypeBudgetDenied)?;
+                MemberType::Collection {
+                    kind,
+                    element: Box::new(MemberType::Option(element)),
+                    bounds,
+                }
+            }
+            (true, _, slot) => {
+                budget
+                    .charge(NativeJoinChargeKind::Storage, 2)
+                    .then_some(())
+                    .ok_or(RuntimeTypeBudgetDenied)?;
+                MemberType::Option(Box::new(slot))
+            }
+            (false, _, slot) => slot,
+        };
+        Ok(Some(result))
     }
 
     /// Checked binder types of one record in effective field order.
@@ -2471,11 +2707,7 @@ fn parse_exponent(text: &str) -> i64 {
             .saturating_mul(10)
             .saturating_add(i64::from(byte.saturating_sub(b'0')))
     });
-    if negative {
-        -magnitude
-    } else {
-        magnitude
-    }
+    if negative { -magnitude } else { magnitude }
 }
 
 /// A Semantic IR 2.0.0 document's own `package.identity`. The document's
@@ -2667,7 +2899,12 @@ fn rational_value_type(
     let bounds = if numbers.is_empty() {
         None
     } else {
-        let [numerator_min, numerator_max, denominator_min, denominator_max] = numbers.as_slice()
+        let [
+            numerator_min,
+            numerator_max,
+            denominator_min,
+            denominator_max,
+        ] = numbers.as_slice()
         else {
             return Err(malformed(vec![Segment::Name("constraints")]));
         };
@@ -3725,7 +3962,7 @@ pub(super) fn read_semantic_ir(
                         return Err(selected_tuple_refusal(
                             refusal, declared, type_index, None, budget,
                         )?
-                        .into())
+                        .into());
                     }
                 };
                 let mut types = Vec::with_capacity(positions.len());
@@ -3741,7 +3978,7 @@ pub(super) fn read_semantic_ir(
                                 Some(ordinal),
                                 budget,
                             )?
-                            .into())
+                            .into());
                         }
                     };
                     if !seen.insert(identity) {
@@ -3810,7 +4047,7 @@ pub(super) fn read_semantic_ir(
                                 Some(ordinal),
                                 budget,
                             )?
-                            .into())
+                            .into());
                         }
                     };
                     let Some(admitted) = model.selected_type_ref(type_ref) else {
@@ -3978,7 +4215,7 @@ pub(super) fn read_semantic_ir(
                                 case,
                                 budget,
                             )?
-                            .into())
+                            .into());
                         }
                     };
                     if let Some(reference) = &payload {
@@ -4735,7 +4972,7 @@ pub(super) mod tests;
 
 #[cfg(test)]
 mod structural_member_type_tests {
-    use super::{declaration_id, CollectionKind, DeclarationForm, IntegerBounds, MemberType};
+    use super::{CollectionKind, DeclarationForm, IntegerBounds, MemberType, declaration_id};
     use serde_json::json;
 
     /// Trace: FR-038-AC-364, FR-322-AC-62.
