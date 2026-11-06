@@ -2782,3 +2782,29 @@ copy of the vector or its source fixture.
 The published FM set contains no case where the carried rounding mode differs
 from an operand or result type's rounding mode. Record that as unverified by
 these vectors; do not infer its reader outcome from their results.
+
+## Anonymous Map type admission (FR-038-AC-482 through FR-038-AC-485)
+
+Status: PLANNED/UNRUN (IR-1356). Read QSpec's current
+`proposals/checked-package-v2/map-type-vectors.json` through
+`QUIRE_SPECIFICATION_DIR`. Require MT-01 through MT-07 and build complete,
+otherwise valid V2 packages around the published forms. No local copy of a
+QSpec vector, fixture or schema is stored.
+
+Read MT-01 as a self-typed `composite_type`/`map` with exactly two ordered
+bindings, `key` and `value`, to the admitted Text and Integer type nodes.
+Assert the public typed form, both exact target IDs, two graph dependencies
+and the structural path in key-then-value order. For MT-02, alias resolution
+to the same targets returns the same map node. For MT-03, changing only the
+value target to Boolean returns a distinct node; independently changing only
+the key target also changes identity. Put collection bounds around one map
+declaration and assert they remain in a separate `collection_bounds` node,
+without a third map operand.
+
+Apply MT-04 through MT-06 as one mutation each and compare their published
+refusal code, cause when present and exact primary pointer. MT-05 is a
+closed-schema body refusal before derived-shape validation; MT-04 and MT-06
+are derived-shape refusals at the map node. Check that none exposes an
+admitted or partial map view. Read MT-07 as the published clock-bearing
+model-type control, joining its Map key to the symbolic clock-place slot
+under QSpec FR-415; it does not require a Clock value node.
