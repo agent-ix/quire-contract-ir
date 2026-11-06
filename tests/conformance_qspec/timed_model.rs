@@ -1750,6 +1750,7 @@ fn timed_model_tm_23_to_tm_29_enforce_dense_time_and_base_time_identity() {
                     } else {
                         time_id
                     };
+                    dimension["body"]["base"] = json!(false);
                     dimension["body"]["terms"] = json!([{
                         "dimension_node_id": base_id,
                         "exponent": if name == "Area" { "2" } else { "1" }
