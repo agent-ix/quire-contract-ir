@@ -72,7 +72,7 @@ fn dimension_node(name: &str, row: &Value, all: &Value) -> Value {
             "offset":{"numerator":"0","denominator":"1"},
         })
     } else {
-        json!({"term":"dimension","terms":terms})
+        json!({"term":"dimension","base":row["base"],"terms":terms})
     };
     let semantic_type = if form == "unit" {
         id_for(&all["rpc_time"])

@@ -1115,7 +1115,7 @@ pub(super) fn model_owned_package(owner: Value, models: &[&str]) -> Value {
 fn model_document(version: &str) -> Value {
     let mut document = domain_package_document("test/orders", version, Vec::new());
     document["dimensions"] = json!([{
-        "identity":"ix://test/orders/Length", "name":"Length", "terms":[]
+        "identity":"ix://test/orders/Length", "name":"Length", "base":true, "terms":[]
     }]);
     document
 }

@@ -26,7 +26,7 @@ fn dimension(name: &str, source: &Value) -> Value {
         "declaration":{"qualified_name":["Measure",name]},
         "occurrences":[{"role":"declaration","ordinal":0}],
         "owner":{"kind":"source","authority":source["authority"],"identity":source["identity"]},
-        "body":{"term":"dimension","terms":[]}
+        "body":{"term":"dimension","base":true,"terms":[]}
     })
 }
 

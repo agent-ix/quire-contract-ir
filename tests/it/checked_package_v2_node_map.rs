@@ -618,10 +618,13 @@ fn frame_maps_only_typed_ids() {
 fn nominal_and_refinement_keys_map_without_touching_source_labels() {
     let original = id("original");
     let replacement = id("replacement");
-    let nominal = NominalBody::try_dimension(vec![DimensionTerm {
-        dimension_node_id: original.clone(),
-        exponent: "1".into(),
-    }])
+    let nominal = NominalBody::try_dimension(
+        false,
+        vec![DimensionTerm {
+            dimension_node_id: original.clone(),
+            exponent: "1".into(),
+        }],
+    )
     .expect("valid dimension body");
     let mut term = CheckedTerm::NominalBody(Box::new(nominal));
     term.map_node_ids(|seen| {

@@ -826,6 +826,8 @@ fn unit_read_borrows_root_target_exact_scale_offset_and_stage_identity() {
         view.units[0].dimension
     ));
     assert!(view.dimensions[0].terms.is_empty());
+    assert!(view.dimensions[0].base);
+    assert!(view.units[0].dimension_base);
     assert!(view.units[0].target.is_none());
     assert!(std::ptr::eq(view.units[1].target.unwrap(), root));
     assert!(std::ptr::eq(view.units[1].node, converted));
@@ -1115,6 +1117,8 @@ fn derived_dimension_dependencies_are_returned_as_borrowed_canonical_terms() {
     assert_eq!(view.dimensions.len(), 2);
     assert!(std::ptr::eq(view.dimensions[0].node, area));
     assert!(std::ptr::eq(view.dimensions[1].node, length));
+    assert!(!view.dimensions[0].base);
+    assert!(view.dimensions[1].base);
     assert_eq!(
         view.dimensions[0].terms[0].dimension_node_id,
         length.node_id

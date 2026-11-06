@@ -71,6 +71,16 @@ fn model_owned_time_dimension_reads_and_wrong_fcd_name_refuses_at_source_unit() 
         ),
         "selected model-owned Time and s must admit"
     );
+    let mut derived_document = document.clone();
+    derived_document["dimensions"][0]["base"] = json!(false);
+    let derived_bytes = serde_json::to_vec(&derived_document).expect("derived FCD JSON");
+    let CheckedPackageV2ReadResult::Refused(derived_refusal) = read(&wire, &derived_bytes) else {
+        panic!("dimensionless derived Time must not act as a base time dimension")
+    };
+    assert_eq!(
+        (derived_refusal.code, derived_refusal.cause),
+        (Code::IllTyped, Some(Cause::InvalidTimeQuantity))
+    );
     let mut wrong_wire = wire.clone();
     let length = "ix://acme/orders/dimension/Length";
     let old = wrong_wire["semantic_graph"]["nodes"][42]["node_id"].clone();
@@ -1363,10 +1373,15 @@ fn timed_model_published_tick_retains_typed_operation_anchor() {
     );
 }
 
-#[trace("TC-048")]
+#[trace("TC-048", "TC-367", "FR-038-AC-480", "FR-038-AC-481")]
 #[test]
 fn timed_model_published_fixture_round_trips_complete_nodes() {
     let wire = published();
+    assert_eq!(
+        wire["semantic_graph"]["nodes"][42]["body"],
+        json!({"term":"dimension","base":true,"terms":[]}),
+        "QSpec #625 source Time carries an explicit base flag"
+    );
     assert_eq!(
         wire["semantic_graph"]["nodes"].as_array().unwrap().len(),
         60
@@ -1398,6 +1413,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
     let bytes = encode_package(&package);
     let encoded: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(encoded, wire);
+    assert_eq!(encoded["semantic_graph"]["nodes"][42]["body"]["base"], true);
     assert!(encoded.get("identity_preimage").is_none());
     let CheckedPackageV2ReadResult::Admitted(again) = read_package(&encoded).unwrap() else {
         panic!("writer output must read back");

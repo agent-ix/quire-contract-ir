@@ -2438,9 +2438,11 @@ impl Encode for CheckedTerm {
                     writer.name("members")?;
                     writer.serialize(members)?;
                 }
-                super::identity::NominalBodyKind::Dimension { terms } => {
+                super::identity::NominalBodyKind::Dimension { base, terms } => {
                     writer.name("term")?;
                     writer.string("dimension")?;
+                    writer.name("base")?;
+                    writer.serialize(base)?;
                     writer.name("terms")?;
                     writer.begin_array()?;
                     for term in terms {

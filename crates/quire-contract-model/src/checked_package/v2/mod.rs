@@ -2247,7 +2247,7 @@ fn validate_body(
         };
         match nominal.kind() {
             identity::NominalBodyKind::Enum { .. } => {}
-            identity::NominalBodyKind::Dimension { terms } => {
+            identity::NominalBodyKind::Dimension { terms, .. } => {
                 for (index, term) in terms.iter().enumerate() {
                     visit(
                         &term.dimension_node_id,
@@ -2277,7 +2277,7 @@ fn validate_body(
             }
         }
         return Ok(1 + match nominal.kind() {
-            identity::NominalBodyKind::Dimension { terms } => terms.len() as u64,
+            identity::NominalBodyKind::Dimension { terms, .. } => terms.len() as u64,
             identity::NominalBodyKind::DimensionEquivalence { .. } => 2,
             identity::NominalBodyKind::Unit { .. } => 2,
             identity::NominalBodyKind::Enum { members, .. } => members.len() as u64,

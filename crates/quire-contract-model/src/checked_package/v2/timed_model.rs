@@ -39,16 +39,14 @@ pub(super) fn is_base_time_dimension(
                 && models
                     .get(identity.as_ref())
                     .and_then(|model| model.dimensions.get(fcd_id))
-                    .is_some_and(|dimension| {
-                        dimension.name.as_ref() == "Time" && dimension.terms.is_empty()
-                    })
+                    .is_some_and(|dimension| dimension.name.as_ref() == "Time" && dimension.base)
         }
         Some(CheckedNodeOwner::Source { .. }) => {
             super::identity::NominalBody::from_value(&node.body, JsonPointer::root()).is_ok_and(
                 |body| {
                     matches!(
                         body.kind(),
-                        super::identity::NominalBodyKind::Dimension { terms } if terms.is_empty()
+                        super::identity::NominalBodyKind::Dimension { base: true, .. }
                     )
                 },
             ) && node

@@ -49,6 +49,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-122
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-387
+    type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-260
     type: references
   - target: ix://agent-ix/quire-specification/FR-322-AC-261
@@ -686,15 +688,22 @@ Under QSpec FR-322 "Nominal nodes" and FR-322-AC-269, a source-owned
 nominal body: its closed body holds the source values. An `enum` body is
 `{term: "enum", ordered, members}` with boolean `ordered` and a non-empty
 declared-order list of unique identifier members; `ordered: true` denotes
-`ordered_enum`. A `dimension` body is `{term: "dimension", terms}` with a
-list of `{dimension_node_id, exponent}` entries, where each exponent is an
-integer string; a base dimension has an empty list. A `unit` body is
+`ordered_enum`. A `dimension` body is `{term: "dimension", base, terms}` with
+an explicit boolean `base` copied from its source declaration and a list of
+`{dimension_node_id, exponent}` entries, where each exponent is an integer
+string. `base: true` requires an empty list; `base: false` permits either
+derived terms or an empty list for a dimensionless derived dimension. The
+reader SHALL retain this distinction in nominal, base-Time and normalized
+dimension reads rather than infer base status from an empty list. The flag is
+not a structural-id operand: changing it does not rekey the source dimension's
+declaration-path node id. A `unit` body is
 `{term: "unit", dimension_node_id, target_unit_node_id, scale, offset}`:
 the first id names its dimension, the target is a node id or `null` for a
 canonical root, and each rational has integer-string `numerator` and
 positive-integer-string `denominator`. A model-owned nominal still has
 `{term: "aggregate", members: []}` and takes its values from the selected
-document. A source nominal with an empty aggregate, a missing or extra body
+document, including the selected FCD dimension's explicit `base` flag. A
+source nominal with an empty aggregate, a missing or extra body
 member, or a member of the wrong wire type refuses `malformed_wire` at the
 closed-schema step before graph and semantic joins. A schema-valid body with
 an incorrect owner, declaration, semantic type, dependency, case or unit join
@@ -705,7 +714,8 @@ source-authored body forms. Its separate fallible `try_enum`, `try_dimension`,
 `try_unit` and `try_dimension_equivalence` constructors SHALL accept typed
 members and return a typed refusal with the offending body-relative RFC 6901
 pointer when a member does not have the closed shape above. In particular,
-they SHALL check non-empty unique identifier enum members, canonical integer
+they SHALL check non-empty unique identifier enum members, the dimension's
+required boolean base flag and base/terms constraint, canonical integer
 exponents, structural node-id shape, and the integer numerator and positive
 denominator of every rational; the dimension-equivalence `root_scale`
 numerator must also be positive. The constructors validate body shape only:
@@ -715,6 +725,14 @@ responsibility. No public raw variant, mutable field, unchecked constructor,
 body SHALL serialize as its exact closed V2 body and be usable as a
 `CheckedTerm::NominalBody`; ordinary package admission SHALL still perform all
 reader checks after serialization.
+`NominalBody::try_dimension` SHALL require the caller's explicit `base` value
+alongside the typed terms. Its read-only dimension details SHALL expose both
+values, and its canonical encoder SHALL write `base: true` for a base dimension
+and `base: false` for a derived dimension, including a derived dimension with
+no terms. The public checked-package V2 writer SHALL preserve that body and
+its assigned declaration-path node id across a strict reader/writer/reader
+round trip. The consumer SHALL not need to alter serialized JSON or a lock to
+supply the flag.
 An external consumer SHALL be able to read the ordered flag and borrowed
 authored member names of an enum `NominalBody` through a read-only typed view.
 The view SHALL return no enum details for dimension, unit or dimension-equivalence
@@ -5909,6 +5927,10 @@ copying QSL execution semantics into IR.
 | FR-038-AC-475 | IMPLEMENTED (IR-1358; TC-466 focused tests pass). Every catalog population returns its complete member original-identity set in ascending identity order. Each member carries the genuine alias-normalized FR-150 `EffectiveId` of its selected object type, including the complete owner/original-key chain. An effective type has a null owner and one selected original-key component; member declarations would carry an owner chain, but are not population member types. Missing, cyclic-alias or wrong-kind member resolution returns a typed error for the entire call, with admitted selected model/root and original population/member locus, never a silently dropped member or successful partial catalog. The accessor borrows admitted retained data instead of copying a selected document or taking caller-supplied model facts. | Test (TC-466) |
 | FR-038-AC-476 | IMPLEMENTED (IR-1358; TC-466 focused tests pass). The catalog call accepts finite explicit work and output-entry limits, charges selected-root, population, alias-resolution and member visits plus copied effective-identity component bytes as work, and every returned root, population and member descriptor as storage before allocation, and returns a typed work or entry-limit refusal without partial catalog. Exact limits succeed, one below the first exceeded charge refuses with consumed amount and the selected model/root and original population/member locus; a cloned admitted package gives the same catalog and charge. No read of an unrelated graph body or second domain-document admission occurs. | Test (TC-466) |
 | FR-038-AC-477 | IMPLEMENTED (IR-1358; TC-466 focused tests pass). A consumer can validate every selected model's named populations before inspecting an observation, with distinct original population identities even where their normalized member type identities match. The catalog does not use `reaches_population`, `select_population`, source-unused graph inference, or an observation as its source of population facts. | Test (TC-466; QSL FR-390) |
+| FR-038-AC-478 | PLANNED/UNRUN (IR-1362). The strict V2 reader and typed `NominalBody::try_dimension` admit exactly a source dimension body `{term: "dimension", base: boolean, terms}` under QSpec FR-322-AC-387. The constructor requires the explicit flag, and its encoder writes the same boolean. A `base: true` dimension with empty terms and a `base: false` dimension with empty terms both admit as distinct meanings while retaining their assigned declaration-path node ids; a derived dimension with nonempty valid terms admits. Omitting `base` (NB-07), supplying a nonboolean value (NB-09), or putting terms on `base: true` (NB-08) refuses `malformed_wire` at the dimension body before graph or timed-model checks, with no admitted package. The old `{term, terms}` body is not accepted. | Test (TC-233; QSpec NB-07..NB-09) |
+| FR-038-AC-479 | PLANNED/UNRUN (IR-1362). Source and selected-model dimension reads use the explicit admitted or selected-document `base` flag when identifying a base `Time`, validating a dimension term target, choosing a base equivalence root and normalizing a dimension. An empty `base: false` dimension normalizes to a dimensionless derived map; it is never treated as a base dimension or a base `Time`, even when its selected name is `Time`. A `base: true` dimension remains a base only when its terms are empty. Changing only a source dimension's `base` flag does not change its assigned node id, but the reader still validates its body and semantic joins. | Test (TC-280; QSpec FR-322-AC-387) |
+| FR-038-AC-480 | PLANNED/UNRUN (IR-1362). Tests read QSpec main's `positive-timed-model-nodes.json`, `positive-nominal-identities.json`, `dimension-equivalence-vectors.json` and `adverse.json` by `QUIRE_SPECIFICATION_DIR`, without copying their bytes into IR. The QSpec #625 positive timed-model dimension at node 42 no longer refuses `malformed_wire` at `/semantic_graph/nodes/42/body`; the reader reaches the subsequent timed checks. The positive nominal base and dimensionless-derived dimensions retain their distinct meanings, and NB-07 through NB-09 yield their published strict-wire refusals. | Test (TC-233; TC-280; TC-367) |
+| FR-038-AC-481 | PLANNED/UNRUN (IR-1362). A public typed writer constructs base and derived source dimension bodies with explicit `base` values, including a derived empty-term body, and emits `true` and `false` verbatim in the canonical checked-package V2 wire. Strict reader admission retains the same flag; the public package writer followed by another strict read returns an equal admitted package and the same declaration-path node identities without a producer-side JSON or lock rewrite. A typed constructor rejects `base: true` with nonempty terms at its body-relative locus before it can emit a package. The round-trip tests use the selected QSpec #625 positive nominal and timed fixtures by reference. | Test (TC-233; TC-367; QSpec FR-322-AC-387) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
