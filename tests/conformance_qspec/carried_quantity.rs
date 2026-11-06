@@ -22,6 +22,23 @@ fn vectors() -> Value {
         .expect("QSpec quantity carrier vectors")
 }
 
+fn bounded_vectors() -> Value {
+    read_json(&proposal_dir_of(&super::fixtures_dir()).join("bounded-quantity-vectors.json"))
+        .expect("QSpec bounded quantity vectors")
+}
+
+fn bound_text(bound: &Value) -> String {
+    match bound["kind"].as_str().expect("published bound kind") {
+        "integer" => bound["decimal"].as_str().expect("integer bound").to_owned(),
+        "rational" => format!(
+            "{}/{}",
+            bound["numerator"].as_str().expect("numerator"),
+            bound["denominator"].as_str().expect("denominator")
+        ),
+        other => panic!("unsupported published bound kind {other}"),
+    }
+}
+
 fn assert_published_ids(cases: &[Value], prefix: &str, required: &[&str]) {
     let observed = cases
         .iter()
@@ -402,6 +419,34 @@ impl Package {
         self.ids.insert(name.to_owned(), id);
     }
 
+    fn bounded(&mut self, name: &str, unit: &str, min: &str, max: &str) {
+        let rational = self.ids["rational"].clone();
+        let unit = self.ids[unit].clone();
+        let id = json!({
+            "package": self.wire["name"],
+            "path": ["scalar_type", "bounded_quantity", unit, "min", rational, min,
+                "max", rational, max],
+            "ordinal": 0,
+        });
+        self.wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"scalar_type","semantic_form":"bounded_quantity",
+                "semantic_type":id,"dependencies":[unit,rational],
+                "occurrences":[{"role":"type","ordinal":0}],
+                "body":{"term":"aggregate","members":[
+                    {"term":"binding","name":"unit","value":{"term":"reference","target":unit}},
+                    {"term":"binding","name":"min","value":{"term":"literal",
+                        "type":rational,"value_kind":"rational","value":min}},
+                    {"term":"binding","name":"max","value":{"term":"literal",
+                        "type":rational,"value_kind":"rational","value":max}}
+                ]},
+            }));
+        self.ids.insert(name.to_owned(), id);
+    }
+
     fn read(mut self) -> CheckedPackageV2ReadResult {
         settle(&mut self.wire);
         index_fixture_node_ids(&mut self.wire);
@@ -434,6 +479,223 @@ impl Package {
             &evidence_for(&self.wire),
         )
     }
+}
+
+/// Trace: FR-038-AC-482, FR-038-AC-483, FR-019-AC-26; QSpec FR-322-AC-384.
+#[trace(
+    "TC-048",
+    "TC-050",
+    "TC-058",
+    "FR-038-AC-482",
+    "FR-038-AC-483",
+    "FR-019-AC-26"
+)]
+#[test]
+fn published_bounded_quantity_shape_and_bounds_policy() {
+    let published = bounded_vectors();
+    let forms = published["forms"]
+        .as_array()
+        .expect("published bounded forms");
+    assert_published_ids(forms, "BQ", &["BQ-01", "BQ-04", "BQ-05", "BQ-06", "BQ-07"]);
+    let case = |id| forms.iter().find(|form| form["id"] == id).expect("BQ case");
+    for (id, admitted) in [
+        ("BQ-01", true),
+        ("BQ-04", true),
+        ("BQ-05", false),
+        ("BQ-06", false),
+    ] {
+        let form = case(id);
+        let mut package = Package::new();
+        let all = &vectors()["nodes"];
+        for name in ["rational", "text", "integer"] {
+            package.add(name, all);
+        }
+        let min = bound_text(&form["min"]);
+        let max = bound_text(&form["max"]);
+        package.bounded("bounded", "unit_m", &min, &max);
+        if admitted {
+            package.parameter("bounded_parameter", "bounded");
+            package.parameter("bare_parameter", "unit_m");
+            let ids = package.ids.clone();
+            let CheckedPackageV2ReadResult::Admitted(model) = package.read() else {
+                panic!("{id} must admit");
+            };
+            let bounded = model
+                .graph()
+                .nodes
+                .iter()
+                .zip(model.node_kinds())
+                .find(|(_, kind)| {
+                    **kind == CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity)
+                })
+                .expect("admitted bounded node")
+                .0;
+            let CheckedTerm::Aggregate { members } = &bounded.body else {
+                panic!("{id}: bounded body is not aggregate");
+            };
+            assert_eq!(members.len(), 3);
+            let actual = serde_json::to_value(&bounded.body).expect("typed body");
+            assert_eq!(actual["members"][1]["value"]["value"], min, "{id} min");
+            assert_eq!(actual["members"][2]["value"]["value"], max, "{id} max");
+            let profile = CompleteLoweringProfileV2 {
+                reference: quire_contract_model::LoweringProfileRef {
+                    authority: "quire".into(),
+                    identity: "complete-v1".into(),
+                },
+                required_source_selections: Vec::new(),
+                supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+                require_bounds: true,
+                work_limit: 100_000,
+            };
+            let graph_ids = model
+                .graph()
+                .nodes
+                .iter()
+                .map(|node| json!({"node_id": node.node_id}))
+                .collect::<Vec<_>>();
+            let request = resolved_fixture_id(&ids["bounded_parameter"], &graph_ids);
+            let bare_request = resolved_fixture_id(&ids["bare_parameter"], &graph_ids);
+            let records = model.lower(&[request, bare_request], &profile).records;
+            assert!(
+                matches!(records[0], CompleteLoweringRecordV2::Lowered { .. }),
+                "{id} bounded parameter: {:?}",
+                records[0]
+            );
+            let CompleteLoweringRecordV2::RequiresBound { unbounded_type, .. } = &records[1] else {
+                panic!(
+                    "BQ-07 bare unit parameter must require a bound: {:?}",
+                    records[1]
+                );
+            };
+            assert_eq!(
+                *unbounded_type,
+                resolved_fixture_id(&ids["unit_m"], &graph_ids)
+            );
+        } else {
+            let CheckedPackageV2ReadResult::Refused(refusal) = package.read() else {
+                panic!("{id} must refuse");
+            };
+            assert_eq!(
+                refusal.code,
+                quire_contract_model::CheckedPackageRefusalCode::InvalidPackage,
+                "{id}"
+            );
+            assert_eq!(
+                refusal.cause,
+                Some(quire_contract_model::CheckedPackageRefusalCause::InvalidDerivedShape),
+                "{id}"
+            );
+            if id == "BQ-06" {
+                assert!(
+                    refusal.loci[0]
+                        .path
+                        .as_ref()
+                        .is_some_and(|path| path.to_string().ends_with("/body/members/1/value")),
+                    "{id} endpoint pointer: {:?}",
+                    refusal.loci[0].path
+                );
+            }
+        }
+    }
+}
+
+/// Trace: FR-038-AC-483; QSpec FR-322-AC-384.
+#[trace("TC-048", "FR-038-AC-483")]
+#[test]
+fn published_bounded_quantity_add_convert_and_lt_admit() {
+    let bounded = bounded_vectors();
+    let forms = bounded["forms"].as_array().expect("BQ forms");
+    let add_convert = forms
+        .iter()
+        .find(|form| form["id"] == "BQ-08")
+        .expect("published operation case");
+    assert_eq!(add_convert["expected"], "admitted");
+    let operations = add_convert["operations"].as_array().expect("operations");
+    let mut all = vectors()["nodes"].clone();
+    all["boolean"] = json!({"tag":"scalar_type","form":"boolean",
+        "path":["scalar_type","boolean"],"body":{"term":"aggregate","members":[]}});
+    for (identity, source, result, mode) in [
+        ("quire.op.quantity.add", "bounded", "unit_m", Value::Null),
+        (
+            "quire.op.quantity.convert",
+            "unit_m",
+            "bounded",
+            json!({"kind":"rounding","value":"exact"}),
+        ),
+        ("quire.op.quantity.lt", "bounded", "boolean", Value::Null),
+    ] {
+        assert!(
+            operations.iter().any(|item| item == identity),
+            "published {identity}"
+        );
+        let mut package = Package::new();
+        for name in ["rational", "text", "integer"] {
+            package.add(name, &all);
+        }
+        package.bounded("bounded", "unit_m", "0", "20");
+        if identity == "quire.op.quantity.lt" {
+            package.add("boolean", &all);
+        }
+        package.application(
+            &json!({"application":{
+                "operation": identity,
+                "operand_types": [source],
+                "result_type": result,
+                "mode": mode
+            }}),
+            &all,
+        );
+        let CheckedPackageV2ReadResult::Admitted(model) = package.read() else {
+            panic!("{identity} over bounded quantity must admit");
+        };
+        assert!(model.node_kinds().contains(&CheckedNodeKind::ScalarType(
+            ScalarTypeForm::BoundedQuantity
+        )));
+    }
+}
+
+/// Trace: FR-038-AC-483; QSpec FR-322-AC-384.
+#[trace("TC-048", "FR-038-AC-483")]
+#[test]
+fn published_bounded_quantity_lt_rejects_other_dimension() {
+    let bounded = bounded_vectors();
+    let case = bounded["forms"]
+        .as_array()
+        .expect("BQ forms")
+        .iter()
+        .find(|form| form["id"] == "BQ-10")
+        .expect("BQ-10");
+    assert_eq!(case["expected"]["cause"], "operator-ineligible");
+    let mut all = vectors()["nodes"].clone();
+    all["boolean"] = json!({"tag":"scalar_type","form":"boolean",
+        "path":["scalar_type","boolean"],"body":{"term":"aggregate","members":[]}});
+    let mut package = Package::new();
+    for name in ["rational", "text", "integer", "boolean"] {
+        package.add(name, &all);
+    }
+    package.bounded("length", "unit_m", "0", "20");
+    package.bounded("time", "unit_s", "0", "20");
+    package.parameter("time_parameter", "time");
+    let at = package.application(
+        &json!({"application":{
+            "operation":"quire.op.quantity.lt", "operand_types":["length"],
+            "result_type":"boolean", "mode":null
+        }}),
+        &all,
+    );
+    let time_parameter = package.ids["time_parameter"].clone();
+    package.wire["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["target"] = time_parameter;
+    let CheckedPackageV2ReadResult::Refused(refusal) = package.read() else {
+        panic!("BQ-10 must refuse dimension mismatch");
+    };
+    assert_eq!(
+        refusal.code,
+        quire_contract_model::CheckedPackageRefusalCode::IllTyped
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(quire_contract_model::CheckedPackageRefusalCause::OperatorIneligible)
+    );
 }
 
 /// Trace: FR-038-AC-73; TC-050.

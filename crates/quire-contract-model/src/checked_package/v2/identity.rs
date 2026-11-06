@@ -843,7 +843,8 @@ impl NominalKind {
                 | ScalarTypeForm::Uuid
                 | ScalarTypeForm::Timestamp
                 | ScalarTypeForm::CompoundUnit
-                | ScalarTypeForm::CarriedQuantity,
+                | ScalarTypeForm::CarriedQuantity
+                | ScalarTypeForm::BoundedQuantity,
             ) => None,
             K::CompositeType(
                 CompositeTypeForm::Option
