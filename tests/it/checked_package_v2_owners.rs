@@ -2352,7 +2352,7 @@ fn tc_228_model_owner_is_closed_and_required_on_the_graph_node() {
 /// A single admitted source supplies every native join family. Each row is
 /// populated, so the cumulative budget includes the family's validation and
 /// retained map entries rather than only an empty Arc handle.
-#[trace("FR-358-AC-3", "FR-358-AC-4")]
+#[trace("FR-358", "FR-358-AC-3", "FR-358-AC-4")]
 #[test]
 fn native_budget_counts_nonempty_source_families_on_one_package() {
     use quire_contract_model::{

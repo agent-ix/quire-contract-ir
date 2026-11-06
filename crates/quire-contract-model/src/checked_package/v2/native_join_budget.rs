@@ -32,6 +32,7 @@ pub struct NativeJoinDeniedCharge {
 ///
 /// Admitted charges are cumulative, including charges made before a refused
 /// operation. A denied charge is recorded but does not increment consumption.
+/// Implements: FR-358.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NativeJoinBudget {
     work_limit: u64,
