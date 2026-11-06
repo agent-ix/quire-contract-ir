@@ -9081,16 +9081,15 @@ fn boolean_atoms(package: &mut Value) -> (Value, Value) {
         .expect("Boolean value literal")
         .clone();
     let mut targets = Vec::new();
-    for (label, name) in [("8834", "guard_a"), ("8835", "guard_b")] {
+    for label in ["8834", "8835"] {
         let mut atom = template.clone();
         atom["node_id"] = node_id(&format!("fixture/protocol-body/structural_key/{label}"));
-        atom["semantic_form"] = json!("parameter");
+        // An expression with a nonlogical aggregate body is an opaque atom;
+        // a value/literal is a constant and cannot host this body.
+        atom["node_tag"] = json!("expression");
+        atom["semantic_form"] = json!("reference");
         atom["dependencies"] = json!([]);
-        atom["occurrences"] = json!([{"role":"expression", "ordinal":0}]);
-        atom["body"] = json!({"term":"aggregate", "members":[
-            {"term":"binding", "name":"name", "value":{"term":"literal", "type":node_id(&family_key("a1a1")), "value_kind":"text", "value":name}},
-            {"term":"binding", "name":"level", "value":{"term":"literal", "type":node_id(&family_key("a3a3")), "value_kind":"integer", "value":"0"}}
-        ]});
+        atom["body"] = json!({"term":"aggregate", "members":[template["body"].clone()]});
         targets.push(atom["node_id"].clone());
         package["semantic_graph"]["nodes"]
             .as_array_mut()

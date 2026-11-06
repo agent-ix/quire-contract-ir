@@ -1001,7 +1001,9 @@ fn tc_048_a_grouped_union_has_public_reader_stage_controls() {
                 )
             }
             "edge" => {
-                let at = position_of_form(&control, "value", "literal");
+                // A scalar can carry this dangling edge; a literal's empty
+                // dependency rule would mask the missing-target assertion.
+                let at = position_of_form(&control, "scalar_type", "integer");
                 control["semantic_graph"]["nodes"][at]["dependencies"]
                     .as_array_mut()
                     .expect("dependencies")
@@ -1009,7 +1011,7 @@ fn tc_048_a_grouped_union_has_public_reader_stage_controls() {
                 (
                     Code::InvalidSemanticGraph,
                     None,
-                    format!("/semantic_graph/nodes/{at}/dependencies/1"),
+                    format!("/semantic_graph/nodes/{at}/dependencies/0"),
                 )
             }
             "ordinal" => {

@@ -1871,11 +1871,13 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     }
 }
 
-/// A self-typed body-root literal is the graph-cycle carve-out. The same
-/// self id nested in an aggregate, binding, or reference is a real cycle.
-#[trace("TC-048", "FR-038-AC-18")]
+/// A self-typed literal root remains admitted. Nonliteral value/literal bodies
+/// refuse before graph-cycle analysis. The private
+/// `tc_048_only_a_self_typed_body_root_literal_omits_its_cycle_edge` control
+/// retains the nested-edge assertion at the existing graph seam.
+#[trace("TC-048", "FR-038-AC-18", "FR-038-AC-472")]
 #[test]
-fn tc_048_self_typed_literal_root_is_exempt_but_nested_self_references_refuse() {
+fn tc_048_self_typed_literal_root_admits_and_nonliteral_self_bodies_refuse_strictly() {
     let mut package = v2_all_families();
     let scalar = package["semantic_graph"]["nodes"][0].clone();
     let scalar_id = scalar["node_id"].clone();
@@ -1924,16 +1926,12 @@ fn tc_048_self_typed_literal_root_is_exempt_but_nested_self_references_refuse() 
         ("reference", json!({"term":"reference","target":self_id})),
     ] {
         let mut changed = package.clone();
-        // General expression bodies can carry nested self references;
-        // literal nodes would refuse earlier under their literal-only rule.
-        changed["semantic_graph"]["nodes"][1]["node_tag"] = json!("expression");
-        changed["semantic_graph"]["nodes"][1]["semantic_form"] = json!("reference");
         changed["semantic_graph"]["nodes"][1]["body"] = body;
         assert_eq!(
             refused(&changed, &evidence_for(&changed)),
             refusal(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "/semantic_graph/nodes/1"
+                CheckedPackageRefusalCode::MalformedWire,
+                "/semantic_graph/nodes/1/body"
             ),
             "{name}",
         );
