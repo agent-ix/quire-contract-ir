@@ -107,7 +107,7 @@ fn map_keeps_both_ordered_type_operands() {
         .project_exact_type(
             &id,
             &quire_contract_model::SelectedExactIdentities::empty(),
-            100,
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
         )
         .expect("Map<Text,Integer> has an exact value projection");
     let quire_exact::ValueType::Map(map) = projection.value_type() else {
@@ -118,7 +118,7 @@ fn map_keeps_both_ordered_type_operands() {
         .project_exact_type(
             &id,
             &quire_contract_model::SelectedExactIdentities::empty(),
-            2,
+            &mut quire_contract_model::NativeJoinBudget::new(2, u64::MAX),
         )
         .expect_err("Map key inspection consumes the bounded work budget");
     assert_eq!(
@@ -212,7 +212,7 @@ fn nonscalar_key_refuses_at_map_node() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-489")]
+#[trace("TC-048", "TC-468", "FR-038-AC-489", "FR-359-AC-2")]
 #[test]
 fn collection_bounds_remain_a_separate_node() {
     let (mut package, map_position) = map_package();
@@ -243,17 +243,36 @@ fn collection_bounds_remain_a_separate_node() {
     let id: CheckedNodeId =
         serde_json::from_value(package["semantic_graph"]["nodes"][position]["node_id"].clone())
             .expect("bound id");
+    let mut ample = quire_contract_model::NativeJoinBudget::new(100, u64::MAX);
     let projection = admitted
         .project_exact_type(
             &id,
             &quire_contract_model::SelectedExactIdentities::empty(),
-            100,
+            &mut ample,
         )
         .expect("bounded Map exact projection");
     let quire_exact::ValueType::Map(map) = projection.value_type() else {
         panic!("bounded Map");
     };
     assert_eq!(map.values(), &quire_exact::ValueType::Integer);
+    let required = ample.consumed();
+    let mut exact = quire_contract_model::NativeJoinBudget::new(required.work, required.storage);
+    assert_eq!(
+        admitted.project_exact_type(&id, &SelectedExactIdentities::empty(), &mut exact),
+        Ok(projection.clone())
+    );
+    assert_eq!(exact.last_success_delta(), Some(required));
+    let mut short =
+        quire_contract_model::NativeJoinBudget::new(required.work, required.storage - 1);
+    let refusal = admitted
+        .project_exact_type(&id, &SelectedExactIdentities::empty(), &mut short)
+        .unwrap_err();
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
+    assert_eq!(refusal.at, None);
+    assert_eq!(
+        short.first_unpaid().unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Storage
+    );
     assert_eq!(admitted.graph().nodes[map_position].dependencies.len(), 2);
     let CheckedTerm::Aggregate { members } = admitted
         .term(
@@ -322,7 +341,11 @@ fn non_text_scalar_key_admits_but_has_no_exact_projection() {
         Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
     );
     let refusal = admitted
-        .project_exact_type(&id, &SelectedExactIdentities::empty(), 100)
+        .project_exact_type(
+            &id,
+            &SelectedExactIdentities::empty(),
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect_err("Exact Map requires a Text key");
     assert_eq!(
         refusal.code,

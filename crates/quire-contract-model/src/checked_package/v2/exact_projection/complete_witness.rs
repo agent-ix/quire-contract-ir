@@ -869,7 +869,7 @@ fn require(
         return Ok(());
     }
     let mut error = witness_error(at, ExactTypeProjectionErrorCode::IncompleteIdentityWitness);
-    error.form = form.into();
+    error.form = Some(form.into());
     Err(error)
 }
 

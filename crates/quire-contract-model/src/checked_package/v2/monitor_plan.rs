@@ -4,10 +4,12 @@
 //! Closed tick-monitor admission and package-borrowed reads (FR-038-AC-421..429).
 
 use super::model_members::DomainModel;
+use super::native_join_storage as storage;
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
     CheckedRational, CheckedTerm, ClockConfiguration, CompositeTypeForm, FunctionForm, LiteralKind,
-    RawSemanticNodeV2, ScalarTypeForm, TemporalForm, TemporalProfile, ValueForm, WorkMeter,
+    NativeJoinBudget, NativeJoinChargeKind, NativeJoinDeniedCharge, RawSemanticNodeV2,
+    ScalarTypeForm, TemporalForm, TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -283,6 +285,8 @@ pub enum CheckedMonitorClockReadErrorCode {
     MissingClock,
     /// The next inspection exceeds the caller's allowance.
     WorkLimit,
+    /// The next owned payload exceeds the caller's storage allowance.
+    StorageLimit,
 }
 
 /// Typed first refusal, without a partial clock view.
@@ -291,45 +295,88 @@ pub enum CheckedMonitorClockReadErrorCode {
 pub struct CheckedMonitorClockReadError {
     /// Stable cause.
     pub code: CheckedMonitorClockReadErrorCode,
-    /// First selected clause or inspected row node.
-    pub at: Box<CheckedNodeId>,
-    /// Exact requested occurrence.
-    pub occurrence: CheckedOccurrence,
+    /// First selected clause or inspected row node, absent in compact exhaustion.
+    pub at: Option<Box<CheckedNodeId>>,
+    /// Exact requested occurrence, absent in compact exhaustion.
+    pub occurrence: Option<CheckedOccurrence>,
     /// Work charged before refusal.
     pub work: u64,
     /// First refused charge, zero for semantic refusal.
     pub attempted_work: u64,
+    /// The denied resource and its full attempted amount, if any.
+    pub denied: Option<NativeJoinDeniedCharge>,
 }
 
 struct ClockBudget<'a> {
     occurrence: &'a CheckedOccurrence,
-    work: u64,
-    limit: u64,
+    budget: &'a mut NativeJoinBudget,
+    start_work: u64,
 }
 
 impl ClockBudget<'_> {
     fn error(
-        &self,
+        &mut self,
         code: CheckedMonitorClockReadErrorCode,
         at: &CheckedNodeId,
     ) -> CheckedMonitorClockReadError {
+        let work = self.budget.consumed().work - self.start_work;
+        let units = storage::node(at).saturating_add(1);
+        if !self.budget.charge(NativeJoinChargeKind::Storage, units) {
+            return CheckedMonitorClockReadError {
+                code: CheckedMonitorClockReadErrorCode::StorageLimit,
+                at: None,
+                occurrence: None,
+                work,
+                attempted_work: 0,
+                denied: Some(NativeJoinDeniedCharge {
+                    kind: NativeJoinChargeKind::Storage,
+                    amount: units,
+                }),
+            };
+        }
         CheckedMonitorClockReadError {
             code,
-            at: Box::new(at.clone()),
-            occurrence: self.occurrence.clone(),
-            work: self.work,
+            at: Some(Box::new(at.clone())),
+            occurrence: Some(self.occurrence.clone()),
+            work,
             attempted_work: 0,
+            denied: None,
         }
     }
 
-    fn charge(&mut self, at: &CheckedNodeId) -> Result<(), CheckedMonitorClockReadError> {
-        if self.work >= self.limit {
-            let mut error = self.error(CheckedMonitorClockReadErrorCode::WorkLimit, at);
-            error.attempted_work = 1;
-            return Err(error);
+    fn charge(&mut self) -> Result<(), CheckedMonitorClockReadError> {
+        if !self.budget.charge(NativeJoinChargeKind::Work, 1) {
+            return Err(CheckedMonitorClockReadError {
+                code: CheckedMonitorClockReadErrorCode::WorkLimit,
+                at: None,
+                occurrence: None,
+                work: self.budget.consumed().work - self.start_work,
+                attempted_work: 1,
+                denied: Some(NativeJoinDeniedCharge {
+                    kind: NativeJoinChargeKind::Work,
+                    amount: 1,
+                }),
+            });
         }
-        self.work += 1;
         Ok(())
+    }
+
+    fn storage(&mut self, amount: u128) -> Result<(), CheckedMonitorClockReadError> {
+        if self.budget.charge(NativeJoinChargeKind::Storage, amount) {
+            Ok(())
+        } else {
+            Err(CheckedMonitorClockReadError {
+                code: CheckedMonitorClockReadErrorCode::StorageLimit,
+                at: None,
+                occurrence: None,
+                work: self.budget.consumed().work - self.start_work,
+                attempted_work: 0,
+                denied: Some(NativeJoinDeniedCharge {
+                    kind: NativeJoinChargeKind::Storage,
+                    amount,
+                }),
+            })
+        }
     }
 }
 
@@ -350,7 +397,7 @@ fn selected_row<'a, T>(
         let middle = low + (high - low) / 2;
         let row = &rows[middle];
         let (id, row_ordinal) = key(row);
-        budget.charge(id)?;
+        budget.charge()?;
         let row_key = package
             .structural_key(id)
             .expect("admitted temporal row key");
@@ -422,15 +469,16 @@ impl<'a> CheckedMonitorPlanRef<'a> {
         &self,
         clause: &CheckedNodeId,
         occurrence: &CheckedOccurrence,
-        work_limit: u64,
+        native_budget: &mut NativeJoinBudget,
     ) -> Result<CheckedMonitorClockRead<'a>, CheckedMonitorClockReadError> {
+        let before = native_budget.begin();
         let mut budget = ClockBudget {
             occurrence,
-            work: 0,
-            limit: work_limit,
+            start_work: before.work,
+            budget: native_budget,
         };
-        budget.charge(self.node_id())?;
-        budget.charge(clause)?;
+        budget.charge()?;
+        budget.charge()?;
         if clause != self.clause() {
             return Err(budget.error(CheckedMonitorClockReadErrorCode::WrongClause, clause));
         }
@@ -440,7 +488,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
         let admitted = self.package.node(clause).expect("admitted monitor clause");
         let mut found = false;
         for candidate in &admitted.occurrences {
-            budget.charge(clause)?;
+            budget.charge()?;
             if candidate == occurrence {
                 found = true;
                 break;
@@ -458,8 +506,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 matches!(laws, [law] if TemporalProfile::from_wire(&law.identity)
                     == Some(TemporalProfile::Timed))));
         let clock = if timed {
-            match super::timed_model::admitted_model_time(self.package, clause, |id| {
-                budget.charge(id)
+            match super::timed_model::admitted_model_time(self.package, clause, |_| {
+                budget.charge()
             })? {
                 Some(binding) => CheckedMonitorClock::ModelTime {
                     timed_root: binding.timed_root,
@@ -490,6 +538,9 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             &mut budget,
         )?
         .expect("strict admission requires a name for every claim");
+        budget.storage(1)?;
+        let work = budget.budget.consumed().work - before.work;
+        budget.budget.finish(before);
         Ok(CheckedMonitorClockRead {
             root: self.node_id(),
             clause: self.clause(),
@@ -497,7 +548,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             clock,
             clock_name: admitted_clock_name(clause_term).expect("admitted clause clock"),
             claim_name: &name.name,
-            work: budget.work,
+            work,
         })
     }
     /// The monitor State record type.

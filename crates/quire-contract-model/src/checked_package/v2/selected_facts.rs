@@ -262,10 +262,18 @@ fn charge_material(
     Ok(())
 }
 
-fn exact_error(error: ExactTypeProjectionError, prior: u64) -> SelectedFactsError {
+fn exact_error(
+    error: ExactTypeProjectionError,
+    prior: u64,
+    fallback: &CheckedNodeId,
+) -> SelectedFactsError {
     SelectedFactsError {
         code: SelectedFactsErrorCode::Exact,
-        at: error.at.clone().unwrap_or_else(|| error.requested.clone()),
+        at: error
+            .at
+            .clone()
+            .or_else(|| error.requested.clone())
+            .unwrap_or_else(|| Box::new(fallback.clone())),
         occurrence: None,
         field: None,
         work: prior.saturating_add(error.work),
@@ -451,18 +459,22 @@ impl CheckedPackageV2 {
                 [row.clone()],
                 native_budget,
             )
-            .map_err(|error| exact_error(error, meter.used))?;
+            .map_err(|error| exact_error(error, meter.used, &id.record))?;
             meter.charge(&id.record, 1)?;
-            let value_type = project_record_field_type(self, &identities, member_type).map_err(
-                |(code, target)| {
-                    let at = target.as_ref().unwrap_or(&id.record);
-                    let mut error =
-                        SelectedFactsError::new(SelectedFactsErrorCode::Exact, at, meter.used);
-                    error.field = Some(id.original_identity.clone());
-                    error.exact_code = Some(code);
-                    error
-                },
-            )?;
+            let value_type = project_record_field_type(
+                self,
+                &identities,
+                member_type,
+                &id.record,
+                native_budget,
+            )
+            .map_err(|exact| {
+                let code = exact.code;
+                let mut error = exact_error(exact, meter.used, &id.record);
+                error.field = Some(id.original_identity.clone());
+                error.exact_code = Some(code);
+                error
+            })?;
             meter.text(&id.record, field.name)?;
             meter.charge(&id.record, 1)?;
             selected_fields.push(SelectedFactField {
@@ -591,7 +603,7 @@ impl CheckedPackageV2 {
         meter.text(id, &row.original_identity)?;
         meter.charge(id, 1)?;
         SelectedExactIdentities::from_stage_rows(self, [row.clone()], [], native_budget)
-            .map_err(|error| exact_error(error, meter.used))?;
+            .map_err(|error| exact_error(error, meter.used, id))?;
         joined.insert(id.clone(), row);
         Ok(())
     }

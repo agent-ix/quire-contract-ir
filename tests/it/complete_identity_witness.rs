@@ -151,7 +151,11 @@ fn complete_identity_witness_refuses_each_missing_family_and_private_channel() {
             Code::IncompleteIdentityWitness,
             "family {family}"
         );
-        assert_eq!(refusal.form.as_ref(), form, "first missing family {family}");
+        assert_eq!(
+            refusal.form.as_deref(),
+            Some(form),
+            "first missing family {family}"
+        );
         let expected = match family {
             0 => fixture
                 .identities
@@ -245,7 +249,7 @@ fn complete_identity_witness_binding_precedes_content_and_missing_families() {
         .validate_and_rebind(&foreign.package, &mut budget)
         .expect_err("foreign binding wins over missing record");
     assert_eq!(refusal.code, Code::ForeignNode);
-    assert_eq!(refusal.form.as_ref(), "selected_identity");
+    assert_eq!(refusal.form.as_deref(), Some("selected_identity"));
     assert_eq!(
         budget.consumed(),
         NativeJoinCharge {
@@ -487,7 +491,7 @@ fn complete_identity_witness_private_acquisition_is_checked_incremental_and_boun
             .unwrap_err();
         let denied = short.first_unpaid().unwrap();
         assert_eq!(error.code, Code::ExhaustedStorage);
-        if error.form.as_ref() == "admitted_source_unit_copy" {
+        if error.form.as_deref() == Some("admitted_source_unit_copy") {
             assert!(
                 denied.amount > 2,
                 "nonempty map keys/entries/handles are charged before COW"
@@ -611,7 +615,11 @@ fn complete_identity_witness_retains_private_value_identities_after_producer_row
     drop(fixture.units);
     let rebound = witness.validate_and_rebind(&package, &mut ample()).unwrap();
     let projected = package
-        .project_exact_type(&record, &rebound, 100_000)
+        .project_exact_type(
+            &record,
+            &rebound,
+            &mut NativeJoinBudget::new(100_000, u64::MAX),
+        )
         .unwrap();
     let fields = projected.record_view().unwrap().fields();
     assert_eq!(
@@ -780,7 +788,7 @@ fn complete_identity_witness_precharges_long_source_owner_comparison() {
         )
         .unwrap_err();
     assert_eq!(error.code, Code::ExhaustedWork);
-    assert_eq!(error.form.as_ref(), "admitted_source_unit_owner");
+    assert_eq!(error.form.as_deref(), Some("admitted_source_unit_owner"));
     assert_eq!(budget.consumed().work, prefix as u64);
     assert_eq!(
         budget.first_unpaid().unwrap().amount,

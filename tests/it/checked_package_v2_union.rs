@@ -552,7 +552,11 @@ fn selected_source_union_projects_only_with_complete_member_witness() {
     assert_eq!(retained.settled_key, row.settled_key);
     assert_eq!(retained.members, row.members);
     let complete = admitted
-        .project_exact_type(&id, &identities, 8)
+        .project_exact_type(
+            &id,
+            &identities,
+            &mut quire_contract_model::NativeJoinBudget::new(8, u64::MAX),
+        )
         .expect("projection");
     assert_eq!(
         complete.value_type(),
@@ -560,11 +564,19 @@ fn selected_source_union_projects_only_with_complete_member_witness() {
     );
     assert_eq!(complete.work(), 8);
     assert_eq!(
-        admitted.clone().project_exact_type(&id, &identities, 8),
+        admitted.clone().project_exact_type(
+            &id,
+            &identities,
+            &mut quire_contract_model::NativeJoinBudget::new(8, u64::MAX)
+        ),
         Ok(complete)
     );
     let exhausted = admitted
-        .project_exact_type(&id, &identities, 7)
+        .project_exact_type(
+            &id,
+            &identities,
+            &mut quire_contract_model::NativeJoinBudget::new(7, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(exhausted.work, 7);
@@ -576,7 +588,11 @@ fn selected_source_union_refuses_missing_and_mismatched_rows() {
     let package = shape_package();
     let (admitted, id, row) = union_witness(&package);
     let missing = admitted
-        .project_exact_type(&id, &SelectedExactIdentities::empty(), 8)
+        .project_exact_type(
+            &id,
+            &SelectedExactIdentities::empty(),
+            &mut quire_contract_model::NativeJoinBudget::new(8, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         missing.code,
@@ -698,7 +714,11 @@ fn selected_source_union_refuses_missing_and_mismatched_rows() {
     ));
     let stale_package = self::admitted("changed union body", &package_of(changed_nodes));
     let stale = stale_package
-        .project_exact_type(&id, &selected, 8)
+        .project_exact_type(
+            &id,
+            &selected,
+            &mut quire_contract_model::NativeJoinBudget::new(8, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         stale.code,

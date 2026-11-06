@@ -84,7 +84,11 @@ fn admitted_reference_requires_selected_exact_identity_row() {
     )
     .expect("empty selected identity rows");
     let refusal = admitted
-        .project_exact_type(&id, &rows, 3)
+        .project_exact_type(
+            &id,
+            &rows,
+            &mut quire_contract_model::NativeJoinBudget::new(3, u64::MAX),
+        )
         .expect_err("missing object row");
     assert_eq!(
         refusal.code,

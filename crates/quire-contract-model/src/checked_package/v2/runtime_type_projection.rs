@@ -9,9 +9,9 @@ use super::nominal_reads::{NominalDeclarationRow, NominalIdentity, NominalReadCo
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedNodePathSegment,
     CheckedOperationEffect, CheckedOperationEffectProvenance, CheckedPackageV2, CheckedRational,
-    DimensionTerm, ExactTypeProjectionError, ExactTypeProjectionErrorCode, ScalarTypeForm,
-    SelectedExactIdentities, SelectedExactIdentity, SelectedRecordView, SelectedSourceUnitRow,
-    SelectedTupleDeclarationRow,
+    DimensionTerm, ExactTypeProjectionError, ExactTypeProjectionErrorCode, NativeJoinBudget,
+    NativeJoinDeniedCharge, ScalarTypeForm, SelectedExactIdentities, SelectedExactIdentity,
+    SelectedRecordView, SelectedSourceUnitRow, SelectedTupleDeclarationRow,
 };
 use quire_exact::{EffectiveId, NodeKey, PathSegmentView, Presence, UnitId, ValueType};
 use std::collections::{BTreeMap, BTreeSet};
@@ -282,16 +282,18 @@ impl SelectedTypeDeclarations {
 
 /// A typed refusal with the first failing admitted node and charged work.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-#[error("selected runtime type projection refused: {code:?} at {form}")]
+#[error("selected runtime type projection refused: {code:?} at {form:?}")]
 pub struct SelectedTypeDeclarationsError {
     /// Stable refusal category shared with Exact type projection.
     pub code: ExactTypeProjectionErrorCode,
-    /// The first node whose selected type could not be projected.
-    pub at: Box<CheckedNodeId>,
-    /// The admitted family/form, or a named selected join.
-    pub form: Box<str>,
+    /// The first node whose selected type could not be projected, when owned.
+    pub at: Option<Box<CheckedNodeId>>,
+    /// The admitted family/form or named selected join, when owned.
+    pub form: Option<Box<str>>,
     /// Work successfully charged before refusal.
     pub work: u64,
+    /// First denied charge when the error has no owned diagnostic.
+    pub denied: Option<NativeJoinDeniedCharge>,
 }
 
 impl SelectedTypeDeclarationsError {
@@ -303,18 +305,20 @@ impl SelectedTypeDeclarationsError {
     ) -> Self {
         Self {
             code,
-            at: Box::new(at.clone()),
-            form: form.into(),
+            at: Some(Box::new(at.clone())),
+            form: Some(form.into()),
             work,
+            denied: None,
         }
     }
 
     fn from_exact(error: ExactTypeProjectionError, prior_work: u64) -> Self {
         Self {
             code: error.code,
-            at: error.at.unwrap_or(error.requested),
+            at: error.at.or(error.requested),
             form: error.form,
             work: prior_work.saturating_add(error.work),
+            denied: error.denied,
         }
     }
 }
@@ -445,8 +449,15 @@ fn projected_field_type(
     } else {
         member_type
     };
-    project_record_field_type(package, identities, member_type).map_err(|(code, target)| {
-        SelectedTypeDeclarationsError::at(code, target.as_ref().unwrap_or(at), form, work)
+    project_record_field_type(
+        package,
+        identities,
+        member_type,
+        at,
+        &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .map_err(|error| {
+        SelectedTypeDeclarationsError::at(error.code, error.at.as_deref().unwrap_or(at), form, work)
     })
 }
 
@@ -457,16 +468,15 @@ impl CheckedPackageV2 {
     /// exposed. Identity rows must originate from
     /// the stage selecting the same documents; IR checks their structural join
     /// but cannot authenticate an opaque Exact key supplied by another caller.
-    /// `work_limit` bounds projection work; `join_budget` is the caller-owned
-    /// work/storage allowance for the native admitted-type acquisition.
+    /// The caller-owned budget bounds the native admitted-type acquisition.
     pub fn project_selected_type_declarations(
         &self,
         identities: &SelectedExactIdentities,
         tuple_rows: &[SelectedTupleDeclarationRow],
         source_unit_rows: &[SelectedSourceUnitRow],
-        work_limit: u64,
-        join_budget: &mut super::NativeJoinBudget,
+        native_budget: &mut NativeJoinBudget,
     ) -> Result<SelectedTypeDeclarations, SelectedTypeDeclarationsError> {
+        let work_limit = native_budget.remaining_work();
         let mut work = 0;
         let mut selected_source_units = Vec::new();
         for (node, kind) in self.graph().nodes.iter().zip(self.node_kinds()) {
@@ -697,7 +707,7 @@ impl CheckedPackageV2 {
         }
         // This checked acquisition is the sole semantic tuple/unit authority.
         let admitted_identities = identities
-            .with_admitted_type_rows(self, tuple_rows, source_unit_rows, join_budget)
+            .with_admitted_type_rows(self, tuple_rows, source_unit_rows, native_budget)
             .map_err(|error| SelectedTypeDeclarationsError::from_exact(error, work))?;
         for row in tuple_rows {
             if tuple_by_node
@@ -883,7 +893,11 @@ impl CheckedPackageV2 {
                 DeclarationForm::RecordValueType => {
                     let remaining = work_limit.saturating_sub(work);
                     let projection = self
-                        .project_exact_type(id, identities, remaining)
+                        .project_exact_type(
+                            id,
+                            identities,
+                            &mut NativeJoinBudget::new(remaining, u64::MAX),
+                        )
                         .map_err(|error| SelectedTypeDeclarationsError::from_exact(error, work))?;
                     work = work.saturating_add(projection.work());
                     let view = projection.record_view().ok_or_else(|| {

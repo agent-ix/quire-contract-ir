@@ -171,7 +171,13 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
             ExactTypeProjectionErrorCode::ExhaustedWork
         );
         assert_eq!(selected.source_enum_rows().next(), Some(&row));
-        let projection = package.project_exact_type(&id, &selected, 1000).unwrap();
+        let projection = package
+            .project_exact_type(
+                &id,
+                &selected,
+                &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX),
+            )
+            .unwrap();
         assert_eq!(
             projection.value_type(),
             &ValueType::Enum(row.declaration.shape.clone())
@@ -183,12 +189,22 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         );
         let exact = projection.work();
         assert_eq!(
-            package.project_exact_type(&id, &selected, exact).unwrap(),
+            package
+                .project_exact_type(
+                    &id,
+                    &selected,
+                    &mut quire_contract_model::NativeJoinBudget::new(exact, u64::MAX)
+                )
+                .unwrap(),
             projection
         );
         assert_eq!(
             package
-                .project_exact_type(&id, &selected, exact - 1)
+                .project_exact_type(
+                    &id,
+                    &selected,
+                    &mut quire_contract_model::NativeJoinBudget::new(exact - 1, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::ExhaustedWork
@@ -196,7 +212,11 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
         assert_eq!(
             package
                 .clone()
-                .project_exact_type(&id, &selected, exact)
+                .project_exact_type(
+                    &id,
+                    &selected,
+                    &mut quire_contract_model::NativeJoinBudget::new(exact, u64::MAX)
+                )
                 .unwrap(),
             projection
         );
@@ -211,13 +231,21 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
             .unwrap();
         assert_eq!(
             minimal
-                .project_exact_type(&id, &minimal_selected, exact)
+                .project_exact_type(
+                    &id,
+                    &minimal_selected,
+                    &mut quire_contract_model::NativeJoinBudget::new(exact, u64::MAX)
+                )
                 .unwrap(),
             projection
         );
         assert_eq!(
             package
-                .project_exact_type(&id, &SelectedExactIdentities::empty(), 1000)
+                .project_exact_type(
+                    &id,
+                    &SelectedExactIdentities::empty(),
+                    &mut quire_contract_model::NativeJoinBudget::new(1000, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::UnavailableIdentityWitness
@@ -635,8 +663,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &rows,
-            10_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
         )
         .unwrap();
     assert_eq!(view.units().len(), 2);
@@ -660,8 +687,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &rows,
-            10_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX)
         ),
         Ok(view.clone())
     );
@@ -670,8 +696,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             std::slice::from_ref(&root_row),
-            10_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(
@@ -683,8 +708,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &[root_row.clone(), root_row.clone(), converted_row.clone()],
-            10_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(
@@ -703,8 +727,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &[root_row.clone(), foreign],
-            10_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(
@@ -725,8 +748,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &[root_row.clone(), foreign],
-            10_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ForeignNode);
@@ -742,8 +764,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &[root_row, duplicate_key],
-            10_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(
@@ -755,8 +776,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &rows,
-            view.work() - 1,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(view.work() - 1, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
@@ -770,8 +790,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &long_rows,
-            20_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(20_000, u64::MAX),
         )
         .unwrap();
     assert!(long_view.work() > view.work() + 4000);
@@ -780,8 +799,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &long_rows,
-            long_view.work(),
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+            &mut quire_contract_model::NativeJoinBudget::new(long_view.work(), u64::MAX)
         )
         .is_ok());
     let one_less = package
@@ -789,8 +807,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &long_rows,
-            long_view.work() - 1,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(long_view.work() - 1, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(one_less.code, ExactTypeProjectionErrorCode::ExhaustedWork);
@@ -799,13 +816,12 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &long_rows,
-            view.work() + 100,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(view.work() + 100, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(tight.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(tight.at.as_ref(), &converted.node_id);
-    assert_eq!(tight.form.as_ref(), "selected_source_unit_row");
+    assert_eq!(tight.at.as_deref(), Some(&converted.node_id));
+    assert_eq!(tight.form.as_deref(), Some("selected_source_unit_row"));
     let mut long_declaration = converted_row;
     long_declaration.qualified_declaration = vec!["x".repeat(4096).into()];
     let refusal = package
@@ -813,13 +829,12 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
             &identities,
             &[],
             &[rows[0].clone(), long_declaration],
-            view.work() + 100,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(view.work() + 100, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(refusal.at.as_ref(), &converted.node_id);
-    assert_eq!(refusal.form.as_ref(), "selected_source_unit_row");
+    assert_eq!(refusal.at.as_deref(), Some(&converted.node_id));
+    assert_eq!(refusal.form.as_deref(), Some("selected_source_unit_row"));
 }
 fn row<'a>(
     node: &'a CheckedSemanticNodeV2,

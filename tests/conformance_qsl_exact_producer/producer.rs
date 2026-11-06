@@ -85,7 +85,7 @@ fn join_error(
     let error = SelectedExactIdentities::from_stage_rows(admitted, declarations, fields, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
         .expect_err("invalid producer rows must not yield a projection witness");
     assert_eq!(error.code, code, "{error:?}");
-    assert_eq!(error.requested.as_ref(), node);
+    assert_eq!(error.requested.as_deref(), Some(node));
     assert_eq!(error.at.as_deref(), Some(node));
 }
 
@@ -170,7 +170,7 @@ fn main() {
         panic!("object id");
     };
     let projection = admitted
-        .project_exact_type(&record.structural_node, &witnesses, 256)
+        .project_exact_type(&record.structural_node, &witnesses, &mut quire_contract_model::NativeJoinBudget::new(256, u64::MAX))
         .expect("external consumer projects the genuine record");
     assert_eq!(
         projection.value_type(),
@@ -227,7 +227,7 @@ fn main() {
         .expect("emitted object-reference type");
     assert_eq!(
         admitted
-            .project_exact_type(&reference.node_id, &witnesses, 256)
+            .project_exact_type(&reference.node_id, &witnesses, &mut quire_contract_model::NativeJoinBudget::new(256, u64::MAX))
             .expect("external reference consumer")
             .value_type(),
         &ValueType::Reference(effective.clone())
@@ -242,17 +242,16 @@ fn main() {
         SelectedExactIdentities::from_stage_rows(&admitted, absent_object_rows, fields.clone(), &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
             .expect("record witnesses still join without the object row");
     let error = admitted
-        .project_exact_type(&reference.node_id, &absent_object, 256)
+        .project_exact_type(&reference.node_id, &absent_object, &mut quire_contract_model::NativeJoinBudget::new(256, u64::MAX))
         .expect_err("reference projection cannot default a missing object identity");
     assert_eq!(error.code, Code::UnavailableIdentityWitness);
-    assert_eq!(error.requested.as_ref(), &reference.node_id);
+    assert_eq!(error.requested.as_deref(), Some(&reference.node_id));
     assert_eq!(error.at.as_deref(), Some(&object.structural_node));
 
     let absent = admitted
         .project_exact_type(
             &record.structural_node,
-            &SelectedExactIdentities::empty(),
-            256,
+            &SelectedExactIdentities::empty(), &mut quire_contract_model::NativeJoinBudget::new(256, u64::MAX),
         )
         .expect_err("no authoritative declaration witness");
     assert_eq!(absent.code, Code::UnavailableIdentityWitness);
@@ -270,7 +269,7 @@ fn main() {
         SelectedExactIdentities::from_stage_rows(&admitted, declarations.clone(), missing_fields, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
             .expect("other genuine producer rows still join");
     let error = admitted
-        .project_exact_type(&record.structural_node, &missing, 256)
+        .project_exact_type(&record.structural_node, &missing, &mut quire_contract_model::NativeJoinBudget::new(256, u64::MAX))
         .expect_err("missing inherited field refuses whole projection");
     assert_eq!(error.code, Code::UnavailableIdentityWitness);
     assert_eq!(error.at.as_deref(), Some(&record.structural_node));

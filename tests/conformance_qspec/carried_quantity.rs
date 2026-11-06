@@ -13,7 +13,7 @@ use quire_contract_model::{
     BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageReadLimits,
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
     CompleteLoweringRecordV2, CompositeTypeForm, ExactTypeProjectionErrorCode, LiteralKind,
-    ScalarTypeForm, SelectedExactIdentities,
+    NativeJoinBudget, ScalarTypeForm, SelectedExactIdentities,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -699,8 +699,9 @@ fn admitted_bounded_quantity_is_a_map_scalar_key() {
         admitted.node_kind(target),
         Some(CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity))
     );
+    let mut budget = NativeJoinBudget::new(100, u64::MAX);
     let refusal = admitted
-        .project_exact_type(&map.node_id, &SelectedExactIdentities::empty(), 100)
+        .project_exact_type(&map.node_id, &SelectedExactIdentities::empty(), &mut budget)
         .expect_err("Exact Map requires a Text key");
     assert_eq!(
         refusal.code,
