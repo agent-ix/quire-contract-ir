@@ -19,7 +19,8 @@ use quire_contract_model::{
     CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode, SelectedEqualityApplicationRow,
     SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
     SelectedExactIdentities, SelectedExactIdentity, SelectedFactEqualityId, SelectedFactFieldId,
-    SelectedFactIds, SelectedFactRows, SelectedFactsErrorCode, SelectedTupleDeclarationRow,
+    SelectedFactIds, SelectedFactRows, SelectedFactsErrorCode, SelectedSourceCollectionRow,
+    SelectedTupleDeclarationRow,
 };
 use quire_exact::{
     record, CardinalityBound, CollectionKind, CollectionType, ConstructionCause, EffectiveId,
@@ -5980,4 +5981,192 @@ fn exact_reference_projection_preserves_each_selected_object_identity() {
             other => panic!("invalid reference target must refuse before projection: {other:?}"),
         }
     }
+}
+
+fn source_collection_fixture() -> (
+    CheckedPackageV2,
+    Vec<(SelectedSourceCollectionRow, CheckedNodeId)>,
+) {
+    let shapes = [
+        ("sequence", Kind::Sequence, None, true, false),
+        ("set", Kind::Set, None, false, true),
+        ("bag", Kind::Bag, None, false, false),
+        ("ordered", Kind::OrderedSet, None, true, true),
+        ("bounded", Kind::Sequence, Some((0, 3)), true, false),
+    ];
+    let fields = shapes.map(|(name, _, bound, ordered, unique)| {
+        field(name, "ix://quire/native/Integer").many((
+            0,
+            bound.map(|(_, upper)| upper),
+            ordered,
+            unique,
+        ))
+    });
+    let selected = document(vec![object("Collect", &[], &fields)]);
+    let reads = shapes.map(|(name, kind, bound, _, _)| Read {
+        owner: "Collect",
+        field: name,
+        ty: Ty::Collection(kind, Box::new(Ty::Integer), bound),
+    });
+    let package = admit(&selected, &[("Collect", OBJECT)], &reads);
+    let element_node: CheckedNodeId =
+        serde_json::from_value(node_id("scalar_type/integer")).expect("element ID");
+    let rows = shapes
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, kind, bound, _, _))| {
+            let base = format!("composite_type/{}/scalar_type/integer", kind.form());
+            let structural = bound.map_or_else(
+                || base.clone(),
+                |(lower, upper)| format!("bounded_domain/collection_bounds/{base}/{lower}/{upper}"),
+            );
+            let value_type = ValueType::collection(CollectionType::new(
+                match kind {
+                    Kind::Sequence => CollectionKind::Sequence,
+                    Kind::Set => CollectionKind::Set,
+                    Kind::Bag => CollectionKind::Bag,
+                    Kind::OrderedSet => CollectionKind::OrderedSet,
+                },
+                ValueType::Integer,
+                bound.map(|(lower, upper)| CardinalityBound::new(lower, upper).unwrap()),
+            ));
+            let row = SelectedSourceCollectionRow {
+                structural_node: serde_json::from_value(node_id(&structural))
+                    .expect("collection ID"),
+                base_node: serde_json::from_value(node_id(&base)).expect("base ID"),
+                element_node: element_node.clone(),
+                value_type,
+            };
+            let requested = format!("expression/query/Collect/{name}/{index}");
+            (
+                row,
+                serde_json::from_value(node_id(&requested)).expect("query ID"),
+            )
+        })
+        .collect();
+    (package, rows)
+}
+
+/// Trace: FR-352-AC-20.
+#[trace("FR-352-AC-20")]
+#[test]
+fn source_collection_rows_project_all_kinds_and_bounds() {
+    let (package, rows) = source_collection_fixture();
+    let selected = SelectedExactIdentities::empty()
+        .with_source_collection_rows(&package, rows.iter().map(|(row, _)| row.clone()), 500)
+        .expect("complete collection rows join");
+    assert_eq!(selected.source_collection_rows().count(), rows.len());
+    for (row, requested) in &rows {
+        let projection = package
+            .project_exact_type(requested, &selected, 500)
+            .expect("collection projection");
+        assert_eq!(projection.type_node(), &row.structural_node);
+        assert_eq!(projection.value_type(), &row.value_type);
+        let exact = projection.work();
+        assert_eq!(
+            package.project_exact_type(requested, &selected, exact),
+            Ok(projection.clone())
+        );
+        let exhausted = package
+            .project_exact_type(requested, &selected, exact - 1)
+            .expect_err("one below exact allowance");
+        assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+        assert_eq!(exhausted.work, exact - 1);
+        assert_eq!(
+            package
+                .clone()
+                .project_exact_type(requested, &selected, exact),
+            Ok(projection)
+        );
+    }
+    let bounded = &rows[4].0;
+    assert_ne!(bounded.structural_node, bounded.base_node);
+}
+
+/// Trace: FR-352-AC-21.
+#[trace("FR-352-AC-21")]
+#[test]
+fn source_collection_rows_refuse_missing_and_changed_structural_facts() {
+    let (package, rows) = source_collection_fixture();
+    let (row, requested) = &rows[4];
+    assert_eq!(
+        package
+            .project_exact_type(requested, &SelectedExactIdentities::empty(), 500)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    let join = |candidate: SelectedSourceCollectionRow| {
+        SelectedExactIdentities::empty()
+            .with_source_collection_rows(&package, [candidate], 500)
+            .expect_err("changed collection row")
+    };
+    let mut foreign = row.clone();
+    foreign.structural_node.package = "foreign".into();
+    assert_eq!(
+        join(foreign).code,
+        ExactTypeProjectionErrorCode::ForeignNode
+    );
+    let mut wrong_form = row.clone();
+    wrong_form.structural_node = row.element_node.clone();
+    assert_eq!(
+        join(wrong_form).code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut changed_base = row.clone();
+    changed_base.base_node = rows[1].0.base_node.clone();
+    assert_eq!(
+        join(changed_base).code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut changed_element = row.clone();
+    changed_element.element_node = row.base_node.clone();
+    assert_eq!(
+        join(changed_element).code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut changed_kind = row.clone();
+    changed_kind.value_type = ValueType::collection(CollectionType::new(
+        CollectionKind::Set,
+        ValueType::Integer,
+        Some(CardinalityBound::new(0, 3).unwrap()),
+    ));
+    assert_eq!(
+        join(changed_kind).code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    let mut changed_bound = row.clone();
+    changed_bound.value_type = ValueType::collection(CollectionType::new(
+        CollectionKind::Sequence,
+        ValueType::Integer,
+        Some(CardinalityBound::new(1, 3).unwrap()),
+    ));
+    assert_eq!(
+        join(changed_bound).code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    assert_eq!(
+        SelectedExactIdentities::empty()
+            .with_source_collection_rows(&package, [row.clone(), row.clone()], 500)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+    );
+    let mut changed_opaque_element = row.clone();
+    changed_opaque_element.value_type = ValueType::collection(CollectionType::new(
+        CollectionKind::Sequence,
+        ValueType::Boolean,
+        Some(CardinalityBound::new(0, 3).unwrap()),
+    ));
+    let selected = SelectedExactIdentities::empty()
+        .with_source_collection_rows(&package, [changed_opaque_element], 500)
+        .expect("structural row joins before element projection");
+    let refusal = package
+        .project_exact_type(requested, &selected, 500)
+        .expect_err("opaque element mismatch");
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    assert_eq!(refusal.at.as_deref(), Some(&row.element_node));
 }
