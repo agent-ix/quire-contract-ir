@@ -30,3 +30,9 @@ Reviewed PR #937 head a29e7ffcf and the listed criteria. No applicable Assurance
 ## Evidence
 
 `AdmissionBinding` is public inside private `checked_package::v2`, but `checked_package` and `v2` are private modules. The model crate root has explicit named exports and omits `AdmissionBinding`; FR-019 declares that root inventory the stable API. The package method can be used by inference but external consumers cannot import or name the capability type. The binding itself uses Arc pointer identity and checks original retained buffers. The focused integration test passed in the coding lane; no test or gate was rerun here.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The model crate root explicitly re-exports AdmissionBinding, FR-019 lists it in the V2 reader Public items row, and the integration test imports it by name. |
