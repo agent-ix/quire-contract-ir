@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Atomic package-local validation of every retained identity channel.
+//! FR-352: atomic package-local validation of every retained identity channel.
 
 use super::super::model_members::DeclarationForm;
 use super::super::native_join_storage as storage;
@@ -1060,19 +1060,25 @@ pub(super) fn check_package_binding(
 ) -> Result<(), ExactTypeProjectionError> {
     charge_native_work(budget, at, at, "identity_package_binding", 1)?;
     let Some(target_binding) = package.admission_binding.as_ref() else {
-        return Err(witness_error(
+        return Err(binding_error(
             at,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            budget,
         ));
     };
     if binding.is_some_and(|binding| binding != target_binding) {
-        return Err(witness_error(at, ExactTypeProjectionErrorCode::ForeignNode));
+        return Err(binding_error(
+            at,
+            ExactTypeProjectionErrorCode::ForeignNode,
+            budget,
+        ));
     }
     charge_native_work(budget, at, at, "identity_admitted_buffers", 7)?;
     if !target_binding.retains(package) {
-        return Err(witness_error(
+        return Err(binding_error(
             at,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            budget,
         ));
     }
     Ok(())
@@ -1100,6 +1106,16 @@ fn selected_original_locus<'a>(
         }
     }
     Ok(found)
+}
+
+fn binding_error(
+    at: &CheckedNodeId,
+    code: ExactTypeProjectionErrorCode,
+    budget: &NativeJoinBudget,
+) -> ExactTypeProjectionError {
+    let mut error = witness_error(at, code);
+    error.work = budget.consumed().work;
+    error
 }
 
 #[cfg(test)]

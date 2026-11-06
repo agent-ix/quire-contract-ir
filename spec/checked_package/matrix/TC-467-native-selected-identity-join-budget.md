@@ -50,3 +50,11 @@ admitted package with colliding contents; and exercise the mandatory native
 budget at measured exact limits, one unit below, and after earlier acquisition.
 Every failure must leave the input unchanged and expose no rebound value.
 The IR-owned rows establish native correspondence, not QSL producer authority.
+
+The external model test `complete_witness_public` runs without optional model
+features. Its strict obligation-free fixture checks all mandatory entry points
+and the 24-unit fresh-stage logical storage floor independently of measured
+exact-limit tests. The mixed fixture additionally drops original producer
+preparation rows and projects the retained tuple and source-unit identities
+through selected record fields. Private stale-buffer controls begin with the
+strict reader-admitted relationship fixture, not a manually assembled package.

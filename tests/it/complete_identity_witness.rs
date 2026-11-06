@@ -256,15 +256,19 @@ fn complete_identity_witness_binding_precedes_content_and_missing_families() {
     assert_eq!(budget.last_success_delta(), None);
     assert_eq!(budget.first_unpaid(), None);
     macro_rules! refuses_empty_join {
-        ($method:ident) => {
+        ($method:ident) => {{
+            let mut budget = ample();
+            let error = subset
+                .$method(&foreign.package, [], &mut budget)
+                .unwrap_err();
+            assert_eq!(error.code, Code::ForeignNode);
+            assert_eq!(error.work, budget.consumed().work);
             assert_eq!(
-                subset
-                    .$method(&foreign.package, [], &mut ample())
-                    .unwrap_err()
-                    .code,
-                Code::ForeignNode
+                error.work, 1,
+                "binding check precedes any row or ownership copy"
             );
-        };
+            assert_eq!(budget.last_success_delta(), None);
+        }};
     }
     refuses_empty_join!(with_source_union_rows);
     refuses_empty_join!(with_source_record_rows);
