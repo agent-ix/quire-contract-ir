@@ -52,30 +52,8 @@ fn mixed_fixture() -> Value {
         if node["node_id"] == checked_package::node_id(&checked_package::family_key("1010")) {
             node["semantic_type"] = integer.clone();
             node["dependencies"] = json!([integer]);
-        } else if node["node_id"] == checked_package::node_id(&checked_package::family_key("dddd"))
-        {
-            node["semantic_type"] = integer.clone();
-            node["dependencies"] = json!([checked_package::node_id(&checked_package::family_key(
-                "cccc"
-            ))]);
         }
     }
-    settle(&mut value);
-    value
-}
-
-fn mixed_fixture_with_two_dependencies() -> Value {
-    let mut value = mixed_fixture();
-    let node = value["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-        .iter_mut()
-        .find(|node| node["node_tag"] == "value")
-        .expect("value node");
-    node["dependencies"] = json!([
-        node["dependencies"][0],
-        checked_package::node_id(&checked_package::family_key("a3a3"))
-    ]);
     settle(&mut value);
     value
 }
@@ -140,6 +118,29 @@ fn operation(term: &CheckedTerm) -> &quire_contract_model::CheckedApplicationOpe
         panic!("represented operation term");
     };
     operation
+}
+
+#[trace("TC-047", "FR-035-AC-3", "FR-038-AC-472")]
+#[test]
+fn mixed_source_literal_keeps_its_type_and_empty_dependencies_through_v1() {
+    let source = admit(&mixed_fixture());
+    let literal = source
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == id("dddd"))
+        .expect("source literal");
+    assert!(literal.dependencies.is_empty());
+    assert_eq!(literal.semantic_type, id("aaaa"));
+
+    let lowered = source.lower(&[id("dddd")], &profile());
+    let ContractPackageReadResult::Admitted(read_back) = read(bytes(&lowered)) else {
+        panic!("literal V1 output must admit");
+    };
+    let carried = read_back.node(&id("dddd")).expect("lowered literal");
+    assert!(carried.dependencies.is_empty());
+    assert_eq!(carried.semantic_type, literal.semantic_type);
+    assert_eq!(read_back.term(&id("dddd")), Some(&literal.body));
 }
 
 #[trace(
@@ -1254,7 +1255,9 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
         );
     }
 
-    let two_edge_output = lower(&mixed_fixture_with_two_dependencies(), &request());
+    // The reference expression carries two real dependencies. A literal cannot
+    // carry edges, even when one points at its semantic type.
+    let two_edge_output = lower(&mixed_fixture(), &[id("eeee")]);
     let two_edge_nodes = &two_edge_output
         .package
         .wire()
