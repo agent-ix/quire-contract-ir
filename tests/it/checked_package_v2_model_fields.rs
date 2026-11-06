@@ -3126,11 +3126,7 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
     assert_eq!(view.fields()[0].value_type(), &ValueType::Quantity(unit_id));
     let mut exhausted_budget = quire_contract_model::NativeJoinBudget::new(4, u64::MAX);
     let exhausted = admitted
-        .project_exact_type(
-            &record,
-            &witnessed,
-            &mut exhausted_budget,
-        )
+        .project_exact_type(&record, &witnessed, &mut exhausted_budget)
         .unwrap_err();
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(exhausted.requested, None);
@@ -3376,11 +3372,7 @@ fn admitted_selected_records_project_complete_exact_views() {
         u64::MAX,
     );
     let exhausted = admitted
-        .project_exact_type(
-            tick_node,
-            &witnesses,
-            &mut exhausted_budget,
-        )
+        .project_exact_type(tick_node, &witnesses, &mut exhausted_budget)
         .expect_err("the field itself must be charged");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(exhausted.requested, None);
@@ -3842,11 +3834,7 @@ fn admitted_nested_record_and_reference_fields_require_target_witnesses_and_work
     for limit in [5, 7] {
         let mut refusal_budget = quire_contract_model::NativeJoinBudget::new(limit, u64::MAX);
         let refusal = admitted
-            .project_exact_type(
-                &envelope,
-                &complete,
-                &mut refusal_budget,
-            )
+            .project_exact_type(&envelope, &complete, &mut refusal_budget)
             .expect_err("nested target read must consume the remaining work");
         assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
         assert_eq!(refusal.requested, None);

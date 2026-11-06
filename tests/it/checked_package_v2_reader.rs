@@ -141,11 +141,7 @@ fn exact_scalar_projection_uses_publicly_admitted_package() {
     let id = serde_json::from_value(node_id(&family_key("aaaa"))).expect("Boolean ID");
     let mut exhausted_budget = quire_contract_model::NativeJoinBudget::new(1, u64::MAX);
     let exhausted = package
-        .project_exact_type(
-            &id,
-            &identities,
-            &mut exhausted_budget,
-        )
+        .project_exact_type(&id, &identities, &mut exhausted_budget)
         .expect_err("finite limit");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(exhausted.requested, None);
