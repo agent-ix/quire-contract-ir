@@ -10929,6 +10929,9 @@ fn recovery_case_shared_body_is_checked_under_each_arm_scope() {
 fn recovery_case_local_cannot_launder_a_known_stage_binder_or_barred_state() {
     let (mut package, compensation, case, binder, circle, _) = slot_case_fixture();
     let boolean = node_id(&family_key("aaaa"));
+    let former_predicate = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"]
+        [12]["value"]["members"][1]["value"]["target"]
+        .clone();
     let known = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][1]["value"]
         ["target"]
         .clone();
@@ -10968,6 +10971,10 @@ fn recovery_case_local_cannot_launder_a_known_stage_binder_or_barred_state() {
     package["semantic_graph"]["nodes"][at]["body"]["result_type"] = boolean.clone();
     package["semantic_graph"]["nodes"][at]["body"]["arguments"][2]["value"]["members"][1] =
         json!({"term":"literal","type":boolean,"value_kind":"boolean","value":false});
+    let at = node_position_for_key(&package, &former_predicate);
+    package["semantic_graph"]["nodes"][at]["body"]["operation"]["identity"] =
+        json!("quire.op.boolean.and");
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["target"] = literal;
     package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][12]["value"]["members"]
         [1]["value"] = json!({"term":"reference","target":case});
     settle_after_structural_rekey(&mut package);
