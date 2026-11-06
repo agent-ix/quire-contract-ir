@@ -286,7 +286,11 @@ fn exact_reference_uses_the_selected_object_row() {
 
     let projected = fixture
         .package
-        .project_exact_type(&reference, &rows, 3)
+        .project_exact_type(
+            &reference,
+            &rows,
+            &mut crate::checked_package::v2::NativeJoinBudget::new(3, u64::MAX),
+        )
         .expect("witnessed reference");
     assert_eq!(projected.value_type(), &ValueType::Reference(effective));
 
@@ -298,7 +302,11 @@ fn exact_reference_uses_the_selected_object_row() {
         .node = "ix://acme/orders/Other".into();
     let refusal = fixture
         .package
-        .project_exact_type(&reference, &rows, 3)
+        .project_exact_type(
+            &reference,
+            &rows,
+            &mut crate::checked_package::v2::NativeJoinBudget::new(3, u64::MAX),
+        )
         .expect_err("witness for old selected declaration");
     assert_eq!(refusal.code, Code::MismatchedIdentityWitness);
     assert_eq!(refusal.at.as_deref(), Some(&object));

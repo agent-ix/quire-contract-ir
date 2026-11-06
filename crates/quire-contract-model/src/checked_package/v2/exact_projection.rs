@@ -2597,9 +2597,7 @@ fn selected_declaration_error_budgeted(
     requested: &CheckedNodeId,
     work: &mut impl WorkMeter,
 ) -> ExactTypeProjectionError {
-    let code = if package.node(node).is_some() {
-        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
-    } else if node.package == package.wire.name {
+    let code = if node.package == package.wire.name {
         ExactTypeProjectionErrorCode::UnknownNode
     } else {
         ExactTypeProjectionErrorCode::ForeignNode
@@ -2768,9 +2766,9 @@ impl WorkMeter for NativeJoinBudget {
         &self,
         kind: NativeJoinChargeKind,
         amount: u128,
-        _requested: &CheckedNodeId,
-        _at: &CheckedNodeId,
-        _form: &str,
+        requested: &CheckedNodeId,
+        at: &CheckedNodeId,
+        form: &str,
     ) -> ExactTypeProjectionError {
         if self.exact_diagnostics() {
             ExactTypeProjectionError::compact(kind, amount, self.consumed().work)
@@ -3043,7 +3041,8 @@ fn project_wrapped_record_field_type(
     }
     if let MemberType::Reference(target)
     | MemberType::Record(target)
-    | MemberType::Quantity(target) = leaf
+    | MemberType::Quantity(target)
+    | MemberType::Tuple(target) = leaf
     {
         charge_work(requested, target, "record_field_target", work, work_limit)?;
     }

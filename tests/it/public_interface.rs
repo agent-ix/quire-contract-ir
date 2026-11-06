@@ -1071,6 +1071,16 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> =
         CheckedPackageV2::project_exact_type;
     let _: fn(&ExactTypeProjection) -> &quire_exact::ValueType = ExactTypeProjection::value_type;
+    let _: fn(
+        &CheckedPackageV2,
+        &SelectedExactIdentities,
+        &[quire_contract_model::SelectedTupleDeclarationRow],
+        &[quire_contract_model::SelectedSourceUnitRow],
+        &mut quire_contract_model::NativeJoinBudget,
+    ) -> Result<
+        quire_contract_model::SelectedTypeDeclarations,
+        quire_contract_model::SelectedTypeDeclarationsError,
+    > = CheckedPackageV2::project_selected_type_declarations;
 
     let exports = exported_items();
     assert_eq!(exports, expected_items(), "model public-item inventory");
