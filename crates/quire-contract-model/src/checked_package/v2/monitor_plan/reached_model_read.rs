@@ -36,6 +36,8 @@ pub(super) struct ReachedProducerRows<'a> {
 pub(super) struct ReachedModelRead {
     pub(super) types: SelectedTypeDeclarations,
     pub(super) enums: Vec<SelectedModelEnumShapeRow>,
+    pub(super) identities: SelectedExactIdentities,
+    pub(super) reached: BTreeSet<CheckedNodeId>,
     pub(super) work: u64,
 }
 
@@ -783,6 +785,8 @@ impl CheckedMonitorPlanRef<'_> {
             Ok(ReachedModelRead {
                 types,
                 enums: selected_enums,
+                identities,
+                reached,
                 work,
             })
         })();
@@ -828,11 +832,53 @@ mod tests {
     use crate::checked_package::v2::{SelectedExactDeclarationForm, SelectedExactIdentity};
     use ix_trace_rs::trace;
     use quire_exact::{
-        EffectiveId, MemberId, MemberOwner, NodeKey, OriginalDeclarationKey, PathSegment, UnitId,
+        CollectionKind, CollectionType, EffectiveId, MemberId, MemberOwner, NodeKey,
+        OriginalDeclarationKey, PathSegment, Presence, UnionMember, UnitId, ValueType,
     };
 
     fn admitted_monitor() -> CheckedPackageV2 {
         admitted_monitor_with_variant(false)
+    }
+
+    fn admitted_monitor_for_closure() -> CheckedPackageV2 {
+        let (mut wire, document) = monitor_plan_fixtures::model_fact_monitor_with_variant(false);
+        let source = wire["lock"]["sources"][0].clone();
+        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            if node["node_tag"] != "composite_type"
+                || !matches!(
+                    node["semantic_form"].as_str(),
+                    Some("record" | "tuple" | "union")
+                )
+            {
+                continue;
+            }
+            let Some(name) = node["node_id"]["path"][2].as_str().map(str::to_owned) else {
+                continue;
+            };
+            node["owner"] = fixture_support::source_owner(&source);
+            node["declaration"] = serde_json::json!({"qualified_name":["Example",name]});
+            node["occurrences"] = serde_json::json!([{"role":"declaration","ordinal":0}]);
+        }
+        fixture_support::rebuild_complete_source_map(&mut wire);
+        fixture_support::refresh_identity(&mut wire);
+        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            node["dependencies"]
+                .as_array_mut()
+                .unwrap()
+                .sort_by(|a, b| {
+                    let a: CheckedNodeId = serde_json::from_value(a.clone()).unwrap();
+                    let b: CheckedNodeId = serde_json::from_value(b.clone()).unwrap();
+                    a.cmp(&b)
+                });
+        }
+        admit_wire(&wire, &document)
+    }
+
+    #[trace("TC-470", "FR-357-AC-1")]
+    #[test]
+    fn source_owned_monitor_closure_fixture_admits() {
+        let package = admitted_monitor_for_closure();
+        assert_eq!(package.monitor_plans().len(), 1);
     }
 
     fn admitted_monitor_with_variant(reach_variant: bool) -> CheckedPackageV2 {
@@ -1028,6 +1074,236 @@ mod tests {
                 source_unit(package, "Second"),
             ],
         )
+    }
+
+    fn source_rows(
+        package: &CheckedPackageV2,
+    ) -> (
+        Vec<crate::SelectedSourceRecordRow>,
+        Vec<crate::SelectedSourceTupleRow>,
+        Vec<crate::SelectedSourceUnionRow>,
+        Vec<crate::SelectedSourceCollectionRow>,
+    ) {
+        use crate::{
+            SelectedSourceCollectionRow, SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
+            SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedTuplePositionRow,
+            SelectedUnionMemberRow,
+        };
+        let source = &package.lock().sources[0];
+        let mut records = Vec::new();
+        let mut tuples = Vec::new();
+        let mut unions = Vec::new();
+        let mut collections = Vec::new();
+        for node in &package.graph().nodes {
+            let Some(CheckedTerm::Aggregate { members }) = package.term(&node.node_id) else {
+                continue;
+            };
+            let qualified = node
+                .declaration
+                .as_ref()
+                .map(|declaration| declaration.qualified_name.clone());
+            match (package.node_kind(&node.node_id), qualified) {
+                (
+                    Some(CheckedNodeKind::CompositeType(super::super::CompositeTypeForm::Record)),
+                    Some(qualified_declaration),
+                ) => {
+                    let members = members
+                        .iter()
+                        .map(|term| {
+                            let CheckedTerm::Binding { name, value } = term else {
+                                panic!("record field")
+                            };
+                            let (presence, target) = match value.as_ref() {
+                                CheckedTerm::Reference { target } => {
+                                    (Presence::Required, target.clone())
+                                }
+                                CheckedTerm::Aggregate { members } => {
+                                    let [CheckedTerm::Binding { value, .. }] = members.as_slice()
+                                    else {
+                                        panic!("optional field")
+                                    };
+                                    let CheckedTerm::Reference { target } = value.as_ref() else {
+                                        panic!("optional target")
+                                    };
+                                    (Presence::Optional, target.clone())
+                                }
+                                _ => panic!("record field reference"),
+                            };
+                            SelectedSourceRecordMemberRow {
+                                original_member_identity: name.to_string().into(),
+                                admitted_name: name.to_string().into(),
+                                presence,
+                                type_node: target,
+                                value_type: ValueType::Integer,
+                            }
+                        })
+                        .collect();
+                    records.push(SelectedSourceRecordRow {
+                        structural_node: node.node_id.clone(),
+                        source_authority: source.authority.clone(),
+                        source_identity: source.identity.clone(),
+                        qualified_declaration,
+                        record_key: key(&format!("record:{:?}", node.node_id)),
+                        members,
+                    });
+                }
+                (
+                    Some(CheckedNodeKind::CompositeType(super::super::CompositeTypeForm::Tuple)),
+                    Some(qualified_declaration),
+                ) => {
+                    let positions = members
+                        .iter()
+                        .enumerate()
+                        .map(|(ordinal, term)| {
+                            let CheckedTerm::Reference { target } = term else {
+                                panic!("tuple position")
+                            };
+                            SelectedTuplePositionRow {
+                                ordinal: ordinal as u64,
+                                type_node: target.clone(),
+                                value_type: ValueType::Integer,
+                            }
+                        })
+                        .collect();
+                    tuples.push(SelectedSourceTupleRow {
+                        structural_node: node.node_id.clone(),
+                        source_authority: source.authority.clone(),
+                        source_identity: source.identity.clone(),
+                        qualified_declaration,
+                        type_handle: key(&format!("tuple:{:?}", node.node_id)),
+                        positions,
+                    });
+                }
+                (
+                    Some(CheckedNodeKind::CompositeType(super::super::CompositeTypeForm::Union)),
+                    Some(qualified_declaration),
+                ) => {
+                    let settled = key("outcome-settled");
+                    let members = members
+                        .iter()
+                        .map(|term| {
+                            let CheckedTerm::Binding { name, value } = term else {
+                                panic!("union case")
+                            };
+                            let CheckedTerm::Aggregate { members } = value.as_ref() else {
+                                panic!("union payload")
+                            };
+                            let payload_nodes = members
+                                .iter()
+                                .map(|item| {
+                                    let CheckedTerm::Reference { target } = item else {
+                                        panic!("union payload type")
+                                    };
+                                    target.clone()
+                                })
+                                .collect::<Vec<_>>();
+                            SelectedUnionMemberRow::new(
+                                UnionMember::from_admitted(settled.clone(), name.as_ref()).unwrap(),
+                                payload_nodes.clone(),
+                                vec![ValueType::Integer; payload_nodes.len()],
+                            )
+                        })
+                        .collect();
+                    unions.push(SelectedSourceUnionRow::new(
+                        node.node_id.clone(),
+                        source.authority.clone(),
+                        source.identity.clone(),
+                        qualified_declaration,
+                        key("outcome-handle"),
+                        settled,
+                        members,
+                    ));
+                }
+                (
+                    Some(CheckedNodeKind::CompositeType(super::super::CompositeTypeForm::Sequence)),
+                    None,
+                ) => {
+                    let [CheckedTerm::Reference { target }] = members.as_slice() else {
+                        continue;
+                    };
+                    collections.push(SelectedSourceCollectionRow {
+                        structural_node: node.node_id.clone(),
+                        base_node: node.node_id.clone(),
+                        element_node: target.clone(),
+                        value_type: ValueType::collection(CollectionType::new(
+                            CollectionKind::Sequence,
+                            ValueType::Integer,
+                            None,
+                        )),
+                    });
+                }
+                _ => {}
+            }
+        }
+        for row in &mut collections {
+            let element = &row.element_node;
+            let value = records
+                .iter()
+                .find(|record| &record.structural_node == element)
+                .map(|record| ValueType::Composite(record.record_key.clone()))
+                .or_else(|| {
+                    tuples
+                        .iter()
+                        .find(|tuple| &tuple.structural_node == element)
+                        .map(|tuple| ValueType::Composite(tuple.type_handle.clone()))
+                })
+                .or_else(|| {
+                    unions
+                        .iter()
+                        .find(|union| &union.structural_node == element)
+                        .map(|union| ValueType::Composite(union.type_handle.clone()))
+                })
+                .unwrap_or(ValueType::Integer);
+            row.value_type =
+                ValueType::collection(CollectionType::new(CollectionKind::Sequence, value, None));
+        }
+        (records, tuples, unions, collections)
+    }
+
+    #[trace("TC-470", "FR-357-AC-1", "FR-357-AC-3")]
+    #[test]
+    fn selected_monitor_closure_reuses_one_meter_for_reached_model_facts() {
+        let package = admitted_monitor_for_closure();
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let (source_records, source_tuples, source_unions, source_collections) =
+            source_rows(&package);
+        let rows = super::super::selected_type_closure::SelectedMonitorClosureRows {
+            declarations: &declarations,
+            fields: &fields,
+            model_tuples: &[],
+            source_units: &source_units,
+            model_enum_declarations: &[],
+            model_enum_members: &[],
+            model_enum_shapes: &[],
+            source_records: &source_records,
+            source_tuples: &source_tuples,
+            source_unions: &source_unions,
+            source_enums: &[],
+            source_collections: &source_collections,
+        };
+        let plan = package.monitor_plans().next().unwrap();
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let closure = plan
+            .project_selected_type_closure(rows, &mut budget)
+            .unwrap();
+        assert_eq!(closure.model_types().records().len(), 1);
+        assert_eq!(closure.model_types().objects().len(), 1);
+        assert_eq!(closure.plan().state(), plan.state());
+        let used = budget.consumed();
+        assert_eq!(closure.work(), used.work);
+        let mut exact = NativeJoinBudget::new(used.work, used.storage);
+        assert_eq!(
+            plan.project_selected_type_closure(rows, &mut exact)
+                .unwrap()
+                .exact_types()
+                .len(),
+            closure.exact_types().len()
+        );
+        let mut short = NativeJoinBudget::new(used.work - 1, used.storage);
+        assert!(plan
+            .project_selected_type_closure(rows, &mut short)
+            .is_err());
+        assert!(short.first_unpaid_locus().is_some());
     }
 
     /// Trace: FR-357, FR-357-AC-13. The admitted root reaches exactly the
