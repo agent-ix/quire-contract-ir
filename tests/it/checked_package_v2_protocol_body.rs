@@ -10898,6 +10898,32 @@ fn recovery_case_same_name_sibling_binders_remain_identity_distinct() {
     assert_recovery_case_binder_refusal(&package, compensation);
 }
 
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_shared_body_is_checked_under_each_arm_scope() {
+    let (mut package, _, case, binder, _, _) = slot_case_fixture();
+    let integer = node_id(&family_key("a3a3"));
+    let shared = slot_application(
+        &mut package,
+        "binary",
+        "quire.op.integer.add",
+        &integer,
+        json!([
+            {"term":"reference","target":binder},
+            {"term":"literal","type":integer,"value_kind":"integer","value":"0"}
+        ]),
+        Value::Null,
+    );
+    let at = node_position_for_key(&package, &case);
+    for arm in [1, 2] {
+        package["semantic_graph"]["nodes"][at]["body"]["arguments"][arm]["value"]["members"][1] =
+            json!({"term":"reference","target":shared});
+    }
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    assert_recovery_case_binder_refusal(&package, compensation);
+}
+
 #[trace("FR-038-AC-465")]
 #[test]
 fn recovery_slot_let_body_reads_its_own_local_binder() {
