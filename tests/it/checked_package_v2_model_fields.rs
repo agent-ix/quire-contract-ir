@@ -7529,7 +7529,7 @@ fn complete_identity_witness_reuses_checked_private_channels_for_runtime_project
             .validate_and_rebind(&package, &mut budget)
             .unwrap();
     let view = package
-        .project_selected_type_declarations(&witness, &tuples, &units, 100_000, &mut budget)
+        .project_selected_type_declarations(&witness, &tuples, &units, &mut budget)
         .unwrap();
     assert_eq!(view.records().len(), 1);
     assert_eq!(view.tuples().len(), 1);
@@ -7753,7 +7753,11 @@ fn complete_identity_witness_refuses_unemitted_and_unsupported_selected_identity
     let empty = SelectedExactIdentities::empty();
     assert_eq!(
         package
-            .project_exact_type(id, &empty, 10_000)
+            .project_exact_type(
+                id,
+                &empty,
+                &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::UnsupportedExactType
@@ -7877,7 +7881,7 @@ fn complete_identity_witness_missing_model_unit_precedes_unread_field() {
         error.code,
         ExactTypeProjectionErrorCode::IncompleteIdentityWitness
     );
-    assert_eq!(error.form.as_ref(), "selected_model_unit");
+    assert_eq!(error.form.as_deref(), Some("selected_model_unit"));
     assert_eq!(error.at.as_deref(), Some(&unit));
 }
 
@@ -7911,7 +7915,7 @@ fn complete_identity_witness_precharges_long_model_unit_owner_text() {
         .validate_and_rebind(&package, &mut budget)
         .unwrap_err();
     assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(error.form.as_ref(), "complete_model_unit_original");
+    assert_eq!(error.form.as_deref(), Some("complete_model_unit_original"));
     assert_eq!(budget.consumed().work, prefix as u64);
     assert_eq!(
         budget.first_unpaid().unwrap().amount,
@@ -7944,7 +7948,10 @@ fn complete_identity_witness_precharges_every_unrelated_census_candidate() {
         let error = SelectedExactIdentities::empty()
             .validate_and_rebind(&package, &mut empty_model)
             .unwrap_err();
-        assert_eq!(error.form.as_ref(), "complete_selected_model_candidate");
+        assert_eq!(
+            error.form.as_deref(),
+            Some("complete_selected_model_candidate")
+        );
         assert_eq!(empty_model.first_unpaid().unwrap().amount, 1);
         // The next unit-declaration candidate must be paid before node_kind,
         // even when all candidates happen to be unrelated non-units.
@@ -7953,7 +7960,10 @@ fn complete_identity_witness_precharges_every_unrelated_census_candidate() {
             .validate_and_rebind(&package, &mut candidate)
             .unwrap_err();
         assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-        assert_eq!(error.form.as_ref(), "complete_declaration_candidate");
+        assert_eq!(
+            error.form.as_deref(),
+            Some("complete_declaration_candidate")
+        );
         assert_eq!(candidate.consumed().work, 17);
         assert_eq!(candidate.first_unpaid().unwrap().amount, 1);
     }
@@ -7991,7 +8001,6 @@ fn complete_identity_witness_tuple_validation_matches_projection() {
             &empty,
             &[row],
             &[],
-            u64::MAX,
             &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap_err();
@@ -8000,5 +8009,5 @@ fn complete_identity_witness_tuple_validation_matches_projection() {
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
     );
     assert_eq!(projection.code, direct.code);
-    assert_eq!(projection.at.as_ref(), &primitive);
+    assert_eq!(projection.at.as_deref(), Some(&primitive));
 }
