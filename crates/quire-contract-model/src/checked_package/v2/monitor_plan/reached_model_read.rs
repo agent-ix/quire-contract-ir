@@ -499,7 +499,11 @@ impl CheckedMonitorPlanRef<'_> {
                 .map_err(ReachedModelError::Walk)?;
             retain(budget, 1)?;
             let mut reached = BTreeSet::new();
-            for id in graph.nodes {
+            for (index, id) in graph.nodes.into_iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_graph_set",
+                }));
                 charge(&mut 0, budget, &id)?;
                 retain(budget, 1)?;
                 reached.insert(id);
@@ -726,26 +730,29 @@ impl CheckedMonitorPlanRef<'_> {
                 {
                     continue;
                 }
-                let mut matching = enum_shapes.iter().filter(|row| &row.structural_node == id);
-                let row = match matching.next() {
-                    Some(row) => row,
-                    None => {
+                let mut selected_shape = None;
+                for row in &enum_shapes {
+                    charge(&mut work, budget, &row.structural_node)?;
+                    if &row.structural_node != id {
+                        continue;
+                    }
+                    if selected_shape.replace(row).is_some() {
                         return Err(checked_enum_error(
                             budget,
-                            SelectedModelEnumErrorCode::UnavailableWitness,
+                            SelectedModelEnumErrorCode::ConflictingWitness,
                             id,
                             work,
-                        ))
+                        ));
                     }
-                };
-                if matching.next().is_some() {
+                }
+                let Some(row) = selected_shape else {
                     return Err(checked_enum_error(
                         budget,
-                        SelectedModelEnumErrorCode::ConflictingWitness,
+                        SelectedModelEnumErrorCode::UnavailableWitness,
                         id,
                         work,
                     ));
-                }
+                };
                 enums
                     .read_shape_runtime(self.package, row, budget)
                     .map_err(|error| enum_error(error, work))?;

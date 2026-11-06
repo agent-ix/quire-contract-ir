@@ -1200,9 +1200,12 @@ impl SelectedExactIdentities {
             return Ok(self);
         }
         let mut shapes = BTreeMap::new();
-        for row in rows {
+        for (index, row) in rows.iter().enumerate() {
             let node = &row.structural_node;
-            budget.set_locus_form("model_enum_shape_index");
+            budget.set_active_locus(Some(super::NativeJoinLocus {
+                source: super::NativeJoinLocusSource::ReachedRow(index),
+                form: "model_enum_shape_index",
+            }));
             charge_native_work(budget, node, node, "model_enum_shape_index", 1)?;
             for segment in &node.path {
                 charge_native_work(budget, node, node, "model_enum_shape_index", 1)?;

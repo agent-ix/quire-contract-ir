@@ -10,7 +10,7 @@ use super::{
     CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2, CheckedTerm, LiteralKind,
     ModelForm, ValueForm,
 };
-use super::{NativeJoinBudget, NativeJoinChargeKind};
+use super::{NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource};
 use quire_exact::{EnumShape, NodeKey, VariantId};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -199,6 +199,14 @@ struct EnumMeter<'b> {
     limit: u64,
 }
 impl EnumMeter<'_> {
+    fn row(&mut self, index: usize, form: &'static str) {
+        if let Some(budget) = &mut self.native {
+            budget.set_active_locus(Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::ReachedRow(index),
+                form,
+            }));
+        }
+    }
     fn storage(&mut self, amount: u128) -> Result<(), RuntimeEnumError> {
         if let Some(budget) = &mut self.native {
             read_charge(budget, NativeJoinChargeKind::Storage, amount)?;
@@ -275,16 +283,21 @@ impl<'a> SelectedModelEnums<'a> {
         members: impl IntoIterator<Item = SelectedModelEnumMemberRow>,
         budget: &mut NativeJoinBudget,
     ) -> Result<Self, RuntimeEnumError> {
-        Self::from_stage_rows_inner(
-            package,
-            declarations,
-            members,
-            &mut EnumMeter {
-                native: Some(budget),
-                consumed: 0,
-                limit: u64::MAX,
-            },
-        )
+        let previous_locus = budget.active_locus();
+        let result = (|| {
+            Self::from_stage_rows_inner(
+                package,
+                declarations,
+                members,
+                &mut EnumMeter {
+                    native: Some(budget),
+                    consumed: 0,
+                    limit: u64::MAX,
+                },
+            )
+        })();
+        budget.set_active_locus(previous_locus);
+        result
     }
 
     fn from_stage_rows_inner(
@@ -302,7 +315,8 @@ impl<'a> SelectedModelEnums<'a> {
         };
         let mut original_declarations = BTreeSet::new();
         let mut exact_keys = BTreeSet::new();
-        for row in declarations {
+        for (index, row) in declarations.into_iter().enumerate() {
+            meter.row(index, "model_enum_declaration");
             let node = &row.structural_node;
             meter.charge(node)?;
             meter.text(&row.selected_document)?;
@@ -377,7 +391,8 @@ impl<'a> SelectedModelEnums<'a> {
             selected.declarations.insert(node.clone(), row);
         }
         let mut original_members = BTreeSet::new();
-        for row in members {
+        for (index, row) in members.into_iter().enumerate() {
+            meter.row(index, "model_enum_member");
             let node = &row.structural_node;
             meter.charge(node)?;
             meter.inspect(&row.declaration_node)?;
@@ -561,16 +576,22 @@ impl<'a> SelectedModelEnums<'a> {
         row: &SelectedModelEnumShapeRow,
         budget: &mut NativeJoinBudget,
     ) -> Result<u64, RuntimeEnumError> {
-        self.read_shape_inner(
-            package,
-            row,
-            &mut EnumMeter {
-                native: Some(budget),
-                consumed: 0,
-                limit: u64::MAX,
-            },
-        )
+        let previous_locus = budget.active_locus();
+        let result = (|| {
+            self.read_shape_inner(
+                package,
+                row,
+                &mut EnumMeter {
+                    native: Some(budget),
+                    consumed: 0,
+                    limit: u64::MAX,
+                },
+            )
+        })();
+        budget.set_active_locus(previous_locus);
+        result
     }
+
     fn read_shape_inner(
         &self,
         package: &CheckedPackageV2,
@@ -604,7 +625,8 @@ impl<'a> SelectedModelEnums<'a> {
         }
         meter.storage(1)?;
         let mut cases = BTreeSet::new();
-        for (case, variant) in row.cases.iter().zip(row.shape.variants()) {
+        for (index, (case, variant)) in row.cases.iter().zip(row.shape.variants()).enumerate() {
+            meter.row(index, "model_enum_shape_case");
             meter.charge(&case.structural_node)?;
             meter.text(&case.member_original_identity)?;
             meter.text(case.variant.case())?;
@@ -626,7 +648,8 @@ impl<'a> SelectedModelEnums<'a> {
             }
         }
         let mut member_count = 0;
-        for member in self.members.values() {
+        for (index, member) in self.members.values().enumerate() {
+            meter.row(index, "model_enum_shape_member_count");
             meter.charge(&member.structural_node)?;
             meter.inspect(&member.declaration_node)?;
             if member.declaration_node == *node {

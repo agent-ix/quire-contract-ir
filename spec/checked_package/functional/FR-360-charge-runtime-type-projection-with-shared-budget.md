@@ -56,7 +56,12 @@ storage created while selected `DomainModel::element_type` and
 `DomainModel::slot_type` helpers resolve runtime or closure member types,
 temporary sets and vectors, cloned names and member types, formatted unit
 strings, and every other temporary or retained allocation reachable from
-those runtime/closure entry points. Budget-aware helper variants SHALL charge
+those runtime/closure entry points. This includes the reached-model prerequisite's
+selected graph walk, followed tuple/variant members and object operation slots,
+model enum stage and shape joins, shape attachment, and reached model-unit and
+dimension reconstruction. The same caller budget covers these steps and the
+subsequent selected type projection; selection and source/model ownership rules
+remain those of FR-357. Budget-aware helper variants SHALL charge
 the caller's `NativeJoinBudget` before allocation or copy. Borrowed reads SHALL
 not be charged as new retained storage. The charge order SHALL follow selected
 declaration and authored member order.
