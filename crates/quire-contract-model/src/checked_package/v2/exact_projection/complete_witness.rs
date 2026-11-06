@@ -288,6 +288,43 @@ impl SelectedExactIdentities {
         Ok(())
     }
 
+    /// Check only owned declaration handles, not valid member/type references.
+    pub(super) fn check_admitted_handle(
+        &self,
+        key: &NodeKey,
+        at: &CheckedNodeId,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<(), ExactTypeProjectionError> {
+        for (id, row) in self.admitted_tuples.iter() {
+            charge_native_work(budget, at, id, "source_admitted_handle_owner", 1)?;
+            if &row.node_key == key {
+                return Err(binding_error(
+                    at,
+                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                    budget,
+                ));
+            }
+        }
+        for (id, row) in self.admitted_source_units.iter() {
+            charge_native_work(budget, at, id, "source_admitted_handle_owner", 1)?;
+            let UnitId::Declared(candidate) = &row.unit_id else {
+                return Err(binding_error(
+                    id,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    budget,
+                ));
+            };
+            if candidate == key {
+                return Err(binding_error(
+                    at,
+                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                    budget,
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn validation_scratch(
         &self,
         at: &CheckedNodeId,

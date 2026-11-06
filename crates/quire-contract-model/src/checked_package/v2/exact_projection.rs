@@ -1649,6 +1649,7 @@ impl SelectedExactIdentities {
                         ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                     ));
                 }
+                selected.check_admitted_handle(&row.type_handle, id, budget)?;
                 if selected.source_unions.contains_key(id)
                     || handles.contains(&row.type_handle)
                     || settled_keys.contains(&row.settled_key)
@@ -1830,6 +1831,7 @@ impl SelectedExactIdentities {
                     )?;
                     conflicting_handle |= source_enum.declaration.node_key == row.record_key;
                 }
+                selected.check_admitted_handle(&row.record_key, id, budget)?;
                 if selected.source_records.contains_key(id) || conflicting_handle {
                     let mut error =
                         witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
@@ -1979,6 +1981,7 @@ impl SelectedExactIdentities {
                     )?;
                     conflicting_handle |= source_enum.declaration.node_key == row.type_handle;
                 }
+                selected.check_admitted_handle(&row.type_handle, id, budget)?;
                 if selected.source_tuples.contains_key(id) || conflicting_handle {
                     let mut error =
                         witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
@@ -2039,6 +2042,7 @@ impl SelectedExactIdentities {
             for row in rows {
                 let id = &row.declaration.structural_node;
                 validate_source_enum_row(package, &row, id, budget, work_limit)?;
+                selected.check_admitted_handle(&row.declaration.node_key, id, budget)?;
                 let mut conflicting = selected.source_enums.contains_key(id);
                 for declaration in selected.declarations.values() {
                     charge_work(
