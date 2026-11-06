@@ -259,6 +259,29 @@ impl CheckedMonitorPlanRef<'_> {
         Ok(())
     }
 
+    fn follow_fields<'a>(
+        &self,
+        mut fields: impl Iterator<
+            Item = crate::checked_package::v2::model_fields::SelectedRecordField<'a>,
+        >,
+        pending: &mut Vec<(CheckedNodeId, NativeJoinLocusSource)>,
+        work: &mut u64,
+        budget: &mut NativeJoinBudget,
+        at: &CheckedNodeId,
+    ) -> Result<(), ReachedModelError> {
+        loop {
+            budget.set_locus_form("reached_field");
+            charge(work, budget, at)?;
+            let Some(field) = fields.next() else {
+                break;
+            };
+            if let Some(member) = field.member_type {
+                self.follow_member_type(member, pending, work, budget, at)?;
+            }
+        }
+        Ok(())
+    }
+
     fn followed_model_nodes(
         &self,
         reached: &mut BTreeSet<CheckedNodeId>,
@@ -413,44 +436,21 @@ impl CheckedMonitorPlanRef<'_> {
                             .source,
                     ));
                 }
-                retain(budget, 1)?;
-                let fields = if declaration.form == DeclarationForm::RecordValueType {
-                    self.package
+                budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+                if declaration.form == DeclarationForm::RecordValueType {
+                    let (_, fields) = self
+                        .package
                         .models
                         .selected_record_fields(&id)
-                        .map(|(_, mut fields)| {
-                            fields.try_fold(
-                                Vec::new(),
-                                |mut retained, field| -> Result<_, ReachedModelError> {
-                                    retain(budget, 1)?;
-                                    retained.push(field);
-                                    Ok(retained)
-                                },
-                            )
-                        })
-                        .transpose()?
+                        .ok_or_else(|| unresolved(budget, &id, *work))?;
+                    self.follow_fields(fields, &mut pending, work, budget, &id)?;
                 } else {
-                    self.package
+                    let (_, fields) = self
+                        .package
                         .models
                         .selected_object_fields(&id)
-                        .map(|(_, mut fields)| {
-                            fields.try_fold(
-                                Vec::new(),
-                                |mut retained, field| -> Result<_, ReachedModelError> {
-                                    retain(budget, 1)?;
-                                    retained.push(field);
-                                    Ok(retained)
-                                },
-                            )
-                        })
-                        .transpose()?
-                };
-                for field in fields.ok_or_else(|| unresolved(budget, &id, *work))? {
-                    budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
-                    charge(work, budget, &id)?;
-                    if let Some(member) = field.member_type {
-                        self.follow_member_type(member, &mut pending, work, budget, &id)?;
-                    }
+                        .ok_or_else(|| unresolved(budget, &id, *work))?;
+                    self.follow_fields(fields, &mut pending, work, budget, &id)?;
                 }
                 if declaration.form == DeclarationForm::ObjectType {
                     for operation in &bearing.operations {
@@ -1648,5 +1648,47 @@ mod tests {
         );
         assert_eq!(actual.types, expected.types);
         assert_eq!(exact.consumed(), used);
+    }
+    #[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3")]
+    #[test]
+    fn runtime_field_stream_stops_before_first_unpaid_field_inspection() {
+        use std::cell::Cell;
+        let package = admitted_monitor();
+        let record = selected_node(&package, "ix://test/families/Receipt");
+        let inspected = Cell::new(0);
+        let (_, fields) = package.models.selected_record_fields(&record).unwrap();
+        assert!(fields.len() > 0);
+        let fields = fields.inspect(|_| inspected.set(inspected.get() + 1));
+        let mut budget = NativeJoinBudget::new(0, u64::MAX);
+        let (position, _) = package.node_with_position(&record).unwrap();
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::GraphNode(position),
+            form: "parent",
+        }));
+        let mut pending = Vec::new();
+        let result = package.monitor_plans().next().unwrap().follow_fields(
+            fields,
+            &mut pending,
+            &mut 0,
+            &mut budget,
+            &record,
+        );
+        assert!(matches!(result, Err(ReachedModelError::Native(_))));
+        assert_eq!(inspected.get(), 0);
+        assert!(pending.is_empty());
+        assert_eq!(
+            budget.consumed(),
+            crate::NativeJoinCharge {
+                work: 0,
+                storage: 0
+            }
+        );
+        assert_eq!(
+            budget.first_unpaid_locus(),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::GraphNode(position),
+                form: "reached_field"
+            })
+        );
     }
 }

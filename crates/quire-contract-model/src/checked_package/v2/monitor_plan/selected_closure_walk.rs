@@ -8,7 +8,9 @@ use super::*;
 use crate::checked_package::v2::native_join_budget::{
     read_charge, read_node_storage, read_node_work, NativeReadDenied,
 };
-use crate::checked_package::v2::typed_terms::{SelectedTermEdge, SelectedTermVisit};
+use crate::checked_package::v2::typed_terms::{
+    SelectedTermEdge, SelectedTermTraversal, SelectedTermVisit,
+};
 use crate::checked_package::v2::{
     NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource,
 };
@@ -162,29 +164,42 @@ impl Walk<'_, '_> {
                 .package
                 .term(&id)
                 .expect("admitted graph node has a retained typed term");
-            term.visit_selected_edges(&id, |event| match event {
-                SelectedTermVisit::Term => self.charge(&id),
-                SelectedTermVisit::Edge(kind, target) => {
-                    let role = match kind {
-                        SelectedTermEdge::Reference => EdgeRole::TermReference,
-                        SelectedTermEdge::Type => EdgeRole::TermType,
-                        SelectedTermEdge::OperationMember => EdgeRole::TermOperationMember,
-                        SelectedTermEdge::Dependency(package) => {
-                            if package != self.package.name() {
-                                self.charge(target)?;
-                                return Err(self
-                                    .error(SelectedGraphWalkErrorCode::ForeignDependency, target));
+            term.visit_selected_edges_charged(&id, |event| {
+                let event = match event {
+                    SelectedTermTraversal::Step => return self.charge(&id),
+                    SelectedTermTraversal::StackStorage(amount) => {
+                        self.budget.set_locus_form("monitor_term_stack");
+                        return read_charge(self.budget, NativeJoinChargeKind::Storage, amount)
+                            .map_err(Into::into);
+                    }
+                    SelectedTermTraversal::Visit(event) => event,
+                };
+                match event {
+                    SelectedTermVisit::Term => self.charge(&id),
+                    SelectedTermVisit::Edge(kind, target) => {
+                        let role = match kind {
+                            SelectedTermEdge::Reference => EdgeRole::TermReference,
+                            SelectedTermEdge::Type => EdgeRole::TermType,
+                            SelectedTermEdge::OperationMember => EdgeRole::TermOperationMember,
+                            SelectedTermEdge::Dependency(package) => {
+                                if package != self.package.name() {
+                                    self.charge(target)?;
+                                    return Err(self.error(
+                                        SelectedGraphWalkErrorCode::ForeignDependency,
+                                        target,
+                                    ));
+                                }
+                                EdgeRole::TermDependency
                             }
-                            EdgeRole::TermDependency
-                        }
-                        SelectedTermEdge::Unsupported => {
-                            self.charge(target)?;
-                            return Err(
-                                self.error(SelectedGraphWalkErrorCode::UnsupportedTerm, target)
-                            );
-                        }
-                    };
-                    self.edge(&id, role, target)
+                            SelectedTermEdge::Unsupported => {
+                                self.charge(target)?;
+                                return Err(
+                                    self.error(SelectedGraphWalkErrorCode::UnsupportedTerm, target)
+                                );
+                            }
+                        };
+                        self.edge(&id, role, target)
+                    }
                 }
             })?;
         }

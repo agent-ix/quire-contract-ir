@@ -764,6 +764,8 @@ impl CheckedPackageV2 {
             let mut selected_source_units = Vec::new();
             ctx.charge_storage(1)?;
             let mut selected_model_units = Vec::new();
+            ctx.charge_storage(1)?;
+            let mut selected_declarations = Vec::new();
             let mut reached_nodes = Vec::new();
             if let Some(reached) = reached {
                 ctx.charge_storage(1)?;
@@ -803,6 +805,18 @@ impl CheckedPackageV2 {
             {
                 ctx.activate(NativeJoinLocusSource::GraphNode(index), "graph_node");
                 ctx.charge(&node.node_id, "graph_node")?;
+                if reached.is_some() {
+                    ctx.charge_structural_id(&node.node_id, "reached_declaration_lookup")?;
+                    if let Some(declaration) = self.models.selected_declaration_entry(&node.node_id)
+                    {
+                        ctx.charge_storage(1)?;
+                        selected_declarations.push((
+                            &node.node_id,
+                            declaration,
+                            NativeJoinLocusSource::GraphNode(index),
+                        ));
+                    }
+                }
                 if *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
                     && matches!(node.owner, Some(CheckedNodeOwner::Source { .. }))
                 {
@@ -833,21 +847,21 @@ impl CheckedPackageV2 {
                 }
             }
 
+            if reached.is_none() {
+                for (index, (id, declaration)) in self.models.selected_declarations().enumerate() {
+                    let source = NativeJoinLocusSource::SelectedDeclaration(index);
+                    ctx.activate(source, "selected_declaration_index");
+                    ctx.charge(id, "selected_declaration_index")?;
+                    ctx.charge_storage(1)?;
+                    selected_declarations.push((id, declaration, source));
+                }
+            }
             ctx.package_locus("selected_declaration_index");
             ctx.charge_storage(1)?;
             let mut by_original = BTreeMap::new();
-            for (index, (id, declaration)) in self.models.selected_declarations().enumerate() {
-                ctx.activate(
-                    NativeJoinLocusSource::SelectedDeclaration(index),
-                    "selected_declaration",
-                );
+            for &(id, declaration, source) in &selected_declarations {
+                ctx.activate(source, "selected_declaration");
                 ctx.charge(id, "selected_declaration")?;
-                if let Some(reached) = reached {
-                    ctx.charge_structural_id(id, "reached_declaration")?;
-                    if !reached.contains(id) {
-                        continue;
-                    }
-                }
                 ctx.charge_storage(1)?;
                 if by_original
                     .insert(
@@ -1093,18 +1107,9 @@ impl CheckedPackageV2 {
             let mut records = Vec::new();
             let mut tuples = Vec::new();
             let mut objects = Vec::new();
-            for (index, (id, declaration)) in self.models.selected_declarations().enumerate() {
-                ctx.activate(
-                    NativeJoinLocusSource::SelectedDeclaration(index),
-                    "selected_declaration",
-                );
+            for &(id, declaration, source) in &selected_declarations {
+                ctx.activate(source, "selected_declaration");
                 ctx.charge(id, "selected_declaration")?;
-                if let Some(reached) = reached {
-                    ctx.charge_structural_id(id, "reached_declaration")?;
-                    if !reached.contains(id) {
-                        continue;
-                    }
-                }
                 let Some(model) = self.models.selected_models().get(declaration.selection) else {
                     return Err(ctx.error(
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,

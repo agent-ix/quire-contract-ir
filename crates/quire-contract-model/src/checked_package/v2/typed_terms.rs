@@ -1568,6 +1568,13 @@ pub(super) enum SelectedTermVisit<'a> {
     Edge(SelectedTermEdge<'a>, &'a CheckedNodeId),
 }
 
+/// Admission hooks around the shared ordinary-term traversal core.
+pub(super) enum SelectedTermTraversal<'a> {
+    Step,
+    StackStorage(u128),
+    Visit(SelectedTermVisit<'a>),
+}
+
 impl CheckedTerm {
     /// Read a scalar literal without inspecting its JSON wire payload.
     /// Returns `None` for another term or a directly decoded malformed literal.
@@ -1666,48 +1673,69 @@ impl CheckedTerm {
         at: &'a CheckedNodeId,
         mut visit: impl FnMut(SelectedTermVisit<'a>) -> Result<(), E>,
     ) -> Result<(), E> {
+        self.visit_selected_edges_charged(at, |event| match event {
+            SelectedTermTraversal::Visit(event) => visit(event),
+            SelectedTermTraversal::Step | SelectedTermTraversal::StackStorage(_) => Ok(()),
+        })
+    }
+
+    pub(super) fn visit_selected_edges_charged<'a, E>(
+        &'a self,
+        at: &'a CheckedNodeId,
+        mut traversal: impl FnMut(SelectedTermTraversal<'a>) -> Result<(), E>,
+    ) -> Result<(), E> {
         enum Pending<'a> {
             Term(&'a CheckedTerm),
             Children(std::slice::Iter<'a, CheckedTerm>),
         }
 
+        traversal(SelectedTermTraversal::StackStorage(2))?;
         let mut pending = vec![Pending::Term(self)];
-        while let Some(next) = pending.pop() {
+        while !pending.is_empty() {
+            traversal(SelectedTermTraversal::Step)?;
+            let next = pending.pop().expect("nonempty term worklist");
             let current = match next {
                 Pending::Term(term) => term,
                 Pending::Children(mut children) => {
                     if let Some(child) = children.next() {
+                        traversal(SelectedTermTraversal::StackStorage(2))?;
                         pending.push(Pending::Children(children));
                         pending.push(Pending::Term(child));
                     }
                     continue;
                 }
             };
-            visit(SelectedTermVisit::Term)?;
+            traversal(SelectedTermTraversal::Visit(SelectedTermVisit::Term))?;
             match current {
-                Self::Literal { type_id, .. } => {
-                    visit(SelectedTermVisit::Edge(SelectedTermEdge::Type, type_id))?
-                }
-                Self::Reference { target } => {
-                    visit(SelectedTermVisit::Edge(SelectedTermEdge::Reference, target))?
-                }
+                Self::Literal { type_id, .. } => traversal(SelectedTermTraversal::Visit(
+                    SelectedTermVisit::Edge(SelectedTermEdge::Type, type_id),
+                ))?,
+                Self::Reference { target } => traversal(SelectedTermTraversal::Visit(
+                    SelectedTermVisit::Edge(SelectedTermEdge::Reference, target),
+                ))?,
                 Self::Application {
                     operation,
                     result_type,
                     arguments,
                     ..
                 } => {
-                    visit(SelectedTermVisit::Edge(SelectedTermEdge::Type, result_type))?;
+                    traversal(SelectedTermTraversal::Visit(SelectedTermVisit::Edge(
+                        SelectedTermEdge::Type,
+                        result_type,
+                    )))?;
                     let Ok(read) = operation.read() else {
-                        visit(SelectedTermVisit::Edge(SelectedTermEdge::Unsupported, at))?;
+                        traversal(SelectedTermTraversal::Visit(SelectedTermVisit::Edge(
+                            SelectedTermEdge::Unsupported,
+                            at,
+                        )))?;
                         continue;
                     };
                     if let Some(member) = read.member {
                         let mut member_id = |id| {
-                            visit(SelectedTermVisit::Edge(
+                            traversal(SelectedTermTraversal::Visit(SelectedTermVisit::Edge(
                                 SelectedTermEdge::OperationMember,
                                 id,
-                            ))
+                            )))
                         };
                         match member {
                             CheckedOperationMember::Field { declaration, .. }
@@ -1749,26 +1777,36 @@ impl CheckedTerm {
                             | CheckedOperationMember::TemporalInterval { .. } => {}
                         }
                     }
+                    traversal(SelectedTermTraversal::StackStorage(1))?;
                     pending.push(Pending::Children(arguments.iter()));
                 }
-                Self::Aggregate { members } => pending.push(Pending::Children(members.iter())),
-                Self::Binding { value, .. } => pending.push(Pending::Term(value)),
+                Self::Aggregate { members } => {
+                    traversal(SelectedTermTraversal::StackStorage(1))?;
+                    pending.push(Pending::Children(members.iter()));
+                }
+                Self::Binding { value, .. } => {
+                    traversal(SelectedTermTraversal::StackStorage(1))?;
+                    pending.push(Pending::Term(value));
+                }
                 Self::DependencyReference { package, node } => {
-                    visit(SelectedTermVisit::Edge(
+                    traversal(SelectedTermTraversal::Visit(SelectedTermVisit::Edge(
                         SelectedTermEdge::Dependency(package),
                         node,
-                    ))?;
+                    )))?;
                 }
                 Self::Frame { .. }
                 | Self::AbstractionRelation { .. }
                 | Self::ExtensionForm { .. }
                 | Self::OperationAnchorBody(_)
-                | Self::Refinement { .. } => {
-                    visit(SelectedTermVisit::Edge(SelectedTermEdge::Unsupported, at))?
-                }
+                | Self::Refinement { .. } => traversal(SelectedTermTraversal::Visit(
+                    SelectedTermVisit::Edge(SelectedTermEdge::Unsupported, at),
+                ))?,
                 Self::NominalBody(body) => {
                     body.try_visit_reference_targets(&mut |id| {
-                        visit(SelectedTermVisit::Edge(SelectedTermEdge::Reference, id))?;
+                        traversal(SelectedTermTraversal::Visit(SelectedTermVisit::Edge(
+                            SelectedTermEdge::Reference,
+                            id,
+                        )))?;
                         Ok(())
                     })?;
                 }
@@ -3491,5 +3529,67 @@ mod tests {
                 operation.record()["member"]["target"]
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod selected_edge_budget_tests {
+    use super::{CheckedTerm, SelectedTermTraversal, SelectedTermVisit};
+    use crate::checked_package::v2::native_join_budget::{read_charge, NativeReadDenied};
+    use crate::checked_package::v2::{
+        CheckedNodeId, CheckedNodePathSegment, NativeJoinBudget, NativeJoinChargeKind,
+    };
+
+    #[ix_trace_rs::trace("TC-470", "FR-360-AC-2", "FR-360-AC-3")]
+    #[test]
+    fn runtime_term_stack_storage_stops_before_nested_aggregate_growth() {
+        let id = CheckedNodeId {
+            package: "test/package".into(),
+            path: vec![CheckedNodePathSegment::Name("nested".into())],
+            ordinal: 0,
+        };
+        let mut term = CheckedTerm::reference(id.clone());
+        for _ in 0..64 {
+            term = CheckedTerm::aggregate(vec![term]);
+        }
+        for (storage, expected_terms) in [(0, 0), (3, 1)] {
+            let mut budget = NativeJoinBudget::new(u64::MAX, storage);
+            let mut terms = 0;
+            let result =
+                term.visit_selected_edges_charged(&id, |event| -> Result<(), NativeReadDenied> {
+                    match event {
+                        SelectedTermTraversal::StackStorage(amount) => {
+                            read_charge(&mut budget, NativeJoinChargeKind::Storage, amount)
+                        }
+                        SelectedTermTraversal::Step => {
+                            read_charge(&mut budget, NativeJoinChargeKind::Work, 1)
+                        }
+                        SelectedTermTraversal::Visit(event) => {
+                            read_charge(&mut budget, NativeJoinChargeKind::Work, 1)?;
+                            if matches!(event, SelectedTermVisit::Term) {
+                                terms += 1;
+                            }
+                            Ok(())
+                        }
+                    }
+                });
+            assert_eq!(result, Err(NativeReadDenied));
+            assert_eq!(terms, expected_terms);
+            assert_eq!(budget.consumed().storage, storage);
+            assert_eq!(
+                budget.first_unpaid().unwrap().kind,
+                NativeJoinChargeKind::Storage
+            );
+            assert_eq!(budget.first_unpaid().unwrap().amount, 2);
+        }
+        let mut legacy_terms = 0;
+        term.visit_selected_edges(&id, |event| {
+            if matches!(event, SelectedTermVisit::Term) {
+                legacy_terms += 1;
+            }
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+        assert_eq!(legacy_terms, 65);
     }
 }

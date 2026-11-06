@@ -288,18 +288,16 @@ impl<'a> SelectedModelEnums<'a> {
             source: NativeJoinLocusSource::Package,
             form: "model_enum_join_storage",
         }));
-        let result = (|| {
-            Self::from_stage_rows_inner(
-                package,
-                declarations,
-                members,
-                &mut EnumMeter {
-                    native: Some(budget),
-                    consumed: 0,
-                    limit: u64::MAX,
-                },
-            )
-        })();
+        let result = Self::from_stage_rows_inner(
+            package,
+            declarations,
+            members,
+            &mut EnumMeter {
+                native: Some(budget),
+                consumed: 0,
+                limit: u64::MAX,
+            },
+        );
         budget.set_active_locus(previous_locus);
         result
     }
@@ -581,17 +579,15 @@ impl<'a> SelectedModelEnums<'a> {
         budget: &mut NativeJoinBudget,
     ) -> Result<u64, RuntimeEnumError> {
         let previous_locus = budget.active_locus();
-        let result = (|| {
-            self.read_shape_inner(
-                package,
-                row,
-                &mut EnumMeter {
-                    native: Some(budget),
-                    consumed: 0,
-                    limit: u64::MAX,
-                },
-            )
-        })();
+        let result = self.read_shape_inner(
+            package,
+            row,
+            &mut EnumMeter {
+                native: Some(budget),
+                consumed: 0,
+                limit: u64::MAX,
+            },
+        );
         budget.set_active_locus(previous_locus);
         result
     }
