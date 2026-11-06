@@ -36,3 +36,9 @@ Reviewed the clock and Exact budget paths, their public error shapes, focused te
 
 FND-001: When the next Work charge is denied, ClockBudget::charge calls error(), which attempts to charge and clone an owned node path. With zero storage, the returned code and denied charge say StorageLimit while budget.first_unpaid() remains Work; with ample storage, a WorkLimit refusal still owns a dynamic node path, contrary to the fixed-size resource-refusal contract.
 
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | ClockBudget::charge now returns a compact WorkLimit before constructing any owned diagnostic; the zero-storage test asserts WorkLimit, no owned fields, zero storage consumed and first_unpaid Work. |

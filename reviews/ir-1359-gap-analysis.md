@@ -40,3 +40,10 @@ FND-001: Computed Quire matrix reports FR-359-AC-5 untagged. Its Test verificati
 
 FND-002: The only AC4-tagged test checks one nested semantic refusal, exact storage, and one-below storage. It never reruns on an admitted package clone or asserts equal cumulative counters and first stops for repeated inputs and limits, despite those explicit AC4 clauses.
 
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The clock and Exact value/refusal tests now carry FR-359-AC-5 trace tags; computed matrix verification is pending. |
+| FND-002 | fixed | The nested source-collection refusal test now repeats on an admitted package clone and compares semantic result, consumed counters, compact one-below refusal, and first unpaid charge. |
