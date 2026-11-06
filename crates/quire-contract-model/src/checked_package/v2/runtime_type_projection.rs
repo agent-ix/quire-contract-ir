@@ -208,6 +208,29 @@ pub struct SelectedTypeUnit {
     pub offset: CheckedRational,
 }
 
+/// A selected model-owned unit and its admitted exact conversion.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedTypeModelUnit {
+    /// Final structural unit node.
+    pub structural_node: CheckedNodeId,
+    /// Selected model document identity.
+    pub selected_document: Box<str>,
+    /// Original unit identity in the selected model.
+    pub original_identity: Box<str>,
+    /// QSL-issued declared unit identity.
+    pub unit_id: UnitId,
+    /// Admitted dimension node.
+    pub dimension_node: CheckedNodeId,
+    /// Admitted dimension terms.
+    pub dimension_terms: Vec<DimensionTerm>,
+    /// Conversion target, if this unit is derived.
+    pub target_node: Option<CheckedNodeId>,
+    /// Exact admitted scale.
+    pub scale: CheckedRational,
+    /// Exact admitted offset.
+    pub offset: CheckedRational,
+}
+
 /// A dimension in the complete selected source-unit dependency closure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SelectedTypeDimension {
@@ -244,6 +267,7 @@ pub struct SelectedTypeDeclarations {
     tuples: Vec<SelectedTypeTuple>,
     objects: Vec<SelectedTypeObject>,
     units: Vec<SelectedTypeUnit>,
+    model_units: Vec<SelectedTypeModelUnit>,
     dimensions: Vec<SelectedTypeDimension>,
     work: u64,
 }
@@ -267,6 +291,11 @@ impl SelectedTypeDeclarations {
     /// Selected source units in structural identity order.
     pub fn units(&self) -> &[SelectedTypeUnit] {
         &self.units
+    }
+
+    /// Reached model-owned units in structural identity order.
+    pub fn model_units(&self) -> &[SelectedTypeModelUnit] {
+        &self.model_units
     }
 
     /// Complete dimension dependency closure of selected source units.
@@ -477,32 +506,89 @@ impl CheckedPackageV2 {
         native_budget: &mut NativeJoinBudget,
     ) -> Result<SelectedTypeDeclarations, SelectedTypeDeclarationsError> {
         let work_limit = native_budget.remaining_work();
-        let mut work = 0;
+        self.project_type_declarations_for_nodes(
+            identities,
+            tuple_rows,
+            source_unit_rows,
+            work_limit,
+            native_budget,
+            None,
+            0,
+        )
+    }
+
+    pub(super) fn project_type_declarations_for_nodes(
+        &self,
+        identities: &SelectedExactIdentities,
+        tuple_rows: &[SelectedTupleDeclarationRow],
+        source_unit_rows: &[SelectedSourceUnitRow],
+        work_limit: u64,
+        join_budget: &mut super::NativeJoinBudget,
+        reached: Option<&BTreeSet<CheckedNodeId>>,
+        prior_work: u64,
+    ) -> Result<SelectedTypeDeclarations, SelectedTypeDeclarationsError> {
+        let mut work = prior_work;
         let mut selected_source_units = Vec::new();
-        for (node, kind) in self.graph().nodes.iter().zip(self.node_kinds()) {
-            charge(&mut work, work_limit, &node.node_id, "graph_node")?;
-            if *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
+        let mut selected_model_units = Vec::new();
+        let selected_nodes: Vec<_> = match reached {
+            Some(ids) => ids.iter().collect(),
+            None => self
+                .graph()
+                .nodes
+                .iter()
+                .map(|node| &node.node_id)
+                .collect(),
+        };
+        for id in selected_nodes {
+            charge(&mut work, work_limit, id, "graph_node")?;
+            let Some(node) = self.node(id) else {
+                return Err(SelectedTypeDeclarationsError::at(
+                    ExactTypeProjectionErrorCode::UnknownNode,
+                    id,
+                    "graph_node",
+                    work,
+                ));
+            };
+            let kind = self.node_kind(id);
+            if kind == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
                 && matches!(node.owner, Some(CheckedNodeOwner::Source { .. }))
             {
-                charge_structural_id(&mut work, work_limit, &node.node_id, "selected_source_unit")?;
-                selected_source_units.push(node.node_id.clone());
+                charge_structural_id(&mut work, work_limit, id, "selected_source_unit")?;
+                selected_source_units.push(id.clone());
+            } else if reached.is_some()
+                && kind == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+                && matches!(node.owner, Some(CheckedNodeOwner::Model { .. }))
+            {
+                charge_structural_id(&mut work, work_limit, id, "selected_model_unit")?;
+                selected_model_units.push(id.clone());
             } else if matches!(
                 kind,
-                CheckedNodeKind::ScalarType(
+                Some(CheckedNodeKind::ScalarType(
                     ScalarTypeForm::Unit | ScalarTypeForm::Enum | ScalarTypeForm::CompoundUnit
-                )
+                ))
             ) {
                 return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                    &node.node_id,
+                    id,
                     format!("{}/{}", node.node_tag, node.semantic_form),
                     work,
                 ));
             }
         }
 
+        let selected_declarations: Vec<_> = match reached {
+            Some(ids) => ids
+                .iter()
+                .filter_map(|id| {
+                    self.models
+                        .selected_declaration_entry(id)
+                        .map(|row| (id, row))
+                })
+                .collect(),
+            None => self.models.selected_declarations().collect(),
+        };
         let mut by_original = BTreeMap::new();
-        for (id, declaration) in self.models.selected_declarations() {
+        for &(id, declaration) in &selected_declarations {
             charge(&mut work, work_limit, id, "selected_declaration")?;
             if by_original
                 .insert(
@@ -518,7 +604,7 @@ impl CheckedPackageV2 {
                     work,
                 ));
             }
-            if matches!(declaration.form, DeclarationForm::VariantType) {
+            if reached.is_none() && matches!(declaration.form, DeclarationForm::VariantType) {
                 return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                     id,
@@ -532,6 +618,9 @@ impl CheckedPackageV2 {
         // currently names. Such a document cannot yield a complete runtime
         // environment from this graph and must refuse as a whole.
         for (selection, model) in self.models.selected_models().iter().enumerate() {
+            if reached.is_some() {
+                continue;
+            }
             let root = &self
                 .graph()
                 .nodes
@@ -590,6 +679,7 @@ impl CheckedPackageV2 {
 
         let mut tuple_by_node = BTreeMap::new();
         let mut source_unit_by_node = BTreeMap::new();
+        let mut model_unit_by_node = BTreeMap::new();
         let mut exact_keys = BTreeSet::new();
         for row in identities.declaration_rows() {
             charge(
@@ -614,6 +704,9 @@ impl CheckedPackageV2 {
                     key,
                 )?;
                 exact_keys.insert(key.clone());
+            }
+            if row.form == super::SelectedExactDeclarationForm::DeclaredUnit {
+                model_unit_by_node.insert(row.structural_node.clone(), row);
             }
         }
         // Preflight projection-owned row bytes and index keys before any
@@ -706,9 +799,16 @@ impl CheckedPackageV2 {
             }
         }
         // This checked acquisition is the sole semantic tuple/unit authority.
+        let native_before = join_budget.consumed().work;
+        if reached.is_some() {
+            join_budget.tighten_work_limit(work_limit.saturating_sub(work));
+        }
         let admitted_identities = identities
-            .with_admitted_type_rows(self, tuple_rows, source_unit_rows, native_budget)
+            .with_admitted_type_rows(self, tuple_rows, source_unit_rows, join_budget)
             .map_err(|error| SelectedTypeDeclarationsError::from_exact(error, work))?;
+        if reached.is_some() {
+            work = work.saturating_add(join_budget.consumed().work.saturating_sub(native_before));
+        }
         for row in tuple_rows {
             if tuple_by_node
                 .insert(row.structural_node.clone(), row)
@@ -751,12 +851,23 @@ impl CheckedPackageV2 {
                 ));
             }
         }
+        for id in &selected_model_units {
+            charge(&mut work, work_limit, id, "selected_model_unit")?;
+            if !model_unit_by_node.contains_key(id) {
+                return Err(SelectedTypeDeclarationsError::at(
+                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    id,
+                    "selected_model_unit",
+                    work,
+                ));
+            }
+        }
 
         let identities = &admitted_identities;
         let mut records = Vec::new();
         let mut tuples = Vec::new();
         let mut objects = Vec::new();
-        for (id, declaration) in self.models.selected_declarations() {
+        for &(id, declaration) in &selected_declarations {
             let Some(model) = self.models.selected_models().get(declaration.selection) else {
                 return Err(SelectedTypeDeclarationsError::at(
                     ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
@@ -1110,15 +1221,14 @@ impl CheckedPackageV2 {
             }
         }
         selected_source_units.sort();
+        selected_model_units.sort();
         let nominal_rows = selected_source_units
             .iter()
             .map(|id| {
-                let row = source_unit_by_node
-                    .get(id)
-                    .expect("checked complete source-unit rows");
                 let node = self
                     .node(id)
-                    .expect("admitted source unit remains in graph");
+                    .expect("admitted selected unit remains in graph");
+                let unit_id = &source_unit_by_node[id].unit_id;
                 NominalDeclarationRow {
                     node: id,
                     owner: node.owner.as_ref().expect("admitted source owner"),
@@ -1126,7 +1236,7 @@ impl CheckedPackageV2 {
                         .declaration
                         .as_ref()
                         .expect("admitted source declaration"),
-                    identity: NominalIdentity::Unit(&row.unit_id),
+                    identity: NominalIdentity::Unit(unit_id),
                 }
             })
             .collect::<Vec<_>>();
@@ -1164,6 +1274,7 @@ impl CheckedPackageV2 {
         let units = unit_read
             .units
             .iter()
+            .filter(|unit| source_unit_by_node.contains_key(&unit.node.node_id))
             .map(|unit| {
                 let row = source_unit_by_node
                     .get(&unit.node.node_id)
@@ -1182,7 +1293,7 @@ impl CheckedPackageV2 {
                 }
             })
             .collect();
-        let dimensions = unit_read
+        let mut dimensions: Vec<_> = unit_read
             .dimensions
             .iter()
             .map(|dimension| SelectedTypeDimension {
@@ -1190,11 +1301,179 @@ impl CheckedPackageV2 {
                 terms: dimension.terms.to_vec(),
             })
             .collect();
+        let mut model_units = Vec::new();
+        if let Some(reached) = reached {
+            let find_model_node =
+                |model_identity: &str,
+                 original: &str,
+                 form: ScalarTypeForm,
+                 work: &mut u64,
+                 at: &CheckedNodeId|
+                 -> Result<CheckedNodeId, SelectedTypeDeclarationsError> {
+                    for candidate in reached {
+                        charge(work, work_limit, at, "model_unit_dependency")?;
+                        let Some(node) = self.node(candidate) else {
+                            continue;
+                        };
+                        if self.node_kind(candidate) == Some(CheckedNodeKind::ScalarType(form))
+                            && matches!(&node.owner, Some(CheckedNodeOwner::Model { identity, node })
+                                if identity.as_ref() == model_identity && node.as_ref() == original)
+                        {
+                            return Ok(candidate.clone());
+                        }
+                    }
+                    Err(SelectedTypeDeclarationsError::at(
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                        at,
+                        "model_unit_dependency",
+                        *work,
+                    ))
+                };
+            for id in &selected_model_units {
+                charge(&mut work, work_limit, id, "model_unit")?;
+                let row = model_unit_by_node[id];
+                let Some(CheckedNodeOwner::Model {
+                    identity,
+                    node: original,
+                }) = self.node(id).and_then(|node| node.owner.as_ref())
+                else {
+                    return Err(SelectedTypeDeclarationsError::at(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                        id,
+                        "model_unit_owner",
+                        work,
+                    ));
+                };
+                charge(&mut work, work_limit, id, "model_unit_selection")?;
+                let model = self.models.selected_model(identity).ok_or_else(|| {
+                    SelectedTypeDeclarationsError::at(
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                        id,
+                        "model_unit_selection",
+                        work,
+                    )
+                })?;
+                let unit = model.units.get(original).ok_or_else(|| {
+                    SelectedTypeDeclarationsError::at(
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                        id,
+                        "model_unit",
+                        work,
+                    )
+                })?;
+                let dimension_node = find_model_node(
+                    identity,
+                    &unit.dimension,
+                    ScalarTypeForm::Dimension,
+                    &mut work,
+                    id,
+                )?;
+                let mut pending = vec![unit.dimension.as_ref()];
+                let mut seen_dimensions = BTreeSet::new();
+                let mut unit_terms = Vec::new();
+                while let Some(current) = pending.pop() {
+                    charge(&mut work, work_limit, id, "model_dimension")?;
+                    if !seen_dimensions.insert(current) {
+                        continue;
+                    }
+                    let current_node = find_model_node(
+                        identity,
+                        current,
+                        ScalarTypeForm::Dimension,
+                        &mut work,
+                        id,
+                    )?;
+                    let current_dimension = model.dimensions.get(current).ok_or_else(|| {
+                        SelectedTypeDeclarationsError::at(
+                            ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                            id,
+                            "model_unit_dimension",
+                            work,
+                        )
+                    })?;
+                    let mut terms = Vec::new();
+                    for (original, exponent) in &current_dimension.terms {
+                        charge(&mut work, work_limit, id, "model_dimension_term")?;
+                        terms.push(DimensionTerm {
+                            dimension_node_id: find_model_node(
+                                identity,
+                                original,
+                                ScalarTypeForm::Dimension,
+                                &mut work,
+                                id,
+                            )?,
+                            exponent: exponent.clone(),
+                        });
+                        pending.push(original);
+                    }
+                    if current == unit.dimension.as_ref() {
+                        unit_terms = terms.clone();
+                    }
+                    if !dimensions
+                        .iter()
+                        .any(|entry| entry.structural_node == current_node)
+                    {
+                        dimensions.push(SelectedTypeDimension {
+                            structural_node: current_node,
+                            terms,
+                        });
+                    }
+                }
+                let target_node = unit
+                    .target
+                    .as_ref()
+                    .map(|target| {
+                        find_model_node(identity, target, ScalarTypeForm::Unit, &mut work, id)
+                    })
+                    .transpose()?;
+                let ratio =
+                    |raw: &str,
+                     work: &mut u64|
+                     -> Result<CheckedRational, SelectedTypeDeclarationsError> {
+                        charge_amount(work, work_limit, id, "model_unit_ratio", raw.len())?;
+                        let (numerator, denominator) = raw.split_once('/').unwrap_or((raw, "1"));
+                        if numerator.is_empty()
+                            || denominator.is_empty()
+                            || numerator.parse::<num_bigint::BigInt>().is_err()
+                            || denominator
+                                .parse::<num_bigint::BigInt>()
+                                .ok()
+                                .is_none_or(|value| value <= 0.into())
+                        {
+                            return Err(SelectedTypeDeclarationsError::at(
+                                ExactTypeProjectionErrorCode::UnsupportedExactType,
+                                id,
+                                "model_unit_ratio",
+                                *work,
+                            ));
+                        }
+                        Ok(CheckedRational {
+                            numerator: numerator.into(),
+                            denominator: denominator.into(),
+                        })
+                    };
+                let SelectedExactIdentity::DeclaredUnit(unit_id) = &row.exact_identity else {
+                    unreachable!("joined model unit")
+                };
+                model_units.push(SelectedTypeModelUnit {
+                    structural_node: id.clone(),
+                    selected_document: row.selected_document.clone(),
+                    original_identity: row.original_identity.clone(),
+                    unit_id: unit_id.clone(),
+                    dimension_node,
+                    dimension_terms: unit_terms,
+                    target_node,
+                    scale: ratio(&unit.scale, &mut work)?,
+                    offset: ratio(&unit.offset, &mut work)?,
+                });
+            }
+        }
         Ok(SelectedTypeDeclarations {
             records,
             tuples,
             objects,
             units,
+            model_units,
             dimensions,
             work,
         })

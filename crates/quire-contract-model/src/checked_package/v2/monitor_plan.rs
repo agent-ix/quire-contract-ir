@@ -19,6 +19,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
+mod reached_model_read;
+#[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
 mod selected_closure_walk;
 
 const ENTRY_SLOTS: [usize; 4] = [5, 6, 7, 15];

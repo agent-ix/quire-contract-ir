@@ -535,6 +535,8 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNo
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
     index: DeclarationIndex,
+    original_declarations: BTreeMap<(usize, Box<str>), Option<CheckedNodeId>>,
+    by_identity: BTreeMap<Box<str>, usize>,
     object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>>,
     /// Admitted selected documents, including their field tables, for
     /// catalog binder resolution only when a refinement requests it.
@@ -698,6 +700,22 @@ impl RetainedModels {
         self.index.0.iter()
     }
 
+    /// Find one admitted declaration without enumerating unrelated selected models.
+    pub(super) fn selected_declaration_entry(&self, key: &CheckedNodeId) -> Option<&DeclaredNode> {
+        self.index.0.get(key)
+    }
+
+    /// Find a selected model dependency by admitted original identity.
+    pub(super) fn selected_declaration_by_original(
+        &self,
+        selection: usize,
+        original: &str,
+    ) -> Option<&CheckedNodeId> {
+        self.original_declarations
+            .get(&(selection, Box::from(original)))?
+            .as_ref()
+    }
+
     /// The complete effective record fields in selected declaration order.
     pub(super) fn selected_record_fields(
         &self,
@@ -768,6 +786,11 @@ impl RetainedModels {
     /// Selected documents retained by this already admitted package.
     pub(super) fn selected_models(&self) -> &[DomainModel] {
         &self.models
+    }
+
+    /// Look up one admitted selected document without visiting other selections.
+    pub(super) fn selected_model(&self, identity: &str) -> Option<&DomainModel> {
+        self.models.get(*self.by_identity.get(identity)?)
     }
 
     /// Effective operation classes of the selected model document named by its identity.
@@ -907,9 +930,19 @@ impl RetainedModels {
             .exposed_names(&declared.node)
     }
     pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
+        let by_identity = models
+            .iter()
+            .enumerate()
+            .map(|(selection, model)| (model.identity.clone(), selection))
+            .collect();
         let mut object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>> =
             BTreeMap::new();
+        let mut original_declarations = BTreeMap::new();
         for (key, declared) in &index.0 {
+            original_declarations
+                .entry((declared.selection, declared.node.clone()))
+                .and_modify(|entry| *entry = None)
+                .or_insert_with(|| Some(key.clone()));
             if declared.form == DeclarationForm::ObjectType {
                 object_declarations
                     .entry(declared.selection)
@@ -956,6 +989,8 @@ impl RetainedModels {
         }
         Self {
             index,
+            original_declarations,
+            by_identity,
             object_declarations,
             models,
             operation_types,

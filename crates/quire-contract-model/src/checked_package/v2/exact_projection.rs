@@ -101,9 +101,8 @@ fn admitted_selected_declaration<'a>(
     };
     package
         .models
-        .selected_models()
-        .iter()
-        .any(|model| model.identity.as_ref() == identity.as_ref() && model.units.contains_key(node))
+        .selected_model(identity)
+        .is_some_and(|model| model.units.contains_key(node))
         .then_some((identity, node, AdmittedDeclarationForm::DeclaredUnit))
 }
 
@@ -128,25 +127,21 @@ fn admitted_selected_declaration_native<'a>(
     let Some(CheckedNodeOwner::Model { identity, node }) = checked.owner.as_ref() else {
         return Ok(None);
     };
-    for model in package.models.selected_models() {
-        charge_native_work(budget, key, key, "stage_unit_model", 1)?;
-        charge_native_text_pair(budget, key, "stage_unit_model", &model.identity, identity)?;
-        if model.identity.as_ref() != identity.as_ref() {
-            continue;
-        }
-        for original in model.units.keys() {
-            charge_native_work(budget, key, key, "stage_unit_identity", 1)?;
-            charge_native_text_pair(budget, key, "stage_unit_identity", original, node)?;
-            if original.as_ref() == node.as_ref() {
-                return Ok(Some((
-                    identity,
-                    node,
-                    AdmittedDeclarationForm::DeclaredUnit,
-                )));
-            }
-        }
-    }
-    Ok(None)
+    charge_native_work(budget, key, key, "stage_unit_model", 1)?;
+    let Some(model) = package.models.selected_model(identity) else {
+        return Ok(None);
+    };
+    charge_native_text_pair(budget, key, "stage_unit_model", &model.identity, identity)?;
+    charge_native_work(budget, key, key, "stage_unit_identity", 1)?;
+    let Some((original, _)) = model.units.get_key_value(node) else {
+        return Ok(None);
+    };
+    charge_native_text_pair(budget, key, "stage_unit_identity", original, node)?;
+    Ok(Some((
+        identity,
+        node,
+        AdmittedDeclarationForm::DeclaredUnit,
+    )))
 }
 
 /// One QSL-stage declaration row, keyed by selected original IR identity.
@@ -1182,9 +1177,23 @@ pub struct SelectedExactIdentities {
     source_tuples: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceTupleRow>>>,
     source_enums: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceEnumRow>>>,
     source_collections: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceCollectionRow>>>,
+    model_enum_shapes: Arc<BTreeMap<CheckedNodeId, EnumShape>>,
 }
 
 impl SelectedExactIdentities {
+    /// Attach only model enum shapes already joined to admitted declaration and case rows.
+    pub(in crate::checked_package::v2) fn with_model_enum_shapes(
+        mut self,
+        rows: &[super::SelectedModelEnumShapeRow],
+    ) -> Self {
+        self.model_enum_shapes = Arc::new(
+            rows.iter()
+                .map(|row| (row.structural_node.clone(), row.shape.clone()))
+                .collect(),
+        );
+        self
+    }
+
     /// An empty selection for reads of types without declaration identities.
     pub fn empty() -> Self {
         Self::default()
@@ -2971,6 +2980,22 @@ pub(super) fn project_record_field_type(
             charge_native_storage(budget, requested, requested, "record_field_tuple", 1)?;
             return Ok(ValueType::Composite(row.node_key.clone()));
         }
+        MemberType::Variant(target) => {
+            if package.node_kind(target) != Some(CheckedNodeKind::Model(ModelForm::VariantType)) {
+                return Err(refuse!(
+                    ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                    Some(target)
+                ));
+            }
+            let shape = identities.model_enum_shapes.get(target).ok_or_else(|| {
+                refuse!(
+                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    Some(target)
+                )
+            })?;
+            charge_native_storage(budget, requested, requested, "record_field_variant", 1)?;
+            return Ok(ValueType::Enum(shape.clone()));
+        }
         MemberType::Float32
         | MemberType::Float64
         | MemberType::Bytes
@@ -2979,7 +3004,6 @@ pub(super) fn project_record_field_type(
         | MemberType::RationalRange(_)
         | MemberType::CarriedRational(..)
         | MemberType::TextBounds(_)
-        | MemberType::Variant(_)
         | MemberType::Option(_)
         | MemberType::Collection { .. } => {
             return Err(refuse!(
@@ -3044,7 +3068,8 @@ fn project_wrapped_record_field_type(
     if let MemberType::Reference(target)
     | MemberType::Record(target)
     | MemberType::Quantity(target)
-    | MemberType::Tuple(target) = leaf
+    | MemberType::Tuple(target)
+    | MemberType::Variant(target) = leaf
     {
         charge_work(requested, target, "record_field_target", work, work_limit)?;
     }

@@ -24,9 +24,9 @@ use quire_contract_model::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, CheckedRelationshipEnd, CheckedRelationshipEndError,
     SelectedModelEnumDeclarationRow, SelectedModelEnumErrorCode, SelectedModelEnumMemberRow,
-    SelectedModelEnums,
+    SelectedModelEnumShapeCaseRow, SelectedModelEnumShapeRow, SelectedModelEnums,
 };
-use quire_exact::{NodeKey, PathSegment};
+use quire_exact::{EnumShape, NodeKey, PathSegment, VariantId};
 use serde_json::{json, Value};
 use std::sync::LazyLock;
 
@@ -1218,6 +1218,49 @@ fn model_enum_stage_rows_join_selected_declaration_and_exact_members() {
             .code,
         SelectedModelEnumErrorCode::UnavailableWitness
     );
+}
+
+#[trace("FR-357-AC-14")]
+#[test]
+fn model_enum_shape_rows_preserve_producer_variants_and_refuse_mismatch() {
+    let (wire, evidence, _) = variant_package_named(TIER, &["Gold"], &["Gold"], false);
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire, &evidence) else {
+        panic!("selected enum fixture must admit");
+    };
+    let (declaration, member) = selected_model_enum_rows(TIER, "Gold");
+    let joined =
+        SelectedModelEnums::from_stage_rows(&package, [declaration.clone()], [member.clone()], 4)
+            .expect("identity rows join");
+    let variant = VariantId::new(declaration.node_key.clone(), "Gold").expect("fixture variant");
+    let row = SelectedModelEnumShapeRow {
+        structural_node: declaration.structural_node.clone(),
+        node_key: declaration.node_key.clone(),
+        selected_document: declaration.selected_document.clone(),
+        original_identity: declaration.original_identity.clone(),
+        shape: EnumShape::new(false, [variant.clone()]),
+        cases: vec![SelectedModelEnumShapeCaseRow {
+            case: member.case.clone(),
+            structural_node: member.structural_node.clone(),
+            member_key: member.member_key.clone(),
+            member_original_identity: member.member_original_identity.clone(),
+            variant: variant.clone(),
+        }],
+    };
+    let used = joined
+        .read_shape(&package, &row, u64::MAX)
+        .expect("shape joins");
+    assert_eq!(joined.read_shape(&package, &row, used), Ok(used));
+    assert_eq!(row.shape.variants().next(), Some(&variant));
+    let denied = joined.read_shape(&package, &row, used - 1).unwrap_err();
+    assert_eq!(denied.code, SelectedModelEnumErrorCode::WorkLimit);
+    assert_eq!(denied.consumed_work, used - 1);
+    assert_eq!(denied.attempted_work, 1);
+
+    let mut wrong = row.clone();
+    wrong.cases[0].variant = VariantId::new(enum_key("another"), "Gold").unwrap();
+    let refused = joined.read_shape(&package, &wrong, used).unwrap_err();
+    assert_eq!(refused.code, SelectedModelEnumErrorCode::MismatchedWitness);
+    assert_eq!(refused.node, member.structural_node);
 }
 
 #[test]

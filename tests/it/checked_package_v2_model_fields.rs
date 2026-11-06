@@ -2992,14 +2992,17 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         [],
         &mut short_lookup,
     )
-    .expect_err("selected-model identity is charged before the unit lookup scans it");
+    .expect_err("the selected unit row exceeds the short allowance");
     assert_eq!(
         lookup_error.code,
         ExactTypeProjectionErrorCode::ExhaustedWork
     );
-    assert_eq!(lookup_error.form.as_deref(), Some("stage_unit_model"));
+    assert_eq!(lookup_error.form.as_deref(), Some("stage_original"));
     assert_eq!(lookup_error.at.as_deref(), Some(&unit));
-    assert!(short_lookup.first_unpaid().unwrap().amount >= 4096);
+    assert_eq!(
+        short_lookup.first_unpaid().unwrap().amount,
+        2 * unit_row.original_identity.len() as u128
+    );
     let field_row = SelectedExactFieldRow::new(
         record.clone(),
         IDENTITY,
