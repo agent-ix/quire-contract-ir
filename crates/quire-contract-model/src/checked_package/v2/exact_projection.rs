@@ -3451,7 +3451,9 @@ impl CheckedPackageV2 {
                     let (lower, upper) = self
                         .term(type_id)
                         .and_then(integer_range_bounds)
-                        .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
+                        .ok_or_else(|| {
+                            refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType)
+                        })?;
                     charge_work_amount(
                         requested,
                         type_id,
@@ -3461,10 +3463,12 @@ impl CheckedPackageV2 {
                         u64::try_from(lower.len().saturating_add(upper.len())).unwrap_or(u64::MAX),
                     )?;
                     let bound = CardinalityBound::new(
-                        lower.parse::<u64>()
-                            .map_err(|_| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?,
-                        upper.parse::<u64>()
-                            .map_err(|_| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?,
+                        lower.parse::<u64>().map_err(|_| {
+                            refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType)
+                        })?,
+                        upper.parse::<u64>().map_err(|_| {
+                            refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType)
+                        })?,
                     )
                     .map_err(|_| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
                     let map = self

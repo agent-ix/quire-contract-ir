@@ -497,7 +497,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         .unwrap_err();
     assert_eq!(denied.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert!(denied.work < exact);
-    assert_eq!(denied.at.as_deref(), Some(&row.members[1].type_node));
+    assert_eq!(denied.at, None);
+    assert_eq!(
+        denied.denied.unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
     let cloned = package.clone();
     assert_eq!(
         cloned
