@@ -1493,6 +1493,12 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         .as_array()
         .expect("published nominal nodes");
     assert_eq!(published.len(), expected.len());
+    for (position, base) in [(3, true), (4, true), (5, false)] {
+        let CheckedTerm::NominalBody(body) = &admitted.graph().nodes[position].body else {
+            panic!("{position}: published dimension has a typed nominal body")
+        };
+        assert_eq!(body.dimension_base(), Some(base), "{position}: base flag");
+    }
     for (position, (node, id)) in admitted.graph().nodes.iter().zip(expected).enumerate() {
         assert_eq!(
             serde_json::to_value(&node.node_id).expect("node id"),
@@ -1556,6 +1562,7 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         encoded_wire["semantic_graph"],
         "explicit base flags and declaration paths survive public write/read"
     );
+    assert_eq!(reread.graph(), admitted.graph());
 }
 
 /// QSpec's NB-07..09 mutations are applied to the published positive body;
