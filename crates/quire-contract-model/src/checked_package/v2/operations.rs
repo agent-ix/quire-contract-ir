@@ -6334,6 +6334,7 @@ mod tests {
                 ("scalar_type", "unit", "quantity"),
                 ("scalar_type", "enum", "enum"),
                 ("scalar_type", "carried_quantity", "quantity"),
+                ("scalar_type", "bounded_quantity", "quantity"),
                 ("composite_type", "option", "option"),
                 ("composite_type", "sequence", "sequence"),
                 ("composite_type", "set", "set"),
