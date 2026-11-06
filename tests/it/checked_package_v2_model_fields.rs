@@ -7213,3 +7213,34 @@ fn nested_collection_rows_follow_final_element_nodes_without_recursion() {
     );
     assert_eq!(refusal.at.as_deref(), Some(&inner));
 }
+
+/// A selected record with an unread field, object, and tuple for complete joins.
+pub(crate) fn complete_witness_model_wire() -> (Value, Value) {
+    let tuple = orders("Pair");
+    let mut selected = document(vec![
+        typed_object("Receipt", "record", &[], &[field("count", "ix://quire/native/Boolean")]),
+        object("Node", &[], &[]),
+        json!({"identity":tuple,"displayName":"Pair", "kind":{"module":IDENTITY,"name":"tuple"},
+            "positions":[{"identity":format!("{tuple}/p0"),"typeRef":"ix://quire/native/Boolean"}]}),
+    ]);
+    for (name, meaning) in [("record", "quire.meaning.model.record-value-type/v1"), ("tuple", "quire.meaning.model.tuple-value-type/v1")] {
+        selected["constructs"].as_array_mut().unwrap().push(json!({
+            "kind":{"module":IDENTITY,"name":name},"construct":{"meaning":meaning}
+        }));
+    }
+    let (wire, _, _) = package(&selected, &[("Receipt", "record_value_type"), ("Node", OBJECT), ("Pair", "tuple_value_type")], &[]);
+    (wire, selected)
+}
+
+pub(crate) fn complete_witness_model_rows(package: &CheckedPackageV2) -> (Vec<SelectedExactDeclarationRow>, Vec<SelectedExactFieldRow>, Vec<SelectedTupleDeclarationRow>) {
+    let id = |original: &str| package.graph().nodes.iter().find(|node| matches!(&node.owner, Some(quire_contract_model::CheckedNodeOwner::Model { identity, node }) if identity.as_ref() == IDENTITY && node.as_ref() == original)).unwrap().node_id.clone();
+    let record_key = NodeKey::new("complete-stage", vec![PathSegment::Text("Receipt".into())], 0).unwrap();
+    let record_id = id(&orders("Receipt"));
+    let declarations = vec![
+        SelectedExactDeclarationRow::new(record_id.clone(), IDENTITY, SelectedExactDeclarationForm::RecordValueType, orders("Receipt"), SelectedExactIdentity::Record(record_key.clone())),
+        SelectedExactDeclarationRow::new(id(&orders("Node")), IDENTITY, SelectedExactDeclarationForm::ObjectType, orders("Node"), SelectedExactIdentity::Object(EffectiveId::new(None, OriginalDeclarationKey::new(IDENTITY, orders("Node"))))),
+    ];
+    let fields = vec![SelectedExactFieldRow::new(record_id, IDENTITY, orders("Receipt"), format!("{}/count", orders("Receipt")), MemberId::new(MemberOwner::Node(record_key), "count").unwrap())];
+    let tuples = vec![SelectedTupleDeclarationRow::new(id(&orders("Pair")), IDENTITY, orders("Pair"), NodeKey::new("complete-stage", vec![PathSegment::Text("Pair".into())], 0).unwrap())];
+    (declarations, fields, tuples)
+}

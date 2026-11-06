@@ -4,7 +4,7 @@
 use super::*;
 
 impl SelectedExactIdentities {
-    fn check_binding(
+    pub(super) fn check_binding(
         &self,
         package: &CheckedPackageV2,
         budget: &mut NativeJoinBudget,
@@ -576,7 +576,7 @@ impl SelectedExactIdentities {
                         id,
                         "selected_model_unit",
                     )?,
-                    None => {
+                    Some(CheckedNodeOwner::ModelRoot { .. }) | None => {
                         return Err(witness_error(
                             id,
                             ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
@@ -845,7 +845,7 @@ fn helper_collection_base(
             == Some(CheckedNodeKind::BoundedDomain(
                 BoundedDomainForm::CollectionBounds,
             ));
-        if node.semantic_type.as_ref() == Some(id) {
+        if &node.semantic_type == id {
             if bounded {
                 helper = true;
             } else {
