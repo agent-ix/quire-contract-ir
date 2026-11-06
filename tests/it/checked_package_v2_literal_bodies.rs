@@ -106,7 +106,7 @@ fn every_nonliteral_body_refuses_at_the_literal_body_before_graph_checks() {
         json!({"term": "refinement"}),
         json!({"term": "extension_form", "clauses": []}),
         json!({"term": "enum", "ordered": false, "members": ["one"]}),
-        json!({"term": "dimension", "terms": []}),
+        json!({"term": "dimension", "base": true, "terms": []}),
         json!({"term": "unit"}),
         json!({"term": "dimension_equivalence"}),
     ] {

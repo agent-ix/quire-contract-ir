@@ -92,7 +92,9 @@ struct DimensionRecord {
     pub owner: NominalOwner,
     /// ASCII identifier segments.
     pub qualified_declaration: Vec<Box<str>>,
-    /// Base-dimension terms; empty for a base dimension.
+    /// The admitted source or selected-model base declaration flag.
+    pub base: bool,
+    /// Base-dimension terms; an empty derived dimension is dimensionless.
     pub terms: Vec<DimensionTerm>,
 }
 
@@ -305,6 +307,8 @@ pub(super) enum NominalBodyKind {
     },
     /// Dimension terms over structural dimension IDs.
     Dimension {
+        /// The source declaration's explicit base flag.
+        base: bool,
         /// Authored base-dimension terms.
         terms: Vec<DimensionTerm>,
     },
@@ -329,10 +333,18 @@ pub(super) enum NominalBodyKind {
 }
 
 impl NominalBody {
+    /// The declared base flag of a dimension body. Other nominal forms have no flag.
+    pub fn dimension_base(&self) -> Option<bool> {
+        match &self.kind {
+            NominalBodyKind::Dimension { base, .. } => Some(*base),
+            _ => None,
+        }
+    }
+
     /// Borrow the admitted direct terms of a dimension declaration.
     pub(crate) fn dimension_details(&self) -> Option<&[DimensionTerm]> {
         match &self.kind {
-            NominalBodyKind::Dimension { terms } => Some(terms),
+            NominalBodyKind::Dimension { terms, .. } => Some(terms),
             _ => None,
         }
     }
@@ -387,8 +399,14 @@ impl NominalBody {
 
     /// Construct a base or derived dimension body, checking every structural
     /// ID and canonical integer exponent.
-    pub fn try_dimension(terms: Vec<DimensionTerm>) -> Result<Self, Box<CheckedPackageRefusal>> {
-        Self::try_kind(NominalBodyKind::Dimension { terms }, JsonPointer::root())
+    pub fn try_dimension(
+        base: bool,
+        terms: Vec<DimensionTerm>,
+    ) -> Result<Self, Box<CheckedPackageRefusal>> {
+        Self::try_kind(
+            NominalBodyKind::Dimension { base, terms },
+            JsonPointer::root(),
+        )
     }
 
     /// Construct a unit body; an absent target is the canonical root unit.
@@ -470,7 +488,10 @@ impl NominalBody {
                     }
                 }
             }
-            NominalBodyKind::Dimension { terms } => {
+            NominalBodyKind::Dimension { base, terms } => {
+                if *base && !terms.is_empty() {
+                    return Err(malformed(at.key("terms")));
+                }
                 for (index, term) in terms.iter().enumerate() {
                     let path = at.clone().key("terms").index(index);
                     valid_id(
@@ -588,7 +609,10 @@ impl NominalBody {
                 }
                 Ok(NominalBodyKind::Enum { ordered, members })
             }
-            "dimension" if exact_members(object, &["term", "terms"]) => {
+            "dimension" if exact_members(object, &["term", "base", "terms"]) => {
+                let base = object["base"]
+                    .as_bool()
+                    .ok_or_else(|| malformed(at.clone().key("base")))?;
                 let values = object["terms"]
                     .as_array()
                     .ok_or_else(|| malformed(at.clone().key("terms")))?;
@@ -612,7 +636,7 @@ impl NominalBody {
                         exponent: exponent.into(),
                     });
                 }
-                Ok(NominalBodyKind::Dimension { terms })
+                Ok(NominalBodyKind::Dimension { base, terms })
             }
             "unit"
                 if exact_members(
@@ -672,7 +696,7 @@ impl NominalBody {
         };
         match &mut self.kind {
             NominalBodyKind::Enum { .. } => {}
-            NominalBodyKind::Dimension { terms } => {
+            NominalBodyKind::Dimension { terms, .. } => {
                 for term in terms {
                     replace(&mut term.dimension_node_id);
                 }
@@ -710,7 +734,7 @@ impl NominalBody {
         };
         match &mut self.kind {
             NominalBodyKind::Enum { .. } => {}
-            NominalBodyKind::Dimension { terms } => {
+            NominalBodyKind::Dimension { terms, .. } => {
                 for term in terms {
                     visit(&mut term.dimension_node_id);
                 }
@@ -755,7 +779,7 @@ impl NominalBody {
     ) -> Result<(), E> {
         match &self.kind {
             NominalBodyKind::Enum { .. } => {}
-            NominalBodyKind::Dimension { terms } => {
+            NominalBodyKind::Dimension { terms, .. } => {
                 for term in terms {
                     visitor(&term.dimension_node_id)?;
                 }
@@ -1071,10 +1095,11 @@ fn record_from_node(
                 members,
             }))
         }
-        (NominalKind::Dimension, NominalBodyKind::Dimension { terms }) => {
+        (NominalKind::Dimension, NominalBodyKind::Dimension { base, terms }) => {
             Ok(NominalRecord::Dimension(DimensionRecord {
                 owner: source_owner,
                 qualified_declaration: declared()?,
+                base,
                 terms,
             }))
         }
@@ -1198,6 +1223,7 @@ fn model_record_from_node(
             Ok(NominalRecord::Dimension(DimensionRecord {
                 owner,
                 qualified_declaration: vec![selected.name.clone()],
+                base: selected.base,
                 terms,
             }))
         }
@@ -1679,7 +1705,7 @@ pub(super) fn duration_unit_key(
     else {
         return Ok(None);
     };
-    let NominalBodyKind::Dimension { terms } = body.into_kind() else {
+    let NominalBodyKind::Dimension { base, .. } = body.into_kind() else {
         return Ok(None);
     };
     if dimension.owner != node.owner
@@ -1691,7 +1717,7 @@ pub(super) fn duration_unit_key(
             .flatten()
             .last()
             .is_none_or(|name| name.as_ref() != "Time")
-        || !terms.is_empty()
+        || !base
     {
         return Ok(None);
     }
@@ -1761,7 +1787,7 @@ pub(super) fn model_duration_unit_key(
     let Some(dimension) = model.dimensions.get(&unit.dimension) else {
         return Ok(None);
     };
-    if dimension.name.as_ref() != "Time" || !dimension.terms.is_empty() {
+    if dimension.name.as_ref() != "Time" || !dimension.base {
         return Ok(None);
     }
     let node_for = |owner_node: &str| {
@@ -1842,7 +1868,7 @@ fn equivalence_potentials(
         BTreeMap::new();
     for (position, edge) in edges {
         let ids = &edge.dimension_node_ids;
-        let is_base = |id: &CheckedNodeId| matches!(graph.nominal(id), Some(NominalRecord::Dimension(dim)) if dim.terms.is_empty());
+        let is_base = |id: &CheckedNodeId| matches!(graph.nominal(id), Some(NominalRecord::Dimension(dim)) if dim.base);
         if base_only && !(is_base(&ids[0]) && is_base(&ids[1])) {
             continue;
         }
@@ -1902,7 +1928,7 @@ fn normalized_dimension(
     let Some(NominalRecord::Dimension(dimension)) = graph.nominal(id) else {
         return Err(invalid(at()));
     };
-    if dimension.terms.is_empty() {
+    if dimension.base {
         let Some((component, scale)) = bases.get(id) else {
             return Err(invalid(at()));
         };
@@ -1937,9 +1963,9 @@ fn validate_equivalence_graph(
     let bases = equivalence_potentials(graph, edges, true, meter)?;
     for (position, edge) in edges {
         let ids = &edge.dimension_node_ids;
-        let both_base = ids.iter().all(|id| {
-            matches!(graph.nominal(id), Some(NominalRecord::Dimension(dim)) if dim.terms.is_empty())
-        });
+        let both_base = ids
+            .iter()
+            .all(|id| matches!(graph.nominal(id), Some(NominalRecord::Dimension(dim)) if dim.base));
         if both_base {
             continue;
         }
@@ -2312,7 +2338,7 @@ fn validate_dimension(
         let Some(NominalRecord::Dimension(base)) = graph.nominal(&term.dimension_node_id) else {
             return Err(invalid(base_at()));
         };
-        require(base.terms.is_empty(), base_at)?;
+        require(base.base, base_at)?;
     }
     // The later term of the first out-of-order node ID is at fault.
     if let Some(pair) = dimension.terms.windows(2).position(
@@ -2636,6 +2662,7 @@ mod tests {
     fn nominal_body_node_ref_requires_graph_local_index() {
         let valid = json!({
             "term": "dimension",
+            "base": false,
             "terms": [{
                 "dimension_node_id": {
                     "package": "example",
@@ -2669,6 +2696,7 @@ mod tests {
         term.insert("exponent".into(), Value::String("1".into()));
         let mut body_members = serde_json::Map::new();
         body_members.insert("term".into(), Value::String("dimension".into()));
+        body_members.insert("base".into(), Value::Bool(false));
         body_members.insert("terms".into(), Value::Array(vec![Value::Object(term)]));
         let body = Value::Object(body_members);
         assert!(matches!(

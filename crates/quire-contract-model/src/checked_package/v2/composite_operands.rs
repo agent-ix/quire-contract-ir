@@ -2072,7 +2072,7 @@ mod tests {
                 "dependencies":[],"occurrences":[{"role":"declaration","ordinal":0}],
                 "owner":{"kind":"source","authority":"test","identity":"composite"},
                 "declaration":{"qualified_name":["fixture","source_dimension"]},
-                "body":{"term":"dimension","terms":[]}}),
+                "body":{"term":"dimension","base":true,"terms":[]}}),
             json!({"node_id":model_dimension,"schema_version":"quire.checked-semantic-graph/v2",
                 "node_tag":"scalar_type","semantic_form":"dimension","semantic_type":model_dimension,
                 "dependencies":[],"occurrences":[{"role":"generated","ordinal":0}],
@@ -2341,7 +2341,7 @@ mod tests {
             "dependencies":[],"occurrences":[{"role":"declaration","ordinal":0}],
             "owner":{"kind":"source","authority":"test","identity":"composite"},
             "declaration":{"qualified_name":["fixture","dimension"]},
-            "body":{"term":"dimension","terms":[]}
+                "body":{"term":"dimension","base":true,"terms":[]}
         }));
         wire["source_map"]
             .as_array_mut()
@@ -2364,7 +2364,7 @@ mod tests {
                     "dependencies":[],"occurrences":[{"role":"declaration","ordinal":0}],
                     "owner":{"kind":"source","authority":"test","identity":"composite"},
                     "declaration":{"qualified_name":["fixture","base"]},
-                    "body":{"term":"dimension","terms":[]}
+                    "body":{"term":"dimension","base":true,"terms":[]}
                 }),
             );
         wire["source_map"]
@@ -2379,7 +2379,7 @@ mod tests {
             );
         wire["semantic_graph"]["nodes"][9]["dependencies"] = json!([base_node]);
         wire["semantic_graph"]["nodes"][9]["body"] = json!({
-            "term":"dimension","terms":[{"dimension_node_id":base_node,"exponent":"1"}]
+            "term":"dimension","base":false,"terms":[{"dimension_node_id":base_node,"exponent":"1"}]
         });
         wire["semantic_graph"]["nodes"][10]["semantic_form"] = json!("unit");
         wire["semantic_graph"]["nodes"][10]["semantic_type"] = json!(dimension_node);

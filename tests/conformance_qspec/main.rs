@@ -1468,7 +1468,7 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
 
 /// QSpec's nominal declarations and derived nodes have assigned identities;
 /// neither body bytes nor owner spelling participates in their construction.
-#[trace("TC-048", "TC-228", "FR-038-AC-89")]
+#[trace("TC-048", "TC-228", "FR-038-AC-89", "FR-038-AC-481")]
 #[test]
 fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
     let fixtures = fixtures_dir();
@@ -1486,6 +1486,7 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         declared(&["Example", "metre"]),
         length.clone(),
         distance.clone(),
+        declared(&["Example", "Dimensionless"]),
         json!({"package":"example", "path":["scalar_type", "dimension_equivalence", distance, length], "ordinal":0}),
     ];
     let published = wire["semantic_graph"]["nodes"]
@@ -1543,6 +1544,82 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         quire_canonical::to_vec(&wire, quire_canonical::Limits::new(1 << 24))
             .expect("published canonical bytes")
     );
+    let encoded_wire: Value = serde_json::from_slice(&encoded).expect("encoded JSON");
+    let reread = match read_package_with_document(&encoded_wire, name, &document)
+        .expect("encoded evidence can be prepared")
+    {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("encoded published package must admit: {other:?}"),
+    };
+    assert_eq!(
+        serde_json::to_value(reread.graph()).expect("reread graph"),
+        encoded_wire["semantic_graph"],
+        "explicit base flags and declaration paths survive public write/read"
+    );
+}
+
+/// QSpec's NB-07..09 mutations are applied to the published positive body;
+/// the reader must refuse the exact dimension-body defect at its own locus.
+#[trace("FR-038-AC-478", "FR-038-AC-479", "FR-038-AC-480")]
+#[test]
+fn qspec_explicit_dimension_base_adverses_refuse_at_body_loci() {
+    let fixtures = fixtures_dir();
+    let baseline = read_json(&fixtures.join("positive-nominal-identities.json"))
+        .expect("published nominal package");
+    let adverse = read_json(&fixtures.join(ADVERSE)).expect("published adverse vectors");
+    let vectors = adverse["nominal_body_mutations"]
+        .as_array()
+        .expect("published nominal body mutations");
+    let document = proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT);
+    for id in ["NB-07", "NB-08", "NB-09"] {
+        let vector = vectors
+            .iter()
+            .find(|entry| entry["id"] == id)
+            .unwrap_or_else(|| panic!("published {id} vector"));
+        assert_eq!(vector["base"], "positive-nominal-identities");
+        assert_eq!(vector["outcome"], "refused:malformed_wire");
+        let mut mutated = baseline.clone();
+        let position = mutated["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nominal nodes")
+            .iter()
+            .position(|node| {
+                node["node_tag"] == vector["node"]["node_tag"]
+                    && node["semantic_form"] == vector["node"]["semantic_form"]
+                    && node["body"]["base"] == true
+            })
+            .expect("published base dimension");
+        let body = &mut mutated["semantic_graph"]["nodes"][position]["body"];
+        for patch in vector["patch"].as_array().expect("published patch") {
+            let member = patch["path"]
+                .as_str()
+                .expect("patch path")
+                .strip_prefix("/body/")
+                .expect("dimension-body member");
+            match patch["op"].as_str().expect("patch operation") {
+                "remove" => {
+                    body.as_object_mut().expect("dimension body").remove(member);
+                }
+                "replace" => body[member] = patch["value"].clone(),
+                other => panic!("unsupported published dimension patch {other}"),
+            }
+        }
+        let result = read_package_with_document(&mutated, id, &document)
+            .expect("published evidence can be prepared");
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("{id}: malformed dimension body must refuse");
+        };
+        assert_eq!(refusal.code, Code::MalformedWire, "{id}");
+        let expected_path = format!(
+            "/semantic_graph/nodes/{position}/body{}",
+            vector["locus"].as_str().expect("published body locus")
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+            Some(expected_path.as_str()),
+            "{id}: published body locus"
+        );
+    }
 }
 
 #[trace("TC-048", "FR-038-AC-176")]

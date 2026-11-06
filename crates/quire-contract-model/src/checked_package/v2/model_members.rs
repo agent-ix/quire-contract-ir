@@ -587,6 +587,7 @@ pub(super) struct SelectedVariantCase {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct SelectedDimension {
     pub(super) name: Box<str>,
+    pub(super) base: bool,
     pub(super) terms: Vec<(Box<str>, Box<str>)>,
 }
 
@@ -3323,6 +3324,10 @@ pub(super) fn read_semantic_ir(
         budget.charge(node_size(dimension))?;
         let identity = text(dimension, "identity")?;
         let name = text(dimension, "name")?;
+        let base = dimension
+            .get("base")
+            .and_then(Value::as_bool)
+            .ok_or_else(ModelRefusal::malformed)?;
         let terms = list(dimension, "terms")?
             .iter()
             .map(|term| {
@@ -3332,11 +3337,15 @@ pub(super) fn read_semantic_ir(
                 ))
             })
             .collect::<Result<Vec<_>, ModelRefusal>>()?;
+        if base && !terms.is_empty() {
+            return Err(ModelRefusal::malformed().into());
+        }
         if dimensions
             .insert(
                 identity.into(),
                 SelectedDimension {
                     name: name.into(),
+                    base,
                     terms,
                 },
             )

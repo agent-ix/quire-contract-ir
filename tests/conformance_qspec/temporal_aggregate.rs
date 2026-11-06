@@ -52,7 +52,7 @@ fn dimension(name: &str) -> Value {
         "declaration": {"qualified_name": ["scalar_type", "dimension", name]},
         "dependencies": [], "occurrences": [{"role": "declaration", "ordinal": 0}],
         "owner": {"kind": "source", "authority": "agent-ix", "identity": "example"},
-        "body": {"term": "dimension", "terms": []},
+        "body": {"term": "dimension", "base": true, "terms": []},
     })
 }
 

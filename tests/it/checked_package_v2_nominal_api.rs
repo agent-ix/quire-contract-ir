@@ -23,6 +23,32 @@ fn rational(value: &Value) -> CheckedRational {
     serde_json::from_value(value.clone()).expect("fixture rational")
 }
 
+/// The public writer preserves the explicit flag, including a derived
+/// dimension with no terms, and refuses terms on a base declaration.
+#[trace("FR-038-AC-478", "FR-038-AC-480", "FR-038-AC-481")]
+#[test]
+fn public_dimension_writer_preserves_base_and_dimensionless_derived() {
+    for base in [true, false] {
+        let body = NominalBody::try_dimension(base, Vec::new()).expect("empty dimension");
+        assert_eq!(body.dimension_base(), Some(base));
+        assert_eq!(
+            serde_json::to_value(&body).expect("dimension body"),
+            json!({"term":"dimension","base":base,"terms":[]})
+        );
+    }
+    let id = node_id(&json!({"package":"units","path":["Time"],"ordinal":0}));
+    assert_malformed(
+        NominalBody::try_dimension(
+            true,
+            vec![DimensionTerm {
+                dimension_node_id: id,
+                exponent: "1".into(),
+            }],
+        ),
+        "/terms",
+    );
+}
+
 /// The public constructor keeps local and selected-package operand shapes distinct.
 #[trace("TC-058", "FR-019-AC-17")]
 #[test]
@@ -59,6 +85,7 @@ fn constructor(body: &Value) -> NominalBody {
                 .collect(),
         ),
         "dimension" => NominalBody::try_dimension(
+            body["base"].as_bool().expect("dimension base flag"),
             body["terms"]
                 .as_array()
                 .expect("dimension terms")
@@ -355,10 +382,13 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
 
     let id = node_id(&json!({"package":"units","path":["Time"],"ordinal":0}));
     assert_malformed(
-        NominalBody::try_dimension(vec![DimensionTerm {
-            dimension_node_id: id.clone(),
-            exponent: "01".into(),
-        }]),
+        NominalBody::try_dimension(
+            false,
+            vec![DimensionTerm {
+                dimension_node_id: id.clone(),
+                exponent: "01".into(),
+            }],
+        ),
         "/terms/0/exponent",
     );
     let invalid_id = CheckedNodeId {
@@ -373,10 +403,13 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
         ordinal: 0,
     };
     assert_malformed(
-        NominalBody::try_dimension(vec![DimensionTerm {
-            dimension_node_id: invalid_id,
-            exponent: "1".into(),
-        }]),
+        NominalBody::try_dimension(
+            false,
+            vec![DimensionTerm {
+                dimension_node_id: invalid_id,
+                exponent: "1".into(),
+            }],
+        ),
         "/terms/0/dimension_node_id",
     );
     let one = CheckedRational {
@@ -439,7 +472,7 @@ fn public_constructors_refuse_malformed_members_at_body_relative_pointers() {
 #[trace("TC-048", "FR-038-AC-374")]
 #[test]
 fn constructed_body_does_not_bypass_package_semantic_admission() {
-    let body = NominalBody::try_dimension(Vec::new()).expect("closed base dimension body");
+    let body = NominalBody::try_dimension(true, Vec::new()).expect("closed base dimension body");
     let mut wire = v2_nominal();
     wire["semantic_graph"]["nodes"][3]["body"] =
         serde_json::to_value(CheckedTerm::NominalBody(Box::new(body))).expect("body serializes");
@@ -463,10 +496,13 @@ fn constructed_body_does_not_bypass_package_semantic_admission() {
     );
 
     let absent = node_id(&json!({"package":"test/families","path":["Absent"],"ordinal":0}));
-    let body = NominalBody::try_dimension(vec![DimensionTerm {
-        dimension_node_id: absent.clone(),
-        exponent: "1".into(),
-    }])
+    let body = NominalBody::try_dimension(
+        false,
+        vec![DimensionTerm {
+            dimension_node_id: absent.clone(),
+            exponent: "1".into(),
+        }],
+    )
     .expect("unresolved reference has a valid body shape");
     let mut wire = v2_nominal();
     wire["semantic_graph"]["nodes"][3]["body"] =

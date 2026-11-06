@@ -469,6 +469,7 @@ mod tests {
             ordinal: 0,
         };
         let body = crate::NominalBody::try_dimension(
+            false,
             (0..10_000)
                 .map(|ordinal| {
                     let mut dimension_node_id = id.clone();

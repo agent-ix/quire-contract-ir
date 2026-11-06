@@ -145,7 +145,9 @@ pub struct UnitRead<'a> {
     pub identity: &'a UnitId,
     /// Admitted dimension node.
     pub dimension: &'a CheckedSemanticNodeV2,
-    /// Canonical dimension powers, empty for a base dimension.
+    /// Whether the admitted dimension is declared as a base.
+    pub dimension_base: bool,
+    /// Canonical dimension powers, also empty for a dimensionless derived dimension.
     pub dimension_terms: &'a [DimensionTerm],
     /// Admitted target node, absent only for a root unit.
     pub target: Option<&'a CheckedSemanticNodeV2>,
@@ -160,6 +162,8 @@ pub struct UnitRead<'a> {
 pub struct DimensionRead<'a> {
     /// Admitted dimension node with original owner and declaration.
     pub node: &'a CheckedSemanticNodeV2,
+    /// Whether this dimension was declared as a base.
+    pub base: bool,
     /// Canonical powers, borrowed without rebuilding the dimension expression.
     pub terms: &'a [DimensionTerm],
 }
@@ -281,6 +285,7 @@ impl CheckedPackageV2 {
                 return Err(budget.error(NominalReadCode::UnresolvedConversion, dimension_node_id));
             };
             let NominalBodyKind::Dimension {
+                base: dimension_base,
                 terms: dimension_terms,
             } = &dimension_body.kind
             else {
@@ -295,6 +300,7 @@ impl CheckedPackageV2 {
                 node,
                 identity,
                 dimension,
+                dimension_base: *dimension_base,
                 dimension_terms,
                 target,
                 scale,
@@ -340,7 +346,7 @@ impl CheckedPackageV2 {
             let CheckedTerm::NominalBody(body) = &dimension.body else {
                 return Err(budget.error(NominalReadCode::UnresolvedConversion, &dimension.node_id));
             };
-            let NominalBodyKind::Dimension { terms } = &body.kind else {
+            let NominalBodyKind::Dimension { base, terms } = &body.kind else {
                 return Err(budget.error(NominalReadCode::UnresolvedConversion, &dimension.node_id));
             };
             for term in terms {
@@ -349,6 +355,7 @@ impl CheckedPackageV2 {
             }
             dimensions.push(DimensionRead {
                 node: dimension,
+                base: *base,
                 terms,
             });
         }

@@ -1019,7 +1019,15 @@ pub fn nominal_package(members: &[(Value, String)]) -> Value {
                             .map(|term| term["dimension_node_id"].clone())
                             .collect(),
                     ),
-                    json!({"term": "dimension", "terms": preimage["terms"]}),
+                    // These local fixture preimages contain base declarations
+                    // only when their authored terms are empty. Keep `base`
+                    // outside the structural preimage: QSpec assigns the same
+                    // declaration-path ID regardless of the body flag.
+                    json!({
+                        "term": "dimension",
+                        "base": preimage["terms"].as_array().expect("terms").is_empty(),
+                        "terms": preimage["terms"]
+                    }),
                     Some(json!({"qualified_name": declaration_name})),
                 ),
                 "quire.dimension-equivalence-node/v1" => (
