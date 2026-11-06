@@ -398,6 +398,22 @@ pub struct SelectedSourceTupleRow {
     pub positions: Vec<SelectedTuplePositionRow>,
 }
 
+/// One anonymous collection type paired with its final emitted nodes.
+///
+/// The checked Exact value is a producer fact. This row has no source owner or
+/// declaration identity; its admitted structural nodes establish the join.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedSourceCollectionRow {
+    /// The collection type node, including bounds when present.
+    pub structural_node: CheckedNodeId,
+    /// The underlying sequence, set, bag or ordered-set node.
+    pub base_node: CheckedNodeId,
+    /// The base node's sole referenced element type.
+    pub element_node: CheckedNodeId,
+    /// The checker's complete Exact collection type.
+    pub value_type: ValueType,
+}
+
 impl SelectedSourceUnionRow {
     /// Carry the complete selected source-union claim.
     pub fn new(
@@ -820,6 +836,183 @@ fn validate_source_enum_row(
     Ok(())
 }
 
+fn source_collection_error(
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    code: ExactTypeProjectionErrorCode,
+    work: u64,
+) -> ExactTypeProjectionError {
+    ExactTypeProjectionError {
+        code,
+        requested: Box::new(requested.clone()),
+        at: Some(Box::new(at.clone())),
+        form: "selected_source_collection".into(),
+        work,
+    }
+}
+
+fn exact_collection_kind(form: CompositeTypeForm) -> Option<CollectionKind> {
+    match form {
+        CompositeTypeForm::Sequence => Some(CollectionKind::Sequence),
+        CompositeTypeForm::Set => Some(CollectionKind::Set),
+        CompositeTypeForm::Bag => Some(CollectionKind::Bag),
+        CompositeTypeForm::OrderedSet => Some(CollectionKind::OrderedSet),
+        _ => None,
+    }
+}
+
+fn validate_source_collection_row(
+    package: &CheckedPackageV2,
+    row: &SelectedSourceCollectionRow,
+    requested: &CheckedNodeId,
+    work: &mut u64,
+    limit: u64,
+) -> Result<(), ExactTypeProjectionError> {
+    let id = &row.structural_node;
+    charge_work(requested, id, "source_collection_row", work, limit)?;
+    let node = package.node(id).ok_or_else(|| {
+        let mut error = selected_declaration_error(package, id);
+        error.requested = Box::new(requested.clone());
+        error.work = *work;
+        error
+    })?;
+    charge_work(
+        requested,
+        &row.base_node,
+        "source_collection_base",
+        work,
+        limit,
+    )?;
+    let base = package.node(&row.base_node).ok_or_else(|| {
+        let mut error = selected_declaration_error(package, &row.base_node);
+        error.requested = Box::new(requested.clone());
+        error.work = *work;
+        error
+    })?;
+    let Some(CheckedNodeKind::CompositeType(form)) = package.node_kind(&row.base_node) else {
+        return Err(source_collection_error(
+            requested,
+            &row.base_node,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            *work,
+        ));
+    };
+    let Some(kind) = exact_collection_kind(form) else {
+        return Err(source_collection_error(
+            requested,
+            &row.base_node,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            *work,
+        ));
+    };
+    let bound = if id == &row.base_node {
+        if node.semantic_type != *id {
+            return Err(source_collection_error(
+                requested,
+                id,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                *work,
+            ));
+        }
+        None
+    } else {
+        if package.node_kind(id)
+            != Some(CheckedNodeKind::BoundedDomain(
+                BoundedDomainForm::CollectionBounds,
+            ))
+            || node.semantic_type != row.base_node
+        {
+            return Err(source_collection_error(
+                requested,
+                id,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                *work,
+            ));
+        }
+        let (lower, upper) = package
+            .term(id)
+            .and_then(integer_range_bounds)
+            .ok_or_else(|| {
+                source_collection_error(
+                    requested,
+                    id,
+                    ExactTypeProjectionErrorCode::UnsupportedExactType,
+                    *work,
+                )
+            })?;
+        charge_work_amount(
+            requested,
+            id,
+            "source_collection_bounds",
+            work,
+            limit,
+            u64::try_from(lower.len().saturating_add(upper.len())).unwrap_or(u64::MAX),
+        )?;
+        let lower = lower.parse::<u64>().map_err(|_| {
+            source_collection_error(
+                requested,
+                id,
+                ExactTypeProjectionErrorCode::UnsupportedExactType,
+                *work,
+            )
+        })?;
+        let upper = upper.parse::<u64>().map_err(|_| {
+            source_collection_error(
+                requested,
+                id,
+                ExactTypeProjectionErrorCode::UnsupportedExactType,
+                *work,
+            )
+        })?;
+        Some(CardinalityBound::new(lower, upper).map_err(|_| {
+            source_collection_error(
+                requested,
+                id,
+                ExactTypeProjectionErrorCode::UnsupportedExactType,
+                *work,
+            )
+        })?)
+    };
+    charge_work(
+        requested,
+        &row.element_node,
+        "source_collection_element",
+        work,
+        limit,
+    )?;
+    if package.node(&row.element_node).is_none() {
+        let mut error = selected_declaration_error(package, &row.element_node);
+        error.requested = Box::new(requested.clone());
+        error.work = *work;
+        return Err(error);
+    }
+    let ValueType::Collection(collection) = &row.value_type else {
+        return Err(source_collection_error(
+            requested,
+            id,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            *work,
+        ));
+    };
+    if base.semantic_type != row.base_node
+        || base.owner.is_some()
+        || base.declaration.is_some()
+        || node.owner.is_some()
+        || node.declaration.is_some()
+        || reference_type_target_typed(base).as_ref() != Some(&row.element_node)
+        || collection.kind() != kind
+        || collection.bound() != bound
+    {
+        return Err(source_collection_error(
+            requested,
+            id,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            *work,
+        ));
+    }
+    Ok(())
+}
+
 /// Selected identities supplied by the checking stage alongside a package.
 ///
 /// An empty selection supports scalar reads. Identity-bearing reads refuse
@@ -834,6 +1027,7 @@ pub struct SelectedExactIdentities {
     source_records: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceRecordRow>>>,
     source_tuples: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceTupleRow>>>,
     source_enums: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceEnumRow>>>,
+    source_collections: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceCollectionRow>>>,
 }
 
 impl SelectedExactIdentities {
@@ -1408,6 +1602,39 @@ impl SelectedExactIdentities {
         self.source_enums.values().map(Arc::as_ref)
     }
 
+    /// Join anonymous collection rows to their final emitted type nodes.
+    ///
+    /// The join checks admitted shape, kind, element edge and cardinality. It
+    /// cannot authenticate the QSL provenance of a caller-created Exact value.
+    pub fn with_source_collection_rows(
+        &self,
+        package: &CheckedPackageV2,
+        rows: impl IntoIterator<Item = SelectedSourceCollectionRow>,
+        work_limit: u64,
+    ) -> Result<Self, ExactTypeProjectionError> {
+        let mut selected = self.clone();
+        let mut work = 0;
+        for row in rows {
+            let id = &row.structural_node;
+            validate_source_collection_row(package, &row, id, &mut work, work_limit)?;
+            if selected.source_collections.contains_key(id) {
+                return Err(source_collection_error(
+                    id,
+                    id,
+                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                    work,
+                ));
+            }
+            Arc::make_mut(&mut selected.source_collections).insert(id.clone(), Arc::new(row));
+        }
+        Ok(selected)
+    }
+
+    /// Structurally joined collection rows, keyed by final emitted type node.
+    pub fn source_collection_rows(&self) -> impl Iterator<Item = &SelectedSourceCollectionRow> {
+        self.source_collections.values().map(Arc::as_ref)
+    }
+
     pub(super) fn with_admitted_type_rows(
         &self,
         tuples: &BTreeMap<CheckedNodeId, &SelectedTupleDeclarationRow>,
@@ -1918,6 +2145,171 @@ fn project_wrapped_record_field_type(
     Ok(value)
 }
 
+fn charge_exact_value(
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    value: &ValueType,
+    work: &mut u64,
+    limit: u64,
+) -> Result<(), ExactTypeProjectionError> {
+    let mut next = Some(value);
+    while let Some(current) = next {
+        charge_work(requested, at, "source_collection_value", work, limit)?;
+        next = match current {
+            ValueType::Option(inner) => Some(inner),
+            ValueType::Collection(collection) => Some(collection.element()),
+            ValueType::Map(map) => Some(map.values()),
+            _ => None,
+        };
+    }
+    Ok(())
+}
+
+fn project_collection_element(
+    package: &CheckedPackageV2,
+    identities: &SelectedExactIdentities,
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    work: &mut u64,
+    limit: u64,
+) -> Result<ValueType, ExactTypeProjectionError> {
+    let node = package.node(at).ok_or_else(|| {
+        source_collection_error(
+            requested,
+            at,
+            ExactTypeProjectionErrorCode::UnknownNode,
+            *work,
+        )
+    })?;
+    if package.node_kind(at)
+        == Some(CheckedNodeKind::BoundedDomain(
+            BoundedDomainForm::IntegerRange,
+        ))
+    {
+        let (lower, upper) = package
+            .term(at)
+            .and_then(integer_range_bounds)
+            .ok_or_else(|| {
+                source_collection_error(
+                    requested,
+                    at,
+                    ExactTypeProjectionErrorCode::UnsupportedExactType,
+                    *work,
+                )
+            })?;
+        charge_work_amount(
+            requested,
+            at,
+            "source_collection_integer_range",
+            work,
+            limit,
+            u64::try_from(lower.len().saturating_add(upper.len())).unwrap_or(u64::MAX),
+        )?;
+        return exact_integer_interval(lower, upper)
+            .map(ValueType::Int)
+            .map_err(|code| source_collection_error(requested, at, code, *work));
+    }
+    if node.semantic_type != *at {
+        return Err(source_collection_error(
+            requested,
+            at,
+            ExactTypeProjectionErrorCode::UnsupportedExactType,
+            *work,
+        ));
+    }
+    let remaining = limit.saturating_sub(*work);
+    let projection = package
+        .project_exact_type(at, identities, remaining)
+        .map_err(|mut error| {
+            error.work = work.saturating_add(error.work);
+            error.requested = Box::new(requested.clone());
+            error
+        })?;
+    *work += projection.work();
+    Ok(projection.value_type().clone())
+}
+
+fn project_source_collection(
+    package: &CheckedPackageV2,
+    identities: &SelectedExactIdentities,
+    first: &Arc<SelectedSourceCollectionRow>,
+    requested: &CheckedNodeId,
+    work: &mut u64,
+    limit: u64,
+) -> Result<ValueType, ExactTypeProjectionError> {
+    let mut row = first.as_ref();
+    let mut seen = BTreeSet::new();
+    loop {
+        validate_source_collection_row(package, row, requested, work, limit)?;
+        if !seen.insert(&row.structural_node) {
+            return Err(source_collection_error(
+                requested,
+                &row.structural_node,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                *work,
+            ));
+        }
+        let ValueType::Collection(collection) = &row.value_type else {
+            unreachable!("a selected collection row was structurally joined")
+        };
+        let element = &row.element_node;
+        let next_kind = package.node_kind(element);
+        if matches!(
+            next_kind,
+            Some(CheckedNodeKind::CompositeType(
+                CompositeTypeForm::Sequence
+                    | CompositeTypeForm::Set
+                    | CompositeTypeForm::Bag
+                    | CompositeTypeForm::OrderedSet
+            )) | Some(CheckedNodeKind::BoundedDomain(
+                BoundedDomainForm::CollectionBounds
+            ))
+        ) {
+            let next = identities.source_collections.get(element).ok_or_else(|| {
+                source_collection_error(
+                    requested,
+                    element,
+                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    *work,
+                )
+            })?;
+            charge_exact_value(requested, element, collection.element(), work, limit)?;
+            charge_exact_value(requested, element, &next.value_type, work, limit)?;
+            if collection.element() != &next.value_type {
+                return Err(source_collection_error(
+                    requested,
+                    element,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    *work,
+                ));
+            }
+            row = next;
+        } else {
+            let actual =
+                project_collection_element(package, identities, requested, element, work, limit)?;
+            charge_exact_value(requested, element, collection.element(), work, limit)?;
+            charge_exact_value(requested, element, &actual, work, limit)?;
+            if collection.element() != &actual {
+                return Err(source_collection_error(
+                    requested,
+                    element,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    *work,
+                ));
+            }
+            break;
+        }
+    }
+    charge_work(
+        requested,
+        &first.structural_node,
+        "source_collection_copy",
+        work,
+        limit,
+    )?;
+    Ok(first.value_type.clone())
+}
+
 impl CheckedPackageV2 {
     /// Read one admitted node's semantic type without reparsing its source.
     ///
@@ -2013,6 +2405,21 @@ impl CheckedPackageV2 {
                 let interval =
                     exact_integer_interval(lower, upper).map_err(|code| refuse(code, work))?;
                 ValueType::Int(interval)
+            }
+            CheckedNodeKind::CompositeType(
+                CompositeTypeForm::Sequence
+                | CompositeTypeForm::Set
+                | CompositeTypeForm::Bag
+                | CompositeTypeForm::OrderedSet,
+            )
+            | CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds) => {
+                let row = identities.source_collections.get(type_id).ok_or_else(|| {
+                    refuse(
+                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                        work,
+                    )
+                })?;
+                project_source_collection(self, identities, row, requested, &mut work, work_limit)?
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
                 let target = reference_type_target_typed(type_node).ok_or_else(|| {
