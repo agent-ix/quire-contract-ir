@@ -2380,11 +2380,23 @@ fn native_source_family_fixture(include_model: bool) -> CompleteWitnessFixture {
 
     let mut members = nominal_fixture_members();
     members[1].0["members"] = json!(["ACTIVE"]);
-    if !include_model { members.truncate(2); }
+    if !include_model {
+        members.truncate(2);
+    }
     let mut wire = nominal_package(&members);
     let model_document = include_model.then(|| {
-        let (model_wire, document) = crate::checked_package_v2_model_fields::complete_witness_model_wire();
-        wire["semantic_graph"]["nodes"].as_array_mut().unwrap().extend(model_wire["semantic_graph"]["nodes"].as_array().unwrap().iter().cloned());
+        let (model_wire, document) =
+            crate::checked_package_v2_model_fields::complete_witness_model_wire();
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .extend(
+                model_wire["semantic_graph"]["nodes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .cloned(),
+            );
         select_model(&mut wire, "acme/orders");
         document
     });
@@ -2454,8 +2466,15 @@ fn native_source_family_fixture(include_model: bool) -> CompleteWitnessFixture {
             .push(node);
     }
     settle(&mut wire);
-    let evidence = model_document.as_ref().map_or_else(|| evidence_for(&wire), |document| evidence_with_document(&wire, "acme/orders", document));
-    let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(&canonical(&wire), CheckedPackageReadLimits::bounded(), &evidence) else {
+    let evidence = model_document.as_ref().map_or_else(
+        || evidence_for(&wire),
+        |document| evidence_with_document(&wire, "acme/orders", document),
+    );
+    let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) else {
         panic!("combined native join fixture admits");
     };
     let named = |form: &str| {
@@ -2596,18 +2615,50 @@ fn native_source_family_fixture(include_model: bool) -> CompleteWitnessFixture {
     };
     let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
     let mut deltas = Vec::new();
-    let (declarations, fields, tuples) = if include_model { crate::checked_package_v2_model_fields::complete_witness_model_rows(&package) } else { (Vec::new(), Vec::new(), Vec::new()) };
-    let units: Vec<_> = if include_model { package.graph().nodes.iter().filter(|node| node.semantic_form.as_ref() == "unit").map(|node| {
-        let quire_contract_model::CheckedNodeOwner::Source { authority, identity } = node.owner.as_ref().unwrap() else { panic!("source unit"); };
-        quire_contract_model::SelectedSourceUnitRow::new(node.node_id.clone(), authority.clone(), identity.clone(), node.declaration.as_ref().unwrap().qualified_name.clone(), quire_exact::UnitId::Declared(key("private-unit")))
-    }).collect() } else { Vec::new() };
-    let stage = SelectedExactIdentities::from_stage_rows(&package, declarations, fields, &mut budget).unwrap();
+    let (declarations, fields, tuples) = if include_model {
+        crate::checked_package_v2_model_fields::complete_witness_model_rows(&package)
+    } else {
+        (Vec::new(), Vec::new(), Vec::new())
+    };
+    let units: Vec<_> = if include_model {
+        package
+            .graph()
+            .nodes
+            .iter()
+            .filter(|node| node.semantic_form.as_ref() == "unit")
+            .map(|node| {
+                let quire_contract_model::CheckedNodeOwner::Source {
+                    authority,
+                    identity,
+                } = node.owner.as_ref().unwrap()
+                else {
+                    panic!("source unit");
+                };
+                quire_contract_model::SelectedSourceUnitRow::new(
+                    node.node_id.clone(),
+                    authority.clone(),
+                    identity.clone(),
+                    node.declaration.as_ref().unwrap().qualified_name.clone(),
+                    quire_exact::UnitId::Declared(key("private-unit")),
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let stage =
+        SelectedExactIdentities::from_stage_rows(&package, declarations, fields, &mut budget)
+            .unwrap();
     deltas.push(budget.last_success_delta().unwrap());
     let stage = if include_model {
-        let acquired = stage.with_admitted_type_rows(&package, &tuples, &units, &mut budget).unwrap();
+        let acquired = stage
+            .with_admitted_type_rows(&package, &tuples, &units, &mut budget)
+            .unwrap();
         deltas.push(budget.last_success_delta().unwrap());
         acquired
-    } else { stage };
+    } else {
+        stage
+    };
     let union_selected = stage
         .with_source_union_rows(&package, [union.clone()], &mut budget)
         .unwrap();
@@ -2645,5 +2696,11 @@ fn native_source_family_fixture(include_model: bool) -> CompleteWitnessFixture {
         });
     assert_eq!(budget.consumed(), sum);
     assert_eq!(budget.first_unpaid(), None);
-    CompleteWitnessFixture { package: *package, identities: complete, budget, tuples, units }
+    CompleteWitnessFixture {
+        package: *package,
+        identities: complete,
+        budget,
+        tuples,
+        units,
+    }
 }

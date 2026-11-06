@@ -404,8 +404,10 @@ each supplied row privately so a later complete check can revalidate the
 binding, rather than retaining only an unassociated key. Missing target nodes,
 foreign selections, changed owners, stale original identities and conflicting
 opaque handles SHALL retain their native typed first causes. Duplicate rows
-within one input or against a previously retained entry SHALL return
-`ConflictingIdentityWitness` even when their contents are equal. Cross-family
+within one input SHALL return `ConflictingIdentityWitness` even when their
+contents are equal. Reacquiring a previously retained row with exactly equal
+provenance and payload SHALL preserve it after the same native checks; a
+changed or competing retained row SHALL return `ConflictingIdentityWitness`. Cross-family
 ownership and handle conflicts SHALL use the same native identity rules as the
 complete check.
 

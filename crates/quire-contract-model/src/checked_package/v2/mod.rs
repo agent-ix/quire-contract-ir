@@ -890,19 +890,19 @@ pub enum CheckedPackageV2ReadResult {
 pub struct CheckedPackageV2 {
     /// Private admission capability; clones preserve it, independent reads do not.
     admission_binding: AdmissionBinding,
-    wire: CheckedPackageWireV2,
-    kinds: Vec<CheckedNodeKind>,
+    wire: Arc<CheckedPackageWireV2>,
+    kinds: Arc<Vec<CheckedNodeKind>>,
     schedulability_claim_index: Vec<(usize, usize)>,
     monitor_plan_index: Vec<monitor_plan::Plan>,
     timed_model_roots: Vec<usize>,
-    terms: Vec<CheckedTerm>,
+    terms: Arc<Vec<CheckedTerm>>,
     /// Admission-derived lookup; excluded from content equality.
-    node_index: BTreeMap<CheckedNodeId, usize>,
+    node_index: Arc<BTreeMap<CheckedNodeId, usize>>,
     /// Graph-local wire IDs rebuilt as shared, document-independent keys.
     structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
     /// Admission-derived position of each exact source occurrence.
     pub(in crate::checked_package) source_index:
-        BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>,
+        Arc<BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>>,
     /// Body terms and resolved lowering edges, retained from graph admission.
     lowering_facts: Vec<lower::LoweringNodeFacts>,
     /// The byte limit this package was read under: the ceiling of every
@@ -911,21 +911,44 @@ pub struct CheckedPackageV2 {
     /// What the reader derived from the selected domain package documents and
     /// keeps: the declaration index, the field tables, the operation parameter
     /// types and the relationship records.
-    models: RetainedModels,
+    models: Arc<RetainedModels>,
     /// Complete admitted selected JSON values are content, not derived caches.
-    selected_documents: Vec<Arc<quire_canonical::Document>>,
+    selected_documents: Arc<Vec<Arc<quire_canonical::Document>>>,
     /// Direct admitted edges; their recursively derived closure is not copied.
     direct_dependencies: Vec<std::sync::Arc<CheckedPackageV2>>,
     /// Exact identities reachable through the direct edges, shared with children.
     closure_index: ClosureIndex,
 }
 
-#[derive(Clone, Debug)]
-struct AdmissionBinding(Arc<()>);
+/// The original immutable buffers read by native identity validation. No
+/// dependency packages are retained, preserving iterative dependency drop.
+struct AdmissionBuffers {
+    wire: Arc<CheckedPackageWireV2>,
+    kinds: Arc<Vec<CheckedNodeKind>>,
+    terms: Arc<Vec<CheckedTerm>>,
+    models: Arc<RetainedModels>,
+    node_index: Arc<BTreeMap<CheckedNodeId, usize>>,
+    source_index: Arc<BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>>,
+    selected_documents: Arc<Vec<Arc<quire_canonical::Document>>>,
+}
 
+#[derive(Clone)]
+struct AdmissionBinding(Arc<Option<AdmissionBuffers>>);
+
+// Private manually assembled unit fixtures do not carry public admission.
+// The reader always constructs Some(AdmissionBuffers) below.
+#[cfg(test)]
 impl Default for AdmissionBinding {
     fn default() -> Self {
-        Self(Arc::new(()))
+        Self(Arc::new(None))
+    }
+}
+
+impl std::fmt::Debug for AdmissionBinding {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AdmissionBinding")
+            .finish_non_exhaustive()
     }
 }
 
@@ -934,8 +957,25 @@ impl PartialEq for AdmissionBinding {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
-
 impl Eq for AdmissionBinding {}
+
+impl AdmissionBinding {
+    fn retains(&self, package: &CheckedPackageV2) -> bool {
+        match self.0.as_ref() {
+            Some(original) => {
+                Arc::ptr_eq(&original.wire, &package.wire)
+                    && Arc::ptr_eq(&original.kinds, &package.kinds)
+                    && Arc::ptr_eq(&original.terms, &package.terms)
+                    && Arc::ptr_eq(&original.models, &package.models)
+                    && Arc::ptr_eq(&original.node_index, &package.node_index)
+                    && Arc::ptr_eq(&original.source_index, &package.source_index)
+                    && Arc::ptr_eq(&original.selected_documents, &package.selected_documents)
+            }
+            // This arm cannot be constructed by a public admission path.
+            None => true,
+        }
+    }
+}
 
 impl std::fmt::Debug for CheckedPackageV2 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1357,8 +1397,24 @@ impl CheckedPackageV2 {
                 (*kind == CheckedNodeKind::TimedModel(TimedModelForm::Model)).then_some(position)
             })
             .collect();
+        let wire = Arc::new(wire);
+        let kinds = Arc::new(kinds);
+        let terms = Arc::new(terms);
+        let models = Arc::new(models);
+        let node_index = Arc::new(node_index);
+        let source_index = Arc::new(source_index);
+        let selected_documents = Arc::new(selected_documents);
+        let admission_binding = AdmissionBinding(Arc::new(Some(AdmissionBuffers {
+            wire: Arc::clone(&wire),
+            kinds: Arc::clone(&kinds),
+            terms: Arc::clone(&terms),
+            models: Arc::clone(&models),
+            node_index: Arc::clone(&node_index),
+            source_index: Arc::clone(&source_index),
+            selected_documents: Arc::clone(&selected_documents),
+        })));
         Ok(Self {
-            admission_binding: Default::default(),
+            admission_binding,
             wire,
             kinds,
             schedulability_claim_index,
@@ -4259,16 +4315,16 @@ mod tests {
                     schedulability_claim_index: Vec::new(),
                     monitor_plan_index: Vec::new(),
                     timed_model_roots: Vec::new(),
-                    node_index: Default::default(),
+                    node_index: std::sync::Arc::new(Default::default()),
                     structural_keys: keys,
-                    source_index: Default::default(),
+                    source_index: std::sync::Arc::new(Default::default()),
                     lowering_facts: Vec::new(),
-                    wire,
-                    terms: Vec::new(),
-                    kinds: Vec::new(),
+                    wire: std::sync::Arc::new(wire),
+                    terms: std::sync::Arc::new(Vec::new()),
+                    kinds: std::sync::Arc::new(Vec::new()),
                     bytes: 0,
-                    models: Default::default(),
-                    selected_documents: Vec::new(),
+                    models: std::sync::Arc::new(Default::default()),
+                    selected_documents: std::sync::Arc::new(Vec::new()),
                     direct_dependencies: Vec::new(),
                     closure_index: Default::default(),
                     admission_binding: Default::default(),

@@ -18,6 +18,13 @@ impl SelectedExactIdentities {
         {
             return Err(witness_error(at, ExactTypeProjectionErrorCode::ForeignNode));
         }
+        charge_native_work(budget, at, at, "identity_admitted_buffers", 7)?;
+        if !package.admission_binding.retains(package) {
+            return Err(witness_error(
+                at,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            ));
+        }
         Ok(())
     }
 
@@ -70,16 +77,35 @@ impl SelectedExactIdentities {
             if selected.binding.is_none() {
                 selected.binding = Some(package.admission_binding.clone());
             }
-            for row in tuple_rows {
+            for (index, row) in tuple_rows.iter().enumerate() {
                 validate_admitted_tuple(package, row, budget)?;
                 let id = &row.structural_node;
-                selected.check_handle(&row.node_key, id, None, budget)?;
-                if selected.admitted_tuples.contains_key(id) {
+                for prior in &tuple_rows[..index] {
+                    charge_native_work(budget, id, id, "admitted_tuple_input_uniqueness", 1)?;
+                    if prior.structural_node == row.structural_node {
+                        return Err(witness_error(
+                            id,
+                            ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                        ));
+                    }
+                }
+                if let Some(prior) = selected.admitted_tuples.get(id) {
+                    charge_native_work(
+                        budget,
+                        id,
+                        id,
+                        "admitted_tuple_existing",
+                        tuple_storage(prior).saturating_add(tuple_storage(row)),
+                    )?;
+                    if prior.as_ref() == row {
+                        continue;
+                    }
                     return Err(witness_error(
                         id,
                         ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
                     ));
                 }
+                selected.check_handle(&row.node_key, id, None, budget)?;
                 charge_native_storage(
                     budget,
                     id,
@@ -108,7 +134,7 @@ impl SelectedExactIdentities {
                 Arc::make_mut(&mut selected.admitted_tuples)
                     .insert(id.clone(), Arc::new(row.clone()));
             }
-            for row in source_unit_rows {
+            for (index, row) in source_unit_rows.iter().enumerate() {
                 validate_admitted_source_unit(package, row, budget)?;
                 let id = &row.structural_node;
                 let UnitId::Declared(key) = &row.unit_id else {
@@ -117,13 +143,32 @@ impl SelectedExactIdentities {
                         ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                     ));
                 };
-                selected.check_handle(key, id, None, budget)?;
-                if selected.admitted_source_units.contains_key(id) {
+                for prior in &source_unit_rows[..index] {
+                    charge_native_work(budget, id, id, "admitted_unit_input_uniqueness", 1)?;
+                    if prior.structural_node == row.structural_node {
+                        return Err(witness_error(
+                            id,
+                            ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                        ));
+                    }
+                }
+                if let Some(prior) = selected.admitted_source_units.get(id) {
+                    charge_native_work(
+                        budget,
+                        id,
+                        id,
+                        "admitted_unit_existing",
+                        unit_storage(prior).saturating_add(unit_storage(row)),
+                    )?;
+                    if prior.as_ref() == row {
+                        continue;
+                    }
                     return Err(witness_error(
                         id,
                         ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
                     ));
                 }
+                selected.check_handle(key, id, None, budget)?;
                 charge_native_storage(
                     budget,
                     id,
@@ -267,7 +312,8 @@ impl SelectedExactIdentities {
         // Existing acquisition paths own the complete native row checks. Only
         // temporary, fully precharged copies are passed to these paths; no
         // reconstructed subset is ever returned as a complete witness.
-        for row in self.declarations.values() {
+        for (id, row) in self.declarations.iter() {
+            check_row_key(id, &row.structural_node, budget)?;
             charge_native_work(
                 budget,
                 &row.structural_node,
@@ -322,7 +368,8 @@ impl SelectedExactIdentities {
                 | SelectedExactIdentity::DeclaredUnit(UnitId::Compound(_)) => {}
             }
         }
-        for row in self.admitted_tuples.values() {
+        for (id, row) in self.admitted_tuples.iter() {
+            check_row_key(id, &row.structural_node, budget)?;
             validate_admitted_tuple(package, row, budget)?;
             self.check_handle(
                 &row.node_key,
@@ -331,7 +378,8 @@ impl SelectedExactIdentities {
                 budget,
             )?;
         }
-        for row in self.admitted_source_units.values() {
+        for (id, row) in self.admitted_source_units.iter() {
+            check_row_key(id, &row.structural_node, budget)?;
             validate_admitted_source_unit(package, row, budget)?;
             let UnitId::Declared(key) = &row.unit_id else {
                 unreachable!("validated declared unit")
@@ -347,7 +395,8 @@ impl SelectedExactIdentities {
             let mut scratch = self.validation_scratch(at, budget)?;
             charge_native_storage(budget, at, at, "union_validation_map", 1)?;
             scratch.source_unions = Arc::new(BTreeMap::new());
-            for row in self.source_unions.values() {
+            for (id, row) in self.source_unions.iter() {
+                check_row_key(id, &row.structural_node, budget)?;
                 charge_source_union_text(package, row, budget)?;
                 for member in &row.members {
                     for value in &member.payload {
@@ -378,7 +427,8 @@ impl SelectedExactIdentities {
             let mut scratch = self.validation_scratch(at, budget)?;
             charge_native_storage(budget, at, at, "record_validation_map", 1)?;
             scratch.source_records = Arc::new(BTreeMap::new());
-            for row in self.source_records.values() {
+            for (id, row) in self.source_records.iter() {
+                check_row_key(id, &row.structural_node, budget)?;
                 for member in &row.members {
                     storage::preflight_value_type(
                         &member.value_type,
@@ -410,7 +460,8 @@ impl SelectedExactIdentities {
             let mut scratch = self.validation_scratch(at, budget)?;
             charge_native_storage(budget, at, at, "tuple_validation_map", 1)?;
             scratch.source_tuples = Arc::new(BTreeMap::new());
-            for row in self.source_tuples.values() {
+            for (id, row) in self.source_tuples.iter() {
+                check_row_key(id, &row.structural_node, budget)?;
                 for position in &row.positions {
                     storage::preflight_value_type(
                         &position.value_type,
@@ -442,7 +493,8 @@ impl SelectedExactIdentities {
             let mut scratch = self.validation_scratch(at, budget)?;
             charge_native_storage(budget, at, at, "enum_validation_map", 1)?;
             scratch.source_enums = Arc::new(BTreeMap::new());
-            for row in self.source_enums.values() {
+            for (id, row) in self.source_enums.iter() {
+                check_row_key(id, &row.declaration.structural_node, budget)?;
                 for variant in row.declaration.shape.variants() {
                     charge_native_work(
                         budget,
@@ -476,7 +528,8 @@ impl SelectedExactIdentities {
             let mut scratch = self.validation_scratch(at, budget)?;
             charge_native_storage(budget, at, at, "collection_validation_map", 1)?;
             scratch.source_collections = Arc::new(BTreeMap::new());
-            for row in self.source_collections.values() {
+            for (id, row) in self.source_collections.iter() {
+                check_row_key(id, &row.structural_node, budget)?;
                 storage::preflight_value_type(&row.value_type, budget, &row.structural_node)?;
                 charge_native_storage(
                     budget,
@@ -562,7 +615,7 @@ impl SelectedExactIdentities {
                 )?;
             }
         }
-        for (id, _) in &package.node_index {
+        for id in package.node_index.keys() {
             if package.node_kind(id) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)) {
                 charge_native_work(budget, id, id, "complete_declared_unit", 1)?;
                 match package.node(id).and_then(|node| node.owner.as_ref()) {
@@ -640,7 +693,21 @@ impl SelectedExactIdentities {
         budget: &mut NativeJoinBudget,
     ) -> Result<(), ExactTypeProjectionError> {
         for (selection, model) in package.models.selected_models().iter().enumerate() {
-            let root = &package.graph().nodes[model.root].node_id;
+            let root = package
+                .graph()
+                .nodes
+                .get(model.root)
+                .map(|node| &node.node_id)
+                .ok_or_else(|| {
+                    witness_error(
+                        package
+                            .node_index
+                            .keys()
+                            .next()
+                            .expect("admitted graph is nonempty"),
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                    )
+                })?;
             for original in model
                 .record_types
                 .keys()
@@ -834,6 +901,19 @@ fn helper_collection_base(
 ) -> Result<bool, ExactTypeProjectionError> {
     let mut helper = false;
     for other in package.node_index.keys() {
+        charge_native_work(budget, id, other, "collection_base_wrapper", 1)?;
+        helper |= package.node_kind(other)
+            == Some(CheckedNodeKind::BoundedDomain(
+                BoundedDomainForm::CollectionBounds,
+            ))
+            && package
+                .node(other)
+                .is_some_and(|node| &node.semantic_type == id);
+    }
+    if !helper {
+        return Ok(false);
+    }
+    for other in package.node_index.keys() {
         charge_native_work(budget, id, other, "collection_base_use", 1)?;
         let node = package
             .node(other)
@@ -923,4 +1003,19 @@ fn term_uses_type(
         }
     }
     Ok(false)
+}
+
+fn check_row_key(
+    id: &CheckedNodeId,
+    supplied: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ExactTypeProjectionError> {
+    charge_native_work(budget, id, id, "identity_row_key", 1)?;
+    if id != supplied {
+        return Err(witness_error(
+            id,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+        ));
+    }
+    Ok(())
 }

@@ -1282,6 +1282,9 @@ impl SelectedExactIdentities {
             charge_native_storage(budget, first, first, "stage_selection", 15)?;
         }
         let result = (|| {
+            if let Some(first) = first {
+                Self::empty().check_binding(package, budget, first)?;
+            }
             let mut selected = Self::empty();
             selected.binding = Some(package.admission_binding.clone());
             let mut owners: BTreeSet<(Box<str>, SelectedExactDeclarationForm, Box<str>)> =
@@ -3511,16 +3514,16 @@ mod tests {
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
             timed_model_roots: Vec::new(),
-            node_index: super::super::retained_node_index(&wire),
+            node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
             structural_keys: Vec::new(),
-            source_index: super::super::retained_source_index(&wire),
+            source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
-            wire,
-            terms,
-            kinds,
+            wire: std::sync::Arc::new(wire),
+            terms: std::sync::Arc::new(terms),
+            kinds: std::sync::Arc::new(kinds),
             bytes: 1 << 20,
-            models: RetainedModels::default(),
-            selected_documents: Vec::new(),
+            models: std::sync::Arc::new(RetainedModels::default()),
+            selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
             admission_binding: Default::default(),
