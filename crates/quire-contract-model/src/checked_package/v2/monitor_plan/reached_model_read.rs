@@ -769,6 +769,7 @@ impl CheckedMonitorPlanRef<'_> {
                     &source_units,
                     budget,
                     Some(&reached),
+                    prior_projection_work,
                 )
                 .map_err(ReachedModelError::Types)?;
             work = budget.consumed().work - before.work;
