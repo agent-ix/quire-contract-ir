@@ -189,7 +189,7 @@ fn document(projection: &Value) -> Input {
     Input {
         document: json!({"contractVersion":"2.0.0","package":{"identity":identity,"version":projection["version"]},
         "constructs":constructs,"types":types,"units":units,
-        "dimensions":[{"identity":format!("ix://{identity}/dimension/Time"),"name":"Time","terms":[]}],
+        "dimensions":[{"identity":format!("ix://{identity}/dimension/Time"),"name":"Time","base":true,"terms":[]}],
         "constraints":projection.get("constraints").cloned().unwrap_or(json!([]))}),
         origins,
     }
