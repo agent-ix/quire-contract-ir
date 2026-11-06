@@ -6342,6 +6342,7 @@ mod tests {
                 ("composite_type", "set", "set"),
                 ("composite_type", "bag", "bag"),
                 ("composite_type", "ordered_set", "ordered_set"),
+                ("composite_type", "map", "map"),
                 ("composite_type", "record", "record"),
                 ("composite_type", "tuple", "tuple"),
                 ("composite_type", "union", "union"),

@@ -3,9 +3,15 @@
 
 //! Replay the owner-published Map forms without retaining the vector in IR.
 
-use super::{fixtures_dir, map_type, proposal_dir_of, read_json, read_package_with_document};
+use super::{
+    fixtures_dir, map_type, proposal_dir_of, read_json, read_package_with_document,
+    read_package_with_document_override,
+};
 use ix_trace_rs::trace;
-use quire_contract_model::CheckedPackageV2ReadResult;
+use quire_contract_model::{
+    CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    CheckedPackageV2ReadResult, CheckedTerm,
+};
 use serde_json::{json, Value};
 
 fn mutate(case: &str, package: &mut Value, position: usize) {
@@ -79,28 +85,60 @@ fn owner_map_type_vectors_match_public_reader() {
             let nodes = timed["semantic_graph"]["nodes"]
                 .as_array()
                 .expect("timed nodes");
-            let map_place = nodes
+            let map_place_position = nodes
                 .iter()
-                .find(|node| {
+                .position(|node| {
                     node["semantic_form"] == "clock_place"
                         && node.pointer("/body/members/1/value/members/1/members/1/value/value")
                             == Some(&json!("map"))
                 })
                 .expect("published Map clock place");
+            let map_place = &nodes[map_place_position];
             assert_eq!(
                 map_place.pointer("/body/members/1/value/members/1/members/2/value/target/path"),
                 Some(&json!(["scalar_type", "text"])),
             );
             assert!(!nodes.iter().any(|node| node["semantic_form"] == "clock"));
-            let result = read_package_with_document(
-                &timed,
-                "MT-07",
-                &proposal.join("domain-package-acme-timed-slots.json"),
-            )
-            .expect("selected timed Map evidence");
+            let document = proposal.join("domain-package-acme-timed-slots.json");
+            let result = read_package_with_document(&timed, "MT-07", &document)
+                .expect("selected timed Map evidence");
             assert!(
                 matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
                 "{result:?}"
+            );
+            let mut selected = read_json(&document).expect("selected Map model");
+            let clock_map = selected["types"]
+                .as_array_mut()
+                .expect("selected types")
+                .iter_mut()
+                .find(|ty| ty["identity"] == "ix://acme/orders/ClockMap")
+                .expect("selected ClockMap");
+            assert_eq!(clock_map["kind"], "map");
+            assert_eq!(clock_map["values"], "ix://quire/native/Clock");
+            clock_map["values"] = json!("ix://quire/native/Integer");
+            let changed = serde_json::to_vec(&selected).expect("changed selected document");
+            let result = read_package_with_document_override(
+                &timed,
+                "MT-07 changed selected Map",
+                &document,
+                true,
+                CheckedPackageReadLimits::bounded(),
+                Some(&changed),
+            )
+            .expect("selected Map resolution result");
+            let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+                panic!("changed selected Map must refuse clock-place resolution: {result:?}");
+            };
+            assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::MalformedClockPlace)
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(ToString::to_string),
+                Some(format!(
+                    "/semantic_graph/nodes/{map_place_position}/body/members/2/value/members/0"
+                ))
             );
             continue;
         }
@@ -132,13 +170,79 @@ fn owner_map_type_vectors_match_public_reader() {
             }
             "MT-02" => {
                 assert_eq!(form["expected"], "same-node");
+                let key = package["semantic_graph"]["nodes"][position - 2]["node_id"].clone();
+                let value = package["semantic_graph"]["nodes"][position - 1]["node_id"].clone();
+                let mut aliased_package = package.clone();
+                for (name, target) in [("KeyAlias", &key), ("ValueAlias", &value)] {
+                    let alias = json!({"package": package["name"],
+                        "path": ["composite_type", "alias", name], "ordinal": 0});
+                    aliased_package["semantic_graph"]["nodes"]
+                        .as_array_mut()
+                        .expect("nodes")
+                        .push(json!({
+                            "node_id": alias, "schema_version": "quire.checked-semantic-graph/v2",
+                            "node_tag": "composite_type", "semantic_form": "alias",
+                            "semantic_type": alias, "dependencies": [target],
+                            "occurrences": [{"role": "type", "ordinal": 0}],
+                            "body": {"term": "aggregate", "members": [
+                                {"term": "reference", "target": target}
+                            ]}
+                        }));
+                }
+                super::fixture_support::settle(&mut aliased_package);
+                super::fixture_support::index_fixture_node_ids(&mut aliased_package);
+                let alias_nodes = aliased_package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("nodes");
+                let alias_key = alias_nodes[position + 1]["body"]["members"][0]["target"].clone();
+                let alias_value = alias_nodes[position + 2]["body"]["members"][0]["target"].clone();
+                assert_eq!(alias_key, key);
+                assert_eq!(alias_value, value);
+                let nodes = package["semantic_graph"]["nodes"]
+                    .as_array()
+                    .expect("nodes");
+                let resolve_index = |target: &Value| {
+                    nodes
+                        .iter()
+                        .position(|node| &node["node_id"] == target)
+                        .expect("alias target type")
+                };
+                let alias_map = json!({
+                    "package": package["name"],
+                    "path": ["composite_type", "map",
+                        {"node": resolve_index(&alias_key)},
+                        {"node": resolve_index(&alias_value)}],
+                    "ordinal": 0
+                });
+                // The producer resolves aliases before retaining the checked Map.
+                // The reader sees the same target identities and admits one node.
+                assert_eq!(alias_map, original);
+                let CheckedPackageV2ReadResult::Admitted(original_admitted) = result else {
+                    panic!("MT-02 aliases must admit: {result:?}");
+                };
+                let aliased_result = map_type::read(&aliased_package);
+                let CheckedPackageV2ReadResult::Admitted(admitted) = aliased_result else {
+                    panic!("MT-02 package with aliases must admit: {aliased_result:?}");
+                };
+                for (offset, expected) in [(1, &key), (2, &value)] {
+                    let alias_id: CheckedNodeId =
+                        serde_json::from_value(alias_nodes[position + offset]["node_id"].clone())
+                            .expect("alias id");
+                    let expected: CheckedNodeId =
+                        serde_json::from_value(expected.clone()).expect("alias target id");
+                    let Some(CheckedTerm::Aggregate { members }) = admitted.term(&alias_id) else {
+                        panic!("retained alias body");
+                    };
+                    assert!(matches!(members.as_slice(),
+                        [CheckedTerm::Reference { target }] if target == &expected));
+                }
+                let id = serde_json::from_value(alias_map).expect("alias-resolved Map id");
+                assert_eq!(original_admitted.node_kind(&id), admitted.node_kind(&id));
                 assert_eq!(
-                    package["semantic_graph"]["nodes"][position]["node_id"],
-                    original
-                );
-                assert!(
-                    matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
-                    "{result:?}"
+                    admitted.node_kind(&id),
+                    Some(quire_contract_model::CheckedNodeKind::CompositeType(
+                        quire_contract_model::CompositeTypeForm::Map
+                    ))
                 );
             }
             "MT-03" => {

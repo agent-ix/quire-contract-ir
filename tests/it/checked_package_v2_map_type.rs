@@ -11,7 +11,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeKind, CheckedPackageReadLimits, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
-    CompositeTypeForm,
+    CompositeTypeForm, ExactTypeProjectionErrorCode, SelectedExactIdentities,
 };
 use serde_json::{json, Value};
 
@@ -297,4 +297,35 @@ fn changing_either_operand_changes_the_admitted_map_identity() {
             Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
         );
     }
+}
+
+#[trace("TC-048", "FR-038-AC-485", "FR-038-AC-486")]
+#[test]
+fn non_text_scalar_key_admits_but_has_no_exact_projection() {
+    let (mut package, position) = map_package();
+    let boolean = package["semantic_graph"]["nodes"][0]["node_id"].clone();
+    let integer = package["semantic_graph"]["nodes"][position - 1]["node_id"].clone();
+    package["semantic_graph"]["nodes"][position]["node_id"]["path"][2] = json!({"node": 0});
+    let map = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    package["semantic_graph"]["nodes"][position]["semantic_type"] = map.clone();
+    package["semantic_graph"]["nodes"][position]["body"]["members"][0]["value"]["target"] =
+        boolean.clone();
+    package["semantic_graph"]["nodes"][position]["dependencies"] = json!([boolean, integer]);
+    settle(&mut package);
+    let admitted = match read(&package) {
+        CheckedPackageV2ReadResult::Admitted(value) => value,
+        other => panic!("Map<Boolean,Integer> must admit: {other:?}"),
+    };
+    let id: CheckedNodeId = serde_json::from_value(map).expect("Map id");
+    assert_eq!(
+        admitted.node_kind(&id),
+        Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
+    );
+    let refusal = admitted
+        .project_exact_type(&id, &SelectedExactIdentities::empty(), 100)
+        .expect_err("Exact Map requires a Text key");
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
 }
