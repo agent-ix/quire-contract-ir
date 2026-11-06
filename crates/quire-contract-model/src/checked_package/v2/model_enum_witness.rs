@@ -8,7 +8,7 @@ use super::{
     CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2, CheckedTerm, LiteralKind,
     ModelForm, ValueForm,
 };
-use quire_exact::NodeKey;
+use quire_exact::{EnumShape, NodeKey, VariantId};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One model-owned enum declaration and the Exact key issued by QSL.
@@ -63,6 +63,38 @@ pub struct SelectedModelEnumMemberRow {
     pub case: Box<str>,
     /// The Exact member identity issued by QSL.
     pub member_key: NodeKey,
+}
+
+/// The checking stage's complete shape of one selected model enum.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedModelEnumShapeRow {
+    /// Final declaration node.
+    pub structural_node: CheckedNodeId,
+    /// QSL-issued declaration key.
+    pub node_key: NodeKey,
+    /// Selected model document identity.
+    pub selected_document: Box<str>,
+    /// Original model declaration identity.
+    pub original_identity: Box<str>,
+    /// QSL-issued ordered flag and canonical variants.
+    pub shape: EnumShape,
+    /// Complete cases in shape order.
+    pub cases: Vec<SelectedModelEnumShapeCaseRow>,
+}
+
+/// One checked case in a model enum shape.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedModelEnumShapeCaseRow {
+    /// Case label.
+    pub case: Box<str>,
+    /// Final case node.
+    pub structural_node: CheckedNodeId,
+    /// QSL-issued member key.
+    pub member_key: NodeKey,
+    /// Original selected model member identity.
+    pub member_original_identity: Box<str>,
+    /// QSL-issued variant at this case's canonical rank.
+    pub variant: VariantId,
 }
 
 impl SelectedModelEnumMemberRow {
@@ -137,6 +169,7 @@ pub struct SelectedModelEnums<'a> {
     package: &'a CheckedPackageV2,
     declarations: BTreeMap<CheckedNodeId, SelectedModelEnumDeclarationRow>,
     members: BTreeMap<CheckedNodeId, SelectedModelEnumMemberRow>,
+    joined_work: u64,
 }
 
 impl<'a> SelectedModelEnums<'a> {
@@ -154,6 +187,7 @@ impl<'a> SelectedModelEnums<'a> {
             package,
             declarations: BTreeMap::new(),
             members: BTreeMap::new(),
+            joined_work: 0,
         };
         let mut consumed = 0_u64;
         let mut original_declarations = BTreeSet::new();
@@ -296,7 +330,13 @@ impl<'a> SelectedModelEnums<'a> {
             }
             selected.members.insert(node.clone(), row);
         }
+        selected.joined_work = consumed;
         Ok(selected)
+    }
+
+    /// Work spent joining the selected producer identity rows.
+    pub fn joined_work(&self) -> u64 {
+        self.joined_work
     }
 
     /// Return the validated declaration row for this admitted package instance.
@@ -321,6 +361,70 @@ impl<'a> SelectedModelEnums<'a> {
         self.members
             .get(node)
             .ok_or_else(|| refusal(SelectedModelEnumErrorCode::UnavailableWitness, node, 0))
+    }
+
+    /// Join one QSL-issued shape to the already admitted declaration and case identities.
+    pub fn read_shape(
+        &self,
+        package: &CheckedPackageV2,
+        row: &SelectedModelEnumShapeRow,
+        limit: u64,
+    ) -> Result<u64, SelectedModelEnumError> {
+        let node = &row.structural_node;
+        let declaration = self.read_declaration(package, node)?;
+        let mut consumed = 0;
+        charge(&mut consumed, limit, node)?;
+        if declaration.node_key != row.node_key
+            || declaration.selected_document != row.selected_document
+            || declaration.original_identity != row.original_identity
+        {
+            return Err(refusal(
+                SelectedModelEnumErrorCode::MismatchedWitness,
+                node,
+                consumed,
+            ));
+        }
+        let variants: Vec<VariantId> = row.shape.variants().map(ToOwned::to_owned).collect();
+        if variants.len() != row.cases.len() {
+            return Err(refusal(
+                SelectedModelEnumErrorCode::MismatchedWitness,
+                node,
+                consumed,
+            ));
+        }
+        let mut cases = BTreeSet::new();
+        for (case, variant) in row.cases.iter().zip(variants) {
+            charge(&mut consumed, limit, &case.structural_node)?;
+            let member = self.read_member(package, &case.structural_node)?;
+            if member.declaration_node != *node
+                || member.case != case.case
+                || member.member_key != case.member_key
+                || member.member_original_identity != case.member_original_identity
+                || case.variant != variant
+                || !cases.insert(&case.case)
+            {
+                return Err(refusal(
+                    SelectedModelEnumErrorCode::MismatchedWitness,
+                    &case.structural_node,
+                    consumed,
+                ));
+            }
+        }
+        let mut member_count = 0;
+        for member in self.members.values() {
+            charge(&mut consumed, limit, &member.structural_node)?;
+            if member.declaration_node == *node {
+                member_count += 1;
+            }
+        }
+        if member_count != row.cases.len() {
+            return Err(refusal(
+                SelectedModelEnumErrorCode::MismatchedWitness,
+                node,
+                consumed,
+            ));
+        }
+        Ok(consumed)
     }
 
     fn check_read(

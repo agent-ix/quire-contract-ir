@@ -225,6 +225,10 @@ pub(super) fn patch(facts: &mut Value, edits: &Value) {
     }
 }
 pub(super) fn finish(wire: &mut Value) {
+    finish_from(wire, 53);
+}
+
+pub(super) fn finish_from(wire: &mut Value, added_from: usize) {
     // References, including nested buffer entries, determine graph dependencies.
     let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap().clone();
     let ids = wire["semantic_graph"]["nodes"]
@@ -254,7 +258,7 @@ pub(super) fn finish(wire: &mut Value) {
         .as_array_mut()
         .unwrap()
         .iter_mut()
-        .skip(53)
+        .skip(added_from)
     {
         if node["node_tag"] == "scalar_type"
             && matches!(node["semantic_form"].as_str(), Some("unit" | "dimension"))
@@ -282,13 +286,23 @@ pub(super) fn finish(wire: &mut Value) {
     fixture_support::refresh_identity(wire);
 }
 pub(super) fn materialize(facts: &Value) -> (Value, usize) {
-    let mut wire = read_json(&fixtures_dir().join("positive-tick-timed-model-nodes.json"))
+    let wire = read_json(&fixtures_dir().join("positive-tick-timed-model-nodes.json"))
         .expect("selected complete supporting fixture");
     assert_eq!(
         wire["semantic_graph"]["nodes"].as_array().unwrap().len(),
         53,
         "fixture construction boundary"
     );
+    materialize_on(wire, facts, &[], None)
+}
+
+pub(super) fn materialize_on(
+    mut wire: Value,
+    facts: &Value,
+    input_fields: &[(&str, Value)],
+    tick_unit: Option<Value>,
+) -> (Value, usize) {
+    let added_from = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
     let integer = find(&wire, "integer");
     let text = find(&wire, "text");
     let rational = find(&wire, "rational");
@@ -381,7 +395,7 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
     let state_position = position(&wire, &state);
     rekey(&mut wire, state_position);
     let state = wire["semantic_graph"]["nodes"][state_position]["node_id"].clone();
-    let inputs = record(&mut wire, vec![], "Inputs");
+    let inputs = record(&mut wire, input_fields.to_vec(), "Inputs");
     let scope = record(&mut wire, vec![], "Scope");
     let mut payloads = BTreeMap::new();
     for name in ["LimitReached", "ReadingGapExceeded"] {
@@ -546,7 +560,17 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
     });
     // These two published formulas are both reached from the clause.
     let boolean = find(&wire, "boolean");
-    let unreached_body = wire["semantic_graph"]["nodes"][28]["body"].clone();
+    let unreached_body = if added_from == 53 {
+        wire["semantic_graph"]["nodes"][28]["body"].clone()
+    } else {
+        wire["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|node| node["semantic_form"] == "formula")
+            .expect("a supporting temporal formula")["body"]
+            .clone()
+    };
     let unreached = append(
         &mut wire,
         "temporal",
@@ -583,7 +607,7 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
             })
             .collect(),
     );
-    let mut unit = find(&wire, "unit");
+    let mut unit = tick_unit.unwrap_or_else(|| find(&wire, "unit"));
     if facts["tick_unit"]["form"] != "unit" {
         unit = inputs.clone();
     } else if facts["tick_unit"]["dimension"] != "Time" || facts["tick_unit"]["index"] != 7 {
@@ -695,8 +719,242 @@ pub(super) fn materialize(facts: &Value) -> (Value, usize) {
     );
     let n = position(&wire, &root);
     rekey(&mut wire, n);
-    finish(&mut wire);
+    finish_from(&mut wire, added_from);
     (wire, n)
+}
+
+/// An IR-owned selected monitor with model facts reachable through Inputs.
+pub(super) fn model_fact_monitor_with_variant(reach_variant: bool) -> (Value, Value) {
+    let mut wire = fixture_support::v2_all_families();
+    let account = fixture_support::node_id("fixture/1515");
+    wire["operation_effects"] = Value::Array(
+        ["deposit", "withdraw"]
+            .into_iter()
+            .map(|operation| {
+                json!({
+                    "document":"test/families","declaring":account,"operation":operation,
+                    "effect":{"modifies":[],"creates":[],"deletes":[],"deletes_scoped":[]},
+                    "provenance":{"origin":"model_document_operation_frame",
+                        "member":format!("ix://test/families/Account/{operation}")}
+                })
+            })
+            .collect(),
+    );
+    let mut document = fixture_support::family_model_document();
+    document["types"][0]["operations"][0]["params"] = json!([{
+        "name":"delta","typeRef":"ix://quire/native/Integer",
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    }]);
+    document["types"][0]["operations"][0]["returns"] = json!({
+        "typeRef":"ix://quire/native/Integer",
+        "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}
+    });
+    let model = "test/families";
+    let record_original = "ix://test/families/Receipt";
+    let model_dimension = "ix://test/families/dimension/Length";
+    let model_unit = "ix://test/families/unit/Foot";
+    let derived_unit = "ix://test/families/unit/Inch";
+    let variant_original = "ix://test/families/Tier";
+    document["constructs"].as_array_mut().unwrap().push(json!({
+        "kind":{"module":model,"name":"record"},
+        "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}
+    }));
+    document["constructs"].as_array_mut().unwrap().push(json!({
+        "kind":{"module":model,"name":"variant"},
+        "construct":{"meaning":"quire.meaning.model.variant-type/v1"}
+    }));
+    document["types"].as_array_mut().unwrap().push(json!({
+        "identity":variant_original,"displayName":"Tier",
+        "kind":{"module":model,"name":"variant"},
+        "roles":[],"constraints":[],"extensions":[],"unknownPolicy":"reject",
+        "variants":[{"identity":format!("{variant_original}/Gold"),"name":"Gold"}]
+    }));
+    document["types"].as_array_mut().unwrap().push(json!({
+        "identity":record_original,"displayName":"Receipt",
+        "kind":{"module":model,"name":"record"},
+        "roles":[],"constraints":[],"extensions":[],"unknownPolicy":"reject",
+        "supertypes":[],"fields":[{"identity":format!("{record_original}/amount"),
+            "name":"amount","typeRef":"ix://quire/native/Integer","presence":"required",
+            "nullable":false,"defaultKind":"none",
+            "multiplicity":{"lower":1,"upper":1,"ordered":false,"unique":true}}],
+        "operations":[]
+    }));
+    document["dimensions"] =
+        json!([{"identity":model_dimension,"name":"Length","base":true,"terms":[]}]);
+    document["units"] = json!([
+        {"identity":model_unit,"name":"foot","dimension":model_dimension,"scale":"1","offset":"0"},
+        {"identity":derived_unit,"name":"inch","dimension":model_dimension,
+            "target":model_unit,"scale":"1/12","offset":"0"}
+    ]);
+    let model_id = |form: &str, original: &str| {
+        fixture_support::structural_id(
+            model,
+            vec![json!("scalar_type"), json!(form), json!(original)],
+            0,
+        )
+    };
+    let record = fixture_support::structural_id(
+        model,
+        vec![
+            json!("model"),
+            json!("record_value_type"),
+            json!(record_original),
+        ],
+        0,
+    );
+    let dimension = model_id("dimension", model_dimension);
+    let unit = model_id("unit", model_unit);
+    let derived = model_id("unit", derived_unit);
+    let variant = fixture_support::structural_id(
+        model,
+        vec![
+            json!("model"),
+            json!("variant_type"),
+            json!(variant_original),
+        ],
+        0,
+    );
+    for (id, tag, form, original, ty, deps) in [
+        (
+            &record,
+            "model",
+            "record_value_type",
+            record_original,
+            &record,
+            vec![],
+        ),
+        (
+            &dimension,
+            "scalar_type",
+            "dimension",
+            model_dimension,
+            &dimension,
+            vec![],
+        ),
+        (
+            &unit,
+            "scalar_type",
+            "unit",
+            model_unit,
+            &dimension,
+            vec![dimension.clone()],
+        ),
+        (
+            &derived,
+            "scalar_type",
+            "unit",
+            derived_unit,
+            &dimension,
+            vec![dimension.clone(), unit.clone()],
+        ),
+    ] {
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":tag,"semantic_form":form,"semantic_type":ty,"dependencies":deps,
+                "occurrences":[{"role":"generated","ordinal":0}],
+                "owner":{"kind":"model","identity":model,"node":original},"body":aggregate(vec![])
+            }));
+    }
+    wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+        "node_id":variant,"schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"model","semantic_form":"variant_type","semantic_type":variant,
+        "dependencies":[],"occurrences":[{"role":"generated","ordinal":0}],
+        "owner":{"kind":"model","identity":model,"node":variant_original},"body":aggregate(vec![])
+    }));
+    let member = fixture_support::structural_id(
+        model,
+        vec![json!("enum-value"), json!(variant_original), json!("Gold")],
+        0,
+    );
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "node_id":member,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value","semantic_form":"enum_value","semantic_type":variant,
+            "dependencies":[variant],"occurrences":[{"role":"expression","ordinal":0}],
+            "body":literal(&variant,"enum",json!("Gold"))
+        }));
+    let mut nominal = fixture_support::nominal_fixture_members();
+    let source_owner = nominal[2].0["owner"].clone();
+    let time = fixture_support::node_id("qualified:Example/Time");
+    nominal.extend([
+        (
+            json!({"version":"quire.dimension-node/v1","owner":source_owner,
+            "qualified_declaration":["Example","Time"],"terms":[]}),
+            "qualified:Example/Time".to_owned(),
+        ),
+        (
+            json!({"version":"quire.unit-node/v1","owner":nominal[2].0["owner"],
+            "qualified_declaration":["Example","Second"],"dimension_node_id":time,
+            "target_unit_node_id":null,"scale":{"numerator":"1","denominator":"1"},
+            "offset":{"numerator":"0","denominator":"1"}}),
+            "qualified:Example/Second".to_owned(),
+        ),
+    ]);
+    let units = fixture_support::nominal_package(&nominal);
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .extend(
+            units["semantic_graph"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .cloned(),
+        );
+    let second = fixture_support::node_id("qualified:Example/Second");
+    let metre = fixture_support::node_id("qualified:Example/Metre");
+    append(
+        &mut wire,
+        "scalar_type",
+        "rational",
+        None,
+        aggregate(vec![]),
+        "Rational",
+    );
+    let facts = json!({
+        "bindings":["clause","state","inputs","scope","results","init","on_event",
+            "on_watermark","counter_width_bits","max_reading_gap","max_event_rate",
+            "buffers","counter","tick_unit","uncertainty","on_gap","activation_capacity"],
+        "clause_form":"temporal_clause",
+        "state":{"form":"record","fields":[["now","integer"],["history_start","integer"],
+            ["buffer_0","sequence"],["buffer_1","sequence"],["activations","sequence"],
+            ["event_position","integer"]],
+            "activation_fields":["subformula","origin","status"],"activation_status":"integer"},
+        "payload_fields":{"LimitReached":["limit","value","setting"],
+            "ReadingGapExceeded":["gap","max_reading_gap"]},
+        "outcome":{"cases":[["Failed","ReadingGapExceeded"],["False",null],
+            ["Incomplete","LimitReached"],["Indeterminate",null],["Pending",null],["True",null]]},
+        "entries":{"init":{"form":"pure_function","declared":false,"params":[],"result":"State"},
+            "on_event":{"form":"pure_function","declared":false,
+                "params":["State","integer","Inputs"],"result":"Step"},
+            "on_watermark":{"form":"pure_function","declared":false,
+                "params":["State","integer","Scope"],"result":"Step"},
+            "on_gap":{"form":"pure_function","declared":false,
+                "params":["State","integer"],"result":"Step","index":9}},
+        "premises":{"counter_width_bits":32,"max_reading_gap":1000,"max_event_rate":"10",
+            "counter":"ticks","uncertainty":"1/2","activation_capacity":8},
+        "buffers":[{"subformula":1,"capacity":4,"reached":true},
+            {"subformula":2,"capacity":7,"reached":true}],
+        "tick_unit":{"form":"unit","dimension":"Time","index":7}
+    });
+    let account = find(&wire, "object_type");
+    let mut input_fields = vec![
+        ("receipt", record.clone()),
+        ("receipt_again", record),
+        ("account", account),
+        ("source_unit", metre),
+        ("model_unit", derived),
+    ];
+    if reach_variant {
+        input_fields.push(("tier", variant));
+    }
+    let (wire, _) = materialize_on(wire, &facts, &input_fields, Some(second));
+    (wire, document)
 }
 
 pub(super) fn append_measure(wire: &mut Value, entry: usize) -> Value {

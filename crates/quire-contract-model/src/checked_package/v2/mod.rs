@@ -113,7 +113,8 @@ pub use identity::*;
 pub use lower::*;
 pub use model_enum_witness::{
     SelectedModelEnumDeclarationRow, SelectedModelEnumError, SelectedModelEnumErrorCode,
-    SelectedModelEnumMemberRow, SelectedModelEnums,
+    SelectedModelEnumMemberRow, SelectedModelEnumShapeCaseRow, SelectedModelEnumShapeRow,
+    SelectedModelEnums,
 };
 pub use model_fields::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelField, CheckedModelFieldsError,
@@ -168,8 +169,9 @@ pub use refinement::*;
 pub use relationship_end::{CheckedRelationshipEnd, CheckedRelationshipEndError};
 pub use runtime_type_projection::{
     SelectedTypeDeclarations, SelectedTypeDeclarationsError, SelectedTypeDimension,
-    SelectedTypeObject, SelectedTypeObjectField, SelectedTypeObjectOperation,
-    SelectedTypeOperationParameter, SelectedTypeRecord, SelectedTypeTuple, SelectedTypeUnit,
+    SelectedTypeModelUnit, SelectedTypeObject, SelectedTypeObjectField,
+    SelectedTypeObjectOperation, SelectedTypeOperationParameter, SelectedTypeRecord,
+    SelectedTypeTuple, SelectedTypeUnit,
 };
 pub use scalar_operands::{
     CheckedScalarOperand, CheckedScalarOperandChild, CheckedScalarOperandError,

@@ -118,7 +118,7 @@
 //! use quire_contract_model::CheckedRevision;
 //! ```
 
-#[cfg(all(test, feature = "qspec-conformance"))]
+#[cfg(test)]
 extern crate self as quire_contract_model;
 
 mod binding;
@@ -227,17 +227,18 @@ pub use checked_package::{
     SelectedFactField, SelectedFactFieldId, SelectedFactIds, SelectedFactRows, SelectedFacts,
     SelectedFactsError, SelectedFactsErrorCode, SelectedModelEnumDeclarationRow,
     SelectedModelEnumError, SelectedModelEnumErrorCode, SelectedModelEnumMemberRow,
-    SelectedModelEnums, SelectedOperationIdentity, SelectedOperationMemberError,
-    SelectedOperationMemberErrorCode, SelectedOperationMemberRow, SelectedOperationMembers,
-    SelectedRecordFieldView, SelectedRecordView, SelectedSourceCollectionRow,
-    SelectedSourceEnumRow, SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
-    SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
-    SelectedTupleDeclarationRow, SelectedTuplePositionRow, SelectedTypeDeclarations,
-    SelectedTypeDeclarationsError, SelectedTypeDimension, SelectedTypeObject,
-    SelectedTypeObjectField, SelectedTypeObjectOperation, SelectedTypeOperationParameter,
-    SelectedTypeRecord, SelectedTypeTuple, SelectedTypeUnit, SelectedUnionMemberRow, StateForm,
-    TemporalBinding, TemporalClauseName, TemporalForm, TimedModelForm, ValueForm,
-    CHECKED_PACKAGE_V2, CONTRACT_PACKAGE_VERSION,
+    SelectedModelEnumShapeCaseRow, SelectedModelEnumShapeRow, SelectedModelEnums,
+    SelectedOperationIdentity, SelectedOperationMemberError, SelectedOperationMemberErrorCode,
+    SelectedOperationMemberRow, SelectedOperationMembers, SelectedRecordFieldView,
+    SelectedRecordView, SelectedSourceCollectionRow, SelectedSourceEnumRow,
+    SelectedSourceRecordMemberRow, SelectedSourceRecordRow, SelectedSourceTupleRow,
+    SelectedSourceUnionRow, SelectedSourceUnitRow, SelectedTupleDeclarationRow,
+    SelectedTuplePositionRow, SelectedTypeDeclarations, SelectedTypeDeclarationsError,
+    SelectedTypeDimension, SelectedTypeModelUnit, SelectedTypeObject, SelectedTypeObjectField,
+    SelectedTypeObjectOperation, SelectedTypeOperationParameter, SelectedTypeRecord,
+    SelectedTypeTuple, SelectedTypeUnit, SelectedUnionMemberRow, StateForm, TemporalBinding,
+    TemporalClauseName, TemporalForm, TimedModelForm, ValueForm, CHECKED_PACKAGE_V2,
+    CONTRACT_PACKAGE_VERSION,
 };
 
 pub use checked_package::CheckedFieldReadForm;

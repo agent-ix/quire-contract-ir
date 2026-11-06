@@ -101,6 +101,12 @@ impl NativeJoinBudget {
         self.last_success_delta = None;
     }
 
+    /// Keep the next native join inside an enclosing reader's remaining work allowance.
+    pub(super) fn tighten_work_limit(&mut self, remaining: u64) {
+        let shared_limit = self.consumed.work.saturating_add(remaining);
+        self.work_limit = self.work_limit.min(shared_limit);
+    }
+
     pub(super) fn charge(&mut self, kind: NativeJoinChargeKind, amount: u128) -> bool {
         let (consumed, limit) = match kind {
             NativeJoinChargeKind::Work => (&mut self.consumed.work, self.work_limit),

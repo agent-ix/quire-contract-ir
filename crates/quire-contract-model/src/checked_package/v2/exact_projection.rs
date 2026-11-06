@@ -1182,9 +1182,23 @@ pub struct SelectedExactIdentities {
     source_tuples: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceTupleRow>>>,
     source_enums: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceEnumRow>>>,
     source_collections: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceCollectionRow>>>,
+    model_enum_shapes: Arc<BTreeMap<CheckedNodeId, EnumShape>>,
 }
 
 impl SelectedExactIdentities {
+    /// Attach only model enum shapes already joined to admitted declaration and case rows.
+    pub(in crate::checked_package::v2) fn with_model_enum_shapes(
+        mut self,
+        rows: &[super::SelectedModelEnumShapeRow],
+    ) -> Self {
+        self.model_enum_shapes = Arc::new(
+            rows.iter()
+                .map(|row| (row.structural_node.clone(), row.shape.clone()))
+                .collect(),
+        );
+        self
+    }
+
     /// An empty selection for reads of types without declaration identities.
     pub fn empty() -> Self {
         Self::default()
@@ -2971,6 +2985,20 @@ pub(super) fn project_record_field_type(
             charge_native_storage(budget, requested, requested, "record_field_tuple", 1)?;
             return Ok(ValueType::Composite(row.node_key.clone()));
         }
+        MemberType::Variant(target) => {
+            if package.node_kind(target) != Some(CheckedNodeKind::Model(ModelForm::VariantType)) {
+                return Err(refuse!(
+                    ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                    Some(target)
+                ));
+            }
+            let shape = identities
+                .model_enum_shapes
+                .get(target)
+                .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness, Some(target)))?;
+            charge_native_storage(budget, requested, requested, "record_field_variant", 1)?;
+            return Ok(ValueType::Enum(shape.clone()));
+        }
         MemberType::Float32
         | MemberType::Float64
         | MemberType::Bytes
@@ -2979,7 +3007,6 @@ pub(super) fn project_record_field_type(
         | MemberType::RationalRange(_)
         | MemberType::CarriedRational(..)
         | MemberType::TextBounds(_)
-        | MemberType::Variant(_)
         | MemberType::Option(_)
         | MemberType::Collection { .. } => {
             return Err(refuse!(
@@ -3045,6 +3072,7 @@ fn project_wrapped_record_field_type(
     | MemberType::Record(target)
     | MemberType::Quantity(target)
     | MemberType::Tuple(target) = leaf
+    | MemberType::Variant(target) = leaf
     {
         charge_work(requested, target, "record_field_target", work, work_limit)?;
     }
