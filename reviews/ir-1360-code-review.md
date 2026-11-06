@@ -49,9 +49,26 @@ FAIL. Findings require a same-PR fix and disposition. No applicable AssurancePro
 | FND-001 | fixed | Round 1: Every declaration/model/field/tuple/unit candidate is now charged before classification; model-unit and source-unit owner comparisons precharge both text operands. Fixed-work growing-census and long-text controls go red on the original source and green on the fix. |
 | FND-002 | fixed | Round 1: The projection calls the checked acquisition once before building its projection-owned indexes; duplicated document/form/source/owner/declaration validation branches are removed. A primitive-node tuple row now has the same MismatchedIdentityWitness outcome through both public entry points. |
 | FND-003 | fixed | Round 1: One ascending full structural declaration scan includes model-owned units before effective fields. The strict mixed-defect test now returns selected_model_unit at the unit node before the missing unread field. |
+| FND-004 | still-open | Round 2: Gate reproduces the regression in nominal_reads::selected_source_units_join_owner_declaration_and_complete_conversion at line 820. No reviewed fix has landed yet; the original five findings remain fixed. |
+
+| FND-004 | fixed | Round 3: All tuple/source-unit projection footprint and key-byte charges now precede the sole checked native semantic acquisition; projection indexes follow it. The unchanged long malformed declaration, valid long exact/one-below controls and shared wrong-form/reuse controls pass in the inspected author log. No semantic duplicate validator or new budget allowance was added. |
 
 ## Round 1 Verdict
 
 PASS for the inspected changed behavior; all findings are fixed, with no new finding. The lead's final scoped gate remains pending. No Cargo or final gate was run by this reviewer.
 
 Evidence inspected: the original-source red log records five intended assertion failures; the fixed log records 16 complete-witness root tests and two strict model controls passing, plus the affected tuple/unit/runtime controls. Workspace Clippy with warnings denied and scoped Quire validation pass.
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | Shared native acquisition now runs before the existing projection-owned row-byte preflight. A source-unit row with a malformed 4096-byte qualified declaration and a tight projection work limit returns MismatchedIdentityWitness instead of the established ExhaustedWork at selected_source_unit_row. Preserve projection footprint/index metering before the same semantic validator; do not weaken the existing limit test or restore duplicate validation. | crates/quire-contract-model/src/checked_package/v2/runtime_type_projection.rs:609 |
+
+## Round 2 Verdict
+
+FAIL pending FND-004. Existing FND-001 through FND-003 remain fixed, as do the gap and dependency findings from round 1. The lead supplied the failing scoped-gate log; this reviewer inspected the source/test and ran no Cargo or gate.
+
+## Round 3 Verdict
+
+PASS for the inspected source. FND-004 is fixed; all five original findings remain fixed and no new finding was found. The only source delta reorders the existing projection preflight ahead of checked acquisition and keeps index construction afterward. Inspected gate-fix focused tests and workspace all-target Clippy pass; this reviewer ran no Cargo or final gate. The lead must finish the pending scoped gate.
