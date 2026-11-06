@@ -7525,3 +7525,81 @@ fn complete_identity_witness_collection_helper_base_is_not_an_independent_obliga
         Ok(complete.clone())
     );
 }
+
+#[trace("TC-467", "FR-352-AC-23", "FR-352-AC-28")]
+#[test]
+fn complete_identity_witness_refuses_unemitted_and_unsupported_selected_identity_types() {
+    let selected = document(vec![
+        object("Present", &[], &[]),
+        object("Unread", &[], &[]),
+    ]);
+    let package = admit(&selected, &[("Present", OBJECT)], &[]);
+    let row = SelectedExactDeclarationRow::new(
+        declaration_id("Present"),
+        IDENTITY,
+        SelectedExactDeclarationForm::ObjectType,
+        orders("Present"),
+        SelectedExactIdentity::Object(EffectiveId::new(
+            None,
+            OriginalDeclarationKey::new(IDENTITY, orders("Present")),
+        )),
+    );
+    let witness = SelectedExactIdentities::from_stage_rows(
+        &package,
+        [row],
+        [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .unwrap();
+    let error = witness
+        .validate_and_rebind(
+            &package,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+    );
+    let root = &package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "model_root")
+        .unwrap()
+        .node_id;
+    assert_eq!(error.at.as_deref(), Some(root));
+    let mut selected = document(vec![process(
+        "Flow",
+        &[],
+        &[field("n", "ix://quire/native/Integer")],
+    )]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({"kind":{"module":IDENTITY,"name":"process"},"construct":{"meaning":"quire.meaning.model.process/v1"}}));
+    let package = admit(&selected, &[("Flow", "process")], &[]);
+    let id = &package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "process")
+        .unwrap()
+        .node_id;
+    let empty = SelectedExactIdentities::empty();
+    assert_eq!(
+        package
+            .project_exact_type(id, &empty, 10_000)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    let error = empty
+        .validate_and_rebind(
+            &package,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    assert_eq!(error.at.as_deref(), Some(id));
+}

@@ -697,6 +697,41 @@ impl SelectedExactIdentities {
                     )
                 })?;
             for original in model
+                .processes
+                .iter()
+                .chain(model.state_machines.iter())
+                .chain(model.persistence_interfaces.iter())
+                .chain(model.event_types.iter())
+                .chain(
+                    model
+                        .object_types
+                        .iter()
+                        .filter(|(_, declaration)| declaration.interface)
+                        .map(|(original, _)| original),
+                )
+            {
+                charge_native_work(budget, root, root, "complete_unsupported_identity_type", 1)?;
+                let mut at = root;
+                for (id, declaration) in package.models.selected_declarations() {
+                    charge_native_work(budget, root, id, "complete_unsupported_original", 1)?;
+                    charge_native_text_pair(
+                        budget,
+                        root,
+                        "complete_unsupported_original",
+                        &declaration.node,
+                        original,
+                    )?;
+                    if declaration.selection == selection && &declaration.node == original {
+                        at = id;
+                        break;
+                    }
+                }
+                return Err(witness_error(
+                    at,
+                    ExactTypeProjectionErrorCode::UnsupportedExactType,
+                ));
+            }
+            for original in model
                 .record_types
                 .keys()
                 .chain(model.object_types.keys())
@@ -1139,5 +1174,61 @@ mod tests {
                 );
             }
         }
+    }
+    #[trace("TC-467", "FR-352-AC-24", "FR-352-AC-26")]
+    #[test]
+    fn complete_identity_witness_checks_contents_before_completeness() {
+        let (package, ids) = super::super::super::relationship_end::tests::admitted();
+        let object = &ids[&'a'];
+        let (document, original, _) = package.models.selected_declaration(object).unwrap();
+        let row = SelectedExactDeclarationRow::new(
+            object.clone(),
+            document,
+            SelectedExactDeclarationForm::ObjectType,
+            original,
+            SelectedExactIdentity::Object(EffectiveId::new(
+                None,
+                OriginalDeclarationKey::new(document, original),
+            )),
+        );
+        let valid = SelectedExactIdentities::from_stage_rows(
+            &package,
+            [row.clone()],
+            [],
+            &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap();
+        let mut wrong_form = valid.clone();
+        Arc::make_mut(&mut wrong_form.declarations)
+            .get_mut(object)
+            .unwrap()
+            .form = SelectedExactDeclarationForm::DeclaredUnit;
+        assert_eq!(
+            wrong_form
+                .validate_and_rebind(&package, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        let mut two_defects = valid.clone();
+        let rows = Arc::make_mut(&mut two_defects.declarations);
+        rows.clear();
+        let mut foreign = row;
+        foreign.structural_node.package = "unselected".into();
+        let at = foreign.structural_node.clone();
+        rows.insert(at.clone(), foreign);
+        let before = two_defects.clone();
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let error = two_defects
+            .validate_and_rebind(&package, &mut budget)
+            .unwrap_err();
+        assert_eq!(
+            error.code,
+            ExactTypeProjectionErrorCode::ForeignNode,
+            "supplied foreign row precedes missing admitted object"
+        );
+        assert_eq!(error.at.as_deref(), Some(&at));
+        assert_eq!(budget.last_success_delta(), None);
+        assert_eq!(two_defects, before);
     }
 }
