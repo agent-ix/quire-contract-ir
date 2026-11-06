@@ -59,7 +59,7 @@ pub(crate) fn read(package: &Value) -> CheckedPackageV2ReadResult {
     )
 }
 
-#[trace("TC-048", "FR-038-AC-482", "FR-038-AC-483")]
+#[trace("TC-048", "FR-038-AC-485", "FR-038-AC-486")]
 #[test]
 fn map_keeps_both_ordered_type_operands() {
     let (package, position) = map_package();
@@ -127,7 +127,7 @@ fn map_keeps_both_ordered_type_operands() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-484")]
+#[trace("TC-048", "FR-038-AC-487")]
 #[test]
 fn malformed_and_mismatched_map_refuse_at_published_locations() {
     let (mut package, position) = map_package();
@@ -166,7 +166,7 @@ fn malformed_and_mismatched_map_refuse_at_published_locations() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-484")]
+#[trace("TC-048", "FR-038-AC-487")]
 #[test]
 fn nonscalar_key_refuses_at_map_node() {
     let (mut package, position) = map_package();
@@ -212,7 +212,7 @@ fn nonscalar_key_refuses_at_map_node() {
     );
 }
 
-#[trace("TC-048", "FR-038-AC-483")]
+#[trace("TC-048", "FR-038-AC-486")]
 #[test]
 fn collection_bounds_remain_a_separate_node() {
     let (mut package, map_position) = map_package();
@@ -269,7 +269,7 @@ fn collection_bounds_remain_a_separate_node() {
     assert_eq!(members.len(), 2);
 }
 
-#[trace("TC-048", "FR-038-AC-483")]
+#[trace("TC-048", "FR-038-AC-486")]
 #[test]
 fn changing_either_operand_changes_the_admitted_map_identity() {
     let (original, position) = map_package();

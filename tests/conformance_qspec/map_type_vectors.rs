@@ -58,7 +58,7 @@ fn mutate(case: &str, package: &mut Value, position: usize) {
     super::fixture_support::settle(package);
 }
 
-#[trace("TC-048", "FR-038-AC-485")]
+#[trace("TC-048", "FR-038-AC-488")]
 #[test]
 fn owner_map_type_vectors_match_public_reader() {
     let proposal = proposal_dir_of(&fixtures_dir());
