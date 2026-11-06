@@ -479,6 +479,7 @@ mod tests {
         CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
     };
     use crate::checked_package::v2::{SelectedExactDeclarationForm, SelectedExactIdentity};
+    use ix_trace_rs::trace;
     use quire_exact::{
         EffectiveId, MemberId, MemberOwner, NodeKey, OriginalDeclarationKey, PathSegment, UnitId,
     };
@@ -683,7 +684,9 @@ mod tests {
         )
     }
 
-    #[ix_trace_rs::trace("TC-469", "FR-357-AC-13", "FR-357-AC-14")]
+    /// Trace: FR-357, FR-357-AC-13. The admitted root reaches exactly the
+    /// record, object and unit facts asserted below.
+    #[trace("TC-469", "FR-357", "FR-357-AC-13", "FR-357-AC-14")]
     #[test]
     fn self_contained_model_fact_monitor_admits() {
         let package = admitted_monitor();
