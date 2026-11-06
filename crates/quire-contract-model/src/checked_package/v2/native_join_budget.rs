@@ -101,8 +101,68 @@ impl NativeJoinBudget {
 
 #[cfg(test)]
 mod tests {
+    use super::super::native_join_storage;
     use super::{NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge};
     use ix_trace_rs::trace;
+    use quire_exact::{
+        CarriedQuantityType, DecimalType, Integer, IntegerInterval, NodeKey, PathSegment,
+        QuantityCarrier, RationalDomain, RoundingMode, UnitId, ValueType,
+    };
+
+    #[trace("FR-358-AC-2", "FR-358-AC-3")]
+    #[test]
+    fn carried_quantity_storage_charges_unit_and_each_carrier() {
+        let interval = IntegerInterval::new(Integer::from(0_i64), Integer::from(9_i64))
+            .expect("nonempty interval");
+        let denominator = IntegerInterval::new(Integer::from(1_i64), Integer::from(9_i64))
+            .expect("positive denominator interval");
+        let decimal = DecimalType::new(
+            Integer::from(0_i64),
+            Integer::from(9_i64),
+            0,
+            2,
+            RoundingMode::Exact,
+        )
+        .expect("valid decimal carrier");
+        let rational =
+            RationalDomain::new(interval.clone(), denominator).expect("valid rational carrier");
+        for (carrier, expected_storage) in [
+            (QuantityCarrier::Decimal(decimal), 7),
+            (
+                QuantityCarrier::Integer {
+                    domain: interval,
+                    rounding: RoundingMode::Exact,
+                },
+                7,
+            ),
+            (QuantityCarrier::Rational(rational), 11),
+        ] {
+            let value = ValueType::carried_quantity(CarriedQuantityType::new(
+                UnitId::declared(
+                    NodeKey::new("example", vec![PathSegment::Text("unit".into())], 0)
+                        .expect("valid unit key"),
+                ),
+                carrier,
+            ));
+            let charge = native_join_storage::value_type(&value);
+            assert_eq!(charge, expected_storage);
+
+            let mut exact = NativeJoinBudget::new(0, expected_storage as u64);
+            assert!(exact.charge(NativeJoinChargeKind::Storage, charge));
+            assert_eq!(exact.consumed().storage, expected_storage as u64);
+
+            let mut short = NativeJoinBudget::new(0, expected_storage as u64 - 1);
+            assert!(!short.charge(NativeJoinChargeKind::Storage, charge));
+            assert_eq!(short.consumed().storage, 0);
+            assert_eq!(
+                short.first_unpaid(),
+                Some(NativeJoinDeniedCharge {
+                    kind: NativeJoinChargeKind::Storage,
+                    amount: expected_storage,
+                })
+            );
+        }
+    }
 
     #[trace("FR-358-AC-4")]
     #[test]
