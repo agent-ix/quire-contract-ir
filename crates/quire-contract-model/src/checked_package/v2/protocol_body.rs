@@ -4113,44 +4113,47 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                 == Some("quire.op.control.case")
                             {
                                 if let Some((scrutinee, arms)) = arguments.split_first() {
-                                    let scoped_arms = arms
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(ordinal, arm)| {
-                                            let CheckedTerm::Binding { value, .. } = arm else {
-                                                return None;
+                                    let mut scoped_arms = Vec::new();
+                                    let mut valid = true;
+                                    'arms: for (ordinal, arm) in arms.iter().enumerate() {
+                                        meter.charge(1, || node_pointer(owner))?;
+                                        let CheckedTerm::Binding { value, .. } = arm else {
+                                            valid = false;
+                                            break;
+                                        };
+                                        let CheckedTerm::Aggregate { members } = value.as_ref()
+                                        else {
+                                            valid = false;
+                                            break;
+                                        };
+                                        let [CheckedTerm::Aggregate { members: binders }, body] =
+                                            members.as_slice()
+                                        else {
+                                            valid = false;
+                                            break;
+                                        };
+                                        let mut binder_positions = Vec::new();
+                                        for binder in binders {
+                                            meter.charge(1, || node_pointer(owner))?;
+                                            let CheckedTerm::Reference { target } = binder else {
+                                                valid = false;
+                                                break 'arms;
                                             };
-                                            let CheckedTerm::Aggregate { members } = value.as_ref()
-                                            else {
-                                                return None;
+                                            let Some(&binder) = self.check.index.get(target) else {
+                                                valid = false;
+                                                break 'arms;
                                             };
-                                            let [CheckedTerm::Aggregate { members: binders }, body] =
-                                                members.as_slice()
-                                            else {
-                                                return None;
-                                            };
-                                            let binders = binders
-                                                .iter()
-                                                .map(|binder| {
-                                                    let CheckedTerm::Reference { target } = binder
-                                                    else {
-                                                        return None;
-                                                    };
-                                                    self.check.index.get(target).copied()
-                                                })
-                                                .collect::<Option<Vec<_>>>()?;
-                                            Some((ordinal, binders, body))
-                                        })
-                                        .collect::<Option<Vec<_>>>();
-                                    if let Some(scoped_arms) = scoped_arms {
+                                            binder_positions.push(binder);
+                                        }
+                                        scoped_arms.push((ordinal, binder_positions, body));
+                                    }
+                                    if valid {
                                         for (ordinal, binders, body) in
                                             scoped_arms.into_iter().rev()
                                         {
-                                            meter.charge(1, || node_pointer(owner))?;
                                             let mut arm_scope =
                                                 Some(locals.arm(scope, position, ordinal));
                                             for binder in binders {
-                                                meter.charge(1, || node_pointer(owner))?;
                                                 arm_binders.insert(binder);
                                                 arm_scope =
                                                     Some(locals.bind_node(arm_scope, binder));

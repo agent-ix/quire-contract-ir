@@ -10862,6 +10862,58 @@ fn recovery_case_arm_binder_does_not_escape_to_the_outer_predicate() {
 
 #[trace("FR-038-AC-473")]
 #[test]
+fn recovery_case_arm_binder_does_not_escape_to_its_scrutinee() {
+    let (mut package, _, case, binder, circle, _) = slot_case_fixture();
+    let shape = package["semantic_graph"]["nodes"][node_position_for_key(&package, &circle)]
+        ["semantic_type"]
+        .clone();
+    let integer = node_id(&family_key("a3a3"));
+    let empty = node_id("fixture/protocol-body/case-empty-scrutinee");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":empty, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value", "semantic_form":"union_value", "semantic_type":shape,
+            "dependencies":[], "occurrences":[{"role":"expression","ordinal":0}],
+            "body":{"term":"aggregate","members":[
+                {"term":"binding","name":"Empty","value":{"term":"aggregate","members":[]}}
+            ]}
+        }));
+    let union = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "composite_type" && node["semantic_form"] == "union")
+        .expect("Shape union");
+    package["semantic_graph"]["nodes"][union]["body"]["members"][0]["value"]["members"] =
+        json!([{"term":"reference","target":shape}]);
+    package["semantic_graph"]["nodes"][union]["dependencies"] = json!([shape]);
+    package["semantic_graph"]["nodes"][union]["recursion_group"] = json!("case-recursive-union");
+    let at = node_position_for_key(&package, &circle);
+    package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["members"][0]["target"] =
+        empty;
+    let at = node_position_for_key(&package, &binder);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = shape;
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"][1] =
+        json!({"term":"literal","type":integer,"value_kind":"integer","value":"1"});
+    settle_after_structural_rekey(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "recursive Shape baseline must admit: {:?}",
+        read(&package)
+    );
+
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][0]["target"] = binder;
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    assert_recovery_case_binder_refusal(&package, compensation);
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
 fn recovery_case_same_name_sibling_binders_remain_identity_distinct() {
     let (mut package, _, case, circle_binder, _, _) = slot_case_fixture();
     let integer = node_id(&family_key("a3a3"));
