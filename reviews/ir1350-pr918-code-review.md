@@ -166,3 +166,13 @@ No diff touches lower.rs or canonical_referenced_integer_exponent_lowers_and_par
 The new test builds `--bin producer` into the shared CARGO_TARGET_DIR, releases cargo()'s flock, and then executes target/debug/producer directly. The four existing live tests use that same target and binary name. With the native test binary's default parallel threads, another helper can replace debug/producer after this build returns and before Command::new executes it, so this test consumes another source program's output. The supplied --exact filtered run cannot detect this race. Keep build-and-execution inside the existing cargo() flock (for example cargo run --workspace --offline --locked --bin producer), or give this producer an independently owned executable path/name.
 
 Applicable rule: rust-style/testing requires deterministic resources assigned per test/process/worktree; rust-review requires inspecting concurrent-state and resource boundaries. This is a static code trace, not a reproduced parallel execution failure.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The literal emitter appends ir1350-literal-body-producer to its target directory. Both cargo build and direct execution receive that returned target, while existing helpers keep the parent target. They can no longer overwrite the literal emitter executable. Static diff inspection confirms the fix; supplied focused format, Clippy, compile and exact live-test receipts pass. No reviewer build, test or gate was run. |
+
+## Disposition verdict
+
+PASS after disposition round 1. The original finding and initial verdict above remain the historical review record. No new findings. Other three methods retain PASS. Application version: 0.1.0. The lead retains the final scoped gate.
