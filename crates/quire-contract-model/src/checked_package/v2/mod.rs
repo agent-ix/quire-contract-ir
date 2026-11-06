@@ -2131,7 +2131,11 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Enum,
         ) => false,
         // QSL FR-094: a compound unit is anonymous and never declares.
-        K::ScalarType(ScalarTypeForm::CompoundUnit | ScalarTypeForm::CarriedQuantity) => true,
+        K::ScalarType(
+            ScalarTypeForm::CompoundUnit
+            | ScalarTypeForm::CarriedQuantity
+            | ScalarTypeForm::BoundedQuantity,
+        ) => true,
         K::CompositeType(
             CompositeTypeForm::Option
             | CompositeTypeForm::Sequence
@@ -2451,7 +2455,8 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
             | ScalarTypeForm::CompoundUnit
-            | ScalarTypeForm::CarriedQuantity,
+            | ScalarTypeForm::CarriedQuantity
+            | ScalarTypeForm::BoundedQuantity,
         ) => BodyGrammar::Term,
         K::CompositeType(
             CompositeTypeForm::Option
@@ -3466,7 +3471,18 @@ fn validate_graph(
         }
         for (dependency_index, dependency) in node.dependencies.iter().enumerate() {
             if let Some(&target) = index.get(dependency) {
-                lowering_successors.push((target, lower::EdgeRole::Typing));
+                let endpoint_type = kinds[position]
+                    == CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity)
+                    && kinds.get(target)
+                        == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Rational));
+                lowering_successors.push((
+                    target,
+                    if endpoint_type {
+                        lower::EdgeRole::Annotation
+                    } else {
+                        lower::EdgeRole::Typing
+                    },
+                ));
                 successors.push((target, EdgeSite::Dependency(dependency_index)));
             } else if !matches!(
                 kinds[position],

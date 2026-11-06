@@ -1,39 +1,31 @@
 ---
-id: SR-2026110414560029
-title: "IR-1345 PR 909 spec-review/base review"
+id: SR-2026110414560133
+title: IR-1345 PR 927 spec-review-base review
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md; spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md"
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
+  spec/model/functional/FR-019-rust-library-interface.md; tests/conformance_qspec/carried_quantity.rs;
+  IR-1345
 review_set: subset
 ---
 
 ## Summary
 
-The unit case, bare-unit refusal, exact node identity, and existing exemptions are internally consistent. The new positive rule also names compound_unit, but AC-73 and TC-050 only exercise a domain over unit. Review of frozen head 3f4054a915ee343fa880abb3d993dfa5a38cc4f1. No applicable AssuranceProfile under spec/.
+The new FR-038 and FR-019 statements name the reader, typed output, refusal and verification method; their split matches the QSpec producer and IR consumer boundary. No applicable AssuranceProfile was found.
 
-## Scope and evidence
+## Coverage
 
-| Unit | Path | Role | Excerpt |
-| --- | --- | --- | --- |
-| FR-038 quantity policy | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | examined | A position declared at a bounded_domain whose base chain ends at a unit or compound_unit is bounded and does not raise requires_bound for that underlying type. |
-| FR-038-AC-73 | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | examined | A record field declared at a bounded_domain over a unit lowers; a second field declared directly at that unit in the same closure still refuses naming the unit. |
-| TC-050 quantity procedure | spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md | examined | Lower a record whose field is declared at a bounded_domain over a unit node. Lower a record with both a field declared directly at that unit and a field declared at the domain over it. |
-| TC-050 quantity expected | spec/checked_package/matrix/TC-050-checked-package-v2-lowering.md | examined | The domain-typed record lowers. The mixed record returns requires_bound naming its directly used unit, despite the domain elsewhere in its closure. |
-| FR-038-AC-39 | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | context_only | A literal.type annotation is not a value position. |
-| FR-038-AC-40 | spec/checked_package/functional/FR-038-consume-checked-package-v2.md | context_only | A bounded_domain elsewhere in the closure does not bound a separately declared unbounded type position. |
-
-## Verdict
-
-FAIL — acceptance evidence omits the compound_unit half of the new positive rule.
+- `FR-038-AC-485` (examined, `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`): The strict reader admits QSpec FR-322-AC-384's self-typed bounded_quantity with ordered unit, min and max bindings, exact canonical rational endpoints, structural identity and dependencies; it refuses a reversed or noncanonical interval as invalid_package/invalid-derived-shape.
+- `FR-038-AC-486` (examined, `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`): Under a bounds-required profile, a bounded-quantity parameter lowers while a parameter at a bare unit or compound unit still returns requires_bound. The strict reader admits bounded operands to quantity add, convert and lt with existing dimension and mode rules.
+- `FR-019-AC-26` (examined, `spec/model/functional/FR-019-rust-library-interface.md`): A default-feature consumer matches ScalarTypeForm::BoundedQuantity after strict admission and reads the typed unit, min and max bindings of a QSpec FR-322 bounded quantity, preserving its exact endpoints and structural identity.
+- `FR-322-AC-384` (context_only, `quire-specification/spec/objects/interfaces/FR-322-checked-package-artifact.md`): Equal bounds through an alias produce the same node; changing the unit or either bound produces a distinct node. Bare unit and compound-unit parameter forms remain RequiresBound.
 
 ## Findings
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | medium | AC-73 and TC-050 omit a bounded_domain over compound_unit positive case despite FR-038 permitting both underlying forms. Add the compound-unit domain control and expected lower outcome. | FR-038-AC-73; TC-050 |
+| FND-001 | low | No findings (placeholder) | - |
 
-## Dispositions
+## Verdict
 
-| FND | outcome | reason |
-| --- | --- | --- |
-| FND-001 | fixed | AC-73 now states both bounded unit and bounded compound-unit positive cases; TC-050 calls and expects both to lower. Fixed AC excerpt: A record field declared at a `bounded_domain` over a `unit` and a parameter declared at a `bounded_domain` over a `compound_unit` each lower; a second record field declared directly at that `unit` in the same closure still refuses naming the `unit`, so the domain elsewhere never covers it. |
+**PASS** for this method.

@@ -705,7 +705,18 @@ impl CheckedPackageV2 {
                 }
                 for dependency in &node.dependencies {
                     if let Some(&target) = index.get(dependency) {
-                        successors.push((target, EdgeRole::Typing));
+                        let endpoint_type = *kind
+                            == CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity)
+                            && self.node_kinds().get(target)
+                                == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Rational));
+                        successors.push((
+                            target,
+                            if endpoint_type {
+                                EdgeRole::Annotation
+                            } else {
+                                EdgeRole::Typing
+                            },
+                        ));
                     }
                 }
                 let body_steps = [
@@ -1041,6 +1052,7 @@ fn quantity_chain(kind: CheckedNodeKind) -> QuantityChain {
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::DimensionEquivalence
             | ScalarTypeForm::CarriedQuantity
+            | ScalarTypeForm::BoundedQuantity
             | ScalarTypeForm::Enum,
         ) => QuantityChain::Other,
         K::BoundedDomain(BoundedDomainForm::ModelPopulation) => QuantityChain::Other,
@@ -1127,7 +1139,8 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
             | ScalarTypeForm::CompoundUnit
-            | ScalarTypeForm::CarriedQuantity,
+            | ScalarTypeForm::CarriedQuantity
+            | ScalarTypeForm::BoundedQuantity,
         ) => false,
         K::CompositeType(
             CompositeTypeForm::Sequence

@@ -4827,7 +4827,9 @@ position declared directly at a `unit` or `compound_unit` raises
 `requires_bound` naming that exact underlying node's structural ID. A
 position declared at an admitted `carried_quantity` with its admitted bounded
 numeric carrier is bounded at that position and does not raise
-`requires_bound` for its underlying unit. A carrier or other bounded domain
+`requires_bound` for its underlying unit. A self-typed `scalar_type`/
+`bounded_quantity` with exact inclusive magnitude bounds is likewise bounded
+at its own position. A carrier or other bounded domain
 elsewhere in the closure does not cover a position declared directly at the
 underlying unit or compound unit. A `unit` declaration lowered as the requested
 node, the unit nodes a `compound_unit` lists in `dependencies`, a unit named
@@ -4981,6 +4983,32 @@ retained value. Its conformance test SHALL read QSpec's
 `proposals/checked-package-v2/text-literal-vectors.json` by reference from
 the selected QSpec checkout, including `TX-01` through `TX-14` and `TX-13s`;
 it SHALL store no copy of the vector or schema.
+
+### Bounded quantity type and operations
+
+The V2 reader SHALL admit QSpec FR-322's anonymous, self-typed
+`scalar_type`/`bounded_quantity` form as a member of the `quantity` family.
+Its body has exactly three ordered bindings: `unit` references a nominal
+`scalar_type`/`unit`; `min` and `max` are canonical rational literals typed by
+the `scalar_type`/`rational` node. The bounds are exact inclusive magnitudes
+in the named unit and SHALL satisfy `min <= max`. The node's dependencies are
+exactly the unit and rational type nodes in ascending structural order, and
+its structural path retains the unit, both type references and both literal
+values in QSpec's order. The public `ScalarTypeForm::BoundedQuantity` and
+typed body SHALL expose those exact bindings. A malformed body, bound, path,
+dependency, declaration, owner, recursion group or semantic type SHALL refuse
+`invalid_package`/`invalid-derived-shape` at the bounded node.
+
+An admitted bounded quantity MAY type a parameter under a bounds-required
+profile. The reader SHALL admit it as a quantity operand to
+`quire.op.quantity.add`, `quire.op.quantity.convert` and
+`quire.op.quantity.lt` under the existing unit and dimension rules. Addition
+returns the ordinary unit type. A conversion into a bounded quantity requires
+the ordinary exact rounding mode and a dimensionally compatible source; the
+reader checks type and mode eligibility, while the value evaluator checks the
+converted magnitude against the inclusive target interval. A carried
+quantity remains ineligible for add and lt. Bare unit and compound-unit
+parameters remain `requires_bound`.
 
 ### Carried quantity type and conversion
 
@@ -5961,6 +5989,8 @@ copying QSL execution semantics into IR.
 | FR-038-AC-482 | IMPLEMENTED (IR-1361; TN focused tests pass). A `quire.temporal.timed/v1` clause with `clock_name` `model-time` and no `temporal_bindings` row admits for a trace subject and for a model subject whose model root joins one checked `timed_model` root and `time_source`; the configured profiles retain their current row behavior (TN-01, TN-02, TN-05). A model subject with no matching source refuses `invalid_package`/`timed-node-reference` at its clause body with the clause node locus (TN-03). | Test (TC-048) |
 | FR-038-AC-483 | IMPLEMENTED (IR-1361; TN focused tests pass). Any `temporal_bindings` row naming a Timed clause refuses `invalid_package`/`timed-node-reference` at the whole row with the clause node locus (TN-04), before a row clock-name or configuration-kind comparison; no row is synthesized. | Test (TC-048) |
 | FR-038-AC-484 | IMPLEMENTED (IR-1361; TN focused tests pass). A bounded public package read of a Timed model clause returns the selected model subject, checked timed-model root, time source and exact unit; it returns absence for a Timed trace clause. The monitor claim clock read exposes the same model-time binding as a distinct alternative, with selected monitor root, clause, occurrence, clock name and claim name. Inspected root/source visits consume finite work; exact allowance succeeds and one below yields a typed limit refusal with no partial value. TC-048 reads QSpec's TN-01..TN-05 vectors by reference without copying them. | Test (TC-048) |
+| FR-038-AC-485 | Implemented. The strict reader admits QSpec FR-322-AC-384's self-typed `bounded_quantity` with ordered unit, min and max bindings, exact canonical rational endpoints, structural identity and dependencies; it refuses a reversed or noncanonical interval as `invalid_package`/`invalid-derived-shape`. The public node kind and typed body expose the admitted values. | Test (TC-048; QSpec TC-280 BQ-01..BQ-06) |
+| FR-038-AC-486 | Implemented. Under a bounds-required profile, a bounded-quantity parameter lowers while a parameter at a bare unit or compound unit still returns `requires_bound`. The strict reader admits bounded operands to quantity add, convert and lt with the existing dimension and mode rules; add returns a unit type, an incompatible comparison refuses, and a carried quantity remains ineligible for add and lt. | Test (TC-048, TC-050; QSpec TC-280 BQ-07..BQ-10) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be

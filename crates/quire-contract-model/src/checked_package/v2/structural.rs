@@ -76,6 +76,9 @@ use crate::checked_package::shared::{
     rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole,
     CheckedPackageRefusalCode, JsonPointer,
 };
+use num_bigint::BigInt;
+use num_integer::Integer;
+use num_traits::One;
 use quire_exact::TextProfile;
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -147,6 +150,7 @@ enum StructuralForm {
     Parameter,
     CompoundUnit,
     CarriedQuantity,
+    BoundedQuantity,
     Frame,
     OperationAnchor,
     StateClause,
@@ -173,6 +177,7 @@ impl StructuralForm {
             | Self::TimedModel
             | Self::CompoundUnit
             | Self::CarriedQuantity
+            | Self::BoundedQuantity
             | Self::UnionType
             | Self::UnionValue => None,
         }
@@ -189,6 +194,7 @@ impl StructuralForm {
             K::Value(ValueForm::Parameter) => Some(Self::Parameter),
             K::ScalarType(ScalarTypeForm::CompoundUnit) => Some(Self::CompoundUnit),
             K::ScalarType(ScalarTypeForm::CarriedQuantity) => Some(Self::CarriedQuantity),
+            K::ScalarType(ScalarTypeForm::BoundedQuantity) => Some(Self::BoundedQuantity),
             K::ScalarType(
                 ScalarTypeForm::Boolean
                 | ScalarTypeForm::Integer
@@ -623,6 +629,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                 compound_unit_dependencies_defect(node, term, &graph)
             }
             Some(StructuralForm::CarriedQuantity) => None,
+            Some(StructuralForm::BoundedQuantity) => None,
             Some(StructuralForm::OperationAnchor) => term
                 .and_then(typed_anchor_body)
                 .is_none()
@@ -886,12 +893,28 @@ pub(super) fn validate_derived_type_shapes(
             CheckedNodeKind::ScalarType(ScalarTypeForm::CarriedQuantity) => {
                 carried_quantity_shape(node, term, &graph, terms, structural_keys)
             }
+            CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity) => {
+                bounded_quantity_shape(node, term, &graph, structural_keys)
+            }
             _ => continue,
         };
         if !valid {
+            let at = if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity) {
+                noncanonical_bounded_endpoint(term)
+                    .map(|member| {
+                        node_pointer(position)
+                            .key("body")
+                            .key("members")
+                            .index(member)
+                            .key("value")
+                    })
+                    .unwrap_or_else(|| node_pointer(position))
+            } else {
+                node_pointer(position).key("node_id")
+            };
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                node_pointer(position).key("node_id"),
+                at,
                 Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
                 node_id.clone(),
             ));
@@ -1018,6 +1041,123 @@ fn carried_quantity_shape(
             CheckedNodePathSegment::Node(text_type.into()),
             CheckedNodePathSegment::Name(rounding.into()),
         ]
+}
+
+pub(super) fn canonical_rational(value: &str) -> Option<(BigInt, BigInt)> {
+    let integer = |text: &str| {
+        text.parse::<BigInt>()
+            .ok()
+            .filter(|number| number.to_string() == text)
+    };
+    match value.split_once('/') {
+        None => Some((integer(value)?, BigInt::one())),
+        Some((numerator, denominator)) => {
+            let numerator = integer(numerator)?;
+            let denominator = integer(denominator)?;
+            (denominator > BigInt::one() && numerator.gcd(&denominator).is_one())
+                .then_some((numerator, denominator))
+        }
+    }
+}
+
+fn noncanonical_bounded_endpoint(term: Option<&CheckedTerm>) -> Option<usize> {
+    let members = term.and_then(typed_aggregate)?;
+    for (position, name) in [(1, "min"), (2, "max")] {
+        let Some(CheckedTerm::Literal { value, .. }) = members
+            .get(position)
+            .and_then(|member| typed_binding(member, name))
+        else {
+            continue;
+        };
+        if value.as_str().and_then(canonical_rational).is_none() {
+            return Some(position);
+        }
+    }
+    None
+}
+
+fn rational_bound<'a>(
+    term: &'a CheckedTerm,
+    name: &str,
+    graph: &Graph<'_>,
+) -> Option<(&'a CheckedNodeId, &'a str)> {
+    let CheckedTerm::Literal {
+        type_id,
+        value_kind: LiteralKind::Rational,
+        value,
+    } = typed_binding(term, name)?
+    else {
+        return None;
+    };
+    graph
+        .type_matches(type_id, ScalarTypeForm::Rational)
+        .then(|| value.as_str().map(|value| (type_id, value)))
+        .flatten()
+}
+
+fn bounded_quantity_shape(
+    node: &CheckedSemanticNodeV2,
+    term: Option<&CheckedTerm>,
+    graph: &Graph<'_>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
+) -> bool {
+    let Some([unit_term, min_term, max_term]) = term
+        .and_then(typed_aggregate)
+        .and_then(|members| <&[CheckedTerm; 3]>::try_from(members).ok())
+    else {
+        return false;
+    };
+    let Some(unit) = typed_binding(unit_term, "unit").and_then(typed_reference) else {
+        return false;
+    };
+    let (Some((rational_type, min)), Some((max_type, max))) = (
+        rational_bound(min_term, "min", graph),
+        rational_bound(max_term, "max", graph),
+    ) else {
+        return false;
+    };
+    let (Some((min_num, min_den)), Some((max_num, max_den))) =
+        (canonical_rational(min), canonical_rational(max))
+    else {
+        return false;
+    };
+    if min_num * max_den > max_num * min_den
+        || rational_type != max_type
+        || node.semantic_type != node.node_id
+        || node.declaration.is_some()
+        || node.owner.is_some()
+        || node.recursion_group.is_some()
+        || !graph.type_matches(unit, ScalarTypeForm::Unit)
+    {
+        return false;
+    }
+    let (Some(unit), Some(rational_type), Some(actual)) = (
+        super::node_index::resolve_id(unit, structural_keys),
+        super::node_index::resolve_id(rational_type, structural_keys),
+        super::node_index::resolve_id(&node.node_id, structural_keys),
+    ) else {
+        return false;
+    };
+    let mut expected_dependencies = vec![unit.clone(), rational_type.clone()];
+    expected_dependencies.sort();
+    let actual_dependencies = node
+        .dependencies
+        .iter()
+        .map(|dependency| super::node_index::resolve_id(dependency, structural_keys))
+        .collect::<Option<Vec<_>>>();
+    actual_dependencies.as_deref() == Some(expected_dependencies.as_slice())
+        && actual.path
+            == vec![
+                CheckedNodePathSegment::Name("scalar_type".into()),
+                CheckedNodePathSegment::Name("bounded_quantity".into()),
+                CheckedNodePathSegment::Node(unit.into()),
+                CheckedNodePathSegment::Name("min".into()),
+                CheckedNodePathSegment::Node(rational_type.clone().into()),
+                CheckedNodePathSegment::Name(min.into()),
+                CheckedNodePathSegment::Name("max".into()),
+                CheckedNodePathSegment::Node(rational_type.into()),
+                CheckedNodePathSegment::Name(max.into()),
+            ]
 }
 
 /// Join an admitted bounded type's actual members to the selected Semantic IR

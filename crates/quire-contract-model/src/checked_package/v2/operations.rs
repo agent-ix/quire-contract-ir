@@ -39,9 +39,6 @@ use crate::checked_package::selected_population::{
 use crate::checked_package::shared::{
     CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use num_bigint::BigInt;
-use num_integer::Integer;
-use num_traits::One;
 use quire_exact::TextProfile;
 use serde::Deserialize;
 use serde_json::Value;
@@ -540,8 +537,11 @@ fn literal_defect(
                                     )
                             )
                         });
-                    (!exact_body_quantity)
-                        .then(|| value.as_str().is_some_and(canonical_quantity_magnitude))
+                    (!exact_body_quantity).then(|| {
+                        value.as_str().is_some_and(|value| {
+                            super::structural::canonical_rational(value).is_some()
+                        })
+                    })
                 }
                 LiteralKind::Boolean
                 | LiteralKind::Integer
@@ -656,23 +656,6 @@ fn canonical_uuid(value: &str) -> bool {
         })
 }
 
-/// QSpec FR-322's exact quantity magnitude: a canonical integer or a
-/// reduced fraction whose denominator is greater than one.
-fn canonical_quantity_magnitude(value: &str) -> bool {
-    let integer = |text: &str| {
-        text.parse::<BigInt>()
-            .ok()
-            .filter(|parsed| parsed.to_string() == text)
-    };
-    let Some((numerator, denominator)) = value.split_once('/') else {
-        return integer(value).is_some();
-    };
-    let (Some(numerator), Some(denominator)) = (integer(numerator), integer(denominator)) else {
-        return false;
-    };
-    denominator > BigInt::one() && numerator.gcd(&denominator).is_one()
-}
-
 /// The admitted graph an application's checks read.
 #[derive(Clone, Copy)]
 struct Graph<'g> {
@@ -737,8 +720,111 @@ fn carried_result<'g>(
     carried_unit_and_mode(result_type, graph)
 }
 
+fn bounded_unit<'g>(type_id: &CheckedNodeId, graph: &'g Graph<'_>) -> Option<&'g CheckedNodeId> {
+    let position = *graph.index.get(type_id)?;
+    if graph.kinds.get(position)
+        != Some(&CheckedNodeKind::ScalarType(
+            ScalarTypeForm::BoundedQuantity,
+        ))
+    {
+        return None;
+    }
+    let members = super::structural::typed_aggregate(graph.terms.get(position)?.as_ref()?)?;
+    super::structural::typed_binding(members.first()?, "unit")
+        .and_then(super::structural::typed_reference)
+}
+
+fn bounded_result<'g>(
+    application: Application<'_>,
+    graph: &'g Graph<'_>,
+) -> Option<&'g CheckedNodeId> {
+    let CheckedTerm::Application { result_type, .. } =
+        graph.terms.get(application.position)?.as_ref()?
+    else {
+        return None;
+    };
+    bounded_unit(result_type, graph)
+}
+
+fn quantity_unit<'g>(type_id: &CheckedNodeId, graph: &'g Graph<'_>) -> Option<&'g CheckedNodeId> {
+    bounded_unit(type_id, graph)
+        .or_else(|| carried_unit_and_mode(type_id, graph).map(|(unit, _)| unit))
+        .or_else(|| {
+            let position = *graph.index.get(type_id)?;
+            (graph.kinds.get(position) == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)))
+                .then(|| &graph.nodes[position].node_id)
+        })
+}
+
 #[ix_trace_rs::string_edge]
-fn check_carried_conversion(
+fn check_bounded_dimensions(
+    application: Application<'_>,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+) -> Option<ValidationFailure> {
+    if !matches!(
+        operation.identity.as_ref(),
+        "quire.op.quantity.add" | "quire.op.quantity.convert" | "quire.op.quantity.lt"
+    ) {
+        return None;
+    }
+    let CheckedTerm::Application { result_type, .. } =
+        graph.terms.get(application.position)?.as_ref()?
+    else {
+        return None;
+    };
+    let arguments = admitted_arguments(application, graph)?;
+    let types = arguments
+        .iter()
+        .map(|argument| operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index))
+        .collect::<Option<Vec<_>>>()?;
+    if !types
+        .iter()
+        .any(|type_id| bounded_unit(type_id, graph).is_some())
+        && bounded_unit(result_type, graph).is_none()
+    {
+        return None;
+    }
+    let first = types
+        .first()
+        .and_then(|type_id| quantity_unit(type_id, graph))?;
+    let first_dimension = &graph.nodes[*graph.index.get(first)?].semantic_type;
+    let operand_mismatch = types
+        .iter()
+        .skip(1)
+        .filter_map(|type_id| quantity_unit(type_id, graph))
+        .filter_map(|unit| graph.index.get(unit))
+        .any(|position| &graph.nodes[*position].semantic_type != first_dimension);
+    let result_mismatch = match operation.identity.as_ref() {
+        "quire.op.quantity.lt" => false,
+        "quire.op.quantity.add" => {
+            graph
+                .index
+                .get(result_type)
+                .and_then(|position| graph.kinds.get(*position))
+                != Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+                || quantity_unit(result_type, graph)
+                    .and_then(|unit| graph.index.get(unit))
+                    .is_some_and(|position| {
+                        &graph.nodes[*position].semantic_type != first_dimension
+                    })
+        }
+        "quire.op.quantity.convert" => quantity_unit(result_type, graph)
+            .and_then(|unit| graph.index.get(unit))
+            .is_some_and(|position| &graph.nodes[*position].semantic_type != first_dimension),
+        _ => return None,
+    };
+    (operand_mismatch || result_mismatch).then(|| {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    })
+}
+
+#[ix_trace_rs::string_edge]
+fn check_quantity_conversion(
     application: Application<'_>,
     operation: &OperationWire,
     graph: &Graph<'_>,
@@ -746,7 +832,8 @@ fn check_carried_conversion(
     if operation.identity.as_ref() != "quire.op.quantity.convert" {
         return None;
     }
-    let (result_unit, rounding) = carried_result(application, graph)?;
+    let (result_unit, rounding) = carried_result(application, graph)
+        .or_else(|| bounded_result(application, graph).map(|unit| (unit, "exact")))?;
     if operation.mode.as_ref().map(|mode| mode.value.as_ref()) != Some(rounding) {
         return Some(application.refuse(
             CheckedPackageRefusalCode::InvalidPackage,
@@ -769,6 +856,7 @@ fn check_carried_conversion(
     };
     let source_unit = carried_unit_and_mode(&source_type, graph)
         .map(|(unit, _)| unit)
+        .or_else(|| bounded_unit(&source_type, graph))
         .or_else(|| {
             let position = *graph.index.get(&source_type)?;
             (graph.kinds.get(position) == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)))
@@ -1327,7 +1415,10 @@ fn operation_defect(
             return Ok(Some(failure));
         }
     }
-    if let Some(failure) = check_carried_conversion(application, &operation, graph) {
+    if let Some(failure) = check_quantity_conversion(application, &operation, graph) {
+        return Ok(Some(failure));
+    }
+    if let Some(failure) = check_bounded_dimensions(application, &operation, graph) {
         return Ok(Some(failure));
     }
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
@@ -1468,7 +1559,11 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | ScalarTypeForm::Timestamp
             | ScalarTypeForm::Enum),
         ) => Some(form.as_wire()),
-        K::ScalarType(ScalarTypeForm::Unit | ScalarTypeForm::CarriedQuantity) => Some("quantity"),
+        K::ScalarType(
+            ScalarTypeForm::Unit
+            | ScalarTypeForm::CarriedQuantity
+            | ScalarTypeForm::BoundedQuantity,
+        ) => Some("quantity"),
         K::ScalarType(
             ScalarTypeForm::Dimension
             | ScalarTypeForm::DimensionEquivalence
@@ -1632,7 +1727,8 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | ScalarTypeForm::Unit
             | ScalarTypeForm::Enum
             | ScalarTypeForm::CompoundUnit
-            | ScalarTypeForm::CarriedQuantity,
+            | ScalarTypeForm::CarriedQuantity
+            | ScalarTypeForm::BoundedQuantity,
         ) => true,
         K::CompositeType(
             CompositeTypeForm::Option
@@ -6238,6 +6334,7 @@ mod tests {
                 ("scalar_type", "unit", "quantity"),
                 ("scalar_type", "enum", "enum"),
                 ("scalar_type", "carried_quantity", "quantity"),
+                ("scalar_type", "bounded_quantity", "quantity"),
                 ("composite_type", "option", "option"),
                 ("composite_type", "sequence", "sequence"),
                 ("composite_type", "set", "set"),

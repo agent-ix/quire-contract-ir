@@ -778,7 +778,8 @@ fn descriptor(
             | ScalarTypeForm::Dimension
             | ScalarTypeForm::Unit
             | ScalarTypeForm::CompoundUnit
-            | ScalarTypeForm::CarriedQuantity,
+            | ScalarTypeForm::CarriedQuantity
+            | ScalarTypeForm::BoundedQuantity,
         ) => (
             (!suppress(Suppression::Whole)?).then_some(D::Whole { kind: frame.kind }),
             inherited,
