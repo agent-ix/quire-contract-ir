@@ -12,7 +12,8 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    LiteralKind,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -658,6 +659,131 @@ fn quantity_package() -> Fixture {
             }),
     );
     finish(package, nodes)
+}
+
+fn quantity_power_package(parameter_exponent: bool) -> Fixture {
+    let mut fixture = quantity_package();
+    let exponent = if parameter_exponent {
+        "power_parameter"
+    } else {
+        "power_literal"
+    };
+    let nodes = fixture.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    for (_, node) in [
+        node(
+            "power_base",
+            "value",
+            "literal",
+            "metre",
+            &[],
+            "expression",
+            literal("metre", "quantity", "2"),
+        ),
+        node(
+            "power_literal",
+            "value",
+            "literal",
+            "integer",
+            &[],
+            "expression",
+            literal("integer", "integer", "2"),
+        ),
+        parameter("power_parameter", "integer"),
+        composite("integer_field", "record", &["integer"]),
+    ] {
+        nodes.push(node);
+    }
+    let body = json!({
+        "term": "application",
+        "operator": "binary",
+        "operation": {"identity": "quire.op.quantity.pow", "laws": [], "mode": null,
+            "member": null, "leaves": []},
+        "result_type": node_id(&key("cu")),
+        "arguments": [reference("power_base"), reference(exponent)],
+    });
+    let (_, power) = node(
+        "square",
+        "expression",
+        "binary",
+        "cu",
+        &["power_base", exponent],
+        "expression",
+        body,
+    );
+    nodes.push(power);
+    settle(&mut fixture.value);
+    let power = fixture.value["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["body"]["operation"]["identity"] == "quire.op.quantity.pow")
+        .expect("quantity power");
+    fixture.ids.insert(
+        key("square"),
+        serde_json::from_value(power["node_id"].clone()).expect("power key"),
+    );
+    fixture.ids.insert(
+        key("integer_field"),
+        serde_json::from_value(node_id(&key("integer_field"))).expect("integer field key"),
+    );
+    fixture
+}
+
+#[trace("TC-048", "FR-038-AC-471")]
+#[test]
+fn canonical_referenced_integer_exponent_lowers_and_parameters_still_require_bounds() {
+    let literal = quantity_power_package(false);
+    let admitted = admit(&literal);
+    let square = id_of(&literal, "square");
+    let exponent = serde_json::from_value::<CheckedNodeId>(node_id(&key("power_literal")))
+        .expect("literal key");
+    let integer = id_of(&literal, "integer");
+    let compound = id_of(&literal, "cu");
+    let Some(CheckedTerm::Literal {
+        type_id,
+        value_kind: LiteralKind::Integer,
+        value,
+    }) = admitted.term(&exponent)
+    else {
+        panic!("checked exponent is the original Integer literal");
+    };
+    assert_eq!(type_id, &integer);
+    assert_eq!(value, "2");
+    let Some(CheckedTerm::Application { result_type, .. }) = admitted.term(&square) else {
+        panic!("checked square application");
+    };
+    assert_eq!(result_type, &compound);
+    match admitted
+        .lower(std::slice::from_ref(&square), &bounded_profile())
+        .records
+        .remove(0)
+    {
+        CompleteLoweringRecordV2::Lowered { node } => {
+            assert_eq!(node.node.node_id, square);
+            assert_eq!(node.semantic_type, compound);
+            assert!(node.dependencies.contains(&exponent));
+            assert!(node.dependencies.contains(&integer));
+        }
+        other => panic!("canonical literal exponent should lower: {other:?}"),
+    }
+
+    let parameter = quantity_power_package(true);
+    assert_eq!(
+        record_with(&parameter, "square", true),
+        requires_bound_at(&parameter, "square", "integer"),
+    );
+    assert_eq!(
+        record_with(&literal, "integer_field", true),
+        requires_bound_at(&literal, "integer_field", "integer"),
+    );
+    for (request, unit) in [("unit_field", "metre"), ("cu_field", "cu")] {
+        assert_eq!(
+            record_with(&literal, request, true),
+            requires_bound_at(&literal, request, unit),
+        );
+    }
 }
 
 /// A `rational_range` domain named `name` over the type called `base`.
