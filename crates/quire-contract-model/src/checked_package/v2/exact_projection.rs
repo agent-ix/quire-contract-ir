@@ -4008,10 +4008,17 @@ mod tests {
             refusal(checked_id("receipt"), 2).code,
             ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
         );
-        let exhausted = refusal(checked_id("total"), 1);
+        let mut exhausted_budget = NativeJoinBudget::new(1, u64::MAX);
+        let exhausted = package
+            .project_exact_type(&checked_id("total"), &identities, &mut exhausted_budget)
+            .expect_err("bounded work refuses");
         assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
         assert_eq!(exhausted.work, 1);
-        assert_eq!(exhausted.at, Some(Box::new(checked_id("range1000"))));
+        assert_eq!(exhausted.requested, None);
+        assert_eq!(exhausted.at, None);
+        assert_eq!(exhausted.form, None);
+        assert_eq!(exhausted.denied, exhausted_budget.first_unpaid());
+        assert_eq!(exhausted.denied.unwrap().kind, NativeJoinChargeKind::Work);
         assert_eq!(
             package.project_exact_type(
                 &checked_id("total"),
