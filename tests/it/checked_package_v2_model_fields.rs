@@ -7222,7 +7222,11 @@ pub(crate) fn complete_witness_model_wire() -> (Value, Value) {
             "Receipt",
             "record",
             &[],
-            &[field("count", "ix://quire/native/Boolean")],
+            &[
+                field("count", "ix://quire/native/Boolean"),
+                field("pair", &orders("Pair")),
+                field("distance", "ix://quire/unit/Example/Metre"),
+            ],
         ),
         object("Node", &[], &[]),
         json!({"identity":tuple,"displayName":"Pair", "kind":{"module":IDENTITY,"name":"tuple"},
@@ -7284,13 +7288,18 @@ pub(crate) fn complete_witness_model_rows(
             )),
         ),
     ];
-    let fields = vec![SelectedExactFieldRow::new(
-        record_id,
-        IDENTITY,
-        orders("Receipt"),
-        format!("{}/count", orders("Receipt")),
-        MemberId::new(MemberOwner::Node(record_key), "count").unwrap(),
-    )];
+    let fields = ["count", "pair", "distance"]
+        .into_iter()
+        .map(|name| {
+            SelectedExactFieldRow::new(
+                record_id.clone(),
+                IDENTITY,
+                orders("Receipt"),
+                format!("{}/{name}", orders("Receipt")),
+                MemberId::new(MemberOwner::Node(record_key.clone()), name).unwrap(),
+            )
+        })
+        .collect();
     let tuples = vec![SelectedTupleDeclarationRow::new(
         id(&orders("Pair")),
         IDENTITY,

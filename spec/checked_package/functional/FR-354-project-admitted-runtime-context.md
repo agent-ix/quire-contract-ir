@@ -11,6 +11,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-352
     type: depends_on
+  - target: ix://agent-ix/quire-contract-ir/FR-358
+    type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-390
     type: references
   - target: ix://agent-ix/quire-spec-language/FR-103
@@ -36,14 +38,23 @@ owns runtime interpretation and supplied-state admission.
 - Where an Exact identity is required, the selected-document identity rows of
   [FR-352](./FR-352-project-admitted-exact-value-types.md), produced by the
   same QSL selection stage as the admitted package.
+- For `project_selected_type_declarations`, the caller-owned mutable
+  `NativeJoinBudget` of [FR-358](./FR-358-compose-native-identity-join-budget.md)
+  for its checked admitted-type acquisition. This mandatory parameter is
+  additional to the existing projection work limit; the latter continues to
+  bound projection work, rather than silently creating a native join allowance.
 - Additional QSL-stage rows for selected tuple declarations, source-owned
   declared units, enum declarations, and enum members. Each row carries the
   selected source/document identity, original declaration or member identity,
   admitted structural node identity, closed form, and the stage's Exact
   `NodeKey` or declared `UnitId` as applicable. An enum member row also names
   its selected enum declaration and case. These rows extend the stage's
-  acquisition contract; current `SelectedExactIdentities` does not contain
-  them, so a read requiring one SHALL refuse until the producer supplies it.
+  acquisition contract. The checked admitted-type join retains complete tuple
+  and source-unit provenance privately in `SelectedExactIdentities`; the type
+  declaration projection uses that same checked path and accepts an exactly
+  equal previously joined row after revalidation. Standalone enum reads still
+  consume their explicit declaration and member inputs. A required identity
+  without its checked producer row SHALL refuse.
   A bare name or Exact key does not establish selection.
 - For a model-owned operation anchor, the `SelectedOperationMemberRow` acquired
   under [FR-352](./FR-352-project-admitted-exact-value-types.md): full admitted

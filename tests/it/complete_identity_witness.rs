@@ -105,8 +105,8 @@ fn complete_identity_witness_preserves_every_family_and_cloned_admission() {
     assert_eq!(rebound.declaration_rows().count(), 2);
     assert_eq!(
         rebound.field_rows().len(),
-        1,
-        "unread selected field remains present"
+        3,
+        "unread selected fields remain present"
     );
     assert_eq!(rebound.source_union_rows().count(), 1);
     assert_eq!(rebound.source_record_rows().count(), 1);
@@ -575,5 +575,55 @@ fn complete_identity_witness_obligation_free_package_accepts_empty_witness() {
             .unwrap_err()
             .code,
         Code::ForeignNode
+    );
+}
+
+#[trace("TC-467", "FR-352-AC-22", "FR-352-AC-29")]
+#[test]
+fn complete_identity_witness_retains_private_value_identities_after_producer_rows_drop() {
+    let fixture = complete_witness_fixture();
+    let tuple = fixture.tuples[0].node_key.clone();
+    let unit = fixture
+        .units
+        .iter()
+        .find(|row| {
+            row.qualified_declaration
+                .last()
+                .is_some_and(|name| name.as_ref() == "Metre")
+        })
+        .unwrap()
+        .unit_id
+        .clone();
+    let record = fixture
+        .identities
+        .declaration_rows()
+        .find(|row| row.form == quire_contract_model::SelectedExactDeclarationForm::RecordValueType)
+        .unwrap()
+        .structural_node
+        .clone();
+    let package = fixture.package;
+    let witness = fixture.identities;
+    drop(fixture.tuples);
+    drop(fixture.units);
+    let rebound = witness.validate_and_rebind(&package, &mut ample()).unwrap();
+    let projected = package
+        .project_exact_type(&record, &rebound, 100_000)
+        .unwrap();
+    let fields = projected.record_view().unwrap().fields();
+    assert_eq!(
+        fields
+            .iter()
+            .find(|field| field.name() == "pair")
+            .unwrap()
+            .value_type(),
+        &quire_exact::ValueType::Composite(tuple)
+    );
+    assert_eq!(
+        fields
+            .iter()
+            .find(|field| field.name() == "distance")
+            .unwrap()
+            .value_type(),
+        &quire_exact::ValueType::Quantity(unit)
     );
 }

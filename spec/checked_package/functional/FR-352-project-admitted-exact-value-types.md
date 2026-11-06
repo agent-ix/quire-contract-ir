@@ -493,7 +493,15 @@ alone SHALL NOT establish this binding. A clone of an admitted package SHALL
 preserve the binding and yield an equal decision. An independently selected
 foreign package with colliding labels or local indexes SHALL NOT reuse that
 binding. The operation SHALL recheck changed admission-retained owners, source
-selections, document facts and type/member references before accepting rows.
+selections, document facts and type/member references before accepting rows. The
+private binding associates the seven original immutable admission buffers:
+wire, kinds, terms, selected model tables, node and source indexes, and complete
+selected documents. Ordinary package clones share those buffers; a privately
+invalidated buffer refuses as a stale witness. This association precedes, and
+does not replace, the native per-family checks and package-derived census. It
+adds no wire identity, content digest or producer authentication. Dependency
+packages are not retained by the binding; iterative dependency destruction and
+this container's package-local scope remain unchanged.
 
 For each declaration and field row, the check SHALL preserve the existing native
 selected-document, original-identity, form, Exact-domain, member-owner and
