@@ -1860,7 +1860,21 @@ clause and which clauses contribute refinement classes.
 Within a clause it SHALL check references, activation and captures, the
 derived causal relation and progress, then slots. Within a slot it SHALL
 check forbidden `over` and model-state reads before binder scope and
-decision facts. The progress check SHALL follow QSpec FR-464's nested-repeat
+decision facts. In a protocol slot whose admitted term reaches a QSpec FR-440
+`quire.op.control.case` expression, the binder-scope check SHALL read each
+arm's binder aggregate as declarations of those exact `value`/`parameter`
+node identities, not as reads. It SHALL make those nodes local only while
+walking that arm's body; the scrutinee, another arm, the enclosing expression
+and any enclosing initializer SHALL keep their incoming scope. Sibling
+arms SHALL have distinct scopes even when their binder names and QSpec binder
+levels agree. A reference to a binder node of another arm, or to a known
+protocol-stage binder hidden by a same-name arm binder, SHALL retain the
+applicable `missing_declaration`/`missing-name` `BinderScope` refusal with its
+slot owner, name, stage and read detail at the offending protocol owner. This
+rule SHALL preserve the existing let/query local scope, finite metered walk,
+and barred model-state-read precedence.
+
+The progress check SHALL follow QSpec FR-464's nested-repeat
 rule. A nested `repeat` contributes a necessary step to an enclosing
 `repeat` exactly when its guard has no false valuation over independent
 atoms, its `maximum` is absent or at least 1, and its own body necessarily
@@ -5884,6 +5898,7 @@ copying QSL execution semantics into IR.
 | FR-038-AC-470 | Given a strict admitted monitor root and an independently selected final-emission clause ID plus full claim occurrence, its borrowed bounded clock read returns that root, exact selected clause and occurrence, admitted `ClockConfiguration`, clock name and claim name with charged work. Two claim occurrences of one admitted clause retain their distinct clock configurations. Wrong clause, wrong role, absent occurrence and an admitted claim without a configured clock give distinct typed refusals with native loci and no partial value; a missing clock row for a configured claim or a missing claim-name row refuses during strict admission before a root can be read. Exact allowance succeeds, one below reports the first uncharged locus, and a cloned package returns equal values or first stops. Unrelated graph nodes are not inspected, and no QSL authority, event semantics or complete type closure is asserted. | Test |
 | FR-038-AC-471 | Under a bounds-required profile, a reader-admitted QSL-shaped `quantity.pow` application with a quantity-literal base, an exact `compound_unit` result and a referenced `value`/`literal` Integer exponent whose body is the canonical literal `2` lowers without `requires_bound` from that exponent; its lowered dependencies retain both the literal and Integer type keys, its checked exponent retains value `2`, and its checked result retains the selected compound-unit type. A reader-admitted variant using a `value`/`parameter` typed at plain Integer as the exponent returns `requires_bound` naming Integer. A separate record field typed at that same Integer still returns `requires_bound` despite the literal; a bare quantity field or parameter still returns `requires_bound` naming its exact `unit` or `compound_unit` type. A `value`/`literal` node with a nonliteral body is refused by strict admission before this lowering rule is reached. | Test |
 | FR-038-AC-472 | A valid typed `value`/`literal` with empty dependencies admits with its literal body and type intact. Replacing its body with any nonliteral term refuses `malformed_wire` at `/semantic_graph/nodes/{node}/body`; a literal body with nonempty dependencies refuses `invalid_semantic_graph` at `/semantic_graph/nodes/{node}/dependencies`, with no admitted package or partial view. A genuine QSL U12 square package admits with its Integer literal exponent intact; changing only that exponent body's term to a reference or aggregate refuses at that node's `/body` before bounds-required lowering. | Test |
+| FR-038-AC-473 | For a QSL-emitted `recover` condition containing QSpec FR-440 `case Shape::Circle(...) { Empty: 0; Circle(r): r }`, the public strict reader admits the complete checked package; the admitted case term retains the exact `Circle` arm binder node, its Integer body reference and the `Empty` arm's value `0`, with no `BinderScope` refusal for `r`. An IR-owned admitted-wire control with two arms binding distinct nodes under the same name admits reads of each binder only inside its own arm body. A body reference to the other arm's binder, including one in a shared body node reached under both arm scopes, and a reference to an arm binder from the scrutinee or an enclosing sibling expression each refuses `missing_declaration`/`missing-name` at the protocol owner with `BinderScope` detail naming that binder, slot owner, stage and `read`; a same-name arm local does not forgive a known protocol-stage binder unavailable in that slot. A barred model-state read still precedes binder scope; the existing let/query/count/sum positive and nonleak controls under AC-465/466 keep their outcomes. | Test (TC-048; QSpec FR-440, TC-395) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
