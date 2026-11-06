@@ -608,7 +608,23 @@ impl SelectedExactIdentities {
                 )?;
             }
         }
+        for id in package.node_index.keys() {
+            charge_native_work(budget, id, id, "complete_model_unit_candidate", 1)?;
+            if package.node_kind(id) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+                && matches!(
+                    package.node(id).and_then(|node| node.owner.as_ref()),
+                    Some(CheckedNodeOwner::Model { .. })
+                )
+            {
+                require(
+                    self.declarations.contains_key(id),
+                    id,
+                    "selected_model_unit",
+                )?;
+            }
+        }
         for (id, declaration) in package.models.selected_declarations() {
+            charge_native_work(budget, id, id, "complete_record_candidate", 1)?;
             if declaration.form != DeclarationForm::RecordValueType {
                 continue;
             }
@@ -644,6 +660,7 @@ impl SelectedExactIdentities {
             }
         }
         for (id, declaration) in package.models.selected_declarations() {
+            charge_native_work(budget, id, id, "complete_tuple_candidate", 1)?;
             if declaration.form == DeclarationForm::TupleValueType {
                 charge_native_work(budget, id, id, "complete_admitted_tuple", 1)?;
                 require(
@@ -654,6 +671,7 @@ impl SelectedExactIdentities {
             }
         }
         for id in package.node_index.keys() {
+            charge_native_work(budget, id, id, "complete_unit_candidate", 1)?;
             if package.node_kind(id) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)) {
                 charge_native_work(budget, id, id, "complete_declared_unit", 1)?;
                 match package.node(id).and_then(|node| node.owner.as_ref()) {
@@ -731,6 +749,12 @@ impl SelectedExactIdentities {
         budget: &mut NativeJoinBudget,
     ) -> Result<(), ExactTypeProjectionError> {
         for (selection, model) in package.models.selected_models().iter().enumerate() {
+            let at = package
+                .node_index
+                .keys()
+                .next()
+                .expect("admitted graph is nonempty");
+            charge_native_work(budget, at, at, "complete_selected_model_candidate", 1)?;
             let root = package
                 .graph()
                 .nodes
@@ -786,9 +810,28 @@ impl SelectedExactIdentities {
                 if model.units.contains_key(original) {
                     for id in package.node_index.keys() {
                         charge_native_work(budget, root, id, "complete_selected_unit", 1)?;
-                        emitted |= matches!(package.node(id).and_then(|node| node.owner.as_ref()), Some(CheckedNodeOwner::Model { identity, node }) if identity == &model.identity && node == original)
-                            && package.node_kind(id)
-                                == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit));
+                        if let Some(CheckedNodeOwner::Model { identity, node }) =
+                            package.node(id).and_then(|node| node.owner.as_ref())
+                        {
+                            charge_native_text_pair(
+                                budget,
+                                id,
+                                "complete_model_unit_owner",
+                                identity,
+                                &model.identity,
+                            )?;
+                            charge_native_text_pair(
+                                budget,
+                                id,
+                                "complete_model_unit_original",
+                                node,
+                                original,
+                            )?;
+                            emitted |= identity == &model.identity
+                                && node == original
+                                && package.node_kind(id)
+                                    == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit));
+                        }
                     }
                 }
                 if !emitted {
@@ -833,7 +876,11 @@ fn validate_admitted_tuple(
     let id = &row.structural_node;
     charge_native_work(budget, id, id, "admitted_tuple_row", 1)?;
     let Some((document, original, form)) = package.models.selected_declaration(id) else {
-        return Err(selected_declaration_error(package, id));
+        return Err(if package.node(id).is_some() {
+            witness_error(id, ExactTypeProjectionErrorCode::MismatchedIdentityWitness)
+        } else {
+            selected_declaration_error(package, id)
+        });
     };
     charge_native_text_pair(
         budget,
@@ -911,7 +958,29 @@ fn validate_admitted_source_unit(
             }
         }
     }
-    let matching_owner = matches!(&node.owner, Some(CheckedNodeOwner::Source { authority, identity }) if authority == &row.source_authority && identity == &row.source_identity);
+    let matching_owner = if let Some(CheckedNodeOwner::Source {
+        authority,
+        identity,
+    }) = &node.owner
+    {
+        charge_native_text_pair(
+            budget,
+            id,
+            "admitted_source_unit_owner",
+            authority,
+            &row.source_authority,
+        )?;
+        charge_native_text_pair(
+            budget,
+            id,
+            "admitted_source_unit_owner",
+            identity,
+            &row.source_identity,
+        )?;
+        authority == &row.source_authority && identity == &row.source_identity
+    } else {
+        false
+    };
     if package.node_kind(id) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
         || !selected_source
         || !matching_owner

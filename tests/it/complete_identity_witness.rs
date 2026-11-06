@@ -740,3 +740,52 @@ fn complete_identity_witness_source_joins_preserve_private_handle_ownership() {
     assert_eq!(error.code, Code::ConflictingIdentityWitness);
     assert_eq!(error.at.as_deref(), Some(&unit_id));
 }
+
+#[trace("TC-467", "FR-352-AC-25", "FR-352-AC-29")]
+#[test]
+fn complete_identity_witness_precharges_long_source_owner_comparison() {
+    let fixture = crate::checked_package_v2_owners::complete_witness_long_source_fixture();
+    let row = &fixture.units[0];
+    assert!(row.source_authority.len() > 4096);
+    // Fixed FR-358 ledger: binding (1+7), row, each selected source and
+    // its two compared text pairs, followed by the qualified declaration.
+    // No amount is obtained from running the implementation.
+    let prefix = 8
+        + 1
+        + fixture
+            .package
+            .lock()
+            .sources
+            .iter()
+            .map(|source| {
+                1 + source.authority.len()
+                    + row.source_authority.len()
+                    + source.identity.len()
+                    + row.source_identity.len()
+            })
+            .sum::<usize>()
+        + row
+            .qualified_declaration
+            .iter()
+            .map(|part| 2 * part.len())
+            .sum::<usize>();
+    let mut budget = NativeJoinBudget::new(prefix as u64, u64::MAX);
+    let empty = SelectedExactIdentities::empty();
+    let error = empty
+        .with_admitted_type_rows(
+            &fixture.package,
+            &[],
+            std::slice::from_ref(row),
+            &mut budget,
+        )
+        .unwrap_err();
+    assert_eq!(error.code, Code::ExhaustedWork);
+    assert_eq!(error.form.as_ref(), "admitted_source_unit_owner");
+    assert_eq!(budget.consumed().work, prefix as u64);
+    assert_eq!(
+        budget.first_unpaid().unwrap().amount,
+        (2 * row.source_authority.len()) as u128
+    );
+    assert_eq!(budget.last_success_delta(), None);
+    assert_eq!(empty, SelectedExactIdentities::empty());
+}

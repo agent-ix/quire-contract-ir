@@ -7612,3 +7612,190 @@ fn complete_identity_witness_refuses_unemitted_and_unsupported_selected_identity
     );
     assert_eq!(error.at.as_deref(), Some(id));
 }
+
+/// A strict reader-admitted record with an unread field and a model unit.
+fn complete_review_model_unit(original: &str, extra_nodes: usize) -> CheckedPackageV2 {
+    let mut selected = document(vec![typed_object(
+        "Receipt",
+        "record",
+        &[],
+        &[field("count", "ix://quire/native/Boolean")],
+    )]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind":{"module":IDENTITY,"name":"record"},
+        "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}
+    }));
+    let dimension_original = "ix://acme/orders/dimension/Time";
+    selected["dimensions"] =
+        json!([{"identity":dimension_original,"name":"Time","base":true,"terms":[]}]);
+    selected["units"] = json!([{"identity":original,"name":"second","dimension":dimension_original,"scale":"1","offset":"0"}]);
+    let (mut wire, _, _) = package(&selected, &[("Receipt", "record_value_type")], &[]);
+    let dimension = structural_id(
+        IDENTITY,
+        vec![
+            json!("scalar_type"),
+            json!("dimension"),
+            json!(dimension_original),
+        ],
+        0,
+    );
+    let unit = structural_id(
+        IDENTITY,
+        vec![json!("scalar_type"), json!("unit"), json!(original)],
+        0,
+    );
+    let nodes = wire["semantic_graph"]["nodes"].as_array_mut().unwrap();
+    for (id, form, original, ty) in [
+        (&dimension, "dimension", dimension_original, &dimension),
+        (&unit, "unit", original, &dimension),
+    ] {
+        nodes.push(
+            json!({"node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"scalar_type","semantic_form":form,"semantic_type":ty,"dependencies":[],
+            "occurrences":[{"role":"generated","ordinal":0}],
+            "owner":{"kind":"model","identity":IDENTITY,"node":original},"body":empty()}),
+        );
+    }
+    for i in 0..extra_nodes {
+        let id = format!("review-unrelated-{i}");
+        nodes.push(wire_node(&id, "scalar_type", "boolean", &id, &[], empty()));
+    }
+    settle(&mut wire);
+    let evidence = evidence_with_document(&wire, IDENTITY, &selected);
+    match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("complete review model unit fixture must admit: {other:?}"),
+    }
+}
+
+#[trace("TC-467", "FR-352-AC-26")]
+#[test]
+fn complete_identity_witness_missing_model_unit_precedes_unread_field() {
+    let unit_original = "ix://acme/orders/unit/second";
+    let package = complete_review_model_unit(unit_original, 0);
+    let record = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "record_value_type")
+        .unwrap()
+        .node_id
+        .clone();
+    let unit = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "unit")
+        .unwrap()
+        .node_id
+        .clone();
+    let witness = SelectedExactIdentities::from_stage_rows(
+        &package,
+        [SelectedExactDeclarationRow::new(
+            record,
+            IDENTITY,
+            SelectedExactDeclarationForm::RecordValueType,
+            orders("Receipt"),
+            SelectedExactIdentity::Record(
+                NodeKey::new(
+                    "complete-review",
+                    vec![PathSegment::Text("Receipt".into())],
+                    0,
+                )
+                .unwrap(),
+            ),
+        )],
+        [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .unwrap();
+    let error = witness
+        .validate_and_rebind(
+            &package,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::IncompleteIdentityWitness
+    );
+    assert_eq!(error.form.as_ref(), "selected_model_unit");
+    assert_eq!(error.at.as_deref(), Some(&unit));
+}
+
+#[trace("TC-467", "FR-352-AC-25")]
+#[test]
+fn complete_identity_witness_precharges_long_model_unit_owner_text() {
+    let original = format!("ix://acme/orders/unit/{}", "x".repeat(4096));
+    let package = complete_review_model_unit(&original, 0);
+    let record_original = orders("Receipt");
+    // One selected model; record and unit document obligations; the sole
+    // selected declaration is inspected once for each obligation. This is a
+    // fixed logical ledger, independent of an ample implementation run.
+    let mut prefix = 8 + 5 + 3 * record_original.len() + original.len();
+    let mut nodes: Vec<_> = package.graph().nodes.iter().collect();
+    nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+    let mut expected_amount = None;
+    for node in nodes {
+        prefix += 1;
+        if let Some(quire_contract_model::CheckedNodeOwner::Model {
+            identity,
+            node: owner,
+        }) = &node.owner
+        {
+            prefix += identity.len() + IDENTITY.len();
+            expected_amount = Some(owner.len() + original.len());
+            break;
+        }
+    }
+    let mut budget = quire_contract_model::NativeJoinBudget::new(prefix as u64, u64::MAX);
+    let error = SelectedExactIdentities::empty()
+        .validate_and_rebind(&package, &mut budget)
+        .unwrap_err();
+    assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(error.form.as_ref(), "complete_model_unit_original");
+    assert_eq!(budget.consumed().work, prefix as u64);
+    assert_eq!(
+        budget.first_unpaid().unwrap().amount,
+        expected_amount.unwrap() as u128
+    );
+}
+
+#[trace("TC-467", "FR-352-AC-25")]
+#[test]
+fn complete_identity_witness_precharges_every_unrelated_census_candidate() {
+    for extra in [0, 64, 256] {
+        let selected = document(Vec::new());
+        let (mut wire, _, _) = package(&selected, &[], &[]);
+        for i in 0..extra {
+            let id = format!("unrelated-census-{i}");
+            wire["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .push(wire_node(&id, "scalar_type", "boolean", &id, &[], empty()));
+        }
+        settle(&mut wire);
+        let evidence = evidence_with_document(&wire, IDENTITY, &selected);
+        let package = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+            CheckedPackageV2ReadResult::Admitted(package) => *package,
+            other => panic!("unrelated census fixture admits: {other:?}"),
+        };
+        // Binding consumes eight; even an empty selected model costs one.
+        let mut empty_model = quire_contract_model::NativeJoinBudget::new(8, u64::MAX);
+        let error = SelectedExactIdentities::empty()
+            .validate_and_rebind(&package, &mut empty_model)
+            .unwrap_err();
+        assert_eq!(error.form.as_ref(), "complete_selected_model_candidate");
+        assert_eq!(empty_model.first_unpaid().unwrap().amount, 1);
+        // The next unit-declaration candidate must be paid before node_kind,
+        // even when all candidates happen to be unrelated non-units.
+        let mut candidate = quire_contract_model::NativeJoinBudget::new(9, u64::MAX);
+        let error = SelectedExactIdentities::empty()
+            .validate_and_rebind(&package, &mut candidate)
+            .unwrap_err();
+        assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+        assert_eq!(error.form.as_ref(), "complete_model_unit_candidate");
+        assert_eq!(candidate.consumed().work, 9);
+        assert_eq!(candidate.first_unpaid().unwrap().amount, 1);
+    }
+}

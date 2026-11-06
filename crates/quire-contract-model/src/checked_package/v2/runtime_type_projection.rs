@@ -606,6 +606,11 @@ impl CheckedPackageV2 {
                 exact_keys.insert(key.clone());
             }
         }
+        // The checked acquisition is the sole native tuple/source-unit validator.
+        // The loops below only meter projection-owned indexes and opaque keys.
+        let admitted_identities = identities
+            .with_admitted_type_rows(self, tuple_rows, source_unit_rows, join_budget)
+            .map_err(|error| SelectedTypeDeclarationsError::from_exact(error, work))?;
         for row in tuple_rows {
             charge(
                 &mut work,
@@ -640,34 +645,6 @@ impl CheckedPackageV2 {
                 "selected_tuple_row",
                 &row.node_key,
             )?;
-            let Some((document, original, form)) =
-                self.models.selected_declaration(&row.structural_node)
-            else {
-                let code = if row.structural_node.package.as_ref() != self.name() {
-                    ExactTypeProjectionErrorCode::ForeignNode
-                } else if self.node(&row.structural_node).is_some() {
-                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness
-                } else {
-                    ExactTypeProjectionErrorCode::UnknownNode
-                };
-                return Err(SelectedTypeDeclarationsError::at(
-                    code,
-                    &row.structural_node,
-                    "selected_tuple_row",
-                    work,
-                ));
-            };
-            if document != row.selected_document.as_ref()
-                || original != row.original_identity.as_ref()
-                || form != DeclarationForm::TupleValueType
-            {
-                return Err(SelectedTypeDeclarationsError::at(
-                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                    &row.structural_node,
-                    "selected_tuple_row",
-                    work,
-                ));
-            }
             if tuple_by_node
                 .insert(row.structural_node.clone(), row)
                 .is_some()
@@ -732,41 +709,6 @@ impl CheckedPackageV2 {
                     key,
                 )?;
             }
-            let Some(node) = self.node(&row.structural_node) else {
-                let code = if row.structural_node.package.as_ref() != self.name() {
-                    ExactTypeProjectionErrorCode::ForeignNode
-                } else {
-                    ExactTypeProjectionErrorCode::UnknownNode
-                };
-                return Err(SelectedTypeDeclarationsError::at(
-                    code,
-                    &row.structural_node,
-                    "selected_source_unit_row",
-                    work,
-                ));
-            };
-            let selected_source = self.lock().sources.iter().any(|source| {
-                source.authority == row.source_authority && source.identity == row.source_identity
-            });
-            let matching_owner = matches!(&node.owner, Some(CheckedNodeOwner::Source { authority, identity }) if authority == &row.source_authority && identity == &row.source_identity);
-            let matching_declaration = node
-                .declaration
-                .as_ref()
-                .is_some_and(|declaration| declaration.qualified_name == row.qualified_declaration);
-            if self.node_kind(&row.structural_node)
-                != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
-                || !selected_source
-                || !matching_owner
-                || !matching_declaration
-                || !matches!(row.unit_id, UnitId::Declared(_))
-            {
-                return Err(SelectedTypeDeclarationsError::at(
-                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                    &row.structural_node,
-                    "selected_source_unit_row",
-                    work,
-                ));
-            }
             let UnitId::Declared(key) = &row.unit_id else {
                 unreachable!("checked declared domain")
             };
@@ -795,9 +737,6 @@ impl CheckedPackageV2 {
             }
         }
 
-        let admitted_identities = identities
-            .with_admitted_type_rows(self, tuple_rows, source_unit_rows, join_budget)
-            .map_err(|error| SelectedTypeDeclarationsError::from_exact(error, work))?;
         let identities = &admitted_identities;
         let mut records = Vec::new();
         let mut tuples = Vec::new();

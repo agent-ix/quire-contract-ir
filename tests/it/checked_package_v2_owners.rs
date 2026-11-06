@@ -2364,6 +2364,10 @@ pub(crate) fn complete_witness_fixture() -> CompleteWitnessFixture {
     native_source_family_fixture(true)
 }
 
+pub(crate) fn complete_witness_long_source_fixture() -> CompleteWitnessFixture {
+    native_source_family_fixture_with_authority(true, Some(&format!("source/{}", "x".repeat(4096))))
+}
+
 #[trace("TC-467", "FR-358-AC-3", "FR-358-AC-4")]
 #[test]
 fn native_budget_counts_nonempty_source_families_on_one_package() {
@@ -2371,6 +2375,13 @@ fn native_budget_counts_nonempty_source_families_on_one_package() {
 }
 
 fn native_source_family_fixture(include_model: bool) -> CompleteWitnessFixture {
+    native_source_family_fixture_with_authority(include_model, None)
+}
+
+fn native_source_family_fixture_with_authority(
+    include_model: bool,
+    authority: Option<&str>,
+) -> CompleteWitnessFixture {
     use quire_contract_model::{
         NativeJoinBudget, NativeJoinCharge, SelectedEnumDeclarationRow, SelectedEnumMemberRow,
         SelectedSourceCollectionRow, SelectedSourceEnumRow, SelectedSourceUnionRow,
@@ -2390,6 +2401,25 @@ fn native_source_family_fixture(include_model: bool) -> CompleteWitnessFixture {
         members.push((converted, "qualified:Example/Centimetre".into()));
     }
     let mut wire = nominal_package(&members);
+    if let Some(authority) = authority {
+        fn replace(value: &mut Value, original: &str, replacement: &str) {
+            match value {
+                Value::String(text) if text == original => *text = replacement.to_owned(),
+                Value::Array(values) => values
+                    .iter_mut()
+                    .for_each(|value| replace(value, original, replacement)),
+                Value::Object(values) => values
+                    .values_mut()
+                    .for_each(|value| replace(value, original, replacement)),
+                _ => {}
+            }
+        }
+        let original = wire["lock"]["sources"][0]["authority"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        replace(&mut wire, &original, authority);
+    }
     let model_document = include_model.then(|| {
         let (model_wire, document) =
             crate::checked_package_v2_model_fields::complete_witness_model_wire();
