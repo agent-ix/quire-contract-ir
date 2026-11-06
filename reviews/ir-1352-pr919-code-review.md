@@ -27,5 +27,5 @@ PASS. The PR specifies an IR reader decision and cites QSpec FR-440 as authority
 ## Coverage
 
 - FR-038 case-arm slot paragraph near line 1850, role: examined. Exact binder-node identity, arm-local scope, external reads, and precedence.
-- FR-038-AC-472, role: examined. Producer positive and IR-owned scope controls.
+- FR-038-AC-473, role: examined. Producer positive and IR-owned scope controls. FR-038-AC-472 remains owned by merged PR #918 on base.
 - FR-038-AC-465/466, role: context_only. Existing let/query local and nonleak behavior.

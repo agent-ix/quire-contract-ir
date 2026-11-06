@@ -12,7 +12,7 @@ relationships:
 
 ## Summary
 
-Ticket: IR-1352. Reviewed the new slot-scope rule and FR-038-AC-472 against QSpec FR-440's case-arm shape, binder levels, and IR's existing protocol-slot and operation checks. No applicable AssuranceProfile exists under `spec/`.
+Ticket: IR-1352. Reviewed the new slot-scope rule and FR-038-AC-473 against QSpec FR-440's case-arm shape, binder levels, and IR's existing protocol-slot and operation checks. Merged PR #918 owns FR-038-AC-472, preserved on the base. No applicable AssuranceProfile exists under `spec/`.
 
 ## Verdict
 
@@ -31,7 +31,8 @@ QSpec FR-440 gives each arm a binder-reference aggregate and a body, with arm-lo
 ## Coverage
 
 - FR-038 case-arm slot paragraph near line 1850, role: examined. Identity-specific arm scope and refusal precedence.
-- FR-038-AC-472, role: examined. QSL positive, same-name sibling positive, leakage/shadowing adverse cases and existing-control retention.
+- FR-038-AC-473, role: examined. QSL positive, same-name sibling positive, leakage/shadowing adverse cases and existing-control retention.
+- FR-038-AC-472, role: context_only. Merged PR #918's literal-body admission criterion remains on the base and is not changed by this PR.
 - FR-038-AC-465/466, role: examined. Existing lexical let/query and protocol-stage nonleak rules preserved by the new text.
 - QSpec FR-440-AC-3/4/5, role: context_only. Case wire, operation joins, and binder levels.
 - IR `protocol_body.rs` slot walk and `operations.rs::union_arms_hold`, role: context_only. The reader's current validation order and reachable adverse control route.
