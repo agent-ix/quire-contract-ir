@@ -1699,10 +1699,10 @@ mod tests {
         let entry = plan.init().node_id().clone();
         let target = plan.state().clone();
         let (position, _) = single.node_with_position(&entry).unwrap();
-        single.terms[position] =
+        std::sync::Arc::make_mut(&mut single.terms)[position] =
             CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
         let mut repeated = single.clone();
-        repeated.terms[position] = CheckedTerm::aggregate(vec![
+        std::sync::Arc::make_mut(&mut repeated.terms)[position] = CheckedTerm::aggregate(vec![
             CheckedTerm::reference(target.clone()),
             CheckedTerm::reference(target),
         ]);
