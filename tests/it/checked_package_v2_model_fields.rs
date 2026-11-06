@@ -560,12 +560,21 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
                 assert_eq!(field.value_type(), &expected[index]);
                 assert_eq!(field.presence(), if (6..8).contains(&index) { Presence::Optional } else { Presence::Required });
             }
-            let exhausted = admitted.project_exact_type(&structural, &identities, &mut quire_contract_model::NativeJoinBudget::new(work - 1, u64::MAX)).unwrap_err();
+            let mut exhausted_budget =
+                quire_contract_model::NativeJoinBudget::new(work - 1, u64::MAX);
+            let exhausted = admitted
+                .project_exact_type(&structural, &identities, &mut exhausted_budget)
+                .unwrap_err();
             assert_eq!(clone.project_exact_type(&structural, &identities, &mut quire_contract_model::NativeJoinBudget::new(work - 1, u64::MAX)), Err(exhausted.clone()));
             assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-            assert_eq!(exhausted.requested.as_deref(), Some(&structural));
-            assert_eq!(exhausted.at.as_deref(), Some(&structural));
-            assert_eq!(exhausted.form.as_deref(), Some("record_field_collection"));
+            assert_eq!(exhausted.requested, None);
+            assert_eq!(exhausted.at, None);
+            assert_eq!(exhausted.form, None);
+            assert_eq!(exhausted.denied, exhausted_budget.first_unpaid());
+            assert_eq!(
+                exhausted.denied.unwrap().kind,
+                quire_contract_model::NativeJoinChargeKind::Work
+            );
             assert_eq!(exhausted.work, work - 1);
         })
         .unwrap()
@@ -3115,15 +3124,23 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
     let view = projected.record_view().unwrap();
     assert_eq!(view.fields().len(), 1);
     assert_eq!(view.fields()[0].value_type(), &ValueType::Quantity(unit_id));
+    let mut exhausted_budget = quire_contract_model::NativeJoinBudget::new(4, u64::MAX);
     let exhausted = admitted
         .project_exact_type(
             &record,
             &witnessed,
-            &mut quire_contract_model::NativeJoinBudget::new(4, u64::MAX),
+            &mut exhausted_budget,
         )
         .unwrap_err();
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(exhausted.at.as_deref(), Some(&unit));
+    assert_eq!(exhausted.requested, None);
+    assert_eq!(exhausted.at, None);
+    assert_eq!(exhausted.form, None);
+    assert_eq!(exhausted.denied, exhausted_budget.first_unpaid());
+    assert_eq!(
+        exhausted.denied.unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
     assert_eq!(exhausted.work, 4);
 }
 
@@ -3354,18 +3371,26 @@ fn admitted_selected_records_project_complete_exact_views() {
             format!("{}/set", orders("Flag")),
         ],
     );
+    let mut exhausted_budget = quire_contract_model::NativeJoinBudget::new(
+        witnesses.field_rows().len() as u64 + 2,
+        u64::MAX,
+    );
     let exhausted = admitted
         .project_exact_type(
             tick_node,
             &witnesses,
-            &mut quire_contract_model::NativeJoinBudget::new(
-                witnesses.field_rows().len() as u64 + 2,
-                u64::MAX,
-            ),
+            &mut exhausted_budget,
         )
         .expect_err("the field itself must be charged");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(exhausted.at.as_deref(), Some(tick_node));
+    assert_eq!(exhausted.requested, None);
+    assert_eq!(exhausted.at, None);
+    assert_eq!(exhausted.form, None);
+    assert_eq!(exhausted.denied, exhausted_budget.first_unpaid());
+    assert_eq!(
+        exhausted.denied.unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
     assert_eq!(
         projections[1]
             .record_view()
@@ -3814,16 +3839,24 @@ fn admitted_nested_record_and_reference_fields_require_target_witnesses_and_work
         );
         assert_eq!(refusal.at.as_deref(), Some(failed_target));
     }
-    for (limit, failed_target) in [(5, &address), (7, &person)] {
+    for limit in [5, 7] {
+        let mut refusal_budget = quire_contract_model::NativeJoinBudget::new(limit, u64::MAX);
         let refusal = admitted
             .project_exact_type(
                 &envelope,
                 &complete,
-                &mut quire_contract_model::NativeJoinBudget::new(limit, u64::MAX),
+                &mut refusal_budget,
             )
             .expect_err("nested target read must consume the remaining work");
         assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-        assert_eq!(refusal.at.as_deref(), Some(failed_target));
+        assert_eq!(refusal.requested, None);
+        assert_eq!(refusal.at, None);
+        assert_eq!(refusal.form, None);
+        assert_eq!(refusal.denied, refusal_budget.first_unpaid());
+        assert_eq!(
+            refusal.denied.unwrap().kind,
+            quire_contract_model::NativeJoinChargeKind::Work
+        );
         assert_eq!(refusal.work, limit);
     }
 }

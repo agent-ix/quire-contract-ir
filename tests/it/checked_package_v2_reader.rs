@@ -139,16 +139,23 @@ fn exact_scalar_projection_uses_publicly_admitted_package() {
         );
     }
     let id = serde_json::from_value(node_id(&family_key("aaaa"))).expect("Boolean ID");
+    let mut exhausted_budget = quire_contract_model::NativeJoinBudget::new(1, u64::MAX);
     let exhausted = package
         .project_exact_type(
             &id,
             &identities,
-            &mut quire_contract_model::NativeJoinBudget::new(1, u64::MAX),
+            &mut exhausted_budget,
         )
         .expect_err("finite limit");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(exhausted.requested.as_deref(), Some(&id));
-    assert_eq!(exhausted.at.as_deref(), Some(&id));
+    assert_eq!(exhausted.requested, None);
+    assert_eq!(exhausted.at, None);
+    assert_eq!(exhausted.form, None);
+    assert_eq!(exhausted.denied, exhausted_budget.first_unpaid());
+    assert_eq!(
+        exhausted.denied.unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
     assert_eq!(exhausted.work, 1);
 }
 
