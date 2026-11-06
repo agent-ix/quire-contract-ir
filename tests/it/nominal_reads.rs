@@ -3,7 +3,7 @@
 //! Opaque stage keys below are explicit row fixtures, not QSL provenance evidence.
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_fixture_members, nominal_package,
+    canonical, evidence_for, node_id, nominal_fixture_members, nominal_package, refresh_identity,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::nominal_reads::{
@@ -318,6 +318,39 @@ fn source_enum_exact_projection_requires_complete_canonical_rows() {
             ExactTypeProjectionErrorCode::ConflictingIdentityWitness
         );
     }
+}
+
+/// Trace: FR-352-AC-19.
+#[trace("FR-352-AC-19")]
+#[test]
+fn source_enum_member_from_another_selected_source_refuses() {
+    let mut members = nominal_fixture_members();
+    let mut done = members[0].0.clone();
+    done["case"] = json!("DONE");
+    members.truncate(2);
+    members.push((done, "value/enum_value/DONE".to_owned()));
+    let mut wire = nominal_package(&members);
+    let second_source = wire["lock"]["sources"][1].clone();
+    wire["source_map"][0]["regions"][0]["source"] = second_source;
+    refresh_identity(&mut wire);
+    let package = match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("two selected source fixture must admit: {other:?}"),
+    };
+    let row = source_enum_row(&package, false);
+    let member_id = row.members[0].structural_node.clone();
+    let refusal = SelectedExactIdentities::empty()
+        .with_source_enum_rows(&package, [row], 1000)
+        .unwrap_err();
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    assert_eq!(refusal.at.as_deref(), Some(&member_id));
 }
 
 /// Trace: FR-353-AC-7, FR-352-AC-11.

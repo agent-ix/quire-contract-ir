@@ -766,6 +766,7 @@ fn validate_source_enum_row(
         let literal = member_node.body.literal_read();
         if package.node_kind(at) != Some(CheckedNodeKind::Value(ValueForm::EnumValue))
             || member_node.semantic_type != *id
+            || member_node.occurrences.is_empty()
             || literal.is_none_or(|literal| {
                 literal.type_id != id || literal.value != CheckedLiteralValue::Enum(case)
             })
@@ -776,6 +777,36 @@ fn validate_source_enum_row(
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                 *work,
             ));
+        }
+        // Enum-value nodes are owner-free. Admission requires one source-map
+        // entry per occurrence; its regions identify the selected raw source.
+        for occurrence in &member_node.occurrences {
+            charge_work(requested, at, "enum_case_occurrence", work, limit)?;
+            let source_entry = package
+                .source_index
+                .get(&(at.clone(), occurrence.role.clone(), occurrence.ordinal))
+                .and_then(|&position| package.source_map().get(position));
+            let Some(source_entry) = source_entry.filter(|entry| !entry.regions.is_empty()) else {
+                return Err(source_enum_error(
+                    requested,
+                    at,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    *work,
+                ));
+            };
+            for region in &source_entry.regions {
+                charge_work(requested, at, "enum_case_source", work, limit)?;
+                if region.source.authority != declaration.source_authority
+                    || region.source.identity != declaration.source_identity
+                {
+                    return Err(source_enum_error(
+                        requested,
+                        at,
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                        *work,
+                    ));
+                }
+            }
         }
     }
     if variants.next().is_some() {
