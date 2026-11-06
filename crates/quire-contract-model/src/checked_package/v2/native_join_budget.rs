@@ -82,6 +82,11 @@ impl NativeJoinBudget {
         });
     }
 
+    /// Clear a failed outer operation's delta without erasing its first denial.
+    pub(super) fn abort(&mut self) {
+        self.last_success_delta = None;
+    }
+
     pub(super) fn charge(&mut self, kind: NativeJoinChargeKind, amount: u128) -> bool {
         let (consumed, limit) = match kind {
             NativeJoinChargeKind::Work => (&mut self.consumed.work, self.work_limit),

@@ -888,6 +888,8 @@ pub enum CheckedPackageV2ReadResult {
 /// `Debug` rendering, lowering and drop.
 #[derive(Clone)]
 pub struct CheckedPackageV2 {
+    /// Private admission capability; clones preserve it, independent reads do not.
+    admission_binding: AdmissionBinding,
     wire: CheckedPackageWireV2,
     kinds: Vec<CheckedNodeKind>,
     schedulability_claim_index: Vec<(usize, usize)>,
@@ -917,6 +919,23 @@ pub struct CheckedPackageV2 {
     /// Exact identities reachable through the direct edges, shared with children.
     closure_index: ClosureIndex,
 }
+
+#[derive(Clone, Debug)]
+struct AdmissionBinding(Arc<()>);
+
+impl Default for AdmissionBinding {
+    fn default() -> Self {
+        Self(Arc::new(()))
+    }
+}
+
+impl PartialEq for AdmissionBinding {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for AdmissionBinding {}
 
 impl std::fmt::Debug for CheckedPackageV2 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1339,6 +1358,7 @@ impl CheckedPackageV2 {
             })
             .collect();
         Ok(Self {
+            admission_binding: Default::default(),
             wire,
             kinds,
             schedulability_claim_index,
@@ -4251,6 +4271,7 @@ mod tests {
                     selected_documents: Vec::new(),
                     direct_dependencies: Vec::new(),
                     closure_index: Default::default(),
+            admission_binding: Default::default(),
                 };
                 let package_debug = format!("{package:?}");
                 assert_eq!(package_debug.matches("package: ").count(), CHAIN_LEN + 1);

@@ -90,7 +90,7 @@ fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
     )
     .expect("selected object identity");
     let projected = admitted
-        .project_selected_type_declarations(&witnessed, &[], &[], 10_000)
+        .project_selected_type_declarations(&witnessed, &[], &[], 10_000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
         .expect("witnessed Ledger type environment");
     let object = &projected.objects()[0];
     assert_eq!(object.original_identity(), orders("Ledger"));
@@ -109,11 +109,11 @@ fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
     assert_eq!(
         admitted
             .clone()
-            .project_selected_type_declarations(&witnessed, &[], &[], 10_000),
+            .project_selected_type_declarations(&witnessed, &[], &[], 10_000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)),
         Ok(projected.clone())
     );
     let exhausted = admitted
-        .project_selected_type_declarations(&witnessed, &[], &[], projected.work() - 1)
+        .project_selected_type_declarations(&witnessed, &[], &[], projected.work() - 1, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
         .expect_err("finite work refuses before exposing a partial view");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
 }

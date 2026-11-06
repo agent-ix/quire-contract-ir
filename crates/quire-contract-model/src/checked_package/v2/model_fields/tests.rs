@@ -1184,6 +1184,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             )],
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            admission_binding: Default::default(),
         },
         range,
     }

@@ -457,12 +457,15 @@ impl CheckedPackageV2 {
     /// exposed. Identity rows must originate from
     /// the stage selecting the same documents; IR checks their structural join
     /// but cannot authenticate an opaque Exact key supplied by another caller.
+    /// `work_limit` bounds projection work; `join_budget` is the caller-owned
+    /// work/storage allowance for the native admitted-type acquisition.
     pub fn project_selected_type_declarations(
         &self,
         identities: &SelectedExactIdentities,
         tuple_rows: &[SelectedTupleDeclarationRow],
         source_unit_rows: &[SelectedSourceUnitRow],
         work_limit: u64,
+        join_budget: &mut super::NativeJoinBudget,
     ) -> Result<SelectedTypeDeclarations, SelectedTypeDeclarationsError> {
         let mut work = 0;
         let mut selected_source_units = Vec::new();
@@ -792,8 +795,9 @@ impl CheckedPackageV2 {
             }
         }
 
-        let admitted_identities =
-            identities.with_admitted_type_rows(&tuple_by_node, &source_unit_by_node);
+        let admitted_identities = identities
+            .with_admitted_type_rows(self, tuple_rows, source_unit_rows, join_budget)
+            .map_err(|error| SelectedTypeDeclarationsError::from_exact(error, work))?;
         let identities = &admitted_identities;
         let mut records = Vec::new();
         let mut tuples = Vec::new();

@@ -392,7 +392,7 @@ pub(super) fn prior_arc_map<T>(map: &BTreeMap<CheckedNodeId, Arc<T>>) -> u128 {
         .fold(1, |units, key| add(units, add(2, node(key))))
 }
 
-/// One selected value with its nine shared map/vector handles.
+/// One selected value with its nine shared maps/vectors and admission handle.
 pub(super) const fn selected_clone() -> u128 {
-    9
+    10
 }

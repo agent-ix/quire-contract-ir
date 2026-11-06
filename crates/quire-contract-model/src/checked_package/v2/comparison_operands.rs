@@ -796,6 +796,7 @@ mod tests {
             selected_documents: Vec::new(),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            admission_binding: Default::default(),
         };
         let clause = serde_json::from_value(id('5')).expect("node id");
         let claim = CheckedOccurrence {
