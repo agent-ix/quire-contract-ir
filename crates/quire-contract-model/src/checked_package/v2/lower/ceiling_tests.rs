@@ -31,7 +31,7 @@ fn complete_node() -> CompleteContractNodeV2 {
 }
 
 fn retain_graph_indices(package: &mut CheckedPackageV2) {
-    package.node_index = super::super::retained_node_index(&package.wire);
+    package.node_index = super::super::retained_node_index(&package.wire).into();
     let ids = package
         .wire
         .semantic_graph
@@ -135,19 +135,21 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         schedulability_claim_index: Vec::new(),
         monitor_plan_index: Vec::new(),
         timed_model_roots: Vec::new(),
-        node_index: super::super::retained_node_index(&wire),
+        node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
         structural_keys: Vec::new(),
-        source_index: super::super::retained_source_index(&wire),
+        source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
         lowering_facts: Vec::new(),
-        wire,
-        terms: Vec::new(),
-        kinds,
+        wire: std::sync::Arc::new(wire),
+        terms: std::sync::Arc::new(Vec::new()),
+        kinds: std::sync::Arc::new(kinds),
         bytes,
-        models: Default::default(),
-        selected_documents: Vec::new(),
+        models: std::sync::Arc::new(Default::default()),
+        selected_documents: std::sync::Arc::new(Vec::new()),
         direct_dependencies: Vec::new(),
         closure_index: Default::default(),
-    };
+        admission_binding: Default::default(),
+    }
+    .retain_original_admission();
     retain_graph_indices(&mut package);
     let index = package
         .graph()
@@ -203,8 +205,11 @@ fn shared_closure_package(roots: usize, shared: usize) -> (CheckedPackageV2, Vec
             })
         })
         .collect::<Vec<_>>();
-    package.wire.semantic_graph.nodes = serde_json::from_value(json!(nodes)).expect("nodes");
-    package.kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); shared + roots];
+    std::sync::Arc::make_mut(&mut package.wire)
+        .semantic_graph
+        .nodes = serde_json::from_value(json!(nodes)).expect("nodes");
+    package.kinds =
+        vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); shared + roots].into();
     retain_graph_indices(&mut package);
     BODY_WALKS.with(|walks| walks.set(0));
     let index = package
@@ -357,15 +362,23 @@ fn independently_lowered_records_do_not_inherit_a_union_package_byte_failure() {
 #[test]
 fn grouped_recursive_shared_closure_keeps_independent_records() {
     let (mut package, requests) = shared_closure_package(3, 4);
-    package.wire.semantic_graph.nodes[0].semantic_type =
-        serde_json::from_value(serde_json::json!({
-            "package": "lowering-test",
-            "path": ["node-1"],
-            "ordinal": 0,
-        }))
-        .expect("cycle target");
-    package.wire.semantic_graph.nodes[0].recursion_group = Some("shared".into());
-    package.wire.semantic_graph.nodes[1].recursion_group = Some("shared".into());
+    std::sync::Arc::make_mut(&mut package.wire)
+        .semantic_graph
+        .nodes[0]
+        .semantic_type = serde_json::from_value(serde_json::json!({
+        "package": "lowering-test",
+        "path": ["node-1"],
+        "ordinal": 0,
+    }))
+    .expect("cycle target");
+    std::sync::Arc::make_mut(&mut package.wire)
+        .semantic_graph
+        .nodes[0]
+        .recursion_group = Some("shared".into());
+    std::sync::Arc::make_mut(&mut package.wire)
+        .semantic_graph
+        .nodes[1]
+        .recursion_group = Some("shared".into());
     let index = package
         .graph()
         .nodes

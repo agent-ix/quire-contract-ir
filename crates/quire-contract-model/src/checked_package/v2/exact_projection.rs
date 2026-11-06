@@ -19,6 +19,8 @@ use quire_exact::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+mod complete_witness;
+
 /// The Exact identity produced for one selected declaration form.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectedExactIdentity {
@@ -1176,10 +1178,11 @@ fn validate_source_collection_row(
 /// until the selected stage supplies a complete identity witness.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SelectedExactIdentities {
+    binding: Option<super::AdmissionBinding>,
     declarations: Arc<BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>>,
     fields: Arc<Vec<SelectedExactFieldRow>>,
-    admitted_tuples: Arc<BTreeMap<CheckedNodeId, NodeKey>>,
-    admitted_source_units: Arc<BTreeMap<CheckedNodeId, UnitId>>,
+    admitted_tuples: Arc<BTreeMap<CheckedNodeId, Arc<SelectedTupleDeclarationRow>>>,
+    admitted_source_units: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceUnitRow>>>,
     source_unions: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceUnionRow>>>,
     source_records: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceRecordRow>>>,
     source_tuples: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceTupleRow>>>,
@@ -1195,10 +1198,12 @@ impl SelectedExactIdentities {
 
     fn begin_source_join(
         &self,
+        package: &CheckedPackageV2,
         budget: &mut NativeJoinBudget,
         first: &CheckedNodeId,
     ) -> Result<(Self, NativeJoinCharge), ExactTypeProjectionError> {
         let before = budget.begin();
+        self.check_binding(package, budget, first)?;
         charge_native_storage(
             budget,
             first,
@@ -1206,7 +1211,11 @@ impl SelectedExactIdentities {
             "selected_identity_handles",
             storage::selected_clone(),
         )?;
-        Ok((self.clone(), before))
+        let mut selected = self.clone();
+        if selected.binding.is_none() {
+            selected.binding = package.admission_binding.clone();
+        }
+        Ok((selected, before))
     }
 
     fn finish_source_join(
@@ -1216,6 +1225,8 @@ impl SelectedExactIdentities {
     ) -> Result<Self, ExactTypeProjectionError> {
         if result.is_ok() {
             budget.finish(before);
+        } else {
+            budget.abort();
         }
         result.map_err(|mut error| {
             error.work = budget.consumed().work;
@@ -1230,6 +1241,7 @@ impl SelectedExactIdentities {
     ) -> Result<Self, ExactTypeProjectionError> {
         let before = budget.begin();
         if let Some(first) = package.graph().nodes.first().map(|node| &node.node_id) {
+            self.check_binding(package, budget, first)?;
             charge_native_storage(
                 budget,
                 first,
@@ -1238,7 +1250,10 @@ impl SelectedExactIdentities {
                 storage::selected_clone(),
             )?;
         }
-        let selected = self.clone();
+        let mut selected = self.clone();
+        if selected.binding.is_none() {
+            selected.binding = package.admission_binding.clone();
+        }
         budget.finish(before);
         Ok(selected)
     }
@@ -1264,10 +1279,18 @@ impl SelectedExactIdentities {
             .or_else(|| fields.peek().map(|row| &row.record_node))
             .or_else(|| package.graph().nodes.first().map(|node| &node.node_id));
         if let Some(first) = first {
-            charge_native_storage(budget, first, first, "stage_selection", 14)?;
+            complete_witness::check_package_binding(None, package, budget, first)?;
+            charge_native_storage(
+                budget,
+                first,
+                first,
+                "stage_selection",
+                storage::stage_selection(),
+            )?;
         }
         let result = (|| {
             let mut selected = Self::empty();
+            selected.binding = package.admission_binding.clone();
             let mut owners: BTreeSet<(Box<str>, SelectedExactDeclarationForm, Box<str>)> =
                 BTreeSet::new();
             let mut node_identities = BTreeSet::new();
@@ -1509,7 +1532,7 @@ impl SelectedExactIdentities {
         let Some(first) = rows.peek().map(|row| &row.structural_node) else {
             return self.empty_source_join(package, budget);
         };
-        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        let (mut selected, before) = self.begin_source_join(package, budget, first)?;
         charge_native_storage(
             budget,
             first,
@@ -1626,6 +1649,7 @@ impl SelectedExactIdentities {
                         ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
                     ));
                 }
+                selected.check_admitted_handle(&row.type_handle, id, budget)?;
                 if selected.source_unions.contains_key(id)
                     || handles.contains(&row.type_handle)
                     || settled_keys.contains(&row.settled_key)
@@ -1688,7 +1712,7 @@ impl SelectedExactIdentities {
         let Some(first) = rows.peek().map(|row| &row.structural_node) else {
             return self.empty_source_join(package, budget);
         };
-        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        let (mut selected, before) = self.begin_source_join(package, budget, first)?;
         let result = (|| {
             let work_limit = u64::MAX;
             for row in rows {
@@ -1807,6 +1831,7 @@ impl SelectedExactIdentities {
                     )?;
                     conflicting_handle |= source_enum.declaration.node_key == row.record_key;
                 }
+                selected.check_admitted_handle(&row.record_key, id, budget)?;
                 if selected.source_records.contains_key(id) || conflicting_handle {
                     let mut error =
                         witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
@@ -1862,7 +1887,7 @@ impl SelectedExactIdentities {
         let Some(first) = rows.peek().map(|row| &row.structural_node) else {
             return self.empty_source_join(package, budget);
         };
-        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        let (mut selected, before) = self.begin_source_join(package, budget, first)?;
         let result = (|| {
             let work_limit = u64::MAX;
             for row in rows {
@@ -1956,6 +1981,7 @@ impl SelectedExactIdentities {
                     )?;
                     conflicting_handle |= source_enum.declaration.node_key == row.type_handle;
                 }
+                selected.check_admitted_handle(&row.type_handle, id, budget)?;
                 if selected.source_tuples.contains_key(id) || conflicting_handle {
                     let mut error =
                         witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
@@ -2010,12 +2036,13 @@ impl SelectedExactIdentities {
         let Some(first) = rows.peek().map(|row| &row.declaration.structural_node) else {
             return self.empty_source_join(package, budget);
         };
-        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        let (mut selected, before) = self.begin_source_join(package, budget, first)?;
         let result = (|| {
             let work_limit = u64::MAX;
             for row in rows {
                 let id = &row.declaration.structural_node;
                 validate_source_enum_row(package, &row, id, budget, work_limit)?;
+                selected.check_admitted_handle(&row.declaration.node_key, id, budget)?;
                 let mut conflicting = selected.source_enums.contains_key(id);
                 for declaration in selected.declarations.values() {
                     charge_work(
@@ -2164,7 +2191,7 @@ impl SelectedExactIdentities {
         let Some(first) = rows.peek().map(|row| &row.structural_node) else {
             return self.empty_source_join(package, budget);
         };
-        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        let (mut selected, before) = self.begin_source_join(package, budget, first)?;
         charge_native_storage(
             budget,
             first,
@@ -2227,27 +2254,6 @@ impl SelectedExactIdentities {
     /// Structurally joined collection rows, keyed by final emitted type node.
     pub fn source_collection_rows(&self) -> impl Iterator<Item = &SelectedSourceCollectionRow> {
         self.source_collections.values().map(Arc::as_ref)
-    }
-
-    pub(super) fn with_admitted_type_rows(
-        &self,
-        tuples: &BTreeMap<CheckedNodeId, &SelectedTupleDeclarationRow>,
-        source_units: &BTreeMap<CheckedNodeId, &SelectedSourceUnitRow>,
-    ) -> Self {
-        let mut selected = self.clone();
-        selected.admitted_tuples = Arc::new(
-            tuples
-                .iter()
-                .map(|(id, row)| (id.clone(), row.node_key.clone()))
-                .collect(),
-        );
-        selected.admitted_source_units = Arc::new(
-            source_units
-                .iter()
-                .map(|(id, row)| (id.clone(), row.unit_id.clone()))
-                .collect(),
-        );
-        selected
     }
 
     pub(super) fn declaration_identity(
@@ -2409,6 +2415,8 @@ pub enum ExactTypeProjectionErrorCode {
     ForeignNode,
     /// A selected declaration has no authoritative identity row.
     UnavailableIdentityWitness,
+    /// The complete package-local identity domain is not covered.
+    IncompleteIdentityWitness,
     /// A selected declaration row disagrees with admission-retained facts.
     MismatchedIdentityWitness,
     /// Competing rows claim one selected declaration or structural node.
@@ -2430,6 +2438,7 @@ impl ExactTypeProjectionErrorCode {
             Self::UnknownNode => "unknown_node",
             Self::ForeignNode => "foreign_node",
             Self::UnavailableIdentityWitness => "unavailable_identity_witness",
+            Self::IncompleteIdentityWitness => "incomplete_identity_witness",
             Self::MismatchedIdentityWitness => "mismatched_identity_witness",
             Self::ConflictingIdentityWitness => "conflicting_identity_witness",
             Self::UnresolvedSelectedDeclaration => "unresolved_selected_declaration",
@@ -2445,6 +2454,7 @@ impl ExactTypeProjectionErrorCode {
             Self::UnknownNode,
             Self::ForeignNode,
             Self::UnavailableIdentityWitness,
+            Self::IncompleteIdentityWitness,
             Self::MismatchedIdentityWitness,
             Self::ConflictingIdentityWitness,
             Self::UnresolvedSelectedDeclaration,
@@ -2739,7 +2749,7 @@ pub(super) fn project_record_field_type(
                 ));
             }
             if let Some(unit) = identities.admitted_source_units.get(target) {
-                return Ok(ValueType::Quantity(unit.clone()));
+                return Ok(ValueType::Quantity(unit.unit_id.clone()));
             }
             match identities
                 .declaration_identity(package, target)
@@ -2757,8 +2767,7 @@ pub(super) fn project_record_field_type(
         MemberType::Tuple(target) => identities
             .admitted_tuples
             .get(target)
-            .cloned()
-            .map(ValueType::Composite)
+            .map(|row| ValueType::Composite(row.node_key.clone()))
             .ok_or((
                 ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                 Some(target.clone()),
@@ -3513,19 +3522,21 @@ mod tests {
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
             timed_model_roots: Vec::new(),
-            node_index: super::super::retained_node_index(&wire),
+            node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
             structural_keys: Vec::new(),
-            source_index: super::super::retained_source_index(&wire),
+            source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
-            wire,
-            terms,
-            kinds,
+            wire: std::sync::Arc::new(wire),
+            terms: std::sync::Arc::new(terms),
+            kinds: std::sync::Arc::new(kinds),
             bytes: 1 << 20,
-            models: RetainedModels::default(),
-            selected_documents: Vec::new(),
+            models: std::sync::Arc::new(RetainedModels::default()),
+            selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            admission_binding: Default::default(),
         }
+        .retain_original_admission()
     }
 
     fn checked_id(path: &str) -> CheckedNodeId {

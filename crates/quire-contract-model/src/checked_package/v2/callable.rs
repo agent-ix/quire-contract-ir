@@ -615,19 +615,21 @@ mod tests {
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
             timed_model_roots: Vec::new(),
-            node_index: retained_node_index(&wire),
+            node_index: std::sync::Arc::new(retained_node_index(&wire)),
             structural_keys: Vec::new(),
-            source_index: retained_source_index(&wire),
+            source_index: std::sync::Arc::new(retained_source_index(&wire)),
             lowering_facts: Vec::new(),
-            wire,
-            terms,
-            kinds,
+            wire: std::sync::Arc::new(wire),
+            terms: std::sync::Arc::new(terms),
+            kinds: std::sync::Arc::new(kinds),
             bytes: 1 << 20,
-            models: RetainedModels::default(),
-            selected_documents: Vec::new(),
+            models: std::sync::Arc::new(RetainedModels::default()),
+            selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            admission_binding: Default::default(),
         }
+        .retain_original_admission()
     }
 
     /// Trace: FR-354-AC-3, FR-354-AC-7.
@@ -665,7 +667,8 @@ mod tests {
     #[test]
     fn bodyless_declaration_is_not_a_callable_and_dangling_body_refuses() {
         let mut package = fixture(false);
-        package.terms[3] = CheckedTerm::Aggregate { members: vec![] };
+        std::sync::Arc::make_mut(&mut package.terms)[3] =
+            CheckedTerm::Aggregate { members: vec![] };
         let selected = SelectedOperationMembers::from_stage_rows(&package, [], 0).unwrap();
         assert!(package
             .callable_table(&selected, 100)
@@ -673,7 +676,7 @@ mod tests {
             .rows()
             .is_empty());
         drop(selected);
-        package.terms[3] = CheckedTerm::Aggregate {
+        std::sync::Arc::make_mut(&mut package.terms)[3] = CheckedTerm::Aggregate {
             members: vec![CheckedTerm::Binding {
                 name: "body".into(),
                 value: Box::new(CheckedTerm::Reference {
@@ -702,7 +705,7 @@ mod tests {
                 value: Box::new(CheckedTerm::Reference { target }),
             }],
         };
-        package.terms[3] = malformed(node_id('1'));
+        std::sync::Arc::make_mut(&mut package.terms)[3] = malformed(node_id('1'));
         assert_eq!(
             package
                 .source_callable(&node_id('4'), 100)
@@ -711,12 +714,15 @@ mod tests {
             CheckedCallableReadErrorCode::MalformedBody,
         );
 
-        package.terms[3] = malformed(node_id('3'));
+        std::sync::Arc::make_mut(&mut package.terms)[3] = malformed(node_id('3'));
         let foreign_owner = CheckedNodeOwner::Source {
             authority: "test".into(),
             identity: "other".into(),
         };
-        package.wire.semantic_graph.nodes[2].owner = Some(foreign_owner.clone());
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .owner = Some(foreign_owner.clone());
         assert_eq!(
             package
                 .source_callable(&node_id('4'), 100)
@@ -725,9 +731,15 @@ mod tests {
             CheckedCallableReadErrorCode::MalformedBody,
         );
 
-        package.wire.semantic_graph.nodes[2].owner = None;
-        package.wire.semantic_graph.nodes[1].owner = Some(foreign_owner);
-        package.terms[3] = CheckedTerm::Aggregate {
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .owner = None;
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[1]
+            .owner = Some(foreign_owner);
+        std::sync::Arc::make_mut(&mut package.terms)[3] = CheckedTerm::Aggregate {
             members: vec![
                 CheckedTerm::Binding {
                     name: "parameters".into(),
@@ -753,7 +765,7 @@ mod tests {
             CheckedCallableReadErrorCode::MalformedBody,
         );
 
-        package.terms[3] = malformed(node_id('2'));
+        std::sync::Arc::make_mut(&mut package.terms)[3] = malformed(node_id('2'));
         assert_eq!(
             package
                 .source_callable(&node_id('4'), 100)
@@ -761,7 +773,10 @@ mod tests {
                 .code,
             CheckedCallableReadErrorCode::MalformedBody,
         );
-        package.wire.semantic_graph.nodes[1].owner = None;
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[1]
+            .owner = None;
         assert_eq!(
             monitor_entry_callable(&package, &node_id('1'), &node_id('4'), 100)
                 .expect_err("monitor entries require an expression body")
@@ -816,7 +831,7 @@ mod tests {
     #[test]
     fn selective_body_parser_ignores_an_unrelated_malformed_function() {
         let mut package = fixture(false);
-        package.terms[4] = CheckedTerm::Reference {
+        std::sync::Arc::make_mut(&mut package.terms)[4] = CheckedTerm::Reference {
             target: node_id('9'),
         };
         let read = monitor_entry_callable(&package, &node_id('1'), &node_id('4'), 4).unwrap();

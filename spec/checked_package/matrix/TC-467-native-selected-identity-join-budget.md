@@ -5,6 +5,8 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-358
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-352
+    type: verifies
 ---
 # TC-467: Shared native selected-identity join budget
 
@@ -36,3 +38,32 @@ unchanged after refusal, and a cloned package gives the same result and
 charges. Typed non-budget identity refusals retain their existing causes and
 first loci. The crate exports one mandatory `NativeJoinBudget` acquisition
 path and its charge metadata without a QSL or runtime dependency.
+
+## Complete-witness acquisition and rebinding
+
+Run the `complete_identity_witness` integration tests through the public
+default-feature model API. Use a strict reader-admitted mixed fixture with
+selected declarations, an unread effective record field, private model-tuple
+and source-unit inputs, and all five source families. Validate unchanged
+contents and cloned admission; omit each channel; compare an independently
+admitted package with colliding contents; and exercise the mandatory native
+budget at measured exact limits, one unit below, and after earlier acquisition.
+Every failure must leave the input unchanged and expose no rebound value.
+The IR-owned rows establish native correspondence, not QSL producer authority.
+
+The external model test `complete_witness_public` runs without optional model
+features. Its strict obligation-free fixture checks all mandatory entry points
+and the 24-unit fresh-stage logical storage floor independently of measured
+exact-limit tests. The mixed fixture additionally drops original producer
+preparation rows and projects the retained tuple and source-unit identities
+through selected record fields. Private stale-buffer controls begin with the
+strict reader-admitted relationship fixture, not a manually assembled package.
+
+Fixed-work controls complement measured exact-limit tests: grow an admitted
+unrelated non-unit graph under the same allowance and assert the first unpaid
+selected-model or declaration candidate, before any kind filter. Independently
+sum the binding, selected-document and compared-byte charges for long source
+owners and model-unit originals; deny the owner comparison before its bytes
+are inspected. A missing model-unit declaration precedes an unread effective
+field, and a primitive-node tuple row gives the same native typed refusal in
+public acquisition and selected-type projection.

@@ -3485,9 +3485,10 @@ mod tests {
     fn narrow_record(lower: &str, upper: &str, literal: &str) -> CheckedPackageV2 {
         let mut p = package();
         let set = |p: &mut CheckedPackageV2, position: usize, kind, semantic_type, body: Value| {
-            p.kinds[position] = kind;
-            p.wire.semantic_graph.nodes[position].semantic_type = semantic_type;
-            p.wire.semantic_graph.nodes[position].body =
+            std::sync::Arc::make_mut(&mut p.kinds)[position] = kind;
+            std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[position].semantic_type =
+                semantic_type;
+            std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[position].body =
                 CheckedTerm::decode_admitted(&body).expect("closed private control term");
             sync_term(p, position);
         };
@@ -3671,7 +3672,7 @@ mod tests {
             assert_eq!(read(&p), Err(type_error(0, Some(id('7')))), "{pointer}");
         }
         let mut p = narrow_record("0", "9", "3");
-        p.wire.semantic_graph.nodes[7].semantic_type = id('2');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[7].semantic_type = id('2');
         assert_eq!(read(&p), Err(type_error(0, Some(id('2')))));
         for (pointer, replacement) in [
             ("/members", json!([])),
@@ -3690,7 +3691,7 @@ mod tests {
             assert_eq!(read(&p), Err(type_error(0, Some(id('7')))), "{pointer}");
         }
         let mut p = narrow_record("0", "9", "3");
-        p.wire.semantic_graph.nodes[6].semantic_type = id('1');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[6].semantic_type = id('1');
         assert_eq!(read(&p), Err(type_error(0, Some(id('7')))));
         for (pointer, replacement, locus) in [
             ("/value_kind", json!("text"), id('2')),
@@ -3707,7 +3708,7 @@ mod tests {
             assert_eq!(read(&p), Err(type_error(0, Some(locus))), "{pointer}");
         }
         let mut p = narrow_record("0", "9", "3");
-        p.wire.semantic_graph.nodes[8].semantic_type = id('1');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[8].semantic_type = id('1');
         assert_eq!(read(&p), Err(type_error(0, Some(id('2')))));
     }
 
@@ -3730,7 +3731,7 @@ mod tests {
             );
         }
         let mut p = narrow_record("0", "9", "3");
-        p.kinds[8] = CheckedNodeKind::Value(ValueForm::Parameter);
+        std::sync::Arc::make_mut(&mut p.kinds)[8] = CheckedNodeKind::Value(ValueForm::Parameter);
         assert_eq!(
             read(&p),
             Err(unsupported(
@@ -3776,9 +3777,12 @@ mod tests {
             Err(Error::WorkLimit { .. })
         ));
         let mut permuted = p;
-        permuted.wire.semantic_graph.nodes.reverse();
-        permuted.kinds.reverse();
-        permuted.terms.reverse();
+        std::sync::Arc::make_mut(&mut permuted.wire)
+            .semantic_graph
+            .nodes
+            .reverse();
+        std::sync::Arc::make_mut(&mut permuted.kinds).reverse();
+        std::sync::Arc::make_mut(&mut permuted.terms).reverse();
         permuted.node_index = permuted
             .wire
             .semantic_graph
@@ -3786,7 +3790,8 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(position, node)| (node.node_id.clone(), position))
-            .collect();
+            .collect::<std::collections::BTreeMap<_, _>>()
+            .into();
         assert_eq!(read(&permuted), Ok(result));
     }
 
@@ -3842,36 +3847,45 @@ mod tests {
         narrow_closed_record_preserves_original_graph_child_and_signed_arbitrary_precision_bounds();
         narrow_rejects_outside_signed_large_bounds_without_rounding();
         let mut absent = narrow_record("0", "9", "3");
-        absent.node_index.remove(&id('7'));
+        std::sync::Arc::make_mut(&mut absent.node_index).remove(&id('7'));
         assert_eq!(read(&absent), Err(type_error(0, Some(id('7')))));
         let mut wrong_kind = narrow_record("0", "9", "3");
-        wrong_kind.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Option);
+        std::sync::Arc::make_mut(&mut wrong_kind.kinds)[6] =
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Option);
         assert_eq!(read(&wrong_kind), Err(type_error(0, Some(id('7')))));
     }
 
     fn application_arguments(package: &mut CheckedPackageV2) -> &mut Vec<CheckedTerm> {
-        let CheckedTerm::Application { arguments, .. } = &mut package.terms[5] else {
+        let CheckedTerm::Application { arguments, .. } =
+            &mut std::sync::Arc::make_mut(&mut package.terms)[5]
+        else {
             panic!("admitted composite application term");
         };
         arguments
     }
 
     fn application_operation(package: &mut CheckedPackageV2) -> &mut Value {
-        let CheckedTerm::Application { operation, .. } = &mut package.terms[5] else {
+        let CheckedTerm::Application { operation, .. } =
+            &mut std::sync::Arc::make_mut(&mut package.terms)[5]
+        else {
             panic!("admitted composite application term");
         };
         operation.record_mut()
     }
 
     fn sync_term(package: &mut CheckedPackageV2, position: usize) {
-        package.terms[position] = package.wire.semantic_graph.nodes[position].body.clone();
+        std::sync::Arc::make_mut(&mut package.terms)[position] =
+            package.wire.semantic_graph.nodes[position].body.clone();
     }
 
     fn edit_body(package: &mut CheckedPackageV2, position: usize, edit: impl FnOnce(&mut Value)) {
         let mut body = serde_json::to_value(&package.wire.semantic_graph.nodes[position].body)
             .expect("typed fixture body");
         edit(&mut body);
-        package.wire.semantic_graph.nodes[position].body =
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[position]
+            .body =
             CheckedTerm::decode_admitted(&body).expect("edited fixture body remains a closed term");
     }
 
@@ -3880,7 +3894,10 @@ mod tests {
     fn composite_uses_retained_application_after_raw_body_changes() {
         let mut package = package();
         let expected = read(&package).expect("admitted composite operands");
-        package.wire.semantic_graph.nodes[5].body = CheckedTerm::aggregate(Vec::new());
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[5]
+            .body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(read(&package), Ok(expected));
     }
 
@@ -3888,8 +3905,12 @@ mod tests {
     #[test]
     fn alias_forwarding_uses_retained_term_after_raw_body_changes() {
         let mut package = package();
-        package.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Alias);
-        package.wire.semantic_graph.nodes[6].body = CheckedTerm::aggregate(Vec::new());
+        std::sync::Arc::make_mut(&mut package.kinds)[6] =
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Alias);
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[6]
+            .body = CheckedTerm::aggregate(Vec::new());
         let graph = Graph {
             nodes: &package.wire.semantic_graph.nodes,
             kinds: &package.kinds,
@@ -3914,8 +3935,8 @@ mod tests {
         // seam because a structural comparison reaching IEEE cannot admit.
         let admitted = package();
         let mut nodes = admitted.wire.semantic_graph.nodes.clone();
-        let mut kinds = admitted.kinds.clone();
-        let mut index = admitted.node_index.clone();
+        let mut kinds = admitted.kinds.as_ref().clone();
+        let mut index = admitted.node_index.as_ref().clone();
         let template = nodes[1].clone();
         let mut append = |tag: &str,
                           form: &str,
@@ -4094,7 +4115,7 @@ mod tests {
             ))
         );
         let mut p = package();
-        p.wire.semantic_graph.nodes[4].semantic_type = id('1');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[4].semantic_type = id('1');
         assert_eq!(
             read(&p),
             Err(unsupported(
@@ -4106,7 +4127,7 @@ mod tests {
         // The compound-unit node is present in the genuinely admitted fixture;
         // only the parameter's type is changed after admission.
         let mut p = package();
-        p.wire.semantic_graph.nodes[4].semantic_type = id('a');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[4].semantic_type = id('a');
         assert_eq!(
             read(&p),
             Err(unsupported(
@@ -4119,9 +4140,12 @@ mod tests {
         // type, rather than the parameter's original entry type.
         let mut p = package();
         for index in [3, 6] {
-            p.wire.semantic_graph.nodes[index].semantic_form = "integer_range".into();
-            p.kinds[index] = CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange);
-            p.wire.semantic_graph.nodes[index].semantic_type = id('7');
+            std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[index].semantic_form =
+                "integer_range".into();
+            std::sync::Arc::make_mut(&mut p.kinds)[index] =
+                CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange);
+            std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[index].semantic_type =
+                id('7');
         }
         assert_eq!(read(&p), Err(type_error(0, Some(id('7')))));
         let mut p = package();
@@ -4130,7 +4154,7 @@ mod tests {
             panic!("fixture application");
         };
         *result_type = id('1');
-        p.terms[4] = application;
+        std::sync::Arc::make_mut(&mut p.terms)[4] = application;
         assert_eq!(
             read(&p),
             Err(unsupported(
@@ -4140,7 +4164,7 @@ mod tests {
             ))
         );
         let mut p = package();
-        p.wire.semantic_graph.nodes[4].semantic_type = id('9');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[4].semantic_type = id('9');
         assert_eq!(read(&p), Err(type_error(0, Some(id('9')))));
     }
 
@@ -4199,9 +4223,11 @@ mod tests {
             ))
         );
         let mut p = original.clone();
-        p.wire.semantic_graph.nodes[6].semantic_form = "union".into();
-        p.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Union);
-        p.wire.semantic_graph.nodes[7].semantic_type = id('7');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[6].semantic_form =
+            "union".into();
+        std::sync::Arc::make_mut(&mut p.kinds)[6] =
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Union);
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[7].semantic_type = id('7');
         assert_eq!(
             read(&p),
             Err(Error::UnsupportedDomain {
@@ -4214,10 +4240,10 @@ mod tests {
             body["members"][0]["target"] = json!(id('7'))
         });
         sync_term(&mut p, 6);
-        p.wire.semantic_graph.nodes[7].semantic_type = id('7');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[7].semantic_type = id('7');
         assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
         let mut p = original.clone();
-        p.wire.semantic_graph.nodes[7].semantic_type = id('1');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[7].semantic_type = id('1');
         assert_eq!(
             read(&p),
             Err(unsupported(
@@ -4227,18 +4253,20 @@ mod tests {
             ))
         );
         let mut p = original.clone();
-        p.wire.semantic_graph.nodes[6].semantic_form = "record".into();
-        p.kinds[6] = CheckedNodeKind::CompositeType(CompositeTypeForm::Record);
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[6].semantic_form =
+            "record".into();
+        std::sync::Arc::make_mut(&mut p.kinds)[6] =
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Record);
         edit_body(
             &mut p,
             6,
             |body| *body = json!({"term":"aggregate","members":[{"term":"binding","name":"bad","value":{"term":"aggregate","members":[]}}]}),
         );
         sync_term(&mut p, 6);
-        p.wire.semantic_graph.nodes[7].semantic_type = id('7');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[7].semantic_type = id('7');
         assert_eq!(read(&p), Err(type_error(1, Some(id('7')))));
         let mut p = original.clone();
-        p.wire.semantic_graph.nodes[4].semantic_type = id('9');
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[4].semantic_type = id('9');
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
@@ -4267,12 +4295,14 @@ mod tests {
         sync_term(&mut p, 3);
         assert_eq!(read(&p), Err(type_error(0, Some(id('7')))));
         let mut p = package();
-        p.wire.semantic_graph.nodes[4].semantic_form = "union_value".into();
-        p.kinds[4] = CheckedNodeKind::Value(ValueForm::UnionValue);
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[4].semantic_form =
+            "union_value".into();
+        std::sync::Arc::make_mut(&mut p.kinds)[4] = CheckedNodeKind::Value(ValueForm::UnionValue);
         assert_eq!(read(&p), Err(type_error(0, Some(id('4')))));
         let mut p = package();
-        p.wire.semantic_graph.nodes[4].semantic_form = "record_value".into();
-        p.kinds[4] = CheckedNodeKind::Value(ValueForm::RecordValue);
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[4].semantic_form =
+            "record_value".into();
+        std::sync::Arc::make_mut(&mut p.kinds)[4] = CheckedNodeKind::Value(ValueForm::RecordValue);
         edit_body(
             &mut p,
             4,

@@ -2352,9 +2352,36 @@ fn tc_228_model_owner_is_closed_and_required_on_the_graph_node() {
 /// A single admitted source supplies every native join family. Each row is
 /// populated, so the cumulative budget includes the family's validation and
 /// retained map entries rather than only an empty Arc handle.
-#[trace("FR-358", "FR-358-AC-3", "FR-358-AC-4")]
+pub(crate) struct CompleteWitnessFixture {
+    pub package: CheckedPackageV2,
+    pub identities: SelectedExactIdentities,
+    pub budget: quire_contract_model::NativeJoinBudget,
+    pub tuples: Vec<quire_contract_model::SelectedTupleDeclarationRow>,
+    pub units: Vec<quire_contract_model::SelectedSourceUnitRow>,
+}
+
+pub(crate) fn complete_witness_fixture() -> CompleteWitnessFixture {
+    native_source_family_fixture(true)
+}
+
+pub(crate) fn complete_witness_long_source_fixture() -> CompleteWitnessFixture {
+    native_source_family_fixture_with_authority(true, Some(&format!("source/{}", "x".repeat(4096))))
+}
+
+#[trace("TC-467", "FR-358-AC-3", "FR-358-AC-4")]
 #[test]
 fn native_budget_counts_nonempty_source_families_on_one_package() {
+    native_source_family_fixture(false);
+}
+
+fn native_source_family_fixture(include_model: bool) -> CompleteWitnessFixture {
+    native_source_family_fixture_with_authority(include_model, None)
+}
+
+fn native_source_family_fixture_with_authority(
+    include_model: bool,
+    authority: Option<&str>,
+) -> CompleteWitnessFixture {
     use quire_contract_model::{
         NativeJoinBudget, NativeJoinCharge, SelectedEnumDeclarationRow, SelectedEnumMemberRow,
         SelectedSourceCollectionRow, SelectedSourceEnumRow, SelectedSourceUnionRow,
@@ -2364,8 +2391,51 @@ fn native_budget_counts_nonempty_source_families_on_one_package() {
 
     let mut members = nominal_fixture_members();
     members[1].0["members"] = json!(["ACTIVE"]);
-    members.truncate(2);
+    if !include_model {
+        members.truncate(2);
+    } else {
+        let mut converted = members[2].0.clone();
+        converted["qualified_declaration"] = json!(["Example", "Centimetre"]);
+        converted["target_unit_node_id"] = node_id("qualified:Example/Metre");
+        converted["scale"] = json!({"numerator":"1","denominator":"100"});
+        members.push((converted, "qualified:Example/Centimetre".into()));
+    }
     let mut wire = nominal_package(&members);
+    if let Some(authority) = authority {
+        fn replace(value: &mut Value, original: &str, replacement: &str) {
+            match value {
+                Value::String(text) if text == original => *text = replacement.to_owned(),
+                Value::Array(values) => values
+                    .iter_mut()
+                    .for_each(|value| replace(value, original, replacement)),
+                Value::Object(values) => values
+                    .values_mut()
+                    .for_each(|value| replace(value, original, replacement)),
+                _ => {}
+            }
+        }
+        let original = wire["lock"]["sources"][0]["authority"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        replace(&mut wire, &original, authority);
+    }
+    let model_document = include_model.then(|| {
+        let (model_wire, document) =
+            crate::checked_package_v2_model_fields::complete_witness_model_wire();
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .extend(
+                model_wire["semantic_graph"]["nodes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .cloned(),
+            );
+        select_model(&mut wire, "acme/orders");
+        document
+    });
     let source = wire["lock"]["sources"][0].clone();
     let owner =
         json!({"kind":"source", "authority":source["authority"], "identity":source["identity"]});
@@ -2432,7 +2502,15 @@ fn native_budget_counts_nonempty_source_families_on_one_package() {
             .push(node);
     }
     settle(&mut wire);
-    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+    let evidence = model_document.as_ref().map_or_else(
+        || evidence_for(&wire),
+        |document| evidence_with_document(&wire, "acme/orders", document),
+    );
+    let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) else {
         panic!("combined native join fixture admits");
     };
     let named = |form: &str| {
@@ -2573,8 +2651,53 @@ fn native_budget_counts_nonempty_source_families_on_one_package() {
     };
     let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
     let mut deltas = Vec::new();
-    let stage = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut budget).unwrap();
+    let (declarations, fields, tuples) = if include_model {
+        crate::checked_package_v2_model_fields::complete_witness_model_rows(&package)
+    } else {
+        (Vec::new(), Vec::new(), Vec::new())
+    };
+    let units: Vec<_> = if include_model {
+        package
+            .graph()
+            .nodes
+            .iter()
+            .filter(|node| node.semantic_form.as_ref() == "unit")
+            .map(|node| {
+                let quire_contract_model::CheckedNodeOwner::Source {
+                    authority,
+                    identity,
+                } = node.owner.as_ref().unwrap()
+                else {
+                    panic!("source unit");
+                };
+                quire_contract_model::SelectedSourceUnitRow::new(
+                    node.node_id.clone(),
+                    authority.clone(),
+                    identity.clone(),
+                    node.declaration.as_ref().unwrap().qualified_name.clone(),
+                    quire_exact::UnitId::Declared(key(&format!(
+                        "private-unit-{}",
+                        node.declaration.as_ref().unwrap().qualified_name.join("/")
+                    ))),
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let stage =
+        SelectedExactIdentities::from_stage_rows(&package, declarations, fields, &mut budget)
+            .unwrap();
     deltas.push(budget.last_success_delta().unwrap());
+    let stage = if include_model {
+        let acquired = stage
+            .with_admitted_type_rows(&package, &tuples, &units, &mut budget)
+            .unwrap();
+        deltas.push(budget.last_success_delta().unwrap());
+        acquired
+    } else {
+        stage
+    };
     let union_selected = stage
         .with_source_union_rows(&package, [union.clone()], &mut budget)
         .unwrap();
@@ -2612,4 +2735,11 @@ fn native_budget_counts_nonempty_source_families_on_one_package() {
         });
     assert_eq!(budget.consumed(), sum);
     assert_eq!(budget.first_unpaid(), None);
+    CompleteWitnessFixture {
+        package: *package,
+        identities: complete,
+        budget,
+        tuples,
+        units,
+    }
 }

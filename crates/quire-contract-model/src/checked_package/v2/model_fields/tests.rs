@@ -26,7 +26,7 @@ fn population_catalog_defensively_refuses_a_retained_unresolved_member() {
     };
 
     let mut fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
-    let model = &mut fixture.package.models.models[0];
+    let model = &mut std::sync::Arc::make_mut(&mut fixture.package.models).models[0];
     model
         .populations
         .insert("ix://acme/orders/population/Unresolved".into());
@@ -273,19 +273,16 @@ fn exact_reference_uses_the_selected_object_row() {
             target: object.clone(),
         }],
     };
-    fixture
-        .package
-        .wire
+    std::sync::Arc::make_mut(&mut fixture.package.wire)
         .semantic_graph
         .nodes
         .push(reference_node.clone());
-    fixture.package.terms.push(reference_node.body);
-    fixture.package.kinds[0] = CheckedNodeKind::Model(ModelForm::ObjectType);
-    fixture
-        .package
-        .kinds
+    std::sync::Arc::make_mut(&mut fixture.package.terms).push(reference_node.body);
+    std::sync::Arc::make_mut(&mut fixture.package.kinds)[0] =
+        CheckedNodeKind::Model(ModelForm::ObjectType);
+    std::sync::Arc::make_mut(&mut fixture.package.kinds)
         .push(CheckedNodeKind::CompositeType(CompositeTypeForm::Reference));
-    fixture.package.node_index = super::super::retained_node_index(&fixture.package.wire);
+    fixture.package.node_index = super::super::retained_node_index(&fixture.package.wire).into();
 
     let projected = fixture
         .package
@@ -293,9 +290,7 @@ fn exact_reference_uses_the_selected_object_row() {
         .expect("witnessed reference");
     assert_eq!(projected.value_type(), &ValueType::Reference(effective));
 
-    fixture
-        .package
-        .models
+    std::sync::Arc::make_mut(&mut fixture.package.models)
         .index
         .0
         .get_mut(&object)
@@ -1169,22 +1164,24 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
             timed_model_roots: Vec::new(),
-            node_index: super::super::retained_node_index(&wire),
+            node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
             structural_keys: Vec::new(),
-            source_index: super::super::retained_source_index(&wire),
+            source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
-            wire,
-            terms,
-            kinds,
+            wire: std::sync::Arc::new(wire),
+            terms: std::sync::Arc::new(terms),
+            kinds: std::sync::Arc::new(kinds),
             bytes: BYTES,
-            models: RetainedModels::new(index, vec![model]),
-            selected_documents: vec![std::sync::Arc::new(
+            models: std::sync::Arc::new(RetainedModels::new(index, vec![model])),
+            selected_documents: std::sync::Arc::new(vec![std::sync::Arc::new(
                 quire_canonical::read(&serde_json::to_vec(document).expect("selected JSON"), BYTES)
                     .expect("flat selected document"),
-            )],
+            )]),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-        },
+            admission_binding: Default::default(),
+        }
+        .retain_original_admission(),
         range,
     }
 }
@@ -1341,9 +1338,7 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
     );
     for upper in ["10", "5000"] {
         let position = fixture.range;
-        let node = fixture
-            .package
-            .wire
+        let node = std::sync::Arc::make_mut(&mut fixture.package.wire)
             .semantic_graph
             .nodes
             .get_mut(position)
@@ -1378,7 +1373,10 @@ fn admitted_model_fields_use_retained_declaration_term() {
         .package
         .model_object_fields(&ledger)
         .expect("admitted fields");
-    fixture.package.wire.semantic_graph.nodes[0].body = super::super::CheckedTerm::Aggregate {
+    std::sync::Arc::make_mut(&mut fixture.package.wire)
+        .semantic_graph
+        .nodes[0]
+        .body = super::super::CheckedTerm::Aggregate {
         members: vec![super::super::CheckedTerm::Reference {
             target: ledger.clone(),
         }],
@@ -1441,7 +1439,7 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
     // object type: a non-empty retained term, a `declaration`, a recursion
     // group, a `semantic_type` that is not itself.
     let mut wrong_term = fixture.package.clone();
-    wrong_term.terms[1] = super::super::CheckedTerm::Reference {
+    std::sync::Arc::make_mut(&mut wrong_term.terms)[1] = super::super::CheckedTerm::Reference {
         target: base.clone(),
     };
     assert_eq!(
@@ -1465,7 +1463,11 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
     ];
     for broken in breaks {
         let mut package = fixture.package.clone();
-        if let Some(node) = package.wire.semantic_graph.nodes.get_mut(1) {
+        if let Some(node) = std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes
+            .get_mut(1)
+        {
             broken(node);
         }
         assert_eq!(
@@ -1475,7 +1477,10 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
         // The other object type's node is not affected.
         assert!(package.model_object_fields(&ledger).is_ok());
     }
-    fixture.package.wire.semantic_graph.nodes.clear();
+    std::sync::Arc::make_mut(&mut fixture.package.wire)
+        .semantic_graph
+        .nodes
+        .clear();
     assert_eq!(
         fixture.package.model_object_fields(&ledger),
         Err(CheckedModelFieldsError::UnknownNode)
@@ -1570,7 +1575,7 @@ fn tc_227_the_retained_tables_take_no_part_in_equality() {
     )
     .package;
     let mut without = with.clone();
-    without.models = RetainedModels::default();
+    without.models = RetainedModels::default().into();
     let ledger = with
         .wire
         .semantic_graph

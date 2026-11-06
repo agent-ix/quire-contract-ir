@@ -478,53 +478,66 @@ mod tests {
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
             timed_model_roots: Vec::new(),
-            node_index: super::super::retained_node_index(&wire),
+            node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
             structural_keys: Vec::new(),
-            source_index: super::super::retained_source_index(&wire),
+            source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
-            wire,
-            terms,
-            kinds: vec![
+            wire: std::sync::Arc::new(wire),
+            terms: std::sync::Arc::new(terms),
+            kinds: std::sync::Arc::new(vec![
                 super::super::CheckedNodeKind::ScalarType(super::super::ScalarTypeForm::Integer),
                 super::super::CheckedNodeKind::BoundedDomain(
                     super::super::BoundedDomainForm::IntegerRange,
                 ),
                 super::super::CheckedNodeKind::Value(super::super::ValueForm::Parameter),
                 super::super::CheckedNodeKind::Expression(super::super::ExpressionForm::Binary),
-            ],
+            ]),
             bytes: 1 << 20,
-            models: RetainedModels::default(),
-            selected_documents: Vec::new(),
+            models: std::sync::Arc::new(RetainedModels::default()),
+            selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            admission_binding: Default::default(),
         }
+        .retain_original_admission()
     }
 
     /// Vary graph size while keeping the same admitted scalar argument shape.
     fn padded_package(graph_nodes: usize) -> CheckedPackageV2 {
         let mut package = fixture_package();
-        let application = package
-            .wire
+        let application = std::sync::Arc::make_mut(&mut package.wire)
             .semantic_graph
             .nodes
             .pop()
             .expect("application");
-        let application_term = package.terms.pop().expect("application term");
-        let application_kind = package.kinds.pop().expect("application kind");
+        let application_term = std::sync::Arc::make_mut(&mut package.terms)
+            .pop()
+            .expect("application term");
+        let application_kind = std::sync::Arc::make_mut(&mut package.kinds)
+            .pop()
+            .expect("application kind");
         for offset in 0..(graph_nodes - 4) {
             let mut filler = package.wire.semantic_graph.nodes[0].clone();
             filler.node_id = serde_json::from_value(json!({
                 "package": "test", "path": [format!("filler-{offset}")], "ordinal": 0,
             }))
             .expect("filler identity");
-            package.wire.semantic_graph.nodes.push(filler);
-            package.terms.push(package.terms[0].clone());
-            package.kinds.push(package.kinds[0]);
+            std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes
+                .push(filler);
+            let term = package.terms[0].clone();
+            std::sync::Arc::make_mut(&mut package.terms).push(term);
+            let kind = package.kinds[0];
+            std::sync::Arc::make_mut(&mut package.kinds).push(kind);
         }
-        package.wire.semantic_graph.nodes.push(application);
-        package.terms.push(application_term);
-        package.kinds.push(application_kind);
-        package.node_index = super::super::retained_node_index(&package.wire);
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes
+            .push(application);
+        std::sync::Arc::make_mut(&mut package.terms).push(application_term);
+        std::sync::Arc::make_mut(&mut package.kinds).push(application_kind);
+        package.node_index = super::super::retained_node_index(&package.wire).into();
         package
     }
 
@@ -602,14 +615,16 @@ mod tests {
                 .len(),
             2
         );
-        package.wire.semantic_graph.nodes[2].node_id =
-            serde_json::from_value(id('5')).expect("replacement identity");
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .node_id = serde_json::from_value(id('5')).expect("replacement identity");
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::MissingChild)
         );
         let mut package = fixture_package();
-        package.terms[1] = CheckedTerm::Aggregate {
+        std::sync::Arc::make_mut(&mut package.terms)[1] = CheckedTerm::Aggregate {
             members: Vec::new(),
         };
         assert_eq!(
@@ -617,7 +632,9 @@ mod tests {
             Err(CheckedScalarOperandError::MissingRange)
         );
         let mut package = fixture_package();
-        let CheckedTerm::Application { operation, .. } = &mut package.terms[3] else {
+        let CheckedTerm::Application { operation, .. } =
+            &mut std::sync::Arc::make_mut(&mut package.terms)[3]
+        else {
             panic!("application term");
         };
         operation.record_mut()["identity"] = json!("test.unknown");
@@ -648,7 +665,10 @@ mod tests {
                 upper: 1000
             }
         );
-        package.wire.semantic_graph.nodes[2].semantic_form = "literal".into();
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .semantic_form = "literal".into();
         assert_eq!(
             package.kinds[2],
             super::super::CheckedNodeKind::Value(super::super::ValueForm::Parameter)
@@ -683,12 +703,21 @@ mod tests {
             value_kind: LiteralKind::Integer,
             value: json!("13"),
         };
-        package.terms[2] = value.clone();
-        package.wire.semantic_graph.nodes[2].body = value;
-        package.wire.semantic_graph.nodes[2].semantic_type =
-            serde_json::from_value(id('1')).expect("integer type");
-        package.wire.semantic_graph.nodes[2].semantic_form = "literal".into();
-        package.kinds[2] = super::super::CheckedNodeKind::Value(super::super::ValueForm::Literal);
+        std::sync::Arc::make_mut(&mut package.terms)[2] = value.clone();
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .body = value;
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .semantic_type = serde_json::from_value(id('1')).expect("integer type");
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .semantic_form = "literal".into();
+        std::sync::Arc::make_mut(&mut package.kinds)[2] =
+            super::super::CheckedNodeKind::Value(super::super::ValueForm::Literal);
         let expected = package
             .scalar_application_operands(&application, &occurrence)
             .expect("private literal baseline");
@@ -699,7 +728,10 @@ mod tests {
                 upper: 13
             }
         );
-        package.wire.semantic_graph.nodes[2].semantic_form = "parameter".into();
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .semantic_form = "parameter".into();
         scan_probe::reset();
         let actual = package.scalar_application_operands(&application, &occurrence);
         assert_eq!(
@@ -726,7 +758,10 @@ mod tests {
         let expected = package
             .scalar_application_operands(&application, &occurrence)
             .expect("original operands");
-        package.wire.semantic_graph.nodes[3].body = CheckedTerm::aggregate(Vec::new());
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[3]
+            .body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Ok(expected)
@@ -745,7 +780,10 @@ mod tests {
         let expected = package
             .scalar_application_operands(&application, &occurrence)
             .expect("original ranges");
-        package.wire.semantic_graph.nodes[1].body = CheckedTerm::aggregate(Vec::new());
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[1]
+            .body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Ok(expected)
@@ -780,8 +818,14 @@ mod tests {
             expected[1].range,
             CheckedScalarOperandRange { lower: 7, upper: 7 }
         );
-        bounded.wire.semantic_graph.nodes[1].node_tag = "scalar_type".into();
-        bounded.wire.semantic_graph.nodes[1].semantic_form = "integer".into();
+        std::sync::Arc::make_mut(&mut bounded.wire)
+            .semantic_graph
+            .nodes[1]
+            .node_tag = "scalar_type".into();
+        std::sync::Arc::make_mut(&mut bounded.wire)
+            .semantic_graph
+            .nodes[1]
+            .semantic_form = "integer".into();
         assert_eq!(
             bounded.scalar_application_operands(&application, &occurrence),
             Ok(expected),
@@ -800,16 +844,24 @@ mod tests {
             ordinal: 0,
         };
         let mut unbounded = fixture_package();
-        unbounded.wire.semantic_graph.nodes[2].semantic_type =
-            serde_json::from_value(id('1')).expect("integer type");
+        std::sync::Arc::make_mut(&mut unbounded.wire)
+            .semantic_graph
+            .nodes[2]
+            .semantic_type = serde_json::from_value(id('1')).expect("integer type");
         assert_eq!(
             unbounded.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::UnboundedRange),
             "private unbounded baseline"
         );
-        unbounded.wire.semantic_graph.nodes[0].node_tag = "bounded_domain".into();
-        unbounded.wire.semantic_graph.nodes[0].semantic_form = "integer_range".into();
-        unbounded.terms[0] = unbounded.terms[1].clone();
+        std::sync::Arc::make_mut(&mut unbounded.wire)
+            .semantic_graph
+            .nodes[0]
+            .node_tag = "bounded_domain".into();
+        std::sync::Arc::make_mut(&mut unbounded.wire)
+            .semantic_graph
+            .nodes[0]
+            .semantic_form = "integer_range".into();
+        std::sync::Arc::make_mut(&mut unbounded.terms)[0] = unbounded.terms[1].clone();
         assert_eq!(
             unbounded.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::UnboundedRange),
@@ -835,16 +887,20 @@ mod tests {
             let mut package = fixture_package();
             match error {
                 CheckedScalarOperandError::UnboundedRange => {
-                    package.wire.semantic_graph.nodes[2].semantic_type =
-                        serde_json::from_value(id('1')).expect("integer type");
+                    std::sync::Arc::make_mut(&mut package.wire)
+                        .semantic_graph
+                        .nodes[2]
+                        .semantic_type = serde_json::from_value(id('1')).expect("integer type");
                 }
                 CheckedScalarOperandError::MissingRange => {
-                    package.terms[1] = CheckedTerm::Aggregate {
+                    std::sync::Arc::make_mut(&mut package.terms)[1] = CheckedTerm::Aggregate {
                         members: Vec::new(),
                     };
                 }
                 CheckedScalarOperandError::RangeOutOfI128 => {
-                    let CheckedTerm::Aggregate { members } = &mut package.terms[1] else {
+                    let CheckedTerm::Aggregate { members } =
+                        &mut std::sync::Arc::make_mut(&mut package.terms)[1]
+                    else {
                         panic!("range body");
                     };
                     let CheckedTerm::Binding { value, .. } = &mut members[0] else {
@@ -884,7 +940,9 @@ mod tests {
             );
             assert!(arguments.next().is_none());
 
-            let CheckedTerm::Application { arguments, .. } = &mut package.terms[3] else {
+            let CheckedTerm::Application { arguments, .. } =
+                &mut std::sync::Arc::make_mut(&mut package.terms)[3]
+            else {
                 panic!("application");
             };
             arguments[1] = CheckedTerm::Aggregate {
