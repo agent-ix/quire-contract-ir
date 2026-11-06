@@ -6108,6 +6108,7 @@ fn source_collection_rows_project_all_kinds_and_bounds() {
         ExactTypeProjectionErrorCode::ExhaustedWork
     );
     assert_eq!(join_exhausted.work, join_exact - 1);
+    assert_eq!(join_exhausted.at.as_deref(), Some(&rows[0].0.element_node));
     let selected = SelectedExactIdentities::empty()
         .with_source_collection_rows(&package, rows.iter().map(|(row, _)| row.clone()), 500)
         .expect("complete collection rows join");
@@ -6128,6 +6129,13 @@ fn source_collection_rows_project_all_kinds_and_bounds() {
             .expect_err("one below exact allowance");
         assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
         assert_eq!(exhausted.work, exact - 1);
+        assert_eq!(exhausted.at.as_deref(), Some(&row.structural_node));
+        assert_eq!(
+            package
+                .clone()
+                .project_exact_type(requested, &selected, exact - 1),
+            Err(exhausted)
+        );
         assert_eq!(
             package
                 .clone()
@@ -6149,6 +6157,54 @@ fn source_collection_rows_project_all_kinds_and_bounds() {
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+}
+
+/// Trace: FR-352-AC-20, FR-352-AC-21.
+#[trace("FR-352-AC-20", "FR-352-AC-21")]
+#[test]
+fn source_collection_incremental_join_charges_prior_rows_before_copy() {
+    let (package, rows) = source_collection_fixture();
+    let prior = rows[..2].iter().map(|(row, _)| row.clone());
+    let populated = SelectedExactIdentities::empty()
+        .with_source_collection_rows(&package, prior, 500)
+        .expect("two prior collection rows");
+    let next = rows[2].0.clone();
+    let empty_exact = (1..=500)
+        .find(|&limit| {
+            SelectedExactIdentities::empty()
+                .with_source_collection_rows(&package, [next.clone()], limit)
+                .is_ok()
+        })
+        .expect("empty-table exact allowance");
+    let populated_exact = (1..=500)
+        .find(|&limit| {
+            populated
+                .with_source_collection_rows(&package, [next.clone()], limit)
+                .is_ok()
+        })
+        .expect("populated-table exact allowance");
+    assert_eq!(populated_exact, empty_exact + 2);
+    let joined = populated
+        .with_source_collection_rows(&package, [next.clone()], populated_exact)
+        .expect("exact allowance charges both prior entries");
+    assert_eq!(joined.source_collection_rows().count(), 3);
+    let first_unpaid = rows[..2]
+        .iter()
+        .map(|(row, _)| &row.structural_node)
+        .max()
+        .expect("two prior entries");
+    let refusal = populated
+        .with_source_collection_rows(&package, [next.clone()], populated_exact - 1)
+        .expect_err("one below the populated-table allowance");
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(refusal.work, populated_exact - 1);
+    assert_eq!(refusal.at.as_deref(), Some(first_unpaid));
+    assert_eq!(
+        populated
+            .clone()
+            .with_source_collection_rows(&package, [next], populated_exact - 1),
+        Err(refusal)
     );
 }
 

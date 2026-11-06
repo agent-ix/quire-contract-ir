@@ -1614,10 +1614,11 @@ impl SelectedExactIdentities {
     ) -> Result<Self, ExactTypeProjectionError> {
         let mut selected = self.clone();
         let mut work = 0;
+        let mut pending = BTreeMap::new();
         for row in rows {
             let id = &row.structural_node;
             validate_source_collection_row(package, &row, id, &mut work, work_limit)?;
-            if selected.source_collections.contains_key(id) {
+            if self.source_collections.contains_key(id) || pending.contains_key(id) {
                 return Err(source_collection_error(
                     id,
                     id,
@@ -1625,7 +1626,22 @@ impl SelectedExactIdentities {
                     work,
                 ));
             }
-            Arc::make_mut(&mut selected.source_collections).insert(id.clone(), Arc::new(row));
+            pending.insert(id.clone(), Arc::new(row));
+        }
+        if let Some(first_new) = pending.keys().next() {
+            let mut joined = BTreeMap::new();
+            for (id, row) in self.source_collections.iter() {
+                charge_work(
+                    first_new,
+                    id,
+                    "source_collection_prior_row_copy",
+                    &mut work,
+                    work_limit,
+                )?;
+                joined.insert(id.clone(), Arc::clone(row));
+            }
+            joined.append(&mut pending);
+            selected.source_collections = Arc::new(joined);
         }
         Ok(selected)
     }
