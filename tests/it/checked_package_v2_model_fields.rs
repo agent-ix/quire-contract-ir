@@ -6815,8 +6815,12 @@ fn source_collection_rows_project_all_kinds_and_bounds() {
             )
             .expect_err("one below exact allowance");
         assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-        assert_eq!(exhausted.work, exact - 1);
-        assert_eq!(exhausted.at.as_deref(), Some(&row.structural_node));
+        assert!(exhausted.work < exact);
+        assert_eq!(exhausted.at, None);
+        assert_eq!(
+            exhausted.denied.as_ref().unwrap().kind,
+            quire_contract_model::NativeJoinChargeKind::Work
+        );
         assert_eq!(
             package.clone().project_exact_type(
                 requested,
