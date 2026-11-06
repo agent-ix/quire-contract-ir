@@ -1719,6 +1719,15 @@ fn runtime_member_helpers_precharge_each_owned_layer_and_unit_handle() {
         json!({"identity":"ix://acme/orders/Units", "kind":"sequence", "items":"ix://quire/unit/metre"}),
         json!({"identity":"ix://acme/orders/MaybeUnits", "kind":"option", "inner":"ix://acme/orders/Units"}),
     ]), &unit_refs).unwrap();
+    let mut no_key_storage = NativeJoinBudget::new(u64::MAX, 0);
+    model
+        .duration_unit_node(&mut Some(&mut no_key_storage))
+        .expect_err("the canonical duration lookup key needs paid temporary text storage");
+    assert_eq!(no_key_storage.consumed().storage, 0);
+    assert_eq!(
+        no_key_storage.first_unpaid().unwrap().kind,
+        NativeJoinChargeKind::Storage
+    );
     for (type_ref, expected) in [
         (
             SelectedTypeRef::Native(NativeTypeRef::Integer),
@@ -1835,5 +1844,67 @@ fn runtime_and_ordinary_slots_share_all_multiplicity_decisions() {
         let mut exact = NativeJoinBudget::new(measured.work, measured.storage);
         assert_eq!(model.slot_type_runtime(slot, &mut exact).unwrap(), expected);
         assert_eq!(exact.consumed(), measured);
+    }
+}
+
+#[trace("TC-469", "FR-360-AC-2", "FR-360-AC-4", "FR-360-AC-5")]
+#[test]
+fn runtime_duration_lookup_preserves_exact_owner_and_global_selection() {
+    let node = |owner: &str| CheckedNodeId {
+        package: owner.into(),
+        path: vec![CheckedNodePathSegment::Name("second".into())],
+        ordinal: 0,
+    };
+    let own_node = node("acme/orders");
+    let foreign_node = node("foreign/orders");
+    let global_node = node("quire/global");
+    let own_key = "ix://quire/unit/acme/orders/s";
+    let foreign_key = "ix://quire/unit/foreign/orders/s";
+    let global_key = "ix://quire/unit/s";
+    let mut own_document = document(vec![]);
+    own_document["dimensions"] = json!([{"identity":"ix://acme/orders/dimension/Time","name":"Time","base":true,"terms":[]}]);
+    own_document["units"] = json!([{"identity":own_key,"name":"s","dimension":"ix://acme/orders/dimension/Time","scale":"1","offset":"0"}]);
+    let duration = SelectedTypeRef::Native(NativeTypeRef::Duration);
+    for (owns_seconds, provide_own, provide_global, expected) in [
+        (true, true, true, Some(own_node.clone())),
+        (true, false, true, None),
+        (false, true, true, Some(global_node.clone())),
+        (false, true, false, None),
+    ] {
+        let mut refs = BTreeMap::from([
+            (Box::from(own_key), own_node.clone()),
+            (
+                format!("{DURATION_RESOLVED_PREFIX}{foreign_key}").into_boxed_str(),
+                foreign_node.clone(),
+            ),
+        ]);
+        if provide_own {
+            refs.insert(
+                format!("{DURATION_RESOLVED_PREFIX}{own_key}").into_boxed_str(),
+                own_node.clone(),
+            );
+        }
+        if provide_global {
+            refs.insert(
+                format!("{DURATION_RESOLVED_PREFIX}{global_key}").into_boxed_str(),
+                global_node.clone(),
+            );
+        }
+        let source = if owns_seconds {
+            own_document.clone()
+        } else {
+            document(vec![])
+        };
+        let model = read_with_unit_refs(&source, &Arc::new(refs)).unwrap();
+        assert_eq!(model.own_seconds_declared, owns_seconds);
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        assert_eq!(
+            model.element_type_runtime(&duration, &mut budget).unwrap(),
+            expected.clone().map(MemberType::Quantity)
+        );
+        assert_eq!(
+            model.element_type(&duration),
+            expected.map(MemberType::Quantity)
+        );
     }
 }
