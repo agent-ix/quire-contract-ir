@@ -9087,7 +9087,7 @@ fn boolean_atoms(package: &mut Value) -> (Value, Value) {
         // An expression with a nonlogical aggregate body is an opaque atom;
         // a value/literal is a constant and cannot host this body.
         atom["node_tag"] = json!("expression");
-        atom["semantic_form"] = json!("reference");
+        atom["semantic_form"] = json!("binary");
         atom["dependencies"] = json!([]);
         atom["body"] = json!({"term":"aggregate", "members":[template["body"].clone()]});
         targets.push(atom["node_id"].clone());
