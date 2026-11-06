@@ -152,7 +152,70 @@ fn complete_identity_witness_refuses_each_missing_family_and_private_channel() {
             "family {family}"
         );
         assert_eq!(refusal.form.as_ref(), form, "first missing family {family}");
-        assert!(refusal.at.is_some());
+        let expected = match family {
+            0 => fixture
+                .identities
+                .declaration_rows()
+                .map(|row| &row.structural_node)
+                .min()
+                .unwrap(),
+            1 => &fixture.identities.field_rows()[0].record_node,
+            2 => fixture
+                .tuples
+                .iter()
+                .map(|row| &row.structural_node)
+                .min()
+                .unwrap(),
+            3 => fixture
+                .units
+                .iter()
+                .map(|row| &row.structural_node)
+                .min()
+                .unwrap(),
+            4 => {
+                &fixture
+                    .identities
+                    .source_union_rows()
+                    .next()
+                    .unwrap()
+                    .structural_node
+            }
+            5 => {
+                &fixture
+                    .identities
+                    .source_record_rows()
+                    .next()
+                    .unwrap()
+                    .structural_node
+            }
+            6 => {
+                &fixture
+                    .identities
+                    .source_tuple_rows()
+                    .next()
+                    .unwrap()
+                    .structural_node
+            }
+            7 => {
+                &fixture
+                    .identities
+                    .source_enum_rows()
+                    .next()
+                    .unwrap()
+                    .declaration
+                    .structural_node
+            }
+            8 => {
+                &fixture
+                    .identities
+                    .source_collection_rows()
+                    .next()
+                    .unwrap()
+                    .structural_node
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(refusal.at.as_deref(), Some(expected));
         assert_eq!(
             budget.last_success_delta(),
             None,
@@ -406,6 +469,44 @@ fn complete_identity_witness_private_acquisition_is_checked_incremental_and_boun
             &mut exact
         ),
         Ok(expected)
+    );
+    let first_unit = stage
+        .with_admitted_type_rows(&fixture.package, &[], &fixture.units[..1], &mut ample())
+        .unwrap();
+    let original_first = first_unit.clone();
+    let mut limit = 0;
+    let mut saw_copy = false;
+    for _ in 0..64 {
+        let mut short = NativeJoinBudget::new(u64::MAX, limit);
+        let error = first_unit
+            .with_admitted_type_rows(&fixture.package, &[], &fixture.units[1..], &mut short)
+            .unwrap_err();
+        let denied = short.first_unpaid().unwrap();
+        assert_eq!(error.code, Code::ExhaustedStorage);
+        if error.form.as_ref() == "admitted_source_unit_copy" {
+            assert!(
+                denied.amount > 2,
+                "nonempty map keys/entries/handles are charged before COW"
+            );
+            assert_eq!(short.last_success_delta(), None);
+            saw_copy = true;
+            break;
+        }
+        limit = short.consumed().storage + u64::try_from(denied.amount).unwrap();
+    }
+    assert!(saw_copy);
+    assert_eq!(
+        first_unit, original_first,
+        "failed COW publishes no extension"
+    );
+    let mut compound = fixture.units[0].clone();
+    compound.unit_id = quire_exact::UnitId::compound(Vec::new());
+    assert_eq!(
+        stage
+            .with_admitted_type_rows(&fixture.package, &[], &[compound], &mut ample())
+            .unwrap_err()
+            .code,
+        Code::MismatchedIdentityWitness
     );
     let mut changed_tuple = fixture.tuples[0].clone();
     changed_tuple.original_identity = "other/original".into();

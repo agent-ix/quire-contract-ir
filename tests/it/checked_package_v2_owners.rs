@@ -2382,6 +2382,12 @@ fn native_source_family_fixture(include_model: bool) -> CompleteWitnessFixture {
     members[1].0["members"] = json!(["ACTIVE"]);
     if !include_model {
         members.truncate(2);
+    } else {
+        let mut converted = members[2].0.clone();
+        converted["qualified_declaration"] = json!(["Example", "Centimetre"]);
+        converted["target_unit_node_id"] = node_id("qualified:Example/Metre");
+        converted["scale"] = json!({"numerator":"1","denominator":"100"});
+        members.push((converted, "qualified:Example/Centimetre".into()));
     }
     let mut wire = nominal_package(&members);
     let model_document = include_model.then(|| {
@@ -2639,7 +2645,10 @@ fn native_source_family_fixture(include_model: bool) -> CompleteWitnessFixture {
                     authority.clone(),
                     identity.clone(),
                     node.declaration.as_ref().unwrap().qualified_name.clone(),
-                    quire_exact::UnitId::Declared(key("private-unit")),
+                    quire_exact::UnitId::Declared(key(&format!(
+                        "private-unit-{}",
+                        node.declaration.as_ref().unwrap().qualified_name.join("/")
+                    ))),
                 )
             })
             .collect()
