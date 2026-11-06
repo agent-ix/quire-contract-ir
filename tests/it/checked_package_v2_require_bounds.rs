@@ -756,7 +756,7 @@ fn canonical_referenced_integer_exponent_lowers_and_parameters_still_require_bou
     };
     assert_eq!(result_type, &compound);
     match admitted
-        .lower(&[square.clone()], &bounded_profile())
+        .lower(std::slice::from_ref(&square), &bounded_profile())
         .records
         .remove(0)
     {
