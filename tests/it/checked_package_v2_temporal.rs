@@ -348,6 +348,12 @@ pub(super) fn select_profile(package: &mut Value, identity: &str) {
         .as_array_mut()
         .expect("nodes")
     {
+        if identity == TIMED
+            && node["node_tag"] == "temporal"
+            && node["semantic_form"] == "temporal_clause"
+        {
+            node["body"]["arguments"][1]["value"] = json!("model-time");
+        }
         // `get_mut`, not indexing: indexing a body without an `operation`
         // would insert one.
         let laws = node

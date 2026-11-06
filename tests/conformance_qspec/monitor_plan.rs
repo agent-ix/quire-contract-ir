@@ -7,7 +7,8 @@ use super::monitor_plan_fixtures::*;
 use super::*;
 use quire_contract_model::CheckedMonitorPlanRef;
 use quire_contract_model::{
-    CheckedMonitorClockReadErrorCode, CheckedOccurrence, CheckedOccurrenceRole, ClockConfiguration,
+    CheckedMonitorClock, CheckedMonitorClockReadErrorCode, CheckedOccurrence,
+    CheckedOccurrenceRole, ClockConfiguration,
 };
 use std::collections::BTreeSet;
 
@@ -16,6 +17,54 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("monitor recipe must admit: {other:?}"),
     }
+}
+
+/// Trace: FR-038-AC-470, TC-048.
+#[trace("TC-048", "FR-038-AC-470")]
+#[test]
+fn monitor_plan_refuses_binding_wrapped_clock_before_public_read() {
+    let (mut wire, root) = materialize(&recipes()["base"]);
+    let control = admitted(&wire);
+    let control_plan = control
+        .monitor_plans()
+        .next()
+        .expect("admitted monitor root");
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Claim,
+        ordinal: 0,
+    };
+    let read = control_plan
+        .clock_for_claim(control_plan.clause(), &occurrence, 100)
+        .expect("admitted direct clock read");
+    assert_eq!(read.clock_name(), "model-steps");
+    assert_eq!(
+        read.clock(),
+        CheckedMonitorClock::Configured(&control.temporal_bindings().unwrap()[0].clock)
+    );
+
+    let rows = wire["temporal_bindings"].clone();
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    let clause =
+        wire["semantic_graph"]["nodes"][root]["body"]["members"][0]["value"]["target"].clone();
+    let position = position(&wire, &clause);
+    let clock = &mut wire["semantic_graph"]["nodes"][position]["body"]["arguments"][1];
+    let literal = std::mem::replace(clock, Value::Null);
+    *clock = binding("clock", literal);
+    finish(&mut wire);
+    wire["temporal_bindings"] = rows;
+    fixture_support::refresh_identity_projection(&mut wire);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
+        panic!("wrapped clock must refuse before the monitor read");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::IllTyped, Some(Cause::OperatorIneligible))
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        format!("/semantic_graph/nodes/{position}/body/arguments/1")
+    );
 }
 
 /// Trace: FR-038-AC-470, TC-048.
@@ -80,18 +129,12 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     assert_eq!(read1.claim_name(), "Clause1");
     assert_eq!(read0.clock_name(), "model-steps");
     assert_eq!(read1.clock_name(), "model-steps");
-    assert_eq!(
-        read0.clock(),
-        &ClockConfiguration::EventPosition {
-            sequence_authority: "first-events".into()
-        }
-    );
-    assert_eq!(
-        read1.clock(),
-        &ClockConfiguration::EventPosition {
-            sequence_authority: "second-events".into()
-        }
-    );
+    assert!(matches!(read0.clock(), CheckedMonitorClock::Configured(
+        ClockConfiguration::EventPosition { sequence_authority }
+    ) if sequence_authority.as_ref() == "first-events"));
+    assert!(matches!(read1.clock(), CheckedMonitorClock::Configured(
+        ClockConfiguration::EventPosition { sequence_authority }
+    ) if sequence_authority.as_ref() == "second-events"));
     let exact = read1.work();
     assert_eq!(
         plan.clock_for_claim(&selected, &second, exact)
@@ -201,6 +244,84 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
         .unwrap();
     assert_eq!(extended_read.work(), exact);
     assert_eq!(extended_read.clock(), read1.clock());
+}
+
+/// Trace: FR-038-AC-484, TC-048.
+#[trace("TC-048", "FR-038-AC-484")]
+#[test]
+fn monitor_plan_reads_timed_model_source_and_exact_unit() {
+    let (mut wire, _) = materialize(&recipes()["base"]);
+    for selection in wire["lock"]["profile_selections"].as_array_mut().unwrap() {
+        if selection["role"] == "temporal_profile" {
+            selection["definition"]["identity"] = json!("quire.temporal.timed/v1");
+        }
+    }
+    for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+        if let Some(laws) = node
+            .get_mut("body")
+            .and_then(|body| body.get_mut("operation"))
+            .and_then(|operation| operation.get_mut("laws"))
+            .and_then(Value::as_array_mut)
+        {
+            for law in laws {
+                if law["role"] == "temporal_profile" {
+                    law["definition"]["identity"] = json!("quire.temporal.timed/v1");
+                }
+            }
+        }
+        if node["node_tag"] == "temporal" && node["semantic_form"] == "temporal_clause" {
+            node["body"]["arguments"][1]["value"] = json!("model-time");
+        }
+        if node["node_tag"] == "temporal"
+            && node["semantic_form"] == "formula"
+            && node["body"]["operation"]["member"]["kind"] == "temporal_interval"
+        {
+            node["body"]["operation"]["member"]["interval"] = Value::Null;
+        }
+    }
+    fixture_support::settle(&mut wire);
+    finish(&mut wire);
+    assert!(wire.get("temporal_bindings").is_none());
+    let package = admitted(&wire);
+    let plan = package.monitor_plans().next().expect("monitor root");
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Claim,
+        ordinal: 0,
+    };
+    let clock = plan
+        .clock_for_claim(plan.clause(), &occurrence, 100)
+        .expect("Timed model clock");
+    let model_time = package
+        .model_time_for_clause(plan.clause(), 100)
+        .expect("bounded source read")
+        .expect("model subject");
+    assert_eq!(model_time.unit(), &package.graph().nodes[43].node_id);
+    assert_eq!(clock.clock_name(), "model-time");
+    assert_eq!(clock.claim_name(), "Clause0");
+    assert_eq!(
+        clock.clock(),
+        CheckedMonitorClock::ModelTime {
+            timed_root: model_time.timed_root(),
+            model: model_time.model(),
+            source: model_time.source(),
+            unit: model_time.unit(),
+        }
+    );
+    let exact = clock.work();
+    assert_eq!(
+        plan.clock_for_claim(plan.clause(), &occurrence, exact)
+            .unwrap()
+            .work(),
+        exact
+    );
+    let denied = plan
+        .clock_for_claim(plan.clause(), &occurrence, exact - 1)
+        .unwrap_err();
+    assert_eq!(
+        (denied.code, denied.work, denied.attempted_work),
+        (CheckedMonitorClockReadErrorCode::WorkLimit, exact - 1, 1)
+    );
+    assert_eq!(*denied.at, *plan.clause());
 }
 fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
     assert_eq!(

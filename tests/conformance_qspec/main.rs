@@ -73,6 +73,7 @@ mod single_body;
 mod temporal_aggregate;
 mod temporal_clock_bindings;
 mod text_literals;
+mod timed_clock_no_row;
 mod timed_model;
 mod timed_slots;
 mod transition;
