@@ -13,6 +13,8 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelFieldsError, CheckedModelObjectFields,
+    CheckedModelPopulationCatalogError, CheckedModelPopulationCatalogLimitKind,
+    CheckedModelPopulationCatalogLimits, CheckedModelPopulationMemberUnresolved,
     CheckedModelRecordFieldsError, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence,
     CheckedOccurrenceRole, CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
@@ -31,8 +33,254 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 const IDENTITY: &str = "acme/orders";
+const EMPTY_MODEL: &str = "aaa/other";
 const OBJECT: &str = "object_type";
 const INTERFACE: &str = "systems_interface";
+
+/// Trace: FR-038-AC-474, FR-038-AC-475, FR-038-AC-476, FR-038-AC-477.
+#[trace("FR-038-AC-474", "FR-038-AC-475", "FR-038-AC-476", "FR-038-AC-477")]
+#[test]
+fn selected_population_catalog_keeps_unused_origins_and_full_effective_type_ids() {
+    let mut selected = document(vec![
+        object("Gadget", &[], &[]),
+        object("Widget", &[], &[]),
+        json!({"identity": orders("WidgetAlias"), "kind": "alias", "target": orders("Widget")}),
+    ]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
+        }));
+    selected["populations"] = json!([
+        {"identity": orders("Active"), "displayName": "Active",
+         "kind": {"module": IDENTITY, "name": "population"},
+         "members": [orders("WidgetAlias"), orders("Gadget")], "extent": "closed",
+         "origin": {"source": {"sourceIdentity": "ix://acme/orders/spec",
+             "path": "spec/populations.md", "startLine": 1, "startColumn": 1}}},
+        {"identity": orders("Reserve"), "displayName": "Reserve",
+         "kind": {"module": IDENTITY, "name": "population"},
+         "members": [orders("Widget")], "extent": "closed",
+         "origin": {"source": {"sourceIdentity": "ix://acme/orders/spec",
+             "path": "spec/populations.md", "startLine": 2, "startColumn": 1}}},
+    ]);
+    let (mut wire, _, _) = self::package(&selected, &[("Gadget", OBJECT), ("Widget", OBJECT)], &[]);
+    select_model(&mut wire, EMPTY_MODEL);
+    settle(&mut wire);
+    // The second graph root sorts first by selected identity. Compare the
+    // catalog with the indexed wire's actual node IDs, not just package names.
+    let mut indexed = wire.clone();
+    index_fixture_node_ids(&mut indexed);
+    let graph_roots = indexed["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .filter(|node| node["semantic_form"] == "model_root")
+        .map(|node| {
+            (
+                node["owner"]["identity"]
+                    .as_str()
+                    .expect("root identity")
+                    .to_owned(),
+                serde_json::from_value::<CheckedNodeId>(node["node_id"].clone())
+                    .expect("indexed root ID"),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(graph_roots[0].0, IDENTITY);
+    assert_eq!(graph_roots[1].0, EMPTY_MODEL);
+    let evidence = evidence_with_document(&wire, IDENTITY, &selected);
+    let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("expected admitted selected populations, got {other:?}"),
+    };
+    let generous = CheckedModelPopulationCatalogLimits {
+        work: 1_000_000,
+        entries: 100,
+    };
+    let catalog = admitted
+        .selected_model_population_catalog(generous)
+        .expect("complete selected catalog");
+    assert_eq!(catalog.roots().len(), 2);
+    assert_eq!(catalog.roots()[0].model_identity(), EMPTY_MODEL);
+    assert_eq!(catalog.roots()[0].root(), &graph_roots[1].1);
+    assert!(catalog.roots()[0].populations().is_empty());
+    assert_eq!(catalog.roots()[1].model_identity(), IDENTITY);
+    assert_eq!(catalog.roots()[1].root(), &graph_roots[0].1);
+    let populations = catalog.roots()[1].populations();
+    assert_eq!(populations.len(), 2);
+    assert_eq!(populations[0].original_identity(), orders("Active"));
+    assert_eq!(populations[1].original_identity(), orders("Reserve"));
+    assert_eq!(populations[0].members().len(), 2);
+    assert_eq!(
+        populations[0].members()[0].original_identity(),
+        orders("Gadget")
+    );
+    let gadget = EffectiveId::new(
+        None,
+        OriginalDeclarationKey::new(IDENTITY, orders("Gadget")),
+    );
+    assert_eq!(
+        populations[0].members()[0].normalized_type_identity(),
+        &gadget
+    );
+    let active = &populations[0].members()[1];
+    assert_eq!(active.original_identity(), orders("WidgetAlias"));
+    let expected = EffectiveId::new(
+        None,
+        OriginalDeclarationKey::new(IDENTITY, orders("Widget")),
+    );
+    assert_eq!(active.normalized_type_identity(), &expected);
+    assert_eq!(
+        populations[1].members()[0].normalized_type_identity(),
+        &expected
+    );
+    assert_eq!(
+        populations[1].members()[0].original_identity(),
+        orders("Widget")
+    );
+    // Independently count 2 roots, 2 populations, 3 members, 4 alias lookups
+    // and three owned FR-150 type identities (Gadget, Widget, Widget).
+    let expected_work = 11
+        + 3 * IDENTITY.len()
+        + orders("Gadget").len()
+        + 2 * orders("Widget").len()
+        + 3 * std::mem::size_of::<OriginalDeclarationKey>();
+    let expected_work = u64::try_from(expected_work).expect("fixture work fits u64");
+    assert_eq!(catalog.work(), expected_work);
+    assert_eq!(catalog.entries(), 7);
+    let exact = CheckedModelPopulationCatalogLimits {
+        work: expected_work,
+        entries: 7,
+    };
+    assert_eq!(
+        admitted.selected_model_population_catalog(exact),
+        Ok(catalog.clone())
+    );
+    let cloned = admitted.clone();
+    assert_eq!(
+        cloned.selected_model_population_catalog(exact),
+        Ok(catalog.clone())
+    );
+    let one_less_work = CheckedModelPopulationCatalogLimits {
+        work: exact.work - 1,
+        ..exact
+    };
+    assert!(matches!(
+        admitted.selected_model_population_catalog(one_less_work),
+        Err(CheckedModelPopulationCatalogError::Limit {
+            kind: CheckedModelPopulationCatalogLimitKind::Work,
+            limit,
+            consumed,
+            locus,
+        }) if limit == exact.work - 1 && consumed == exact.work
+            && locus.model_identity == IDENTITY
+            && locus.root == &graph_roots[0].1
+            && locus.population == Some(orders("Reserve").as_str())
+            && locus.member == Some(orders("Widget").as_str())
+    ));
+    let one_less_entry = CheckedModelPopulationCatalogLimits {
+        entries: exact.entries - 1,
+        ..exact
+    };
+    assert!(matches!(
+        admitted.selected_model_population_catalog(one_less_entry),
+        Err(CheckedModelPopulationCatalogError::Limit {
+            kind: CheckedModelPopulationCatalogLimitKind::Entries,
+            limit,
+            consumed,
+            locus,
+        }) if limit == exact.entries - 1 && consumed == exact.entries
+            && locus.model_identity == IDENTITY
+            && locus.root == &graph_roots[0].1
+            && locus.population == Some(orders("Reserve").as_str())
+            && locus.member == Some(orders("Widget").as_str())
+    ));
+}
+
+/// Trace: FR-038-AC-475.
+#[trace("FR-038-AC-475")]
+#[test]
+fn selected_population_catalog_refuses_wrong_kind_without_partial_result() {
+    let mut selected = document(vec![value_type("Thousand", "integer", Some(("0", "1000")))]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
+        }));
+    selected["populations"] = json!([{
+        "identity": orders("Numbers"), "displayName": "Numbers",
+        "kind": {"module": IDENTITY, "name": "population"},
+        "members": [orders("Thousand")], "extent": "closed",
+        "origin": {"source": {"sourceIdentity": "ix://acme/orders/spec",
+            "path": "spec/populations.md", "startLine": 1, "startColumn": 1}},
+    }]);
+    let admitted = admit(&selected, &[], &[]);
+    let limits = CheckedModelPopulationCatalogLimits {
+        work: 1_000_000,
+        entries: 100,
+    };
+    assert!(matches!(
+        admitted.selected_model_population_catalog(limits),
+        Err(CheckedModelPopulationCatalogError::UnresolvedMember {
+            locus,
+            reason: CheckedModelPopulationMemberUnresolved::WrongKind,
+        }) if locus.model_identity == IDENTITY
+            && locus.root.package.as_ref() == IDENTITY
+            && locus.population == Some(orders("Numbers").as_str())
+            && locus.member == Some(orders("Thousand").as_str())
+    ));
+}
+
+/// Trace: FR-038-AC-475.
+#[trace("FR-038-AC-475")]
+#[test]
+fn selected_population_catalog_classifies_retained_namespace_as_wrong_kind() {
+    let mut namespace = typed_object("Area", "namespace", &[], &[]);
+    namespace
+        .as_object_mut()
+        .expect("namespace")
+        .remove("fields");
+    namespace
+        .as_object_mut()
+        .expect("namespace")
+        .remove("operations");
+    namespace["members"] = json!([]);
+    namespace["vocabulary"] = json!([]);
+    let mut selected = document(vec![namespace]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .extend([
+            json!({"kind": {"module": IDENTITY, "name": "namespace"},
+                "construct": {"meaning": "quire.meaning.model.namespace/v1"}}),
+            json!({"kind": {"module": IDENTITY, "name": "population"},
+                "construct": {"meaning": "quire.meaning.model.population/v1"}}),
+        ]);
+    selected["populations"] = json!([{
+        "identity": orders("Areas"), "displayName": "Areas",
+        "kind": {"module": IDENTITY, "name": "population"},
+        "members": [orders("Area")], "extent": "closed",
+        "origin": {"source": {"sourceIdentity": "ix://acme/orders/spec",
+            "path": "spec/populations.md", "startLine": 1, "startColumn": 1}},
+    }]);
+    let admitted = admit(&selected, &[], &[]);
+    assert!(matches!(
+        admitted.selected_model_population_catalog(CheckedModelPopulationCatalogLimits {
+            work: 1_000_000,
+            entries: 100,
+        }),
+        Err(CheckedModelPopulationCatalogError::UnresolvedMember {
+            locus,
+            reason: CheckedModelPopulationMemberUnresolved::WrongKind,
+        }) if locus.model_identity == IDENTITY
+            && locus.population == Some(orders("Areas").as_str())
+            && locus.member == Some(orders("Area").as_str())
+    ));
+}
 
 /// Trace: FR-038-AC-467, FR-038-AC-468.
 #[trace("FR-038-AC-467", "FR-038-AC-468")]

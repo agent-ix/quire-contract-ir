@@ -16,6 +16,42 @@ use quire_exact::{
 };
 use serde_json::{json, Value};
 
+/// Trace: FR-038-AC-475.
+#[trace("FR-038-AC-475")]
+#[test]
+fn population_catalog_defensively_refuses_a_retained_unresolved_member() {
+    use crate::checked_package::v2::{
+        CheckedModelPopulationCatalogError, CheckedModelPopulationCatalogLimits,
+        CheckedModelPopulationMemberUnresolved,
+    };
+
+    let mut fixture = build_fixture(&ledger(), &[("Ledger", DeclarationForm::ObjectType)]);
+    let model = &mut fixture.package.models.models[0];
+    model
+        .populations
+        .insert("ix://acme/orders/population/Unresolved".into());
+    model.population_members.insert(
+        "ix://acme/orders/population/Unresolved".into(),
+        std::collections::BTreeSet::from(["ix://acme/orders/Missing".into()]),
+    );
+    let result =
+        fixture
+            .package
+            .selected_model_population_catalog(CheckedModelPopulationCatalogLimits {
+                work: 1_000_000,
+                entries: 100,
+            });
+    assert!(matches!(
+        result,
+        Err(CheckedModelPopulationCatalogError::UnresolvedMember {
+            locus,
+            reason: CheckedModelPopulationMemberUnresolved::MissingType,
+        }) if locus.model_identity == "acme/orders"
+            && locus.population == Some("ix://acme/orders/population/Unresolved")
+            && locus.member == Some("ix://acme/orders/Missing")
+    ));
+}
+
 #[test]
 fn exact_stage_rows_join_selected_original_declaration() {
     use crate::checked_package::v2::{

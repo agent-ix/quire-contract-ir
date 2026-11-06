@@ -36,6 +36,7 @@ mod lower;
 mod model_enum_witness;
 mod model_fields;
 mod model_members;
+mod model_population_catalog;
 mod model_root;
 mod monitor_plan;
 mod natural;
@@ -117,6 +118,12 @@ pub use model_fields::{
     CheckedModelObjectFields, CheckedModelRecordField, CheckedModelRecordFields,
     CheckedModelRecordFieldsError, CheckedModelVariantBody, CheckedModelVariantCase,
     CheckedVariantPayloadType,
+};
+pub use model_population_catalog::{
+    CheckedModelPopulation, CheckedModelPopulationCatalog, CheckedModelPopulationCatalogError,
+    CheckedModelPopulationCatalogLimitKind, CheckedModelPopulationCatalogLimits,
+    CheckedModelPopulationCatalogLocus, CheckedModelPopulationMember,
+    CheckedModelPopulationMemberUnresolved, CheckedSelectedModelPopulations,
 };
 pub use monitor_plan::{
     CheckedMonitorBufferRef, CheckedMonitorClockRead, CheckedMonitorClockReadError,

@@ -1035,6 +1035,38 @@ pub(super) mod probe {
 }
 
 impl DomainModel {
+    /// One admitted alias edge, borrowed from the selected document's retained index.
+    pub(super) fn population_alias_target(&self, name: &str) -> Option<&str> {
+        self.aliases.get(name).map(AsRef::as_ref)
+    }
+
+    /// Number of retained alias edges, bounding a population-member walk.
+    pub(super) fn population_alias_count(&self) -> usize {
+        self.aliases.len()
+    }
+
+    /// Whether this identity names any retained selected declaration, even
+    /// when that declaration is not an object type.
+    pub(super) fn population_member_declaration_exists(&self, name: &str) -> bool {
+        self.object_types.contains_key(name)
+            || self.state_machines.contains(name)
+            || self.processes.contains(name)
+            || self.persistence_interfaces.contains(name)
+            || self.persistence_operations.contains_key(name)
+            || self.record_types.contains_key(name)
+            || self.event_types.contains(name)
+            || self.tuple_types.contains_key(name)
+            || self.value_types.contains_key(name)
+            || self.variant_types.contains_key(name)
+            || self.collection_types.contains_key(name)
+            || self.dimensions.contains_key(name)
+            || self.units.contains_key(name)
+            || self.relationships.contains_key(name)
+            || self.populations.contains(name)
+            || self.relation_nodes.contains(name)
+            || self.other_types.contains_key(name)
+    }
+
     /// Whether the admitted selected declaration has the systems Port meaning.
     pub(super) fn is_systems_port(&self, node: &str) -> bool {
         self.other_types.get(node) == Some(&meaning::Kind::SystemsPort)
