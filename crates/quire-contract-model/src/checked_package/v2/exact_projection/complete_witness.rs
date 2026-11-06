@@ -595,22 +595,27 @@ impl SelectedExactIdentities {
         // Required rows are derived below from admitted tables, never from the
         // number of rows retained by this witness.
         self.complete_selected_documents(package, budget)?;
-        for (id, declaration) in package.models.selected_declarations() {
-            charge_native_work(budget, id, id, "complete_declaration", 1)?;
-            if matches!(
-                declaration.form,
-                DeclarationForm::RecordValueType | DeclarationForm::ObjectType
-            ) {
+        // Declarations, including model-owned units, share one ascending
+        // structural order before any effective-field obligation.
+        for id in package.node_index.keys() {
+            charge_native_work(budget, id, id, "complete_declaration_candidate", 1)?;
+            if package
+                .models
+                .selected_declaration(id)
+                .is_some_and(|(_, _, form)| {
+                    matches!(
+                        form,
+                        DeclarationForm::RecordValueType | DeclarationForm::ObjectType
+                    )
+                })
+            {
                 require(
                     self.declarations.contains_key(id),
                     id,
                     "selected_declaration",
                 )?;
-            }
-        }
-        for id in package.node_index.keys() {
-            charge_native_work(budget, id, id, "complete_model_unit_candidate", 1)?;
-            if package.node_kind(id) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+            } else if package.node_kind(id)
+                == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
                 && matches!(
                     package.node(id).and_then(|node| node.owner.as_ref()),
                     Some(CheckedNodeOwner::Model { .. })

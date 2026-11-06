@@ -7795,7 +7795,7 @@ fn complete_identity_witness_precharges_every_unrelated_census_candidate() {
             .validate_and_rebind(&package, &mut candidate)
             .unwrap_err();
         assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-        assert_eq!(error.form.as_ref(), "complete_model_unit_candidate");
+        assert_eq!(error.form.as_ref(), "complete_declaration_candidate");
         assert_eq!(candidate.consumed().work, 17);
         assert_eq!(candidate.first_unpaid().unwrap().amount, 1);
     }

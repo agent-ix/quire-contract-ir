@@ -58,3 +58,12 @@ exact-limit tests. The mixed fixture additionally drops original producer
 preparation rows and projects the retained tuple and source-unit identities
 through selected record fields. Private stale-buffer controls begin with the
 strict reader-admitted relationship fixture, not a manually assembled package.
+
+Fixed-work controls complement measured exact-limit tests: grow an admitted
+unrelated non-unit graph under the same allowance and assert the first unpaid
+selected-model or declaration candidate, before any kind filter. Independently
+sum the binding, selected-document and compared-byte charges for long source
+owners and model-unit originals; deny the owner comparison before its bytes
+are inspected. A missing model-unit declaration precedes an unread effective
+field, and a primitive-node tuple row gives the same native typed refusal in
+public acquisition and selected-type projection.
