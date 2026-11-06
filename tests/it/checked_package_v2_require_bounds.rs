@@ -11,9 +11,9 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    LiteralKind,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageRefusalCode,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2, LiteralKind,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;

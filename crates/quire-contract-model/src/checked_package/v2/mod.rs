@@ -2308,7 +2308,8 @@ fn validate_body(
 /// `BodyBindingRules`): extension nodes use FR-469's declaration body,
 /// `state`/`frame` nodes use the frame reference triple,
 /// `correspondence`/`abstraction_relation` nodes use FR-346's flat shape,
-/// and every other node's body is a `SemanticTerm`.
+/// `value`/`literal` nodes use a single literal, and every other node's body
+/// is a `SemanticTerm`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BodyGrammar {
     /// A `value`/`literal` body contains exactly one literal.
@@ -2329,7 +2330,7 @@ enum BodyGrammar {
     TimedModel,
 }
 
-/// Exactly one kind has each of the three flat grammars. Every form is listed,
+/// Every form is listed explicitly,
 /// so a new form is a compile error until its grammar is decided.
 fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
     use CheckedNodeKind as K;

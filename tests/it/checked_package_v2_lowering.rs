@@ -329,7 +329,7 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
         .as_array()
         .expect("nodes")
         .iter()
-        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "literal")
+        .find(|node| node["node_id"] == checked_package::node_id(&key("dddd")))
         .map(|node| serde_json::from_value(node["node_id"].clone()).expect("node id"))
         .expect("value key");
     let result = package.lower(
@@ -359,9 +359,6 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
     assert!(lowered(&unbounded.records[0]).bounds.is_empty());
 }
 
-/// The all-families fixture with the namespace node `1010` and the value
-/// node `dddd` replaced by a parameter typed at the `integer_range` node
-/// `cccc`: `1010` reaches no bounded domain and `dddd` reaches its own bound.
 fn parameter_body(text: &str, integer: &str) -> Value {
     json!({"term": "aggregate", "members": [
         {"term": "binding", "name": "name", "value": {"term": "literal",
@@ -371,6 +368,8 @@ fn parameter_body(text: &str, integer: &str) -> Value {
     ]})
 }
 
+/// The namespace `1010` is unbounded; the parameter replacing `dddd` reaches
+/// the `integer_range` node `cccc` through its own semantic type.
 fn integer_typed() -> Value {
     let mut value = v2_all_families();
     let nodes = value["semantic_graph"]["nodes"]
