@@ -53,11 +53,13 @@ order and result type) and bodies under
 [FR-038](./FR-038-consume-checked-package-v2.md); a caller-provided list of
 root or entry IDs SHALL NOT replace those admitted handles. The row input
 SHALL retain the distinct source record/member, source union/member and
-payload, tuple, source enum declaration/member, model declaration/field and
-enum, source-unit, dimension/conversion and equality fact channels required
-by reachable types. Each row SHALL preserve its final emitted structural
-node, selected owner or source, original declaration/member identity and
-QSL-issued opaque Exact identity and value where that channel defines one.
+payload, tuple, source enum declaration/member, structural source collection,
+model declaration/field and enum, source-unit, dimension/conversion and
+equality fact channels required by reachable types. Each row SHALL preserve
+its final emitted structural node, selected owner or source and original
+declaration/member identity where those exist, and QSL-issued opaque Exact
+identity and value where that channel defines one. An anonymous structural
+collection row has no invented owner or declaration identity.
 IR SHALL check admitted structural correspondence but SHALL NOT authenticate
 arbitrary caller-created opaque Exact values. A caller-created name,
 structural key or Exact key alone SHALL NOT establish producer authority.

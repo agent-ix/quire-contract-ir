@@ -132,10 +132,10 @@ pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
     SelectedEnumDeclarationRow, SelectedEnumMemberRow, SelectedExactDeclarationForm,
     SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
-    SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView, SelectedSourceEnumRow,
-    SelectedSourceRecordMemberRow, SelectedSourceRecordRow, SelectedSourceTupleRow,
-    SelectedSourceUnionRow, SelectedSourceUnitRow, SelectedTupleDeclarationRow,
-    SelectedTuplePositionRow, SelectedUnionMemberRow,
+    SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView,
+    SelectedSourceCollectionRow, SelectedSourceEnumRow, SelectedSourceRecordMemberRow,
+    SelectedSourceRecordRow, SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
+    SelectedTupleDeclarationRow, SelectedTuplePositionRow, SelectedUnionMemberRow,
 };
 pub use operation_effects::{
     CheckedOperationEffect, CheckedOperationEffectOrigin, CheckedOperationEffectProvenance,
