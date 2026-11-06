@@ -42,8 +42,11 @@ Each successful operation returns one complete `SelectedExactIdentities` value
 and records its work and storage delta in the budget. The budget exposes
 cumulative consumed work and storage plus the most recent successful
 operation's delta. A refusal returns the existing typed native cause and first
-structural locus, no partially authoritative selected-identity value, and the
-budget's first unpaid charge when a limit denies work or storage. The budget
+structural locus when its diagnostic storage is affordable, no partially
+authoritative selected-identity value, and the budget's first unpaid charge
+when a limit denies work or storage. If diagnostic storage is unaffordable,
+the refusal retains the exhausted kind, attempted charge and consumed work
+in a fixed-size form without an owned structural locus. The budget
 itself has fixed-size counters and charge metadata; it retains no per-charge
 log or caller row.
 
@@ -88,6 +91,16 @@ capacity or allocator overhead. IR SHALL compute and admit the required
 storage charge before every corresponding reserve, clone or insertion. A
 storage refusal cannot expose a partly extended selection.
 
+When a native stage-row or source-join budget charge is denied, IR SHALL attempt to charge
+the complete owned diagnostic before constructing it. Its logical-storage
+floor is the footprint of the requested node, the footprint of the first
+native locus, one form container and its bytes, and one error envelope unit.
+When the floor is affordable, the refusal carries that first locus and the
+admitted diagnostic charge remains in cumulative storage. When it is not
+affordable, IR SHALL return a fixed-size exhausted refusal without allocating
+an owned node, form or envelope. The first unpaid charge remains the original
+work or storage denial, including when diagnostic storage is also denied.
+
 The budgeted path SHALL retain FR-352's structural, selected-document,
 producer-order and opaque-identity comparisons. At sufficient limits its
 selected values and typed non-budget refusals SHALL equal the corresponding
@@ -98,16 +111,16 @@ QSL callers must adapt before updating their IR dependency.
 
 The owned diagnostic payloads of clock admission and Exact projection are governed by
 [FR-359](./FR-359-bound-native-projection-refusals.md). This FR defines the
-shared accounting rules used by their reads; its own acceptance criteria
-remain scoped to native selected-identity acquisition.
+shared accounting rules and governs native stage-row and source-join budget
+denials; it does not claim that other diagnostic payloads are precharged.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-358-AC-1 | A public `NativeJoinBudget` with finite work and storage limits is passed by mutable reference to stage-row acquisition and each union, record, tuple, enum and collection join. Two individually affordable operations whose combined work or storage exceeds one limit stop at the first unpaid step of the second operation; no operation silently resets either counter. The public item list and call graph contain one mandatory budgeted acquisition path and no compatibility wrapper or parallel one-shot join entry. | Test, Inspection |
-| FR-358-AC-2 | For each of stage-row, union, record, tuple, enum and collection acquisition, a real admitted fixture at both exact work and exact storage limits yields the complete same selected value as an ample allowance. One unit below either measured requirement refuses with the typed exhausted kind, first native locus and attempted charge, without a partially authoritative result. | Test |
-| FR-358-AC-3 | Every IR-owned row, key, handle, container and map/set entry retained or cloned by the budgeted path, and each byte of copied dynamic payload, is charged by the defined logical-storage rule before the corresponding reserve, clone or insert. The tests make a prior nonempty map require an `Arc::make_mut` copy and show that a limit one below that copy's charge refuses before the new row appears. A borrowed inspection incurs no storage charge. | Test, Inspection |
+| FR-358-AC-2 | For each of stage-row, union, record, tuple, enum and collection acquisition, a real admitted fixture at both exact work and exact storage limits yields the complete same selected value as an ample allowance. One unit below either measured requirement refuses with the typed exhausted kind and attempted charge, without a partially authoritative result. When the diagnostic floor is affordable, the refusal carries the first native locus; otherwise it carries no owned locus or form and preserves the budget's first unpaid charge. | Test |
+| FR-358-AC-3 | Every IR-owned row, key, handle, container and map/set entry retained or cloned by the budgeted path, and each byte of copied dynamic payload, is charged by the defined logical-storage rule before the corresponding reserve, clone or insert. On a budget denial the complete owned diagnostic floor is charged before any owned diagnostic allocation; at zero storage the refusal allocates no owned diagnostic. The tests make a prior nonempty map require an `Arc::make_mut` copy and show that a limit one below that copy's charge refuses before the new row appears. A borrowed inspection incurs no storage charge. | Test, Inspection |
 | FR-358-AC-4 | Cumulative counters equal the sum of admitted charges across a successful stage acquisition and all five joins, while each success delta equals that operation's charge. A refusal clears the current success delta, leaves earlier admitted consumption visible, and records the first unpaid kind and amount without incrementing the denied charge; overflow cannot wrap either counter. Repeating the ordered inputs and limits, including against an admitted package clone, gives equal counters, values or first stops. | Test |
 | FR-358-AC-5 | Each budgeted join preserves FR-352's selected-document, structural node, declaration/member identity, producer order and duplicate checks at sufficient allowance. Missing, foreign, conflicting, stale, wrong-form and incomplete rows retain their existing typed native causes and first loci, without a partial selected value. No caller-created opaque identity becomes authoritative through the budget API. | Test, Inspection |
 | FR-358-AC-6 | The exported API is cycle-free and has no QSL or runtime dependency. In-repository callers use the mandatory budget parameter; the IR implementation introduces no compatibility path, pin, copied artifact or diagnostic-payload claim belonging to IR-1359. | Test, Inspection |

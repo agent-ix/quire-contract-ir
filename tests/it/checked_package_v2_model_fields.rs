@@ -6939,7 +6939,16 @@ fn native_collection_joins_share_budget_and_precharge_nonempty_prior_map_copy() 
         let denied = prior
             .with_source_collection_rows(&package, [second.clone()], &mut short)
             .expect_err("combined allowance stops in second operation");
-        assert_eq!(denied.requested.as_deref(), Some(&second.structural_node));
+        match kind {
+            NativeJoinChargeKind::Work => {
+                assert_eq!(denied.requested.as_deref(), Some(&second.structural_node));
+            }
+            NativeJoinChargeKind::Storage => {
+                assert_eq!(denied.requested, None);
+                assert_eq!(denied.at, None);
+                assert_eq!(denied.form, None);
+            }
+        }
         assert_eq!(
             denied.code,
             match kind {

@@ -482,27 +482,42 @@ fn complete_identity_witness_private_acquisition_is_checked_incremental_and_boun
         .with_admitted_type_rows(&fixture.package, &[], &fixture.units[..1], &mut ample())
         .unwrap();
     let original_first = first_unit.clone();
-    let mut limit = 0;
-    let mut saw_copy = false;
-    for _ in 0..64 {
-        let mut short = NativeJoinBudget::new(u64::MAX, limit);
-        let error = first_unit
-            .with_admitted_type_rows(&fixture.package, &[], &fixture.units[1..], &mut short)
-            .unwrap_err();
-        let denied = short.first_unpaid().unwrap();
-        assert_eq!(error.code, Code::ExhaustedStorage);
-        if error.form.as_deref() == Some("admitted_source_unit_copy") {
-            assert!(
-                denied.amount > 2,
-                "nonempty map keys/entries/handles are charged before COW"
-            );
-            assert_eq!(short.last_success_delta(), None);
-            saw_copy = true;
-            break;
-        }
-        limit = short.consumed().storage + u64::try_from(denied.amount).unwrap();
-    }
-    assert!(saw_copy);
+    let mut exact = ample();
+    let expected_extension = first_unit
+        .with_admitted_type_rows(&fixture.package, &[], &fixture.units[1..], &mut exact)
+        .unwrap();
+    let required_storage = exact.consumed().storage;
+    let mut short = NativeJoinBudget::new(u64::MAX, required_storage - 1);
+    let error = first_unit
+        .with_admitted_type_rows(&fixture.package, &[], &fixture.units[1..], &mut short)
+        .unwrap_err();
+    let denied = short.first_unpaid().expect("copy charge is first unpaid");
+    assert_eq!(error.code, Code::ExhaustedStorage);
+    assert_eq!(denied.kind, NativeJoinChargeKind::Storage);
+    assert!(
+        denied.amount > 2,
+        "nonempty map keys/entries/handles are charged before COW"
+    );
+    assert_eq!(
+        u128::from(short.consumed().storage) + denied.amount,
+        u128::from(required_storage)
+    );
+    assert_eq!(error.denied, Some(denied));
+    assert_eq!(error.requested, None);
+    assert_eq!(error.at, None);
+    assert_eq!(error.form, None);
+    assert_eq!(short.last_success_delta(), None);
+    let mut at_limit = NativeJoinBudget::new(u64::MAX, required_storage);
+    assert_eq!(
+        first_unit.with_admitted_type_rows(
+            &fixture.package,
+            &[],
+            &fixture.units[1..],
+            &mut at_limit
+        ),
+        Ok(expected_extension)
+    );
+    assert_eq!(at_limit.consumed().storage, required_storage);
     assert_eq!(
         first_unit, original_first,
         "failed COW publishes no extension"

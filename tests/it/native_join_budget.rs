@@ -45,22 +45,34 @@ pub(crate) fn assert_exact_join(
                 NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
             }
         );
-        assert_eq!(denied.requested.as_deref(), Some(locus));
-        assert_eq!(
-            denied.at.as_deref(),
-            Some(match kind {
-                NativeJoinChargeKind::Work => work_locus,
-                NativeJoinChargeKind::Storage => locus,
-            })
-        );
+        if kind == NativeJoinChargeKind::Work {
+            assert!(
+                denied.requested.is_some(),
+                "ample storage admits first locus"
+            );
+        }
+        if denied.requested.is_some() {
+            assert_eq!(denied.requested.as_deref(), Some(locus));
+            assert_eq!(
+                denied.at.as_deref(),
+                Some(match kind {
+                    NativeJoinChargeKind::Work => work_locus,
+                    NativeJoinChargeKind::Storage => locus,
+                })
+            );
+            assert!(denied.form.is_some());
+        } else {
+            assert_eq!(denied.at, None);
+            assert_eq!(denied.form, None);
+        }
         let attempted = short.first_unpaid().expect("first unpaid charge recorded");
         assert_eq!(attempted.kind, kind);
         assert!(attempted.amount > 0);
+        assert_eq!(denied.denied, Some(attempted));
         assert_eq!(short.last_success_delta(), None);
         match kind {
             NativeJoinChargeKind::Work => {
                 assert!(short.consumed().work <= work);
-                assert!(short.consumed().storage <= required.storage);
             }
             NativeJoinChargeKind::Storage => {
                 assert!(short.consumed().storage <= storage);
@@ -68,5 +80,14 @@ pub(crate) fn assert_exact_join(
             }
         }
     }
+
+    let mut zero_storage = NativeJoinBudget::new(u64::MAX, 0);
+    let denied = run(&mut zero_storage).expect_err("zero storage refuses");
+    assert_eq!(denied.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
+    assert_eq!(denied.requested, None);
+    assert_eq!(denied.at, None);
+    assert_eq!(denied.form, None);
+    assert_eq!(zero_storage.consumed().storage, 0);
+    assert_eq!(denied.denied, zero_storage.first_unpaid());
     (expected, required)
 }
