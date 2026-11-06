@@ -499,6 +499,9 @@ impl CheckedPackageV2 {
                 return Err(budget.error(NominalReadCode::UnresolvedConversion, &dimension.node_id));
             };
             for term in terms {
+                // A child lookup changes the active coordinate; each sibling term
+                // starts again at its already-paid parent dimension position.
+                budget.graph_locus(position);
                 budget.charge(term.exponent.len().saturating_add(1), &dimension.node_id)?;
                 let (child_position, child) =
                     budget.node_with_position(self, &term.dimension_node_id)?;

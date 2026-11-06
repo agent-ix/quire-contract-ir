@@ -8287,7 +8287,7 @@ fn complete_identity_witness_tuple_validation_matches_projection() {
     let direct = empty
         .with_admitted_type_rows(
             &package,
-            &[row],
+            std::slice::from_ref(&row),
             &[],
             &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )

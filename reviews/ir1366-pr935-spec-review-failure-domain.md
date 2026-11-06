@@ -41,3 +41,8 @@ No Cargo rebuild or aggregate gate was run by this reviewer. Inspected existing 
 ## Round 1 Evidence Status
 
 Static fix review does not change this method's original scoped conclusion. No global matrix recomputation or Cargo rebuild was performed. New regression receipts remain pending; prior 102 tests apply only to the earlier candidate. The lead final combined-tree gate remains pending. See the code-review round 1 new findings before merge.
+
+
+## Round 2 Evidence Status
+
+The static scope and earlier method conclusion remain qualified as before. No global matrix recomputation or Cargo checks were run by the reviewer. New regression results and the final combined-tree gate remain pending. Code-review FND-006 requires a same-PR correction before merge.

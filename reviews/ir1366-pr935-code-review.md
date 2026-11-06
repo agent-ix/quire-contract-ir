@@ -56,7 +56,21 @@ No Cargo rebuild or aggregate gate was run by this reviewer. Inspected existing 
 | FND-003 | fixed | Round 1: Added Copy NativeJoinLocus source indices/static forms, denial capture and constant-time denied_node resolution. This replaces total locus erasure; newly introduced attribution/work issues are separately recorded as FND-004 and FND-005. |
 | FND-004 | still-open | Round 1: New finding: insertion charges retain the prior active row instead of the current row. |
 | FND-005 | still-open | Round 1: New finding: locus lookup runs before the charged inspection is admitted. |
+| FND-004 | fixed | Round 2: Both post-witness index insertion loops now activate the current TupleRow/SourceUnitRow and insertion form before storage_node. |
+| FND-005 | fixed | Round 2: ProjectionBudget and nominal Budget no longer carry an identity-map locator; charge/storage update only fixed metadata before charging. Nominal node_with_position pays identity traversal before the shared lookup. Graph and row positions are retained; unresolved declaration coordinates resolve honestly to None without iterator scans. |
+| FND-006 | still-open | Round 2: New finding: the second term inspection retains the previously resolved child graph position. |
 
 ## Round 1 Verdict
 
 FAIL. FND-001 through FND-003 are statically addressed; FND-004 and FND-005 remain open. The new fixed-size representation and direct denied_node resolution allocate nothing; top-level runtime and exact_read restore previous active locus on Result success/refusal paths. New tests cover shared multiplicity values, first-denial preservation, zero limits, row preflight work denial and default context restoration, but do not exercise post-witness earlier-row insertion attribution. New focused checks are queued and were not run by this reviewer. Earlier 102 passing receipts cover the earlier candidate only and do not establish these fixes. Lead-owned final combined-tree gate remains pending.
+
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | medium | A dimension with two or more terms retains the previous child locus for the next parent-term charge. node_with_position changes active_locus to the first child; the next iteration charges the second term exponent against dimension.node_id without restoring the parent position. If work ends after the first child lookup/pending push, runtime reports GraphNode(first_child) instead of the parent dimension whose next term was denied. Reactivate the parent dimension before every term inspection and assert the resolved denied node in a multi-term dimension boundary test. | crates/quire-contract-model/src/checked_package/v2/nominal_reads.rs:501 |
+
+## Round 2 Verdict
+
+FAIL. FND-001 through FND-005 are statically addressed; FND-006 remains open. Fixed-size declaration ordinals truthfully identify unresolved input requests; denied_node performs only slice/graph direct indexing and never reconstructs identities. New insertion tests require a successful two-row witness join and assert earlier-row storage denial, preventing the previous stale insertion context. The nominal worklist retains graph positions and precharges new metadata vectors. Active runtime/Exact context restoration remains in place. New focused regression checks are still pending; no runtime PASS is claimed for the fixes. Earlier 102 receipts apply only to the earlier candidate. Lead-owned final combined-tree gate remains pending.

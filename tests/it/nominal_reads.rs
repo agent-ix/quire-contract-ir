@@ -1372,3 +1372,107 @@ fn derived_dimension_dependencies_are_returned_as_borrowed_canonical_terms() {
     assert_eq!(view.dimensions[0].terms[0].exponent.as_ref(), "2");
     assert!(view.dimensions[1].terms.is_empty());
 }
+
+#[test]
+#[trace("TC-469", "FR-360-AC-2", "FR-360-AC-3")]
+fn dimension_sibling_term_denial_restores_the_paid_parent_coordinate() {
+    use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocusSource};
+    let mut members = nominal_fixture_members()
+        .into_iter()
+        .skip(2)
+        .collect::<Vec<_>>();
+    let mut time = members[1].0.clone();
+    time["qualified_declaration"] = json!(["Example", "Time"]);
+    members.push((time, "qualified:Example/Time".into()));
+    let mut parent = members[1].0.clone();
+    parent["qualified_declaration"] = json!(["Example", "CompositeDimension"]);
+    parent["terms"] = json!([
+        {"dimension_node_id":node_id("qualified:Example/Length"),"exponent":"1"},
+        {"dimension_node_id":node_id("qualified:Example/Time"),"exponent":"123456789012345"}
+    ]);
+    members.push((parent, "qualified:Example/CompositeDimension".into()));
+    let mut composite = members[0].0.clone();
+    composite["qualified_declaration"] = json!(["Example", "CompositeUnit"]);
+    composite["dimension_node_id"] = node_id("qualified:Example/CompositeDimension");
+    members.push((composite, "qualified:Example/CompositeUnit".into()));
+    let wire = nominal_package(&members);
+    let package = match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("multi-term source dimension must admit: {other:?}"),
+    };
+    let rows: Vec<_> = ["Metre", "CompositeUnit"]
+        .into_iter()
+        .map(|name| {
+            let selected = node(&package, "unit", name);
+            let CheckedNodeOwner::Source {
+                authority,
+                identity,
+            } = selected.owner.as_ref().unwrap()
+            else {
+                panic!("source unit")
+            };
+            SelectedSourceUnitRow::new(
+                selected.node_id.clone(),
+                authority.clone(),
+                identity.clone(),
+                selected
+                    .declaration
+                    .as_ref()
+                    .unwrap()
+                    .qualified_name
+                    .clone(),
+                UnitId::Declared(key(name)),
+            )
+        })
+        .collect();
+    let identities = SelectedExactIdentities::empty();
+    let parent = &node(&package, "dimension", "CompositeDimension").node_id;
+    let child = &node(&package, "dimension", "Length").node_id;
+    let mut ample = NativeJoinBudget::new(10_000, u64::MAX);
+    let view = package
+        .project_selected_type_declarations(&identities, &[], &rows, &mut ample)
+        .unwrap();
+    let dimension = view
+        .dimensions()
+        .iter()
+        .find(|dimension| &dimension.structural_node == parent)
+        .unwrap();
+    assert_eq!(dimension.terms.len(), 2);
+    assert_eq!(dimension.terms[1].exponent.as_ref(), "123456789012345");
+    let mut matched_second_term = 0;
+    for work in 0..ample.consumed().work {
+        let mut short = NativeJoinBudget::new(work, u64::MAX);
+        let error = package
+            .project_selected_type_declarations(&identities, &[], &rows, &mut short)
+            .unwrap_err();
+        let Some(locus) = error.denied_locus else {
+            panic!("every runtime refusal has a fixed coordinate")
+        };
+        let resolved = error.denied_node(&package, &[], &rows);
+        // This sixteen-unit charge is the long second exponent, following
+        // the paid lookup and pending insertion of the first child.
+        if locus.form == "selected_unit_definition"
+            && error.denied.unwrap().kind == NativeJoinChargeKind::Work
+            && error.denied.unwrap().amount == 16
+            && (resolved == Some(parent) || resolved == Some(child))
+        {
+            assert_eq!(
+                resolved,
+                Some(parent),
+                "a sibling term belongs to its parent, not the prior child"
+            );
+            assert!(matches!(locus.source, NativeJoinLocusSource::GraphNode(_)));
+            assert_eq!(short.first_unpaid_locus(), Some(locus));
+            assert_eq!(short.last_success_delta(), None);
+            matched_second_term += 1;
+        }
+    }
+    assert!(
+        matched_second_term >= 16,
+        "every work boundary inside the second exponent charge must retain its parent"
+    );
+}
