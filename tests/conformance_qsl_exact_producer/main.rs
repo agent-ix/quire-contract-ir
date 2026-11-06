@@ -437,7 +437,8 @@ fn prepare_literal_emitter() -> (Scratch, PathBuf, PathBuf) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let target = env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| root.join("target"));
+        .unwrap_or_else(|| root.join("target"))
+        .join("ir1350-literal-body-producer");
     assert!(target.is_absolute(), "producer target must be absolute");
     let scratch =
         Scratch(env::temp_dir().join(format!("ir-literal-emitter-{}", std::process::id())));
