@@ -1611,7 +1611,7 @@ mod tests {
             0,
         );
         emitted["semantic_graph"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({
-            "node_id": id, "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"model", "semantic_form":"record_value_type", "semantic_type":id, "dependencies":[], "occurrences":[{"role":"generated","ordinal":0}], "owner":{"kind":"model","identity":"test/families","node":original}, "body": {"kind":"aggregate", "members":[]}
+            "node_id": id, "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"model", "semantic_form":"record_value_type", "semantic_type":id, "dependencies":[], "occurrences":[{"role":"generated","ordinal":0}], "owner":{"kind":"model","identity":"test/families","node":original}, "body": {"term":"aggregate", "members":[]}
         }));
         fixture_support::refresh_identity(&mut emitted);
         let extra = admit_wire(&emitted, &document);
