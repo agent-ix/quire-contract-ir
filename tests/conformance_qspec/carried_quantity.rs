@@ -500,13 +500,13 @@ impl Package {
     }
 }
 
-/// Trace: FR-038-AC-482, FR-038-AC-483, FR-019-AC-26; QSpec FR-322-AC-384.
+/// Trace: FR-038-AC-485, FR-038-AC-486, FR-019-AC-26; QSpec FR-322-AC-384.
 #[trace(
     "TC-048",
     "TC-050",
     "TC-058",
-    "FR-038-AC-482",
-    "FR-038-AC-483",
+    "FR-038-AC-485",
+    "FR-038-AC-486",
     "FR-019-AC-26"
 )]
 #[test]
@@ -634,8 +634,8 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
     }
 }
 
-/// Trace: FR-038-AC-482, FR-019-AC-26; QSpec FR-322-AC-384.
-#[trace("TC-048", "TC-058", "FR-038-AC-482", "FR-019-AC-26")]
+/// Trace: FR-038-AC-485, FR-019-AC-26; QSpec FR-322-AC-384.
+#[trace("TC-048", "TC-058", "FR-038-AC-485", "FR-019-AC-26")]
 #[test]
 fn published_bounded_quantity_unit_and_alias_identity() {
     let published = bounded_vectors();
@@ -715,8 +715,8 @@ fn published_bounded_quantity_unit_and_alias_identity() {
     assert_eq!(bounded_nodes, 2, "BQ-03 adds no alias node");
 }
 
-/// Trace: FR-038-AC-483; QSpec FR-322-AC-384.
-#[trace("TC-048", "FR-038-AC-483")]
+/// Trace: FR-038-AC-486; QSpec FR-322-AC-384.
+#[trace("TC-048", "FR-038-AC-486")]
 #[test]
 fn published_bounded_quantity_add_convert_and_lt_admit() {
     let bounded = bounded_vectors();
@@ -770,8 +770,8 @@ fn published_bounded_quantity_add_convert_and_lt_admit() {
     }
 }
 
-/// Trace: FR-038-AC-483; QSpec FR-322-AC-384.
-#[trace("TC-048", "FR-038-AC-483")]
+/// Trace: FR-038-AC-486; QSpec FR-322-AC-384.
+#[trace("TC-048", "FR-038-AC-486")]
 #[test]
 fn bounded_quantity_add_requires_an_ordinary_unit_result() {
     let published = bounded_vectors();
@@ -820,8 +820,8 @@ fn bounded_quantity_add_requires_an_ordinary_unit_result() {
     );
 }
 
-/// Trace: FR-038-AC-483; QSpec FR-322-AC-384.
-#[trace("TC-048", "FR-038-AC-483")]
+/// Trace: FR-038-AC-486; QSpec FR-322-AC-384.
+#[trace("TC-048", "FR-038-AC-486")]
 #[test]
 fn published_bounded_quantity_lt_rejects_other_dimension() {
     let bounded = bounded_vectors();
