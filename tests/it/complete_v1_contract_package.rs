@@ -120,7 +120,7 @@ fn operation(term: &CheckedTerm) -> &quire_contract_model::CheckedApplicationOpe
     operation
 }
 
-#[trace("TC-047", "FR-035-AC-3", "FR-038-AC-472")]
+#[trace("TC-047", "FR-038-AC-472")]
 #[test]
 fn mixed_source_literal_keeps_its_type_and_empty_dependencies_through_v1() {
     let source = admit(&mixed_fixture());
