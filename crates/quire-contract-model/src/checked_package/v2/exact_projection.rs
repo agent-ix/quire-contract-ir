@@ -3554,13 +3554,13 @@ impl CheckedPackageV2 {
                         )
                     };
                 }
-                if self.node_kind(&target) != Some(CheckedNodeKind::Model(ModelForm::ObjectType)) {
+                if self.node_kind(target) != Some(CheckedNodeKind::Model(ModelForm::ObjectType)) {
                     return Err(refuse_target!(
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
                     ));
                 }
                 match identities
-                    .declaration_identity(self, &target)
+                    .declaration_identity(self, target)
                     .map_err(|code| refuse_target!(code))?
                 {
                     SelectedExactIdentity::Object(effective) => {
