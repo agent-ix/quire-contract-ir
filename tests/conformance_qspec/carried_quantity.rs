@@ -660,8 +660,7 @@ fn admitted_bounded_quantity_is_a_map_scalar_key() {
     let value = package.ids["integer"].clone();
     let map = json!({"package": package.wire["name"],
         "path": ["composite_type", "map", key, value], "ordinal": 0});
-    let mut dependencies = vec![key.clone(), value.clone()];
-    dependencies.sort_by_key(|id| serde_json::from_value::<CheckedNodeId>(id.clone()).expect("id"));
+    let dependencies = vec![key.clone(), value.clone()];
     package.wire["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")
