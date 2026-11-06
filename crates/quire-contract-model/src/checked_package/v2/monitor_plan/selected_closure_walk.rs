@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::checked_package::v2::native_join_budget::{
-    read_charge, read_node_storage, read_node_work, NativeReadDenied,
+    read_charge, read_node_storage, NativeReadDenied,
 };
 use crate::checked_package::v2::typed_terms::{
     SelectedTermEdge, SelectedTermTraversal, SelectedTermVisit,
@@ -63,11 +63,11 @@ struct Walk<'a, 'b> {
     work: u64,
     pending: Vec<(CheckedNodeId, NativeJoinLocusSource)>,
     seen_nodes: BTreeSet<CheckedNodeId>,
-    seen_edges: BTreeSet<(CheckedNodeId, EdgeRole, CheckedNodeId)>,
+    seen_edges: BTreeSet<(&'a CheckedNodeId, EdgeRole, &'a CheckedNodeId)>,
     nodes: Vec<CheckedNodeId>,
 }
 
-impl Walk<'_, '_> {
+impl<'a> Walk<'a, '_> {
     fn error(&mut self, code: SelectedGraphWalkErrorCode, at: &CheckedNodeId) -> RuntimeWalkError {
         if let Err(error) = read_node_storage(self.budget, at) {
             return error.into();
@@ -82,7 +82,7 @@ impl Walk<'_, '_> {
 
     fn charge(&mut self, at: &CheckedNodeId) -> Result<(), RuntimeWalkError> {
         self.budget.set_locus_form("monitor_graph_inspection");
-        read_node_work(self.budget, at)?;
+        read_charge(self.budget, NativeJoinChargeKind::Work, 1)?;
         self.work += 1;
         Ok(())
     }
@@ -107,19 +107,18 @@ impl Walk<'_, '_> {
 
     fn edge(
         &mut self,
-        from: &CheckedNodeId,
+        from: &'a CheckedNodeId,
         role: EdgeRole,
-        to: &CheckedNodeId,
+        to: &'a CheckedNodeId,
     ) -> Result<(), RuntimeWalkError> {
-        self.charge(from)?;
-        self.charge(to)?;
-        self.retain_node(from)?;
-        self.retain_node(to)?;
-        let edge = (from.clone(), role, to.clone());
+        // The enclosing admitted node/term inspection covers this borrowed
+        // identity comparison. A repeated edge creates no owning key or charge.
+        let edge = (from, role, to);
         if self.seen_edges.contains(&edge) {
             return Ok(());
         }
         self.charge(to)?;
+        read_charge(self.budget, NativeJoinChargeKind::Storage, 1)?;
         self.seen_edges.insert(edge);
         self.retain_node(to)?;
         self.pending.push((
@@ -156,17 +155,18 @@ impl Walk<'_, '_> {
                 .set_locus_source(NativeJoinLocusSource::GraphNode(position));
             self.retain_node(&id)?;
             self.nodes.push(id.clone());
+            let canonical = &node.node_id;
             for dependency in &node.dependencies {
-                self.edge(&id, EdgeRole::Dependency, dependency)?;
+                self.edge(canonical, EdgeRole::Dependency, dependency)?;
             }
-            self.edge(&id, EdgeRole::SemanticType, &node.semantic_type)?;
+            self.edge(canonical, EdgeRole::SemanticType, &node.semantic_type)?;
             let term = self
                 .package
                 .term(&id)
                 .expect("admitted graph node has a retained typed term");
-            term.visit_selected_edges_charged(&id, |event| {
+            term.visit_selected_edges_charged(canonical, |event| {
                 let event = match event {
-                    SelectedTermTraversal::Step => return self.charge(&id),
+                    SelectedTermTraversal::Step => return Ok(()),
                     SelectedTermTraversal::StackStorage(amount) => {
                         self.budget.set_locus_form("monitor_term_stack");
                         return read_charge(self.budget, NativeJoinChargeKind::Storage, amount)
@@ -198,7 +198,7 @@ impl Walk<'_, '_> {
                                 );
                             }
                         };
-                        self.edge(&id, role, target)
+                        self.edge(canonical, role, target)
                     }
                 }
             })?;
@@ -421,7 +421,7 @@ mod tests {
             .unwrap();
         let mut foreign = entry;
         foreign.package = "other/package".into();
-        package.terms[position] = CheckedTerm::DependencyReference {
+        std::sync::Arc::make_mut(&mut package.terms)[position] = CheckedTerm::DependencyReference {
             package: "other/package".into(),
             node: foreign.clone(),
         };
@@ -459,7 +459,7 @@ mod tests {
             .iter()
             .position(|node| node.node_id == entry)
             .unwrap();
-        package.terms[position] = CheckedTerm::Frame {
+        std::sync::Arc::make_mut(&mut package.terms)[position] = CheckedTerm::Frame {
             modifies: Vec::new(),
             creates: Vec::new(),
             deletes: Vec::new(),
@@ -499,10 +499,10 @@ mod tests {
             .iter()
             .position(|node| node.node_id == entry)
             .unwrap();
-        single.terms[position] =
+        std::sync::Arc::make_mut(&mut single.terms)[position] =
             CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
         let mut repeated = single.clone();
-        repeated.terms[position] = CheckedTerm::aggregate(vec![
+        std::sync::Arc::make_mut(&mut repeated.terms)[position] = CheckedTerm::aggregate(vec![
             CheckedTerm::reference(target.clone()),
             CheckedTerm::reference(target),
         ]);

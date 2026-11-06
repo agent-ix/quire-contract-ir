@@ -8422,7 +8422,7 @@ fn runtime_two_tuple_indices_activate_the_first_row_after_witness_join() {
         error.denied_locus,
         Some(NativeJoinLocus {
             source: NativeJoinLocusSource::SelectedDeclaration(0),
-            form: "selected_declaration"
+            form: "selected_declaration_index"
         })
     );
     assert_eq!(error.denied_node(&package, &rows, &[]), None);
