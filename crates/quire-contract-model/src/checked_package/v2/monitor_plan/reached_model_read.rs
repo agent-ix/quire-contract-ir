@@ -307,7 +307,7 @@ impl CheckedMonitorPlanRef<'_> {
                 if let Some((dimension, target, _, _)) = body.unit_details() {
                     budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
                     charge(work, budget, &id)?;
-                    read_node_storage(budget, &dimension)?;
+                    read_node_storage(budget, dimension)?;
                     retain(budget, 1)?;
                     pending.push((
                         dimension.clone(),
@@ -319,7 +319,7 @@ impl CheckedMonitorPlanRef<'_> {
                     if let Some(target) = target {
                         budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
                         charge(work, budget, &id)?;
-                        read_node_storage(budget, &target)?;
+                        read_node_storage(budget, target)?;
                         retain(budget, 1)?;
                         pending.push((
                             target.clone(),
@@ -403,7 +403,7 @@ impl CheckedMonitorPlanRef<'_> {
                         .models
                         .selected_declaration_by_original(declaration.selection, original)
                         .ok_or_else(|| unresolved(budget, &id, *work))?;
-                    read_node_storage(budget, &target)?;
+                    read_node_storage(budget, target)?;
                     retain(budget, 1)?;
                     pending.push((
                         target.clone(),
@@ -1424,5 +1424,166 @@ mod tests {
             if error.code == SelectedModelEnumErrorCode::UnavailableWitness && error.node == variant),
             "{error:?}"
         );
+    }
+
+    #[trace("TC-470", "FR-360-AC-1", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-4")]
+    #[test]
+    fn reached_read_shares_exact_work_storage_and_restores_caller_context() {
+        let package = admitted_monitor();
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let plan = package.monitor_plans().next().unwrap();
+        let read = |budget: &mut NativeJoinBudget| {
+            plan.read_reached_model_facts(
+                ReachedProducerRows {
+                    declarations: &declarations,
+                    fields: &fields,
+                    tuples: &[],
+                    source_units: &source_units,
+                    enum_declarations: &[],
+                    enum_members: &[],
+                    enum_shapes: &[],
+                },
+                budget,
+            )
+        };
+        let caller = Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::TupleRow(91),
+            form: "caller",
+        });
+        let mut generous = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        generous.set_active_locus(caller);
+        let complete = read(&mut generous).unwrap();
+        let used = generous.consumed();
+        assert_eq!(complete.work, used.work);
+        assert_eq!(generous.last_success_delta(), Some(used));
+        assert_eq!(generous.active_locus(), caller);
+        assert!(!generous.exact_diagnostics());
+        let mut exact = NativeJoinBudget::new(used.work, used.storage);
+        assert_eq!(read(&mut exact).unwrap().types, complete.types);
+        assert_eq!(exact.consumed(), used);
+        for (work, storage, kind) in [
+            (0, u64::MAX, NativeJoinChargeKind::Work),
+            (u64::MAX, 0, NativeJoinChargeKind::Storage),
+            (used.work - 1, u64::MAX, NativeJoinChargeKind::Work),
+            (u64::MAX, used.storage - 1, NativeJoinChargeKind::Storage),
+        ] {
+            let mut budget = NativeJoinBudget::new(work, storage);
+            budget.set_active_locus(caller);
+            assert!(read(&mut budget).is_err());
+            assert_eq!(budget.first_unpaid().unwrap().kind, kind);
+            assert!(budget.first_unpaid_locus().is_some());
+            assert_eq!(budget.active_locus(), caller);
+            assert!(!budget.exact_diagnostics());
+            assert_eq!(budget.last_success_delta(), None);
+            if work == 0 || storage == 0 {
+                assert_eq!(budget.consumed().work, 0);
+                assert_eq!(
+                    budget.first_unpaid_locus().unwrap().source,
+                    NativeJoinLocusSource::MonitorSeed(0)
+                );
+                assert_eq!(
+                    budget.first_unpaid_locus().unwrap().form,
+                    if work == 0 {
+                        "monitor_graph_inspection"
+                    } else {
+                        "monitor_graph_storage"
+                    }
+                );
+            }
+        }
+        let mut shared = NativeJoinBudget::new(used.work * 2 - 1, u64::MAX);
+        read(&mut shared).unwrap();
+        let first = shared.consumed();
+        assert!(read(&mut shared).is_err());
+        assert!(shared.consumed().work >= first.work);
+        assert_eq!(
+            shared.first_unpaid().unwrap().kind,
+            NativeJoinChargeKind::Work
+        );
+        assert_eq!(shared.last_success_delta(), None);
+    }
+
+    #[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
+    #[test]
+    fn reached_enum_shape_uses_the_same_budget_as_model_and_unit_reads() {
+        use crate::SelectedModelEnumShapeCaseRow;
+        use quire_exact::{EnumShape, VariantId};
+        let package = admitted_monitor_with_variant(true);
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let original = "ix://test/families/Tier";
+        let enum_node = selected_node(&package, original);
+        let member_node = package
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| {
+                node.semantic_form.as_ref() == "enum_value" && node.semantic_type == enum_node
+            })
+            .unwrap()
+            .node_id
+            .clone();
+        let declaration = SelectedModelEnumDeclarationRow::new(
+            enum_node.clone(),
+            "test/families",
+            original,
+            key("Tier"),
+        );
+        let member = SelectedModelEnumMemberRow::new(
+            member_node.clone(),
+            enum_node.clone(),
+            "test/families",
+            original,
+            "ix://test/families/Tier/Gold",
+            "Gold",
+            key("Gold"),
+        );
+        let variant = VariantId::new(declaration.node_key.clone(), "Gold").unwrap();
+        let shape = SelectedModelEnumShapeRow {
+            structural_node: enum_node,
+            node_key: declaration.node_key.clone(),
+            selected_document: declaration.selected_document.clone(),
+            original_identity: declaration.original_identity.clone(),
+            shape: EnumShape::new(false, [variant.clone()]),
+            cases: vec![SelectedModelEnumShapeCaseRow {
+                structural_node: member_node,
+                case: member.case.clone(),
+                member_key: member.member_key.clone(),
+                member_original_identity: member.member_original_identity.clone(),
+                variant,
+            }],
+        };
+        let enum_declarations = [declaration];
+        let enum_members = [member];
+        let enum_shapes = [shape];
+        let plan = package.monitor_plans().next().unwrap();
+        let read = |budget: &mut NativeJoinBudget| {
+            plan.read_reached_model_facts(
+                ReachedProducerRows {
+                    declarations: &declarations,
+                    fields: &fields,
+                    tuples: &[],
+                    source_units: &source_units,
+                    enum_declarations: &enum_declarations,
+                    enum_members: &enum_members,
+                    enum_shapes: &enum_shapes,
+                },
+                budget,
+            )
+        };
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let complete = read(&mut budget).unwrap();
+        assert_eq!(complete.enums, enum_shapes);
+        assert!(!complete.types.objects().is_empty());
+        assert!(!complete.types.model_units().is_empty());
+        let used = budget.consumed();
+        let mut exact = NativeJoinBudget::new(used.work, used.storage);
+        assert_eq!(read(&mut exact).unwrap().types, complete.types);
+        let mut exhausted = NativeJoinBudget::new(used.work, used.storage - 1);
+        assert!(read(&mut exhausted).is_err());
+        assert_eq!(
+            exhausted.first_unpaid().unwrap().kind,
+            NativeJoinChargeKind::Storage
+        );
+        assert!(exhausted.first_unpaid_locus().is_some());
     }
 }
