@@ -756,6 +756,7 @@ fn quantity_unit<'g>(type_id: &CheckedNodeId, graph: &'g Graph<'_>) -> Option<&'
         })
 }
 
+#[ix_trace_rs::string_edge]
 fn check_bounded_dimensions(
     application: Application<'_>,
     operation: &OperationWire,
