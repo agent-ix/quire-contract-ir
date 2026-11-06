@@ -69,6 +69,14 @@ non-allocating native locus representation; it SHALL NOT allocate an uncharged
 owned locus. The first refusal SHALL retain the first unpaid resource kind and
 amount, and the read SHALL not return a partial view.
 
+The public `NativeJoinLocus` and `NativeJoinLocusSource` types expose that
+fixed-size location: a static native form and the original package, graph,
+row or unresolved declaration-request coordinate. The location does not own
+a copied node or key. A known position resolves directly using the original
+caller context; an unresolved request coordinate remains explicit rather than
+triggering an unpaid identity search. These metadata types belong to the
+closed model-root export inventory in [FR-019](../../model/functional/FR-019-rust-library-interface.md).
+
 The budgeted read SHALL preserve the existing runtime type result, selected
 identities, authored order, and typed semantic-refusal decision whenever the
 caller limits admit every measured charge. Equal admitted input and rows SHALL

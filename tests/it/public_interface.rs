@@ -1054,7 +1054,7 @@ fn qsl_package(package: &Value) -> bool {
             .is_some_and(|source| source.contains("github.com/agent-ix/quire-spec-language"))
 }
 
-#[trace("FR-352-AC-8", "TC-058")]
+#[trace("FR-352-AC-8", "FR-360-AC-3", "TC-058")]
 #[test]
 fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
     use quire_contract_model::{
@@ -1089,6 +1089,8 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
         "ExactTypeProjection",
         "ExactTypeProjectionError",
         "ExactTypeProjectionErrorCode",
+        "NativeJoinLocus",
+        "NativeJoinLocusSource",
         "SelectedExactIdentities",
         "SelectedRecordFieldView",
         "SelectedRecordView",
