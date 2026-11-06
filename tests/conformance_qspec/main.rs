@@ -1628,7 +1628,7 @@ fn qspec_dimensionless_derived_is_not_a_base_root_or_term_target() {
 
 /// QSpec's NB-07..09 mutations are applied to the published positive body;
 /// the reader must refuse the exact dimension-body defect at its own locus.
-#[trace("FR-038-AC-478", "FR-038-AC-479", "FR-038-AC-480")]
+#[trace("FR-038-AC-478", "FR-038-AC-480")]
 #[test]
 fn qspec_explicit_dimension_base_adverses_refuse_at_body_loci() {
     let fixtures = fixtures_dir();
