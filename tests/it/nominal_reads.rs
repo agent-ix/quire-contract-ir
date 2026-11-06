@@ -730,12 +730,30 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
     assert_eq!(
         late.denied_locus,
         Some(quire_contract_model::NativeJoinLocus {
-            source: quire_contract_model::NativeJoinLocusSource::GraphNode(position),
-            form: "selected_dimension"
+            source: quire_contract_model::NativeJoinLocusSource::Package,
+            form: "runtime_model_units"
         })
     );
-    assert_eq!(late.denied_node(&package, &[], &rows), Some(dimension));
+    assert_eq!(late.denied_node(&package, &[], &rows), None);
     assert_eq!(late.denied, last_storage.first_unpaid());
+    // The last output-container header follows the paid dimension copy.
+    let mut dimension_storage =
+        quire_contract_model::NativeJoinBudget::new(measured.work, measured.storage - 2);
+    let dimension_denied = package
+        .project_selected_type_declarations(&identities, &[], &rows, &mut dimension_storage)
+        .unwrap_err();
+    assert_eq!(
+        dimension_denied.denied_locus,
+        Some(quire_contract_model::NativeJoinLocus {
+            source: quire_contract_model::NativeJoinLocusSource::GraphNode(position),
+            form: "selected_dimension",
+        })
+    );
+    assert_eq!(
+        dimension_denied.denied_node(&package, &[], &rows),
+        Some(dimension)
+    );
+    assert_eq!(dimension_denied.denied, dimension_storage.first_unpaid());
     let missing = package
         .project_selected_type_declarations(
             &identities,
