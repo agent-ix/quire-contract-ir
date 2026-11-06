@@ -39,6 +39,7 @@ mod model_members;
 mod model_population_catalog;
 mod model_root;
 mod monitor_plan;
+mod native_join_budget;
 mod natural;
 mod node_index;
 mod operation_catalog;
@@ -128,6 +129,9 @@ pub use model_population_catalog::{
 pub use monitor_plan::{
     CheckedMonitorBufferRef, CheckedMonitorClockRead, CheckedMonitorClockReadError,
     CheckedMonitorClockReadErrorCode, CheckedMonitorEntryRef, CheckedMonitorPlanRef,
+};
+pub use native_join_budget::{
+    NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
 };
 pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use selected_facts::{

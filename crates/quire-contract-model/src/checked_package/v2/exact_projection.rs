@@ -4,6 +4,7 @@
 use super::extension::integer_range_bounds;
 use super::model_members::DeclarationForm;
 use super::model_members::{CollectionKind as CheckedCollectionKind, MemberType};
+use super::native_join_budget::{NativeJoinBudget, NativeJoinChargeKind};
 use super::structural::{reference_type_target_typed, typed_aggregate};
 use super::{
     BoundedDomainForm, CheckedLiteralValue, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner,
@@ -1021,9 +1022,9 @@ fn validate_source_collection_row(
 pub struct SelectedExactIdentities {
     declarations: Arc<BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>>,
     fields: Arc<Vec<SelectedExactFieldRow>>,
-    admitted_tuples: BTreeMap<CheckedNodeId, NodeKey>,
-    admitted_source_units: BTreeMap<CheckedNodeId, UnitId>,
-    source_unions: Arc<BTreeMap<CheckedNodeId, SelectedSourceUnionRow>>,
+    admitted_tuples: Arc<BTreeMap<CheckedNodeId, NodeKey>>,
+    admitted_source_units: Arc<BTreeMap<CheckedNodeId, UnitId>>,
+    source_unions: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceUnionRow>>>,
     source_records: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceRecordRow>>>,
     source_tuples: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceTupleRow>>>,
     source_enums: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceEnumRow>>>,
@@ -1230,7 +1231,7 @@ impl SelectedExactIdentities {
 
     /// Validated source union rows, keyed by the full admitted structural node.
     pub fn source_union_rows(&self) -> impl Iterator<Item = &SelectedSourceUnionRow> {
-        self.source_unions.values()
+        self.source_unions.values().map(Arc::as_ref)
     }
 
     /// Join complete source-owned record rows to this package under a finite allowance.
@@ -1657,14 +1658,18 @@ impl SelectedExactIdentities {
         source_units: &BTreeMap<CheckedNodeId, &SelectedSourceUnitRow>,
     ) -> Self {
         let mut selected = self.clone();
-        selected.admitted_tuples = tuples
-            .iter()
-            .map(|(id, row)| (id.clone(), row.node_key.clone()))
-            .collect();
-        selected.admitted_source_units = source_units
-            .iter()
-            .map(|(id, row)| (id.clone(), row.unit_id.clone()))
-            .collect();
+        selected.admitted_tuples = Arc::new(
+            tuples
+                .iter()
+                .map(|(id, row)| (id.clone(), row.node_key.clone()))
+                .collect(),
+        );
+        selected.admitted_source_units = Arc::new(
+            source_units
+                .iter()
+                .map(|(id, row)| (id.clone(), row.unit_id.clone()))
+                .collect(),
+        );
         selected
     }
 
@@ -1837,6 +1842,8 @@ pub enum ExactTypeProjectionErrorCode {
     UnsupportedExactType,
     /// The caller's finite projection work limit was consumed.
     ExhaustedWork,
+    /// The caller's finite native-join storage limit was consumed.
+    ExhaustedStorage,
 }
 
 impl ExactTypeProjectionErrorCode {
@@ -1851,6 +1858,7 @@ impl ExactTypeProjectionErrorCode {
             Self::UnresolvedSelectedDeclaration => "unresolved_selected_declaration",
             Self::UnsupportedExactType => "unsupported_exact_type",
             Self::ExhaustedWork => "exhausted_work",
+            Self::ExhaustedStorage => "exhausted_storage",
         }
     }
 
@@ -1865,6 +1873,7 @@ impl ExactTypeProjectionErrorCode {
             Self::UnresolvedSelectedDeclaration,
             Self::UnsupportedExactType,
             Self::ExhaustedWork,
+            Self::ExhaustedStorage,
         ]
     }
 
@@ -1918,6 +1927,63 @@ fn selected_declaration_error(
         ExactTypeProjectionErrorCode::ForeignNode
     };
     witness_error(node, code)
+}
+
+fn charge_native(
+    budget: &mut NativeJoinBudget,
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    form: &'static str,
+    kind: NativeJoinChargeKind,
+    amount: u128,
+) -> Result<(), ExactTypeProjectionError> {
+    if budget.charge(kind, amount) {
+        return Ok(());
+    }
+    Err(ExactTypeProjectionError {
+        code: match kind {
+            NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
+            NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
+        },
+        requested: Box::new(requested.clone()),
+        at: Some(Box::new(at.clone())),
+        form: form.into(),
+        work: budget.consumed().work,
+    })
+}
+
+fn charge_native_work(
+    budget: &mut NativeJoinBudget,
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    form: &'static str,
+    amount: u128,
+) -> Result<(), ExactTypeProjectionError> {
+    charge_native(
+        budget,
+        requested,
+        at,
+        form,
+        NativeJoinChargeKind::Work,
+        amount,
+    )
+}
+
+fn charge_native_storage(
+    budget: &mut NativeJoinBudget,
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    form: &'static str,
+    amount: u128,
+) -> Result<(), ExactTypeProjectionError> {
+    charge_native(
+        budget,
+        requested,
+        at,
+        form,
+        NativeJoinChargeKind::Storage,
+        amount,
+    )
 }
 
 fn charge_work(
