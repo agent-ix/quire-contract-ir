@@ -557,6 +557,7 @@ impl SelectedExactIdentities {
     ) -> Result<(), ExactTypeProjectionError> {
         // Required rows are derived below from admitted tables, never from the
         // number of rows retained by this witness.
+        self.complete_selected_documents(package, budget)?;
         for (id, declaration) in package.models.selected_declarations() {
             charge_native_work(budget, id, id, "complete_declaration", 1)?;
             if matches!(
@@ -684,7 +685,7 @@ impl SelectedExactIdentities {
                 }
             }
         }
-        self.complete_selected_documents(package, budget)
+        Ok(())
     }
 
     fn complete_selected_documents(
@@ -1018,4 +1019,106 @@ fn check_row_key(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use quire_exact::OriginalDeclarationKey;
+
+    #[trace("TC-467", "FR-352-AC-24", "FR-352-AC-26")]
+    #[test]
+    fn complete_identity_witness_rechecks_each_original_admitted_fact_buffer() {
+        let (package, ids) = super::super::super::relationship_end::tests::admitted();
+        let object = &ids[&'a'];
+        let (document, original, _) = package.models.selected_declaration(object).unwrap();
+        let selected = SelectedExactIdentities::from_stage_rows(
+            &package,
+            [SelectedExactDeclarationRow::new(
+                object.clone(),
+                document,
+                SelectedExactDeclarationForm::ObjectType,
+                original,
+                SelectedExactIdentity::Object(EffectiveId::new(
+                    None,
+                    OriginalDeclarationKey::new(document, original),
+                )),
+            )],
+            [],
+            &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap();
+        assert_eq!(
+            selected.validate_and_rebind(
+                &package.clone(),
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX)
+            ),
+            Ok(selected.clone())
+        );
+        for changed in 0..9 {
+            let mut stale = package.clone();
+            let position = stale.node_index[object];
+            match changed {
+                0 => Arc::make_mut(&mut stale.wire).semantic_graph.nodes[position].owner = None,
+                1 => {
+                    *Arc::make_mut(&mut stale.models) = Default::default();
+                }
+                2 => {
+                    Arc::make_mut(&mut stale.kinds)[position] =
+                        CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)
+                }
+                3 => {
+                    Arc::make_mut(&mut stale.terms)[position] = CheckedTerm::Reference {
+                        target: ids[&'1'].clone(),
+                    }
+                }
+                4 => {
+                    Arc::make_mut(&mut stale.node_index).remove(object);
+                }
+                5 => Arc::make_mut(&mut stale.source_index).clear(),
+                6 => Arc::make_mut(&mut stale.selected_documents).clear(),
+                7 => {
+                    Arc::make_mut(&mut stale.wire).lock.sources[0].identity =
+                        "changed-source".into()
+                }
+                8 => {
+                    Arc::make_mut(&mut stale.wire).semantic_graph.nodes[position].semantic_type =
+                        ids[&'1'].clone()
+                }
+                _ => unreachable!(),
+            }
+            for witness in [&selected, &SelectedExactIdentities::empty()] {
+                let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+                let error = witness
+                    .validate_and_rebind(&stale, &mut budget)
+                    .unwrap_err();
+                assert_eq!(
+                    error.code,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    "buffer {changed}"
+                );
+                assert_eq!(
+                    budget.consumed(),
+                    NativeJoinCharge {
+                        work: 8,
+                        storage: 0
+                    }
+                );
+                assert_eq!(budget.last_success_delta(), None);
+                assert_eq!(
+                    witness
+                        .with_admitted_type_rows(
+                            &stale,
+                            &[],
+                            &[],
+                            &mut NativeJoinBudget::new(u64::MAX, u64::MAX)
+                        )
+                        .unwrap_err()
+                        .code,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+                );
+            }
+        }
+    }
 }

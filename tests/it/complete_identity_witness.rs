@@ -4,8 +4,8 @@
 use crate::checked_package_v2_owners::{complete_witness_fixture, CompleteWitnessFixture};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, ExactTypeProjectionErrorCode as Code, NativeJoinBudget, NativeJoinCharge,
-    NativeJoinChargeKind, SelectedExactIdentities,
+    ExactTypeProjectionErrorCode as Code, NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind,
+    SelectedExactIdentities,
 };
 
 fn ample() -> NativeJoinBudget {

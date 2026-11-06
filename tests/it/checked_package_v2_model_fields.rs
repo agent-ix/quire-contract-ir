@@ -7368,7 +7368,7 @@ fn complete_identity_witness_reuses_checked_private_channels_for_runtime_project
     assert_eq!(view.tuples().len(), 1);
     assert_eq!(view.objects().len(), 1);
     assert_eq!(view.units().len(), 1);
-    assert_eq!(view.tuples()[0].node_key, tuples[0].node_key);
+    assert_eq!(view.tuples()[0].node_key(), &tuples[0].node_key);
     assert_eq!(view.units()[0].unit_id, units[0].unit_id);
     assert_eq!(
         witness.validate_and_rebind(&package.clone(), &mut budget),
