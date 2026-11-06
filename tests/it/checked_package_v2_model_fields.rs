@@ -2567,6 +2567,7 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
         Ok(view.clone()),
     );
     assert_eq!(exact.last_success_delta(), Some(measured));
+    let mut observed_restored_native_mode = false;
     for work in 0..measured.work {
         let mut limited = quire_contract_model::NativeJoinBudget::new(work, measured.storage);
         let error = admitted
@@ -2583,7 +2584,39 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
         assert!(error.denied_locus.is_some());
         assert!(limited.consumed().work <= work);
         assert_eq!(limited.last_success_delta(), None);
+        if !observed_restored_native_mode
+            && error
+                .denied_locus
+                .is_some_and(|locus| locus.form == "admitted_tuple_row")
+        {
+            let mut reusable = quire_contract_model::NativeJoinBudget::new(work, u64::MAX);
+            let scoped = admitted
+                .project_selected_type_declarations(
+                    &identities,
+                    std::slice::from_ref(&row),
+                    &[],
+                    &mut reusable,
+                )
+                .unwrap_err();
+            assert_eq!(scoped.denied_locus.unwrap().form, "admitted_tuple_row");
+            let before = reusable.consumed().storage;
+            let ordinary = identities
+                .with_admitted_type_rows(&admitted, std::slice::from_ref(&row), &[], &mut reusable)
+                .unwrap_err();
+            assert_eq!(ordinary.requested.as_deref(), Some(&row.structural_node));
+            assert_eq!(ordinary.denied, reusable.first_unpaid());
+            assert!(
+                reusable.consumed().storage > before,
+                "ordinary native denial must pay its diagnostic after runtime mode is restored"
+            );
+            assert_eq!(reusable.first_unpaid_locus(), None);
+            observed_restored_native_mode = true;
+        }
     }
+    assert!(
+        observed_restored_native_mode,
+        "work prefixes must reach the scoped native witness join"
+    );
     let mut shared =
         quire_contract_model::NativeJoinBudget::new(measured.work * 2, measured.storage * 2);
     for _ in 0..2 {
@@ -2707,8 +2740,10 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
             &mut diagnostic_short,
         )
         .unwrap_err();
-    assert_eq!(default_error.denied, None);
-    assert!(default_error.requested.is_some());
+    assert_eq!(default_error.denied, diagnostic_short.first_unpaid());
+    assert_eq!(default_error.requested, None);
+    assert_eq!(default_error.at, None);
+    assert_eq!(default_error.form, None);
 
     assert_eq!(view.tuples().len(), 1);
     assert_eq!(view.tuples()[0].node_key(), &key);
