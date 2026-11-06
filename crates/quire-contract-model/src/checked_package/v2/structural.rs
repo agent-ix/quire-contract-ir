@@ -837,6 +837,7 @@ pub(super) fn validate_derived_type_shapes(
                             | ScalarTypeForm::Uuid | ScalarTypeForm::Timestamp
                             | ScalarTypeForm::Unit | ScalarTypeForm::Enum
                             | ScalarTypeForm::CompoundUnit | ScalarTypeForm::CarriedQuantity
+                            | ScalarTypeForm::BoundedQuantity
                         )))
                             && matches!(graph.kind(value),
                                 Some(CheckedNodeKind::ScalarType(_)
