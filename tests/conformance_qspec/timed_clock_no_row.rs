@@ -69,8 +69,8 @@ fn refusal(wire: &Value) -> quire_contract_model::CheckedPackageRefusal {
     }
 }
 
-/// Trace: FR-038-AC-478, FR-038-AC-479, FR-038-AC-480, TC-048.
-#[trace("TC-048", "FR-038-AC-478", "FR-038-AC-479", "FR-038-AC-480")]
+/// Trace: FR-038-AC-482, FR-038-AC-483, FR-038-AC-484, TC-048.
+#[trace("TC-048", "FR-038-AC-482", "FR-038-AC-483", "FR-038-AC-484")]
 #[test]
 fn timed_clock_no_row_vectors_join_model_and_refuse_extra_row() {
     let published = vectors();

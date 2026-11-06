@@ -246,8 +246,8 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     assert_eq!(extended_read.clock(), read1.clock());
 }
 
-/// Trace: FR-038-AC-480, TC-048.
-#[trace("TC-048", "FR-038-AC-480")]
+/// Trace: FR-038-AC-484, TC-048.
+#[trace("TC-048", "FR-038-AC-484")]
 #[test]
 fn monitor_plan_reads_timed_model_source_and_exact_unit() {
     let (mut wire, _) = materialize(&recipes()["base"]);
