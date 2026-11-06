@@ -36,3 +36,11 @@ FAIL: 2 finding(s) require a fix round.
 ## Review Evidence
 
 Diff inspected at frozen head 12286329. The computed matrix in the coder log tags AC-1 through AC-5; AC-6 is inspection-only. Focused tests, scoped Clippy and compile were supplied by the coder; this reviewer ran no Cargo gate. Plan completion: not assessed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | still-open | The new stage charges follow admitted_selected_declaration(), but its declared-unit branch at exact_projection.rs:82-101 scans selected_models() and compares model.identity to the node owner identity before any text-byte work charge. Thus the unit-stage path can still inspect caller-controlled text beyond its finite work limit. |
+| FND-002 | fixed | Charged before enum lookup clone in revised head 5e4f1d27. |
+| FND-001 | fixed | The native declared-unit lookup now charges each selected model identity and unit key before their comparisons; a long earlier model identity is denied at stage_unit_model. |

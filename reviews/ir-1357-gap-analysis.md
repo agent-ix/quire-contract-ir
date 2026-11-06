@@ -35,3 +35,9 @@ FAIL: 1 finding(s) require a fix round.
 ## Review Evidence
 
 Diff inspected at frozen head 12286329. The computed matrix in the coder log tags AC-1 through AC-5; AC-6 is inspection-only. Focused tests, scoped Clippy and compile were supplied by the coder; this reviewer ran no Cargo gate. Plan completion: not assessed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | All five joins now use nonempty source rows in one admitted package and the test sums their deltas. |
