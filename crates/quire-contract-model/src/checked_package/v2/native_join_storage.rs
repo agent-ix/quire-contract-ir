@@ -7,7 +7,9 @@ use super::exact_projection::{
     SelectedSourceEnumRow, SelectedSourceRecordRow, SelectedSourceTupleRow, SelectedSourceUnionRow,
 };
 use super::{CheckedNodeId, CheckedNodePathSegment, NativeJoinBudget};
-use quire_exact::{EffectiveId, EnumShape, MemberId, MemberOwner, QuantityCarrier, UnitId, ValueType};
+use quire_exact::{
+    EffectiveId, EnumShape, MemberId, MemberOwner, QuantityCarrier, UnitId, ValueType,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
