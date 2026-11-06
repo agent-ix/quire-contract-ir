@@ -10,11 +10,11 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_canonical::{Error, Limits};
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedNodeProjectionV2,
-    CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusalCode,
-    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedRefinementStepRowRegion, CheckedSemanticGraphV2, CheckedSourceMapEntry,
-    CHECKED_PACKAGE_V2,
+    encode_checked_package_v2, AdmissionBinding, CheckedCapability, CheckedDiagnosticsV2,
+    CheckedNodeProjectionV2, CheckedPackageLockV2, CheckedPackageReadLimits,
+    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion, CheckedSemanticGraphV2,
+    CheckedSourceMapEntry, CHECKED_PACKAGE_V2,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -84,7 +84,7 @@ fn admission_binding_identifies_clones_but_not_equal_independent_reads() {
 
     let first = read();
     let first_clone = first.clone();
-    let binding = first.admission_binding();
+    let binding: AdmissionBinding = first.admission_binding();
     let binding_clone = binding.clone();
     assert!(first.retains(&binding));
     assert!(first_clone.retains(&binding));
