@@ -13,9 +13,9 @@
 use super::encode::{elements, encoded};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedSemanticNodeV2,
-    ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm,
-    ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm, ValidationFailure,
-    ValueForm,
+    CheckedTerm, ClaimForm, CompositeTypeForm, CorrespondenceForm, ExpressionForm, FunctionForm,
+    LiteralKind, ModelForm, ProtocolForm, RelationForm, ScalarTypeForm, StateForm, TemporalForm,
+    ValidationFailure, ValueForm,
 };
 #[cfg(test)]
 use super::{ReferenceMember, Step, Trail};
@@ -839,9 +839,24 @@ impl CheckedPackageV2 {
             }
             let composite = kind.tag() == CheckedNodeTag::CompositeType;
             let parameter = matches!(kind, CheckedNodeKind::Value(ValueForm::Parameter));
+            let integer_literal = matches!(kind, CheckedNodeKind::Value(ValueForm::Literal))
+                && matches!(
+                    &node.body,
+                    CheckedTerm::Literal {
+                        type_id,
+                        value_kind: LiteralKind::Integer,
+                        ..
+                    } if *type_id == node.semantic_type
+                );
             for (edge, &(next, role)) in fact.successors.iter().enumerate() {
                 if let Some(successor) = nodes.get(next).map(|target| &target.node_id) {
-                    if role == EdgeRole::Typing && next != position {
+                    // The admitted body-root Integer literal is a constant, so
+                    // its own semantic type is an annotation, not a value position.
+                    let literal_type_edge = edge == 0
+                        && integer_literal
+                        && kinds.get(next)
+                            == Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Integer));
+                    if role == EdgeRole::Typing && next != position && !literal_type_edge {
                         // Edge 0 is the node's own `semantic_type`.
                         if composite || (parameter && edge == 0) {
                             positions.insert(successor.clone());
