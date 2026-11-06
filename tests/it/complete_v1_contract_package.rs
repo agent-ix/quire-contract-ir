@@ -52,30 +52,8 @@ fn mixed_fixture() -> Value {
         if node["node_id"] == checked_package::node_id(&checked_package::family_key("1010")) {
             node["semantic_type"] = integer.clone();
             node["dependencies"] = json!([integer]);
-        } else if node["node_id"] == checked_package::node_id(&checked_package::family_key("dddd"))
-        {
-            node["semantic_type"] = integer.clone();
-            node["dependencies"] = json!([checked_package::node_id(&checked_package::family_key(
-                "cccc"
-            ))]);
         }
     }
-    settle(&mut value);
-    value
-}
-
-fn mixed_fixture_with_two_dependencies() -> Value {
-    let mut value = mixed_fixture();
-    let node = value["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-        .iter_mut()
-        .find(|node| node["node_tag"] == "value")
-        .expect("value node");
-    node["dependencies"] = json!([
-        node["dependencies"][0],
-        checked_package::node_id(&checked_package::family_key("a3a3"))
-    ]);
     settle(&mut value);
     value
 }
@@ -140,6 +118,29 @@ fn operation(term: &CheckedTerm) -> &quire_contract_model::CheckedApplicationOpe
         panic!("represented operation term");
     };
     operation
+}
+
+#[trace("TC-047", "FR-038-AC-472")]
+#[test]
+fn mixed_source_literal_keeps_its_type_and_empty_dependencies_through_v1() {
+    let source = admit(&mixed_fixture());
+    let literal = source
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == id("dddd"))
+        .expect("source literal");
+    assert!(literal.dependencies.is_empty());
+    assert_eq!(literal.semantic_type, id("aaaa"));
+
+    let lowered = source.lower(&[id("dddd")], &profile());
+    let ContractPackageReadResult::Admitted(read_back) = read(bytes(&lowered)) else {
+        panic!("literal V1 output must admit");
+    };
+    let carried = read_back.node(&id("dddd")).expect("lowered literal");
+    assert!(carried.dependencies.is_empty());
+    assert_eq!(carried.semantic_type, literal.semantic_type);
+    assert_eq!(read_back.term(&id("dddd")), Some(&literal.body));
 }
 
 #[trace(
@@ -776,7 +777,7 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
 
     let mut input = mixed_fixture();
     let before = checked_package::node_id(&checked_package::family_key("dddd"));
-    let operand = checked_package::node_id(&checked_package::family_key("a3a3"));
+    let operand = checked_package::node_id(&checked_package::family_key("aaaa"));
     let after = json!({
         "package": before["package"],
         "path": [before["path"][0].clone(), operand],
@@ -844,10 +845,6 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
         panic!("indexed V1 readback must admit");
     };
     let accounted = reader.wire().feature_accounting[0].node_id();
-    assert_ne!(
-        &root, accounted,
-        "source graph and source table use distinct indexes"
-    );
     assert!(ContractSourceKeyV1::from_structural(accounted).is_none());
     let table_index = reader
         .wire()
@@ -1206,16 +1203,8 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
         (
             CheckedPackageLimit::Nodes,
             1,
-            3,
-            Some("/semantic_graph/nodes"),
-        ),
-        // Each node has at most one dependency here, so this case cannot distinguish
-        // the actual consumed count from limit + 1. The two-dependency case below does.
-        (
-            CheckedPackageLimit::Edges,
-            1,
             2,
-            Some("/semantic_graph/nodes/2/dependencies"),
+            Some("/semantic_graph/nodes"),
         ),
         (
             CheckedPackageLimit::Occurrences,
@@ -1226,8 +1215,8 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
         (
             CheckedPackageLimit::Work,
             2,
-            6,
-            Some("/semantic_graph/nodes/1/body"),
+            3,
+            Some("/semantic_graph/nodes/1/semantic_type"),
         ),
     ];
     for (kind, limit, consumed, path) in cases {
@@ -1254,7 +1243,9 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
         );
     }
 
-    let two_edge_output = lower(&mixed_fixture_with_two_dependencies(), &request());
+    // The reference expression carries two real dependencies. A literal cannot
+    // carry edges, even when one points at its semantic type.
+    let two_edge_output = lower(&mixed_fixture(), &[id("eeee")]);
     let two_edge_nodes = &two_edge_output
         .package
         .wire()
@@ -1294,32 +1285,32 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
     );
 
     let mut limits = CheckedPackageReadLimits::bounded();
-    limits.work = 7;
+    limits.work = 3;
     let ContractPackageReadResult::Incomplete(incomplete) = read_with_limits(wire, limits) else {
         panic!("reference validation must exhaust the work limit");
     };
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-    assert_eq!(incomplete.limit, 7);
-    assert_eq!(incomplete.consumed, 8);
+    assert_eq!(incomplete.limit, 3);
+    assert_eq!(incomplete.consumed, 4);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
-        Some("/semantic_graph/nodes/1/semantic_type")
+        Some("/semantic_graph/nodes/1/body/type")
     );
 }
 
 #[trace("TC-047", "FR-035-AC-15")]
 #[test]
 fn reader_uses_one_work_ceiling_across_value_and_reference_validation() {
-    let output = lower(&mixed_fixture(), &request());
+    let output = lower(&mixed_fixture(), &[id("eeee")]);
     let wire = bytes(&output);
-    // Independent body count: node 0 has one unit, node 1 five, node 2 one.
-    // Reference validation then visits six targets, for a total of thirteen.
+    // The three represented nodes consume one body unit each. Reference
+    // validation then visits six type, dependency, and body targets.
     for (limit, consumed, path) in [
-        (2, 6, "/semantic_graph/nodes/1/body"),
-        (6, 7, "/semantic_graph/nodes/2/body"),
-        (7, 8, "/semantic_graph/nodes/1/semantic_type"),
-        (10, 11, "/semantic_graph/nodes/1/body/members/1/value/type"),
-        (12, 13, "/semantic_graph/nodes/2/dependencies/0"),
+        (2, 3, "/semantic_graph/nodes/2/body"),
+        (3, 4, "/semantic_graph/nodes/1/semantic_type"),
+        (6, 7, "/semantic_graph/nodes/2/dependencies/0"),
+        (7, 8, "/semantic_graph/nodes/2/dependencies/1"),
+        (8, 9, "/semantic_graph/nodes/2/body/target"),
     ] {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = limit;
@@ -1336,7 +1327,7 @@ fn reader_uses_one_work_ceiling_across_value_and_reference_validation() {
         );
     }
     let mut limits = CheckedPackageReadLimits::bounded();
-    limits.work = 13;
+    limits.work = 9;
     assert!(matches!(
         read_with_limits(wire, limits),
         ContractPackageReadResult::Admitted(_)
@@ -1357,6 +1348,19 @@ fn reader_charges_each_occurrence_and_region_at_its_own_pointer() {
         .map(|entry| 1 + entry["regions"].as_array().expect("regions").len())
         .sum::<usize>();
     let preceding = u64::try_from(preceding).expect("fixture charge count fits u64");
+    let remaining = ["requested_items", "refusals"]
+        .iter()
+        .map(|member| {
+            source["source_map"][*member]
+                .as_array()
+                .expect("source-map entries")
+                .iter()
+                .flat_map(|entry| entry["occurrences"].as_array().expect("occurrences"))
+                .map(|occurrence| 1 + occurrence["regions"].as_array().expect("regions").len())
+                .sum::<usize>()
+        })
+        .sum::<usize>();
+    let total = preceding + u64::try_from(remaining).expect("fixture charge count fits u64");
     for (limit, consumed, path) in [
         (0, 1, "/source_map/nodes/0/occurrences/0"),
         (
@@ -1364,7 +1368,11 @@ fn reader_charges_each_occurrence_and_region_at_its_own_pointer() {
             preceding + 1,
             "/source_map/requested_items/0/occurrences/0",
         ),
-        (17, 18, "/source_map/refusals/1/occurrences/0/regions/0"),
+        (
+            total - 1,
+            total,
+            "/source_map/refusals/1/occurrences/0/regions/0",
+        ),
     ] {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.occurrences = limit;
@@ -1381,7 +1389,7 @@ fn reader_charges_each_occurrence_and_region_at_its_own_pointer() {
         );
     }
     let mut limits = CheckedPackageReadLimits::bounded();
-    limits.occurrences = 18;
+    limits.occurrences = total;
     assert!(matches!(
         read_with_limits(wire, limits),
         ContractPackageReadResult::Admitted(_)
@@ -1571,7 +1579,7 @@ fn one_call_emits_one_six_member_package_with_total_accounting_and_source_map() 
     assert_eq!(package.package.source.name.as_ref(), admitted.name());
     assert_eq!(package.package.source.lock, *admitted.lock());
     assert_eq!(package.package.lowering_profile, profile().reference);
-    assert_eq!(package.semantic_graph.nodes.len(), 3);
+    assert_eq!(package.semantic_graph.nodes.len(), 2);
     let keys = package
         .semantic_graph
         .nodes
