@@ -5994,32 +5994,67 @@ fn source_collection_fixture() -> (
         ("ordered", Kind::OrderedSet, None, true, true),
         ("bounded", Kind::Sequence, Some((0, 3)), true, false),
     ];
-    let fields = shapes.map(|(name, _, bound, ordered, unique)| {
-        field(name, "ix://quire/native/Integer").many((
-            0,
-            bound.map(|(_, upper)| upper),
-            ordered,
-            unique,
-        ))
-    });
+    let mut fields = shapes
+        .map(|(name, _, bound, ordered, unique)| {
+            field(name, "ix://quire/native/Integer").many((
+                0,
+                bound.map(|(_, upper)| upper),
+                ordered,
+                unique,
+            ))
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+    fields.push(field("unrelated", "ix://quire/native/Float32"));
     let selected = document(vec![object("Collect", &[], &fields)]);
-    let reads = shapes.map(|(name, kind, bound, _, _)| Read {
+    let mut reads = shapes
+        .map(|(name, kind, bound, _, _)| Read {
+            owner: "Collect",
+            field: name,
+            ty: Ty::Collection(kind, Box::new(Ty::Integer), bound),
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+    reads.push(Read {
         owner: "Collect",
-        field: name,
-        ty: Ty::Collection(kind, Box::new(Ty::Integer), bound),
+        field: "unrelated",
+        ty: Ty::Float32,
     });
     let package = admit(&selected, &[("Collect", OBJECT)], &reads);
-    let element_node: CheckedNodeId =
-        serde_json::from_value(node_id("scalar_type/integer")).expect("element ID");
-    let rows = shapes
+    let graph = &package.graph().nodes;
+    let element_node = graph
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "scalar_type" && node.semantic_form.as_ref() == "integer"
+        })
+        .expect("final emitted Integer node")
+        .node_id
+        .clone();
+    let rows: Vec<_> = shapes
         .into_iter()
-        .enumerate()
-        .map(|(index, (name, kind, bound, _, _))| {
-            let base = format!("composite_type/{}/scalar_type/integer", kind.form());
-            let structural = bound.map_or_else(
-                || base.clone(),
-                |(lower, upper)| format!("bounded_domain/collection_bounds/{base}/{lower}/{upper}"),
-            );
+        .map(|(_, kind, bound, _, _)| {
+            let base_node = graph
+                .iter()
+                .find(|node| {
+                    node.node_tag.as_ref() == "composite_type"
+                        && node.semantic_form.as_ref() == kind.form()
+                })
+                .expect("final emitted collection base")
+                .node_id
+                .clone();
+            let structural_node = if bound.is_some() {
+                graph
+                    .iter()
+                    .find(|node| {
+                        node.semantic_form.as_ref() == "collection_bounds"
+                            && node.semantic_type == base_node
+                    })
+                    .expect("final emitted collection bound")
+                    .node_id
+                    .clone()
+            } else {
+                base_node.clone()
+            };
             let value_type = ValueType::collection(CollectionType::new(
                 match kind {
                     Kind::Sequence => CollectionKind::Sequence,
@@ -6031,17 +6066,22 @@ fn source_collection_fixture() -> (
                 bound.map(|(lower, upper)| CardinalityBound::new(lower, upper).unwrap()),
             ));
             let row = SelectedSourceCollectionRow {
-                structural_node: serde_json::from_value(node_id(&structural))
-                    .expect("collection ID"),
-                base_node: serde_json::from_value(node_id(&base)).expect("base ID"),
+                structural_node: structural_node.clone(),
+                base_node,
                 element_node: element_node.clone(),
                 value_type,
             };
-            let requested = format!("expression/query/Collect/{name}/{index}");
-            (
-                row,
-                serde_json::from_value(node_id(&requested)).expect("query ID"),
-            )
+            let requested = graph
+                .iter()
+                .find(|node| {
+                    node.node_tag.as_ref() == "expression"
+                        && node.semantic_form.as_ref() == "query"
+                        && node.semantic_type == structural_node
+                })
+                .expect("final emitted collection read")
+                .node_id
+                .clone();
+            (row, requested)
         })
         .collect();
     (package, rows)
@@ -6052,6 +6092,22 @@ fn source_collection_fixture() -> (
 #[test]
 fn source_collection_rows_project_all_kinds_and_bounds() {
     let (package, rows) = source_collection_fixture();
+    let first_row = rows[0].0.clone();
+    let join_exact = (1..=500)
+        .find(|&limit| {
+            SelectedExactIdentities::empty()
+                .with_source_collection_rows(&package, [first_row.clone()], limit)
+                .is_ok()
+        })
+        .expect("finite exact join allowance");
+    let join_exhausted = SelectedExactIdentities::empty()
+        .with_source_collection_rows(&package, [first_row], join_exact - 1)
+        .expect_err("one below join allowance");
+    assert_eq!(
+        join_exhausted.code,
+        ExactTypeProjectionErrorCode::ExhaustedWork
+    );
+    assert_eq!(join_exhausted.work, join_exact - 1);
     let selected = SelectedExactIdentities::empty()
         .with_source_collection_rows(&package, rows.iter().map(|(row, _)| row.clone()), 500)
         .expect("complete collection rows join");
@@ -6081,6 +6137,19 @@ fn source_collection_rows_project_all_kinds_and_bounds() {
     }
     let bounded = &rows[4].0;
     assert_ne!(bounded.structural_node, bounded.base_node);
+    let unrelated = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "float32")
+        .expect("unrelated admitted float type");
+    assert_eq!(
+        package
+            .project_exact_type(&unrelated.node_id, &selected, 500)
+            .unwrap_err()
+            .code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
 }
 
 /// Trace: FR-352-AC-21.
@@ -6169,4 +6238,173 @@ fn source_collection_rows_refuse_missing_and_changed_structural_facts() {
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
     );
     assert_eq!(refusal.at.as_deref(), Some(&row.element_node));
+}
+
+/// Trace: FR-352-AC-21.
+#[trace("FR-352-AC-21")]
+#[test]
+fn source_collection_with_unprojectable_option_element_keeps_native_refusal() {
+    let selected = document(vec![
+        json!({"identity": orders("OptInt"), "kind": "option", "inner": "ix://quire/native/Integer"}),
+        object(
+            "Collect",
+            &[],
+            &[field("xs", &orders("OptInt")).many((0, None, true, false))],
+        ),
+    ]);
+    let package = admit(
+        &selected,
+        &[("Collect", OBJECT)],
+        &[Read {
+            owner: "Collect",
+            field: "xs",
+            ty: Ty::Collection(
+                Kind::Sequence,
+                Box::new(Ty::Option(Box::new(Ty::Integer))),
+                None,
+            ),
+        }],
+    );
+    let graph = &package.graph().nodes;
+    let option = graph
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "option")
+        .expect("emitted option element")
+        .node_id
+        .clone();
+    let base = graph
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "sequence")
+        .expect("emitted sequence base")
+        .node_id
+        .clone();
+    let requested = graph
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "expression"
+                && node.semantic_form.as_ref() == "query"
+                && node.semantic_type == base
+        })
+        .expect("emitted query")
+        .node_id
+        .clone();
+    let row = SelectedSourceCollectionRow {
+        structural_node: base.clone(),
+        base_node: base,
+        element_node: option.clone(),
+        value_type: ValueType::collection(CollectionType::new(
+            CollectionKind::Sequence,
+            ValueType::option(ValueType::Integer),
+            None,
+        )),
+    };
+    let selected = SelectedExactIdentities::empty()
+        .with_source_collection_rows(&package, [row], 500)
+        .expect("structural collection row joins");
+    let refusal = package
+        .project_exact_type(&requested, &selected, 500)
+        .expect_err("option element has no general Exact projection yet");
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    assert_eq!(refusal.at.as_deref(), Some(&option));
+}
+
+/// Trace: FR-352-AC-20, FR-352-AC-21.
+#[trace("FR-352-AC-20", "FR-352-AC-21")]
+#[test]
+fn nested_collection_rows_follow_final_element_nodes_without_recursion() {
+    let selected = document(vec![object("Collect", &[], &[])]);
+    let (mut wire, evidence, _) = package(&selected, &[("Collect", OBJECT)], &[]);
+    let mut nodes = BTreeMap::new();
+    type_nodes(
+        &Ty::Collection(
+            Kind::Sequence,
+            Box::new(Ty::Collection(Kind::Set, Box::new(Ty::Integer), None)),
+            None,
+        ),
+        &mut nodes,
+    );
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph")
+        .extend(nodes.into_values());
+    settle(&mut wire);
+    let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(package) => *package,
+        other => panic!("nested collection fixture must admit: {other:?}"),
+    };
+    let graph = &admitted.graph().nodes;
+    let integer = graph
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "scalar_type" && node.semantic_form.as_ref() == "integer"
+        })
+        .expect("element")
+        .node_id
+        .clone();
+    let inner = graph
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "set" && node.dependencies.contains(&integer))
+        .expect("inner set")
+        .node_id
+        .clone();
+    let outer = graph
+        .iter()
+        .find(|node| {
+            node.semantic_form.as_ref() == "sequence" && node.dependencies.contains(&inner)
+        })
+        .expect("outer sequence")
+        .node_id
+        .clone();
+    let inner_type = ValueType::collection(CollectionType::new(
+        CollectionKind::Set,
+        ValueType::Integer,
+        None,
+    ));
+    let outer_type = ValueType::collection(CollectionType::new(
+        CollectionKind::Sequence,
+        inner_type.clone(),
+        None,
+    ));
+    let inner_row = SelectedSourceCollectionRow {
+        structural_node: inner.clone(),
+        base_node: inner.clone(),
+        element_node: integer,
+        value_type: inner_type,
+    };
+    let outer_row = SelectedSourceCollectionRow {
+        structural_node: outer.clone(),
+        base_node: outer.clone(),
+        element_node: inner.clone(),
+        value_type: outer_type.clone(),
+    };
+    let identities = SelectedExactIdentities::empty()
+        .with_source_collection_rows(&admitted, [outer_row, inner_row], 500)
+        .expect("both nested rows join");
+    let projected = admitted
+        .project_exact_type(&outer, &identities, 500)
+        .expect("iterative nested projection");
+    assert_eq!(projected.value_type(), &outer_type);
+    let without_inner = SelectedExactIdentities::empty()
+        .with_source_collection_rows(
+            &admitted,
+            [SelectedSourceCollectionRow {
+                structural_node: outer.clone(),
+                base_node: outer.clone(),
+                element_node: inner.clone(),
+                value_type: outer_type,
+            }],
+            500,
+        )
+        .expect("outer structural row joins alone");
+    let refusal = admitted
+        .project_exact_type(&outer, &without_inner, 500)
+        .expect_err("reached inner row required");
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
+    assert_eq!(refusal.at.as_deref(), Some(&inner));
 }

@@ -2250,7 +2250,12 @@ fn project_source_collection(
             ));
         }
         let ValueType::Collection(collection) = &row.value_type else {
-            unreachable!("a selected collection row was structurally joined")
+            return Err(source_collection_error(
+                requested,
+                &row.structural_node,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                *work,
+            ));
         };
         let element = &row.element_node;
         let next_kind = package.node_kind(element);
