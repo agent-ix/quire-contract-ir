@@ -10,11 +10,11 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_canonical::{Error, Limits};
 use quire_contract_model::{
-    encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedNodeProjectionV2,
-    CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusalCode,
-    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedRefinementStepRowRegion, CheckedSemanticGraphV2, CheckedSourceMapEntry,
-    CHECKED_PACKAGE_V2,
+    encode_checked_package_v2, AdmissionBinding, CheckedCapability, CheckedDiagnosticsV2,
+    CheckedNodeProjectionV2, CheckedPackageLockV2, CheckedPackageReadLimits,
+    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion, CheckedSemanticGraphV2,
+    CheckedSourceMapEntry, CHECKED_PACKAGE_V2,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -67,6 +67,36 @@ fn refused(value: &Value) -> CheckedPackageRefusalCode {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal.code,
         other => panic!("expected refusal, got {other:?}"),
     }
+}
+
+/// Trace: FR-038-AC-492, TC-048.
+#[trace("FR-038-AC-492", "TC-048")]
+#[test]
+fn admission_binding_identifies_clones_but_not_equal_independent_reads() {
+    let value = v2_nominal();
+    let bytes = canonical(&value);
+    let evidence = evidence_for(&value);
+    let read =
+        || match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("nominal package must admit: {other:?}"),
+        };
+
+    let first = read();
+    let first_clone = first.clone();
+    let binding: AdmissionBinding = first.admission_binding();
+    let binding_clone = binding.clone();
+    assert!(first.retains(&binding));
+    assert!(first_clone.retains(&binding));
+    assert!(first.retains(&binding_clone));
+    assert!(first_clone.retains(&first_clone.admission_binding()));
+
+    let second = read();
+    let second_binding = second.admission_binding();
+    assert_eq!(first.graph().nodes, second.graph().nodes);
+    assert!(!first.retains(&second_binding));
+    assert!(!second.retains(&binding));
+    assert!(second.retains(&second_binding));
 }
 
 /// Trace: FR-064-AC-1, FR-064-AC-6, TC-946.
