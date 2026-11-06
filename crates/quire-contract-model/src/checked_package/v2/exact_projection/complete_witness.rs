@@ -1020,6 +1020,27 @@ fn check_row_key(
     Ok(())
 }
 
+pub(super) fn check_package_binding(
+    binding: Option<&super::super::AdmissionBinding>,
+    package: &CheckedPackageV2,
+    budget: &mut NativeJoinBudget,
+    at: &CheckedNodeId,
+) -> Result<(), ExactTypeProjectionError> {
+    charge_native_work(budget, at, at, "identity_package_binding", 1)?;
+    if binding.is_some_and(|binding| binding != &package.admission_binding) {
+        return Err(witness_error(at, ExactTypeProjectionErrorCode::ForeignNode));
+    }
+    charge_native_work(budget, at, at, "identity_admitted_buffers", 7)?;
+    if !package.admission_binding.retains(package) {
+        return Err(witness_error(
+            at,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+        ));
+    }
+    Ok(())
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1120,24 +1141,4 @@ mod tests {
             }
         }
     }
-}
-
-pub(super) fn check_package_binding(
-    binding: Option<&super::super::AdmissionBinding>,
-    package: &CheckedPackageV2,
-    budget: &mut NativeJoinBudget,
-    at: &CheckedNodeId,
-) -> Result<(), ExactTypeProjectionError> {
-    charge_native_work(budget, at, at, "identity_package_binding", 1)?;
-    if binding.is_some_and(|binding| binding != &package.admission_binding) {
-        return Err(witness_error(at, ExactTypeProjectionErrorCode::ForeignNode));
-    }
-    charge_native_work(budget, at, at, "identity_admitted_buffers", 7)?;
-    if !package.admission_binding.retains(package) {
-        return Err(witness_error(
-            at,
-            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-        ));
-    }
-    Ok(())
 }
