@@ -69,6 +69,10 @@ impl NativeJoinBudget {
         self.first_unpaid
     }
 
+    pub(super) fn work_limit(&self) -> u64 {
+        self.work_limit
+    }
+
     pub(super) fn begin(&mut self) -> NativeJoinCharge {
         self.last_success_delta = None;
         self.first_unpaid = None;

@@ -5,6 +5,7 @@
 use super::super::{
     CheckedDeclaration, CheckedLiteralValue, CheckedNodeId, CheckedNodeOwner,
     CheckedNodePathSegment, CheckedPackageV2, CheckedSemanticNodeV2, CheckedTerm,
+    NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind,
 };
 use super::{CheckedRational, DimensionTerm, NominalBodyKind};
 use quire_exact::{NodeKey, UnitId};
@@ -80,11 +81,53 @@ pub struct NominalReadError<'a> {
     pub limit: u64,
 }
 
-struct Budget {
+struct Budget<'b> {
     work: u64,
     limit: u64,
+    native: Option<&'b mut NativeJoinBudget>,
+    before: NativeJoinCharge,
 }
-impl Budget {
+impl Budget<'_> {
+    fn numeric(limit: u64) -> Self {
+        Self {
+            work: 0,
+            limit,
+            native: None,
+            before: NativeJoinCharge::default(),
+        }
+    }
+
+    fn native(budget: &mut NativeJoinBudget) -> Budget<'_> {
+        let before = budget.begin();
+        Budget {
+            work: 0,
+            limit: budget.work_limit(),
+            native: Some(budget),
+            before,
+        }
+    }
+
+    fn storage<'a>(
+        &mut self,
+        amount: u128,
+        node: &'a CheckedNodeId,
+    ) -> Result<(), NominalReadError<'a>> {
+        if self
+            .native
+            .as_mut()
+            .is_some_and(|budget| !budget.charge(NativeJoinChargeKind::Storage, amount))
+        {
+            return Err(self.error(NominalReadCode::LimitReached, node));
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self) {
+        if let Some(budget) = &mut self.native {
+            budget.finish(self.before);
+        }
+    }
+
     fn error<'a>(&self, code: NominalReadCode, node: &'a CheckedNodeId) -> NominalReadError<'a> {
         NominalReadError {
             code,
@@ -99,6 +142,14 @@ impl Budget {
         node: &'a CheckedNodeId,
     ) -> Result<(), NominalReadError<'a>> {
         let amount = u64::try_from(amount).unwrap_or(u64::MAX);
+        if let Some(budget) = &mut self.native {
+            if !budget.charge(NativeJoinChargeKind::Work, u128::from(amount)) {
+                self.work = budget.consumed().work - self.before.work;
+                return Err(self.error(NominalReadCode::LimitReached, node));
+            }
+            self.work = budget.consumed().work - self.before.work;
+            return Ok(());
+        }
         let Some(work) = self.work.checked_add(amount) else {
             self.work = u64::MAX;
             return Err(self.error(NominalReadCode::LimitReached, node));
@@ -110,14 +161,19 @@ impl Budget {
         Ok(())
     }
     fn identity<'a>(&mut self, root: &'a CheckedNodeId) -> Result<(), NominalReadError<'a>> {
+        self.storage(1, root)?;
         let mut pending = vec![root];
+        self.storage(1, root)?;
         while let Some(node) = pending.pop() {
             self.charge(node.package.len().saturating_add(1), root)?;
             for segment in &node.path {
                 self.charge(1, root)?;
                 match segment {
                     CheckedNodePathSegment::Name(name) => self.charge(name.len(), root)?,
-                    CheckedNodePathSegment::Node(child) => pending.push(child),
+                    CheckedNodePathSegment::Node(child) => {
+                        self.storage(1, root)?;
+                        pending.push(child);
+                    }
                     CheckedNodePathSegment::Index(_) => {}
                 }
             }
@@ -206,7 +262,7 @@ pub struct EnumRead<'a> {
 fn declaration<'a>(
     package: &'a CheckedPackageV2,
     row: &NominalDeclarationRow<'a>,
-    budget: &mut Budget,
+    budget: &mut Budget<'_>,
 ) -> Result<&'a CheckedSemanticNodeV2, NominalReadError<'a>> {
     let node = budget.node(package, row.node)?;
     budget.charge(1, row.node)?;
@@ -249,9 +305,17 @@ impl CheckedPackageV2 {
         &'a self,
         requested: &'a [CheckedNodeId],
         rows: &'a [NominalDeclarationRow<'a>],
-        limit: u64,
+        native_budget: &mut NativeJoinBudget,
     ) -> Result<UnitDefinitionRead<'a>, NominalReadError<'a>> {
-        let mut budget = Budget { work: 0, limit };
+        let mut budget = Budget::native(native_budget);
+        let locus = requested
+            .first()
+            .or_else(|| rows.first().map(|row| row.node));
+        if let Some(locus) = locus {
+            budget.storage(1, locus)?;
+            budget.storage(1, locus)?;
+            budget.storage(1, locus)?;
+        }
         let mut units = Vec::new();
         let mut nodes = BTreeSet::new();
         let mut identities = BTreeSet::new();
@@ -261,7 +325,12 @@ impl CheckedPackageV2 {
             let NominalIdentity::Unit(identity @ UnitId::Declared(key)) = row.identity else {
                 return Err(budget.error(NominalReadCode::UnsupportedForm, row.node));
             };
-            if !nodes.insert(row.node) || !identities.insert(key) {
+            budget.storage(2, row.node)?;
+            if !nodes.insert(row.node) {
+                return Err(budget.error(NominalReadCode::ConflictingWitness, row.node));
+            }
+            budget.storage(2, row.node)?;
+            if !identities.insert(key) {
                 return Err(budget.error(NominalReadCode::ConflictingWitness, row.node));
             }
             let CheckedTerm::NominalBody(body) = &node.body else {
@@ -291,6 +360,7 @@ impl CheckedPackageV2 {
                 .as_ref()
                 .map(|id| budget.node(self, id))
                 .transpose()?;
+            budget.storage(1, row.node)?;
             units.push(UnitRead {
                 node,
                 identity,
@@ -301,9 +371,13 @@ impl CheckedPackageV2 {
                 offset,
             });
         }
+        if let Some(locus) = locus {
+            budget.storage(1, locus)?;
+        }
         let mut requests = BTreeSet::new();
         for id in requested {
             budget.identity(id)?;
+            budget.storage(2, id)?;
             if !requests.insert(id) {
                 return Err(budget.error(NominalReadCode::ConflictingWitness, id));
             }
@@ -327,13 +401,21 @@ impl CheckedPackageV2 {
                 }
             }
         }
+        if let Some(locus) = locus {
+            budget.storage(3, locus)?;
+        }
         let mut dimensions = Vec::new();
         let mut seen = BTreeSet::new();
-        let mut pending = units.iter().map(|unit| unit.dimension).collect::<Vec<_>>();
+        let mut pending = Vec::new();
+        for unit in &units {
+            budget.storage(1, &unit.node.node_id)?;
+            pending.push(unit.dimension);
+        }
         let mut next = 0;
         while let Some(dimension) = pending.get(next).copied() {
             next += 1;
             budget.identity(&dimension.node_id)?;
+            budget.storage(2, &dimension.node_id)?;
             if !seen.insert(&dimension.node_id) {
                 continue;
             }
@@ -345,17 +427,21 @@ impl CheckedPackageV2 {
             };
             for term in terms {
                 budget.charge(term.exponent.len().saturating_add(1), &dimension.node_id)?;
+                budget.storage(1, &dimension.node_id)?;
                 pending.push(budget.node(self, &term.dimension_node_id)?);
             }
+            budget.storage(1, &dimension.node_id)?;
             dimensions.push(DimensionRead {
                 node: dimension,
                 terms,
             });
         }
+        let work = budget.work;
+        budget.finish();
         Ok(UnitDefinitionRead {
             units,
             dimensions,
-            work: budget.work,
+            work,
         })
     }
 
@@ -367,7 +453,7 @@ impl CheckedPackageV2 {
         rows: &'a [EnumMemberRow<'a>],
         limit: u64,
     ) -> Result<EnumRead<'a>, NominalReadError<'a>> {
-        let mut budget = Budget { work: 0, limit };
+        let mut budget = Budget::numeric(limit);
         let node = declaration(self, selected, &mut budget)?;
         let NominalIdentity::Enum(identity) = selected.identity else {
             return Err(budget.error(NominalReadCode::UnsupportedForm, selected.node));
