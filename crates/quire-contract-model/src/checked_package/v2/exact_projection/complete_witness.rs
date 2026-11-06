@@ -10,22 +10,7 @@ impl SelectedExactIdentities {
         budget: &mut NativeJoinBudget,
         at: &CheckedNodeId,
     ) -> Result<(), ExactTypeProjectionError> {
-        charge_native_work(budget, at, at, "identity_package_binding", 1)?;
-        if self
-            .binding
-            .as_ref()
-            .is_some_and(|binding| binding != &package.admission_binding)
-        {
-            return Err(witness_error(at, ExactTypeProjectionErrorCode::ForeignNode));
-        }
-        charge_native_work(budget, at, at, "identity_admitted_buffers", 7)?;
-        if !package.admission_binding.retains(package) {
-            return Err(witness_error(
-                at,
-                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            ));
-        }
-        Ok(())
+        check_package_binding(self.binding.as_ref(), package, budget, at)
     }
 
     fn join_locus<'a>(&'a self, package: &'a CheckedPackageV2) -> Option<&'a CheckedNodeId> {
@@ -98,6 +83,7 @@ impl SelectedExactIdentities {
                         tuple_storage(prior).saturating_add(tuple_storage(row)),
                     )?;
                     if prior.as_ref() == row {
+                        selected.check_handle(&row.node_key, id, Some(id), budget)?;
                         continue;
                     }
                     return Err(witness_error(
@@ -161,6 +147,7 @@ impl SelectedExactIdentities {
                         unit_storage(prior).saturating_add(unit_storage(row)),
                     )?;
                     if prior.as_ref() == row {
+                        selected.check_handle(key, id, Some(id), budget)?;
                         continue;
                     }
                     return Err(witness_error(
@@ -393,7 +380,7 @@ impl SelectedExactIdentities {
         }
         if !self.source_unions.is_empty() {
             let mut scratch = self.validation_scratch(at, budget)?;
-            charge_native_storage(budget, at, at, "union_validation_map", 1)?;
+            charge_native_storage(budget, at, at, "union_validation_map", 2)?;
             scratch.source_unions = Arc::new(BTreeMap::new());
             for (id, row) in self.source_unions.iter() {
                 check_row_key(id, &row.structural_node, budget)?;
@@ -425,7 +412,7 @@ impl SelectedExactIdentities {
         }
         if !self.source_records.is_empty() {
             let mut scratch = self.validation_scratch(at, budget)?;
-            charge_native_storage(budget, at, at, "record_validation_map", 1)?;
+            charge_native_storage(budget, at, at, "record_validation_map", 2)?;
             scratch.source_records = Arc::new(BTreeMap::new());
             for (id, row) in self.source_records.iter() {
                 check_row_key(id, &row.structural_node, budget)?;
@@ -458,7 +445,7 @@ impl SelectedExactIdentities {
         }
         if !self.source_tuples.is_empty() {
             let mut scratch = self.validation_scratch(at, budget)?;
-            charge_native_storage(budget, at, at, "tuple_validation_map", 1)?;
+            charge_native_storage(budget, at, at, "tuple_validation_map", 2)?;
             scratch.source_tuples = Arc::new(BTreeMap::new());
             for (id, row) in self.source_tuples.iter() {
                 check_row_key(id, &row.structural_node, budget)?;
@@ -491,7 +478,7 @@ impl SelectedExactIdentities {
         }
         if !self.source_enums.is_empty() {
             let mut scratch = self.validation_scratch(at, budget)?;
-            charge_native_storage(budget, at, at, "enum_validation_map", 1)?;
+            charge_native_storage(budget, at, at, "enum_validation_map", 2)?;
             scratch.source_enums = Arc::new(BTreeMap::new());
             for (id, row) in self.source_enums.iter() {
                 check_row_key(id, &row.declaration.structural_node, budget)?;
@@ -526,7 +513,7 @@ impl SelectedExactIdentities {
         }
         if !self.source_collections.is_empty() {
             let mut scratch = self.validation_scratch(at, budget)?;
-            charge_native_storage(budget, at, at, "collection_validation_map", 1)?;
+            charge_native_storage(budget, at, at, "collection_validation_map", 2)?;
             scratch.source_collections = Arc::new(BTreeMap::new());
             for (id, row) in self.source_collections.iter() {
                 check_row_key(id, &row.structural_node, budget)?;
@@ -971,8 +958,20 @@ fn term_uses_type(
             | CheckedTerm::Application {
                 arguments: members, ..
             } => {
-                if let CheckedTerm::Application { result_type, .. } = term {
+                if let CheckedTerm::Application {
+                    result_type,
+                    operation,
+                    ..
+                } = term
+                {
                     if result_type == target {
+                        return Ok(true);
+                    }
+                    charge_native_work(budget, at, at, "collection_operation_type_use", 1)?;
+                    let declaration = operation.member_declaration().map_err(|_| {
+                        witness_error(at, ExactTypeProjectionErrorCode::UnsupportedExactType)
+                    })?;
+                    if declaration == Some(target) {
                         return Ok(true);
                     }
                 }
@@ -1121,4 +1120,24 @@ mod tests {
             }
         }
     }
+}
+
+pub(super) fn check_package_binding(
+    binding: Option<&super::super::AdmissionBinding>,
+    package: &CheckedPackageV2,
+    budget: &mut NativeJoinBudget,
+    at: &CheckedNodeId,
+) -> Result<(), ExactTypeProjectionError> {
+    charge_native_work(budget, at, at, "identity_package_binding", 1)?;
+    if binding.is_some_and(|binding| binding != &package.admission_binding) {
+        return Err(witness_error(at, ExactTypeProjectionErrorCode::ForeignNode));
+    }
+    charge_native_work(budget, at, at, "identity_admitted_buffers", 7)?;
+    if !package.admission_binding.retains(package) {
+        return Err(witness_error(
+            at,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+        ));
+    }
+    Ok(())
 }

@@ -37,8 +37,10 @@ fn admitted() -> CheckedPackageV2 {
 fn complete_witness_public_default_feature_consumer_uses_the_shared_budget() {
     let package = admitted();
     let mut budget = NativeJoinBudget::new(10_000, 10_000);
-    let selected = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut budget)
-        .unwrap()
+    let stage = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut budget).unwrap();
+    assert_eq!(budget.consumed().storage, 24,
+        "nine owned containers plus nine Arc handles, five uniqueness containers, one binding handle");
+    let selected = stage
         .with_admitted_type_rows(&package, &[], &[], &mut budget)
         .unwrap()
         .with_source_union_rows(&package, [], &mut budget)

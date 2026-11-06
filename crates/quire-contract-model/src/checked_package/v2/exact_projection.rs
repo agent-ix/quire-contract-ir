@@ -1279,8 +1279,14 @@ impl SelectedExactIdentities {
             .or_else(|| fields.peek().map(|row| &row.record_node))
             .or_else(|| package.graph().nodes.first().map(|node| &node.node_id));
         if let Some(first) = first {
-            Self::empty().check_binding(package, budget, first)?;
-            charge_native_storage(budget, first, first, "stage_selection", 15)?;
+            complete_witness::check_package_binding(None, package, budget, first)?;
+            charge_native_storage(
+                budget,
+                first,
+                first,
+                "stage_selection",
+                storage::stage_selection(),
+            )?;
         }
         let result = (|| {
             let mut selected = Self::empty();

@@ -396,3 +396,9 @@ pub(super) fn prior_arc_map<T>(map: &BTreeMap<CheckedNodeId, Arc<T>>) -> u128 {
 pub(super) const fn selected_clone() -> u128 {
     10
 }
+
+/// Nine newly owned map/vector containers and their nine Arc handles, five
+/// temporary uniqueness containers, and the retained admission-binding handle.
+pub(super) const fn stage_selection() -> u128 {
+    9 * 2 + 5 + 1
+}
