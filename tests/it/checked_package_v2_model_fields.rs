@@ -1810,7 +1810,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
         refusal.code,
         ExactTypeProjectionErrorCode::UnavailableIdentityWitness
     );
-    assert_eq!(refusal.at.as_ref(), &child);
+    assert_eq!(refusal.at.as_deref(), Some(&child));
     let exhausted = admitted
         .project_selected_type_declarations(
             &witnessed,
@@ -2653,7 +2653,7 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
         )
         .unwrap_err();
     assert_eq!(tight.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(tight.at.as_ref(), &long_row.structural_node);
+    assert_eq!(tight.at.as_deref(), Some(&long_row.structural_node));
     assert_eq!(tight.form.as_deref(), Some("selected_tuple_row"));
 }
 

@@ -295,7 +295,6 @@ fn admitted_selected_record_cycle_projects_complete_views_and_charges_inner_targ
         for index in 0..COUNT {
             let requested: CheckedNodeId = serde_json::from_value(id(index)).unwrap();
             let next = (index + 1) % COUNT;
-            let target: CheckedNodeId = serde_json::from_value(id(next)).unwrap();
             let projected = admitted.project_exact_type(&requested, &identities, &mut quire_contract_model::NativeJoinBudget::new(work, u64::MAX)).expect("complete nominal recursive record view");
             assert_eq!(clone.project_exact_type(&requested, &identities, &mut quire_contract_model::NativeJoinBudget::new(work, u64::MAX)), Ok(projected.clone()));
             assert_eq!(admitted.project_exact_type(&requested, &identities, &mut quire_contract_model::NativeJoinBudget::new(work, u64::MAX)), Ok(projected.clone()));

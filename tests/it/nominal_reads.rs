@@ -820,7 +820,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
         )
         .unwrap_err();
     assert_eq!(tight.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(tight.at.as_ref(), &converted.node_id);
+    assert_eq!(tight.at.as_deref(), Some(&converted.node_id));
     assert_eq!(tight.form.as_deref(), Some("selected_source_unit_row"));
     let mut long_declaration = converted_row;
     long_declaration.qualified_declaration = vec!["x".repeat(4096).into()];
@@ -833,7 +833,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
         )
         .unwrap_err();
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(refusal.at.as_ref(), &converted.node_id);
+    assert_eq!(refusal.at.as_deref(), Some(&converted.node_id));
     assert_eq!(refusal.form.as_deref(), Some("selected_source_unit_row"));
 }
 fn row<'a>(
