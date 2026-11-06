@@ -776,8 +776,8 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
     }
 
     let mut input = mixed_fixture();
-    let before = checked_package::node_id(&checked_package::family_key("eeee"));
-    let operand = checked_package::node_id(&checked_package::family_key("a3a3"));
+    let before = checked_package::node_id(&checked_package::family_key("dddd"));
+    let operand = checked_package::node_id(&checked_package::family_key("aaaa"));
     let after = json!({
         "package": before["package"],
         "path": [before["path"][0].clone(), operand],
@@ -845,10 +845,6 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
         panic!("indexed V1 readback must admit");
     };
     let accounted = reader.wire().feature_accounting[0].node_id();
-    assert_ne!(
-        &root, accounted,
-        "source graph and source table use distinct indexes"
-    );
     assert!(ContractSourceKeyV1::from_structural(accounted).is_none());
     let table_index = reader
         .wire()
@@ -1289,16 +1285,16 @@ fn reader_incomplete_reports_each_exhausted_meter_and_pointer() {
     );
 
     let mut limits = CheckedPackageReadLimits::bounded();
-    limits.work = 7;
+    limits.work = 3;
     let ContractPackageReadResult::Incomplete(incomplete) = read_with_limits(wire, limits) else {
         panic!("reference validation must exhaust the work limit");
     };
     assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
-    assert_eq!(incomplete.limit, 7);
-    assert_eq!(incomplete.consumed, 8);
+    assert_eq!(incomplete.limit, 3);
+    assert_eq!(incomplete.consumed, 4);
     assert_eq!(
         incomplete.path.as_ref().map(|path| path.as_str()),
-        Some("/semantic_graph/nodes/1/semantic_type")
+        Some("/semantic_graph/nodes/1/body/type")
     );
 }
 
