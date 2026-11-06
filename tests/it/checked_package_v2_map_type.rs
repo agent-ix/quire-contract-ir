@@ -107,7 +107,7 @@ fn map_keeps_both_ordered_type_operands() {
         .project_exact_type(
             &id,
             &quire_contract_model::SelectedExactIdentities::empty(),
-            100,
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
         )
         .expect("Map<Text,Integer> has an exact value projection");
     let quire_exact::ValueType::Map(map) = projection.value_type() else {
@@ -118,7 +118,7 @@ fn map_keeps_both_ordered_type_operands() {
         .project_exact_type(
             &id,
             &quire_contract_model::SelectedExactIdentities::empty(),
-            2,
+            &mut quire_contract_model::NativeJoinBudget::new(2, u64::MAX),
         )
         .expect_err("Map key inspection consumes the bounded work budget");
     assert_eq!(
@@ -247,7 +247,7 @@ fn collection_bounds_remain_a_separate_node() {
         .project_exact_type(
             &id,
             &quire_contract_model::SelectedExactIdentities::empty(),
-            100,
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
         )
         .expect("bounded Map exact projection");
     let quire_exact::ValueType::Map(map) = projection.value_type() else {
@@ -322,7 +322,11 @@ fn non_text_scalar_key_admits_but_has_no_exact_projection() {
         Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
     );
     let refusal = admitted
-        .project_exact_type(&id, &SelectedExactIdentities::empty(), 100)
+        .project_exact_type(
+            &id,
+            &SelectedExactIdentities::empty(),
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect_err("Exact Map requires a Text key");
     assert_eq!(
         refusal.code,
