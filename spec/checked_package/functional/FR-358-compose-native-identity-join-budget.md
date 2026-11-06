@@ -96,11 +96,11 @@ in-repository callers SHALL pass a caller-owned budget; no compatibility
 wrapper, fallback limit or second budgeted algorithm is introduced. Downstream
 QSL callers must adapt before updating their IR dependency.
 
-The current owned diagnostic payloads of clock admission, Exact projection
-and runtime type projection are separately qualified by IR-1359. This FR
-charges native join construction and scratch state; it does not claim that
-those diagnostic payloads are precharged or that a zero-storage diagnostic
-can yet be returned without allocation.
+The owned diagnostic payloads of clock admission, Exact projection and runtime
+type projection are governed by
+[FR-359](./FR-359-bound-native-projection-refusals.md). This FR defines the
+shared accounting rules used by their reads; its own acceptance criteria
+remain scoped to native selected-identity acquisition.
 
 ## Acceptance Criteria
 
@@ -122,5 +122,5 @@ can yet be returned without allocation.
   work and storage accounting.
 - [FR-357](./FR-357-project-selected-generated-type-closure.md) consumes the
   budgeted joins for a future complete selected monitor closure.
-- IR-1359 applies this budget to bounded diagnostic payloads in clock and
-  projection reads; those payloads are outside this ticket.
+- [FR-359](./FR-359-bound-native-projection-refusals.md) applies this budget
+  to bounded clock and projection reads and their diagnostic payloads.
