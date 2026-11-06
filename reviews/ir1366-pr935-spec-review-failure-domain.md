@@ -62,3 +62,14 @@ Actual current-production regression receipts were read in full: /tmp/ir1366-rou
 All five FR-360 criteria were tagged in the earlier computed matrix. Its repository-wide pre-existing gaps remain qualified and were not recomputed or resolved here; no global repository assurance PASS is claimed. Plan completion: not assessed.
 
 Merge readiness remains conditional on committing the latest versions of all six scratch review artifacts and the lead-owned final combined-tree gate, including the required all-targets coverage. No reviewer build, source edit, push or merge was performed.
+
+
+## Narrow Rebase Integration Review
+
+PASS for the narrow rebase/integration scope. All six findings remain fixed and no new finding was found. Range-diff shows the three fix commits and retained review artifacts carry unchanged; the only additional PR change adapts runtime-mode restoration assertions to the new upstream charged native-denial behavior. The shared-rule, parent-dimension, direct-coordinate and precharge implementations are unchanged. Upstream native_budget_denial remains the single ordinary budget-denial constructor, charging the complete diagnostic floor before ownership and preserving the original first unpaid charge when its diagnostic storage is unaffordable.
+
+The revised mode-restoration oracle is substantive: it requires a runtime refusal inside admitted_tuple_row, then reuses that budget with abundant storage for an ordinary join and asserts an owned requested locus, additional admitted diagnostic storage, matching denial metadata and no leaked runtime coordinate. A leaked scoped Exact mode returns compact with no requested node and fails this oracle. The observed_restored_native_mode assertion requires that branch to execute. The separate no-storage ordinary-denial case correctly expects compact payloads under the new baseline; it is no longer relied on alone as proof of mode restoration.
+
+Inspected actual rebase-focused script, tested-head receipt, range-diff and execution logs. Passing selections total 169: 2 runtime helpers, 3 native-budget unit tests, 5 Exact helper tests, 86 model/runtime integration tests, 13 nominal tests, 9 complete-witness tests, 33 owner tests and 18 union tests. The native_join_budget integration filter runs zero standalone tests and is not included in that total. Workspace Clippy, feature-matched integration-target compilation and formatter receipts pass. The focused script uses --locked --workspace with conformance-cli. No reviewer build or global matrix rerun was performed. No excluded scratch/old dependency commit is in the candidate ancestry.
+
+Current scoped review verdict: PASS, subject to the lead-owned final combined-tree gate after the latest six artifacts are committed. Earlier pending lint/evidence notes are historical; the current rebase receipts replace them for this candidate. Repository-wide matrix gaps remain qualified and unchanged; this is no global assurance claim.
