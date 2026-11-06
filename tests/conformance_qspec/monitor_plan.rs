@@ -8,6 +8,7 @@ use super::*;
 use quire_contract_model::CheckedMonitorPlanRef;
 use quire_contract_model::{
     CheckedMonitorClockReadErrorCode, CheckedOccurrence, CheckedOccurrenceRole, ClockConfiguration,
+    NativeJoinBudget,
 };
 use std::collections::BTreeSet;
 
@@ -19,7 +20,7 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
 }
 
 /// Trace: FR-038-AC-470, TC-048.
-#[trace("TC-048", "FR-038-AC-470")]
+#[trace("TC-048", "TC-468", "FR-038-AC-470", "FR-359-AC-2", "FR-359-AC-3")]
 #[test]
 fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     let (mut wire, root) = materialize(&recipes()["base"]);
@@ -68,10 +69,14 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
         ordinal: 1,
     };
     let read0 = plan
-        .clock_for_claim(&selected, &first, 100)
+        .clock_for_claim(&selected, &first, &mut NativeJoinBudget::new(100, u64::MAX))
         .expect("first claim clock");
     let read1 = plan
-        .clock_for_claim(&selected, &second, 100)
+        .clock_for_claim(
+            &selected,
+            &second,
+            &mut NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect("second claim clock");
     assert_eq!(read0.root(), plan.node_id());
     assert_eq!(read1.clause(), &selected);
@@ -80,6 +85,25 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     assert_eq!(read1.claim_name(), "Clause1");
     assert_eq!(read0.clock_name(), "model-steps");
     assert_eq!(read1.clock_name(), "model-steps");
+    let mut exact_budget = NativeJoinBudget::new(read1.work(), 1);
+    assert_eq!(
+        plan.clock_for_claim(&selected, &second, &mut exact_budget)
+            .unwrap(),
+        read1
+    );
+    assert_eq!(exact_budget.last_success_delta().unwrap().storage, 1);
+    let mut storage_short = NativeJoinBudget::new(100, 0);
+    let storage_error = plan
+        .clock_for_claim(&selected, &second, &mut storage_short)
+        .unwrap_err();
+    assert_eq!(
+        storage_error.code,
+        CheckedMonitorClockReadErrorCode::StorageLimit
+    );
+    assert_eq!(storage_error.at, None);
+    assert_eq!(storage_error.occurrence, None);
+    assert_eq!(storage_short.last_success_delta(), None);
+    assert_eq!(storage_short.first_unpaid().unwrap().amount, 1);
     assert_eq!(
         read0.clock(),
         &ClockConfiguration::EventPosition {
@@ -94,17 +118,25 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     );
     let exact = read1.work();
     assert_eq!(
-        plan.clock_for_claim(&selected, &second, exact)
-            .unwrap()
-            .work(),
+        plan.clock_for_claim(
+            &selected,
+            &second,
+            &mut NativeJoinBudget::new(exact, u64::MAX)
+        )
+        .unwrap()
+        .work(),
         exact
     );
     let denied = plan
-        .clock_for_claim(&selected, &second, exact - 1)
+        .clock_for_claim(
+            &selected,
+            &second,
+            &mut NativeJoinBudget::new(exact - 1, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(denied.code, CheckedMonitorClockReadErrorCode::WorkLimit);
     assert_eq!(denied.work, exact - 1);
-    assert_eq!(denied.at.as_ref(), &selected);
+    assert_eq!(denied.at.as_deref(), Some(&selected));
     assert_eq!(denied.attempted_work, 1);
     let cloned = package.clone();
     assert_eq!(
@@ -112,41 +144,77 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
             .monitor_plans()
             .next()
             .unwrap()
-            .clock_for_claim(&selected, &second, exact)
+            .clock_for_claim(
+                &selected,
+                &second,
+                &mut NativeJoinBudget::new(exact, u64::MAX)
+            )
             .unwrap(),
         read1
     );
     let foreign = plan.state();
-    let wrong_clause = plan.clock_for_claim(foreign, &first, 100).unwrap_err();
+    let wrong_clause = plan
+        .clock_for_claim(foreign, &first, &mut NativeJoinBudget::new(100, u64::MAX))
+        .unwrap_err();
     assert_eq!(
         wrong_clause.code,
         CheckedMonitorClockReadErrorCode::WrongClause
     );
-    assert_eq!(wrong_clause.at.as_ref(), foreign);
-    assert_eq!(wrong_clause.occurrence, first);
+    assert_eq!(wrong_clause.at.as_deref(), Some(foreign));
+    assert_eq!(wrong_clause.occurrence, Some(first));
     assert_eq!(wrong_clause.attempted_work, 0);
+    let mut semantic_budget = NativeJoinBudget::new(100, u64::MAX);
+    let expected = plan
+        .clock_for_claim(foreign, &first, &mut semantic_budget)
+        .unwrap_err();
+    let diagnostic_storage = semantic_budget.consumed().storage;
+    assert!(diagnostic_storage > 1);
+    let mut exact_diagnostic = NativeJoinBudget::new(100, diagnostic_storage);
+    assert_eq!(
+        plan.clock_for_claim(foreign, &first, &mut exact_diagnostic)
+            .unwrap_err(),
+        expected
+    );
+    let mut short_diagnostic = NativeJoinBudget::new(100, diagnostic_storage - 1);
+    let refused = plan
+        .clock_for_claim(foreign, &first, &mut short_diagnostic)
+        .unwrap_err();
+    assert_eq!(refused.code, CheckedMonitorClockReadErrorCode::StorageLimit);
+    assert_eq!(refused.at, None);
+    assert_eq!(refused.occurrence, None);
+    assert_eq!(short_diagnostic.last_success_delta(), None);
     let declaration = CheckedOccurrence {
         role: CheckedOccurrenceRole::Declaration,
         ordinal: 0,
     };
     let wrong_role = plan
-        .clock_for_claim(&selected, &declaration, 100)
+        .clock_for_claim(
+            &selected,
+            &declaration,
+            &mut NativeJoinBudget::new(100, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(wrong_role.code, CheckedMonitorClockReadErrorCode::WrongRole);
-    assert_eq!(wrong_role.at.as_ref(), &selected);
-    assert_eq!(wrong_role.occurrence, declaration);
+    assert_eq!(wrong_role.at.as_deref(), Some(&selected));
+    assert_eq!(wrong_role.occurrence, Some(declaration));
     assert_eq!(wrong_role.attempted_work, 0);
     let missing = CheckedOccurrence {
         role: CheckedOccurrenceRole::Claim,
         ordinal: 2,
     };
-    let unknown = plan.clock_for_claim(&selected, &missing, 100).unwrap_err();
+    let unknown = plan
+        .clock_for_claim(
+            &selected,
+            &missing,
+            &mut NativeJoinBudget::new(100, u64::MAX),
+        )
+        .unwrap_err();
     assert_eq!(
         unknown.code,
         CheckedMonitorClockReadErrorCode::UnknownOccurrence
     );
-    assert_eq!(unknown.at.as_ref(), &selected);
-    assert_eq!(unknown.occurrence, missing);
+    assert_eq!(unknown.at.as_deref(), Some(&selected));
+    assert_eq!(unknown.occurrence, Some(missing));
     assert_eq!(unknown.attempted_work, 0);
 
     fn use_infinite_trace(value: &mut Value) {
@@ -169,14 +237,18 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     let no_clock_package = admitted(&unconfigured);
     let no_clock_plan = no_clock_package.monitor_plans().next().unwrap();
     let no_clock = no_clock_plan
-        .clock_for_claim(no_clock_plan.clause(), &second, 100)
+        .clock_for_claim(
+            no_clock_plan.clause(),
+            &second,
+            &mut NativeJoinBudget::new(100, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         no_clock.code,
         CheckedMonitorClockReadErrorCode::MissingClock
     );
-    assert_eq!(no_clock.at.as_ref(), no_clock_plan.clause());
-    assert_eq!(no_clock.occurrence, second);
+    assert_eq!(no_clock.at.as_deref(), Some(no_clock_plan.clause()));
+    assert_eq!(no_clock.occurrence, Some(second));
     assert_eq!(no_clock.attempted_work, 0);
 
     let mut extended = wire.clone();
@@ -197,7 +269,11 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
         .monitor_plans()
         .next()
         .unwrap()
-        .clock_for_claim(&selected, &second, exact)
+        .clock_for_claim(
+            &selected,
+            &second,
+            &mut NativeJoinBudget::new(exact, u64::MAX),
+        )
         .unwrap();
     assert_eq!(extended_read.work(), exact);
     assert_eq!(extended_read.clock(), read1.clock());
