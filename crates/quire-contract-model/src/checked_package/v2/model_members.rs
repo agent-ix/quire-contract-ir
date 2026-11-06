@@ -2644,7 +2644,16 @@ fn rational_value_type(
             let number = operands
                 .filter(|operands| operands.len() == 1)
                 .and_then(|operands| operands.get("value"))
-                .and_then(Value::as_i64)
+                .and_then(|value| match value {
+                    Value::Number(number) => number
+                        .as_i64()
+                        .filter(|number| number.unsigned_abs() <= (1_u64 << 53)),
+                    Value::String(text) => text
+                        .parse::<i64>()
+                        .ok()
+                        .filter(|number| number.to_string() == text.as_str()),
+                    _ => None,
+                })
                 .ok_or_else(|| {
                     malformed(vec![
                         Segment::Name("constraints"),
@@ -4822,7 +4831,7 @@ mod structural_member_type_tests {
             json!(["scalar_type", "carried_quantity", unit, id, "rounding",
                 {"package":"example","path":["scalar_type","text"],"ordinal":0}, "exact"])
         );
-        for bad in [json!("-3"), json!(-3.5), json!(null)] {
+        for bad in [json!(-3.5), json!(null)] {
             assert!(
                 super::semantic_ir_value_type(&declared(constraints(bad.clone())), &unit_refs)
                     .is_none(),
@@ -4845,5 +4854,129 @@ mod structural_member_type_tests {
             super::semantic_ir_value_type(&declared(json!([])), &unit_refs).is_none(),
             "unbounded Rational must remain unmapped"
         );
+    }
+
+    /// Trace: FR-038-AC-487, FR-322-AC-380, TC-981 (RV-01..RV-03).
+    #[test]
+    fn selected_rational_bounds_preserve_canonical_signed_64_values() {
+        use super::{
+            admit_document, Budget, CheckedPackageRefusalCause, ModelRefusal, RationalValueError,
+            Segment, SelectionFailure, UnitRefs, ValueBounds, WorkMeter,
+        };
+
+        let selected = |lower: serde_json::Value, upper: serde_json::Value| {
+            json!({
+                "package":{"identity":"test/orders"},
+                "types":[{"identity":"ix://test/orders/Ratio","scalar":"rational",
+                    "constraints":[
+                        {"keyword":"minNumerator","appliesTo":"ix://test/orders/Ratio","operands":{"value":lower}},
+                        {"keyword":"maxNumerator","appliesTo":"ix://test/orders/Ratio","operands":{"value":upper}},
+                        {"keyword":"minDenominator","appliesTo":"ix://test/orders/Ratio","operands":{"value":1}},
+                        {"keyword":"maxDenominator","appliesTo":"ix://test/orders/Ratio","operands":{"value":12}}
+                    ]}]
+            })
+        };
+        let read = |document: &serde_json::Value| {
+            let bytes = serde_json::to_vec(document).expect("selected document");
+            let mut meter = WorkMeter::new(u64::MAX);
+            let mut budget = Budget::new(&mut meter, 0, u64::MAX);
+            admit_document(
+                "test/orders",
+                Some(&bytes),
+                |document| {
+                    document
+                        .pointer("/package/identity")
+                        .and_then(serde_json::Value::as_str)
+                },
+                &mut budget,
+            )
+            .map(|(value, _)| value)
+        };
+        let unit_refs = UnitRefs::default();
+        for (lower, upper, expected_lower, expected_upper) in [
+            (
+                json!(-9_007_199_254_740_992_i64),
+                json!(9_007_199_254_740_992_i64),
+                -9_007_199_254_740_992_i128,
+                9_007_199_254_740_992_i128,
+            ),
+            (
+                json!("-9223372036854775808"),
+                json!("9223372036854775807"),
+                i128::from(i64::MIN),
+                i128::from(i64::MAX),
+            ),
+            (json!("-3"), json!("7"), -3, 7),
+        ] {
+            let document = read(&selected(lower, upper)).expect("canonical selected document");
+            let Some(ValueBounds::Rational(bounds, None)) =
+                super::rational_value_type(&document["types"][0], &unit_refs)
+                    .expect("selected Rational bounds")
+            else {
+                panic!("selected Rational bounds must remain exact");
+            };
+            assert_eq!(
+                (bounds.numerator_min, bounds.numerator_max),
+                (expected_lower, expected_upper)
+            );
+            let id = super::MemberType::RationalRange(bounds)
+                .node_id("test/orders")
+                .expect("rational range node");
+            let path = serde_json::to_value(id).expect("structural node key")["path"]
+                .as_array()
+                .expect("rational range path")
+                .clone();
+            assert_eq!(path[4], json!(expected_lower.to_string()));
+            assert_eq!(path[6], json!(expected_upper.to_string()));
+        }
+
+        for bad in [
+            "01",
+            "+1",
+            "-0",
+            "3/4",
+            "9223372036854775808",
+            "-9223372036854775809",
+        ] {
+            let document =
+                read(&selected(json!(-3), json!(bad))).expect("well-shaped selected document");
+            let (refusal, path): RationalValueError =
+                super::rational_value_type(&document["types"][0], &unit_refs)
+                    .expect_err("non-canonical or out-of-range decimal refuses");
+            assert_eq!(refusal, ModelRefusal::malformed(), "{bad}");
+            assert_eq!(
+                path,
+                vec![
+                    Segment::Name("constraints"),
+                    Segment::Index(1),
+                    Segment::Name("operands")
+                ],
+                "{bad}"
+            );
+        }
+        for (constraint, unsafe_integer) in [
+            (1, 9_007_199_254_740_993_i64),
+            (1, 9_007_199_254_740_994_i64),
+            (0, -9_007_199_254_740_994_i64),
+        ] {
+            let (lower, upper) = if constraint == 0 {
+                (json!(unsafe_integer), json!(7))
+            } else {
+                (json!(-3), json!(unsafe_integer))
+            };
+            let result = read(&selected(lower, upper));
+            let Err(SelectionFailure::InexactNumber {
+                document_pointer,
+                cause,
+            }) = result
+            else {
+                panic!("unsafe JSON integer must refuse before selected-model typing: {result:?}");
+            };
+            assert_eq!(cause, CheckedPackageRefusalCause::InexactInteger);
+            assert_eq!(
+                document_pointer.to_string(),
+                format!("/types/0/constraints/{constraint}/operands/value")
+            );
+        }
     }
 }
