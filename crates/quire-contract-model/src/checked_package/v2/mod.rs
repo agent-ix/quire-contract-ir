@@ -2867,12 +2867,9 @@ fn validate_graph(
         validate_declaration(kind, &node.occurrences, node.declaration.as_ref(), position)?;
         validate_node_id(&node.semantic_type, || at("semantic_type"))?;
         if kind == CheckedNodeKind::Value(ValueForm::Literal) && !node.dependencies.is_empty() {
-            return Err(with_node_locus(
-                refuse(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    at("dependencies"),
-                ),
-                &node.node_id,
+            return Err(refuse(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                at("dependencies"),
             ));
         }
         for (dependency_index, dependency) in node.dependencies.iter().enumerate() {

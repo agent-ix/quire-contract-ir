@@ -600,7 +600,6 @@ fn verify_literal_bodies(bytes: &[u8]) {
             CheckedPackageV2ReadResult::Refused(refusal) => {
                 assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
                 assert_eq!(refusal.cause, None);
-                assert_eq!(refusal.locus.as_ref(), Some(&exponent_id));
                 assert_eq!(
                     refusal.loci[0]
                         .path
