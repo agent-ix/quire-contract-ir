@@ -429,3 +429,36 @@ fn fresh_qsl_all_ten_derived_shapes_match_selected_model_members() {
         assert_eq!(errors[0]["message"]["code"]["code"], code, "{name}: intended public boundary");
     }
 }
+
+#[trace("FR-038-AC-471", "FR-038-AC-472")]
+#[test]
+fn genuine_u12_literal_exponent_admits_and_nonliteral_bodies_refuse() {
+    let (_scratch, helper, target) = prepare_consumer(
+        "literal-bodies",
+        "tests/conformance_qsl_exact_producer/literal_bodies.rs",
+        &[],
+    );
+    let emitted = cargo(
+        &helper,
+        &target,
+        &[
+            "run",
+            "--workspace",
+            "--offline",
+            "--locked",
+            "-j2",
+            "--bin",
+            "producer",
+        ],
+    );
+    assert!(
+        emitted.status.success(),
+        "literal body producer control:\n{}\n{}",
+        String::from_utf8_lossy(&emitted.stdout),
+        String::from_utf8_lossy(&emitted.stderr)
+    );
+    assert!(String::from_utf8_lossy(&emitted.stdout).contains(
+        "FR-038-AC-472 genuine U12 literal admitted; body-only reference and aggregate refused"
+    ));
+    print!("{}", String::from_utf8_lossy(&emitted.stdout));
+}

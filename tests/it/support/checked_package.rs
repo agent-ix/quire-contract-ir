@@ -2568,8 +2568,9 @@ fn build_v2_all_families() -> Value {
             "value",
             "literal",
             &aaaa,
-            &[aaaa.as_str()],
-            empty_aggregate(),
+            &[],
+            json!({"term": "literal", "type": node_id(&aaaa),
+                "value_kind": "boolean", "value": true}),
         ),
         plain_node(
             &eeee,

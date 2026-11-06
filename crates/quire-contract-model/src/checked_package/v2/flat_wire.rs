@@ -149,6 +149,16 @@ pub(super) fn check(
         ];
         let at = Trail::Base(&steps);
         let checked = match body_grammar(kind) {
+            BodyGrammar::Literal => {
+                if body_term(&node.body) != Some(BodyTerm::Literal) {
+                    Err(ValidationFailure::refused(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        at.pointer(),
+                    ))
+                } else {
+                    check_term(&node.body, &at, Place::BodyRoot, false)
+                }
+            }
             BodyGrammar::Extension => {
                 if node.declaration.is_none() || node.owner.is_none() {
                     Err(ValidationFailure::refused(

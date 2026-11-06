@@ -2283,6 +2283,9 @@ fn validate_body(
         ));
     }
     match body_grammar(kind) {
+        BodyGrammar::Literal if super::common::body_term(body) != Some(BodyTerm::Literal) => Err(
+            refuse(CheckedPackageRefusalCode::MalformedWire, at.pointer()),
+        ),
         BodyGrammar::Term if kind == CheckedNodeKind::State(StateForm::OperationAnchor) => {
             execution_point::validate_anchor_body(body, at, visit)
         }
@@ -2294,9 +2297,10 @@ fn validate_body(
         BodyGrammar::Refinement => refinement::validate_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
-        BodyGrammar::Term | BodyGrammar::TimedModel | BodyGrammar::Hybrid => {
-            validate_term(body, TermGrammar::V2, true, at, visit)
-        }
+        BodyGrammar::Literal
+        | BodyGrammar::Term
+        | BodyGrammar::TimedModel
+        | BodyGrammar::Hybrid => validate_term(body, TermGrammar::V2, true, at, visit),
     }
 }
 
@@ -2307,6 +2311,8 @@ fn validate_body(
 /// and every other node's body is a `SemanticTerm`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BodyGrammar {
+    /// A `value`/`literal` body contains exactly one literal.
+    Literal,
     /// The closed extension declaration body.
     Extension,
     /// The closed `SemanticTerm` grammar.
@@ -2370,9 +2376,9 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | BoundedDomainForm::CollectionBounds
             | BoundedDomainForm::ModelPopulation,
         ) => BodyGrammar::Term,
+        K::Value(ValueForm::Literal) => BodyGrammar::Literal,
         K::Value(
-            ValueForm::Literal
-            | ValueForm::EnumValue
+            ValueForm::EnumValue
             | ValueForm::CollectionValue
             | ValueForm::RecordValue
             | ValueForm::TupleValue
@@ -2859,6 +2865,15 @@ fn validate_graph(
         kinds.push(kind);
         validate_declaration(kind, &node.occurrences, node.declaration.as_ref(), position)?;
         validate_node_id(&node.semantic_type, || at("semantic_type"))?;
+        if kind == CheckedNodeKind::Value(ValueForm::Literal) && !node.dependencies.is_empty() {
+            return Err(with_node_locus(
+                refuse(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at("dependencies"),
+                ),
+                &node.node_id,
+            ));
+        }
         for (dependency_index, dependency) in node.dependencies.iter().enumerate() {
             validate_node_id(dependency, || at("dependencies").index(dependency_index))?;
         }
@@ -2915,7 +2930,8 @@ fn validate_graph(
                 &mut |target, site, _target_at| targets.push((target.clone(), site)),
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
-            BodyGrammar::Term
+            BodyGrammar::Literal
+            | BodyGrammar::Term
             | BodyGrammar::TimedModel
             | BodyGrammar::Hybrid
             | BodyGrammar::AbstractionRelation => validate_body(

@@ -41,6 +41,7 @@ mod checked_package_v2_frame_bodies;
 mod checked_package_v2_frame_entries;
 mod checked_package_v2_identity_digests;
 mod checked_package_v2_ieee_admission;
+mod checked_package_v2_literal_bodies;
 mod checked_package_v2_lowering;
 mod checked_package_v2_model_fields;
 mod checked_package_v2_model_members;

@@ -217,6 +217,32 @@ fn admit(value: &Value) -> CheckedPackageV2 {
     }
 }
 
+fn assert_literal_dependency_refusal(value: &Fixture, name: &str) {
+    let position = value["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_id"] == node_id(&key(name)))
+        .expect("literal node");
+    match CheckedPackageV2::read(
+        &canonical(value),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(value),
+    ) {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::InvalidSemanticGraph
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().expect("pointer").as_str(),
+                format!("/semantic_graph/nodes/{position}/dependencies")
+            );
+        }
+        other => panic!("literal dependencies must refuse before lowering: {other:?}"),
+    }
+}
+
 fn bounded_profile() -> CompleteLoweringProfileV2 {
     CompleteLoweringProfileV2 {
         reference: quire_contract_model::LoweringProfileRef {
@@ -334,11 +360,11 @@ fn tc_050_a_literal_type_annotation_is_in_the_closure_but_never_refuses() {
     );
 }
 
-#[trace("TC-050", "FR-038-AC-39")]
+#[trace("TC-050", "FR-038-AC-472")]
 #[test]
-fn tc_050_a_type_named_only_through_dependencies_still_requires_a_bound() {
-    // `v` names unbounded `rational` in `dependencies` alone: no body
-    // reference and no `semantic_type` reaches it.
+fn tc_050_literal_dependency_only_bound_control_is_refused_before_lowering() {
+    // A literal cannot carry a dependency-only Rational position under FR-322.
+    // Exercise strict admission explicitly rather than claim unreachable lowering coverage.
     let (v, v_node) = node(
         "v",
         "value",
@@ -346,7 +372,7 @@ fn tc_050_a_type_named_only_through_dependencies_still_requires_a_bound() {
         "int09",
         &["rational"],
         "anchor",
-        empty(),
+        literal("integer", "integer", "1"),
     );
     let value = package(vec![
         scalar("integer", "integer"),
@@ -355,13 +381,7 @@ fn tc_050_a_type_named_only_through_dependencies_still_requires_a_bound() {
         int_0_9(),
         (v, v_node),
     ]);
-    assert_eq!(
-        only_record(&value, &id_of(&value, "v")),
-        CompleteLoweringRecordV2::RequiresBound {
-            node_id: id_of(&value, "v"),
-            unbounded_type: id_of(&value, "rational"),
-        }
-    );
+    assert_literal_dependency_refusal(&value, "v");
 }
 
 /// A composite type node named `name`, self-typed, naming each of `over` as
@@ -609,13 +629,13 @@ fn quantity_package() -> Fixture {
         composite("cdom_field", "record", &["cdom"]),
         // Two quantity positions in one closure.
         composite("both", "record", &["metre", "cu"]),
-        // A unit reached through the dependency of a valid Boolean literal.
+        // A valid Boolean literal, without wire dependencies.
         node(
             "lit",
             "value",
             "literal",
             "boolean",
-            &["metre"],
+            &[],
             "anchor",
             literal("boolean", "boolean", "true"),
         ),
@@ -860,7 +880,7 @@ fn tc_050_the_least_quantity_among_positions_is_named() {
     );
 }
 
-#[trace("TC-050", "FR-038-AC-73")]
+#[trace("TC-050", "FR-038-AC-73", "FR-038-AC-472")]
 #[test]
 fn tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached() {
     let value = quantity_package();
@@ -881,13 +901,18 @@ fn tc_050_a_unit_is_not_a_quantity_position_merely_by_being_reached() {
         }
         other => panic!("expected lowered, got {other:?}"),
     }
-    // A unit reached through the dependency of a valid Boolean literal.
-    match record_with(&value, "annotated", true) {
-        CompleteLoweringRecordV2::Lowered { node } => {
-            assert!(node.dependencies.contains(&id_of(&value, "metre")));
-        }
-        other => panic!("expected lowered, got {other:?}"),
-    }
+    // A Boolean literal cannot reach a unit through wire dependencies. The
+    // compound-unit control above covers a reachable non-position dependency;
+    // the former literal-only shape belongs to strict admission instead.
+    let mut invalid = quantity_package();
+    let literal = invalid.value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["node_id"] == node_id(&key("lit")))
+        .expect("literal");
+    literal["dependencies"] = json!([node_id(&key("metre"))]);
+    assert_literal_dependency_refusal(&invalid, "lit");
     // An application's `result_type` is not a position.
     let application: CheckedNodeId = serde_json::from_value(
         value["semantic_graph"]["nodes"]
