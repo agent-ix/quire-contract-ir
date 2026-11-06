@@ -670,6 +670,10 @@ nonempty `dependencies` SHALL refuse `invalid_semantic_graph` at that node's
 dependency policy. Strict wire body validation precedes this graph rule. Neither refusal admits a package or partial view. A valid
 typed literal with empty dependencies SHALL retain its body and type through
 admission; its literal type annotation remains reachable during lowering.
+The live producer control SHALL read the original canonical bytes emitted by
+QSL using its own dependency resolution. The current IR reader SHALL consume
+those bytes independently, without a shared producer/consumer model patch,
+body adapter, or identity repair.
 
 Under QSpec FR-322 "Nominal nodes" and FR-322-AC-269, a source-owned
 `enum`, `dimension` or `unit` node is an exception to the empty-aggregate
