@@ -10961,7 +10961,7 @@ fn recovery_case_local_cannot_launder_a_known_stage_binder_or_barred_state() {
     package["semantic_graph"]["nodes"][union]["dependencies"] = json!([boolean]);
     let at = node_position_for_key(&package, &circle);
     package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["members"][0]["target"] =
-        literal;
+        literal.clone();
     let at = node_position_for_key(&package, &binder);
     package["semantic_graph"]["nodes"][at]["semantic_type"] = boolean.clone();
     package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["value"] =
