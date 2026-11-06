@@ -1690,7 +1690,13 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     )
     .expect("selected rows join");
     let complete = admitted
-        .project_selected_type_declarations(&witnessed, &[], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &witnessed,
+            &[],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect("selected record/object view");
     assert_eq!(complete.records().len(), 1);
     assert_eq!(complete.records()[0].view().record_key(), &record_key);
@@ -1726,9 +1732,13 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
         ]
     );
     assert_eq!(
-        admitted
-            .clone()
-            .project_selected_type_declarations(&witnessed, &[], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)),
+        admitted.clone().project_selected_type_declarations(
+            &witnessed,
+            &[],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        ),
         Ok(complete.clone())
     );
     assert!(complete.work() > 0);
@@ -1755,7 +1765,13 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     )
     .expect("represented rows still join");
     let unrepresented = incomplete_graph
-        .project_selected_type_declarations(&same_rows, &[], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &same_rows,
+            &[],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect_err("an unrepresented selected object refuses the whole view");
     assert_eq!(
         unrepresented.code,
@@ -1770,7 +1786,13 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     )
     .expect("other selected rows join");
     let refusal = admitted
-        .project_selected_type_declarations(&missing_child, &[], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &missing_child,
+            &[],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect_err("missing object witness refuses the whole view");
     assert_eq!(
         refusal.code,
@@ -1778,7 +1800,13 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
     );
     assert_eq!(refusal.at.as_ref(), &child);
     let exhausted = admitted
-        .project_selected_type_declarations(&witnessed, &[], &[], 1, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &witnessed,
+            &[],
+            &[],
+            1,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect_err("finite work limit is charged before a view exists");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(exhausted.work, 1);
@@ -2366,7 +2394,13 @@ fn selected_runtime_types_refuse_unprojected_object_redefinition() {
     )
     .expect("selected object rows join");
     let error = admitted
-        .project_selected_type_declarations(&witnessed, &[], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &witnessed,
+            &[],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect_err("redefinition needs its own admitted join");
     assert_eq!(
         error.code,
@@ -2403,7 +2437,13 @@ fn selected_runtime_types_refuse_object_operations_without_callable_facts() {
     )
     .expect("selected object row joins");
     let error = admitted
-        .project_selected_type_declarations(&witnessed, &[], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &witnessed,
+            &[],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect_err("operation-bearing object cannot yield a partial type view");
     assert_eq!(
         error.code,
@@ -2441,7 +2481,13 @@ fn selected_runtime_types_refuse_tuple_without_stage_identity() {
     )
     .expect("no supplied row can witness a tuple yet");
     let error = admitted
-        .project_selected_type_declarations(&witnessed, &[], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &witnessed,
+            &[],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect_err("a tuple cannot produce a partial environment view");
     assert_eq!(
         error.code,
@@ -2473,7 +2519,13 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
     let row = SelectedTupleDeclarationRow::new(node.clone(), IDENTITY, tuple.clone(), key.clone());
     let identities = SelectedExactIdentities::empty();
     let view = admitted
-        .project_selected_type_declarations(&identities, std::slice::from_ref(&row), &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&row),
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap();
     assert_eq!(view.tuples().len(), 1);
     assert_eq!(view.tuples()[0].node_key(), &key);
@@ -2487,19 +2539,32 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
             &identities,
             std::slice::from_ref(&row),
             &[],
-            1000
-        , &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)),
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        ),
         Ok(view.clone())
     );
     let missing = admitted
-        .project_selected_type_declarations(&identities, &[], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            &[],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         missing.code,
         ExactTypeProjectionErrorCode::UnavailableIdentityWitness
     );
     let conflicting = admitted
-        .project_selected_type_declarations(&identities, &[row.clone(), row.clone()], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            &[row.clone(), row.clone()],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         conflicting.code,
@@ -2508,7 +2573,13 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
     let foreign =
         SelectedTupleDeclarationRow::new(node.clone(), "foreign", tuple.clone(), key.clone());
     let mismatch = admitted
-        .project_selected_type_declarations(&identities, &[foreign], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            &[foreign],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         mismatch.code,
@@ -2518,11 +2589,23 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
     foreign_node.package = "different-package".into();
     let foreign = SelectedTupleDeclarationRow::new(foreign_node, IDENTITY, tuple, key);
     let refusal = admitted
-        .project_selected_type_declarations(&identities, &[foreign], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            &[foreign],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ForeignNode);
     let exhausted = admitted
-        .project_selected_type_declarations(&identities, &[row], &[], view.work() - 1, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            &[row],
+            &[],
+            view.work() - 1,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
 
@@ -2540,7 +2623,8 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
             std::slice::from_ref(&long_row),
             &[],
             20_000,
-         &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),)
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap();
     assert!(long_view.work() > view.work() + 4000);
     assert!(admitted
@@ -2548,8 +2632,9 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
             &identities,
             std::slice::from_ref(&long_row),
             &[],
-            long_view.work()
-        , &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+            long_view.work(),
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        )
         .is_ok());
     let one_less = admitted
         .project_selected_type_declarations(
@@ -2557,7 +2642,8 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
             std::slice::from_ref(&long_row),
             &[],
             long_view.work() - 1,
-         &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),)
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(one_less.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     let tight = admitted
@@ -2566,7 +2652,8 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
             std::slice::from_ref(&long_row),
             &[],
             view.work() + 100,
-         &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),)
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(tight.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(tight.at.as_ref(), &long_row.structural_node);
@@ -2637,7 +2724,8 @@ fn selected_record_field_uses_witnessed_tuple_key() {
             std::slice::from_ref(&tuple_row),
             &[],
             1000,
-         &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),)
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap();
     assert_eq!(view.tuples()[0].positions(), &[ValueType::Boolean]);
     assert_eq!(
@@ -2651,7 +2739,13 @@ fn selected_record_field_uses_witnessed_tuple_key() {
         record_key,
     );
     let refusal = admitted
-        .project_selected_type_declarations(&identities, &[competing], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            &[competing],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         refusal.code,
@@ -2715,17 +2809,35 @@ fn selected_record_many_fields_respects_exact_work_boundary() {
     .unwrap();
     assert_eq!(identities.field_rows().len(), names.len());
     let view = admitted
-        .project_selected_type_declarations(&identities, &[], &[], 30_000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            &[],
+            &[],
+            30_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap();
     assert_eq!(view.records()[0].view().fields().len(), names.len());
     assert_eq!(view.records()[0].view().fields()[0].name(), names[0]);
     assert_eq!(view.records()[0].view().fields()[127].name(), names[127]);
     assert!(view.work() < 30_000);
     assert!(admitted
-        .project_selected_type_declarations(&identities, &[], &[], view.work(), &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            &[],
+            &[],
+            view.work(),
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        )
         .is_ok());
     let one_less = admitted
-        .project_selected_type_declarations(&identities, &[], &[], view.work() - 1, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &identities,
+            &[],
+            &[],
+            view.work() - 1,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(one_less.code, ExactTypeProjectionErrorCode::ExhaustedWork);
 }
@@ -2839,7 +2951,13 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         other => panic!("selected declared unit fixture must admit: {other:?}"),
     };
     let runtime_refusal = admitted
-        .project_selected_type_declarations(&SelectedExactIdentities::empty(), &[], &[], 1000, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
+        .project_selected_type_declarations(
+            &SelectedExactIdentities::empty(),
+            &[],
+            &[],
+            1000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect_err("a unit-bearing package cannot claim a complete runtime type view yet");
     assert_eq!(
         runtime_refusal.code,

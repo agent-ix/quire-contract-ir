@@ -4271,7 +4271,7 @@ mod tests {
                     selected_documents: Vec::new(),
                     direct_dependencies: Vec::new(),
                     closure_index: Default::default(),
-            admission_binding: Default::default(),
+                    admission_binding: Default::default(),
                 };
                 let package_debug = format!("{package:?}");
                 assert_eq!(package_debug.matches("package: ").count(), CHAIN_LEN + 1);

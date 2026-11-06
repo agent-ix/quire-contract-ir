@@ -147,7 +147,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         selected_documents: Vec::new(),
         direct_dependencies: Vec::new(),
         closure_index: Default::default(),
-            admission_binding: Default::default(),
+        admission_binding: Default::default(),
     };
     retain_graph_indices(&mut package);
     let index = package

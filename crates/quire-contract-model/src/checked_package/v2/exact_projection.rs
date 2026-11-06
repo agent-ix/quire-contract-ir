@@ -1212,7 +1212,9 @@ impl SelectedExactIdentities {
             storage::selected_clone(),
         )?;
         let mut selected = self.clone();
-        if selected.binding.is_none() { selected.binding = Some(package.admission_binding.clone()); }
+        if selected.binding.is_none() {
+            selected.binding = Some(package.admission_binding.clone());
+        }
         Ok((selected, before))
     }
 
@@ -1249,7 +1251,9 @@ impl SelectedExactIdentities {
             )?;
         }
         let mut selected = self.clone();
-        if selected.binding.is_none() { selected.binding = Some(package.admission_binding.clone()); }
+        if selected.binding.is_none() {
+            selected.binding = Some(package.admission_binding.clone());
+        }
         budget.finish(before);
         Ok(selected)
     }
