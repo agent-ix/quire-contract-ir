@@ -8,8 +8,9 @@ use super::model_members::MemberType;
 use super::{
     AdmittedEqualityReadError, CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedPackageV2,
     EqualityFactWitness, ExactTypeProjectionError, ExactTypeProjectionErrorCode, ModelForm,
-    SelectedEqualityApplicationRow, SelectedEqualityFactRow, SelectedExactDeclarationRow,
-    SelectedExactFieldRow, SelectedExactIdentities, SelectedSourceUnitRow,
+    NativeJoinBudget, SelectedEqualityApplicationRow, SelectedEqualityFactRow,
+    SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
+    SelectedSourceUnitRow,
 };
 use quire_exact::{Presence, ValueType};
 use quire_semantic_value::declaration::AdmittedEqualityDecision;
@@ -304,6 +305,7 @@ impl CheckedPackageV2 {
         ids: SelectedFactIds<'_>,
         rows: SelectedFactRows<'_>,
         work_limit: u64,
+        native_budget: &mut NativeJoinBudget,
     ) -> Result<SelectedFacts, SelectedFactsError> {
         let mut meter = Meter {
             used: 0,
@@ -322,7 +324,13 @@ impl CheckedPackageV2 {
             if !seen_declarations.insert(id) {
                 continue;
             }
-            self.selected_fact_declaration(id, &rows, &mut meter, &mut joined_declarations)?;
+            self.selected_fact_declaration(
+                id,
+                &rows,
+                &mut meter,
+                native_budget,
+                &mut joined_declarations,
+            )?;
             meter.charge(id, 1)?;
             selected_declarations.push(joined_declarations[id].clone());
         }
@@ -337,6 +345,7 @@ impl CheckedPackageV2 {
                 &id.record,
                 &rows,
                 &mut meter,
+                native_budget,
                 &mut joined_declarations,
             )?;
             let (ambiguous, fields) =
@@ -436,9 +445,13 @@ impl CheckedPackageV2 {
             meter.text(&id.record, &row.record_original_identity)?;
             meter.text(&id.record, &row.field_original_identity)?;
             meter.charge(&id.record, 1)?;
-            let identities =
-                SelectedExactIdentities::from_stage_rows(self, declaration_rows, [row.clone()])
-                    .map_err(|error| exact_error(error, meter.used))?;
+            let identities = SelectedExactIdentities::from_stage_rows(
+                self,
+                declaration_rows,
+                [row.clone()],
+                native_budget,
+            )
+            .map_err(|error| exact_error(error, meter.used))?;
             meter.charge(&id.record, 1)?;
             let value_type = project_record_field_type(self, &identities, member_type).map_err(
                 |(code, target)| {
@@ -539,6 +552,7 @@ impl CheckedPackageV2 {
         id: &CheckedNodeId,
         rows: &SelectedFactRows<'_>,
         meter: &mut Meter,
+        native_budget: &mut NativeJoinBudget,
         joined: &mut BTreeMap<CheckedNodeId, SelectedExactDeclarationRow>,
     ) -> Result<(), SelectedFactsError> {
         meter.charge(id, 1)?;
@@ -576,7 +590,7 @@ impl CheckedPackageV2 {
         meter.text(id, &row.selected_document)?;
         meter.text(id, &row.original_identity)?;
         meter.charge(id, 1)?;
-        SelectedExactIdentities::from_stage_rows(self, [row.clone()], [])
+        SelectedExactIdentities::from_stage_rows(self, [row.clone()], [], native_budget)
             .map_err(|error| exact_error(error, meter.used))?;
         joined.insert(id.clone(), row);
         Ok(())

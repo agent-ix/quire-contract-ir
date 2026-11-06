@@ -1772,6 +1772,7 @@ mod tests {
                     equality_facts: &[],
                 },
                 100_000,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
             )
             .expect_err("selected-fact read preserves the native Text witness refusal");
         assert_eq!(
@@ -1887,6 +1888,7 @@ mod tests {
                     equality_facts: fact_rows,
                 },
                 100_000,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
             )
         };
         let complete = selected_read(&facts).expect("selected Text facts join");
@@ -3224,7 +3226,12 @@ mod tests {
         };
         let application_rows = [row.clone()];
         let complete = package
-            .project_selected_facts(ids(), rows(&application_rows), 100_000)
+            .project_selected_facts(
+                ids(),
+                rows(&application_rows),
+                100_000,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
             .unwrap();
         assert!(complete.declarations.is_empty());
         assert!(complete.fields.is_empty());
@@ -3232,13 +3239,21 @@ mod tests {
         assert_eq!(complete.equalities[0].id, id);
         assert_eq!(complete.equalities[0].decision.application(), &original);
         assert_eq!(
-            package
-                .clone()
-                .project_selected_facts(ids(), rows(&application_rows), complete.work),
+            package.clone().project_selected_facts(
+                ids(),
+                rows(&application_rows),
+                complete.work,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX)
+            ),
             Ok(complete.clone()),
         );
         let short = package
-            .project_selected_facts(ids(), rows(&application_rows), complete.work - 1)
+            .project_selected_facts(
+                ids(),
+                rows(&application_rows),
+                complete.work - 1,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
             .expect_err("one below complete allowance refuses");
         assert_eq!(short.code, super::super::SelectedFactsErrorCode::Equality);
         assert_eq!(
@@ -3247,7 +3262,12 @@ mod tests {
         );
         assert_eq!(short.occurrence, Some(occurrence));
         let missing = package
-            .project_selected_facts(ids(), rows(&[]), 100_000)
+            .project_selected_facts(
+                ids(),
+                rows(&[]),
+                100_000,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(
             missing.code,
@@ -3260,7 +3280,12 @@ mod tests {
         );
         let mismatched_rows = [wrong_location];
         let mismatch = package
-            .project_selected_facts(ids(), rows(&mismatched_rows), 100_000)
+            .project_selected_facts(
+                ids(),
+                rows(&mismatched_rows),
+                100_000,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(
             mismatch.code,
@@ -3274,13 +3299,23 @@ mod tests {
         unrelated.application = self::id('1');
         let more_rows = [unrelated, row.clone()];
         let more = package
-            .project_selected_facts(ids(), rows(&more_rows), 100_000)
+            .project_selected_facts(
+                ids(),
+                rows(&more_rows),
+                100_000,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
             .unwrap();
         assert_eq!(more.equalities, complete.equalities);
         assert!(more.work > complete.work);
         let duplicate_rows = [row.clone(), row];
         let duplicate = package
-            .project_selected_facts(ids(), rows(&duplicate_rows), 100_000)
+            .project_selected_facts(
+                ids(),
+                rows(&duplicate_rows),
+                100_000,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(
             duplicate.code,
@@ -3297,6 +3332,7 @@ mod tests {
                 },
                 rows(&application_rows),
                 100_000,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
             )
             .unwrap_err();
         assert_eq!(
@@ -3315,6 +3351,7 @@ mod tests {
                 },
                 rows(&application_rows),
                 100_000,
+                &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
             )
             .unwrap_err();
         assert_eq!(

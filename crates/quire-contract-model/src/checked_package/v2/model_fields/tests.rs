@@ -84,38 +84,63 @@ fn exact_stage_rows_join_selected_original_declaration() {
             OriginalDeclarationKey::new(document, original),
         )),
     );
-    let selected = SelectedExactIdentities::from_stage_rows(&fixture.package, [row.clone()], [])
-        .expect("matching selected row");
+    let selected = SelectedExactIdentities::from_stage_rows(
+        &fixture.package,
+        [row.clone()],
+        [],
+        &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .expect("matching selected row");
     assert_eq!(selected.declaration_rows().count(), 1);
 
     let mut wrong_document = row.clone();
     wrong_document.selected_document = "another/document".into();
     assert_eq!(
-        SelectedExactIdentities::from_stage_rows(&fixture.package, [wrong_document], [])
-            .expect_err("foreign selected document")
-            .code,
+        SelectedExactIdentities::from_stage_rows(
+            &fixture.package,
+            [wrong_document],
+            [],
+            &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        )
+        .expect_err("foreign selected document")
+        .code,
         Code::MismatchedIdentityWitness,
     );
     let mut wrong_form = row.clone();
     wrong_form.form = Form::RecordValueType;
     assert_eq!(
-        SelectedExactIdentities::from_stage_rows(&fixture.package, [wrong_form], [])
-            .expect_err("wrong form")
-            .code,
+        SelectedExactIdentities::from_stage_rows(
+            &fixture.package,
+            [wrong_form],
+            [],
+            &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        )
+        .expect_err("wrong form")
+        .code,
         Code::MismatchedIdentityWitness,
     );
     assert_eq!(
-        SelectedExactIdentities::from_stage_rows(&fixture.package, [row.clone(), row], [])
-            .expect_err("competing rows")
-            .code,
+        SelectedExactIdentities::from_stage_rows(
+            &fixture.package,
+            [row.clone(), row],
+            [],
+            &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        )
+        .expect_err("competing rows")
+        .code,
         Code::ConflictingIdentityWitness,
     );
     let mut foreign = selected.declaration_rows().next().expect("row").clone();
     foreign.structural_node.package = "foreign/package".into();
     assert_eq!(
-        SelectedExactIdentities::from_stage_rows(&fixture.package, [foreign], [])
-            .expect_err("foreign structural node")
-            .code,
+        SelectedExactIdentities::from_stage_rows(
+            &fixture.package,
+            [foreign],
+            [],
+            &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        )
+        .expect_err("foreign structural node")
+        .code,
         Code::ForeignNode,
     );
 }
@@ -166,6 +191,7 @@ fn distinct_selected_objects_cannot_claim_one_exact_identity() {
         &fixture.package,
         [first_row.clone(), duplicate],
         [],
+        &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect_err("one Exact object cannot name two selected declarations");
     assert_eq!(refusal.code, Code::ConflictingIdentityWitness);
@@ -180,10 +206,15 @@ fn distinct_selected_objects_cannot_claim_one_exact_identity() {
         SelectedExactIdentity::Object(second_exact),
     );
     assert_eq!(
-        SelectedExactIdentities::from_stage_rows(&fixture.package, [first_row, distinct], [])
-            .expect("distinct Exact identities")
-            .declaration_rows()
-            .count(),
+        SelectedExactIdentities::from_stage_rows(
+            &fixture.package,
+            [first_row, distinct],
+            [],
+            &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        )
+        .expect("distinct Exact identities")
+        .declaration_rows()
+        .count(),
         2,
     );
 }
@@ -218,8 +249,13 @@ fn exact_reference_uses_the_selected_object_row() {
         original,
         SelectedExactIdentity::Object(effective.clone()),
     );
-    let rows = SelectedExactIdentities::from_stage_rows(&fixture.package, [row], [])
-        .expect("matching object row");
+    let rows = SelectedExactIdentities::from_stage_rows(
+        &fixture.package,
+        [row],
+        [],
+        &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .expect("matching object row");
 
     let reference: CheckedNodeId = serde_json::from_value(json!({
         "package": "checked", "path": ["reference-to-ledger"], "ordinal": 0,
@@ -329,6 +365,7 @@ fn exact_field_rows_require_selected_record_and_original_field() {
         &fixture.package,
         [declaration.clone()],
         [field.clone()],
+        &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect("matching field row");
     assert_eq!(rows.field_rows().len(), 1);
@@ -339,23 +376,30 @@ fn exact_field_rows_require_selected_record_and_original_field() {
         SelectedExactIdentities::from_stage_rows(
             &fixture.package,
             [declaration.clone()],
-            [wrong_field]
+            [wrong_field],
+            &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX)
         )
         .expect_err("wrong original field")
         .code,
         Code::MismatchedIdentityWitness,
     );
     assert_eq!(
-        SelectedExactIdentities::from_stage_rows(&fixture.package, [], [field.clone()])
-            .expect_err("field has no declaration row")
-            .code,
+        SelectedExactIdentities::from_stage_rows(
+            &fixture.package,
+            [],
+            [field.clone()],
+            &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        )
+        .expect_err("field has no declaration row")
+        .code,
         Code::UnavailableIdentityWitness,
     );
     assert_eq!(
         SelectedExactIdentities::from_stage_rows(
             &fixture.package,
             [declaration],
-            [field.clone(), field]
+            [field.clone(), field],
+            &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX)
         )
         .expect_err("competing field rows")
         .code,
