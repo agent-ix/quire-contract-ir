@@ -305,6 +305,8 @@ impl<'a> SelectedModelEnums<'a> {
         for row in declarations {
             let node = &row.structural_node;
             meter.charge(node)?;
+            meter.text(&row.selected_document)?;
+            meter.text(&row.original_identity)?;
             if package.node(node).is_none() {
                 return Err(meter.refusal(
                     SelectedModelEnumErrorCode::UnknownNode,
@@ -378,6 +380,11 @@ impl<'a> SelectedModelEnums<'a> {
         for row in members {
             let node = &row.structural_node;
             meter.charge(node)?;
+            meter.inspect(&row.declaration_node)?;
+            meter.text(&row.selected_document)?;
+            meter.text(&row.enum_original_identity)?;
+            meter.text(&row.member_original_identity)?;
+            meter.text(&row.case)?;
             let Some(checked) = package.node(node) else {
                 return Err(meter.refusal(
                     SelectedModelEnumErrorCode::UnknownNode,
@@ -400,6 +407,9 @@ impl<'a> SelectedModelEnums<'a> {
                     meter.consumed,
                 ));
             };
+            for dependency in &checked.dependencies {
+                meter.inspect(dependency)?;
+            }
             if declaration.selected_document != row.selected_document
                 || declaration.original_identity != row.enum_original_identity
                 || checked.semantic_type != row.declaration_node
@@ -568,6 +578,8 @@ impl<'a> SelectedModelEnums<'a> {
         meter: &mut EnumMeter<'_>,
     ) -> Result<u64, RuntimeEnumError> {
         let node = &row.structural_node;
+        meter.text(&row.selected_document)?;
+        meter.text(&row.original_identity)?;
         let declaration = self.read_declaration_inner(package, node, meter)?;
         meter.charge(node)?;
         if declaration.node_key != row.node_key
@@ -594,6 +606,8 @@ impl<'a> SelectedModelEnums<'a> {
         let mut cases = BTreeSet::new();
         for (case, variant) in row.cases.iter().zip(row.shape.variants()) {
             meter.charge(&case.structural_node)?;
+            meter.text(&case.member_original_identity)?;
+            meter.text(case.variant.case())?;
             let member = self.read_member_inner(package, &case.structural_node, meter)?;
             meter.text(&case.case)?;
             meter.storage(1)?;
@@ -614,8 +628,7 @@ impl<'a> SelectedModelEnums<'a> {
         let mut member_count = 0;
         for member in self.members.values() {
             meter.charge(&member.structural_node)?;
-            meter.text(&case.case)?;
-            meter.storage(1)?;
+            meter.inspect(&member.declaration_node)?;
             if member.declaration_node == *node {
                 member_count += 1;
             }

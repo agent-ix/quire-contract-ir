@@ -68,7 +68,6 @@ fn charge(
     budget: &mut NativeJoinBudget,
     at: &CheckedNodeId,
 ) -> Result<(), ReachedModelError> {
-    budget.set_locus_form("reached_model_inspection");
     read_node_work(budget, at)?;
     *work += 1;
     Ok(())
@@ -220,7 +219,7 @@ impl CheckedMonitorPlanRef<'_> {
     fn follow_member_type(
         &self,
         member: &MemberType,
-        pending: &mut Vec<CheckedNodeId>,
+        pending: &mut Vec<(CheckedNodeId, NativeJoinLocusSource)>,
         work: &mut u64,
         budget: &mut NativeJoinBudget,
         at: &CheckedNodeId,
@@ -238,7 +237,13 @@ impl CheckedMonitorPlanRef<'_> {
                 | MemberType::CarriedRational(_, id) => {
                     read_node_storage(budget, id)?;
                     retain(budget, 1)?;
-                    pending.push(id.clone());
+                    pending.push((
+                        id.clone(),
+                        budget
+                            .active_locus()
+                            .expect("reached parent context")
+                            .source,
+                    ));
                 }
                 MemberType::Option(inner) => {
                     retain(budget, 1)?;
@@ -262,13 +267,22 @@ impl CheckedMonitorPlanRef<'_> {
     ) -> Result<(), ReachedModelError> {
         retain(budget, 2)?;
         let mut pending = Vec::new();
-        for id in reached.iter() {
+        for (index, id) in reached.iter().enumerate() {
+            let source = NativeJoinLocusSource::ReachedRow(index);
+            budget.set_active_locus(Some(NativeJoinLocus {
+                source,
+                form: "reached_pending",
+            }));
             read_node_storage(budget, id)?;
             retain(budget, 1)?;
-            pending.push(id.clone());
+            pending.push((id.clone(), source));
         }
         let mut visited = BTreeSet::new();
-        while let Some(id) = pending.pop() {
+        while let Some((id, source)) = pending.pop() {
+            budget.set_active_locus(Some(NativeJoinLocus {
+                source,
+                form: "reached_model_node",
+            }));
             charge(work, budget, &id)?;
             let graph_position = self
                 .package
@@ -295,13 +309,25 @@ impl CheckedMonitorPlanRef<'_> {
                     charge(work, budget, &id)?;
                     read_node_storage(budget, &dimension)?;
                     retain(budget, 1)?;
-                    pending.push(dimension.clone());
+                    pending.push((
+                        dimension.clone(),
+                        budget
+                            .active_locus()
+                            .expect("reached parent context")
+                            .source,
+                    ));
                     if let Some(target) = target {
                         budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
                         charge(work, budget, &id)?;
                         read_node_storage(budget, &target)?;
                         retain(budget, 1)?;
-                        pending.push(target.clone());
+                        pending.push((
+                            target.clone(),
+                            budget
+                                .active_locus()
+                                .expect("reached parent context")
+                                .source,
+                        ));
                     }
                 }
                 if let Some(terms) = body.dimension_details() {
@@ -310,7 +336,13 @@ impl CheckedMonitorPlanRef<'_> {
                         charge(work, budget, &id)?;
                         read_node_storage(budget, &term.dimension_node_id)?;
                         retain(budget, 1)?;
-                        pending.push(term.dimension_node_id.clone());
+                        pending.push((
+                            term.dimension_node_id.clone(),
+                            budget
+                                .active_locus()
+                                .expect("reached parent context")
+                                .source,
+                        ));
                     }
                 }
             }
@@ -364,6 +396,8 @@ impl CheckedMonitorPlanRef<'_> {
                 for original in &bearing.supertypes {
                     budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
                     charge(work, budget, &id)?;
+                    text_work(budget, original)?;
+                    retain(budget, storage::text_parts(&[original]))?;
                     let target = self
                         .package
                         .models
@@ -371,7 +405,13 @@ impl CheckedMonitorPlanRef<'_> {
                         .ok_or_else(|| unresolved(budget, &id, *work))?;
                     read_node_storage(budget, &target)?;
                     retain(budget, 1)?;
-                    pending.push(target.clone());
+                    pending.push((
+                        target.clone(),
+                        budget
+                            .active_locus()
+                            .expect("reached parent context")
+                            .source,
+                    ));
                 }
                 retain(budget, 1)?;
                 let fields = if declaration.form == DeclarationForm::RecordValueType {
@@ -720,6 +760,7 @@ impl CheckedMonitorPlanRef<'_> {
                     prior_work: work,
                     error,
                 })?;
+            let prior_projection_work = budget.consumed().work - before.work;
             let types = self
                 .package
                 .project_type_declarations_for_nodes(

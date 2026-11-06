@@ -739,6 +739,7 @@ impl CheckedPackageV2 {
             source_unit_rows,
             budget,
             None,
+            0,
         )
     }
 
@@ -749,6 +750,7 @@ impl CheckedPackageV2 {
         source_unit_rows: &[SelectedSourceUnitRow],
         budget: &mut NativeJoinBudget,
         reached: Option<&BTreeSet<CheckedNodeId>>,
+        prior_work: u64,
     ) -> Result<SelectedTypeDeclarations, SelectedTypeDeclarationsError> {
         let before = budget.begin();
         let previous_locus = budget.active_locus();
@@ -1806,7 +1808,7 @@ impl CheckedPackageV2 {
                 units,
                 model_units,
                 dimensions,
-                work: ctx.work(),
+                work: ctx.work().saturating_add(prior_work),
             })
         })();
         budget.set_active_locus(previous_locus);

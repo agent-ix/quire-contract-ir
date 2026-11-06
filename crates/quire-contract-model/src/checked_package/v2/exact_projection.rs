@@ -1206,7 +1206,7 @@ impl SelectedExactIdentities {
             charge_native_work(budget, node, node, "model_enum_shape_index", 1)?;
             for segment in &node.path {
                 charge_native_work(budget, node, node, "model_enum_shape_index", 1)?;
-                if let CheckedNodePathSegment::Name(name) = segment {
+                if let super::CheckedNodePathSegment::Name(name) = segment {
                     charge_native_work(
                         budget,
                         node,
