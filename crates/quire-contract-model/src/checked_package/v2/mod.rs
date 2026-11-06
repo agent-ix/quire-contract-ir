@@ -932,8 +932,13 @@ struct AdmissionBuffers {
     selected_documents: Arc<Vec<Arc<quire_canonical::Document>>>,
 }
 
+/// Opaque capability issued by one admitted V2 read.
+///
+/// Cloning preserves its admission identity. Equal package bytes read again
+/// issue a distinct capability. Only [`CheckedPackageV2::admission_binding`]
+/// can issue one, and [`CheckedPackageV2::retains`] checks membership.
 #[derive(Clone)]
-struct AdmissionBinding(Arc<AdmissionBuffers>);
+pub struct AdmissionBinding(Arc<AdmissionBuffers>);
 
 impl std::fmt::Debug for AdmissionBinding {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -964,6 +969,25 @@ impl AdmissionBinding {
 }
 
 impl CheckedPackageV2 {
+    /// Issues this admitted package's cloneable admission capability.
+    ///
+    /// Every package returned by [`Self::read`] has a binding. The private
+    /// construction path for unit fixtures is outside that reader contract.
+    pub fn admission_binding(&self) -> AdmissionBinding {
+        self.admission_binding
+            .as_ref()
+            .expect("admitted package has an admission binding")
+            .clone()
+    }
+
+    /// Returns whether this package retains the original admission represented
+    /// by `binding`. Package clones retain membership; independent reads do not.
+    pub fn retains(&self, binding: &AdmissionBinding) -> bool {
+        self.admission_binding
+            .as_ref()
+            .is_some_and(|own| own == binding && binding.retains(self))
+    }
+
     /// Finish internal construction by retaining the original immutable fact
     /// buffers. The public reader calls this only after strict admission;
     /// private unit fixture builders use the same construction invariant.
