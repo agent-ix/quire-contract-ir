@@ -31,7 +31,8 @@ their budget-aware helper variants must charge the caller's native budget
 directly, without routing storage through `model_members::Budget` /
 `WorkMeter`. Confirm that `model_fields`, `model_operations`, semantic
 operation, state, `step_relation`, `comparison_operands`,
-`model_tuple_position_type`, and `model_variant_payload_member_type` remain
+`model_tuple_position_type`, `model_variant_payload_member_type`, and
+`read_enum_index` remain
 unchanged and outside the audited runtime/closure call path.
 
 ## Expected Results

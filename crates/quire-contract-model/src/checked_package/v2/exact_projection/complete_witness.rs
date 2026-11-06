@@ -9,7 +9,8 @@ use super::super::{
 };
 use super::{
     charge_native_storage, charge_native_text_pair, charge_native_work, charge_source_union_text,
-    exact_collection_kind, selected_declaration_error, witness_error, ExactTypeProjectionError,
+    exact_collection_kind, selected_declaration_error, selected_declaration_error_budgeted,
+    witness_error, witness_error_with_budget, ExactTypeProjectionError,
     ExactTypeProjectionErrorCode, SelectedExactIdentities, SelectedExactIdentity,
     SelectedSourceUnitRow, SelectedTupleDeclarationRow,
 };
@@ -81,9 +82,10 @@ impl SelectedExactIdentities {
                 for prior in &tuple_rows[..index] {
                     charge_native_work(budget, id, id, "admitted_tuple_input_uniqueness", 1)?;
                     if prior.structural_node == row.structural_node {
-                        return Err(witness_error(
+                        return Err(witness_error_with_budget(
                             id,
                             ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                            budget,
                         ));
                     }
                 }
@@ -99,9 +101,10 @@ impl SelectedExactIdentities {
                         selected.check_handle(&row.node_key, id, Some(id), budget)?;
                         continue;
                     }
-                    return Err(witness_error(
+                    return Err(witness_error_with_budget(
                         id,
                         ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                        budget,
                     ));
                 }
                 selected.check_handle(&row.node_key, id, None, budget)?;
@@ -137,17 +140,19 @@ impl SelectedExactIdentities {
                 validate_admitted_source_unit(package, row, budget)?;
                 let id = &row.structural_node;
                 let UnitId::Declared(key) = &row.unit_id else {
-                    return Err(witness_error(
+                    return Err(witness_error_with_budget(
                         id,
                         ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                        budget,
                     ));
                 };
                 for prior in &source_unit_rows[..index] {
                     charge_native_work(budget, id, id, "admitted_unit_input_uniqueness", 1)?;
                     if prior.structural_node == row.structural_node {
-                        return Err(witness_error(
+                        return Err(witness_error_with_budget(
                             id,
                             ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                            budget,
                         ));
                     }
                 }
@@ -163,9 +168,10 @@ impl SelectedExactIdentities {
                         selected.check_handle(key, id, Some(id), budget)?;
                         continue;
                     }
-                    return Err(witness_error(
+                    return Err(witness_error_with_budget(
                         id,
                         ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                        budget,
                     ));
                 }
                 selected.check_handle(key, id, None, budget)?;
@@ -246,9 +252,10 @@ impl SelectedExactIdentities {
         let mut compare = |node: &CheckedNodeId, candidate: &NodeKey| {
             charge_native_work(budget, at, node, "identity_handle_owner", 1)?;
             if own != Some(node) && candidate == key {
-                Err(witness_error(
+                Err(witness_error_with_budget(
                     at,
                     ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                    budget,
                 ))
             } else {
                 Ok(())
@@ -882,9 +889,13 @@ fn validate_admitted_tuple(
     charge_native_work(budget, id, id, "admitted_tuple_row", 1)?;
     let Some((document, original, form)) = package.models.selected_declaration(id) else {
         return Err(if package.node(id).is_some() {
-            witness_error(id, ExactTypeProjectionErrorCode::MismatchedIdentityWitness)
+            witness_error_with_budget(
+                id,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                budget,
+            )
         } else {
-            selected_declaration_error(package, id)
+            selected_declaration_error_budgeted(package, id, id, budget)
         });
     };
     charge_native_text_pair(
@@ -905,9 +916,10 @@ fn validate_admitted_tuple(
         || document != row.selected_document.as_ref()
         || original != row.original_identity.as_ref()
     {
-        return Err(witness_error(
+        return Err(witness_error_with_budget(
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            budget,
         ));
     }
     Ok(())
@@ -921,7 +933,7 @@ fn validate_admitted_source_unit(
     let id = &row.structural_node;
     charge_native_work(budget, id, id, "admitted_source_unit_row", 1)?;
     let Some(node) = package.node(id) else {
-        return Err(selected_declaration_error(package, id));
+        return Err(selected_declaration_error_budgeted(package, id, id, budget));
     };
     let mut selected_source = false;
     for source in &package.lock().sources {
@@ -992,9 +1004,10 @@ fn validate_admitted_source_unit(
         || !matching_declaration
         || !matches!(row.unit_id, UnitId::Declared(_))
     {
-        return Err(witness_error(
+        return Err(witness_error_with_budget(
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            budget,
         ));
     }
     Ok(())
@@ -1222,9 +1235,9 @@ fn selected_original_locus<'a>(
 fn binding_error(
     at: &CheckedNodeId,
     code: ExactTypeProjectionErrorCode,
-    budget: &NativeJoinBudget,
+    budget: &mut NativeJoinBudget,
 ) -> ExactTypeProjectionError {
-    let mut error = witness_error(at, code);
+    let mut error = witness_error_with_budget(at, code, budget);
     error.work = budget.consumed().work;
     error
 }

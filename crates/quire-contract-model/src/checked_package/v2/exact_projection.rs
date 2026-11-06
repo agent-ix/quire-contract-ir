@@ -2586,6 +2586,23 @@ fn witness_error(
     }
 }
 
+fn witness_error_with_budget(
+    node: &CheckedNodeId,
+    code: ExactTypeProjectionErrorCode,
+    budget: &mut NativeJoinBudget,
+) -> ExactTypeProjectionError {
+    if !budget.exact_diagnostics() {
+        return witness_error(node, code);
+    }
+    exact_diagnostic(
+        budget,
+        code,
+        node,
+        Some(node),
+        ExactDiagnosticForm::Literal("selected_identity"),
+    )
+}
+
 fn selected_declaration_error(
     package: &CheckedPackageV2,
     node: &CheckedNodeId,

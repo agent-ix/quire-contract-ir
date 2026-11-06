@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Agent-IX
+
 use super::super::model_fields::{build_field_tables, RecordBinderTypes};
 use super::*;
 use crate::checked_package::common::ValidationFailure;
@@ -1654,3 +1657,101 @@ fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {
 }
 
 mod intake_retention;
+
+/// Runtime helper ownership is charged before scalar, unit, alias and wrapper copies.
+#[trace("TC-469", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
+#[test]
+fn runtime_member_helpers_precharge_each_owned_layer_and_unit_handle() {
+    fn check(
+        expected: MemberType,
+        mut read: impl FnMut(
+            &mut NativeJoinBudget,
+        ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied>,
+    ) {
+        let mut ample = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        assert_eq!(read(&mut ample).unwrap(), Some(expected.clone()));
+        let measured = ample.consumed();
+        let mut exact = NativeJoinBudget::new(measured.work, measured.storage);
+        assert_eq!(read(&mut exact).unwrap(), Some(expected));
+        assert_eq!(exact.consumed(), measured);
+        for storage in 0..measured.storage {
+            let mut short = NativeJoinBudget::new(measured.work, storage);
+            assert!(
+                read(&mut short).is_err(),
+                "storage {storage} must refuse before ownership"
+            );
+            assert_eq!(
+                short.first_unpaid().unwrap().kind,
+                NativeJoinChargeKind::Storage
+            );
+            assert!(short.consumed().storage <= storage);
+        }
+        let mut short = NativeJoinBudget::new(measured.work - 1, measured.storage);
+        assert!(read(&mut short).is_err());
+        assert_eq!(
+            short.first_unpaid().unwrap().kind,
+            NativeJoinChargeKind::Work
+        );
+    }
+
+    let unit_node = |name: &str| CheckedNodeId {
+        package: "acme/units".into(),
+        path: vec![
+            CheckedNodePathSegment::Name("scalar_type".into()),
+            CheckedNodePathSegment::Name("unit".into()),
+            CheckedNodePathSegment::Name(name.into()),
+        ],
+        ordinal: 0,
+    };
+    let unit = unit_node("metre");
+    let second = unit_node("second");
+    let unit_refs = Arc::new(BTreeMap::from([
+        (Box::from("ix://quire/unit/metre"), unit.clone()),
+        (
+            format!("{DURATION_RESOLVED_PREFIX}ix://quire/unit/s").into_boxed_str(),
+            second.clone(),
+        ),
+    ]));
+    let mut many = field(WIDGET, "values", "ix://quire/native/Integer");
+    many["multiplicity"] = multiplicity(0, Some(3));
+    let model = read_with_unit_refs(&document(vec![
+        object_type(WIDGET, &[], vec![many]),
+        json!({"identity":"ix://acme/orders/Units", "kind":"sequence", "items":"ix://quire/unit/metre"}),
+        json!({"identity":"ix://acme/orders/MaybeUnits", "kind":"option", "inner":"ix://acme/orders/Units"}),
+    ]), &unit_refs).unwrap();
+    for (type_ref, expected) in [
+        (
+            SelectedTypeRef::Native(NativeTypeRef::Integer),
+            MemberType::Integer,
+        ),
+        (
+            SelectedTypeRef::Native(NativeTypeRef::Duration),
+            MemberType::Quantity(second),
+        ),
+        (
+            SelectedTypeRef::Unit("ix://quire/unit/metre".into()),
+            MemberType::Quantity(unit.clone()),
+        ),
+        (
+            SelectedTypeRef::Declared("ix://acme/orders/MaybeUnits".into()),
+            MemberType::Option(Box::new(MemberType::Collection {
+                kind: CollectionKind::Sequence,
+                element: Box::new(MemberType::Quantity(unit)),
+                bounds: None,
+            })),
+        ),
+    ] {
+        check(expected, |budget| {
+            model.element_type_runtime(&type_ref, budget)
+        });
+    }
+    let slot = &model.object_types[WIDGET].fields[0].slot;
+    check(
+        MemberType::Collection {
+            kind: CollectionKind::Set,
+            element: Box::new(MemberType::Integer),
+            bounds: Some((0, 3)),
+        },
+        |budget| model.slot_type_runtime(slot, budget),
+    );
+}

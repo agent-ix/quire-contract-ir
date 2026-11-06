@@ -191,20 +191,16 @@ fn complete_census_includes_unreferenced_operations_without_bodies_or_anchors() 
         assert!(op.parameters().is_empty());
         assert_eq!(op.result(), None);
     }
-    assert!(
-        admitted
-            .model_operations(&declaration_id("Empty"), 10_000)
-            .unwrap()
-            .operations()
-            .is_empty()
-    );
-    assert!(
-        admitted
-            .graph()
-            .nodes
-            .iter()
-            .all(|node| node.semantic_form.as_ref() != "operation_anchor")
-    );
+    assert!(admitted
+        .model_operations(&declaration_id("Empty"), 10_000)
+        .unwrap()
+        .operations()
+        .is_empty());
+    assert!(admitted
+        .graph()
+        .nodes
+        .iter()
+        .all(|node| node.semantic_form.as_ref() != "operation_anchor"));
     let mut changed = doc.clone();
     changed["types"][0]["operations"]
         .as_array_mut()

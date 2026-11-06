@@ -48,7 +48,7 @@ use super::{
     CheckedNodeOwner, CheckedNodeTag, CheckedSemanticNodeV2, CheckedTerm, NativeJoinBudget,
     NativeJoinChargeKind, ValidationFailure, WorkMeter,
 };
-use crate::checked_package::common::{Step, pointer_from_steps};
+use crate::checked_package::common::{pointer_from_steps, Step};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageLimit, CheckedPackageRefusalCause,
@@ -56,7 +56,7 @@ use crate::checked_package::shared::{
 };
 use ix_trace_rs::string_edge;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 /// The fixed declaration body shape in raw intake and admitted typed nodes.
 pub(super) trait EmptyAggregateBody {
@@ -82,7 +82,7 @@ pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/
 
 mod intake_origin;
 mod option_types;
-use intake_origin::{IntakeDeclarationOrigin, OriginView, retained_origin};
+use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
 
 const NATIVE_PREFIX: &str = "ix://quire/native/";
 
@@ -1346,7 +1346,7 @@ impl DomainModel {
             let Some(definition) = self.collection_types.get(name) else {
                 break;
             };
-            runtime_storage(&mut budget, runtime_text_storage(name))?;
+            runtime_storage(&mut budget, runtime_text_storage(name).saturating_add(1))?;
             if !seen.insert(name.clone()) {
                 return Ok(None);
             }
@@ -1704,46 +1704,6 @@ impl DomainModel {
             element: Box::new(element),
             bounds,
         }))
-    }
-
-    pub(super) fn field_type_runtime(
-        &self,
-        field: &FieldDecl,
-        budget: &mut NativeJoinBudget,
-    ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
-        let Some(slot) = self.slot_type_runtime(&field.slot, budget)? else {
-            return Ok(None);
-        };
-        let result = match (field.optional, field.slot.type_ref.as_ref(), slot) {
-            (
-                true,
-                Some(SelectedTypeRef::Native(NativeTypeRef::Clock)),
-                MemberType::Collection {
-                    kind,
-                    element,
-                    bounds,
-                },
-            ) => {
-                budget
-                    .charge(NativeJoinChargeKind::Storage, 2)
-                    .then_some(())
-                    .ok_or(RuntimeTypeBudgetDenied)?;
-                MemberType::Collection {
-                    kind,
-                    element: Box::new(MemberType::Option(element)),
-                    bounds,
-                }
-            }
-            (true, _, slot) => {
-                budget
-                    .charge(NativeJoinChargeKind::Storage, 2)
-                    .then_some(())
-                    .ok_or(RuntimeTypeBudgetDenied)?;
-                MemberType::Option(Box::new(slot))
-            }
-            (false, _, slot) => slot,
-        };
-        Ok(Some(result))
     }
 
     /// Checked binder types of one record in effective field order.
@@ -2707,7 +2667,11 @@ fn parse_exponent(text: &str) -> i64 {
             .saturating_mul(10)
             .saturating_add(i64::from(byte.saturating_sub(b'0')))
     });
-    if negative { -magnitude } else { magnitude }
+    if negative {
+        -magnitude
+    } else {
+        magnitude
+    }
 }
 
 /// A Semantic IR 2.0.0 document's own `package.identity`. The document's
@@ -2899,12 +2863,7 @@ fn rational_value_type(
     let bounds = if numbers.is_empty() {
         None
     } else {
-        let [
-            numerator_min,
-            numerator_max,
-            denominator_min,
-            denominator_max,
-        ] = numbers.as_slice()
+        let [numerator_min, numerator_max, denominator_min, denominator_max] = numbers.as_slice()
         else {
             return Err(malformed(vec![Segment::Name("constraints")]));
         };
@@ -4972,7 +4931,7 @@ pub(super) mod tests;
 
 #[cfg(test)]
 mod structural_member_type_tests {
-    use super::{CollectionKind, DeclarationForm, IntegerBounds, MemberType, declaration_id};
+    use super::{declaration_id, CollectionKind, DeclarationForm, IntegerBounds, MemberType};
     use serde_json::json;
 
     /// Trace: FR-038-AC-364, FR-322-AC-62.
