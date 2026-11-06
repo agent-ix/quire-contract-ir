@@ -5,10 +5,11 @@
 
 use crate::support::checked_package::{
     admitted_protocol_families, application_node_key, canonical, evidence_for,
-    evidence_with_document, family_key, family_model_document, node_id, protocol_named_node,
-    protocol_role_node, reassign_node_id, rebuild_source_map, refresh_identity,
-    refresh_identity_projection, refusal, refusal_at_id, rename_node, role_port_fixture,
-    select_model, selected_interface_model_node, settle, v2_all_families,
+    evidence_with_document, family_key, family_model_document, fixture_source, node_id,
+    owned_structural_node, protocol_named_node, protocol_role_node, reassign_node_id,
+    rebuild_source_map, refresh_identity, refresh_identity_projection, refusal, refusal_at_id,
+    rename_node, role_port_fixture, select_model, selected_interface_model_node, settle,
+    source_owner, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -10725,6 +10726,110 @@ fn slot_let_fixture(initializer_reads_local: bool) -> (Value, usize) {
     set_recovery_predicate(&mut package, compensation, &expression);
     settle(&mut package);
     (package, compensation)
+}
+
+fn case_arm(member: &str, binders: &[Value], body: Value) -> Value {
+    json!({"term":"binding", "name":member, "value":{"term":"aggregate", "members":[
+        {"term":"aggregate", "members":binders.iter().map(|binder| json!({"term":"reference", "target":binder})).collect::<Vec<_>>()},
+        body
+    ]}})
+}
+
+fn slot_case_fixture() -> (Value, usize, Value, Value, Value, Value) {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    let integer = node_id(&family_key("a3a3"));
+    let boolean = node_id(&family_key("aaaa"));
+    let shape = node_id("fixture/protocol-body/Shape");
+    let two = node_id("fixture/protocol-body/two");
+    let circle = node_id("fixture/protocol-body/circle");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    nodes.push(owned_structural_node(json!({
+        "node_id":shape, "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"composite_type", "semantic_form":"union", "semantic_type":shape,
+        "dependencies":[integer], "occurrences":[{"role":"declaration","ordinal":0}],
+        "declaration":{"qualified_name":["Shape"]},
+        "body":{"term":"aggregate","members":[
+            {"term":"binding","name":"Circle","value":{"term":"aggregate","members":[{"term":"reference","target":integer}]}},
+            {"term":"binding","name":"Empty","value":{"term":"aggregate","members":[]}}
+        ]}
+    }), source_owner(&fixture_source())));
+    nodes.push(json!({
+        "node_id":two, "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"value", "semantic_form":"literal", "semantic_type":integer,
+        "dependencies":[], "occurrences":[{"role":"expression","ordinal":0}],
+        "body":{"term":"literal","type":integer,"value_kind":"integer","value":"2"}
+    }));
+    nodes.push(json!({
+        "node_id":circle, "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"value", "semantic_form":"union_value", "semantic_type":shape,
+        "dependencies":[two], "occurrences":[{"role":"expression","ordinal":0}],
+        "body":{"term":"aggregate","members":[{"term":"binding","name":"Circle","value":
+            {"term":"aggregate","members":[{"term":"reference","target":two}]}}]}
+    }));
+    let arm_r = clause_parameter(&mut package, "arm_r", "0");
+    let at = node_position_for_key(&package, &arm_r);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = integer.clone();
+    let case = slot_application(
+        &mut package,
+        "case",
+        "quire.op.control.case",
+        &integer,
+        json!([
+            {"term":"reference","target":circle},
+            case_arm("Circle", std::slice::from_ref(&arm_r), json!({"term":"reference","target":arm_r})),
+            case_arm("Empty", &[], json!({"term":"literal","type":integer,"value_kind":"integer","value":"0"}))
+        ]),
+        Value::Null,
+    );
+    let predicate = boolean_expression(
+        &mut package,
+        "quire.op.integer.ge",
+        &[case.clone(), two.clone()],
+    );
+    set_recovery_predicate(&mut package, compensation, &predicate);
+    settle_after_structural_rekey(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    (package, compensation, case, arm_r, circle, boolean)
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_arm_binder_is_local_to_its_arm_body() {
+    let (package, _, case, binder, _, _) = slot_case_fixture();
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+        panic!("case arm binder must admit: {:?}", read(&package));
+    };
+    let case_id = checked_node_id(&case);
+    let binder_id = checked_node_id(&binder);
+    let Some(CheckedTerm::Application { arguments, .. }) = admitted.term(&case_id) else {
+        panic!("admitted case body");
+    };
+    let [_, CheckedTerm::Binding { value: circle, .. }, CheckedTerm::Binding { value: empty, .. }] =
+        arguments.as_slice()
+    else {
+        panic!("admitted case arms");
+    };
+    let CheckedTerm::Aggregate { members: circle } = circle.as_ref() else {
+        panic!("Circle arm");
+    };
+    let [CheckedTerm::Aggregate { members: binders }, CheckedTerm::Reference { target: body }] =
+        circle.as_slice()
+    else {
+        panic!("Circle binder and body");
+    };
+    assert_eq!(
+        binders.as_slice(),
+        &[CheckedTerm::Reference {
+            target: binder_id.clone()
+        }]
+    );
+    assert_eq!(body, &binder_id);
+    let CheckedTerm::Aggregate { members: empty } = empty.as_ref() else {
+        panic!("Empty arm");
+    };
+    assert!(matches!(&empty[1], CheckedTerm::Literal { value, .. } if value == "0"));
 }
 
 #[trace("FR-038-AC-465")]

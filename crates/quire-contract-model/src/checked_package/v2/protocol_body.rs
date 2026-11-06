@@ -5,9 +5,9 @@
 use super::model_members::{Budget, ModelOwners};
 use super::{
     ApplicationOperator, CheckedFairnessTarget, CheckedNodeKind, CheckedPackageLockV2,
-    CheckedPackageV2, CheckedSelectionRole, CheckedTerm, CompositeTypeForm, LiteralKind, ModelForm,
-    ProtocolForm, RawSemanticNodeV2, RelationForm, ScalarTypeForm, StateClauseKind, StateForm,
-    TemporalForm, ValueForm, WorkMeter,
+    CheckedPackageV2, CheckedSelectionRole, CheckedTerm, CompositeTypeForm, ExpressionForm,
+    LiteralKind, ModelForm, ProtocolForm, RawSemanticNodeV2, RelationForm, ScalarTypeForm,
+    StateClauseKind, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -4049,6 +4049,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         let mut pending = vec![SlotWalk::Term(term, None)];
         let mut visited = BTreeSet::new();
         let mut locals = SlotLocals::default();
+        let mut arm_binders = BTreeSet::new();
         let mut reads = BTreeSet::new();
         let mut state_read = None;
         while let Some(item) = pending.pop() {
@@ -4070,7 +4071,14 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         // A same-name lexical binding cannot launder an actual
                         // protocol-stage parameter into a local one.
                         if self.known.contains_key(&position)
-                            || !locals.contains(scope, name, meter, owner)?
+                            || !locals.contains(
+                                scope,
+                                position,
+                                name,
+                                &arm_binders,
+                                meter,
+                                owner,
+                            )?
                         {
                             reads.insert(position);
                         }
@@ -4088,6 +4096,72 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             .is_some_and(model_state_operation)
                         {
                             state_read = Some(position);
+                        }
+                    }
+                    if self
+                        .check
+                        .is(position, CheckedNodeKind::Expression(ExpressionForm::Case))
+                    {
+                        if let Some(CheckedTerm::Application {
+                            operator: ApplicationOperator::Case,
+                            operation,
+                            arguments,
+                            ..
+                        }) = &self.check.terms[position]
+                        {
+                            if operation.get("identity").and_then(Value::as_str)
+                                == Some("quire.op.control.case")
+                            {
+                                if let Some((scrutinee, arms)) = arguments.split_first() {
+                                    let scoped_arms = arms
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(ordinal, arm)| {
+                                            let CheckedTerm::Binding { value, .. } = arm else {
+                                                return None;
+                                            };
+                                            let CheckedTerm::Aggregate { members } = value.as_ref()
+                                            else {
+                                                return None;
+                                            };
+                                            let [CheckedTerm::Aggregate { members: binders }, body] =
+                                                members.as_slice()
+                                            else {
+                                                return None;
+                                            };
+                                            let binders = binders
+                                                .iter()
+                                                .map(|binder| {
+                                                    let CheckedTerm::Reference { target } = binder
+                                                    else {
+                                                        return None;
+                                                    };
+                                                    self.check.index.get(target).copied()
+                                                })
+                                                .collect::<Option<Vec<_>>>()?;
+                                            Some((ordinal, binders, body))
+                                        })
+                                        .collect::<Option<Vec<_>>>();
+                                    if let Some(scoped_arms) = scoped_arms {
+                                        for (ordinal, binders, body) in
+                                            scoped_arms.into_iter().rev()
+                                        {
+                                            meter.charge(1, || node_pointer(owner))?;
+                                            let mut arm_scope =
+                                                Some(locals.arm(scope, position, ordinal));
+                                            for binder in binders {
+                                                meter.charge(1, || node_pointer(owner))?;
+                                                arm_binders.insert(binder);
+                                                arm_scope =
+                                                    Some(locals.bind_node(arm_scope, binder));
+                                            }
+                                            pending.push(SlotWalk::Term(body, arm_scope));
+                                        }
+                                        pending.push(SlotWalk::Term(scrutinee, scope));
+                                        continue;
+                                    }
+                                }
+                            }
                         }
                     }
                     if let Some(body) = &self.check.terms[position] {
@@ -4917,8 +4991,15 @@ enum SlotWalk<'a> {
 
 #[derive(Default)]
 struct SlotLocals<'a> {
-    nodes: Vec<(Option<usize>, &'a str)>,
+    nodes: Vec<(Option<usize>, SlotLocal<'a>)>,
     index: BTreeMap<(Option<usize>, &'a str), usize>,
+    arms: BTreeMap<(Option<usize>, usize, usize), usize>,
+}
+
+enum SlotLocal<'a> {
+    Name(&'a str),
+    Binder(usize),
+    Arm,
 }
 
 impl<'a> SlotLocals<'a> {
@@ -4927,25 +5008,48 @@ impl<'a> SlotLocals<'a> {
             return id;
         }
         let id = self.nodes.len();
-        self.nodes.push((parent, name));
+        self.nodes.push((parent, SlotLocal::Name(name)));
         self.index.insert((parent, name), id);
+        id
+    }
+
+    fn arm(&mut self, parent: Option<usize>, case: usize, ordinal: usize) -> usize {
+        if let Some(&id) = self.arms.get(&(parent, case, ordinal)) {
+            return id;
+        }
+        let id = self.nodes.len();
+        self.nodes.push((parent, SlotLocal::Arm));
+        self.arms.insert((parent, case, ordinal), id);
+        id
+    }
+
+    fn bind_node(&mut self, parent: Option<usize>, binder: usize) -> usize {
+        let id = self.nodes.len();
+        self.nodes.push((parent, SlotLocal::Binder(binder)));
         id
     }
 
     fn contains(
         &self,
         mut scope: Option<usize>,
+        position: usize,
         name: &str,
+        arm_binders: &BTreeSet<usize>,
         meter: &mut WorkMeter,
         owner: usize,
     ) -> Result<bool, ValidationFailure> {
         while let Some(id) = scope {
             meter.charge(1, || node_pointer(owner))?;
-            let (parent, local) = self.nodes[id];
-            if local == name {
+            let (parent, local) = &self.nodes[id];
+            let found = match local {
+                SlotLocal::Name(local) => !arm_binders.contains(&position) && *local == name,
+                SlotLocal::Binder(local) => *local == position,
+                SlotLocal::Arm => false,
+            };
+            if found {
                 return Ok(true);
             }
-            scope = parent;
+            scope = *parent;
         }
         Ok(false)
     }
