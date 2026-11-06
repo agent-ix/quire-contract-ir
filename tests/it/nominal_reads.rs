@@ -658,15 +658,39 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
     let converted_row = stage_row(converted, "Centimetre");
     let rows = [root_row.clone(), converted_row.clone()];
     let identities = SelectedExactIdentities::empty();
+    let mut measured_budget = quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX);
     let view = package
-        .project_selected_type_declarations(
-            &identities,
-            &[],
-            &rows,
-            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
-        )
+        .project_selected_type_declarations(&identities, &[], &rows, &mut measured_budget)
         .unwrap();
     assert_eq!(view.units().len(), 2);
+    let measured = measured_budget.consumed();
+    let mut saw_first_insertion = false;
+    for storage in 0..measured.storage {
+        let mut short = quire_contract_model::NativeJoinBudget::new(measured.work, storage);
+        let error = package
+            .project_selected_type_declarations(&identities, &[], &rows, &mut short)
+            .unwrap_err();
+        if error.denied_locus
+            == Some(quire_contract_model::NativeJoinLocus {
+                source: quire_contract_model::NativeJoinLocusSource::SourceUnitRow(0),
+                form: "selected_source_unit_index",
+            })
+        {
+            assert_eq!(
+                error.denied_node(&package, &[], &rows),
+                Some(&rows[0].structural_node)
+            );
+            assert_eq!(error.denied_locus, short.first_unpaid_locus());
+            assert_eq!(error.denied, short.first_unpaid());
+            saw_first_insertion = true;
+            break;
+        }
+    }
+    assert!(
+        saw_first_insertion,
+        "first source-unit insertion must retain row zero after the multirow join"
+    );
+
     assert_eq!(view.dimensions().len(), 1);
     let converted_view = view
         .units()
@@ -691,6 +715,45 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
         ),
         Ok(view.clone())
     );
+    let mut last_storage =
+        quire_contract_model::NativeJoinBudget::new(measured.work, measured.storage - 1);
+    let late = package
+        .project_selected_type_declarations(&identities, &[], &rows, &mut last_storage)
+        .unwrap_err();
+    let dimension = &view.dimensions()[0].structural_node;
+    let position = package
+        .graph()
+        .nodes
+        .iter()
+        .position(|node| &node.node_id == dimension)
+        .unwrap();
+    assert_eq!(
+        late.denied_locus,
+        Some(quire_contract_model::NativeJoinLocus {
+            source: quire_contract_model::NativeJoinLocusSource::Package,
+            form: "runtime_model_units"
+        })
+    );
+    assert_eq!(late.denied_node(&package, &[], &rows), None);
+    assert_eq!(late.denied, last_storage.first_unpaid());
+    // The last output-container header follows the paid dimension copy.
+    let mut dimension_storage =
+        quire_contract_model::NativeJoinBudget::new(measured.work, measured.storage - 2);
+    let dimension_denied = package
+        .project_selected_type_declarations(&identities, &[], &rows, &mut dimension_storage)
+        .unwrap_err();
+    assert_eq!(
+        dimension_denied.denied_locus,
+        Some(quire_contract_model::NativeJoinLocus {
+            source: quire_contract_model::NativeJoinLocusSource::GraphNode(position),
+            form: "selected_dimension",
+        })
+    );
+    assert_eq!(
+        dimension_denied.denied_node(&package, &[], &rows),
+        Some(dimension)
+    );
+    assert_eq!(dimension_denied.denied, dimension_storage.first_unpaid());
     let missing = package
         .project_selected_type_declarations(
             &identities,
@@ -820,8 +883,22 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
         )
         .unwrap_err();
     assert_eq!(tight.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(tight.at.as_deref(), Some(&converted.node_id));
-    assert_eq!(tight.form.as_deref(), Some("selected_source_unit_row"));
+    assert_eq!(tight.at, None);
+    assert_eq!(tight.form, None);
+    assert_eq!(
+        tight.denied_node(&package, &[], &long_rows),
+        Some(&converted.node_id)
+    );
+    assert_eq!(
+        tight.denied_locus.unwrap().source,
+        quire_contract_model::NativeJoinLocusSource::SourceUnitRow(1)
+    );
+    assert_eq!(tight.denied_locus.unwrap().form, "selected_source_unit_row");
+
+    assert_eq!(
+        tight.denied.unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
     let mut long_declaration = converted_row;
     long_declaration.qualified_declaration = vec!["x".repeat(4096).into()];
     let refusal = package
@@ -833,8 +910,12 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
         )
         .unwrap_err();
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(refusal.at.as_deref(), Some(&converted.node_id));
-    assert_eq!(refusal.form.as_deref(), Some("selected_source_unit_row"));
+    assert_eq!(refusal.at, None);
+    assert_eq!(refusal.form, None);
+    assert_eq!(
+        refusal.denied.unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
 }
 fn row<'a>(
     node: &'a CheckedSemanticNodeV2,
@@ -878,7 +959,15 @@ fn member_rows<'a>(
 }
 
 #[test]
-#[trace("FR-354-AC-5", "FR-354-AC-7")]
+#[trace(
+    "FR-354-AC-5",
+    "FR-354-AC-7",
+    "TC-470",
+    "FR-360-AC-1",
+    "FR-360-AC-2",
+    "FR-360-AC-3",
+    "FR-360-AC-4"
+)]
 fn unit_read_borrows_root_target_exact_scale_offset_and_stage_identity() {
     let package = fixture(false);
     let root = node(&package, "unit", "Metre");
@@ -892,9 +981,64 @@ fn unit_read_borrows_root_target_exact_scale_offset_and_stage_identity() {
         row(converted, NominalIdentity::Unit(&identities[1])),
     ];
     let requested = [root.node_id.clone(), converted.node_id.clone()];
+    let mut measured_budget = quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX);
     let view = package
-        .read_unit_definition(&requested, &rows, 10_000)
+        .read_unit_definition(&requested, &rows, &mut measured_budget)
         .unwrap();
+    let measured = measured_budget.last_success_delta().unwrap();
+    let mut exact = quire_contract_model::NativeJoinBudget::new(measured.work, measured.storage);
+    assert_eq!(
+        package.read_unit_definition(&requested, &rows, &mut exact),
+        Ok(view.clone())
+    );
+    assert_eq!(exact.last_success_delta(), Some(measured));
+    for work in 0..measured.work {
+        let mut short = quire_contract_model::NativeJoinBudget::new(work, measured.storage);
+        let denied = package
+            .read_unit_definition(&requested, &rows, &mut short)
+            .unwrap_err();
+        assert_eq!(denied.code, NominalReadCode::LimitReached);
+        assert_eq!(denied.work, short.consumed().work);
+        assert_eq!(
+            short.first_unpaid().unwrap().kind,
+            quire_contract_model::NativeJoinChargeKind::Work
+        );
+        assert!(short.consumed().work <= work);
+        assert_eq!(short.last_success_delta(), None);
+    }
+    for storage in 0..measured.storage {
+        let mut short = quire_contract_model::NativeJoinBudget::new(measured.work, storage);
+        let denied = package
+            .read_unit_definition(&requested, &rows, &mut short)
+            .unwrap_err();
+        assert_eq!(denied.work, short.consumed().work);
+        assert_eq!(
+            short.first_unpaid().unwrap().kind,
+            quire_contract_model::NativeJoinChargeKind::Storage
+        );
+        assert!(short.consumed().storage <= storage);
+        assert_eq!(short.last_success_delta(), None);
+        assert!(
+            requested.iter().any(|id| id == denied.node)
+                || package
+                    .graph()
+                    .nodes
+                    .iter()
+                    .any(|node| &node.node_id == denied.node)
+        );
+    }
+    let mut shared =
+        quire_contract_model::NativeJoinBudget::new(measured.work * 2, measured.storage * 2);
+    assert_eq!(
+        package.read_unit_definition(&requested, &rows, &mut shared),
+        Ok(view.clone())
+    );
+    assert_eq!(
+        package.read_unit_definition(&requested, &rows, &mut shared),
+        Ok(view.clone())
+    );
+    assert_eq!(shared.consumed().work, measured.work * 2);
+    assert_eq!(shared.consumed().storage, measured.storage * 2);
     assert_eq!(view.units.len(), 2);
     assert_eq!(view.dimensions.len(), 1);
     assert!(std::ptr::eq(
@@ -915,20 +1059,32 @@ fn unit_read_borrows_root_target_exact_scale_offset_and_stage_identity() {
     assert_eq!(view.units[1].offset.denominator.as_ref(), "2");
     assert_eq!(
         package
-            .read_unit_definition(&requested, &rows, view.work)
+            .read_unit_definition(
+                &requested,
+                &rows,
+                &mut quire_contract_model::NativeJoinBudget::new(view.work, u64::MAX)
+            )
             .unwrap(),
         view
     );
     let error = package
-        .read_unit_definition(&requested, &rows, view.work - 1)
+        .read_unit_definition(
+            &requested,
+            &rows,
+            &mut quire_contract_model::NativeJoinBudget::new(view.work - 1, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(error.code, NominalReadCode::LimitReached);
-    assert_eq!(error.work, view.work);
+    assert!(error.work < view.work);
     assert_eq!(error.limit, view.work - 1);
     assert_eq!(
         package
             .clone()
-            .read_unit_definition(&requested, &rows, 10_000)
+            .read_unit_definition(
+                &requested,
+                &rows,
+                &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX)
+            )
             .unwrap(),
         view
     );
@@ -949,7 +1105,11 @@ fn unit_read_refuses_missing_foreign_and_competing_selected_rows() {
     let requested = [root.node_id.clone(), converted.node_id.clone()];
     assert_eq!(
         package
-            .read_unit_definition(&requested, &[], 10_000)
+            .read_unit_definition(
+                &requested,
+                &[],
+                &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX)
+            )
             .unwrap_err()
             .code,
         NominalReadCode::MissingWitness
@@ -959,7 +1119,7 @@ fn unit_read_refuses_missing_foreign_and_competing_selected_rows() {
             .read_unit_definition(
                 &requested[1..],
                 std::slice::from_ref(&converted_row),
-                10_000
+                &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX)
             )
             .unwrap_err()
             .code,
@@ -975,14 +1135,22 @@ fn unit_read_refuses_missing_foreign_and_competing_selected_rows() {
     };
     assert_eq!(
         package
-            .read_unit_definition(&requested, &[wrong, converted_row.clone()], 10_000)
+            .read_unit_definition(
+                &requested,
+                &[wrong, converted_row.clone()],
+                &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX)
+            )
             .unwrap_err()
             .code,
         NominalReadCode::ForeignWitness
     );
     assert_eq!(
         package
-            .read_unit_definition(&requested, &[root_row.clone(), root_row.clone()], 10_000)
+            .read_unit_definition(
+                &requested,
+                &[root_row.clone(), root_row.clone()],
+                &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX)
+            )
             .unwrap_err()
             .code,
         NominalReadCode::ConflictingWitness
@@ -993,7 +1161,11 @@ fn unit_read_refuses_missing_foreign_and_competing_selected_rows() {
     };
     assert_eq!(
         package
-            .read_unit_definition(&requested, &[root_row, competing], 10_000)
+            .read_unit_definition(
+                &requested,
+                &[root_row, competing],
+                &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX)
+            )
             .unwrap_err()
             .code,
         NominalReadCode::ConflictingWitness
@@ -1143,7 +1315,11 @@ fn names_do_not_substitute_for_selected_node_or_member_identity() {
     };
     assert_eq!(
         package
-            .read_unit_definition(std::slice::from_ref(&missing), &[wrong], 10_000)
+            .read_unit_definition(
+                std::slice::from_ref(&missing),
+                &[wrong],
+                &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX)
+            )
             .unwrap_err()
             .code,
         NominalReadCode::MissingNode
@@ -1165,13 +1341,21 @@ fn malformed_rows_cannot_walk_empty_segments_or_copy_a_locus_after_exhaustion() 
         ..row(root, NominalIdentity::Unit(&identity))
     }];
     let error = package
-        .read_unit_definition(&requested, &rows, 500)
+        .read_unit_definition(
+            &requested,
+            &rows,
+            &mut quire_contract_model::NativeJoinBudget::new(500, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(error.code, NominalReadCode::LimitReached);
-    assert_eq!(error.work, 501);
+    assert!(error.work <= 500);
     assert!(std::ptr::eq(error.node, &root.node_id));
     let error = package
-        .read_unit_definition(&requested, &rows, 0)
+        .read_unit_definition(
+            &requested,
+            &rows,
+            &mut quire_contract_model::NativeJoinBudget::new(0, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(error.code, NominalReadCode::LimitReached);
     assert!(std::ptr::eq(error.node, &root.node_id));
@@ -1188,7 +1372,11 @@ fn derived_dimension_dependencies_are_returned_as_borrowed_canonical_terms() {
     let requested = [square.node_id.clone()];
     let rows = [row(square, NominalIdentity::Unit(&identity))];
     let view = package
-        .read_unit_definition(&requested, &rows, 10_000)
+        .read_unit_definition(
+            &requested,
+            &rows,
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
+        )
         .unwrap();
     assert_eq!(view.dimensions.len(), 2);
     assert!(std::ptr::eq(view.dimensions[0].node, area));
@@ -1201,4 +1389,108 @@ fn derived_dimension_dependencies_are_returned_as_borrowed_canonical_terms() {
     );
     assert_eq!(view.dimensions[0].terms[0].exponent.as_ref(), "2");
     assert!(view.dimensions[1].terms.is_empty());
+}
+
+#[test]
+#[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3")]
+fn dimension_sibling_term_denial_restores_the_paid_parent_coordinate() {
+    use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocusSource};
+    let mut members = nominal_fixture_members()
+        .into_iter()
+        .skip(2)
+        .collect::<Vec<_>>();
+    let mut time = members[1].0.clone();
+    time["qualified_declaration"] = json!(["Example", "Time"]);
+    members.push((time, "qualified:Example/Time".into()));
+    let mut parent = members[1].0.clone();
+    parent["qualified_declaration"] = json!(["Example", "CompositeDimension"]);
+    parent["terms"] = json!([
+        {"dimension_node_id":node_id("qualified:Example/Length"),"exponent":"1"},
+        {"dimension_node_id":node_id("qualified:Example/Time"),"exponent":"123456789012345"}
+    ]);
+    members.push((parent, "qualified:Example/CompositeDimension".into()));
+    let mut composite = members[0].0.clone();
+    composite["qualified_declaration"] = json!(["Example", "CompositeUnit"]);
+    composite["dimension_node_id"] = node_id("qualified:Example/CompositeDimension");
+    members.push((composite, "qualified:Example/CompositeUnit".into()));
+    let wire = nominal_package(&members);
+    let package = match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("multi-term source dimension must admit: {other:?}"),
+    };
+    let rows: Vec<_> = ["Metre", "CompositeUnit"]
+        .into_iter()
+        .map(|name| {
+            let selected = node(&package, "unit", name);
+            let CheckedNodeOwner::Source {
+                authority,
+                identity,
+            } = selected.owner.as_ref().unwrap()
+            else {
+                panic!("source unit")
+            };
+            SelectedSourceUnitRow::new(
+                selected.node_id.clone(),
+                authority.clone(),
+                identity.clone(),
+                selected
+                    .declaration
+                    .as_ref()
+                    .unwrap()
+                    .qualified_name
+                    .clone(),
+                UnitId::Declared(key(name)),
+            )
+        })
+        .collect();
+    let identities = SelectedExactIdentities::empty();
+    let parent = &node(&package, "dimension", "CompositeDimension").node_id;
+    let child = &node(&package, "dimension", "Length").node_id;
+    let mut ample = NativeJoinBudget::new(10_000, u64::MAX);
+    let view = package
+        .project_selected_type_declarations(&identities, &[], &rows, &mut ample)
+        .unwrap();
+    let dimension = view
+        .dimensions()
+        .iter()
+        .find(|dimension| &dimension.structural_node == parent)
+        .unwrap();
+    assert_eq!(dimension.terms.len(), 2);
+    assert_eq!(dimension.terms[1].exponent.as_ref(), "123456789012345");
+    let mut matched_second_term = 0;
+    for work in 0..ample.consumed().work {
+        let mut short = NativeJoinBudget::new(work, u64::MAX);
+        let error = package
+            .project_selected_type_declarations(&identities, &[], &rows, &mut short)
+            .unwrap_err();
+        let Some(locus) = error.denied_locus else {
+            panic!("every runtime refusal has a fixed coordinate")
+        };
+        let resolved = error.denied_node(&package, &[], &rows);
+        // This sixteen-unit charge is the long second exponent, following
+        // the paid lookup and pending insertion of the first child.
+        if locus.form == "selected_unit_definition"
+            && error.denied.unwrap().kind == NativeJoinChargeKind::Work
+            && error.denied.unwrap().amount == 16
+            && (resolved == Some(parent) || resolved == Some(child))
+        {
+            assert_eq!(
+                resolved,
+                Some(parent),
+                "a sibling term belongs to its parent, not the prior child"
+            );
+            assert!(matches!(locus.source, NativeJoinLocusSource::GraphNode(_)));
+            assert_eq!(short.first_unpaid_locus(), Some(locus));
+            assert_eq!(short.last_success_delta(), None);
+            matched_second_term += 1;
+        }
+    }
+    assert!(
+        matched_second_term >= 16,
+        "every work boundary inside the second exponent charge must retain its parent"
+    );
 }

@@ -28,7 +28,15 @@ fn effect_row(short: &str, operation: &str, modifies: Vec<Value>) -> Value {
     })
 }
 
-#[trace("TC-977", "FR-354-AC-10", "FR-354-AC-11", "FR-038-AC-406")]
+#[trace(
+    "TC-977",
+    "FR-354-AC-10",
+    "FR-354-AC-11",
+    "FR-038-AC-406",
+    "TC-470",
+    "FR-360-AC-2",
+    "FR-360-AC-5"
+)]
 #[test]
 fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
     let mut ledger = object(
@@ -89,14 +97,37 @@ fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
         &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect("selected object identity");
+    let mut measured_budget = quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX);
     let projected = admitted
-        .project_selected_type_declarations(
+        .project_selected_type_declarations(&witnessed, &[], &[], &mut measured_budget)
+        .expect("witnessed Ledger type environment");
+    let measured = measured_budget
+        .last_success_delta()
+        .expect("successful projection records its native budget delta");
+    let mut exact_budget =
+        quire_contract_model::NativeJoinBudget::new(measured.work, measured.storage);
+    assert_eq!(
+        admitted.clone().project_selected_type_declarations(
             &witnessed,
             &[],
             &[],
-            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
-        )
-        .expect("witnessed Ledger type environment");
+            &mut exact_budget,
+        ),
+        Ok(projected.clone()),
+    );
+    assert_eq!(exact_budget.last_success_delta(), Some(measured));
+    let mut short_storage =
+        quire_contract_model::NativeJoinBudget::new(measured.work, measured.storage - 1);
+    let denied = admitted
+        .clone()
+        .project_selected_type_declarations(&witnessed, &[], &[], &mut short_storage)
+        .expect_err("one below the measured helper storage refuses");
+    assert_eq!(
+        denied.code,
+        quire_contract_model::ExactTypeProjectionErrorCode::ExhaustedStorage
+    );
+    assert_eq!(denied.denied, short_storage.first_unpaid());
+    assert_eq!(short_storage.last_success_delta(), None);
     let object = &projected.objects()[0];
     assert_eq!(object.original_identity(), orders("Ledger"));
     assert_eq!(object.operations().len(), 2);

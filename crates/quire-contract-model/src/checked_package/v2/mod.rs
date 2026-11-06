@@ -135,6 +135,7 @@ pub use monitor_plan::{
 };
 pub use native_join_budget::{
     NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
+    NativeJoinLocus, NativeJoinLocusSource,
 };
 pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use selected_facts::{
@@ -1256,6 +1257,14 @@ impl CheckedPackageV2 {
         &self,
         id: &CheckedNodeId,
     ) -> Option<&CheckedSemanticNodeV2> {
+        self.node_with_position(id).map(|(_, node)| node)
+    }
+
+    /// Return the retained graph position with the node from the same lookup.
+    pub(in crate::checked_package) fn node_with_position(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<(usize, &CheckedSemanticNodeV2)> {
         let position = *self.node_index.get(id)?;
         self.wire
             .semantic_graph
@@ -1266,6 +1275,7 @@ impl CheckedPackageV2 {
                 model_fields::probe::node_visited();
             })
             .filter(|candidate| &candidate.node_id == id)
+            .map(|node| (position, node))
     }
 
     /// Reads one canonical V2 value without exposing a partial package.

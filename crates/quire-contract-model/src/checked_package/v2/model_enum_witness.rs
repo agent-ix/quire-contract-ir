@@ -4,10 +4,13 @@
 //! FR-354: join QSL's model-owned enum identities to admitted selected cases.
 
 use super::model_members::DeclarationForm;
+use super::native_join_budget::{read_charge, read_node_storage, read_node_work, NativeReadDenied};
+use super::native_join_storage as storage;
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2, CheckedTerm, LiteralKind,
     ModelForm, ValueForm,
 };
+use super::{NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource};
 use quire_exact::{EnumShape, NodeKey, VariantId};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -172,6 +175,84 @@ pub struct SelectedModelEnums<'a> {
     joined_work: u64,
 }
 
+#[derive(Debug)]
+pub(super) enum RuntimeEnumError {
+    Semantic(SelectedModelEnumError),
+    Native(NativeReadDenied),
+}
+impl From<NativeReadDenied> for RuntimeEnumError {
+    fn from(error: NativeReadDenied) -> Self {
+        Self::Native(error)
+    }
+}
+impl RuntimeEnumError {
+    fn legacy(self) -> SelectedModelEnumError {
+        match self {
+            Self::Semantic(error) => error,
+            Self::Native(_) => unreachable!("the numeric enum reader has no native allowance"),
+        }
+    }
+}
+struct EnumMeter<'b> {
+    native: Option<&'b mut NativeJoinBudget>,
+    consumed: u64,
+    limit: u64,
+}
+impl EnumMeter<'_> {
+    fn row(&mut self, index: usize, form: &'static str) {
+        if let Some(budget) = &mut self.native {
+            budget.set_active_locus(Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::ReachedRow(index),
+                form,
+            }));
+        }
+    }
+    fn storage(&mut self, amount: u128) -> Result<(), RuntimeEnumError> {
+        if let Some(budget) = &mut self.native {
+            read_charge(budget, NativeJoinChargeKind::Storage, amount)?;
+        }
+        Ok(())
+    }
+    fn inspect(&mut self, node: &CheckedNodeId) -> Result<(), RuntimeEnumError> {
+        if let Some(budget) = &mut self.native {
+            read_node_work(budget, node)?;
+        }
+        Ok(())
+    }
+    fn text(&mut self, text: &str) -> Result<(), RuntimeEnumError> {
+        if let Some(budget) = &mut self.native {
+            read_charge(budget, NativeJoinChargeKind::Work, text.len() as u128)?;
+        }
+        Ok(())
+    }
+    fn charge(&mut self, node: &CheckedNodeId) -> Result<(), RuntimeEnumError> {
+        self.inspect(node)?;
+        if self.consumed >= self.limit {
+            let mut error =
+                self.refusal(SelectedModelEnumErrorCode::WorkLimit, node, self.consumed);
+            if let RuntimeEnumError::Semantic(ref mut error) = error {
+                error.attempted_work = 1;
+            }
+            return Err(error);
+        }
+        self.consumed += 1;
+        Ok(())
+    }
+    fn refusal(
+        &mut self,
+        code: SelectedModelEnumErrorCode,
+        node: &CheckedNodeId,
+        consumed: u64,
+    ) -> RuntimeEnumError {
+        if let Some(budget) = &mut self.native {
+            if let Err(error) = read_node_storage(budget, node) {
+                return error.into();
+            }
+        }
+        RuntimeEnumError::Semantic(refusal(code, node, consumed))
+    }
+}
+
 impl<'a> SelectedModelEnums<'a> {
     /// Join producer rows to an admitted package under a finite work limit.
     ///
@@ -183,53 +264,100 @@ impl<'a> SelectedModelEnums<'a> {
         members: impl IntoIterator<Item = SelectedModelEnumMemberRow>,
         work_limit: u64,
     ) -> Result<Self, SelectedModelEnumError> {
+        Self::from_stage_rows_inner(
+            package,
+            declarations,
+            members,
+            &mut EnumMeter {
+                native: None,
+                consumed: 0,
+                limit: work_limit,
+            },
+        )
+        .map_err(RuntimeEnumError::legacy)
+    }
+
+    pub(super) fn from_stage_rows_runtime(
+        package: &'a CheckedPackageV2,
+        declarations: impl IntoIterator<Item = SelectedModelEnumDeclarationRow>,
+        members: impl IntoIterator<Item = SelectedModelEnumMemberRow>,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Self, RuntimeEnumError> {
+        let previous_locus = budget.active_locus();
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::Package,
+            form: "model_enum_join_storage",
+        }));
+        let result = Self::from_stage_rows_inner(
+            package,
+            declarations,
+            members,
+            &mut EnumMeter {
+                native: Some(budget),
+                consumed: 0,
+                limit: u64::MAX,
+            },
+        );
+        budget.set_active_locus(previous_locus);
+        result
+    }
+
+    fn from_stage_rows_inner(
+        package: &'a CheckedPackageV2,
+        declarations: impl IntoIterator<Item = SelectedModelEnumDeclarationRow>,
+        members: impl IntoIterator<Item = SelectedModelEnumMemberRow>,
+        meter: &mut EnumMeter<'_>,
+    ) -> Result<Self, RuntimeEnumError> {
+        meter.storage(5)?;
         let mut selected = Self {
             package,
             declarations: BTreeMap::new(),
             members: BTreeMap::new(),
             joined_work: 0,
         };
-        let mut consumed = 0_u64;
         let mut original_declarations = BTreeSet::new();
         let mut exact_keys = BTreeSet::new();
-        for row in declarations {
+        for (index, row) in declarations.into_iter().enumerate() {
+            meter.row(index, "model_enum_declaration");
             let node = &row.structural_node;
-            charge(&mut consumed, work_limit, node)?;
+            meter.charge(node)?;
+            meter.text(&row.selected_document)?;
+            meter.text(&row.original_identity)?;
             if package.node(node).is_none() {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::UnknownNode,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
             if package.node_kind(node) != Some(CheckedNodeKind::Model(ModelForm::VariantType)) {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::WrongForm,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
             let Some((document, original, form)) = package.models.selected_declaration(node) else {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::UnavailableWitness,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             };
             if form != DeclarationForm::VariantType
                 || package.models.variant_family(node) != Some("enum")
             {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::WrongForm,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
             let Some(checked) = package.node(node) else {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::UnknownNode,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             };
             if document != row.selected_document.as_ref()
@@ -237,84 +365,111 @@ impl<'a> SelectedModelEnums<'a> {
                 || !matches!(&checked.owner, Some(CheckedNodeOwner::Model { identity, node })
                     if identity.as_ref() == document && node.as_ref() == original)
             {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::MismatchedWitness,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
+            meter.text(&row.selected_document)?;
+            meter.text(&row.original_identity)?;
+            meter.storage(
+                storage::text_parts(&[&row.selected_document])
+                    .saturating_add(storage::text_parts(&[&row.original_identity]))
+                    .saturating_add(storage::node(node))
+                    .saturating_add(4),
+            )?;
             if selected.declarations.contains_key(node)
                 || !original_declarations
                     .insert((row.selected_document.clone(), row.original_identity.clone()))
                 || !exact_keys.insert(row.node_key.clone())
             {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::ConflictingWitness,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
             selected.declarations.insert(node.clone(), row);
         }
         let mut original_members = BTreeSet::new();
-        for row in members {
+        for (index, row) in members.into_iter().enumerate() {
+            meter.row(index, "model_enum_member");
             let node = &row.structural_node;
-            charge(&mut consumed, work_limit, node)?;
+            meter.charge(node)?;
+            meter.inspect(&row.declaration_node)?;
+            meter.text(&row.selected_document)?;
+            meter.text(&row.enum_original_identity)?;
+            meter.text(&row.member_original_identity)?;
+            meter.text(&row.case)?;
             let Some(checked) = package.node(node) else {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::UnknownNode,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             };
             if package.node_kind(node) != Some(CheckedNodeKind::Value(ValueForm::EnumValue)) {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::WrongForm,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
+            meter.inspect(&row.declaration_node)?;
             let Some(declaration) = selected.declarations.get(&row.declaration_node) else {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::UnavailableWitness,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             };
+            for dependency in &checked.dependencies {
+                meter.inspect(dependency)?;
+            }
             if declaration.selected_document != row.selected_document
                 || declaration.original_identity != row.enum_original_identity
                 || checked.semantic_type != row.declaration_node
                 || !checked.dependencies.contains(&row.declaration_node)
             {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::MismatchedWitness,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
+            meter.text(&row.case)?;
             let Some(case) = package
                 .models
                 .selected_variant_case(&row.declaration_node, &row.case)
             else {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::MismatchedWitness,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             };
-            charge(&mut consumed, work_limit, node)?;
+            meter.charge(node)?;
             if case.payload.is_some()
                 || case.identity != row.member_original_identity
                 || !matches!(package.term(node), Some(CheckedTerm::Literal {
                     type_id, value_kind: LiteralKind::Enum, value,
                 }) if type_id == &row.declaration_node && value.as_str() == Some(row.case.as_ref()))
             {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::MismatchedWitness,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
+            meter.text(&row.selected_document)?;
+            meter.text(&row.member_original_identity)?;
+            meter.storage(
+                storage::text_parts(&[&row.selected_document])
+                    .saturating_add(storage::text_parts(&[&row.member_original_identity]))
+                    .saturating_add(storage::node(node))
+                    .saturating_add(4),
+            )?;
             if selected.members.contains_key(node)
                 || !original_members.insert((
                     row.selected_document.clone(),
@@ -322,15 +477,15 @@ impl<'a> SelectedModelEnums<'a> {
                 ))
                 || !exact_keys.insert(row.member_key.clone())
             {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::ConflictingWitness,
                     node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
             selected.members.insert(node.clone(), row);
         }
-        selected.joined_work = consumed;
+        selected.joined_work = meter.consumed;
         Ok(selected)
     }
 
@@ -345,10 +500,28 @@ impl<'a> SelectedModelEnums<'a> {
         package: &CheckedPackageV2,
         node: &CheckedNodeId,
     ) -> Result<&SelectedModelEnumDeclarationRow, SelectedModelEnumError> {
-        self.check_read(package, node)?;
+        self.read_declaration_inner(
+            package,
+            node,
+            &mut EnumMeter {
+                native: None,
+                consumed: 0,
+                limit: u64::MAX,
+            },
+        )
+        .map_err(RuntimeEnumError::legacy)
+    }
+
+    fn read_declaration_inner(
+        &self,
+        package: &CheckedPackageV2,
+        node: &CheckedNodeId,
+        meter: &mut EnumMeter<'_>,
+    ) -> Result<&SelectedModelEnumDeclarationRow, RuntimeEnumError> {
+        self.check_read(package, node, meter)?;
         self.declarations
             .get(node)
-            .ok_or_else(|| refusal(SelectedModelEnumErrorCode::UnavailableWitness, node, 0))
+            .ok_or_else(|| meter.refusal(SelectedModelEnumErrorCode::UnavailableWitness, node, 0))
     }
 
     /// Return the validated member row for this admitted package instance.
@@ -357,10 +530,28 @@ impl<'a> SelectedModelEnums<'a> {
         package: &CheckedPackageV2,
         node: &CheckedNodeId,
     ) -> Result<&SelectedModelEnumMemberRow, SelectedModelEnumError> {
-        self.check_read(package, node)?;
+        self.read_member_inner(
+            package,
+            node,
+            &mut EnumMeter {
+                native: None,
+                consumed: 0,
+                limit: u64::MAX,
+            },
+        )
+        .map_err(RuntimeEnumError::legacy)
+    }
+
+    fn read_member_inner(
+        &self,
+        package: &CheckedPackageV2,
+        node: &CheckedNodeId,
+        meter: &mut EnumMeter<'_>,
+    ) -> Result<&SelectedModelEnumMemberRow, RuntimeEnumError> {
+        self.check_read(package, node, meter)?;
         self.members
             .get(node)
-            .ok_or_else(|| refusal(SelectedModelEnumErrorCode::UnavailableWitness, node, 0))
+            .ok_or_else(|| meter.refusal(SelectedModelEnumErrorCode::UnavailableWitness, node, 0))
     }
 
     /// Join one QSL-issued shape to the already admitted declaration and case identities.
@@ -370,73 +561,123 @@ impl<'a> SelectedModelEnums<'a> {
         row: &SelectedModelEnumShapeRow,
         limit: u64,
     ) -> Result<u64, SelectedModelEnumError> {
+        self.read_shape_inner(
+            package,
+            row,
+            &mut EnumMeter {
+                native: None,
+                consumed: 0,
+                limit,
+            },
+        )
+        .map_err(RuntimeEnumError::legacy)
+    }
+    pub(super) fn read_shape_runtime(
+        &self,
+        package: &CheckedPackageV2,
+        row: &SelectedModelEnumShapeRow,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<u64, RuntimeEnumError> {
+        let previous_locus = budget.active_locus();
+        let result = self.read_shape_inner(
+            package,
+            row,
+            &mut EnumMeter {
+                native: Some(budget),
+                consumed: 0,
+                limit: u64::MAX,
+            },
+        );
+        budget.set_active_locus(previous_locus);
+        result
+    }
+
+    fn read_shape_inner(
+        &self,
+        package: &CheckedPackageV2,
+        row: &SelectedModelEnumShapeRow,
+        meter: &mut EnumMeter<'_>,
+    ) -> Result<u64, RuntimeEnumError> {
         let node = &row.structural_node;
-        let declaration = self.read_declaration(package, node)?;
-        let mut consumed = 0;
-        charge(&mut consumed, limit, node)?;
+        meter.text(&row.selected_document)?;
+        meter.text(&row.original_identity)?;
+        let declaration = self.read_declaration_inner(package, node, meter)?;
+        meter.charge(node)?;
         if declaration.node_key != row.node_key
             || declaration.selected_document != row.selected_document
             || declaration.original_identity != row.original_identity
         {
-            return Err(refusal(
+            return Err(meter.refusal(
                 SelectedModelEnumErrorCode::MismatchedWitness,
                 node,
-                consumed,
+                meter.consumed,
             ));
         }
-        let variants: Vec<VariantId> = row.shape.variants().map(ToOwned::to_owned).collect();
-        if variants.len() != row.cases.len() {
-            return Err(refusal(
+        for variant in row.shape.variants() {
+            meter.text(variant.case())?;
+        }
+        if row.shape.variants().count() != row.cases.len() {
+            return Err(meter.refusal(
                 SelectedModelEnumErrorCode::MismatchedWitness,
                 node,
-                consumed,
+                meter.consumed,
             ));
         }
+        meter.storage(1)?;
         let mut cases = BTreeSet::new();
-        for (case, variant) in row.cases.iter().zip(variants) {
-            charge(&mut consumed, limit, &case.structural_node)?;
-            let member = self.read_member(package, &case.structural_node)?;
+        for (index, (case, variant)) in row.cases.iter().zip(row.shape.variants()).enumerate() {
+            meter.row(index, "model_enum_shape_case");
+            meter.charge(&case.structural_node)?;
+            meter.text(&case.member_original_identity)?;
+            meter.text(case.variant.case())?;
+            let member = self.read_member_inner(package, &case.structural_node, meter)?;
+            meter.text(&case.case)?;
+            meter.storage(1)?;
             if member.declaration_node != *node
                 || member.case != case.case
                 || member.member_key != case.member_key
                 || member.member_original_identity != case.member_original_identity
-                || case.variant != variant
+                || &case.variant != variant
                 || !cases.insert(&case.case)
             {
-                return Err(refusal(
+                return Err(meter.refusal(
                     SelectedModelEnumErrorCode::MismatchedWitness,
                     &case.structural_node,
-                    consumed,
+                    meter.consumed,
                 ));
             }
         }
         let mut member_count = 0;
-        for member in self.members.values() {
-            charge(&mut consumed, limit, &member.structural_node)?;
+        for (index, member) in self.members.values().enumerate() {
+            meter.row(index, "model_enum_shape_member_count");
+            meter.charge(&member.structural_node)?;
+            meter.inspect(&member.declaration_node)?;
             if member.declaration_node == *node {
                 member_count += 1;
             }
         }
         if member_count != row.cases.len() {
-            return Err(refusal(
+            return Err(meter.refusal(
                 SelectedModelEnumErrorCode::MismatchedWitness,
                 node,
-                consumed,
+                meter.consumed,
             ));
         }
-        Ok(consumed)
+        Ok(meter.consumed)
     }
 
     fn check_read(
         &self,
         package: &CheckedPackageV2,
         node: &CheckedNodeId,
-    ) -> Result<(), SelectedModelEnumError> {
+        meter: &mut EnumMeter<'_>,
+    ) -> Result<(), RuntimeEnumError> {
+        meter.inspect(node)?;
         if !std::ptr::eq(self.package, package) {
-            return Err(refusal(SelectedModelEnumErrorCode::ForeignPackage, node, 0));
+            return Err(meter.refusal(SelectedModelEnumErrorCode::ForeignPackage, node, 0));
         }
         if self.package.node(node).is_none() {
-            return Err(refusal(SelectedModelEnumErrorCode::UnknownNode, node, 0));
+            return Err(meter.refusal(SelectedModelEnumErrorCode::UnknownNode, node, 0));
         }
         Ok(())
     }
@@ -453,21 +694,4 @@ fn refusal(
         consumed_work,
         attempted_work: 0,
     }
-}
-
-fn charge(
-    consumed: &mut u64,
-    limit: u64,
-    node: &CheckedNodeId,
-) -> Result<(), SelectedModelEnumError> {
-    if *consumed >= limit {
-        return Err(SelectedModelEnumError {
-            code: SelectedModelEnumErrorCode::WorkLimit,
-            node: node.clone(),
-            consumed_work: *consumed,
-            attempted_work: 1,
-        });
-    }
-    *consumed += 1;
-    Ok(())
 }

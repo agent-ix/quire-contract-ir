@@ -3,9 +3,14 @@
 
 //! Reached model and unit facts for the selected monitor graph walk.
 
-use super::selected_closure_walk::SelectedGraphWalkError;
+use super::selected_closure_walk::RuntimeWalkError;
 use super::CheckedMonitorPlanRef;
+use crate::checked_package::v2::model_enum_witness::RuntimeEnumError;
 use crate::checked_package::v2::model_members::{DeclarationForm, MemberType};
+use crate::checked_package::v2::native_join_budget::{
+    read_charge, read_node_storage, read_node_work, NativeReadDenied,
+};
+use crate::checked_package::v2::native_join_storage as storage;
 use crate::checked_package::v2::{
     CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedTerm, ExactTypeProjectionError,
     NativeJoinBudget, ScalarTypeForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
@@ -14,6 +19,7 @@ use crate::checked_package::v2::{
     SelectedModelEnums, SelectedSourceUnitRow, SelectedTupleDeclarationRow,
     SelectedTypeDeclarations, SelectedTypeDeclarationsError,
 };
+use crate::checked_package::v2::{NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource};
 use std::collections::BTreeSet;
 
 pub(super) struct ReachedProducerRows<'a> {
@@ -35,7 +41,7 @@ pub(super) struct ReachedModelRead {
 
 #[derive(Debug)]
 pub(super) enum ReachedModelError {
-    Walk(SelectedGraphWalkError),
+    Walk(RuntimeWalkError),
     Exact {
         prior_work: u64,
         error: ExactTypeProjectionError,
@@ -45,49 +51,232 @@ pub(super) enum ReachedModelError {
         prior_work: u64,
         error: SelectedModelEnumError,
     },
-    WorkLimit {
-        at: CheckedNodeId,
-        work: u64,
-    },
+    Native(NativeReadDenied),
     UnresolvedDependency {
         at: CheckedNodeId,
         work: u64,
     },
 }
 
-fn charge(work: &mut u64, limit: u64, at: &CheckedNodeId) -> Result<(), ReachedModelError> {
-    if *work >= limit {
-        return Err(ReachedModelError::WorkLimit {
-            at: at.clone(),
-            work: *work,
-        });
+impl From<NativeReadDenied> for ReachedModelError {
+    fn from(error: NativeReadDenied) -> Self {
+        Self::Native(error)
     }
+}
+fn charge(
+    work: &mut u64,
+    budget: &mut NativeJoinBudget,
+    at: &CheckedNodeId,
+) -> Result<(), ReachedModelError> {
+    read_node_work(budget, at)?;
     *work += 1;
     Ok(())
 }
+fn retain(budget: &mut NativeJoinBudget, amount: u128) -> Result<(), ReachedModelError> {
+    read_charge(budget, NativeJoinChargeKind::Storage, amount)?;
+    Ok(())
+}
+fn unresolved(budget: &mut NativeJoinBudget, at: &CheckedNodeId, work: u64) -> ReachedModelError {
+    if let Err(error) = read_node_storage(budget, at) {
+        return error.into();
+    }
+    ReachedModelError::UnresolvedDependency {
+        at: at.clone(),
+        work,
+    }
+}
+fn enum_error(error: RuntimeEnumError, work: u64) -> ReachedModelError {
+    match error {
+        RuntimeEnumError::Semantic(error) => ReachedModelError::Enum {
+            prior_work: work,
+            error,
+        },
+        RuntimeEnumError::Native(error) => error.into(),
+    }
+}
 
+fn checked_enum_error(
+    budget: &mut NativeJoinBudget,
+    code: SelectedModelEnumErrorCode,
+    id: &CheckedNodeId,
+    work: u64,
+) -> ReachedModelError {
+    if let Err(error) = read_node_storage(budget, id) {
+        return error.into();
+    }
+    ReachedModelError::Enum {
+        prior_work: work,
+        error: SelectedModelEnumError {
+            code,
+            node: id.clone(),
+            consumed_work: 0,
+            attempted_work: 0,
+        },
+    }
+}
+fn text_work(budget: &mut NativeJoinBudget, value: &str) -> Result<(), ReachedModelError> {
+    read_charge(budget, NativeJoinChargeKind::Work, value.len() as u128)?;
+    Ok(())
+}
+fn preflight_declarations(
+    row: &SelectedExactDeclarationRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ReachedModelError> {
+    read_node_work(budget, &row.structural_node)?;
+    text_work(budget, &row.selected_document)?;
+    text_work(budget, &row.original_identity)?;
+    match &row.exact_identity {
+        crate::checked_package::v2::SelectedExactIdentity::Object(id) => {
+            for original in id.owner_chain() {
+                text_work(budget, original.package())?;
+                text_work(budget, original.node())?;
+            }
+        }
+        crate::checked_package::v2::SelectedExactIdentity::DeclaredUnit(id) => {
+            storage::preflight_unit(id, budget, &row.structural_node).map_err(|error| {
+                ReachedModelError::Exact {
+                    prior_work: 0,
+                    error,
+                }
+            })?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+fn preflight_fields(
+    row: &SelectedExactFieldRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ReachedModelError> {
+    read_node_work(budget, &row.record_node)?;
+    text_work(budget, &row.selected_document)?;
+    text_work(budget, &row.record_original_identity)?;
+    text_work(budget, &row.field_original_identity)?;
+    text_work(budget, row.member_id.member())?;
+    Ok(())
+}
+fn preflight_tuples(
+    row: &SelectedTupleDeclarationRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ReachedModelError> {
+    read_node_work(budget, &row.structural_node)?;
+    text_work(budget, &row.selected_document)?;
+    text_work(budget, &row.original_identity)?;
+    Ok(())
+}
+fn preflight_source_units(
+    row: &SelectedSourceUnitRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ReachedModelError> {
+    read_node_work(budget, &row.structural_node)?;
+    text_work(budget, &row.source_authority)?;
+    text_work(budget, &row.source_identity)?;
+    for segment in &row.qualified_declaration {
+        text_work(budget, segment)?;
+    }
+    Ok(())
+}
+fn preflight_enum_declarations(
+    row: &SelectedModelEnumDeclarationRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ReachedModelError> {
+    read_node_work(budget, &row.structural_node)?;
+    text_work(budget, &row.selected_document)?;
+    text_work(budget, &row.original_identity)?;
+    Ok(())
+}
+fn preflight_enum_members(
+    row: &SelectedModelEnumMemberRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ReachedModelError> {
+    read_node_work(budget, &row.structural_node)?;
+    text_work(budget, &row.selected_document)?;
+    text_work(budget, &row.enum_original_identity)?;
+    text_work(budget, &row.member_original_identity)?;
+    text_work(budget, &row.case)?;
+    read_node_work(budget, &row.declaration_node)?;
+    Ok(())
+}
+fn preflight_enum_shapes(
+    row: &SelectedModelEnumShapeRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ReachedModelError> {
+    read_node_work(budget, &row.structural_node)?;
+    text_work(budget, &row.selected_document)?;
+    text_work(budget, &row.original_identity)?;
+    for variant in row.shape.variants() {
+        text_work(budget, variant.case())?;
+    }
+    for case in &row.cases {
+        read_node_work(budget, &case.structural_node)?;
+        text_work(budget, &case.case)?;
+        text_work(budget, &case.member_original_identity)?;
+        text_work(budget, case.variant.case())?;
+    }
+    Ok(())
+}
 impl CheckedMonitorPlanRef<'_> {
     fn follow_member_type(
         &self,
         member: &MemberType,
-        pending: &mut Vec<CheckedNodeId>,
+        pending: &mut Vec<(CheckedNodeId, NativeJoinLocusSource)>,
         work: &mut u64,
-        limit: u64,
+        budget: &mut NativeJoinBudget,
         at: &CheckedNodeId,
     ) -> Result<(), ReachedModelError> {
+        retain(budget, 2)?;
         let mut types = vec![member];
         while let Some(member) = types.pop() {
-            charge(work, limit, at)?;
+            charge(work, budget, at)?;
             match member {
                 MemberType::Reference(id)
                 | MemberType::Record(id)
                 | MemberType::Tuple(id)
                 | MemberType::Variant(id)
                 | MemberType::Quantity(id)
-                | MemberType::CarriedRational(_, id) => pending.push(id.clone()),
-                MemberType::Option(inner) => types.push(inner),
-                MemberType::Collection { element, .. } => types.push(element),
+                | MemberType::CarriedRational(_, id) => {
+                    read_node_storage(budget, id)?;
+                    retain(budget, 1)?;
+                    pending.push((
+                        id.clone(),
+                        budget
+                            .active_locus()
+                            .expect("reached parent context")
+                            .source,
+                    ));
+                }
+                MemberType::Option(inner) => {
+                    retain(budget, 1)?;
+                    types.push(inner);
+                }
+                MemberType::Collection { element, .. } => {
+                    retain(budget, 1)?;
+                    types.push(element);
+                }
                 _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn follow_fields<'a>(
+        &self,
+        mut fields: impl Iterator<
+            Item = crate::checked_package::v2::model_fields::SelectedRecordField<'a>,
+        >,
+        pending: &mut Vec<(CheckedNodeId, NativeJoinLocusSource)>,
+        work: &mut u64,
+        budget: &mut NativeJoinBudget,
+        at: &CheckedNodeId,
+    ) -> Result<(), ReachedModelError> {
+        loop {
+            budget.set_locus_form("reached_field");
+            charge(work, budget, at)?;
+            let Some(field) = fields.next() else {
+                break;
+            };
+            if let Some(member) = field.member_type {
+                self.follow_member_type(member, pending, work, budget, at)?;
             }
         }
         Ok(())
@@ -97,35 +286,86 @@ impl CheckedMonitorPlanRef<'_> {
         &self,
         reached: &mut BTreeSet<CheckedNodeId>,
         work: &mut u64,
-        limit: u64,
+        budget: &mut NativeJoinBudget,
     ) -> Result<(), ReachedModelError> {
-        let mut pending: Vec<_> = reached.iter().cloned().collect();
+        retain(budget, 2)?;
+        let mut pending = Vec::new();
+        for (index, id) in reached.iter().enumerate() {
+            let source = NativeJoinLocusSource::ReachedRow(index);
+            budget.set_active_locus(Some(NativeJoinLocus {
+                source,
+                form: "reached_pending",
+            }));
+            read_node_storage(budget, id)?;
+            retain(budget, 1)?;
+            pending.push((id.clone(), source));
+        }
         let mut visited = BTreeSet::new();
-        while let Some(id) = pending.pop() {
+        while let Some((id, source)) = pending.pop() {
+            budget.set_active_locus(Some(NativeJoinLocus {
+                source,
+                form: "reached_model_node",
+            }));
+            charge(work, budget, &id)?;
+            let graph_position = self
+                .package
+                .node_with_position(&id)
+                .map(|(position, _)| position)
+                .ok_or_else(|| unresolved(budget, &id, *work))?;
+            budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+            read_node_storage(budget, &id)?;
+            retain(budget, 1)?;
             if !visited.insert(id.clone()) {
                 continue;
             }
-            charge(work, limit, &id)?;
+            budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+            charge(work, budget, &id)?;
             self.package
                 .node(&id)
-                .ok_or_else(|| ReachedModelError::UnresolvedDependency {
-                    at: id.clone(),
-                    work: *work,
-                })?;
+                .ok_or_else(|| unresolved(budget, &id, *work))?;
+            read_node_storage(budget, &id)?;
+            retain(budget, 1)?;
             reached.insert(id.clone());
             if let Some(CheckedTerm::NominalBody(body)) = self.package.term(&id) {
                 if let Some((dimension, target, _, _)) = body.unit_details() {
-                    charge(work, limit, &id)?;
-                    pending.push(dimension.clone());
+                    budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+                    charge(work, budget, &id)?;
+                    read_node_storage(budget, dimension)?;
+                    retain(budget, 1)?;
+                    pending.push((
+                        dimension.clone(),
+                        budget
+                            .active_locus()
+                            .expect("reached parent context")
+                            .source,
+                    ));
                     if let Some(target) = target {
-                        charge(work, limit, &id)?;
-                        pending.push(target.clone());
+                        budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+                        charge(work, budget, &id)?;
+                        read_node_storage(budget, target)?;
+                        retain(budget, 1)?;
+                        pending.push((
+                            target.clone(),
+                            budget
+                                .active_locus()
+                                .expect("reached parent context")
+                                .source,
+                        ));
                     }
                 }
                 if let Some(terms) = body.dimension_details() {
                     for term in terms {
-                        charge(work, limit, &id)?;
-                        pending.push(term.dimension_node_id.clone());
+                        budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+                        charge(work, budget, &id)?;
+                        read_node_storage(budget, &term.dimension_node_id)?;
+                        retain(budget, 1)?;
+                        pending.push((
+                            term.dimension_node_id.clone(),
+                            budget
+                                .active_locus()
+                                .expect("reached parent context")
+                                .source,
+                        ));
                     }
                 }
             }
@@ -137,45 +377,36 @@ impl CheckedMonitorPlanRef<'_> {
                 .models
                 .selected_models()
                 .get(declaration.selection)
-                .ok_or_else(|| ReachedModelError::UnresolvedDependency {
-                    at: id.clone(),
-                    work: *work,
-                })?;
+                .ok_or_else(|| unresolved(budget, &id, *work))?;
             if declaration.form == DeclarationForm::TupleValueType {
-                let positions = model.tuple_types.get(&declaration.node).ok_or_else(|| {
-                    ReachedModelError::UnresolvedDependency {
-                        at: id.clone(),
-                        work: *work,
-                    }
-                })?;
+                let positions = model
+                    .tuple_types
+                    .get(&declaration.node)
+                    .ok_or_else(|| unresolved(budget, &id, *work))?;
                 for position in positions {
-                    charge(work, limit, &id)?;
-                    let member = model.element_type(position).ok_or_else(|| {
-                        ReachedModelError::UnresolvedDependency {
-                            at: id.clone(),
-                            work: *work,
-                        }
-                    })?;
-                    self.follow_member_type(&member, &mut pending, work, limit, &id)?;
+                    budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+                    charge(work, budget, &id)?;
+                    let member = model
+                        .element_type_runtime(position, budget)
+                        .map_err(|_| ReachedModelError::Native(NativeReadDenied))?
+                        .ok_or_else(|| unresolved(budget, &id, *work))?;
+                    self.follow_member_type(&member, &mut pending, work, budget, &id)?;
                 }
             }
             if declaration.form == DeclarationForm::VariantType {
-                let cases = model.variant_types.get(&declaration.node).ok_or_else(|| {
-                    ReachedModelError::UnresolvedDependency {
-                        at: id.clone(),
-                        work: *work,
-                    }
-                })?;
+                let cases = model
+                    .variant_types
+                    .get(&declaration.node)
+                    .ok_or_else(|| unresolved(budget, &id, *work))?;
                 for case in cases.values() {
-                    charge(work, limit, &id)?;
+                    budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+                    charge(work, budget, &id)?;
                     if let Some(payload) = &case.payload {
-                        let member = model.element_type(payload).ok_or_else(|| {
-                            ReachedModelError::UnresolvedDependency {
-                                at: id.clone(),
-                                work: *work,
-                            }
-                        })?;
-                        self.follow_member_type(&member, &mut pending, work, limit, &id)?;
+                        let member = model
+                            .element_type_runtime(payload, budget)
+                            .map_err(|_| ReachedModelError::Native(NativeReadDenied))?
+                            .ok_or_else(|| unresolved(budget, &id, *work))?;
+                        self.follow_member_type(&member, &mut pending, work, budget, &id)?;
                     }
                 }
             }
@@ -186,48 +417,59 @@ impl CheckedMonitorPlanRef<'_> {
             };
             if let Some(bearing) = bearing {
                 for original in &bearing.supertypes {
-                    charge(work, limit, &id)?;
+                    budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+                    charge(work, budget, &id)?;
+                    text_work(budget, original)?;
+                    retain(budget, storage::text_parts(&[original]))?;
                     let target = self
                         .package
                         .models
                         .selected_declaration_by_original(declaration.selection, original)
-                        .ok_or_else(|| ReachedModelError::UnresolvedDependency {
-                            at: id.clone(),
-                            work: *work,
-                        })?;
-                    pending.push(target.clone());
+                        .ok_or_else(|| unresolved(budget, &id, *work))?;
+                    read_node_storage(budget, target)?;
+                    retain(budget, 1)?;
+                    pending.push((
+                        target.clone(),
+                        budget
+                            .active_locus()
+                            .expect("reached parent context")
+                            .source,
+                    ));
                 }
-                let fields = if declaration.form == DeclarationForm::RecordValueType {
-                    self.package
+                budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+                if declaration.form == DeclarationForm::RecordValueType {
+                    let (_, fields) = self
+                        .package
                         .models
                         .selected_record_fields(&id)
-                        .map(|(_, fields)| fields.collect::<Vec<_>>())
+                        .ok_or_else(|| unresolved(budget, &id, *work))?;
+                    self.follow_fields(fields, &mut pending, work, budget, &id)?;
                 } else {
-                    self.package
+                    let (_, fields) = self
+                        .package
                         .models
                         .selected_object_fields(&id)
-                        .map(|(_, fields)| fields.collect::<Vec<_>>())
-                };
-                for field in fields.ok_or_else(|| ReachedModelError::UnresolvedDependency {
-                    at: id.clone(),
-                    work: *work,
-                })? {
-                    charge(work, limit, &id)?;
-                    if let Some(member) = field.member_type {
-                        self.follow_member_type(member, &mut pending, work, limit, &id)?;
-                    }
+                        .ok_or_else(|| unresolved(budget, &id, *work))?;
+                    self.follow_fields(fields, &mut pending, work, budget, &id)?;
                 }
                 if declaration.form == DeclarationForm::ObjectType {
                     for operation in &bearing.operations {
-                        charge(work, limit, &id)?;
+                        budget.set_locus_source(NativeJoinLocusSource::GraphNode(graph_position));
+                        charge(work, budget, &id)?;
                         for parameter in &operation.parameters {
-                            if let Some(member) = model.slot_type(parameter) {
-                                self.follow_member_type(&member, &mut pending, work, limit, &id)?;
+                            if let Some(member) = model
+                                .slot_type_runtime(parameter, budget)
+                                .map_err(|_| ReachedModelError::Native(NativeReadDenied))?
+                            {
+                                self.follow_member_type(&member, &mut pending, work, budget, &id)?;
                             }
                         }
                         if let Some(result) = &operation.result {
-                            if let Some(member) = model.slot_type(result) {
-                                self.follow_member_type(&member, &mut pending, work, limit, &id)?;
+                            if let Some(member) = model
+                                .slot_type_runtime(result, budget)
+                                .map_err(|_| ReachedModelError::Native(NativeReadDenied))?
+                            {
+                                self.follow_member_type(&member, &mut pending, work, budget, &id)?;
                             }
                         }
                     }
@@ -241,212 +483,317 @@ impl CheckedMonitorPlanRef<'_> {
     pub(super) fn read_reached_model_facts(
         &self,
         rows: ReachedProducerRows<'_>,
-        work_limit: u64,
-        storage_limit: u64,
+        budget: &mut NativeJoinBudget,
     ) -> Result<ReachedModelRead, ReachedModelError> {
-        let graph = self
-            .selected_graph_walk(work_limit)
-            .map_err(ReachedModelError::Walk)?;
-        let mut reached: BTreeSet<_> = graph.nodes.into_iter().collect();
-        let mut work = graph.work;
-        self.followed_model_nodes(&mut reached, &mut work, work_limit)?;
-        let mut model_declarations = BTreeSet::new();
-        let mut model_records = BTreeSet::new();
-        let mut model_enums = BTreeSet::new();
-        let mut source_unit_declarations = BTreeSet::new();
-        for id in &reached {
-            if let Some((document, original, form)) = self.package.models.selected_declaration(id) {
-                let identity = (Box::<str>::from(document), Box::<str>::from(original));
-                model_declarations.insert(identity.clone());
-                if form == DeclarationForm::RecordValueType {
-                    model_records.insert(identity.clone());
-                }
-                if form == DeclarationForm::VariantType {
-                    model_enums.insert(identity);
-                }
+        let before = budget.begin();
+        let previous_locus = budget.active_locus();
+        let previous_mode = budget.exact_diagnostics();
+        budget.set_exact_diagnostics(true);
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::MonitorSeed(0),
+            form: "reached_model",
+        }));
+        let result = (|| {
+            let graph = self
+                .selected_graph_walk(budget)
+                .map_err(ReachedModelError::Walk)?;
+            retain(budget, 1)?;
+            let mut reached = BTreeSet::new();
+            for (index, id) in graph.nodes.into_iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_graph_set",
+                }));
+                charge(&mut 0, budget, &id)?;
+                retain(budget, 1)?;
+                reached.insert(id);
             }
-            let Some(node) = self.package.node(id) else {
-                continue;
-            };
-            if self.package.node_kind(id) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
-            {
-                match node.owner.as_ref() {
-                    Some(CheckedNodeOwner::Model { identity, node }) => {
-                        model_declarations.insert((identity.clone(), node.clone()));
+            let mut work = graph.work;
+            self.followed_model_nodes(&mut reached, &mut work, budget)?;
+            retain(budget, 4)?;
+            let mut model_declarations = BTreeSet::new();
+            let mut model_records = BTreeSet::new();
+            let mut model_enums = BTreeSet::new();
+            let mut source_unit_declarations = BTreeSet::new();
+            for (reached_index, id) in reached.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(reached_index),
+                    form: "reached_selection",
+                }));
+                charge(&mut work, budget, id)?;
+                if let Some((position, _)) = self.package.node_with_position(id) {
+                    budget.set_locus_source(NativeJoinLocusSource::GraphNode(position));
+                }
+                if let Some((document, original, form)) =
+                    self.package.models.selected_declaration(id)
+                {
+                    let identity = (document, original);
+                    retain(budget, 1)?;
+                    model_declarations.insert(identity);
+                    if form == DeclarationForm::RecordValueType {
+                        retain(budget, 1)?;
+                        model_records.insert(identity);
                     }
-                    Some(CheckedNodeOwner::Source {
-                        authority,
-                        identity,
-                    }) => {
-                        if let Some(declaration) = &node.declaration {
-                            source_unit_declarations.insert((
-                                authority.clone(),
-                                identity.clone(),
-                                declaration.qualified_name.clone(),
-                            ));
+                    if form == DeclarationForm::VariantType {
+                        retain(budget, 1)?;
+                        model_enums.insert(identity);
+                    }
+                }
+                let Some(node) = self.package.node(id) else {
+                    continue;
+                };
+                if self.package.node_kind(id)
+                    == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+                {
+                    match node.owner.as_ref() {
+                        Some(CheckedNodeOwner::Model { identity, node }) => {
+                            retain(budget, 1)?;
+                            model_declarations.insert((identity.as_ref(), node.as_ref()));
                         }
+                        Some(CheckedNodeOwner::Source {
+                            authority,
+                            identity,
+                        }) => {
+                            if let Some(declaration) = &node.declaration {
+                                retain(budget, 1)?;
+                                source_unit_declarations.insert((
+                                    authority.as_ref(),
+                                    identity.as_ref(),
+                                    declaration.qualified_name.as_slice(),
+                                ));
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
-        }
-        let mut declarations = Vec::new();
-        let mut fields = Vec::new();
-        let mut tuples = Vec::new();
-        let mut source_units = Vec::new();
-        let mut enum_declarations = Vec::new();
-        let mut enum_members = Vec::new();
-        let mut enum_shapes = Vec::new();
-        for row in rows.declarations {
-            charge(&mut work, work_limit, &row.structural_node)?;
-            if reached.contains(&row.structural_node)
-                || model_declarations
-                    .contains(&(row.selected_document.clone(), row.original_identity.clone()))
-            {
-                declarations.push(row.clone());
+            retain(budget, 7)?;
+            let mut declarations = Vec::new();
+            let mut fields = Vec::new();
+            let mut tuples = Vec::new();
+            let mut source_units = Vec::new();
+            let mut enum_declarations = Vec::new();
+            let mut enum_members = Vec::new();
+            let mut enum_shapes = Vec::new();
+            for (index, row) in rows.declarations.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_declarations",
+                }));
+                charge(&mut work, budget, &row.structural_node)?;
+                preflight_declarations(row, budget)?;
+                if reached.contains(&row.structural_node)
+                    || model_declarations.contains(&(
+                        row.selected_document.as_ref(),
+                        row.original_identity.as_ref(),
+                    ))
+                {
+                    retain(budget, storage::stage_declaration(row).saturating_add(1))?;
+                    declarations.push(row.clone());
+                }
             }
-        }
-        for row in rows.fields {
-            charge(&mut work, work_limit, &row.record_node)?;
-            if reached.contains(&row.record_node)
-                || model_records.contains(&(
-                    row.selected_document.clone(),
-                    row.record_original_identity.clone(),
-                ))
-            {
-                fields.push(row.clone());
+            for (index, row) in rows.fields.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_fields",
+                }));
+                charge(&mut work, budget, &row.record_node)?;
+                preflight_fields(row, budget)?;
+                if reached.contains(&row.record_node)
+                    || model_records.contains(&(
+                        row.selected_document.as_ref(),
+                        row.record_original_identity.as_ref(),
+                    ))
+                {
+                    retain(budget, storage::stage_field(row).saturating_add(1))?;
+                    fields.push(row.clone());
+                }
             }
-        }
-        for row in rows.tuples {
-            charge(&mut work, work_limit, &row.structural_node)?;
-            if reached.contains(&row.structural_node) {
-                tuples.push(row.clone());
+            for (index, row) in rows.tuples.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_tuples",
+                }));
+                charge(&mut work, budget, &row.structural_node)?;
+                preflight_tuples(row, budget)?;
+                if reached.contains(&row.structural_node) {
+                    retain(budget, storage::runtime_tuple(row).saturating_add(1))?;
+                    tuples.push(row.clone());
+                }
             }
-        }
-        for row in rows.source_units {
-            charge(&mut work, work_limit, &row.structural_node)?;
-            if reached.contains(&row.structural_node)
-                || source_unit_declarations.contains(&(
-                    row.source_authority.clone(),
-                    row.source_identity.clone(),
-                    row.qualified_declaration.clone(),
-                ))
-            {
-                source_units.push(row.clone());
+            for (index, row) in rows.source_units.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_source_units",
+                }));
+                charge(&mut work, budget, &row.structural_node)?;
+                preflight_source_units(row, budget)?;
+                if reached.contains(&row.structural_node)
+                    || source_unit_declarations.contains(&(
+                        row.source_authority.as_ref(),
+                        row.source_identity.as_ref(),
+                        row.qualified_declaration.as_slice(),
+                    ))
+                {
+                    retain(budget, storage::runtime_source_unit(row).saturating_add(1))?;
+                    source_units.push(row.clone());
+                }
             }
-        }
-        for row in rows.enum_declarations {
-            charge(&mut work, work_limit, &row.structural_node)?;
-            if reached.contains(&row.structural_node)
-                || model_enums
-                    .contains(&(row.selected_document.clone(), row.original_identity.clone()))
-            {
-                enum_declarations.push(row.clone());
+            for (index, row) in rows.enum_declarations.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_enum_declarations",
+                }));
+                charge(&mut work, budget, &row.structural_node)?;
+                preflight_enum_declarations(row, budget)?;
+                if reached.contains(&row.structural_node)
+                    || model_enums.contains(&(
+                        row.selected_document.as_ref(),
+                        row.original_identity.as_ref(),
+                    ))
+                {
+                    retain(
+                        budget,
+                        storage::model_enum_declaration(row).saturating_add(1),
+                    )?;
+                    enum_declarations.push(row.clone());
+                }
             }
-        }
-        for row in rows.enum_members {
-            charge(&mut work, work_limit, &row.declaration_node)?;
-            if reached.contains(&row.declaration_node)
-                || model_enums.contains(&(
-                    row.selected_document.clone(),
-                    row.enum_original_identity.clone(),
-                ))
-            {
-                enum_members.push(row.clone());
+            for (index, row) in rows.enum_members.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_enum_members",
+                }));
+                charge(&mut work, budget, &row.declaration_node)?;
+                preflight_enum_members(row, budget)?;
+                if reached.contains(&row.declaration_node)
+                    || model_enums.contains(&(
+                        row.selected_document.as_ref(),
+                        row.enum_original_identity.as_ref(),
+                    ))
+                {
+                    retain(budget, storage::model_enum_member(row).saturating_add(1))?;
+                    enum_members.push(row.clone());
+                }
             }
-        }
-        for row in rows.enum_shapes {
-            charge(&mut work, work_limit, &row.structural_node)?;
-            if reached.contains(&row.structural_node)
-                || model_enums
-                    .contains(&(row.selected_document.clone(), row.original_identity.clone()))
-            {
-                enum_shapes.push(row.clone());
+            for (index, row) in rows.enum_shapes.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_enum_shapes",
+                }));
+                charge(&mut work, budget, &row.structural_node)?;
+                preflight_enum_shapes(row, budget)?;
+                if reached.contains(&row.structural_node)
+                    || model_enums.contains(&(
+                        row.selected_document.as_ref(),
+                        row.original_identity.as_ref(),
+                    ))
+                {
+                    retain(budget, storage::model_enum_shape(row).saturating_add(1))?;
+                    enum_shapes.push(row.clone());
+                }
             }
-        }
-        let mut native_budget =
-            NativeJoinBudget::new(work_limit.saturating_sub(work), storage_limit);
-        let identities = SelectedExactIdentities::from_stage_rows(
-            self.package,
-            declarations,
-            fields,
-            &mut native_budget,
-        )
-        .map_err(|error| ReachedModelError::Exact {
-            prior_work: work,
-            error,
-        })?;
-        work = work.saturating_add(native_budget.consumed().work);
-        let enums = SelectedModelEnums::from_stage_rows(
-            self.package,
-            enum_declarations,
-            enum_members,
-            work_limit.saturating_sub(work),
-        )
-        .map_err(|error| ReachedModelError::Enum {
-            prior_work: work,
-            error,
-        })?;
-        work = work.saturating_add(enums.joined_work());
-        let mut selected_enums = Vec::new();
-        for id in &reached {
-            if self.package.node_kind(id)
-                != Some(crate::checked_package::v2::CheckedNodeKind::Model(
-                    crate::checked_package::v2::ModelForm::VariantType,
-                ))
-            {
-                continue;
-            }
-            let mut matching = enum_shapes.iter().filter(|row| &row.structural_node == id);
-            let row = matching.next().ok_or_else(|| ReachedModelError::Enum {
+            let identities = SelectedExactIdentities::from_stage_rows(
+                self.package,
+                declarations,
+                fields,
+                budget,
+            )
+            .map_err(|error| ReachedModelError::Exact {
                 prior_work: work,
-                error: SelectedModelEnumError {
-                    code: SelectedModelEnumErrorCode::UnavailableWitness,
-                    node: id.clone(),
-                    consumed_work: 0,
-                    attempted_work: 0,
-                },
+                error,
             })?;
-            if matching.next().is_some() {
-                return Err(ReachedModelError::Enum {
-                    prior_work: work,
-                    error: SelectedModelEnumError {
-                        code: SelectedModelEnumErrorCode::ConflictingWitness,
-                        node: id.clone(),
-                        consumed_work: 0,
-                        attempted_work: 0,
-                    },
-                });
+            work = budget.consumed().work - before.work;
+            let enums = SelectedModelEnums::from_stage_rows_runtime(
+                self.package,
+                enum_declarations,
+                enum_members,
+                budget,
+            )
+            .map_err(|error| enum_error(error, work))?;
+            work = budget.consumed().work - before.work;
+            retain(budget, 1)?;
+            let mut selected_enums = Vec::new();
+            for (index, id) in reached.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "reached_enum",
+                }));
+                charge(&mut work, budget, id)?;
+                if let Some((position, _)) = self.package.node_with_position(id) {
+                    budget.set_locus_source(NativeJoinLocusSource::GraphNode(position));
+                }
+                if self.package.node_kind(id)
+                    != Some(crate::checked_package::v2::CheckedNodeKind::Model(
+                        crate::checked_package::v2::ModelForm::VariantType,
+                    ))
+                {
+                    continue;
+                }
+                let mut selected_shape = None;
+                for row in &enum_shapes {
+                    charge(&mut work, budget, &row.structural_node)?;
+                    if &row.structural_node != id {
+                        continue;
+                    }
+                    if selected_shape.replace(row).is_some() {
+                        return Err(checked_enum_error(
+                            budget,
+                            SelectedModelEnumErrorCode::ConflictingWitness,
+                            id,
+                            work,
+                        ));
+                    }
+                }
+                let Some(row) = selected_shape else {
+                    return Err(checked_enum_error(
+                        budget,
+                        SelectedModelEnumErrorCode::UnavailableWitness,
+                        id,
+                        work,
+                    ));
+                };
+                enums
+                    .read_shape_runtime(self.package, row, budget)
+                    .map_err(|error| enum_error(error, work))?;
+                charge(&mut work, budget, id)?;
+                preflight_enum_shapes(row, budget)?;
+                retain(budget, storage::model_enum_shape(row).saturating_add(1))?;
+                selected_enums.push(row.clone());
             }
-            let used = enums
-                .read_shape(self.package, row, work_limit.saturating_sub(work))
-                .map_err(|error| ReachedModelError::Enum {
+            let identities = identities
+                .with_model_enum_shapes(&selected_enums, budget)
+                .map_err(|error| ReachedModelError::Exact {
                     prior_work: work,
                     error,
                 })?;
-            work = work.saturating_add(used);
-            charge(&mut work, work_limit, id)?;
-            selected_enums.push(row.clone());
-        }
-        let identities = identities.with_model_enum_shapes(&selected_enums);
-        let types = self
-            .package
-            .project_type_declarations_for_nodes(
-                &identities,
-                &tuples,
-                &source_units,
-                work_limit,
-                &mut native_budget,
-                Some(&reached),
+            let prior_projection_work = budget.consumed().work - before.work;
+            let types = self
+                .package
+                .project_type_declarations_for_nodes(
+                    &identities,
+                    &tuples,
+                    &source_units,
+                    budget,
+                    Some(&reached),
+                    prior_projection_work,
+                )
+                .map_err(ReachedModelError::Types)?;
+            work = budget.consumed().work - before.work;
+            Ok(ReachedModelRead {
+                types,
+                enums: selected_enums,
                 work,
-            )
-            .map_err(ReachedModelError::Types)?;
-        work = types.work();
-        Ok(ReachedModelRead {
-            types,
-            enums: selected_enums,
-            work,
-        })
+            })
+        })();
+        budget.set_active_locus(previous_locus);
+        budget.set_exact_diagnostics(previous_mode);
+        if result.is_ok() {
+            budget.finish(before);
+        } else {
+            budget.abort();
+        }
+        result
     }
 }
 
@@ -559,8 +906,7 @@ mod tests {
                     enum_members: &[],
                     enum_shapes: &[],
                 },
-                limit,
-                u64::MAX,
+                &mut NativeJoinBudget::new(limit, u64::MAX),
             )
     }
 
@@ -810,7 +1156,8 @@ mod tests {
             &source_units,
             result.work - 1,
         ) {
-            Err(ReachedModelError::WorkLimit { work, .. }) => assert_eq!(work, result.work - 1),
+            Err(ReachedModelError::Native(_))
+            | Err(ReachedModelError::Walk(RuntimeWalkError::Native(_))) => {}
             Err(ReachedModelError::Exact { error, .. }) => assert_eq!(
                 error.code,
                 crate::ExactTypeProjectionErrorCode::ExhaustedWork
@@ -1083,6 +1430,310 @@ mod tests {
             matches!(error,ReachedModelError::Enum {ref error,..}
             if error.code == SelectedModelEnumErrorCode::UnavailableWitness && error.node == variant),
             "{error:?}"
+        );
+    }
+
+    #[trace("TC-470", "FR-360-AC-1", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-4")]
+    #[test]
+    fn reached_read_shares_exact_work_storage_and_restores_caller_context() {
+        let package = admitted_monitor();
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let plan = package.monitor_plans().next().unwrap();
+        let read = |budget: &mut NativeJoinBudget| {
+            plan.read_reached_model_facts(
+                ReachedProducerRows {
+                    declarations: &declarations,
+                    fields: &fields,
+                    tuples: &[],
+                    source_units: &source_units,
+                    enum_declarations: &[],
+                    enum_members: &[],
+                    enum_shapes: &[],
+                },
+                budget,
+            )
+        };
+        let caller = Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::TupleRow(91),
+            form: "caller",
+        });
+        let mut generous = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        generous.set_active_locus(caller);
+        let complete = read(&mut generous).unwrap();
+        let used = generous.consumed();
+        assert_eq!(complete.work, used.work);
+        assert_eq!(generous.last_success_delta(), Some(used));
+        assert_eq!(generous.active_locus(), caller);
+        assert!(!generous.exact_diagnostics());
+        let mut exact = NativeJoinBudget::new(used.work, used.storage);
+        assert_eq!(read(&mut exact).unwrap().types, complete.types);
+        assert_eq!(exact.consumed(), used);
+        for (work, storage, kind) in [
+            (0, u64::MAX, NativeJoinChargeKind::Work),
+            (u64::MAX, 0, NativeJoinChargeKind::Storage),
+            (used.work - 1, u64::MAX, NativeJoinChargeKind::Work),
+            (u64::MAX, used.storage - 1, NativeJoinChargeKind::Storage),
+        ] {
+            let mut budget = NativeJoinBudget::new(work, storage);
+            budget.set_active_locus(caller);
+            assert!(read(&mut budget).is_err());
+            assert_eq!(budget.first_unpaid().unwrap().kind, kind);
+            assert!(budget.first_unpaid_locus().is_some());
+            assert_eq!(budget.active_locus(), caller);
+            assert!(!budget.exact_diagnostics());
+            assert_eq!(budget.last_success_delta(), None);
+            if work == 0 || storage == 0 {
+                assert_eq!(budget.consumed().work, 0);
+                assert_eq!(
+                    budget.first_unpaid_locus().unwrap().source,
+                    NativeJoinLocusSource::MonitorSeed(0)
+                );
+                assert_eq!(
+                    budget.first_unpaid_locus().unwrap().form,
+                    if work == 0 {
+                        "monitor_graph_inspection"
+                    } else {
+                        "monitor_graph_storage"
+                    }
+                );
+            }
+        }
+        let mut shared = NativeJoinBudget::new(used.work * 2 - 1, u64::MAX);
+        read(&mut shared).unwrap();
+        let first = shared.consumed();
+        assert!(read(&mut shared).is_err());
+        assert!(shared.consumed().work >= first.work);
+        assert_eq!(
+            shared.first_unpaid().unwrap().kind,
+            NativeJoinChargeKind::Work
+        );
+        assert_eq!(shared.last_success_delta(), None);
+    }
+
+    #[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
+    #[test]
+    fn reached_enum_shape_uses_the_same_budget_as_model_and_unit_reads() {
+        use crate::SelectedModelEnumShapeCaseRow;
+        use quire_exact::{EnumShape, VariantId};
+        let package = admitted_monitor_with_variant(true);
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let original = "ix://test/families/Tier";
+        let enum_node = selected_node(&package, original);
+        let member_node = package
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| {
+                node.semantic_form.as_ref() == "enum_value" && node.semantic_type == enum_node
+            })
+            .unwrap()
+            .node_id
+            .clone();
+        let declaration = SelectedModelEnumDeclarationRow::new(
+            enum_node.clone(),
+            "test/families",
+            original,
+            key("Tier"),
+        );
+        let member = SelectedModelEnumMemberRow::new(
+            member_node.clone(),
+            enum_node.clone(),
+            "test/families",
+            original,
+            "ix://test/families/Tier/Gold",
+            "Gold",
+            key("Gold"),
+        );
+        let variant = VariantId::new(declaration.node_key.clone(), "Gold").unwrap();
+        let shape = SelectedModelEnumShapeRow {
+            structural_node: enum_node,
+            node_key: declaration.node_key.clone(),
+            selected_document: declaration.selected_document.clone(),
+            original_identity: declaration.original_identity.clone(),
+            shape: EnumShape::new(false, [variant.clone()]),
+            cases: vec![SelectedModelEnumShapeCaseRow {
+                structural_node: member_node,
+                case: member.case.clone(),
+                member_key: member.member_key.clone(),
+                member_original_identity: member.member_original_identity.clone(),
+                variant,
+            }],
+        };
+        let enum_declarations = [declaration];
+        let enum_members = [member];
+        let enum_shapes = [shape];
+        let plan = package.monitor_plans().next().unwrap();
+        let read = |budget: &mut NativeJoinBudget| {
+            plan.read_reached_model_facts(
+                ReachedProducerRows {
+                    declarations: &declarations,
+                    fields: &fields,
+                    tuples: &[],
+                    source_units: &source_units,
+                    enum_declarations: &enum_declarations,
+                    enum_members: &enum_members,
+                    enum_shapes: &enum_shapes,
+                },
+                budget,
+            )
+        };
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let complete = read(&mut budget).unwrap();
+        assert_eq!(complete.enums, enum_shapes);
+        assert!(!complete.types.objects().is_empty());
+        assert!(!complete.types.model_units().is_empty());
+        let used = budget.consumed();
+        let mut exact = NativeJoinBudget::new(used.work, used.storage);
+        assert_eq!(read(&mut exact).unwrap().types, complete.types);
+        let mut exhausted = NativeJoinBudget::new(used.work, used.storage - 1);
+        assert!(read(&mut exhausted).is_err());
+        assert_eq!(
+            exhausted.first_unpaid().unwrap().kind,
+            NativeJoinChargeKind::Storage
+        );
+        assert!(exhausted.first_unpaid_locus().is_some());
+    }
+    #[trace("TC-470", "FR-357-AC-13", "FR-357-AC-14", "FR-360-AC-2")]
+    #[test]
+    fn emitted_unreached_declaration_does_not_change_exact_shared_allowance() {
+        let (wire, mut document) = monitor_plan_fixtures::model_fact_monitor_with_variant(false);
+        with_unemitted_record(&mut document);
+        let baseline = admit_wire(&wire, &document);
+        let mut emitted = wire;
+        let original = "ix://test/families/Unemitted";
+        let id = fixture_support::structural_id(
+            "test/families",
+            vec![
+                serde_json::json!("model"),
+                serde_json::json!("record_value_type"),
+                serde_json::json!(original),
+            ],
+            0,
+        );
+        emitted["semantic_graph"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({
+            "node_id": id, "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"model", "semantic_form":"record_value_type", "semantic_type":id, "dependencies":[], "occurrences":[{"role":"generated","ordinal":0}], "owner":{"kind":"model","identity":"test/families","node":original}, "body": {"term":"aggregate", "members":[]}
+        }));
+        fixture_support::rebuild_complete_source_map(&mut emitted);
+        fixture_support::refresh_identity(&mut emitted);
+        let extra = admit_wire(&emitted, &document);
+        assert!(extra
+            .models
+            .selected_declaration_entry(&selected_node(&extra, original))
+            .is_some());
+        let (declarations, fields, units) = producer_rows(&baseline);
+        let read = |package: &CheckedPackageV2, budget: &mut NativeJoinBudget| {
+            package
+                .monitor_plans()
+                .next()
+                .unwrap()
+                .read_reached_model_facts(
+                    ReachedProducerRows {
+                        declarations: &declarations,
+                        fields: &fields,
+                        tuples: &[],
+                        source_units: &units,
+                        enum_declarations: &[],
+                        enum_members: &[],
+                        enum_shapes: &[],
+                    },
+                    budget,
+                )
+        };
+        let mut generous = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let expected = read(&baseline, &mut generous).unwrap();
+        let used = generous.consumed();
+        let mut exact = NativeJoinBudget::new(used.work, used.storage);
+        let actual = read(&extra, &mut exact).expect(
+            "an emitted unreachable declaration must not enter reached lookup or its allowance",
+        );
+        assert_eq!(actual.types, expected.types);
+        assert_eq!(exact.consumed(), used);
+    }
+    #[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3")]
+    #[test]
+    fn runtime_field_stream_stops_before_first_unpaid_field_inspection() {
+        use std::cell::Cell;
+        let package = admitted_monitor();
+        let record = selected_node(&package, "ix://test/families/Receipt");
+        let inspected = Cell::new(0);
+        let (_, fields) = package.models.selected_record_fields(&record).unwrap();
+        assert!(fields.len() > 0);
+        let fields = fields.inspect(|_| inspected.set(inspected.get() + 1));
+        let mut budget = NativeJoinBudget::new(0, u64::MAX);
+        let (position, _) = package.node_with_position(&record).unwrap();
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::GraphNode(position),
+            form: "parent",
+        }));
+        let mut pending = Vec::new();
+        let result = package.monitor_plans().next().unwrap().follow_fields(
+            fields,
+            &mut pending,
+            &mut 0,
+            &mut budget,
+            &record,
+        );
+        assert!(matches!(result, Err(ReachedModelError::Native(_))));
+        assert_eq!(inspected.get(), 0);
+        assert!(pending.is_empty());
+        assert_eq!(
+            budget.consumed(),
+            crate::NativeJoinCharge {
+                work: 0,
+                storage: 0
+            }
+        );
+        assert_eq!(
+            budget.first_unpaid_locus(),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::GraphNode(position),
+                form: "reached_field"
+            })
+        );
+    }
+    #[trace("TC-470", "FR-357-AC-12", "FR-360-AC-2", "FR-360-AC-3")]
+    #[test]
+    fn repeated_runtime_reference_adds_one_term_charge_and_no_edge_copy() {
+        let mut single = admitted_monitor();
+        let plan = single.monitor_plans().next().unwrap();
+        let entry = plan.init().node_id().clone();
+        let target = plan.state().clone();
+        let (position, _) = single.node_with_position(&entry).unwrap();
+        std::sync::Arc::make_mut(&mut single.terms)[position] =
+            CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
+        let mut repeated = single.clone();
+        std::sync::Arc::make_mut(&mut repeated.terms)[position] = CheckedTerm::aggregate(vec![
+            CheckedTerm::reference(target.clone()),
+            CheckedTerm::reference(target),
+        ]);
+        let mut once_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let mut twice_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let once = single
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .selected_graph_walk(&mut once_budget)
+            .unwrap();
+        let twice = repeated
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .selected_graph_walk(&mut twice_budget)
+            .unwrap();
+        assert_eq!(twice.nodes, once.nodes);
+        assert_eq!(
+            twice.work,
+            once.work + 1,
+            "only the additional term inspection is work; the edge is already admitted"
+        );
+        assert_eq!(
+            twice_budget.consumed().work,
+            once_budget.consumed().work + 1
+        );
+        assert_eq!(
+            twice_budget.consumed().storage,
+            once_budget.consumed().storage + 2,
+            "only the extra borrowed visitor continuation and child frames are retained"
         );
     }
 }

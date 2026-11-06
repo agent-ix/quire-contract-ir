@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Agent-IX
+
 use super::super::model_fields::{build_field_tables, RecordBinderTypes};
 use super::*;
 use crate::checked_package::common::ValidationFailure;
@@ -1654,3 +1657,254 @@ fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {
 }
 
 mod intake_retention;
+
+/// Runtime helper ownership is charged before scalar, unit, alias and wrapper copies.
+#[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
+#[test]
+fn runtime_member_helpers_precharge_each_owned_layer_and_unit_handle() {
+    fn check(
+        expected: MemberType,
+        mut read: impl FnMut(
+            &mut NativeJoinBudget,
+        ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied>,
+    ) {
+        let mut ample = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        assert_eq!(read(&mut ample).unwrap(), Some(expected.clone()));
+        let measured = ample.consumed();
+        let mut exact = NativeJoinBudget::new(measured.work, measured.storage);
+        assert_eq!(read(&mut exact).unwrap(), Some(expected));
+        assert_eq!(exact.consumed(), measured);
+        for storage in 0..measured.storage {
+            let mut short = NativeJoinBudget::new(measured.work, storage);
+            assert!(
+                read(&mut short).is_err(),
+                "storage {storage} must refuse before ownership"
+            );
+            assert_eq!(
+                short.first_unpaid().unwrap().kind,
+                NativeJoinChargeKind::Storage
+            );
+            assert!(short.consumed().storage <= storage);
+        }
+        let mut short = NativeJoinBudget::new(measured.work - 1, measured.storage);
+        assert!(read(&mut short).is_err());
+        assert_eq!(
+            short.first_unpaid().unwrap().kind,
+            NativeJoinChargeKind::Work
+        );
+    }
+
+    let unit_node = |name: &str| CheckedNodeId {
+        package: "acme/units".into(),
+        path: vec![
+            CheckedNodePathSegment::Name("scalar_type".into()),
+            CheckedNodePathSegment::Name("unit".into()),
+            CheckedNodePathSegment::Name(name.into()),
+        ],
+        ordinal: 0,
+    };
+    let unit = unit_node("metre");
+    let second = unit_node("second");
+    let unit_refs = Arc::new(BTreeMap::from([
+        (Box::from("ix://quire/unit/metre"), unit.clone()),
+        (
+            format!("{DURATION_RESOLVED_PREFIX}ix://quire/unit/s").into_boxed_str(),
+            second.clone(),
+        ),
+    ]));
+    let mut many = field(WIDGET, "values", "ix://quire/native/Integer");
+    many["multiplicity"] = multiplicity(0, Some(3));
+    let model = read_with_unit_refs(&document(vec![
+        object_type(WIDGET, &[], vec![many]),
+        json!({"identity":"ix://acme/orders/Units", "kind":"sequence", "items":"ix://quire/unit/metre"}),
+        json!({"identity":"ix://acme/orders/MaybeUnits", "kind":"option", "inner":"ix://acme/orders/Units"}),
+    ]), &unit_refs).unwrap();
+    let mut no_key_storage = NativeJoinBudget::new(u64::MAX, 0);
+    model
+        .duration_unit_node(&mut Some(&mut no_key_storage))
+        .expect_err("the canonical duration lookup key needs paid temporary text storage");
+    assert_eq!(no_key_storage.consumed().storage, 0);
+    assert_eq!(
+        no_key_storage.first_unpaid().unwrap().kind,
+        NativeJoinChargeKind::Storage
+    );
+    for (type_ref, expected) in [
+        (
+            SelectedTypeRef::Native(NativeTypeRef::Integer),
+            MemberType::Integer,
+        ),
+        (
+            SelectedTypeRef::Native(NativeTypeRef::Duration),
+            MemberType::Quantity(second),
+        ),
+        (
+            SelectedTypeRef::Unit("ix://quire/unit/metre".into()),
+            MemberType::Quantity(unit.clone()),
+        ),
+        (
+            SelectedTypeRef::Declared("ix://acme/orders/MaybeUnits".into()),
+            MemberType::Option(Box::new(MemberType::Collection {
+                kind: CollectionKind::Sequence,
+                element: Box::new(MemberType::Quantity(unit)),
+                bounds: None,
+            })),
+        ),
+    ] {
+        check(expected, |budget| {
+            model.element_type_runtime(&type_ref, budget)
+        });
+    }
+    let slot = &model.object_types[WIDGET].fields[0].slot;
+    check(
+        MemberType::Collection {
+            kind: CollectionKind::Set,
+            element: Box::new(MemberType::Integer),
+            bounds: Some((0, 3)),
+        },
+        |budget| model.slot_type_runtime(slot, budget),
+    );
+}
+
+/// One shared slot decision table preserves ordinary and runtime multiplicities.
+#[trace("TC-470", "FR-360-AC-4", "FR-360-AC-5")]
+#[test]
+fn runtime_and_ordinary_slots_share_all_multiplicity_decisions() {
+    for (lower, upper, ordered, unique, expected) in [
+        (1, Some(1), false, true, Some(MemberType::Integer)),
+        (
+            0,
+            None,
+            false,
+            true,
+            Some(MemberType::Collection {
+                kind: CollectionKind::Set,
+                element: Box::new(MemberType::Integer),
+                bounds: None,
+            }),
+        ),
+        (1, None, false, true, None),
+        (
+            0,
+            Some(3),
+            false,
+            true,
+            Some(MemberType::Collection {
+                kind: CollectionKind::Set,
+                element: Box::new(MemberType::Integer),
+                bounds: Some((0, 3)),
+            }),
+        ),
+        (
+            0,
+            Some(3),
+            true,
+            true,
+            Some(MemberType::Collection {
+                kind: CollectionKind::OrderedSet,
+                element: Box::new(MemberType::Integer),
+                bounds: Some((0, 3)),
+            }),
+        ),
+        (
+            0,
+            Some(3),
+            false,
+            false,
+            Some(MemberType::Collection {
+                kind: CollectionKind::Bag,
+                element: Box::new(MemberType::Integer),
+                bounds: Some((0, 3)),
+            }),
+        ),
+        (
+            0,
+            Some(3),
+            true,
+            false,
+            Some(MemberType::Collection {
+                kind: CollectionKind::Sequence,
+                element: Box::new(MemberType::Integer),
+                bounds: Some((0, 3)),
+            }),
+        ),
+    ] {
+        let mut field = field(WIDGET, "values", "ix://quire/native/Integer");
+        field["multiplicity"] = multiplicity(lower, upper);
+        field["multiplicity"]["ordered"] = json!(ordered);
+        field["multiplicity"]["unique"] = json!(unique);
+        let model = read(&document(vec![object_type(WIDGET, &[], vec![field])])).unwrap();
+        let slot = &model.object_types[WIDGET].fields[0].slot;
+        assert_eq!(model.slot_type(slot), expected);
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        assert_eq!(
+            model.slot_type_runtime(slot, &mut budget).unwrap(),
+            expected
+        );
+        let measured = budget.consumed();
+        let mut exact = NativeJoinBudget::new(measured.work, measured.storage);
+        assert_eq!(model.slot_type_runtime(slot, &mut exact).unwrap(), expected);
+        assert_eq!(exact.consumed(), measured);
+    }
+}
+
+#[trace("TC-470", "FR-360-AC-2", "FR-360-AC-4", "FR-360-AC-5")]
+#[test]
+fn runtime_duration_lookup_preserves_exact_owner_and_global_selection() {
+    let node = |owner: &str| CheckedNodeId {
+        package: owner.into(),
+        path: vec![CheckedNodePathSegment::Name("second".into())],
+        ordinal: 0,
+    };
+    let own_node = node("acme/orders");
+    let foreign_node = node("foreign/orders");
+    let global_node = node("quire/global");
+    let own_key = "ix://quire/unit/acme/orders/s";
+    let foreign_key = "ix://quire/unit/foreign/orders/s";
+    let global_key = "ix://quire/unit/s";
+    let mut own_document = document(vec![]);
+    own_document["dimensions"] = json!([{"identity":"ix://acme/orders/dimension/Time","name":"Time","base":true,"terms":[]}]);
+    own_document["units"] = json!([{"identity":own_key,"name":"s","dimension":"ix://acme/orders/dimension/Time","scale":"1","offset":"0"}]);
+    let duration = SelectedTypeRef::Native(NativeTypeRef::Duration);
+    for (owns_seconds, provide_own, provide_global, expected) in [
+        (true, true, true, Some(own_node.clone())),
+        (true, false, true, None),
+        (false, true, true, Some(global_node.clone())),
+        (false, true, false, None),
+    ] {
+        let mut refs = BTreeMap::from([
+            (Box::from(own_key), own_node.clone()),
+            (
+                format!("{DURATION_RESOLVED_PREFIX}{foreign_key}").into_boxed_str(),
+                foreign_node.clone(),
+            ),
+        ]);
+        if provide_own {
+            refs.insert(
+                format!("{DURATION_RESOLVED_PREFIX}{own_key}").into_boxed_str(),
+                own_node.clone(),
+            );
+        }
+        if provide_global {
+            refs.insert(
+                format!("{DURATION_RESOLVED_PREFIX}{global_key}").into_boxed_str(),
+                global_node.clone(),
+            );
+        }
+        let source = if owns_seconds {
+            own_document.clone()
+        } else {
+            document(vec![])
+        };
+        let model = read_with_unit_refs(&source, &Arc::new(refs)).unwrap();
+        assert_eq!(model.own_seconds_declared, owns_seconds);
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        assert_eq!(
+            model.element_type_runtime(&duration, &mut budget).unwrap(),
+            expected.clone().map(MemberType::Quantity)
+        );
+        assert_eq!(
+            model.element_type(&duration),
+            expected.map(MemberType::Quantity)
+        );
+    }
+}

@@ -21,8 +21,16 @@ fn add(left: u128, right: u128) -> u128 {
     left.saturating_add(right)
 }
 
+/// One owned text buffer assembled from borrowed parts, including its container.
+pub(super) fn text_parts(parts: &[&str]) -> u128 {
+    parts
+        .iter()
+        .try_fold(1_u128, |units, part| units.checked_add(length(part.len())))
+        .unwrap_or(u128::MAX)
+}
+
 fn text(value: &str) -> u128 {
-    add(1, length(value.len()))
+    text_parts(&[value])
 }
 
 fn text_vec(values: &[Box<str>]) -> u128 {
@@ -447,4 +455,67 @@ pub(super) const fn selected_clone() -> u128 {
 /// temporary uniqueness containers, and the retained admission-binding handle.
 pub(super) const fn stage_selection() -> u128 {
     9 * 2 + 5 + 1
+}
+
+pub(super) fn runtime_tuple(row: &super::SelectedTupleDeclarationRow) -> u128 {
+    add(
+        add(
+            add(node(&row.structural_node), text(&row.selected_document)),
+            text(&row.original_identity),
+        ),
+        2,
+    )
+}
+pub(super) fn runtime_source_unit(row: &super::SelectedSourceUnitRow) -> u128 {
+    add(
+        add(
+            add(
+                add(node(&row.structural_node), text(&row.source_authority)),
+                text(&row.source_identity),
+            ),
+            text_vec(&row.qualified_declaration),
+        ),
+        add(unit(&row.unit_id), 1),
+    )
+}
+pub(super) fn model_enum_declaration(row: &super::SelectedModelEnumDeclarationRow) -> u128 {
+    add(
+        add(
+            add(node(&row.structural_node), text(&row.selected_document)),
+            text(&row.original_identity),
+        ),
+        2,
+    )
+}
+pub(super) fn model_enum_member(row: &super::SelectedModelEnumMemberRow) -> u128 {
+    let base = add(node(&row.structural_node), node(&row.declaration_node));
+    [
+        &row.selected_document,
+        &row.enum_original_identity,
+        &row.member_original_identity,
+        &row.case,
+    ]
+    .iter()
+    .fold(add(base, 2), |units, value| add(units, text(value)))
+}
+pub(super) fn model_enum_shape(row: &super::SelectedModelEnumShapeRow) -> u128 {
+    let base = add(
+        add(
+            add(node(&row.structural_node), text(&row.selected_document)),
+            text(&row.original_identity),
+        ),
+        add(enum_shape(&row.shape), 3),
+    );
+    row.cases.iter().fold(base, |units, case| {
+        add(
+            units,
+            add(
+                add(
+                    add(node(&case.structural_node), text(&case.case)),
+                    text(&case.member_original_identity),
+                ),
+                add(2, text(case.variant.case())),
+            ),
+        )
+    })
 }

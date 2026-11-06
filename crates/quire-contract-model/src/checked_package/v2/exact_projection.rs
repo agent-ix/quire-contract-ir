@@ -1185,13 +1185,65 @@ impl SelectedExactIdentities {
     pub(in crate::checked_package::v2) fn with_model_enum_shapes(
         mut self,
         rows: &[super::SelectedModelEnumShapeRow],
-    ) -> Self {
-        self.model_enum_shapes = Arc::new(
-            rows.iter()
-                .map(|row| (row.structural_node.clone(), row.shape.clone()))
-                .collect(),
-        );
-        self
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Self, ExactTypeProjectionError> {
+        if let Some(first) = rows.first() {
+            budget.set_active_locus(Some(super::NativeJoinLocus {
+                source: super::NativeJoinLocusSource::Package,
+                form: "model_enum_shape_index_storage",
+            }));
+            charge_native_storage(
+                budget,
+                &first.structural_node,
+                &first.structural_node,
+                "model_enum_shape_index",
+                2,
+            )?;
+        } else {
+            // The existing empty map already represents an empty enum selection.
+            return Ok(self);
+        }
+        let mut shapes = BTreeMap::new();
+        for (index, row) in rows.iter().enumerate() {
+            let node = &row.structural_node;
+            budget.set_active_locus(Some(super::NativeJoinLocus {
+                source: super::NativeJoinLocusSource::ReachedRow(index),
+                form: "model_enum_shape_index",
+            }));
+            charge_native_work(budget, node, node, "model_enum_shape_index", 1)?;
+            for segment in &node.path {
+                charge_native_work(budget, node, node, "model_enum_shape_index", 1)?;
+                if let super::CheckedNodePathSegment::Name(name) = segment {
+                    charge_native_work(
+                        budget,
+                        node,
+                        node,
+                        "model_enum_shape_index",
+                        name.len() as u128,
+                    )?;
+                }
+            }
+            charge_native_work(
+                budget,
+                node,
+                node,
+                "model_enum_shape_index",
+                node.package.len() as u128,
+            )?;
+            storage::preflight_enum_shape(&row.shape, budget, node)?;
+            charge_native_storage(
+                budget,
+                node,
+                node,
+                "model_enum_shape_index",
+                storage::node(node)
+                    .saturating_add(storage::enum_shape(&row.shape))
+                    .saturating_add(1),
+            )?;
+            shapes.insert(node.clone(), row.shape.clone());
+        }
+        self.model_enum_shapes = Arc::new(shapes);
+        Ok(self)
     }
 
     /// An empty selection for reads of types without declaration identities.
@@ -2586,6 +2638,24 @@ fn witness_error(
     }
 }
 
+fn witness_error_with_budget(
+    node: &CheckedNodeId,
+    code: ExactTypeProjectionErrorCode,
+    budget: &mut NativeJoinBudget,
+) -> ExactTypeProjectionError {
+    if !budget.exact_diagnostics() {
+        return witness_error(node, code);
+    }
+    budget.set_locus_form("selected_identity");
+    exact_diagnostic(
+        budget,
+        code,
+        node,
+        Some(node),
+        ExactDiagnosticForm::Literal("selected_identity"),
+    )
+}
+
 fn selected_declaration_error(
     package: &CheckedPackageV2,
     node: &CheckedNodeId,
@@ -2628,6 +2698,7 @@ fn charge_native(
     kind: NativeJoinChargeKind,
     amount: u128,
 ) -> Result<(), ExactTypeProjectionError> {
+    budget.set_locus_form(form);
     if budget.charge(kind, amount) {
         return Ok(());
     }

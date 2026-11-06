@@ -28,6 +28,36 @@ pub struct NativeJoinDeniedCharge {
     pub amount: u128,
 }
 
+/// Stable caller context identifying a native runtime charge without owning a node.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeJoinLocusSource {
+    /// Allocation belonging to the package-wide projection itself.
+    Package,
+    /// Flattened selected monitor seed in the caller plan.
+    MonitorSeed(usize),
+    /// Reached reader input row before graph identity resolution.
+    ReachedRow(usize),
+    /// Index into the admitted package's semantic graph.
+    GraphNode(usize),
+    /// Index into the admitted model declaration iterator.
+    SelectedDeclaration(usize),
+    /// Index into the caller's selected Exact declaration rows.
+    IdentityDeclaration(usize),
+    /// Index into the runtime caller's tuple rows.
+    TupleRow(usize),
+    /// Index into the runtime caller's source-unit rows.
+    SourceUnitRow(usize),
+}
+
+/// Fixed-size first-denial metadata, resolved using the original caller context.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeJoinLocus {
+    /// Stable input location; no node or key is cloned.
+    pub source: NativeJoinLocusSource,
+    /// Static native operation or form whose charge was denied.
+    pub form: &'static str,
+}
+
 /// One finite work and logical-storage allowance shared across native joins.
 ///
 /// Admitted charges are cumulative, including charges made before a refused
@@ -41,6 +71,8 @@ pub struct NativeJoinBudget {
     last_success_delta: Option<NativeJoinCharge>,
     first_unpaid: Option<NativeJoinDeniedCharge>,
     exact_diagnostics: bool,
+    active_locus: Option<NativeJoinLocus>,
+    denied_locus: Option<NativeJoinLocus>,
 }
 
 impl NativeJoinBudget {
@@ -53,6 +85,8 @@ impl NativeJoinBudget {
             last_success_delta: None,
             first_unpaid: None,
             exact_diagnostics: false,
+            active_locus: None,
+            denied_locus: None,
         }
     }
 
@@ -71,6 +105,28 @@ impl NativeJoinBudget {
         self.first_unpaid
     }
 
+    /// The first unpaid runtime charge's non-owning caller location.
+    pub fn first_unpaid_locus(&self) -> Option<NativeJoinLocus> {
+        self.denied_locus
+    }
+
+    pub(super) fn active_locus(&self) -> Option<NativeJoinLocus> {
+        self.active_locus
+    }
+    pub(super) fn set_active_locus(&mut self, locus: Option<NativeJoinLocus>) {
+        self.active_locus = locus;
+    }
+    pub(super) fn set_locus_form(&mut self, form: &'static str) {
+        if let Some(locus) = &mut self.active_locus {
+            locus.form = form;
+        }
+    }
+    pub(super) fn set_locus_source(&mut self, source: NativeJoinLocusSource) {
+        if let Some(locus) = &mut self.active_locus {
+            locus.source = source;
+        }
+    }
+
     pub(super) fn remaining_work(&self) -> u64 {
         self.work_limit - self.consumed.work
     }
@@ -86,6 +142,7 @@ impl NativeJoinBudget {
     pub(super) fn begin(&mut self) -> NativeJoinCharge {
         self.last_success_delta = None;
         self.first_unpaid = None;
+        self.denied_locus = None;
         self.consumed
     }
 
@@ -101,12 +158,6 @@ impl NativeJoinBudget {
         self.last_success_delta = None;
     }
 
-    /// Keep the next native join inside an enclosing reader's remaining work allowance.
-    pub(super) fn tighten_work_limit(&mut self, remaining: u64) {
-        let shared_limit = self.consumed.work.saturating_add(remaining);
-        self.work_limit = self.work_limit.min(shared_limit);
-    }
-
     pub(super) fn charge(&mut self, kind: NativeJoinChargeKind, amount: u128) -> bool {
         let (consumed, limit) = match kind {
             NativeJoinChargeKind::Work => (&mut self.consumed.work, self.work_limit),
@@ -117,11 +168,62 @@ impl NativeJoinBudget {
             *consumed = u64::try_from(next).expect("bounded native charge fits u64");
             true
         } else {
+            if self.first_unpaid.is_none() {
+                self.denied_locus = self.active_locus;
+            }
             self.first_unpaid
                 .get_or_insert(NativeJoinDeniedCharge { kind, amount });
             false
         }
     }
+}
+
+/// Compact private refusal used before any owning runtime diagnostic is payable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct NativeReadDenied;
+
+pub(super) fn read_charge(
+    budget: &mut NativeJoinBudget,
+    kind: NativeJoinChargeKind,
+    amount: u128,
+) -> Result<(), NativeReadDenied> {
+    if budget.charge(kind, amount) {
+        Ok(())
+    } else {
+        Err(NativeReadDenied)
+    }
+}
+
+/// Admit the identity walk before computing its shared footprint or using it as a key.
+pub(super) fn read_node_work(
+    budget: &mut NativeJoinBudget,
+    node: &super::CheckedNodeId,
+) -> Result<(), NativeReadDenied> {
+    read_charge(budget, NativeJoinChargeKind::Work, 1)?;
+    read_charge(
+        budget,
+        NativeJoinChargeKind::Work,
+        node.package.len() as u128,
+    )?;
+    for segment in &node.path {
+        read_charge(budget, NativeJoinChargeKind::Work, 1)?;
+        if let super::CheckedNodePathSegment::Name(name) = segment {
+            read_charge(budget, NativeJoinChargeKind::Work, name.len() as u128)?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn read_node_storage(
+    budget: &mut NativeJoinBudget,
+    node: &super::CheckedNodeId,
+) -> Result<(), NativeReadDenied> {
+    read_node_work(budget, node)?;
+    read_charge(
+        budget,
+        NativeJoinChargeKind::Storage,
+        super::native_join_storage::node(node),
+    )
 }
 
 #[cfg(test)]
@@ -133,6 +235,37 @@ mod tests {
         CarriedQuantityType, DecimalType, Integer, IntegerInterval, NodeKey, PathSegment,
         QuantityCarrier, RationalDomain, RoundingMode, UnitId, ValueType,
     };
+
+    /// Trace: TC-470, FR-360-AC-3.
+    #[trace("TC-470", "FR-360-AC-3")]
+    #[test]
+    fn first_native_denial_retains_its_original_fixed_locus() {
+        use super::{NativeJoinLocus, NativeJoinLocusSource};
+        let first = NativeJoinLocus {
+            source: NativeJoinLocusSource::TupleRow(1),
+            form: "selected_tuple_row",
+        };
+        let mut budget = NativeJoinBudget::new(0, 0);
+        budget.set_active_locus(Some(first));
+        assert!(!budget.charge(NativeJoinChargeKind::Storage, 9));
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::SourceUnitRow(2),
+            form: "later_row",
+        }));
+        assert!(!budget.charge(NativeJoinChargeKind::Work, 3));
+        budget.abort();
+        assert_eq!(budget.first_unpaid_locus(), Some(first));
+        assert_eq!(
+            budget.first_unpaid(),
+            Some(NativeJoinDeniedCharge {
+                kind: NativeJoinChargeKind::Storage,
+                amount: 9
+            })
+        );
+        assert_eq!(budget.consumed(), NativeJoinCharge::default());
+        budget.begin();
+        assert_eq!(budget.first_unpaid_locus(), None);
+    }
 
     #[trace("FR-358-AC-2", "FR-358-AC-3")]
     #[test]
