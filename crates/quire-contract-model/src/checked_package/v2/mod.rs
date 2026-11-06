@@ -131,7 +131,8 @@ pub use model_population_catalog::{
 pub use monitor_plan::{
     CheckedMonitorBufferRef, CheckedMonitorClock, CheckedMonitorClockRead,
     CheckedMonitorClockReadError, CheckedMonitorClockReadErrorCode, CheckedMonitorEntryRef,
-    CheckedMonitorPlanRef,
+    CheckedMonitorPlanRef, SelectedMonitorClosureRows, SelectedMonitorTypeClosure,
+    SelectedMonitorTypeClosureError, SelectedMonitorTypeClosureErrorCode,
 };
 pub use native_join_budget::{
     NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,

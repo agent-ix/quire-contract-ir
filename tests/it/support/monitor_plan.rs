@@ -302,6 +302,10 @@ pub(super) fn materialize_on(
     input_fields: &[(&str, Value)],
     tick_unit: Option<Value>,
 ) -> (Value, usize) {
+    // The selected support document predates the explicit base bit on a
+    // source dimension. Complete monitor fixtures use the current V2 body.
+    let dimension = position(&wire, &find(&wire, "dimension"));
+    wire["semantic_graph"]["nodes"][dimension]["body"]["base"] = json!(true);
     let added_from = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
     let integer = find(&wire, "integer");
     let text = find(&wire, "text");

@@ -7,6 +7,8 @@ use quire_contract_model::{
     ApplicationOperator, CheckedCallableIdentity, CheckedCallableReadErrorCode,
     CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef, CheckedNodeId,
     CheckedNodeKind, CheckedPackageV2, CheckedRational, CheckedTerm, ExpressionForm,
+    NativeJoinBudget, SelectedMonitorClosureRows, SelectedMonitorTypeClosure,
+    SelectedMonitorTypeClosureError, SelectedMonitorTypeClosureErrorCode,
 };
 
 fn entry<'a>(entry: CheckedMonitorEntryRef<'a>) {
@@ -43,6 +45,26 @@ fn plan<'a>(plan: CheckedMonitorPlanRef<'a>) {
     entry(plan.on_gap());
     fn buffers<'a>(_: impl ExactSizeIterator<Item = CheckedMonitorBufferRef<'a>>) {}
     buffers(plan.buffers());
+    let rows = SelectedMonitorClosureRows {
+        declarations: &[],
+        fields: &[],
+        model_tuples: &[],
+        source_units: &[],
+        model_enum_declarations: &[],
+        model_enum_members: &[],
+        model_enum_shapes: &[],
+        source_records: &[],
+        source_tuples: &[],
+        source_unions: &[],
+        source_enums: &[],
+        source_collections: &[],
+    };
+    let result: Result<SelectedMonitorTypeClosure<'a>, SelectedMonitorTypeClosureError> =
+        plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(0, 0));
+    assert_eq!(
+        result.expect_err("zero native storage refuses").code,
+        SelectedMonitorTypeClosureErrorCode::StorageLimit
+    );
 }
 fn package(package: &CheckedPackageV2) {
     fn plans<'a>(_: impl ExactSizeIterator<Item = CheckedMonitorPlanRef<'a>>) {}
@@ -112,7 +134,8 @@ fn evidence(wire: &Value) -> CheckedPackageEvidence {
     "FR-038-AC-426",
     "FR-354-AC-7",
     "FR-038-AC-433",
-    "FR-038-AC-434"
+    "FR-038-AC-434",
+    "FR-357-AC-4"
 )]
 #[test]
 fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
@@ -123,12 +146,13 @@ fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
         &wire["semantic_graph"]["nodes"][root]["body"]["members"][15]["value"]["target"],
     );
     monitor_plan_fixtures::append_measure(&mut wire, gap);
-    let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
+    let read = CheckedPackageV2::read(
         &fixture_support::canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &evidence(&wire),
-    ) else {
-        panic!("complete selected monitor fixture admits")
+    );
+    let CheckedPackageV2ReadResult::Admitted(package) = read else {
+        panic!("complete selected monitor fixture admits: {read:?}")
     };
     assert_eq!(package.monitor_plans().len(), 1);
     let view = package.monitor_plans().next().unwrap();

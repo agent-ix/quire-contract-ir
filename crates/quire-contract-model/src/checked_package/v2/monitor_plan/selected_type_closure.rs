@@ -5,17 +5,20 @@
 
 use super::reached_model_read::{ReachedModelError, ReachedProducerRows};
 use super::selected_closure_walk::{RuntimeWalkError, SelectedGraphWalkErrorCode};
-use super::CheckedMonitorPlanRef;
+use super::{
+    CheckedMonitorClockRead, CheckedMonitorClockReadError, CheckedMonitorClockReadErrorCode,
+    CheckedMonitorPlanRef,
+};
 use crate::checked_package::v2::native_join_budget::{read_charge, NativeReadDenied};
 use crate::checked_package::v2::native_join_storage as storage;
 use crate::checked_package::v2::{
-    CheckedNodeId, CheckedNodeKind, ExactTypeProjection, ExactTypeProjectionError,
-    ExactTypeProjectionErrorCode, NativeJoinBudget, NativeJoinChargeKind, NativeJoinDeniedCharge,
-    NativeJoinLocus, NativeJoinLocusSource, ScalarTypeForm, SelectedExactDeclarationRow,
-    SelectedExactFieldRow, SelectedExactIdentities, SelectedModelEnumDeclarationRow,
-    SelectedModelEnumErrorCode, SelectedModelEnumMemberRow, SelectedModelEnumShapeRow,
-    SelectedSourceCollectionRow, SelectedSourceEnumRow, SelectedSourceRecordRow,
-    SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
+    CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, ExactTypeProjection,
+    ExactTypeProjectionError, ExactTypeProjectionErrorCode, NativeJoinBudget, NativeJoinChargeKind,
+    NativeJoinDeniedCharge, NativeJoinLocus, NativeJoinLocusSource, ScalarTypeForm,
+    SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
+    SelectedModelEnumDeclarationRow, SelectedModelEnumErrorCode, SelectedModelEnumMemberRow,
+    SelectedModelEnumShapeRow, SelectedSourceCollectionRow, SelectedSourceEnumRow,
+    SelectedSourceRecordRow, SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
     SelectedTupleDeclarationRow, SelectedTypeDeclarations, SelectedTypeDeclarationsError,
 };
 use std::collections::BTreeSet;
@@ -57,7 +60,22 @@ pub struct SelectedMonitorTypeClosure<'a> {
     model_enums: Vec<SelectedModelEnumShapeRow>,
     identities: SelectedExactIdentities,
     exact_types: Vec<ExactTypeProjection>,
+    clocks: Vec<CheckedMonitorClockRead<'a>>,
     work: u64,
+}
+
+impl std::fmt::Debug for SelectedMonitorTypeClosure<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SelectedMonitorTypeClosure")
+            .field("root", self.plan.node_id())
+            .field("types", &self.types)
+            .field("model_enums", &self.model_enums)
+            .field("identities", &self.identities)
+            .field("exact_types", &self.exact_types)
+            .field("clocks", &self.clocks)
+            .field("work", &self.work)
+            .finish()
+    }
 }
 
 impl<'a> SelectedMonitorTypeClosure<'a> {
@@ -80,6 +98,10 @@ impl<'a> SelectedMonitorTypeClosure<'a> {
     /// Reached Exact types in structural identity order, including complete source views.
     pub fn exact_types(&self) -> &[ExactTypeProjection] {
         &self.exact_types
+    }
+    /// Selected clause clocks in admitted claim-occurrence order.
+    pub fn clocks(&self) -> &[CheckedMonitorClockRead<'a>] {
+        &self.clocks
     }
     /// Total work charged to the shared caller allowance for this read.
     pub fn work(&self) -> u64 {
@@ -104,6 +126,8 @@ pub enum SelectedMonitorTypeClosureErrorCode {
     Exact(ExactTypeProjectionErrorCode),
     /// Runtime declaration projection refused.
     Runtime(ExactTypeProjectionErrorCode),
+    /// Selected clause clock correspondence refused.
+    Clock(CheckedMonitorClockReadErrorCode),
     /// The next work charge exceeds the allowance.
     WorkLimit,
     /// The next owned storage charge exceeds the allowance.
@@ -117,7 +141,9 @@ pub struct SelectedMonitorTypeClosureError {
     /// Stable native cause.
     pub code: SelectedMonitorTypeClosureErrorCode,
     /// First native node when its owned diagnostic was admitted.
-    pub at: Option<CheckedNodeId>,
+    pub at: Option<Box<CheckedNodeId>>,
+    /// First selected claim occurrence when its diagnostic was admitted.
+    pub occurrence: Option<CheckedOccurrence>,
     /// Work already charged to the caller's meter.
     pub work: u64,
     /// First refused charge, if an allowance stopped the read.
@@ -136,6 +162,7 @@ fn native_error(budget: &NativeJoinBudget) -> SelectedMonitorTypeClosureError {
             _ => SelectedMonitorTypeClosureErrorCode::WorkLimit,
         },
         at: None,
+        occurrence: None,
         work: budget.consumed().work,
         denied,
         denied_locus: budget.first_unpaid_locus(),
@@ -144,12 +171,13 @@ fn native_error(budget: &NativeJoinBudget) -> SelectedMonitorTypeClosureError {
 
 fn semantic_error(
     code: SelectedMonitorTypeClosureErrorCode,
-    at: Option<CheckedNodeId>,
+    at: Option<Box<CheckedNodeId>>,
     budget: &NativeJoinBudget,
 ) -> SelectedMonitorTypeClosureError {
     SelectedMonitorTypeClosureError {
         code,
         at,
+        occurrence: None,
         work: budget.consumed().work,
         denied: budget.first_unpaid(),
         denied_locus: budget.first_unpaid_locus(),
@@ -160,7 +188,7 @@ fn exact_error(
     error: ExactTypeProjectionError,
     budget: &NativeJoinBudget,
 ) -> SelectedMonitorTypeClosureError {
-    let at = error.at.or(error.requested).map(|node| *node);
+    let at = error.at.or(error.requested);
     semantic_error(
         SelectedMonitorTypeClosureErrorCode::Exact(error.code),
         at,
@@ -185,7 +213,7 @@ fn reached_error(
                     SelectedMonitorTypeClosureErrorCode::UnsupportedTerm
                 }
             },
-            Some(error.at),
+            Some(Box::new(error.at)),
             budget,
         ),
         ReachedModelError::Walk(RuntimeWalkError::Native(_)) | ReachedModelError::Native(_) => {
@@ -195,12 +223,12 @@ fn reached_error(
         ReachedModelError::Types(error) => runtime_error(error, budget),
         ReachedModelError::Enum { error, .. } => semantic_error(
             SelectedMonitorTypeClosureErrorCode::ModelEnum(error.code),
-            Some(error.node),
+            Some(Box::new(error.node)),
             budget,
         ),
         ReachedModelError::UnresolvedDependency { at, .. } => semantic_error(
             SelectedMonitorTypeClosureErrorCode::UnresolvedDependency,
-            Some(at),
+            Some(Box::new(at)),
             budget,
         ),
     }
@@ -212,9 +240,23 @@ fn runtime_error(
 ) -> SelectedMonitorTypeClosureError {
     semantic_error(
         SelectedMonitorTypeClosureErrorCode::Runtime(error.code),
-        error.at.map(|node| *node),
+        error.at,
         budget,
     )
+}
+
+fn clock_error(
+    error: CheckedMonitorClockReadError,
+    budget: &NativeJoinBudget,
+) -> SelectedMonitorTypeClosureError {
+    SelectedMonitorTypeClosureError {
+        code: SelectedMonitorTypeClosureErrorCode::Clock(error.code),
+        at: error.at,
+        occurrence: error.occurrence,
+        work: budget.consumed().work,
+        denied: error.denied.or_else(|| budget.first_unpaid()),
+        denied_locus: budget.first_unpaid_locus(),
+    }
 }
 
 fn select_rows<T: Clone>(
@@ -269,6 +311,31 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                     budget,
                 )
                 .map_err(|error| reached_error(error, budget))?;
+            budget.set_active_locus(Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::MonitorSeed(0),
+                form: "selected_clock_output",
+            }));
+            read_charge(budget, NativeJoinChargeKind::Storage, 1)
+                .map_err(|_| native_error(budget))?;
+            let mut clocks = Vec::new();
+            let clause = self.package.node(self.clause()).expect("admitted clause");
+            for (index, occurrence) in clause.occurrences.iter().enumerate() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::MonitorSeed(index),
+                    form: "selected_claim_occurrence",
+                }));
+                read_charge(budget, NativeJoinChargeKind::Work, 1)
+                    .map_err(|_| native_error(budget))?;
+                if occurrence.role != CheckedOccurrenceRole::Claim {
+                    continue;
+                }
+                let clock = self
+                    .clock_for_claim(self.clause(), occurrence, budget)
+                    .map_err(|error| clock_error(error, budget))?;
+                read_charge(budget, NativeJoinChargeKind::Storage, 1)
+                    .map_err(|_| native_error(budget))?;
+                clocks.push(clock);
+            }
             let source_records = select_rows(
                 rows.source_records,
                 &reached.reached,
@@ -429,6 +496,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 model_enums: reached.enums,
                 identities,
                 exact_types,
+                clocks,
                 work: budget.consumed().work - before.work,
             })
         })();

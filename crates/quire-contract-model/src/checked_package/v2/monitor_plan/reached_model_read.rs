@@ -1303,6 +1303,8 @@ mod tests {
             plan.on_watermark().result_type()
         );
         assert_eq!(closure.plan().on_gap().parameter_types().len(), 2);
+        assert!(!closure.clocks().is_empty());
+        assert_eq!(closure.clocks()[0].clause(), plan.clause());
         let union = closure
             .identities()
             .source_union_rows()
@@ -1360,8 +1362,7 @@ mod tests {
         let mut combined_budget = NativeJoinBudget::new(combined_short, used.storage);
         assert_eq!(
             plan.project_selected_type_closure(rows, &mut combined_budget)
-                .err()
-                .expect("combined charge refuses")
+                .expect_err("combined charge refuses")
                 .code,
             super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::WorkLimit
         );
@@ -1376,8 +1377,7 @@ mod tests {
         let mut short = NativeJoinBudget::new(used.work - 1, used.storage);
         assert_eq!(
             plan.project_selected_type_closure(rows, &mut short)
-                .err()
-                .expect("work refusal")
+                .expect_err("work refusal")
                 .code,
             super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::WorkLimit
         );
@@ -1385,8 +1385,7 @@ mod tests {
         let mut short_storage = NativeJoinBudget::new(used.work, used.storage - 1);
         assert_eq!(
             plan.project_selected_type_closure(rows, &mut short_storage)
-                .err()
-                .expect("storage refusal")
+                .expect_err("storage refusal")
                 .code,
             super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::StorageLimit
         );
@@ -1394,8 +1393,7 @@ mod tests {
         let mut zero_storage = NativeJoinBudget::new(used.work, 0);
         let compact = plan
             .project_selected_type_closure(rows, &mut zero_storage)
-            .err()
-            .expect("zero storage refusal");
+            .expect_err("zero storage refusal");
         assert_eq!(
             compact.code,
             super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::StorageLimit
@@ -1452,7 +1450,7 @@ mod tests {
                 .last()
                 .is_none_or(|name| name.as_ref() != "Result")
         });
-        let error = read(&missing).err().expect("reached record requires row");
+        let error = read(&missing).expect_err("reached record requires row");
         assert_eq!(
             error.code,
             Code::Exact(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
@@ -1475,8 +1473,7 @@ mod tests {
         let mut diagnostic_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let semantic = plan
             .project_selected_type_closure(missing_rows, &mut diagnostic_budget)
-            .err()
-            .expect("complete diagnostic");
+            .expect_err("complete diagnostic");
         assert_eq!(
             semantic.code,
             Code::Exact(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
@@ -1485,8 +1482,7 @@ mod tests {
             NativeJoinBudget::new(u64::MAX, diagnostic_budget.consumed().storage - 1);
         let compact = plan
             .project_selected_type_closure(missing_rows, &mut short_diagnostic)
-            .err()
-            .expect("diagnostic storage refusal");
+            .expect_err("diagnostic storage refusal");
         assert_eq!(
             compact.code,
             Code::Exact(ExactTypeProjectionErrorCode::ExhaustedStorage)
@@ -1495,17 +1491,15 @@ mod tests {
         assert!(compact.denied_locus.is_some());
         let mut foreign = source_records.clone();
         foreign[0].source_identity = "other/source".into();
-        let error = read(&foreign)
-            .err()
-            .expect("foreign selected source refuses");
+        let error = read(&foreign).expect_err("foreign selected source refuses");
         assert_eq!(
             error.code,
             Code::Exact(ExactTypeProjectionErrorCode::MismatchedIdentityWitness)
         );
-        assert_eq!(error.at, Some(foreign[0].structural_node.clone()));
+        assert_eq!(error.at.as_deref(), Some(&foreign[0].structural_node));
         let mut stale = source_records.clone();
         stale[0].members[0].type_node = plan.state().clone();
-        let error = read(&stale).err().expect("stale member type refuses");
+        let error = read(&stale).expect_err("stale member type refuses");
         assert_eq!(
             error.code,
             Code::Exact(ExactTypeProjectionErrorCode::MismatchedIdentityWitness)
@@ -1555,8 +1549,7 @@ mod tests {
                 },
                 &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
             )
-            .err()
-            .expect("unrepresentable reached type");
+            .expect_err("unrepresentable reached type");
         assert_eq!(
             error.code,
             Code::Exact(ExactTypeProjectionErrorCode::UnsupportedExactType),
