@@ -568,7 +568,7 @@ fn verify_literal_bodies(bytes: &[u8]) {
         .find(|node| node.node_id == *type_id)
         .expect("Integer type");
     assert_eq!(integer.semantic_form.as_ref(), "integer");
-    assert_eq!(integer.node_tag, CheckedNodeTag::ScalarType);
+    assert_eq!(integer.node_tag.as_ref(), "scalar_type");
     let request = package.graph().nodes[square_position].node_id.clone();
     let result = package.lower(
         std::slice::from_ref(&request),
