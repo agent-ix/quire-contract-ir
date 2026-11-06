@@ -303,7 +303,9 @@ pub struct SelectedTypeDeclarationsError {
 
 impl SelectedTypeDeclarationsError {
     /// Resolve a denied node using the package and row slices supplied to projection.
-    /// Package-wide allocation loci have no node; inspect `denied_locus` instead.
+    /// Package allocations and unresolved declaration request coordinates have no
+    /// resolved node. Their fixed input coordinate remains in `denied_locus`;
+    /// this resolver never searches for an identity after a denied charge.
     pub fn denied_node<'a>(
         &self,
         package: &'a CheckedPackageV2,
@@ -315,6 +317,8 @@ impl SelectedTypeDeclarationsError {
             NativeJoinLocusSource::GraphNode(index) => {
                 package.graph().nodes.get(index).map(|node| &node.node_id)
             }
+            NativeJoinLocusSource::SelectedDeclaration(_)
+            | NativeJoinLocusSource::IdentityDeclaration(_) => None,
             NativeJoinLocusSource::TupleRow(index) => {
                 tuple_rows.get(index).map(|row| &row.structural_node)
             }
@@ -345,8 +349,6 @@ impl SelectedTypeDeclarationsError {
 struct ProjectionBudget<'a> {
     budget: &'a mut NativeJoinBudget,
     before: NativeJoinCharge,
-    package: &'a CheckedPackageV2,
-    row_locus: Option<(NativeJoinLocusSource, &'a CheckedNodeId)>,
 }
 
 impl ProjectionBudget<'_> {
@@ -357,19 +359,13 @@ impl ProjectionBudget<'_> {
         }));
     }
 
-    fn locate(&mut self, at: &CheckedNodeId, form: &'static str) {
-        let source =
-            if let Some((source, _)) = self.row_locus.filter(|(_, node)| std::ptr::eq(*node, at)) {
-                source
-            } else if let Some(index) = self.package.node_index.get(at) {
-                NativeJoinLocusSource::GraphNode(*index)
-            } else {
-                self.budget
-                    .active_locus()
-                    .map_or(NativeJoinLocusSource::Package, |locus| locus.source)
-            };
+    fn activate(&mut self, source: NativeJoinLocusSource, form: &'static str) {
         self.budget
             .set_active_locus(Some(NativeJoinLocus { source, form }));
+    }
+
+    fn form(&mut self, form: &'static str) {
+        self.budget.set_locus_form(form);
     }
 
     fn work(&self) -> u64 {
@@ -378,10 +374,10 @@ impl ProjectionBudget<'_> {
 
     fn charge(
         &mut self,
-        at: &CheckedNodeId,
+        _at: &CheckedNodeId,
         form: &'static str,
     ) -> Result<(), SelectedTypeDeclarationsError> {
-        self.locate(at, form);
+        self.form(form);
         self.charge_amount(NativeJoinChargeKind::Work, 1)
     }
 
@@ -402,11 +398,11 @@ impl ProjectionBudget<'_> {
 
     fn charge_work(
         &mut self,
-        at: &CheckedNodeId,
+        _at: &CheckedNodeId,
         form: &'static str,
         amount: usize,
     ) -> Result<(), SelectedTypeDeclarationsError> {
-        self.locate(at, form);
+        self.form(form);
         self.charge_amount(
             NativeJoinChargeKind::Work,
             u128::try_from(amount).unwrap_or(u128::MAX),
@@ -564,7 +560,7 @@ impl ProjectionBudget<'_> {
         at: &CheckedNodeId,
         form: &'static str,
     ) -> Result<(), SelectedTypeDeclarationsError> {
-        self.locate(at, form);
+        self.form(form);
         self.charge_storage(2)?;
         let mut pending = vec![at];
         while let Some(id) = pending.pop() {
@@ -591,7 +587,7 @@ impl ProjectionBudget<'_> {
         form: &'static str,
         key: &NodeKey,
     ) -> Result<(), SelectedTypeDeclarationsError> {
-        self.locate(at, form);
+        self.form(form);
         self.charge_storage(2)?;
         let mut pending = vec![key.view()];
         while let Some(view) = pending.pop() {
@@ -713,22 +709,21 @@ impl CheckedPackageV2 {
             form: "runtime_projection",
         }));
         let result = (|| {
-            let mut ctx = ProjectionBudget {
-                budget,
-                before,
-                package: self,
-                row_locus: None,
-            };
+            let mut ctx = ProjectionBudget { budget, before };
             ctx.charge_storage(1)?;
             let mut selected_source_units = Vec::new();
-            for (node, kind) in self.graph().nodes.iter().zip(self.node_kinds()) {
+            for (index, (node, kind)) in
+                self.graph().nodes.iter().zip(self.node_kinds()).enumerate()
+            {
+                ctx.activate(NativeJoinLocusSource::GraphNode(index), "graph_node");
                 ctx.charge(&node.node_id, "graph_node")?;
                 if *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
                     && matches!(node.owner, Some(CheckedNodeOwner::Source { .. }))
                 {
                     ctx.charge_structural_id(&node.node_id, "selected_source_unit")?;
                     ctx.storage_node(&node.node_id)?;
-                    selected_source_units.push(node.node_id.clone());
+                    ctx.charge_storage(1)?;
+                    selected_source_units.push((index, node.node_id.clone()));
                 } else if matches!(
                     kind,
                     CheckedNodeKind::ScalarType(
@@ -747,8 +742,11 @@ impl CheckedPackageV2 {
             ctx.package_locus("selected_declaration_index");
             ctx.charge_storage(1)?;
             let mut by_original = BTreeMap::new();
-            for (id, declaration) in self.models.selected_declarations() {
-                ctx.locate(id, "selected_declaration");
+            for (index, (id, declaration)) in self.models.selected_declarations().enumerate() {
+                ctx.activate(
+                    NativeJoinLocusSource::SelectedDeclaration(index),
+                    "selected_declaration",
+                );
                 ctx.charge(id, "selected_declaration")?;
                 ctx.charge_storage(1)?;
                 if by_original
@@ -777,6 +775,10 @@ impl CheckedPackageV2 {
             // currently names. Such a document cannot yield a complete runtime
             // environment from this graph and must refuse as a whole.
             for (selection, model) in self.models.selected_models().iter().enumerate() {
+                ctx.activate(
+                    NativeJoinLocusSource::GraphNode(model.root),
+                    "selected_document_type",
+                );
                 let root = &self
                     .graph()
                     .nodes
@@ -835,7 +837,11 @@ impl CheckedPackageV2 {
             let mut tuple_by_node = BTreeMap::new();
             let mut source_unit_by_node = BTreeMap::new();
             let mut exact_keys = BTreeSet::new();
-            for row in identities.declaration_rows() {
+            for (index, row) in identities.declaration_rows().enumerate() {
+                ctx.activate(
+                    NativeJoinLocusSource::IdentityDeclaration(index),
+                    "selected_exact_key",
+                );
                 ctx.charge(&row.structural_node, "selected_exact_key")?;
                 let key = match &row.exact_identity {
                     SelectedExactIdentity::Record(key)
@@ -851,8 +857,7 @@ impl CheckedPackageV2 {
                 }
             }
             for (index, row) in tuple_rows.iter().enumerate() {
-                ctx.row_locus =
-                    Some((NativeJoinLocusSource::TupleRow(index), &row.structural_node));
+                ctx.activate(NativeJoinLocusSource::TupleRow(index), "selected_tuple_row");
                 ctx.charge(&row.structural_node, "selected_tuple_row")?;
                 ctx.charge_structural_id(&row.structural_node, "selected_tuple_row")?;
                 ctx.charge_work(
@@ -868,10 +873,10 @@ impl CheckedPackageV2 {
                 ctx.charge_node_key(&row.structural_node, "selected_tuple_row", &row.node_key)?;
             }
             for (index, row) in source_unit_rows.iter().enumerate() {
-                ctx.row_locus = Some((
+                ctx.activate(
                     NativeJoinLocusSource::SourceUnitRow(index),
-                    &row.structural_node,
-                ));
+                    "selected_source_unit_row",
+                );
                 ctx.charge(&row.structural_node, "selected_source_unit_row")?;
                 ctx.charge_structural_id(&row.structural_node, "selected_source_unit_row")?;
                 ctx.charge_work(
@@ -896,7 +901,6 @@ impl CheckedPackageV2 {
                     ctx.charge_node_key(&row.structural_node, "selected_source_unit_row", key)?;
                 }
             }
-            ctx.row_locus = None;
             // The checked join remains the sole semantic tuple/unit authority.
             let admitted_identities = ctx
                 .exact_read(|budget| {
@@ -904,8 +908,10 @@ impl CheckedPackageV2 {
                 })
                 .map_err(|error| ctx.exact_error(error))?;
             for (index, row) in tuple_rows.iter().enumerate() {
-                ctx.row_locus =
-                    Some((NativeJoinLocusSource::TupleRow(index), &row.structural_node));
+                ctx.activate(
+                    NativeJoinLocusSource::TupleRow(index),
+                    "selected_tuple_index",
+                );
                 ctx.storage_node(&row.structural_node)?;
                 ctx.charge_storage(4)?;
                 if tuple_by_node
@@ -921,10 +927,10 @@ impl CheckedPackageV2 {
                 }
             }
             for (index, row) in source_unit_rows.iter().enumerate() {
-                ctx.row_locus = Some((
+                ctx.activate(
                     NativeJoinLocusSource::SourceUnitRow(index),
-                    &row.structural_node,
-                ));
+                    "selected_source_unit_index",
+                );
                 let UnitId::Declared(key) = &row.unit_id else {
                     unreachable!("checked declared domain")
                 };
@@ -942,8 +948,11 @@ impl CheckedPackageV2 {
                     ));
                 }
             }
-            ctx.row_locus = None;
-            for id in &selected_source_units {
+            for (position, id) in &selected_source_units {
+                ctx.activate(
+                    NativeJoinLocusSource::GraphNode(*position),
+                    "selected_source_unit",
+                );
                 ctx.charge(id, "selected_source_unit")?;
                 if !source_unit_by_node.contains_key(id) {
                     return Err(ctx.error(
@@ -960,8 +969,11 @@ impl CheckedPackageV2 {
             let mut records = Vec::new();
             let mut tuples = Vec::new();
             let mut objects = Vec::new();
-            for (id, declaration) in self.models.selected_declarations() {
-                ctx.locate(id, "selected_declaration");
+            for (index, (id, declaration)) in self.models.selected_declarations().enumerate() {
+                ctx.activate(
+                    NativeJoinLocusSource::SelectedDeclaration(index),
+                    "selected_declaration",
+                );
                 let Some(model) = self.models.selected_models().get(declaration.selection) else {
                     return Err(ctx.error(
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
@@ -1338,20 +1350,34 @@ impl CheckedPackageV2 {
                     _ => unreachable!("selected runtime declaration form was checked"),
                 }
             }
-            selected_source_units.sort();
+            selected_source_units.sort_by(|(_, left), (_, right)| left.cmp(right));
             ctx.package_locus("runtime_nominal_rows");
-            ctx.charge_storage(1)?;
+            ctx.charge_storage(4)?;
+            let mut requested_units = Vec::new();
+            let mut requested_positions = Vec::new();
+            let mut dimension_positions = Vec::new();
             let mut nominal_rows = Vec::new();
-            ctx.row_locus = None;
-            for id in &selected_source_units {
-                ctx.locate(id, "selected_source_unit");
-                ctx.charge_storage(1)?;
+            for (position, id) in selected_source_units {
+                ctx.activate(
+                    NativeJoinLocusSource::GraphNode(position),
+                    "selected_source_unit",
+                );
+                ctx.charge_storage(2)?;
+                requested_units.push(id);
+                requested_positions.push(position);
+            }
+            for (index, id) in requested_units.iter().enumerate() {
+                let position = requested_positions[index];
+                ctx.activate(
+                    NativeJoinLocusSource::GraphNode(position),
+                    "selected_source_unit",
+                );
+                ctx.charge(id, "selected_source_unit")?;
                 let row = source_unit_by_node
                     .get(id)
                     .expect("checked complete source-unit rows");
-                let node = self
-                    .node(id)
-                    .expect("admitted source unit remains in graph");
+                let node = &self.graph().nodes[position];
+                ctx.charge_storage(1)?;
                 nominal_rows.push(NominalDeclarationRow {
                     node: id,
                     owner: node.owner.as_ref().expect("admitted source owner"),
@@ -1363,7 +1389,13 @@ impl CheckedPackageV2 {
                 });
             }
             let unit_read = self
-                .read_unit_definition(&selected_source_units, &nominal_rows, ctx.budget)
+                .read_unit_definition_runtime(
+                    &requested_units,
+                    &nominal_rows,
+                    &requested_positions,
+                    &mut dimension_positions,
+                    ctx.budget,
+                )
                 .map_err(|error| {
                     if ctx.budget.first_unpaid().is_some() {
                         return SelectedTypeDeclarationsError::exhausted(ctx.budget, before);
@@ -1392,8 +1424,12 @@ impl CheckedPackageV2 {
             ctx.package_locus("runtime_unit_results");
             ctx.charge_storage(2)?;
             let mut units = Vec::new();
-            for unit in &unit_read.units {
-                ctx.locate(&unit.node.node_id, "selected_source_unit");
+            for (index, unit) in unit_read.units.iter().enumerate() {
+                ctx.activate(
+                    NativeJoinLocusSource::GraphNode(requested_positions[index]),
+                    "selected_source_unit",
+                );
+                ctx.charge(&unit.node.node_id, "selected_source_unit")?;
                 let row = source_unit_by_node
                     .get(&unit.node.node_id)
                     .expect("read selected source unit");
@@ -1427,8 +1463,11 @@ impl CheckedPackageV2 {
                 });
             }
             let mut dimensions = Vec::new();
-            for dimension in &unit_read.dimensions {
-                ctx.locate(&dimension.node.node_id, "selected_dimension");
+            for (index, dimension) in unit_read.dimensions.iter().enumerate() {
+                ctx.activate(
+                    NativeJoinLocusSource::GraphNode(dimension_positions[index]),
+                    "selected_dimension",
+                );
                 ctx.charge_storage(1)?;
                 ctx.storage_node(&dimension.node.node_id)?;
                 ctx.storage_dimension_terms(dimension.terms)?;

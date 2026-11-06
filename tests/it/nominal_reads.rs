@@ -658,15 +658,39 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
     let converted_row = stage_row(converted, "Centimetre");
     let rows = [root_row.clone(), converted_row.clone()];
     let identities = SelectedExactIdentities::empty();
+    let mut measured_budget = quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX);
     let view = package
-        .project_selected_type_declarations(
-            &identities,
-            &[],
-            &rows,
-            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
-        )
+        .project_selected_type_declarations(&identities, &[], &rows, &mut measured_budget)
         .unwrap();
     assert_eq!(view.units().len(), 2);
+    let measured = measured_budget.consumed();
+    let mut saw_first_insertion = false;
+    for storage in 0..measured.storage {
+        let mut short = quire_contract_model::NativeJoinBudget::new(measured.work, storage);
+        let error = package
+            .project_selected_type_declarations(&identities, &[], &rows, &mut short)
+            .unwrap_err();
+        if error.denied_locus
+            == Some(quire_contract_model::NativeJoinLocus {
+                source: quire_contract_model::NativeJoinLocusSource::SourceUnitRow(0),
+                form: "selected_source_unit_index",
+            })
+        {
+            assert_eq!(
+                error.denied_node(&package, &[], &rows),
+                Some(&rows[0].structural_node)
+            );
+            assert_eq!(error.denied_locus, short.first_unpaid_locus());
+            assert_eq!(error.denied, short.first_unpaid());
+            saw_first_insertion = true;
+            break;
+        }
+    }
+    assert!(
+        saw_first_insertion,
+        "first source-unit insertion must retain row zero after the multirow join"
+    );
+
     assert_eq!(view.dimensions().len(), 1);
     let converted_view = view
         .units()
@@ -691,6 +715,27 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
         ),
         Ok(view.clone())
     );
+    let mut last_storage =
+        quire_contract_model::NativeJoinBudget::new(measured.work, measured.storage - 1);
+    let late = package
+        .project_selected_type_declarations(&identities, &[], &rows, &mut last_storage)
+        .unwrap_err();
+    let dimension = &view.dimensions()[0].structural_node;
+    let position = package
+        .graph()
+        .nodes
+        .iter()
+        .position(|node| &node.node_id == dimension)
+        .unwrap();
+    assert_eq!(
+        late.denied_locus,
+        Some(quire_contract_model::NativeJoinLocus {
+            source: quire_contract_model::NativeJoinLocusSource::GraphNode(position),
+            form: "selected_dimension"
+        })
+    );
+    assert_eq!(late.denied_node(&package, &[], &rows), Some(dimension));
+    assert_eq!(late.denied, last_storage.first_unpaid());
     let missing = package
         .project_selected_type_declarations(
             &identities,

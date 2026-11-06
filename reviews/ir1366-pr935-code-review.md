@@ -38,3 +38,25 @@ FAIL. Rust lane included. Searched existing footprint helpers and slot implement
 Plan completion: not assessed
 
 No Cargo rebuild or aggregate gate was run by this reviewer. Inspected existing receipts: one helper ownership test, four Exact helper tests, 85 model/runtime tests and 12 nominal tests pass; workspace Clippy, formatter and two-document specification validation pass. Final combined-tree gate remains lead-owned and pending. The static matrix command completed within its 45-second bound; no evidence store was used. Optional gap-analysis semantic fan-out was not requested and was skipped; mandatory code/test alignment was performed in the Rust lane. No whole-repository assurance claim is made.
+
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | The post-witness tuple/source-unit index insertion loops update ctx.row_locus but never activate it with locate before storage_node or charge_storage. exact_read restores the last preflight row context, so with two valid tuple rows a storage denial on row 0 insertion reports row 1; source-unit insertions have the same defect. Activate the current indexed row and static insertion form before the first storage charge, and test denial on an earlier row after a successful multi-row witness join. | crates/quire-contract-model/src/checked_package/v2/runtime_type_projection.rs:906 |
+| FND-005 | medium | Locus capture performs an uncharged identity lookup before admitting the work it annotates: charge calls locate, which searches package.node_index before budget.charge. Zero-work projection therefore still performs BTreeMap node comparisons; nominal_reads Budget::charge/storage similarly call locate/index.get before charging. This adds unbounded identity-comparison work before the first unpaid inspection. Carry direct admitted graph positions/current row indices, or admit the lookup work before executing it without losing the denied locus. | crates/quire-contract-model/src/checked_package/v2/runtime_type_projection.rs:360 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1: Removed runtime_node_storage; all three quantity copies call the existing native_join_storage::node. |
+| FND-002 | fixed | Round 1: slot_type and slot_type_runtime both delegate to slot_type_inner, which owns the one multiplicity decision table. |
+| FND-003 | fixed | Round 1: Added Copy NativeJoinLocus source indices/static forms, denial capture and constant-time denied_node resolution. This replaces total locus erasure; newly introduced attribution/work issues are separately recorded as FND-004 and FND-005. |
+| FND-004 | still-open | Round 1: New finding: insertion charges retain the prior active row instead of the current row. |
+| FND-005 | still-open | Round 1: New finding: locus lookup runs before the charged inspection is admitted. |
+
+## Round 1 Verdict
+
+FAIL. FND-001 through FND-003 are statically addressed; FND-004 and FND-005 remain open. The new fixed-size representation and direct denied_node resolution allocate nothing; top-level runtime and exact_read restore previous active locus on Result success/refusal paths. New tests cover shared multiplicity values, first-denial preservation, zero limits, row preflight work denial and default context restoration, but do not exercise post-witness earlier-row insertion attribution. New focused checks are queued and were not run by this reviewer. Earlier 102 passing receipts cover the earlier candidate only and do not establish these fixes. Lead-owned final combined-tree gate remains pending.

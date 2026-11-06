@@ -86,7 +86,6 @@ struct Budget<'b> {
     limit: u64,
     native: Option<&'b mut NativeJoinBudget>,
     before: NativeJoinCharge,
-    node_index: Option<&'b std::collections::BTreeMap<CheckedNodeId, usize>>,
 }
 impl Budget<'_> {
     fn numeric(limit: u64) -> Self {
@@ -95,32 +94,24 @@ impl Budget<'_> {
             limit,
             native: None,
             before: NativeJoinCharge::default(),
-            node_index: None,
         }
     }
 
-    fn native<'a>(
-        budget: &'a mut NativeJoinBudget,
-        node_index: &'a std::collections::BTreeMap<CheckedNodeId, usize>,
-    ) -> Budget<'a> {
+    fn native(budget: &mut NativeJoinBudget) -> Budget<'_> {
         let before = budget.begin();
         Budget {
             work: 0,
             limit: budget.remaining_work(),
             native: Some(budget),
             before,
-            node_index: Some(node_index),
         }
     }
 
-    fn locate(&mut self, node: &CheckedNodeId) {
-        if let (Some(budget), Some(index)) = (
-            &mut self.native,
-            self.node_index.and_then(|index| index.get(node)),
-        ) {
+    fn graph_locus(&mut self, position: usize) {
+        if let Some(budget) = &mut self.native {
             if budget.active_locus().is_some() {
                 budget.set_active_locus(Some(NativeJoinLocus {
-                    source: NativeJoinLocusSource::GraphNode(*index),
+                    source: NativeJoinLocusSource::GraphNode(position),
                     form: "selected_unit_definition",
                 }));
             }
@@ -132,7 +123,6 @@ impl Budget<'_> {
         amount: u128,
         node: &'a CheckedNodeId,
     ) -> Result<(), NominalReadError<'a>> {
-        self.locate(node);
         if self
             .native
             .as_mut()
@@ -162,7 +152,6 @@ impl Budget<'_> {
         amount: usize,
         node: &'a CheckedNodeId,
     ) -> Result<(), NominalReadError<'a>> {
-        self.locate(node);
         let amount = u64::try_from(amount).unwrap_or(u64::MAX);
         if let Some(budget) = &mut self.native {
             if !budget.charge(NativeJoinChargeKind::Work, u128::from(amount)) {
@@ -206,10 +195,21 @@ impl Budget<'_> {
         package: &'a CheckedPackageV2,
         id: &'a CheckedNodeId,
     ) -> Result<&'a CheckedSemanticNodeV2, NominalReadError<'a>> {
+        self.node_with_position(package, id).map(|(_, node)| node)
+    }
+
+    fn node_with_position<'a>(
+        &mut self,
+        package: &'a CheckedPackageV2,
+        id: &'a CheckedNodeId,
+    ) -> Result<(usize, &'a CheckedSemanticNodeV2), NominalReadError<'a>> {
+        // Identity work is paid before comparing the key in the retained index.
         self.identity(id)?;
-        package
-            .node(id)
-            .ok_or_else(|| self.error(NominalReadCode::MissingNode, id))
+        let (position, node) = package
+            .node_with_position(id)
+            .ok_or_else(|| self.error(NominalReadCode::MissingNode, id))?;
+        self.graph_locus(position);
+        Ok((position, node))
     }
 }
 
@@ -333,19 +333,52 @@ impl CheckedPackageV2 {
         rows: &'a [NominalDeclarationRow<'a>],
         native_budget: &mut NativeJoinBudget,
     ) -> Result<UnitDefinitionRead<'a>, NominalReadError<'a>> {
-        let mut budget = Budget::native(native_budget, &self.node_index);
+        self.read_unit_definition_inner(requested, rows, None, None, native_budget)
+    }
+
+    pub(crate) fn read_unit_definition_runtime<'a>(
+        &'a self,
+        requested: &'a [CheckedNodeId],
+        rows: &'a [NominalDeclarationRow<'a>],
+        positions: &[usize],
+        dimension_positions: &mut Vec<usize>,
+        native_budget: &mut NativeJoinBudget,
+    ) -> Result<UnitDefinitionRead<'a>, NominalReadError<'a>> {
+        self.read_unit_definition_inner(
+            requested,
+            rows,
+            Some(positions),
+            Some(dimension_positions),
+            native_budget,
+        )
+    }
+
+    fn read_unit_definition_inner<'a>(
+        &'a self,
+        requested: &'a [CheckedNodeId],
+        rows: &'a [NominalDeclarationRow<'a>],
+        positions: Option<&[usize]>,
+        mut dimension_positions: Option<&mut Vec<usize>>,
+        native_budget: &mut NativeJoinBudget,
+    ) -> Result<UnitDefinitionRead<'a>, NominalReadError<'a>> {
+        let mut budget = Budget::native(native_budget);
+        if let Some(position) = positions.and_then(|positions| positions.first()) {
+            budget.graph_locus(*position);
+        }
         let locus = requested
             .first()
             .or_else(|| rows.first().map(|row| row.node));
         if let Some(locus) = locus {
-            budget.storage(1, locus)?;
-            budget.storage(1, locus)?;
-            budget.storage(1, locus)?;
+            budget.storage(4, locus)?;
         }
+        let mut pending = Vec::new();
         let mut units = Vec::new();
         let mut nodes = BTreeSet::new();
         let mut identities = BTreeSet::new();
-        for row in rows {
+        for (index, row) in rows.iter().enumerate() {
+            if let Some(position) = positions.and_then(|positions| positions.get(index)) {
+                budget.graph_locus(*position);
+            }
             budget.charge(1, row.node)?;
             let node = declaration(self, row, &mut budget)?;
             let NominalIdentity::Unit(identity @ UnitId::Declared(key)) = row.identity else {
@@ -371,7 +404,8 @@ impl CheckedPackageV2 {
             else {
                 return Err(budget.error(NominalReadCode::UnsupportedForm, row.node));
             };
-            let dimension = budget.node(self, dimension_node_id)?;
+            let (dimension_position, dimension) =
+                budget.node_with_position(self, dimension_node_id)?;
             let CheckedTerm::NominalBody(dimension_body) = &dimension.body else {
                 return Err(budget.error(NominalReadCode::UnresolvedConversion, dimension_node_id));
             };
@@ -387,6 +421,12 @@ impl CheckedPackageV2 {
                 .as_ref()
                 .map(|id| budget.node(self, id))
                 .transpose()?;
+            budget.graph_locus(dimension_position);
+            budget.storage(2, row.node)?;
+            pending.push((dimension_position, dimension));
+            if let Some(position) = positions.and_then(|positions| positions.get(index)) {
+                budget.graph_locus(*position);
+            }
             budget.storage(1, row.node)?;
             units.push(UnitRead {
                 node,
@@ -403,7 +443,10 @@ impl CheckedPackageV2 {
             budget.storage(1, locus)?;
         }
         let mut requests = BTreeSet::new();
-        for id in requested {
+        for (index, id) in requested.iter().enumerate() {
+            if let Some(position) = positions.and_then(|positions| positions.get(index)) {
+                budget.graph_locus(*position);
+            }
             budget.identity(id)?;
             budget.storage(2, id)?;
             if !requests.insert(id) {
@@ -413,7 +456,10 @@ impl CheckedPackageV2 {
                 return Err(budget.error(NominalReadCode::MissingWitness, id));
             }
         }
-        for row in rows {
+        for (index, row) in rows.iter().enumerate() {
+            if let Some(position) = positions.and_then(|positions| positions.get(index)) {
+                budget.graph_locus(*position);
+            }
             budget.charge(1, row.node)?;
             if !requests.contains(row.node) {
                 return Err(budget.error(NominalReadCode::ForeignWitness, row.node));
@@ -421,7 +467,10 @@ impl CheckedPackageV2 {
         }
         // Admission checks conversion consistency/cycles. This read additionally
         // requires a witnessed selected row for every retained target.
-        for unit in &units {
+        for (index, unit) in units.iter().enumerate() {
+            if let Some(position) = positions.and_then(|positions| positions.get(index)) {
+                budget.graph_locus(*position);
+            }
             budget.charge(1, &unit.node.node_id)?;
             if let Some(target) = unit.target {
                 if !nodes.contains(&target.node_id) {
@@ -430,17 +479,13 @@ impl CheckedPackageV2 {
             }
         }
         if let Some(locus) = locus {
-            budget.storage(3, locus)?;
+            budget.storage(2, locus)?;
         }
         let mut dimensions = Vec::new();
         let mut seen = BTreeSet::new();
-        let mut pending = Vec::new();
-        for unit in &units {
-            budget.storage(1, &unit.node.node_id)?;
-            pending.push(unit.dimension);
-        }
         let mut next = 0;
-        while let Some(dimension) = pending.get(next).copied() {
+        while let Some((position, dimension)) = pending.get(next).copied() {
+            budget.graph_locus(position);
             next += 1;
             budget.identity(&dimension.node_id)?;
             budget.storage(2, &dimension.node_id)?;
@@ -455,8 +500,15 @@ impl CheckedPackageV2 {
             };
             for term in terms {
                 budget.charge(term.exponent.len().saturating_add(1), &dimension.node_id)?;
+                let (child_position, child) =
+                    budget.node_with_position(self, &term.dimension_node_id)?;
+                budget.storage(2, &dimension.node_id)?;
+                pending.push((child_position, child));
+            }
+            budget.graph_locus(position);
+            if let Some(metadata) = dimension_positions.as_deref_mut() {
                 budget.storage(1, &dimension.node_id)?;
-                pending.push(budget.node(self, &term.dimension_node_id)?);
+                metadata.push(position);
             }
             budget.storage(1, &dimension.node_id)?;
             dimensions.push(DimensionRead {

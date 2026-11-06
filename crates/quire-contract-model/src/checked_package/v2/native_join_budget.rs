@@ -35,6 +35,10 @@ pub enum NativeJoinLocusSource {
     Package,
     /// Index into the admitted package's semantic graph.
     GraphNode(usize),
+    /// Index into the admitted model declaration iterator.
+    SelectedDeclaration(usize),
+    /// Index into the caller's selected Exact declaration rows.
+    IdentityDeclaration(usize),
     /// Index into the runtime caller's tuple rows.
     TupleRow(usize),
     /// Index into the runtime caller's source-unit rows.

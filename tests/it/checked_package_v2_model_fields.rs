@@ -2779,7 +2779,7 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
     let exhausted = admitted
         .project_selected_type_declarations(
             &identities,
-            &[row],
+            std::slice::from_ref(&row),
             &[],
             &mut quire_contract_model::NativeJoinBudget::new(view.work() - 1, u64::MAX),
         )
@@ -8287,7 +8287,7 @@ fn complete_identity_witness_tuple_validation_matches_projection() {
     let direct = empty
         .with_admitted_type_rows(
             &package,
-            std::slice::from_ref(&row),
+            &[row],
             &[],
             &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
@@ -8306,4 +8306,92 @@ fn complete_identity_witness_tuple_validation_matches_projection() {
     );
     assert_eq!(projection.code, direct.code);
     assert_eq!(projection.at.as_deref(), Some(&primitive));
+}
+
+#[test]
+#[trace("TC-469", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
+fn runtime_two_tuple_indices_activate_the_first_row_after_witness_join() {
+    use quire_contract_model::{NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource};
+    let tuple = |name: &str| {
+        json!({"identity":orders(name),"displayName":name,
+        "kind":{"module":IDENTITY,"name":"tuple"},
+        "positions":[{"identity":format!("{}/p0",orders(name)),"typeRef":"ix://quire/native/Boolean"}]})
+    };
+    let mut selected = document(vec![tuple("First"), tuple("Second")]);
+    selected["constructs"].as_array_mut().unwrap().push(json!({
+        "kind":{"module":IDENTITY,"name":"tuple"},
+        "construct":{"meaning":"quire.meaning.model.tuple-value-type/v1"}
+    }));
+    let package = admit(
+        &selected,
+        &[
+            ("First", "tuple_value_type"),
+            ("Second", "tuple_value_type"),
+        ],
+        &[],
+    );
+    let rows: Vec<_> = ["First", "Second"]
+        .into_iter()
+        .map(|name| {
+            SelectedTupleDeclarationRow::new(
+                serde_json::from_value(node_id(&declaration_key(name, "tuple_value_type")))
+                    .unwrap(),
+                IDENTITY,
+                orders(name),
+                NodeKey::new("stage", vec![PathSegment::Text(name.into())], 0).unwrap(),
+            )
+        })
+        .collect();
+    let identities = SelectedExactIdentities::empty();
+    let mut ample = NativeJoinBudget::new(10_000, u64::MAX);
+    let view = package
+        .project_selected_type_declarations(&identities, &rows, &[], &mut ample)
+        .unwrap();
+    assert_eq!(view.tuples().len(), 2);
+    assert_eq!(view.tuples()[0].positions(), &[ValueType::Boolean]);
+    let measured = ample.consumed();
+    let mut saw_first_insertion = false;
+    for storage in 0..measured.storage {
+        let mut short = NativeJoinBudget::new(measured.work, storage);
+        let error = package
+            .project_selected_type_declarations(&identities, &rows, &[], &mut short)
+            .unwrap_err();
+        if error.denied_locus
+            == Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::TupleRow(0),
+                form: "selected_tuple_index",
+            })
+        {
+            assert_eq!(
+                error.denied_node(&package, &rows, &[]),
+                Some(&rows[0].structural_node)
+            );
+            assert_eq!(error.denied_locus, short.first_unpaid_locus());
+            assert_eq!(error.denied, short.first_unpaid());
+            assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
+            saw_first_insertion = true;
+            break;
+        }
+    }
+    assert!(
+        saw_first_insertion,
+        "row zero insertion must follow a successful multirow witness join"
+    );
+    // Before resolving any declaration identity, its real request ordinal is sufficient.
+    let work = u64::try_from(package.graph().nodes.len()).unwrap();
+    let mut before_declaration = NativeJoinBudget::new(work, u64::MAX);
+    let error = package
+        .project_selected_type_declarations(&identities, &rows, &[], &mut before_declaration)
+        .unwrap_err();
+    assert_eq!(
+        error.denied_locus,
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::SelectedDeclaration(0),
+            form: "selected_declaration"
+        })
+    );
+    assert_eq!(error.denied_node(&package, &rows, &[]), None);
+    assert_eq!(error.at, None);
+    assert_eq!(error.form, None);
+    assert_eq!(before_declaration.consumed().work, work);
 }

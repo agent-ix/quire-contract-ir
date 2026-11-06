@@ -36,3 +36,8 @@ PASS. The spec defines incomplete/refused results, first-denial preservation, cu
 Plan completion: not assessed
 
 No Cargo rebuild or aggregate gate was run by this reviewer. Inspected existing receipts: one helper ownership test, four Exact helper tests, 85 model/runtime tests and 12 nominal tests pass; workspace Clippy, formatter and two-document specification validation pass. Final combined-tree gate remains lead-owned and pending. The static matrix command completed within its 45-second bound; no evidence store was used. Optional gap-analysis semantic fan-out was not requested and was skipped; mandatory code/test alignment was performed in the Rust lane. No whole-repository assurance claim is made.
+
+
+## Round 1 Evidence Status
+
+Static fix review does not change this method's original scoped conclusion. No global matrix recomputation or Cargo rebuild was performed. New regression receipts remain pending; prior 102 tests apply only to the earlier candidate. The lead final combined-tree gate remains pending. See the code-review round 1 new findings before merge.
