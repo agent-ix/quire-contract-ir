@@ -1575,6 +1575,7 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | CompositeTypeForm::Set
             | CompositeTypeForm::Bag
             | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Map
             | CompositeTypeForm::Record
             | CompositeTypeForm::Tuple
             | CompositeTypeForm::Union
@@ -1736,6 +1737,7 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | CompositeTypeForm::Set
             | CompositeTypeForm::Bag
             | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Map
             | CompositeTypeForm::Record
             | CompositeTypeForm::Tuple
             | CompositeTypeForm::Union

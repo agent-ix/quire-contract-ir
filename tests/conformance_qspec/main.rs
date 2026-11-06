@@ -52,7 +52,13 @@ use fixture_support::retention_definition;
 mod fma_application;
 mod grouped_ordinal;
 mod hybrid;
+mod map_type_vectors;
 mod model_option_types;
+mod support {
+    pub(crate) use crate::fixture_support as checked_package;
+}
+#[path = "../it/checked_package_v2_map_type.rs"]
+mod map_type;
 mod model_root;
 mod model_tuple_union;
 mod monitor_plan;

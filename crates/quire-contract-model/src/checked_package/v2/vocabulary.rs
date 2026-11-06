@@ -155,6 +155,7 @@ closed_vocabulary! {
         Set => "set",
         Bag => "bag",
         OrderedSet => "ordered_set",
+        Map => "map",
         Record => "record",
         Tuple => "tuple",
         Union => "union",

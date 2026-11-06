@@ -45,6 +45,7 @@ mod checked_package_v2_identity_digests;
 mod checked_package_v2_ieee_admission;
 mod checked_package_v2_literal_bodies;
 mod checked_package_v2_lowering;
+mod checked_package_v2_map_type;
 mod checked_package_v2_model_fields;
 mod checked_package_v2_model_members;
 mod checked_package_v2_model_root;

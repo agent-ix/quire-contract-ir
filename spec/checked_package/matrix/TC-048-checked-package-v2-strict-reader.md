@@ -2785,7 +2785,7 @@ these vectors; do not infer its reader outcome from their results.
 
 ## Anonymous Map type admission (FR-038-AC-482 through FR-038-AC-485)
 
-Status: PLANNED/UNRUN (IR-1356). Read QSpec's current
+Status: IMPLEMENTED (IR-1356; focused reader and QSpec MT controls pass). Read QSpec's current
 `proposals/checked-package-v2/map-type-vectors.json` through
 `QUIRE_SPECIFICATION_DIR`. Require MT-01 through MT-07 and build complete,
 otherwise valid V2 packages around the published forms. No local copy of a

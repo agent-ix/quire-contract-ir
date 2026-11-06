@@ -852,6 +852,7 @@ impl NominalKind {
                 | CompositeTypeForm::Set
                 | CompositeTypeForm::Bag
                 | CompositeTypeForm::OrderedSet
+                | CompositeTypeForm::Map
                 | CompositeTypeForm::Record
                 | CompositeTypeForm::Tuple
                 | CompositeTypeForm::Union

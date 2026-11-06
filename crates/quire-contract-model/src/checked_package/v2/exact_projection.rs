@@ -6,15 +6,17 @@ use super::model_members::DeclarationForm;
 use super::model_members::{CollectionKind as CheckedCollectionKind, MemberType};
 use super::native_join_budget::{NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind};
 use super::native_join_storage as storage;
-use super::structural::{reference_type_target_typed, typed_aggregate};
+use super::structural::{
+    reference_type_target_typed, typed_aggregate, typed_binding, typed_reference,
+};
 use super::{
     BoundedDomainForm, CheckedLiteralValue, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner,
     CheckedPackageV2, CheckedTerm, CompositeTypeForm, ModelForm, ScalarTypeForm, ValueForm,
 };
 use quire_exact::{
     CardinalityBound, CollectionKind, CollectionType, EffectiveId, EnumShape, FieldDeclaration,
-    Integer, IntegerInterval, MemberId, MemberOwner, NodeKey, Presence, UnionMember, UnitId,
-    ValueType, VariantId,
+    Integer, IntegerInterval, MapType, MemberId, MemberOwner, NodeKey, Presence, UnionMember,
+    UnitId, ValueType, VariantId,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -3153,13 +3155,101 @@ impl CheckedPackageV2 {
                 | CompositeTypeForm::OrderedSet,
             )
             | CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds) => {
-                let row = identities.source_collections.get(type_id).ok_or_else(|| {
-                    refuse(
-                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                        work,
+                if kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds)
+                    && self.node_kind(&type_node.semantic_type)
+                        == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
+                {
+                    let (lower, upper) = self
+                        .term(type_id)
+                        .and_then(integer_range_bounds)
+                        .ok_or_else(|| {
+                            refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                        })?;
+                    charge_work_amount(
+                        requested,
+                        type_id,
+                        "map_bounds",
+                        &mut work,
+                        work_limit,
+                        u64::try_from(lower.len().saturating_add(upper.len())).unwrap_or(u64::MAX),
+                    )?;
+                    let (lower, upper) = (lower.parse::<u64>(), upper.parse::<u64>());
+                    let bound = CardinalityBound::new(
+                        lower.map_err(|_| {
+                            refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                        })?,
+                        upper.map_err(|_| {
+                            refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                        })?,
                     )
-                })?;
-                project_source_collection(self, identities, row, requested, &mut work, work_limit)?
+                    .map_err(|_| {
+                        refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                    })?;
+                    let map = self
+                        .project_exact_type(
+                            &type_node.semantic_type,
+                            identities,
+                            work_limit.saturating_sub(work),
+                        )
+                        .map_err(|mut error| {
+                            error.work = work.saturating_add(error.work);
+                            error.requested = Box::new(requested.clone());
+                            error
+                        })?;
+                    work = work.saturating_add(map.work());
+                    let ValueType::Map(projected) = map.value_type() else {
+                        return Err(refuse(
+                            ExactTypeProjectionErrorCode::UnsupportedExactType,
+                            work,
+                        ));
+                    };
+                    ValueType::map(MapType::new(projected.values().clone(), Some(bound)))
+                } else {
+                    let row = identities.source_collections.get(type_id).ok_or_else(|| {
+                        refuse(
+                            ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                            work,
+                        )
+                    })?;
+                    project_source_collection(
+                        self, identities, row, requested, &mut work, work_limit,
+                    )?
+                }
+            }
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Map) => {
+                let [key, value] =
+                    self.term(type_id)
+                        .and_then(typed_aggregate)
+                        .ok_or_else(|| {
+                            refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                        })?
+                else {
+                    return Err(refuse(
+                        ExactTypeProjectionErrorCode::UnsupportedExactType,
+                        work,
+                    ));
+                };
+                let key = typed_binding(key, "key")
+                    .and_then(typed_reference)
+                    .ok_or_else(|| {
+                        refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                    })?;
+                let value = typed_binding(value, "value")
+                    .and_then(typed_reference)
+                    .ok_or_else(|| {
+                        refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                    })?;
+                charge_work(requested, key, "map_key", &mut work, work_limit)?;
+                if self.node_kind(key) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text)) {
+                    return Err(refuse(
+                        ExactTypeProjectionErrorCode::UnsupportedExactType,
+                        work,
+                    ));
+                }
+                let projected = project_collection_element(
+                    self, identities, requested, value, &mut work, work_limit,
+                )?;
+                ValueType::map(MapType::new(projected, None))
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
                 let target = reference_type_target_typed(type_node).ok_or_else(|| {

@@ -1148,6 +1148,7 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | CompositeTypeForm::Bag
             | CompositeTypeForm::OrderedSet,
         ) => true,
+        K::CompositeType(CompositeTypeForm::Map) => true,
         K::CompositeType(
             CompositeTypeForm::Option
             | CompositeTypeForm::Record
