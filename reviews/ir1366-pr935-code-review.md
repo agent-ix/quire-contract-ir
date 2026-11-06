@@ -3,7 +3,7 @@ id: SR-2026110602354627
 title: "IR-1366 PR 935 code-review review"
 type: SpecReview
 analysis: code-review
-scope: "agent-ix/quire-contract-ir; IR-1366; runtime_type_projection, nominal_reads, charged model_members, reached Exact witness helpers, FR-360, TC-469"
+scope: "agent-ix/quire-contract-ir; IR-1366; runtime_type_projection, nominal_reads, charged model_members, reached Exact witness helpers, FR-360, TC-470"
 review_set: subset
 ---
 
@@ -19,7 +19,7 @@ Ticket: IR-1366. Rust lane included. Searched existing footprint helpers and slo
 - role: examined; id: FR-360-AC-4; path: spec/checked_package/functional/FR-360-charge-runtime-type-projection-with-shared-budget.md; excerpt: At sufficient limits, representative source and model runtime type reads, selected nominal reads, and selected unit-definition reads return the same complete values, original identities, order, and semantic refusal causes as the existing behavior. Equal input, rows, and limits produce equal values, cumulative charges, deltas, or first refusals for the original and a clone of the admitted package.
 - role: examined; id: FR-360-AC-5; path: spec/checked_package/functional/FR-360-charge-runtime-type-projection-with-shared-budget.md; excerpt: Runtime projection and monitor-closure paths use budget-aware variants for `DomainModel::element_type` / `slot_type` and other helpers, charging every reachable `BTreeSet` / `Vec`, cloned name/member type, formatted unit string, and other allocation to the caller's `NativeJoinBudget` before allocation or copy. This ticket does not add storage accounting to `WorkMeter` / `model_members::Budget` or widen `model_fields`, `model_operations`, semantic-operation, state, `step_relation`, or `comparison_operands` APIs; these serve separate paths and are not called by the audited runtime/closure path.
 
-Changed production files examined: runtime_type_projection.rs; nominal_reads.rs; model_members.rs; exact_projection.rs and exact_projection/complete_witness.rs. Changed test files examined: model_members/tests.rs; checked_package_v2_model_fields.rs and operation_census.rs; nominal_reads.rs. TC-469 procedure and expected results examined. FR-358/FR-359/FR-354 and repository README/CLAUDE/AGENTS are context only.
+Changed production files examined: runtime_type_projection.rs; nominal_reads.rs; model_members.rs; exact_projection.rs and exact_projection/complete_witness.rs. Changed test files examined: model_members/tests.rs; checked_package_v2_model_fields.rs and operation_census.rs; nominal_reads.rs. TC-470 procedure and expected results examined. FR-358/FR-359/FR-354 and repository README/CLAUDE/AGENTS are context only.
 
 ## Findings
 
@@ -60,6 +60,9 @@ No Cargo rebuild or aggregate gate was run by this reviewer. Inspected existing 
 | FND-005 | fixed | Round 2: ProjectionBudget and nominal Budget no longer carry an identity-map locator; charge/storage update only fixed metadata before charging. Nominal node_with_position pays identity traversal before the shared lookup. Graph and row positions are retained; unresolved declaration coordinates resolve honestly to None without iterator scans. |
 | FND-006 | still-open | Round 2: New finding: the second term inspection retains the previously resolved child graph position. |
 | FND-006 | fixed | Round 3: Every sibling term reactivates its already-paid parent dimension position before exponent work; child lookup may then change the context without leaking into the next sibling. |
+| FND-007 | still-open | Integration round 4: selected_closure_walk::Walk::visit reaches visit_selected_edges, which creates its own pending Vec and pushes Term/Children frames without a storage-budget hook. The caller precharges its four walk containers but cannot account for this separate depth-growing stack. A reached nested Aggregate can allocate or grow the visitor stack despite having no storage remaining for it. Use a shared budget-aware visitor/core that admits each traversal-buffer container and frame before ownership while preserving the independent nonruntime visitor API. |
+| FND-008 | still-open | Integration round 4: followed_model_nodes collects every selected record/object field through try_fold before admitting any per-field work; the fold charges storage only, and charge(work, ...) occurs in a later loop. With ample storage and work ending at the bearing declaration, the complete field table is still traversed and copied before the first field work refusal. Admit each field inspection before reading/retaining it, or process fields incrementally through one charged pass. |
+| FND-009 | still-open | Integration round 4: Both selected_declarations loops enumerate and charge every package declaration before testing reached.contains (also lines 1096-1107). Adding an emitted unrelated selected record/object/variant therefore changes reached-only work and temporary storage, and can make a previously exact-budget monitor read refuse. FR-357-AC-13 requires the exact reached-only allowance to be unchanged; AC-14 forbids package-wide discovery scans. Restore reached-key enumeration with admitted direct declaration lookup rather than a scan filtered after charging. |
 
 ## Round 1 Verdict
 
@@ -115,3 +118,22 @@ Actual newly completed receipts were inspected: the duration-green script uses -
 Additional examined scope: spec/model/functional/FR-019-rust-library-interface.md closed export inventory; the new FR-360 metadata paragraph; public_interface exact inventory; duration helper, common text_parts footprint and owner/zero-storage tests. role: examined; excerpt: "The runtime refusal metadata types `NativeJoinLocus` and `NativeJoinLocusSource`".
 
 Current scoped verdict: PASS. The latest six scratch artifacts must be copied and committed before the corrected final combined-tree gate. That full gate remains pending; existing repository-wide matrix gaps remain qualified, with no global assurance PASS claimed.
+
+
+## New findings (disposition pass 4)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-007 | high | selected_closure_walk::Walk::visit reaches visit_selected_edges, which creates its own pending Vec and pushes Term/Children frames without a storage-budget hook. The caller precharges its four walk containers but cannot account for this separate depth-growing stack. A reached nested Aggregate can allocate or grow the visitor stack despite having no storage remaining for it. Use a shared budget-aware visitor/core that admits each traversal-buffer container and frame before ownership while preserving the independent nonruntime visitor API. | crates/quire-contract-model/src/checked_package/v2/typed_terms.rs:1679 |
+| FND-008 | medium | followed_model_nodes collects every selected record/object field through try_fold before admitting any per-field work; the fold charges storage only, and charge(work, ...) occurs in a later loop. With ample storage and work ending at the bearing declaration, the complete field table is still traversed and copied before the first field work refusal. Admit each field inspection before reading/retaining it, or process fields incrementally through one charged pass. | crates/quire-contract-model/src/checked_package/v2/monitor_plan/reached_model_read.rs:417 |
+| FND-009 | high | Both selected_declarations loops enumerate and charge every package declaration before testing reached.contains (also lines 1096-1107). Adding an emitted unrelated selected record/object/variant therefore changes reached-only work and temporary storage, and can make a previously exact-budget monitor read refuse. FR-357-AC-13 requires the exact reached-only allowance to be unchanged; AC-14 forbids package-wide discovery scans. Restore reached-key enumeration with admitted direct declaration lookup rather than a scan filtered after charging. | crates/quire-contract-model/src/checked_package/v2/runtime_type_projection.rs:839 |
+
+## Integration Round 4 Verdict
+
+FAIL. The new upstream reached-model prerequisite is now reachable from the shared runtime budget path. Audited graph walk, reached reader, private enum stage/read cores, shape attachment and nested projection. The six earlier findings remain fixed, but this integration introduces three unresolved resource/noninterference defects. Source verdict FAIL; current-head regression receipts remain pending.
+
+## Current Integration Scope
+
+Current own runtime test artifact: TC-470 at spec/checked_package/matrix/TC-470-runtime-type-projection-shared-budget.md. The upstream TC-469 reached-model artifact is preserved. Historical evidence and findings retain their original context. Additional examined paths: monitor_plan/selected_closure_walk.rs, monitor_plan/reached_model_read.rs, model_enum_witness.rs, typed_terms::visit_selected_edges, exact_projection::with_model_enum_shapes, shared native storage/budget, FR-360 reached-path Behavior, and FR-357-AC-13/14. The public nonruntime numeric enum and independent model getters remain unchanged. Nested reads use the same native budget, and outer success/refusal restores scoped mode/locus; no fresh native allowance was found.
+
+The new upstream reached-model prerequisite is now reachable from the shared runtime budget path. Audited graph walk, reached reader, private enum stage/read cores, shape attachment and nested projection. The six earlier findings remain fixed, but this integration introduces three unresolved resource/noninterference defects. Source verdict FAIL; current-head regression receipts remain pending. No build, new worktree or global matrix rerun was performed. Earlier passing receipts concern earlier candidates and are not current-head execution evidence. Prior failed full-gate attempts remain historical failures; a successful final combined-tree gate is still required after fixes and artifact custody.

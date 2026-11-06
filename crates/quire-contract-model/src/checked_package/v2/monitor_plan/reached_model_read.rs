@@ -1593,4 +1593,59 @@ mod tests {
         );
         assert!(exhausted.first_unpaid_locus().is_some());
     }
+    #[trace("TC-470", "FR-357-AC-13", "FR-357-AC-14", "FR-360-AC-2")]
+    #[test]
+    fn emitted_unreached_declaration_does_not_change_exact_shared_allowance() {
+        let (wire, mut document) = monitor_plan_fixtures::model_fact_monitor_with_variant(false);
+        with_unemitted_record(&mut document);
+        let baseline = admit_wire(&wire, &document);
+        let mut emitted = wire;
+        let original = "ix://test/families/Unemitted";
+        let id = fixture_support::structural_id(
+            "test/families",
+            vec![
+                serde_json::json!("model"),
+                serde_json::json!("record_value_type"),
+                serde_json::json!(original),
+            ],
+            0,
+        );
+        emitted["semantic_graph"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({
+            "node_id": id, "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"model", "semantic_form":"record_value_type", "semantic_type":id, "dependencies":[], "occurrences":[{"role":"generated","ordinal":0}], "owner":{"kind":"model","identity":"test/families","node":original}, "body": {"kind":"aggregate", "members":[]}
+        }));
+        fixture_support::refresh_identity(&mut emitted);
+        let extra = admit_wire(&emitted, &document);
+        assert!(extra
+            .models
+            .selected_declaration_entry(&selected_node(&extra, original))
+            .is_some());
+        let (declarations, fields, units) = producer_rows(&baseline);
+        let read = |package: &CheckedPackageV2, budget: &mut NativeJoinBudget| {
+            package
+                .monitor_plans()
+                .next()
+                .unwrap()
+                .read_reached_model_facts(
+                    ReachedProducerRows {
+                        declarations: &declarations,
+                        fields: &fields,
+                        tuples: &[],
+                        source_units: &units,
+                        enum_declarations: &[],
+                        enum_members: &[],
+                        enum_shapes: &[],
+                    },
+                    budget,
+                )
+        };
+        let mut generous = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let expected = read(&baseline, &mut generous).unwrap();
+        let used = generous.consumed();
+        let mut exact = NativeJoinBudget::new(used.work, used.storage);
+        let actual = read(&extra, &mut exact).expect(
+            "an emitted unreachable declaration must not enter reached lookup or its allowance",
+        );
+        assert_eq!(actual.types, expected.types);
+        assert_eq!(exact.consumed(), used);
+    }
 }

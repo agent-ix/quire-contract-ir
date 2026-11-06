@@ -3,7 +3,7 @@ id: SR-2026110602354628
 title: "IR-1366 PR 935 gap-analysis review"
 type: SpecReview
 analysis: gap-analysis
-scope: "agent-ix/quire-contract-ir; IR-1366; runtime_type_projection, nominal_reads, charged model_members, reached Exact witness helpers, FR-360, TC-469"
+scope: "agent-ix/quire-contract-ir; IR-1366; runtime_type_projection, nominal_reads, charged model_members, reached Exact witness helpers, FR-360, TC-470"
 review_set: subset
 ---
 
@@ -19,7 +19,7 @@ Ticket: IR-1366. All five FR-360 criteria are tagged by active behavioral tests.
 - role: examined; id: FR-360-AC-4; path: spec/checked_package/functional/FR-360-charge-runtime-type-projection-with-shared-budget.md; excerpt: At sufficient limits, representative source and model runtime type reads, selected nominal reads, and selected unit-definition reads return the same complete values, original identities, order, and semantic refusal causes as the existing behavior. Equal input, rows, and limits produce equal values, cumulative charges, deltas, or first refusals for the original and a clone of the admitted package.
 - role: examined; id: FR-360-AC-5; path: spec/checked_package/functional/FR-360-charge-runtime-type-projection-with-shared-budget.md; excerpt: Runtime projection and monitor-closure paths use budget-aware variants for `DomainModel::element_type` / `slot_type` and other helpers, charging every reachable `BTreeSet` / `Vec`, cloned name/member type, formatted unit string, and other allocation to the caller's `NativeJoinBudget` before allocation or copy. This ticket does not add storage accounting to `WorkMeter` / `model_members::Budget` or widen `model_fields`, `model_operations`, semantic-operation, state, `step_relation`, or `comparison_operands` APIs; these serve separate paths and are not called by the audited runtime/closure path.
 
-Changed production files examined: runtime_type_projection.rs; nominal_reads.rs; model_members.rs; exact_projection.rs and exact_projection/complete_witness.rs. Changed test files examined: model_members/tests.rs; checked_package_v2_model_fields.rs and operation_census.rs; nominal_reads.rs. TC-469 procedure and expected results examined. FR-358/FR-359/FR-354 and repository README/CLAUDE/AGENTS are context only.
+Changed production files examined: runtime_type_projection.rs; nominal_reads.rs; model_members.rs; exact_projection.rs and exact_projection/complete_witness.rs. Changed test files examined: model_members/tests.rs; checked_package_v2_model_fields.rs and operation_census.rs; nominal_reads.rs. TC-470 procedure and expected results examined. FR-358/FR-359/FR-354 and repository README/CLAUDE/AGENTS are context only.
 
 ## Findings
 
@@ -86,3 +86,14 @@ Actual newly completed receipts were inspected: the duration-green script uses -
 Additional examined scope: spec/model/functional/FR-019-rust-library-interface.md closed export inventory; the new FR-360 metadata paragraph; public_interface exact inventory; duration helper, common text_parts footprint and owner/zero-storage tests. role: examined; excerpt: "The runtime refusal metadata types `NativeJoinLocus` and `NativeJoinLocusSource`".
 
 Current scoped verdict: PASS. The latest six scratch artifacts must be copied and committed before the corrected final combined-tree gate. That full gate remains pending; existing repository-wide matrix gaps remain qualified, with no global assurance PASS claimed.
+
+
+## Integration Round 4 Status
+
+CONDITIONAL for expanded changed-path gap assurance; code-review has three unresolved integration findings. New current-head test results remain pending. No whole-repository assurance claim is made.
+
+## Current Integration Scope
+
+Current own runtime test artifact: TC-470 at spec/checked_package/matrix/TC-470-runtime-type-projection-shared-budget.md. The upstream TC-469 reached-model artifact is preserved. Historical evidence and findings retain their original context. Additional examined paths: monitor_plan/selected_closure_walk.rs, monitor_plan/reached_model_read.rs, model_enum_witness.rs, typed_terms::visit_selected_edges, exact_projection::with_model_enum_shapes, shared native storage/budget, FR-360 reached-path Behavior, and FR-357-AC-13/14. The public nonruntime numeric enum and independent model getters remain unchanged. Nested reads use the same native budget, and outer success/refusal restores scoped mode/locus; no fresh native allowance was found.
+
+The new upstream reached-model prerequisite is now reachable from the shared runtime budget path. Audited graph walk, reached reader, private enum stage/read cores, shape attachment and nested projection. The six earlier findings remain fixed, but this integration introduces three unresolved resource/noninterference defects. Source verdict FAIL; current-head regression receipts remain pending. No build, new worktree or global matrix rerun was performed. Earlier passing receipts concern earlier candidates and are not current-head execution evidence. Prior failed full-gate attempts remain historical failures; a successful final combined-tree gate is still required after fixes and artifact custody.
