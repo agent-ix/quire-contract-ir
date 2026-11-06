@@ -101,6 +101,48 @@ fn admitted_selected_declaration<'a>(
         .then_some((identity, node, AdmittedDeclarationForm::DeclaredUnit))
 }
 
+fn admitted_selected_declaration_native<'a>(
+    package: &'a CheckedPackageV2,
+    key: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+) -> Result<Option<(&'a str, &'a str, AdmittedDeclarationForm)>, ExactTypeProjectionError> {
+    if let Some((document, original, form)) = package.models.selected_declaration(key) {
+        return Ok(Some((
+            document,
+            original,
+            AdmittedDeclarationForm::Model(form),
+        )));
+    }
+    if package.node_kind(key) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)) {
+        return Ok(None);
+    }
+    let Some(checked) = package.node(key) else {
+        return Ok(None);
+    };
+    let Some(CheckedNodeOwner::Model { identity, node }) = checked.owner.as_ref() else {
+        return Ok(None);
+    };
+    for model in package.models.selected_models() {
+        charge_native_work(budget, key, key, "stage_unit_model", 1)?;
+        charge_native_text_pair(budget, key, "stage_unit_model", &model.identity, identity)?;
+        if model.identity.as_ref() != identity.as_ref() {
+            continue;
+        }
+        for original in model.units.keys() {
+            charge_native_work(budget, key, key, "stage_unit_identity", 1)?;
+            charge_native_text_pair(budget, key, "stage_unit_identity", original, node)?;
+            if original.as_ref() == node.as_ref() {
+                return Ok(Some((
+                    identity,
+                    node,
+                    AdmittedDeclarationForm::DeclaredUnit,
+                )));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// One QSL-stage declaration row, keyed by selected original IR identity.
 ///
 /// IR validates this row's structural join. The opaque Exact identity's
@@ -1233,7 +1275,8 @@ impl SelectedExactIdentities {
             for row in declarations {
                 let node = &row.structural_node;
                 charge_native_work(budget, node, node, "stage_declaration", 1)?;
-                let Some((document, original, form)) = admitted_selected_declaration(package, node)
+                let Some((document, original, form)) =
+                    admitted_selected_declaration_native(package, node, budget)?
                 else {
                     return Err(selected_declaration_error(package, node));
                 };

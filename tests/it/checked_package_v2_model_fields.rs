@@ -2730,7 +2730,7 @@ fn selected_record_many_fields_respects_exact_work_boundary() {
     assert_eq!(one_less.code, ExactTypeProjectionErrorCode::ExhaustedWork);
 }
 
-#[trace("FR-352-AC-5")]
+#[trace("FR-352-AC-5", "FR-358-AC-3")]
 #[test]
 fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
     let mut selected = document(vec![typed_object(
@@ -2821,6 +2821,17 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
             {"term": "binding", "name": "level", "value": {"term": "literal", "type": integer_type, "value_kind": "integer", "value": "0"}}
         ]}
     }));
+    let long_model_identity = format!("aaa/{}", "x".repeat(4096));
+    select_model(&mut wire, &long_model_identity);
+    let model_root = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .pop()
+        .expect("new selected model root");
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, model_root);
     settle(&mut wire);
     let evidence = evidence_with_document(&wire, IDENTITY, &selected);
     let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
@@ -2856,6 +2867,21 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         "ix://acme/orders/unit/second",
         SelectedExactIdentity::DeclaredUnit(unit_id.clone()),
     );
+    let mut short_lookup = quire_contract_model::NativeJoinBudget::new(128, u64::MAX);
+    let lookup_error = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [unit_row.clone()],
+        [],
+        &mut short_lookup,
+    )
+    .expect_err("selected-model identity is charged before the unit lookup scans it");
+    assert_eq!(
+        lookup_error.code,
+        ExactTypeProjectionErrorCode::ExhaustedWork
+    );
+    assert_eq!(lookup_error.form.as_ref(), "stage_unit_model");
+    assert_eq!(lookup_error.at.as_deref(), Some(&unit));
+    assert!(short_lookup.first_unpaid().unwrap().amount >= 4096);
     let field_row = SelectedExactFieldRow::new(
         record.clone(),
         IDENTITY,
