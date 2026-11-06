@@ -9069,7 +9069,7 @@ fn boolean_expression(package: &mut Value, identity: &str, operands: &[Value]) -
 }
 
 fn boolean_atoms(package: &mut Value) -> (Value, Value) {
-    let mut second = package["semantic_graph"]["nodes"]
+    let template = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
@@ -9080,18 +9080,24 @@ fn boolean_atoms(package: &mut Value) -> (Value, Value) {
         })
         .expect("Boolean value literal")
         .clone();
-    let first = second["node_id"].clone();
-    second["body"] = json!({"term": "aggregate", "members": [{
-        "term": "literal", "type": node_id(&family_key("aaaa")),
-        "value_kind": "boolean", "value": false
-    }]});
-    second["node_id"] = node_id("fixture/protocol-body/structural_key/8835");
-    let second_target = second["node_id"].clone();
-    package["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-        .push(second);
-    (first, second_target)
+    let mut targets = Vec::new();
+    for (label, name) in [("8834", "guard_a"), ("8835", "guard_b")] {
+        let mut atom = template.clone();
+        atom["node_id"] = node_id(&format!("fixture/protocol-body/structural_key/{label}"));
+        atom["semantic_form"] = json!("parameter");
+        atom["dependencies"] = json!([]);
+        atom["occurrences"] = json!([{"role":"expression", "ordinal":0}]);
+        atom["body"] = json!({"term":"aggregate", "members":[
+            {"term":"binding", "name":"name", "value":{"term":"literal", "type":node_id(&family_key("a1a1")), "value_kind":"text", "value":name}},
+            {"term":"binding", "name":"level", "value":{"term":"literal", "type":node_id(&family_key("a3a3")), "value_kind":"integer", "value":"0"}}
+        ]});
+        targets.push(atom["node_id"].clone());
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(atom);
+    }
+    (targets.remove(0), targets.remove(0))
 }
 
 /// Trace: FR-038-AC-344, FR-038-AC-345, FR-038-AC-346, FR-038-AC-351, FR-038-AC-355

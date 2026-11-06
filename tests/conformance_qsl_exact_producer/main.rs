@@ -442,7 +442,7 @@ fn genuine_u12_literal_exponent_admits_and_nonliteral_bodies_refuse() {
         &helper,
         &target,
         &[
-            "run",
+            "build",
             "--workspace",
             "--offline",
             "--locked",
@@ -454,6 +454,19 @@ fn genuine_u12_literal_exponent_admits_and_nonliteral_bodies_refuse() {
     assert!(
         emitted.status.success(),
         "literal body producer control:\n{}\n{}",
+        String::from_utf8_lossy(&emitted.stdout),
+        String::from_utf8_lossy(&emitted.stderr)
+    );
+    let emitted = Command::new(
+        target
+            .join("debug")
+            .join(format!("producer{}", env::consts::EXE_SUFFIX)),
+    )
+    .output()
+    .expect("run built producer consumer");
+    assert!(
+        emitted.status.success(),
+        "producer consumer failed:\n{}\n{}",
         String::from_utf8_lossy(&emitted.stdout),
         String::from_utf8_lossy(&emitted.stderr)
     );

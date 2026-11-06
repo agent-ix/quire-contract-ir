@@ -2858,14 +2858,7 @@ fn build_operation_identities() -> Value {
         &["Example", "Widget"],
     );
 
-    let literal_node = plain_node(
-        &literal_key,
-        "value",
-        "literal",
-        &root,
-        &[root.as_str()],
-        literal_body,
-    );
+    let literal_node = plain_node(&literal_key, "value", "literal", &root, &[], literal_body);
 
     let func_node = declared(
         plain_node(

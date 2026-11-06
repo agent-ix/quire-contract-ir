@@ -3442,7 +3442,7 @@ fn scalar_operand_package_named(
         "value",
         "literal",
         &bounded,
-        &[&integer],
+        &[],
         literal_body,
     );
     literal_node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);

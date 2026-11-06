@@ -127,7 +127,7 @@ fn integer_value(name: &str, value: &str) -> Value {
         "value",
         "literal",
         "integer",
-        &["integer"],
+        &[],
         "expression",
         literal("integer", "integer", value),
     )
