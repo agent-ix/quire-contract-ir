@@ -67,6 +67,7 @@ No Cargo rebuild or aggregate gate was run by this reviewer. Inspected existing 
 | FND-008 | fixed | Round 5: follow_fields streams one borrowed iterator, admits work before fields.next, and no longer materializes the complete field table. |
 | FND-009 | fixed | Round 5: Reached graph keys now drive paid direct declaration lookup; one precharged retained list feeds both projection loops. Only ordinary full-package mode enumerates all selected declarations. |
 | FND-010 | still-open | Round 5: The shared-budget walk charges identity work and temporary edge storage before seen_edges.contains, and the charged visitor adds per-frame steps. A repeated identical reference therefore adds more than one work unit, contradicting the retained QSpec-lane repeated_reference_edge_is_charged_once oracle at line 522 (twice.work == once.work + 1) and FR-357-AC-12 wording that repeated identical edges add no charge. Reconcile the owning work semantics and retained conformance oracle with mandatory precharge; preserve actual node/edge dedup and test repeated inspections rather than silently leaving a guaranteed failing lane. |
+| FND-010 | fixed | Round 6: Walk stores borrowed canonical admitted edge IDs, deduplicates before owning retention/enqueue, charges exactly one semantic work unit per Term, and uses visitor hooks only for stack-storage admission. The existing QSpec +1 oracle is unchanged. |
 
 ## Round 1 Verdict
 
@@ -163,3 +164,10 @@ Own runtime test artifact remains TC-470; upstream TC-469 remains preserved. Ori
 ## Round 5 Partial Execution Update
 
 Current confined-check update supplied during review: all-target conformance-cli Clippy, 11 reached-reader tests, 5 runtime tests, 3 budget tests and 5 Exact tests passed; model/runtime selection passed 85 of 86 and stopped at the expected-form assertion in runtime_two_tuple_indices_activate_the_first_row_after_witness_join. The newly paid ordinary declaration-list stage correctly reports SelectedDeclaration(0)/selected_declaration_index before the old semantic stage. Updating only that later expected form is legitimate; the earlier required post-witness row-zero selected_tuple_index assertion remains independent and must stay. Later filters did not run. This is not a full-gate PASS.
+
+
+## Round 6 Verdict
+
+CONDITIONAL pending current execution receipts and the lead final gate. All ten findings are statically fixed; no new finding was found in this narrow disposition.
+
+The genuine repeated-reference red receipt (/tmp/ir1366-round5-repeat-red2.log) was inspected: prior work was 149317 against expected 148908. The new self-contained test compares equal reached-node values, exactly one extra semantic work unit in both result and caller counters, and exactly two additional stack-frame storage units. It preserves the original QSpec-lane once.work + 1 assertion. Four test-only term mutations now use Arc::make_mut to match the shared admitted backing store. The later ordinary-declaration denial expected form is corrected to selected_declaration_index; the earlier required row-zero post-witness insertion oracle remains intact. Borrowed edge tuples allocate nothing, and first-edge retention/enqueue still requires caller storage admission; visitor stack headers/frames remain precharged. No source edit or reviewer build was performed. Current-head qualified compilation/lint/focused tests are running; no unobserved runtime PASS is claimed. Historical failed full gates and global assurance limitations remain preserved. Own test artifact remains TC-470. Latest six artifacts require custody before the lead final combined-tree gate.
