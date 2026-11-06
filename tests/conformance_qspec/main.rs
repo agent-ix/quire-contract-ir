@@ -1565,6 +1565,67 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
     assert_eq!(reread.graph(), admitted.graph());
 }
 
+/// The published empty derived dimension admits, but cannot acquire base
+/// semantics merely because its term list is empty.
+#[trace("TC-280", "FR-038-AC-479", "FR-038-AC-480")]
+#[test]
+fn qspec_dimensionless_derived_is_not_a_base_root_or_term_target() {
+    let fixtures = fixtures_dir();
+    let name = "positive-nominal-identities.json";
+    let document = proposal_dir_of(&fixtures).join(DOMAIN_DOCUMENT);
+    let (wire, admitted) =
+        read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{why}"));
+    let dimensionless = &admitted.graph().nodes[5];
+    let CheckedTerm::NominalBody(body) = &dimensionless.body else {
+        panic!("published dimensionless declaration must retain a typed body")
+    };
+    assert_eq!(body.dimension_base(), Some(false));
+    assert_eq!(
+        serde_json::to_value(body).expect("dimensionless body"),
+        json!({"term":"dimension","base":false,"terms":[]})
+    );
+    let dimensionless_id = wire["semantic_graph"]["nodes"][5]["node_id"].clone();
+    let distance_id = wire["semantic_graph"]["nodes"][4]["node_id"].clone();
+    let read_mutation = |candidate: &Value| {
+        let result = read_package_with_document(candidate, name, &document)
+            .expect("published evidence can be prepared");
+        let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+            panic!("empty derived dimension must not act as a base")
+        };
+        assert_eq!(refusal.code, Code::InvalidSemanticGraph);
+        refusal
+    };
+
+    // The existing equivalence still names Distance and Length. Declaring
+    // Distance derived with no terms must make its empty normalized map
+    // incompatible with Length's base component, without changing its ID.
+    let mut root = wire.clone();
+    root["semantic_graph"]["nodes"][4]["body"]["base"] = json!(false);
+    assert_eq!(root["semantic_graph"]["nodes"][4]["node_id"], distance_id);
+    let refusal = read_mutation(&root);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some("/semantic_graph/nodes/6"),
+        "empty derived Distance cannot be a base equivalence root"
+    );
+
+    // A derived Distance term cannot cite the published dimensionless
+    // declaration as a base, even though that declaration has no terms.
+    let mut target = wire.clone();
+    target["semantic_graph"]["nodes"][4]["body"] = json!({
+        "term":"dimension", "base":false,
+        "terms":[{"dimension_node_id":dimensionless_id,"exponent":"1"}]
+    });
+    target["semantic_graph"]["nodes"][4]["dependencies"] = json!([dimensionless_id]);
+    assert_eq!(target["semantic_graph"]["nodes"][4]["node_id"], distance_id);
+    let refusal = read_mutation(&target);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some("/semantic_graph/nodes/4/body/terms/0/dimension_node_id"),
+        "dimensionless derived declaration cannot be a base term target"
+    );
+}
+
 /// QSpec's NB-07..09 mutations are applied to the published positive body;
 /// the reader must refuse the exact dimension-body defect at its own locus.
 #[trace("FR-038-AC-478", "FR-038-AC-479", "FR-038-AC-480")]
