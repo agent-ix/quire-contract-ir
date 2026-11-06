@@ -96,8 +96,7 @@ in-repository callers SHALL pass a caller-owned budget; no compatibility
 wrapper, fallback limit or second budgeted algorithm is introduced. Downstream
 QSL callers must adapt before updating their IR dependency.
 
-The owned diagnostic payloads of clock admission, Exact projection and runtime
-type projection are governed by
+The owned diagnostic payloads of clock admission and Exact projection are governed by
 [FR-359](./FR-359-bound-native-projection-refusals.md). This FR defines the
 shared accounting rules used by their reads; its own acceptance criteria
 remain scoped to native selected-identity acquisition.
@@ -123,4 +122,4 @@ remain scoped to native selected-identity acquisition.
 - [FR-357](./FR-357-project-selected-generated-type-closure.md) consumes the
   budgeted joins for a future complete selected monitor closure.
 - [FR-359](./FR-359-bound-native-projection-refusals.md) applies this budget
-  to bounded clock and projection reads and their diagnostic payloads.
+  to bounded clock and Exact projection reads and their diagnostic payloads.

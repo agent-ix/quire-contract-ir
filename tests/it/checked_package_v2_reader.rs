@@ -121,21 +121,33 @@ fn exact_scalar_projection_uses_publicly_admitted_package() {
     for (id, expected) in expected {
         let id = serde_json::from_value(id).expect("structural ID");
         let projected = package
-            .project_exact_type(&id, &identities, 128)
+            .project_exact_type(
+                &id,
+                &identities,
+                &mut quire_contract_model::NativeJoinBudget::new(128, u64::MAX),
+            )
             .expect("Exact type");
         assert_eq!(projected.node(), &id);
         assert_eq!(projected.value_type(), &expected);
         assert_eq!(
-            package.clone().project_exact_type(&id, &identities, 128),
+            package.clone().project_exact_type(
+                &id,
+                &identities,
+                &mut quire_contract_model::NativeJoinBudget::new(128, u64::MAX)
+            ),
             Ok(projected)
         );
     }
     let id = serde_json::from_value(node_id(&family_key("aaaa"))).expect("Boolean ID");
     let exhausted = package
-        .project_exact_type(&id, &identities, 1)
+        .project_exact_type(
+            &id,
+            &identities,
+            &mut quire_contract_model::NativeJoinBudget::new(1, u64::MAX),
+        )
         .expect_err("finite limit");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-    assert_eq!(exhausted.requested.as_ref(), &id);
+    assert_eq!(exhausted.requested.as_deref(), Some(&id));
     assert_eq!(exhausted.at.as_deref(), Some(&id));
     assert_eq!(exhausted.work, 1);
 }

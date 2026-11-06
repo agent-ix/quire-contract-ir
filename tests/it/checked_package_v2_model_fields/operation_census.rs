@@ -94,8 +94,7 @@ fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
             &witnessed,
             &[],
             &[],
-            10_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
         )
         .expect("witnessed Ledger type environment");
     let object = &projected.objects()[0];
@@ -117,8 +116,7 @@ fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
             &witnessed,
             &[],
             &[],
-            10_000,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX)
         ),
         Ok(projected.clone())
     );
@@ -127,8 +125,7 @@ fn ledger_own_operations_preserve_signature_and_witnessed_effect() {
             &witnessed,
             &[],
             &[],
-            projected.work() - 1,
-            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+            &mut quire_contract_model::NativeJoinBudget::new(projected.work() - 1, u64::MAX),
         )
         .expect_err("finite work refuses before exposing a partial view");
     assert_eq!(exhausted.code, ExactTypeProjectionErrorCode::ExhaustedWork);

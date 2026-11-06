@@ -7,7 +7,7 @@ use super::exact_projection::{
     SelectedSourceEnumRow, SelectedSourceRecordRow, SelectedSourceTupleRow, SelectedSourceUnionRow,
 };
 use super::{CheckedNodeId, CheckedNodePathSegment, NativeJoinBudget};
-use quire_exact::{EffectiveId, MemberId, MemberOwner, QuantityCarrier, UnitId, ValueType};
+use quire_exact::{EffectiveId, EnumShape, MemberId, MemberOwner, QuantityCarrier, UnitId, ValueType};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -44,6 +44,29 @@ pub(super) fn node(value: &CheckedNodeId) -> u128 {
         })
 }
 
+pub(super) fn enum_shape(value: &EnumShape) -> u128 {
+    value
+        .variants()
+        .fold(1, |units, variant| add(units, add(1, text(variant.case()))))
+}
+
+pub(super) fn preflight_enum_shape(
+    value: &EnumShape,
+    budget: &mut NativeJoinBudget,
+    at: &CheckedNodeId,
+) -> Result<(), ExactTypeProjectionError> {
+    for variant in value.variants() {
+        charge_native_work(
+            budget,
+            at,
+            at,
+            "native_enum_footprint",
+            (variant.case().len() as u128).saturating_add(2),
+        )?;
+    }
+    Ok(())
+}
+
 fn integer(value: &quire_exact::Integer) -> u128 {
     add(1, u128::from(value.magnitude_bits()).div_ceil(8))
 }
@@ -72,7 +95,7 @@ pub(super) fn member_identity(value: &MemberId) -> u128 {
     )
 }
 
-fn unit(value: &UnitId) -> u128 {
+pub(super) fn unit(value: &UnitId) -> u128 {
     match value {
         UnitId::Declared(_) => 1,
         UnitId::Compound(terms) => terms.iter().fold(1, |units, (_, exponent)| {

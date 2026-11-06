@@ -1067,7 +1067,7 @@ fn exact_projection_public_surface_and_dependencies_remain_model_owned() {
         &CheckedPackageV2,
         &CheckedNodeId,
         &SelectedExactIdentities,
-        u64,
+        &mut quire_contract_model::NativeJoinBudget,
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> =
         CheckedPackageV2::project_exact_type;
     let _: fn(&ExactTypeProjection) -> &quire_exact::ValueType = ExactTypeProjection::value_type;

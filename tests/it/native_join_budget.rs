@@ -45,7 +45,7 @@ pub(crate) fn assert_exact_join(
                 NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
             }
         );
-        assert_eq!(denied.requested.as_ref(), locus);
+        assert_eq!(denied.requested.as_deref(), Some(locus));
         assert_eq!(
             denied.at.as_deref(),
             Some(match kind {

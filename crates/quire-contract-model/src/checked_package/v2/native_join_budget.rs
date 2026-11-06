@@ -40,6 +40,7 @@ pub struct NativeJoinBudget {
     consumed: NativeJoinCharge,
     last_success_delta: Option<NativeJoinCharge>,
     first_unpaid: Option<NativeJoinDeniedCharge>,
+    exact_diagnostics: bool,
 }
 
 impl NativeJoinBudget {
@@ -51,6 +52,7 @@ impl NativeJoinBudget {
             consumed: NativeJoinCharge::default(),
             last_success_delta: None,
             first_unpaid: None,
+            exact_diagnostics: false,
         }
     }
 
@@ -67,6 +69,18 @@ impl NativeJoinBudget {
     /// The first unpaid charge in the most recent refused operation.
     pub fn first_unpaid(&self) -> Option<NativeJoinDeniedCharge> {
         self.first_unpaid
+    }
+
+    pub(super) fn remaining_work(&self) -> u64 {
+        self.work_limit - self.consumed.work
+    }
+
+    pub(super) fn exact_diagnostics(&self) -> bool {
+        self.exact_diagnostics
+    }
+
+    pub(super) fn set_exact_diagnostics(&mut self, enabled: bool) {
+        self.exact_diagnostics = enabled;
     }
 
     pub(super) fn begin(&mut self) -> NativeJoinCharge {

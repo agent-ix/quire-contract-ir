@@ -167,7 +167,7 @@ fn genuine_qsl_model_identities_join_admitted_record_and_reference_projection() 
     ] {
         let source = format!(
             "fn consume(package: &quire_contract_model::CheckedPackageV2, node: &quire_contract_model::CheckedNodeId, supplied: &{supplied}) {{\n\
-             let _ = package.project_exact_type(node, supplied, 256);\n}}\nfn main() {{}}\n"
+             let _ = package.project_exact_type(node, supplied, &mut quire_contract_model::NativeJoinBudget::new(256, u64::MAX));\n}}\nfn main() {{}}\n"
         );
         fs::write(helper.join(format!("src/bin/{name}.rs")), source)
             .expect("write compile-negative consumer");

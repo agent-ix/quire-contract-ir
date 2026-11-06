@@ -8,8 +8,8 @@ use super::native_join_storage as storage;
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
     CheckedRational, CheckedTerm, ClockConfiguration, CompositeTypeForm, FunctionForm, LiteralKind,
-    NativeJoinBudget, NativeJoinChargeKind, RawSemanticNodeV2, ScalarTypeForm, TemporalForm,
-    TemporalProfile, ValueForm, WorkMeter,
+    NativeJoinBudget, NativeJoinChargeKind, NativeJoinDeniedCharge, RawSemanticNodeV2,
+    ScalarTypeForm, TemporalForm, TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -295,14 +295,16 @@ pub enum CheckedMonitorClockReadErrorCode {
 pub struct CheckedMonitorClockReadError {
     /// Stable cause.
     pub code: CheckedMonitorClockReadErrorCode,
-    /// First selected clause or inspected row node.
+    /// First selected clause or inspected row node, absent in compact exhaustion.
     pub at: Option<Box<CheckedNodeId>>,
-    /// Exact requested occurrence.
+    /// Exact requested occurrence, absent in compact exhaustion.
     pub occurrence: Option<CheckedOccurrence>,
     /// Work charged before refusal.
     pub work: u64,
     /// First refused charge, zero for semantic refusal.
     pub attempted_work: u64,
+    /// The denied resource and its full attempted amount, if any.
+    pub denied: Option<NativeJoinDeniedCharge>,
 }
 
 struct ClockBudget<'a> {
@@ -326,6 +328,10 @@ impl ClockBudget<'_> {
                 occurrence: None,
                 work,
                 attempted_work: 0,
+                denied: Some(NativeJoinDeniedCharge {
+                    kind: NativeJoinChargeKind::Storage,
+                    amount: units,
+                }),
             };
         }
         CheckedMonitorClockReadError {
@@ -334,6 +340,7 @@ impl ClockBudget<'_> {
             occurrence: Some(self.occurrence.clone()),
             work,
             attempted_work: 0,
+            denied: None,
         }
     }
 
@@ -341,6 +348,12 @@ impl ClockBudget<'_> {
         if !self.budget.charge(NativeJoinChargeKind::Work, 1) {
             let mut error = self.error(CheckedMonitorClockReadErrorCode::WorkLimit, at);
             error.attempted_work = 1;
+            if error.code == CheckedMonitorClockReadErrorCode::WorkLimit {
+                error.denied = Some(NativeJoinDeniedCharge {
+                    kind: NativeJoinChargeKind::Work,
+                    amount: 1,
+                });
+            }
             return Err(error);
         }
         Ok(())
@@ -356,6 +369,10 @@ impl ClockBudget<'_> {
                 occurrence: None,
                 work: self.budget.consumed().work - self.start_work,
                 attempted_work: 0,
+                denied: Some(NativeJoinDeniedCharge {
+                    kind: NativeJoinChargeKind::Storage,
+                    amount,
+                }),
             })
         }
     }

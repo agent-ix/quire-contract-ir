@@ -4,7 +4,9 @@
 use super::extension::integer_range_bounds;
 use super::model_members::DeclarationForm;
 use super::model_members::{CollectionKind as CheckedCollectionKind, MemberType};
-use super::native_join_budget::{NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind};
+use super::native_join_budget::{
+    NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
+};
 use super::native_join_storage as storage;
 use super::structural::{
     reference_type_target_typed, typed_aggregate, typed_binding, typed_reference,
@@ -794,15 +796,15 @@ fn source_enum_error(
     requested: &CheckedNodeId,
     at: &CheckedNodeId,
     code: ExactTypeProjectionErrorCode,
-    work: u64,
+    work: &mut impl WorkMeter,
 ) -> ExactTypeProjectionError {
-    ExactTypeProjectionError {
-        code,
-        requested: Box::new(requested.clone()),
-        at: Some(Box::new(at.clone())),
-        form: "selected_source_enum".into(),
+    exact_diagnostic(
         work,
-    }
+        code,
+        requested,
+        Some(at),
+        ExactDiagnosticForm::Literal("selected_source_enum"),
+    )
 }
 
 fn validate_source_enum_row(
@@ -815,12 +817,9 @@ fn validate_source_enum_row(
     let declaration = &row.declaration;
     let id = &declaration.structural_node;
     charge_work(requested, id, "source_enum_row", work, limit)?;
-    let node = package.node(id).ok_or_else(|| {
-        let mut error = selected_declaration_error(package, id);
-        error.requested = Box::new(requested.clone());
-        error.work = work.current();
-        error
-    })?;
+    let node = package
+        .node(id)
+        .ok_or_else(|| selected_declaration_error_budgeted(package, id, requested, work))?;
     let mut selected_source = false;
     for source in &package.lock().sources {
         charge_work(requested, id, "selected_source", work, limit)?;
@@ -854,7 +853,7 @@ fn validate_source_enum_row(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            work.current(),
+            work,
         ));
     };
     if package.node_kind(id) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Enum))
@@ -868,7 +867,7 @@ fn validate_source_enum_row(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            work.current(),
+            work,
         ));
     }
     let mut variants = declaration.shape.variants();
@@ -892,7 +891,7 @@ fn validate_source_enum_row(
                 requested,
                 at,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                work.current(),
+                work,
             ));
         };
         if member.declaration_node != *id
@@ -906,7 +905,7 @@ fn validate_source_enum_row(
                 requested,
                 at,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                work.current(),
+                work,
             ));
         }
         if seen_nodes.contains(at)
@@ -918,19 +917,16 @@ fn validate_source_enum_row(
                 requested,
                 at,
                 ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
-                work.current(),
+                work,
             ));
         }
         charge_meter_storage(requested, at, "enum_uniqueness_entries", work, 3)?;
         seen_nodes.insert(at);
         seen_keys.insert(&member.member_key);
         seen_variants.insert(&member.variant);
-        let member_node = package.node(at).ok_or_else(|| {
-            let mut error = selected_declaration_error(package, at);
-            error.requested = Box::new(requested.clone());
-            error.work = work.current();
-            error
-        })?;
+        let member_node = package
+            .node(at)
+            .ok_or_else(|| selected_declaration_error_budgeted(package, at, requested, work))?;
         let literal = member_node.body.literal_read();
         if package.node_kind(at) != Some(CheckedNodeKind::Value(ValueForm::EnumValue))
             || member_node.semantic_type != *id
@@ -943,7 +939,7 @@ fn validate_source_enum_row(
                 requested,
                 at,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                work.current(),
+                work,
             ));
         }
         // Enum-value nodes are owner-free. Admission requires one source-map
@@ -968,7 +964,7 @@ fn validate_source_enum_row(
                     requested,
                     at,
                     ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                    work.current(),
+                    work,
                 ));
             };
             for region in &source_entry.regions {
@@ -980,7 +976,7 @@ fn validate_source_enum_row(
                         requested,
                         at,
                         ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                        work.current(),
+                        work,
                     ));
                 }
             }
@@ -991,7 +987,7 @@ fn validate_source_enum_row(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            work.current(),
+            work,
         ));
     }
     Ok(())
@@ -1001,15 +997,15 @@ fn source_collection_error(
     requested: &CheckedNodeId,
     at: &CheckedNodeId,
     code: ExactTypeProjectionErrorCode,
-    work: u64,
+    work: &mut impl WorkMeter,
 ) -> ExactTypeProjectionError {
-    ExactTypeProjectionError {
-        code,
-        requested: Box::new(requested.clone()),
-        at: Some(Box::new(at.clone())),
-        form: "selected_source_collection".into(),
+    exact_diagnostic(
         work,
-    }
+        code,
+        requested,
+        Some(at),
+        ExactDiagnosticForm::Literal("selected_source_collection"),
+    )
 }
 
 fn exact_collection_kind(form: CompositeTypeForm) -> Option<CollectionKind> {
@@ -1031,12 +1027,9 @@ fn validate_source_collection_row(
 ) -> Result<(), ExactTypeProjectionError> {
     let id = &row.structural_node;
     charge_work(requested, id, "source_collection_row", work, limit)?;
-    let node = package.node(id).ok_or_else(|| {
-        let mut error = selected_declaration_error(package, id);
-        error.requested = Box::new(requested.clone());
-        error.work = work.current();
-        error
-    })?;
+    let node = package
+        .node(id)
+        .ok_or_else(|| selected_declaration_error_budgeted(package, id, requested, work))?;
     charge_work(
         requested,
         &row.base_node,
@@ -1045,17 +1038,14 @@ fn validate_source_collection_row(
         limit,
     )?;
     let base = package.node(&row.base_node).ok_or_else(|| {
-        let mut error = selected_declaration_error(package, &row.base_node);
-        error.requested = Box::new(requested.clone());
-        error.work = work.current();
-        error
+        selected_declaration_error_budgeted(package, &row.base_node, requested, work)
     })?;
     let Some(CheckedNodeKind::CompositeType(form)) = package.node_kind(&row.base_node) else {
         return Err(source_collection_error(
             requested,
             &row.base_node,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            work.current(),
+            work,
         ));
     };
     let Some(kind) = exact_collection_kind(form) else {
@@ -1063,7 +1053,7 @@ fn validate_source_collection_row(
             requested,
             &row.base_node,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            work.current(),
+            work,
         ));
     };
     let bound = if id == &row.base_node {
@@ -1072,7 +1062,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                work.current(),
+                work,
             ));
         }
         None
@@ -1087,7 +1077,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                work.current(),
+                work,
             ));
         }
         let (lower, upper) = package
@@ -1098,7 +1088,7 @@ fn validate_source_collection_row(
                     requested,
                     id,
                     ExactTypeProjectionErrorCode::UnsupportedExactType,
-                    work.current(),
+                    work,
                 )
             })?;
         charge_work_amount(
@@ -1114,7 +1104,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::UnsupportedExactType,
-                work.current(),
+                work,
             )
         })?;
         let upper = upper.parse::<u64>().map_err(|_| {
@@ -1122,7 +1112,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::UnsupportedExactType,
-                work.current(),
+                work,
             )
         })?;
         Some(CardinalityBound::new(lower, upper).map_err(|_| {
@@ -1130,7 +1120,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::UnsupportedExactType,
-                work.current(),
+                work,
             )
         })?)
     };
@@ -1142,17 +1132,19 @@ fn validate_source_collection_row(
         limit,
     )?;
     if package.node(&row.element_node).is_none() {
-        let mut error = selected_declaration_error(package, &row.element_node);
-        error.requested = Box::new(requested.clone());
-        error.work = work.current();
-        return Err(error);
+        return Err(selected_declaration_error_budgeted(
+            package,
+            &row.element_node,
+            requested,
+            work,
+        ));
     }
     let ValueType::Collection(collection) = &row.value_type else {
         return Err(source_collection_error(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            work.current(),
+            work,
         ));
     };
     if base.semantic_type != row.base_node
@@ -1168,7 +1160,7 @@ fn validate_source_collection_row(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            work.current(),
+            work,
         ));
     }
     Ok(())
@@ -2214,7 +2206,7 @@ impl SelectedExactIdentities {
                         id,
                         id,
                         ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
-                        budget.consumed().work,
+                        budget,
                     ));
                 }
                 storage::preflight_value_type(&row.value_type, budget, id)?;
@@ -2477,18 +2469,98 @@ impl ExactTypeProjectionErrorCode {
 
 /// A typed refusal or incomplete read; no partial value type is returned.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-#[error("Exact type projection refused: {code:?} at {form}")]
+#[error("Exact type projection refused: {code:?} at {form:?}")]
 pub struct ExactTypeProjectionError {
     /// Stable refusal category.
     pub code: ExactTypeProjectionErrorCode,
-    /// The structural node the caller requested.
-    pub requested: Box<CheckedNodeId>,
+    /// The structural node the caller requested, absent in compact exhaustion.
+    pub requested: Option<Box<CheckedNodeId>>,
     /// First type node whose projection failed, if it resolved.
     pub at: Option<Box<CheckedNodeId>>,
-    /// Admitted form at the failure locus, or `unknown_node`.
-    pub form: Box<str>,
+    /// Admitted form at the failure locus, or `unknown_node`; absent in compact exhaustion.
+    pub form: Option<Box<str>>,
     /// Work successfully charged before the refusal.
     pub work: u64,
+    /// The denied resource and full attempted amount for a compact refusal.
+    pub denied: Option<NativeJoinDeniedCharge>,
+}
+
+impl ExactTypeProjectionError {
+    fn compact(kind: NativeJoinChargeKind, amount: u128, work: u64) -> Self {
+        Self {
+            code: match kind {
+                NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
+                NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
+            },
+            requested: None,
+            at: None,
+            form: None,
+            work,
+            denied: Some(NativeJoinDeniedCharge { kind, amount }),
+        }
+    }
+}
+
+enum ExactDiagnosticForm<'a> {
+    Literal(&'a str),
+    Node(&'a str, &'a str),
+}
+
+impl ExactDiagnosticForm<'_> {
+    fn storage(&self) -> u128 {
+        let bytes = match self {
+            Self::Literal(value) => value.len() as u128,
+            Self::Node(tag, form) => (tag.len() as u128)
+                .saturating_add(form.len() as u128)
+                .saturating_add(1),
+        };
+        bytes.saturating_add(1)
+    }
+
+    fn owned(self) -> Box<str> {
+        match self {
+            Self::Literal(value) => value.into(),
+            Self::Node(tag, form) => format!("{tag}/{form}").into(),
+        }
+    }
+}
+
+fn exact_diagnostic(
+    work: &mut impl WorkMeter,
+    code: ExactTypeProjectionErrorCode,
+    requested: &CheckedNodeId,
+    at: Option<&CheckedNodeId>,
+    form: ExactDiagnosticForm<'_>,
+) -> ExactTypeProjectionError {
+    if !work.exact_diagnostics() {
+        return ExactTypeProjectionError {
+            code,
+            requested: Some(Box::new(requested.clone())),
+            at: at.map(|id| Box::new(id.clone())),
+            form: Some(form.owned()),
+            work: work.current(),
+            denied: None,
+        };
+    }
+    let amount = storage::node(requested)
+        .saturating_add(at.map_or(0, storage::node))
+        .saturating_add(form.storage())
+        .saturating_add(1);
+    if !work.admit_native_storage(amount) {
+        return ExactTypeProjectionError::compact(
+            NativeJoinChargeKind::Storage,
+            amount,
+            work.current(),
+        );
+    }
+    ExactTypeProjectionError {
+        code,
+        requested: Some(Box::new(requested.clone())),
+        at: at.map(|id| Box::new(id.clone())),
+        form: Some(form.owned()),
+        work: work.current(),
+        denied: None,
+    }
 }
 
 fn witness_error(
@@ -2497,10 +2569,11 @@ fn witness_error(
 ) -> ExactTypeProjectionError {
     ExactTypeProjectionError {
         code,
-        requested: Box::new(node.clone()),
+        requested: Some(Box::new(node.clone())),
         at: Some(Box::new(node.clone())),
-        form: "selected_identity".into(),
+        form: Some("selected_identity".into()),
         work: 0,
+        denied: None,
     }
 }
 
@@ -2518,6 +2591,28 @@ fn selected_declaration_error(
     witness_error(node, code)
 }
 
+fn selected_declaration_error_budgeted(
+    package: &CheckedPackageV2,
+    node: &CheckedNodeId,
+    requested: &CheckedNodeId,
+    work: &mut impl WorkMeter,
+) -> ExactTypeProjectionError {
+    let code = if package.node(node).is_some() {
+        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+    } else if node.package == package.wire.name {
+        ExactTypeProjectionErrorCode::UnknownNode
+    } else {
+        ExactTypeProjectionErrorCode::ForeignNode
+    };
+    exact_diagnostic(
+        work,
+        code,
+        requested,
+        Some(node),
+        ExactDiagnosticForm::Literal("selected_identity"),
+    )
+}
+
 fn charge_native(
     budget: &mut NativeJoinBudget,
     requested: &CheckedNodeId,
@@ -2529,16 +2624,24 @@ fn charge_native(
     if budget.charge(kind, amount) {
         return Ok(());
     }
-    Err(ExactTypeProjectionError {
-        code: match kind {
-            NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
-            NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
-        },
-        requested: Box::new(requested.clone()),
-        at: Some(Box::new(at.clone())),
-        form: form.into(),
-        work: budget.consumed().work,
-    })
+    if !budget.exact_diagnostics() {
+        return Err(ExactTypeProjectionError {
+            code: match kind {
+                NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
+                NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
+            },
+            requested: Some(Box::new(requested.clone())),
+            at: Some(Box::new(at.clone())),
+            form: Some(form.into()),
+            work: budget.consumed().work,
+            denied: None,
+        });
+    }
+    Err(ExactTypeProjectionError::compact(
+        kind,
+        amount,
+        budget.consumed().work,
+    ))
 }
 
 pub(super) fn charge_native_work(
@@ -2588,13 +2691,26 @@ fn charge_native_storage(
 
 trait WorkMeter {
     fn current(&self) -> u64;
+    fn exact_diagnostics(&self) -> bool;
     fn admit(&mut self, amount: u64, limit: u64) -> bool;
     fn admit_native_storage(&mut self, amount: u128) -> bool;
+    fn resource_error(
+        &self,
+        kind: NativeJoinChargeKind,
+        amount: u128,
+        requested: &CheckedNodeId,
+        at: &CheckedNodeId,
+        form: &str,
+    ) -> ExactTypeProjectionError;
 }
 
 impl WorkMeter for u64 {
     fn current(&self) -> u64 {
         *self
+    }
+
+    fn exact_diagnostics(&self) -> bool {
+        false
     }
 
     fn admit(&mut self, amount: u64, limit: u64) -> bool {
@@ -2608,11 +2724,36 @@ impl WorkMeter for u64 {
     fn admit_native_storage(&mut self, _amount: u128) -> bool {
         true
     }
+
+    fn resource_error(
+        &self,
+        kind: NativeJoinChargeKind,
+        amount: u128,
+        requested: &CheckedNodeId,
+        at: &CheckedNodeId,
+        form: &str,
+    ) -> ExactTypeProjectionError {
+        ExactTypeProjectionError {
+            code: match kind {
+                NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
+                NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
+            },
+            requested: Some(Box::new(requested.clone())),
+            at: Some(Box::new(at.clone())),
+            form: Some(form.into()),
+            work: *self,
+            denied: Some(NativeJoinDeniedCharge { kind, amount }),
+        }
+    }
 }
 
 impl WorkMeter for NativeJoinBudget {
     fn current(&self) -> u64 {
         self.consumed().work
+    }
+
+    fn exact_diagnostics(&self) -> bool {
+        self.exact_diagnostics()
     }
 
     fn admit(&mut self, amount: u64, _limit: u64) -> bool {
@@ -2621,6 +2762,31 @@ impl WorkMeter for NativeJoinBudget {
 
     fn admit_native_storage(&mut self, amount: u128) -> bool {
         self.charge(NativeJoinChargeKind::Storage, amount)
+    }
+
+    fn resource_error(
+        &self,
+        kind: NativeJoinChargeKind,
+        amount: u128,
+        _requested: &CheckedNodeId,
+        _at: &CheckedNodeId,
+        _form: &str,
+    ) -> ExactTypeProjectionError {
+        if self.exact_diagnostics() {
+            ExactTypeProjectionError::compact(kind, amount, self.consumed().work)
+        } else {
+            ExactTypeProjectionError {
+                code: match kind {
+                    NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
+                    NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
+                },
+                requested: Some(Box::new(requested.clone())),
+                at: Some(Box::new(at.clone())),
+                form: Some(form.into()),
+                work: self.consumed().work,
+                denied: None,
+            }
+        }
     }
 }
 
@@ -2634,13 +2800,7 @@ fn charge_meter_storage(
     if work.admit_native_storage(amount) {
         return Ok(());
     }
-    Err(ExactTypeProjectionError {
-        code: ExactTypeProjectionErrorCode::ExhaustedStorage,
-        requested: Box::new(requested.clone()),
-        at: Some(Box::new(at.clone())),
-        form: form.into(),
-        work: work.current(),
-    })
+    Err(work.resource_error(NativeJoinChargeKind::Storage, amount, requested, at, form))
 }
 
 fn charge_work(
@@ -2662,13 +2822,13 @@ fn charge_work_amount(
     amount: u64,
 ) -> Result<(), ExactTypeProjectionError> {
     if !work.admit(amount, limit) {
-        return Err(ExactTypeProjectionError {
-            code: ExactTypeProjectionErrorCode::ExhaustedWork,
-            requested: Box::new(requested.clone()),
-            at: Some(Box::new(at.clone())),
-            form: form.into(),
-            work: work.current(),
-        });
+        return Err(work.resource_error(
+            NativeJoinChargeKind::Work,
+            u128::from(amount),
+            requested,
+            at,
+            form,
+        ));
     }
     Ok(())
 }
@@ -2691,89 +2851,126 @@ pub(super) fn project_record_field_type(
     package: &CheckedPackageV2,
     identities: &SelectedExactIdentities,
     member_type: &MemberType,
-) -> Result<ValueType, (ExactTypeProjectionErrorCode, Option<CheckedNodeId>)> {
-    match member_type {
-        MemberType::Boolean => Ok(ValueType::Boolean),
-        MemberType::Integer => Ok(ValueType::Integer),
-        MemberType::String => Ok(ValueType::String),
-        MemberType::Uuid => Ok(ValueType::Uuid),
-        MemberType::Timestamp => Ok(ValueType::Timestamp),
+    requested: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+) -> Result<ValueType, ExactTypeProjectionError> {
+    macro_rules! refuse {
+        ($code:expr, $target:expr) => {
+            exact_diagnostic(
+                budget,
+                $code,
+                requested,
+                $target,
+                ExactDiagnosticForm::Literal("record_field_type"),
+            )
+        };
+    }
+    let (value, storage_units) = match member_type {
+        MemberType::Boolean => (ValueType::Boolean, 1),
+        MemberType::Integer => (ValueType::Integer, 1),
+        MemberType::String => (ValueType::String, 1),
+        MemberType::Uuid => (ValueType::Uuid, 1),
+        MemberType::Timestamp => (ValueType::Timestamp, 1),
         MemberType::IntRange(bounds) => {
-            exact_integer_interval(&bounds.lower.to_string(), &bounds.upper.to_string())
-                .map(ValueType::Int)
-                .map_err(|code| (code, None))
+            charge_native_storage(budget, requested, requested, "record_field_integer", 33)?;
+            let interval =
+                IntegerInterval::new(bounds.lower.into(), bounds.upper.into()).map_err(|_| {
+                    refuse!(
+                        ExactTypeProjectionErrorCode::UnsupportedExactType,
+                        Some(requested)
+                    )
+                })?;
+            return Ok(ValueType::Int(interval));
         }
         MemberType::Reference(target) => {
             if package.node_kind(target) != Some(CheckedNodeKind::Model(ModelForm::ObjectType)) {
-                return Err((
+                return Err(refuse!(
                     ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
-                    Some(target.clone()),
+                    Some(target)
                 ));
             }
-            match identities
+            let identity = identities
                 .declaration_identity(package, target)
-                .map_err(|code| (code, Some(target.clone())))?
-            {
-                SelectedExactIdentity::Object(effective) => {
-                    Ok(ValueType::Reference(effective.clone()))
-                }
-                _ => Err((
+                .map_err(|code| refuse!(code, Some(target)))?;
+            let SelectedExactIdentity::Object(effective) = identity else {
+                return Err(refuse!(
                     ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                    Some(target.clone()),
-                )),
-            }
+                    Some(target)
+                ));
+            };
+            storage::preflight_effective(effective, budget, requested)?;
+            charge_native_storage(
+                budget,
+                requested,
+                requested,
+                "record_field_reference",
+                storage::effective_identity(effective).saturating_add(1),
+            )?;
+            return Ok(ValueType::Reference(effective.clone()));
         }
         MemberType::Record(target) => {
             if package.node_kind(target) != Some(CheckedNodeKind::Model(ModelForm::RecordValueType))
             {
-                return Err((
+                return Err(refuse!(
                     ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
-                    Some(target.clone()),
+                    Some(target)
                 ));
             }
-            match identities
+            let identity = identities
                 .declaration_identity(package, target)
-                .map_err(|code| (code, Some(target.clone())))?
-            {
-                SelectedExactIdentity::Record(key) => Ok(ValueType::Composite(key.clone())),
-                _ => Err((
+                .map_err(|code| refuse!(code, Some(target)))?;
+            let SelectedExactIdentity::Record(key) = identity else {
+                return Err(refuse!(
                     ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                    Some(target.clone()),
-                )),
-            }
+                    Some(target)
+                ));
+            };
+            charge_native_storage(budget, requested, requested, "record_field_record", 1)?;
+            return Ok(ValueType::Composite(key.clone()));
         }
         MemberType::Quantity(target) => {
             if package.node_kind(target) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
             {
-                return Err((
+                return Err(refuse!(
                     ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
-                    Some(target.clone()),
+                    Some(target)
                 ));
             }
-            if let Some(unit) = identities.admitted_source_units.get(target) {
-                return Ok(ValueType::Quantity(unit.unit_id.clone()));
-            }
-            match identities
-                .declaration_identity(package, target)
-                .map_err(|code| (code, Some(target.clone())))?
-            {
-                SelectedExactIdentity::DeclaredUnit(unit @ UnitId::Declared(_)) => {
-                    Ok(ValueType::Quantity(unit.clone()))
-                }
-                _ => Err((
-                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                    Some(target.clone()),
-                )),
-            }
+            let unit = if let Some(row) = identities.admitted_source_units.get(target) {
+                &row.unit_id
+            } else {
+                let identity = identities
+                    .declaration_identity(package, target)
+                    .map_err(|code| refuse!(code, Some(target)))?;
+                let SelectedExactIdentity::DeclaredUnit(unit @ UnitId::Declared(_)) = identity
+                else {
+                    return Err(refuse!(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                        Some(target)
+                    ));
+                };
+                unit
+            };
+            storage::preflight_unit(unit, budget, requested)?;
+            charge_native_storage(
+                budget,
+                requested,
+                requested,
+                "record_field_quantity",
+                storage::unit(unit).saturating_add(1),
+            )?;
+            return Ok(ValueType::Quantity(unit.clone()));
         }
-        MemberType::Tuple(target) => identities
-            .admitted_tuples
-            .get(target)
-            .map(|row| ValueType::Composite(row.node_key.clone()))
-            .ok_or((
-                ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                Some(target.clone()),
-            )),
+        MemberType::Tuple(target) => {
+            let row = identities.admitted_tuples.get(target).ok_or_else(|| {
+                refuse!(
+                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    Some(target)
+                )
+            })?;
+            charge_native_storage(budget, requested, requested, "record_field_tuple", 1)?;
+            return Ok(ValueType::Composite(row.node_key.clone()));
+        }
         MemberType::Float32
         | MemberType::Float64
         | MemberType::Bytes
@@ -2785,9 +2982,20 @@ pub(super) fn project_record_field_type(
         | MemberType::Variant(_)
         | MemberType::Option(_)
         | MemberType::Collection { .. } => {
-            Err((ExactTypeProjectionErrorCode::UnsupportedExactType, None))
+            return Err(refuse!(
+                ExactTypeProjectionErrorCode::UnsupportedExactType,
+                Some(requested)
+            ));
         }
-    }
+    };
+    charge_native_storage(
+        budget,
+        requested,
+        requested,
+        "record_field_value",
+        storage_units,
+    )?;
+    Ok(value)
 }
 
 enum FieldWrapper {
@@ -2801,7 +3009,7 @@ fn project_wrapped_record_field_type(
     requested: &CheckedNodeId,
     record: &CheckedNodeId,
     member_type: &MemberType,
-    work: &mut u64,
+    work: &mut NativeJoinBudget,
     work_limit: u64,
 ) -> Result<ValueType, ExactTypeProjectionError> {
     let mut wrappers = Vec::new();
@@ -2810,6 +3018,7 @@ fn project_wrapped_record_field_type(
         match leaf {
             MemberType::Option(inner) => {
                 charge_work(requested, record, "record_field_option", work, work_limit)?;
+                charge_native_storage(work, requested, record, "record_field_option", 1)?;
                 wrappers.push(FieldWrapper::Option);
                 leaf = inner;
             }
@@ -2825,6 +3034,7 @@ fn project_wrapped_record_field_type(
                     work,
                     work_limit,
                 )?;
+                charge_native_storage(work, requested, record, "record_field_collection", 1)?;
                 wrappers.push(FieldWrapper::Collection(*kind, *bounds));
                 leaf = element;
             }
@@ -2838,26 +3048,27 @@ fn project_wrapped_record_field_type(
         charge_work(requested, target, "record_field_target", work, work_limit)?;
     }
     let mut value =
-        project_record_field_type(package, identities, leaf).map_err(|(code, target)| {
-            let mut error = ExactTypeProjectionError {
-                code,
-                requested: Box::new(requested.clone()),
-                at: Some(Box::new(record.clone())),
-                form: "model/record_value_type".into(),
-                work: *work,
-            };
-            if let Some(target) = target {
-                error.form = package.node(&target).map_or_else(
-                    || "unresolved_selected_declaration".into(),
-                    |node| format!("{}/{}", node.node_tag, node.semantic_form).into(),
-                );
-                error.at = Some(Box::new(target));
+        project_record_field_type(package, identities, leaf, record, work).map_err(|error| {
+            if error.denied.is_some() {
+                return error;
             }
-            error
+            let at = error.at.as_deref().unwrap_or(record);
+            let form = if at == record {
+                ExactDiagnosticForm::Literal("model/record_value_type")
+            } else {
+                package.node(at).map_or(
+                    ExactDiagnosticForm::Literal("unresolved_selected_declaration"),
+                    |node| ExactDiagnosticForm::Node(&node.node_tag, &node.semantic_form),
+                )
+            };
+            exact_diagnostic(work, error.code, requested, Some(at), form)
         })?;
     for wrapper in wrappers.into_iter().rev() {
         value = match wrapper {
-            FieldWrapper::Option => ValueType::option(value),
+            FieldWrapper::Option => {
+                charge_native_storage(work, requested, record, "record_field_option_value", 1)?;
+                ValueType::option(value)
+            }
             FieldWrapper::Collection(kind, bounds) => {
                 let kind = match kind {
                     CheckedCollectionKind::Sequence => CollectionKind::Sequence,
@@ -2868,13 +3079,16 @@ fn project_wrapped_record_field_type(
                 let bound = bounds
                     .map(|(lower, upper)| CardinalityBound::new(lower, upper))
                     .transpose()
-                    .map_err(|_| ExactTypeProjectionError {
-                        code: ExactTypeProjectionErrorCode::UnsupportedExactType,
-                        requested: Box::new(requested.clone()),
-                        at: Some(Box::new(record.clone())),
-                        form: "record_field_collection".into(),
-                        work: *work,
+                    .map_err(|_| {
+                        exact_diagnostic(
+                            work,
+                            ExactTypeProjectionErrorCode::UnsupportedExactType,
+                            requested,
+                            Some(record),
+                            ExactDiagnosticForm::Literal("record_field_collection"),
+                        )
                     })?;
+                charge_native_storage(work, requested, record, "record_field_collection_value", 1)?;
                 ValueType::collection(CollectionType::new(kind, value, bound))
             }
         };
@@ -2886,7 +3100,7 @@ fn charge_exact_value(
     requested: &CheckedNodeId,
     at: &CheckedNodeId,
     value: &ValueType,
-    work: &mut u64,
+    work: &mut NativeJoinBudget,
     limit: u64,
 ) -> Result<(), ExactTypeProjectionError> {
     let mut next = Some(value);
@@ -2907,7 +3121,7 @@ fn project_collection_element(
     identities: &SelectedExactIdentities,
     requested: &CheckedNodeId,
     at: &CheckedNodeId,
-    work: &mut u64,
+    work: &mut NativeJoinBudget,
     limit: u64,
 ) -> Result<ValueType, ExactTypeProjectionError> {
     let node = package.node(at).ok_or_else(|| {
@@ -2915,7 +3129,7 @@ fn project_collection_element(
             requested,
             at,
             ExactTypeProjectionErrorCode::UnknownNode,
-            *work,
+            work,
         )
     })?;
     if package.node_kind(at)
@@ -2931,7 +3145,7 @@ fn project_collection_element(
                     requested,
                     at,
                     ExactTypeProjectionErrorCode::UnsupportedExactType,
-                    *work,
+                    work,
                 )
             })?;
         charge_work_amount(
@@ -2944,25 +3158,40 @@ fn project_collection_element(
         )?;
         return exact_integer_interval(lower, upper)
             .map(ValueType::Int)
-            .map_err(|code| source_collection_error(requested, at, code, *work));
+            .map_err(|code| source_collection_error(requested, at, code, work));
     }
     if node.semantic_type != *at {
         return Err(source_collection_error(
             requested,
             at,
             ExactTypeProjectionErrorCode::UnsupportedExactType,
-            *work,
+            work,
         ));
     }
-    let remaining = limit.saturating_sub(*work);
     let projection = package
-        .project_exact_type(at, identities, remaining)
+        .project_exact_type_inner(at, identities, work)
         .map_err(|mut error| {
-            error.work = work.saturating_add(error.work);
-            error.requested = Box::new(requested.clone());
+            if error.requested.is_some() {
+                let amount = storage::node(requested);
+                if !work.charge(NativeJoinChargeKind::Storage, amount) {
+                    return ExactTypeProjectionError::compact(
+                        NativeJoinChargeKind::Storage,
+                        amount,
+                        work.consumed().work,
+                    );
+                }
+                error.requested = Some(Box::new(requested.clone()));
+            }
             error
         })?;
-    *work += projection.work();
+    storage::preflight_value_type(projection.value_type(), work, at)?;
+    charge_native_storage(
+        work,
+        requested,
+        at,
+        "source_collection_element",
+        storage::value_type(projection.value_type()),
+    )?;
     Ok(projection.value_type().clone())
 }
 
@@ -2971,19 +3200,28 @@ fn project_source_collection(
     identities: &SelectedExactIdentities,
     first: &Arc<SelectedSourceCollectionRow>,
     requested: &CheckedNodeId,
-    work: &mut u64,
+    work: &mut NativeJoinBudget,
     limit: u64,
 ) -> Result<ValueType, ExactTypeProjectionError> {
     let mut row = first.as_ref();
     let mut seen = BTreeSet::new();
     loop {
         validate_source_collection_row(package, row, requested, work, limit)?;
+        if !seen.contains(&row.structural_node) {
+            charge_native_storage(
+                work,
+                requested,
+                &row.structural_node,
+                "source_collection_seen",
+                1,
+            )?;
+        }
         if !seen.insert(&row.structural_node) {
             return Err(source_collection_error(
                 requested,
                 &row.structural_node,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                *work,
+                work,
             ));
         }
         let ValueType::Collection(collection) = &row.value_type else {
@@ -2991,7 +3229,7 @@ fn project_source_collection(
                 requested,
                 &row.structural_node,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                *work,
+                work,
             ));
         };
         let element = &row.element_node;
@@ -3012,7 +3250,7 @@ fn project_source_collection(
                     requested,
                     element,
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                    *work,
+                    work,
                 )
             })?;
             charge_exact_value(requested, element, collection.element(), work, limit)?;
@@ -3022,7 +3260,7 @@ fn project_source_collection(
                     requested,
                     element,
                     ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                    *work,
+                    work,
                 ));
             }
             row = next;
@@ -3036,7 +3274,7 @@ fn project_source_collection(
                     requested,
                     element,
                     ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                    *work,
+                    work,
                 ));
             }
             break;
@@ -3049,54 +3287,89 @@ fn project_source_collection(
         work,
         limit,
     )?;
+    storage::preflight_value_type(&first.value_type, work, &first.structural_node)?;
+    charge_native_storage(
+        work,
+        requested,
+        &first.structural_node,
+        "source_collection_copy",
+        storage::value_type(&first.value_type),
+    )?;
     Ok(first.value_type.clone())
 }
 
 impl CheckedPackageV2 {
     /// Read one admitted node's semantic type without reparsing its source.
     ///
-    /// The finite `work_limit` charges the requested node and every type node
-    /// inspected. The selected identities are required for declaration-bearing
-    /// types. A refusal never exposes a partial Exact type.
+    /// The caller's shared budget charges each inspection and owned result.
+    /// Selected identities are required for declaration-bearing types. A
+    /// refusal never exposes a partial Exact type.
     pub fn project_exact_type(
         &self,
         requested: &CheckedNodeId,
         identities: &SelectedExactIdentities,
-        work_limit: u64,
+        budget: &mut NativeJoinBudget,
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> {
-        let mut work = 0;
-        charge_work(requested, requested, "node", &mut work, work_limit)?;
-        let node = self
-            .node(requested)
-            .ok_or_else(|| ExactTypeProjectionError {
-                code: if requested.package == self.wire.name {
-                    ExactTypeProjectionErrorCode::UnknownNode
-                } else {
-                    ExactTypeProjectionErrorCode::ForeignNode
-                },
-                requested: Box::new(requested.clone()),
-                at: None,
-                form: "unknown_node".into(),
+        let before = budget.begin();
+        budget.set_exact_diagnostics(true);
+        let result = self.project_exact_type_inner(requested, identities, budget);
+        budget.set_exact_diagnostics(false);
+        match result {
+            Ok(mut projection) => {
+                projection.work = budget.consumed().work - before.work;
+                budget.finish(before);
+                Ok(projection)
+            }
+            Err(mut error) => {
+                error.work = budget.consumed().work - before.work;
+                Err(error)
+            }
+        }
+    }
+
+    fn project_exact_type_inner(
+        &self,
+        requested: &CheckedNodeId,
+        identities: &SelectedExactIdentities,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<ExactTypeProjection, ExactTypeProjectionError> {
+        let work_limit = u64::MAX;
+        let work = budget;
+        charge_work(requested, requested, "node", work, work_limit)?;
+        let node = self.node(requested).ok_or_else(|| {
+            let code = if requested.package == self.wire.name {
+                ExactTypeProjectionErrorCode::UnknownNode
+            } else {
+                ExactTypeProjectionErrorCode::ForeignNode
+            };
+            exact_diagnostic(
                 work,
-            })?;
-        let type_id = &node.semantic_type;
-        charge_work(requested, type_id, "semantic_type", &mut work, work_limit)?;
-        let type_node = self.node(type_id).ok_or_else(|| ExactTypeProjectionError {
-            code: ExactTypeProjectionErrorCode::UnknownNode,
-            requested: Box::new(requested.clone()),
-            at: Some(Box::new(type_id.clone())),
-            form: "unknown_node".into(),
-            work,
+                code,
+                requested,
+                None,
+                ExactDiagnosticForm::Literal("unknown_node"),
+            )
         })?;
-        let kind = self
-            .node_kind(type_id)
-            .ok_or_else(|| ExactTypeProjectionError {
-                code: ExactTypeProjectionErrorCode::UnknownNode,
-                requested: Box::new(requested.clone()),
-                at: Some(Box::new(type_id.clone())),
-                form: "unknown_node".into(),
+        let type_id = &node.semantic_type;
+        charge_work(requested, type_id, "semantic_type", work, work_limit)?;
+        let type_node = self.node(type_id).ok_or_else(|| {
+            exact_diagnostic(
                 work,
-            })?;
+                ExactTypeProjectionErrorCode::UnknownNode,
+                requested,
+                Some(type_id),
+                ExactDiagnosticForm::Literal("unknown_node"),
+            )
+        })?;
+        let kind = self.node_kind(type_id).ok_or_else(|| {
+            exact_diagnostic(
+                work,
+                ExactTypeProjectionErrorCode::UnknownNode,
+                requested,
+                Some(type_id),
+                ExactDiagnosticForm::Literal("unknown_node"),
+            )
+        })?;
         let range_bounds = (kind
             == CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange))
         .then(|| self.term(type_id).and_then(integer_range_bounds))
@@ -3107,18 +3380,22 @@ impl CheckedPackageV2 {
                 requested,
                 type_id,
                 "bounded_domain/integer_range",
-                &mut work,
+                work,
                 work_limit,
                 u64::try_from(bytes).unwrap_or(u64::MAX),
             )?;
         }
-        let refuse = |code, charged| ExactTypeProjectionError {
-            code,
-            requested: Box::new(requested.clone()),
-            at: Some(Box::new(type_id.clone())),
-            form: format!("{}/{}", type_node.node_tag, type_node.semantic_form).into(),
-            work: charged,
-        };
+        macro_rules! refuse {
+            ($code:expr) => {
+                exact_diagnostic(
+                    work,
+                    $code,
+                    requested,
+                    Some(type_id),
+                    ExactDiagnosticForm::Node(&type_node.node_tag, &type_node.semantic_form),
+                )
+            };
+        }
         let mut record_view = None;
         let mut source_record_view = None;
         let mut source_tuple_view = None;
@@ -3131,21 +3408,34 @@ impl CheckedPackageV2 {
             CheckedNodeKind::ScalarType(ScalarTypeForm::Timestamp) => ValueType::Timestamp,
             CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) => {
                 let row = identities.source_enums.get(type_id).ok_or_else(|| {
-                    refuse(
-                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                        work,
-                    )
+                    refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
                 })?;
-                validate_source_enum_row(self, row, requested, &mut work, work_limit)?;
+                validate_source_enum_row(self, row, requested, work, work_limit)?;
+                storage::preflight_enum_shape(&row.declaration.shape, work, type_id)?;
+                charge_native_storage(
+                    work,
+                    requested,
+                    type_id,
+                    "source_enum_projection",
+                    storage::enum_shape(&row.declaration.shape).saturating_add(1),
+                )?;
                 source_enum_view = Some(Arc::clone(row));
                 ValueType::Enum(row.declaration.shape.clone())
             }
             CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => {
-                let (lower, upper) = range_bounds.ok_or_else(|| {
-                    refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                })?;
+                let (lower, upper) = range_bounds
+                    .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
+                charge_native_storage(
+                    work,
+                    requested,
+                    type_id,
+                    "integer_interval",
+                    (lower.len() as u128)
+                        .saturating_add(upper.len() as u128)
+                        .saturating_add(1),
+                )?;
                 let interval =
-                    exact_integer_interval(lower, upper).map_err(|code| refuse(code, work))?;
+                    exact_integer_interval(lower, upper).map_err(|code| refuse!(code))?;
                 ValueType::Int(interval)
             }
             CheckedNodeKind::CompositeType(
@@ -3162,136 +3452,132 @@ impl CheckedPackageV2 {
                     let (lower, upper) = self
                         .term(type_id)
                         .and_then(integer_range_bounds)
-                        .ok_or_else(|| {
-                            refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                        })?;
+                        .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
                     charge_work_amount(
                         requested,
                         type_id,
                         "map_bounds",
-                        &mut work,
+                        work,
                         work_limit,
                         u64::try_from(lower.len().saturating_add(upper.len())).unwrap_or(u64::MAX),
                     )?;
-                    let (lower, upper) = (lower.parse::<u64>(), upper.parse::<u64>());
                     let bound = CardinalityBound::new(
-                        lower.map_err(|_| {
-                            refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                        })?,
-                        upper.map_err(|_| {
-                            refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                        })?,
+                        lower.parse::<u64>()
+                            .map_err(|_| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?,
+                        upper.parse::<u64>()
+                            .map_err(|_| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?,
                     )
-                    .map_err(|_| {
-                        refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                    })?;
+                    .map_err(|_| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
                     let map = self
-                        .project_exact_type(
-                            &type_node.semantic_type,
-                            identities,
-                            work_limit.saturating_sub(work),
-                        )
+                        .project_exact_type_inner(&type_node.semantic_type, identities, work)
                         .map_err(|mut error| {
-                            error.work = work.saturating_add(error.work);
-                            error.requested = Box::new(requested.clone());
+                            if error.requested.is_some() {
+                                let amount = storage::node(requested);
+                                if !work.charge(NativeJoinChargeKind::Storage, amount) {
+                                    return ExactTypeProjectionError::compact(
+                                        NativeJoinChargeKind::Storage,
+                                        amount,
+                                        work.consumed().work,
+                                    );
+                                }
+                                error.requested = Some(Box::new(requested.clone()));
+                            }
                             error
                         })?;
-                    work = work.saturating_add(map.work());
                     let ValueType::Map(projected) = map.value_type() else {
-                        return Err(refuse(
-                            ExactTypeProjectionErrorCode::UnsupportedExactType,
-                            work,
-                        ));
+                        return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType));
                     };
+                    storage::preflight_value_type(projected.values(), work, type_id)?;
+                    charge_native_storage(
+                        work,
+                        requested,
+                        type_id,
+                        "bounded_map_result",
+                        storage::value_type(projected.values()).saturating_add(2),
+                    )?;
                     ValueType::map(MapType::new(projected.values().clone(), Some(bound)))
                 } else {
                     let row = identities.source_collections.get(type_id).ok_or_else(|| {
-                        refuse(
-                            ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                            work,
-                        )
+                        refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
                     })?;
-                    project_source_collection(
-                        self, identities, row, requested, &mut work, work_limit,
-                    )?
+                    project_source_collection(self, identities, row, requested, work, work_limit)?
                 }
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Map) => {
-                let [key, value] =
-                    self.term(type_id)
-                        .and_then(typed_aggregate)
-                        .ok_or_else(|| {
-                            refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                        })?
+                let [key, value] = self
+                    .term(type_id)
+                    .and_then(typed_aggregate)
+                    .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?
                 else {
-                    return Err(refuse(
-                        ExactTypeProjectionErrorCode::UnsupportedExactType,
-                        work,
-                    ));
+                    return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType));
                 };
                 let key = typed_binding(key, "key")
                     .and_then(typed_reference)
-                    .ok_or_else(|| {
-                        refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                    })?;
+                    .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
                 let value = typed_binding(value, "value")
                     .and_then(typed_reference)
-                    .ok_or_else(|| {
-                        refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
-                    })?;
-                charge_work(requested, key, "map_key", &mut work, work_limit)?;
+                    .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
+                charge_work(requested, key, "map_key", work, work_limit)?;
                 if self.node_kind(key) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text)) {
-                    return Err(refuse(
-                        ExactTypeProjectionErrorCode::UnsupportedExactType,
-                        work,
-                    ));
+                    return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType));
                 }
                 let projected = project_collection_element(
-                    self, identities, requested, value, &mut work, work_limit,
+                    self, identities, requested, value, work, work_limit,
                 )?;
+                charge_native_storage(work, requested, type_id, "map_result", 2)?;
                 ValueType::map(MapType::new(projected, None))
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
-                let target = reference_type_target_typed(type_node).ok_or_else(|| {
-                    refuse(
-                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
-                        work,
-                    )
-                })?;
-                charge_work(
-                    requested,
-                    &target,
-                    "reference_target",
-                    &mut work,
-                    work_limit,
-                )?;
-                let refuse_target = |code, charged| ExactTypeProjectionError {
-                    code,
-                    requested: Box::new(requested.clone()),
-                    at: Some(Box::new(target.clone())),
-                    form: self.node(&target).map_or_else(
-                        || Box::<str>::from("unresolved_selected_declaration"),
-                        |node| format!("{}/{}", node.node_tag, node.semantic_form).into(),
-                    ),
-                    work: charged,
+                let CheckedTerm::Aggregate { members } = &type_node.body else {
+                    return Err(refuse!(
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+                    ));
                 };
+                let [CheckedTerm::Reference { target }] = members.as_slice() else {
+                    return Err(refuse!(
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+                    ));
+                };
+                charge_work(requested, target, "reference_target", work, work_limit)?;
+                macro_rules! refuse_target {
+                    ($code:expr) => {
+                        exact_diagnostic(
+                            work,
+                            $code,
+                            requested,
+                            Some(&target),
+                            self.node(&target).map_or(
+                                ExactDiagnosticForm::Literal("unresolved_selected_declaration"),
+                                |node| {
+                                    ExactDiagnosticForm::Node(&node.node_tag, &node.semantic_form)
+                                },
+                            ),
+                        )
+                    };
+                }
                 if self.node_kind(&target) != Some(CheckedNodeKind::Model(ModelForm::ObjectType)) {
-                    return Err(refuse_target(
-                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
-                        work,
+                    return Err(refuse_target!(
+                        ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
                     ));
                 }
                 match identities
                     .declaration_identity(self, &target)
-                    .map_err(|code| refuse_target(code, work))?
+                    .map_err(|code| refuse_target!(code))?
                 {
                     SelectedExactIdentity::Object(effective) => {
+                        storage::preflight_effective(effective, work, type_id)?;
+                        charge_native_storage(
+                            work,
+                            requested,
+                            type_id,
+                            "reference_identity",
+                            storage::effective_identity(effective).saturating_add(1),
+                        )?;
                         ValueType::Reference(effective.clone())
                     }
                     _ => {
-                        return Err(refuse_target(
-                            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                            work,
+                        return Err(refuse_target!(
+                            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
                         ))
                     }
                 }
@@ -3299,58 +3585,48 @@ impl CheckedPackageV2 {
             CheckedNodeKind::Model(ModelForm::RecordValueType) => {
                 let identity = identities
                     .declaration_identity(self, type_id)
-                    .map_err(|code| refuse(code, work))?;
+                    .map_err(|code| refuse!(code))?;
                 let SelectedExactIdentity::Record(record_key) = identity else {
-                    return Err(refuse(
-                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                        work,
+                    return Err(refuse!(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
                     ));
                 };
                 let (ambiguous, fields) =
                     self.models.selected_record_fields(type_id).ok_or_else(|| {
-                        refuse(
-                            ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
-                            work,
-                        )
+                        refuse!(ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration)
                     })?;
                 if ambiguous.is_some() {
-                    return Err(refuse(
-                        ExactTypeProjectionErrorCode::UnsupportedExactType,
-                        work,
-                    ));
+                    return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType));
                 }
                 let mut member_rows = BTreeMap::new();
                 for row in identities.fields.iter() {
-                    charge_work(
-                        requested,
-                        type_id,
-                        "record_field_witness",
-                        &mut work,
-                        work_limit,
-                    )?;
+                    charge_work(requested, type_id, "record_field_witness", work, work_limit)?;
                     if row.record_node == *type_id {
+                        charge_native_storage(
+                            work,
+                            requested,
+                            type_id,
+                            "record_field_witness_index",
+                            1,
+                        )?;
                         member_rows.insert(row.field_original_identity.as_ref(), &row.member_id);
                     }
                 }
                 let mut projected_fields = Vec::new();
                 for field in fields {
-                    charge_work(requested, type_id, "record_field", &mut work, work_limit)?;
+                    charge_work(requested, type_id, "record_field", work, work_limit)?;
                     let member_id = member_rows.get(field.identity).ok_or_else(|| {
-                        refuse(
-                            ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                            work,
-                        )
+                        refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
                     })?;
                     let member_type = field.member_type.ok_or_else(|| {
-                        refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
+                        refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType)
                     })?;
                     let member_type = if field.optional {
                         match member_type {
                             MemberType::Option(inner) => inner.as_ref(),
                             _ => {
-                                return Err(refuse(
-                                    ExactTypeProjectionErrorCode::UnsupportedExactType,
-                                    work,
+                                return Err(refuse!(
+                                    ExactTypeProjectionErrorCode::UnsupportedExactType
                                 ))
                             }
                         }
@@ -3363,8 +3639,21 @@ impl CheckedPackageV2 {
                         requested,
                         type_id,
                         member_type,
-                        &mut work,
+                        work,
                         work_limit,
+                    )?;
+                    if let MemberOwner::Effective(effective) = member_id.owner() {
+                        storage::preflight_effective(effective, work, type_id)?;
+                    }
+                    charge_native_storage(
+                        work,
+                        requested,
+                        type_id,
+                        "record_field_result",
+                        (field.identity.len() as u128)
+                            .saturating_add(field.name.len() as u128)
+                            .saturating_add(storage::member_identity(member_id))
+                            .saturating_add(3),
                     )?;
                     projected_fields.push(SelectedRecordFieldView {
                         ir_identity: field.identity.into(),
@@ -3378,29 +3667,28 @@ impl CheckedPackageV2 {
                         },
                     });
                 }
+                charge_native_storage(work, requested, type_id, "record_view_key", 1)?;
                 record_view = Some(SelectedRecordView {
                     record_key: record_key.clone(),
                     fields: projected_fields,
                 });
+                charge_native_storage(work, requested, type_id, "record_type_key", 1)?;
                 ValueType::Composite(record_key.clone())
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Record) => {
                 let row = identities.source_records.get(type_id).ok_or_else(|| {
-                    refuse(
-                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                        work,
-                    )
+                    refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
                 })?;
-                charge_work(requested, type_id, "source_record", &mut work, work_limit)?;
+                charge_work(requested, type_id, "source_record", work, work_limit)?;
                 for _ in &self.lock().sources {
-                    charge_work(requested, type_id, "selected_source", &mut work, work_limit)?;
+                    charge_work(requested, type_id, "selected_source", work, work_limit)?;
                 }
                 for segment in &row.qualified_declaration {
                     charge_work_amount(
                         requested,
                         type_id,
                         "record_declaration",
-                        &mut work,
+                        work,
                         work_limit,
                         u64::try_from(segment.len()).unwrap_or(u64::MAX),
                     )?;
@@ -3410,14 +3698,14 @@ impl CheckedPackageV2 {
                         requested,
                         &member.type_node,
                         "source_record_member",
-                        &mut work,
+                        work,
                         work_limit,
                     )?;
                     charge_work_amount(
                         requested,
                         &member.type_node,
                         "source_record_member_identity",
-                        &mut work,
+                        work,
                         work_limit,
                         u64::try_from(
                             member
@@ -3429,52 +3717,46 @@ impl CheckedPackageV2 {
                     )?;
                 }
                 if !source_record_row_matches(self, row) {
-                    return Err(refuse(
-                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                        work,
+                    return Err(refuse!(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
                     ));
                 }
+                charge_native_storage(work, requested, type_id, "source_record_projection", 2)?;
                 source_record_view = Some(Arc::clone(row));
                 ValueType::Composite(row.record_key.clone())
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
                 let row = identities.source_unions.get(type_id).ok_or_else(|| {
-                    refuse(
-                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                        work,
-                    )
+                    refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
                 })?;
                 for member in &row.members {
-                    charge_work(requested, type_id, "union_member", &mut work, work_limit)?;
+                    charge_work(requested, type_id, "union_member", work, work_limit)?;
                     for _ in &member.payload_nodes {
-                        charge_work(requested, type_id, "union_payload", &mut work, work_limit)?;
+                        charge_work(requested, type_id, "union_payload", work, work_limit)?;
                     }
                 }
                 if !source_union_row_matches(self, row) {
-                    return Err(refuse(
-                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                        work,
+                    return Err(refuse!(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
                     ));
                 }
+                charge_native_storage(work, requested, type_id, "source_union_type", 1)?;
                 ValueType::Composite(row.type_handle.clone())
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => {
                 let row = identities.source_tuples.get(type_id).ok_or_else(|| {
-                    refuse(
-                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                        work,
-                    )
+                    refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
                 })?;
-                charge_work(requested, type_id, "source_tuple", &mut work, work_limit)?;
+                charge_work(requested, type_id, "source_tuple", work, work_limit)?;
                 for _ in &self.lock().sources {
-                    charge_work(requested, type_id, "selected_source", &mut work, work_limit)?;
+                    charge_work(requested, type_id, "selected_source", work, work_limit)?;
                 }
                 for segment in &row.qualified_declaration {
                     charge_work_amount(
                         requested,
                         type_id,
                         "tuple_declaration",
-                        &mut work,
+                        work,
                         work_limit,
                         u64::try_from(segment.len()).unwrap_or(u64::MAX),
                     )?;
@@ -3484,42 +3766,53 @@ impl CheckedPackageV2 {
                         requested,
                         &position.type_node,
                         "tuple_position",
-                        &mut work,
+                        work,
                         work_limit,
                     )?;
                 }
                 if !source_tuple_row_matches(self, row) {
-                    return Err(refuse(
-                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                        work,
+                    return Err(refuse!(
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
                     ));
                 }
+                charge_native_storage(work, requested, type_id, "source_tuple_projection", 2)?;
                 source_tuple_view = Some(Arc::clone(row));
                 ValueType::Composite(row.type_handle.clone())
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::Unit) => {
                 match identities
                     .declaration_identity(self, type_id)
-                    .map_err(|code| refuse(code, work))?
+                    .map_err(|code| refuse!(code))?
                 {
                     SelectedExactIdentity::DeclaredUnit(unit @ UnitId::Declared(_)) => {
+                        storage::preflight_unit(unit, work, type_id)?;
+                        charge_native_storage(
+                            work,
+                            requested,
+                            type_id,
+                            "declared_unit_type",
+                            storage::unit(unit).saturating_add(1),
+                        )?;
                         ValueType::Quantity(unit.clone())
                     }
                     _ => {
-                        return Err(refuse(
-                            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                            work,
+                        return Err(refuse!(
+                            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
                         ));
                     }
                 }
             }
-            _ => {
-                return Err(refuse(
-                    ExactTypeProjectionErrorCode::UnsupportedExactType,
-                    work,
-                ))
-            }
+            _ => return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType)),
         };
+        charge_native_storage(
+            work,
+            requested,
+            type_id,
+            "exact_projection_result",
+            storage::node(requested)
+                .saturating_add(storage::node(type_id))
+                .saturating_add(1),
+        )?;
         Ok(ExactTypeProjection {
             node: requested.clone(),
             type_node: type_id.clone(),
@@ -3528,7 +3821,7 @@ impl CheckedPackageV2 {
             source_record_view,
             source_tuple_view,
             source_enum_view,
-            work,
+            work: work.current(),
         })
     }
 }
@@ -3645,13 +3938,21 @@ mod tests {
             ("timestamp", ValueType::Timestamp),
         ] {
             let projected = package
-                .project_exact_type(&checked_id(path), &identities, 2)
+                .project_exact_type(
+                    &checked_id(path),
+                    &identities,
+                    &mut NativeJoinBudget::new(2, u64::MAX),
+                )
                 .expect("scalar");
             assert_eq!(projected.value_type(), &expected, "{path}");
         }
         for (path, upper) in [("total", 1000_i64), ("tally", 3), ("count", 9)] {
             let projected = package
-                .project_exact_type(&checked_id(path), &identities, 12)
+                .project_exact_type(
+                    &checked_id(path),
+                    &identities,
+                    &mut NativeJoinBudget::new(12, u64::MAX),
+                )
                 .expect("range");
             let expected = ValueType::Int(
                 IntegerInterval::new(Integer::from(0_i64), Integer::from(upper)).expect("ordered"),
@@ -3666,7 +3967,11 @@ mod tests {
         let identities = SelectedExactIdentities::empty();
         let refusal = |id: CheckedNodeId, limit| {
             package
-                .project_exact_type(&id, &identities, limit)
+                .project_exact_type(
+                    &id,
+                    &identities,
+                    &mut NativeJoinBudget::new(limit, u64::MAX),
+                )
                 .expect_err("refused")
         };
         let mut changed = checked_id("boolean");
@@ -3698,10 +4003,16 @@ mod tests {
         assert_eq!(exhausted.work, 1);
         assert_eq!(exhausted.at, Some(Box::new(checked_id("range1000"))));
         assert_eq!(
-            package.project_exact_type(&checked_id("total"), &identities, 12),
-            package
-                .clone()
-                .project_exact_type(&checked_id("total"), &identities, 12)
+            package.project_exact_type(
+                &checked_id("total"),
+                &identities,
+                &mut NativeJoinBudget::new(12, u64::MAX)
+            ),
+            package.clone().project_exact_type(
+                &checked_id("total"),
+                &identities,
+                &mut NativeJoinBudget::new(12, u64::MAX)
+            )
         );
     }
 }
