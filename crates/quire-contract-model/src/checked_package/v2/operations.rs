@@ -39,9 +39,6 @@ use crate::checked_package::selected_population::{
 use crate::checked_package::shared::{
     CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use num_bigint::BigInt;
-use num_integer::Integer;
-use num_traits::One;
 use quire_exact::TextProfile;
 use serde::Deserialize;
 use serde_json::Value;
@@ -540,8 +537,11 @@ fn literal_defect(
                                     )
                             )
                         });
-                    (!exact_body_quantity)
-                        .then(|| value.as_str().is_some_and(canonical_quantity_magnitude))
+                    (!exact_body_quantity).then(|| {
+                        value.as_str().is_some_and(|value| {
+                            super::structural::canonical_rational(value).is_some()
+                        })
+                    })
                 }
                 LiteralKind::Boolean
                 | LiteralKind::Integer
@@ -654,23 +654,6 @@ fn canonical_uuid(value: &str) -> bool {
                 byte.is_ascii_digit() || (b'a'..=b'f').contains(byte)
             }
         })
-}
-
-/// QSpec FR-322's exact quantity magnitude: a canonical integer or a
-/// reduced fraction whose denominator is greater than one.
-fn canonical_quantity_magnitude(value: &str) -> bool {
-    let integer = |text: &str| {
-        text.parse::<BigInt>()
-            .ok()
-            .filter(|parsed| parsed.to_string() == text)
-    };
-    let Some((numerator, denominator)) = value.split_once('/') else {
-        return integer(value).is_some();
-    };
-    let (Some(numerator), Some(denominator)) = (integer(numerator), integer(denominator)) else {
-        return false;
-    };
-    denominator > BigInt::one() && numerator.gcd(&denominator).is_one()
 }
 
 /// The admitted graph an application's checks read.
@@ -811,12 +794,24 @@ fn check_bounded_dimensions(
         .filter_map(|type_id| quantity_unit(type_id, graph))
         .filter_map(|unit| graph.index.get(unit))
         .any(|position| &graph.nodes[*position].semantic_type != first_dimension);
-    let result_mismatch = if operation.identity.as_ref() == "quire.op.quantity.lt" {
-        false
-    } else {
-        quantity_unit(result_type, graph)
+    let result_mismatch = match operation.identity.as_ref() {
+        "quire.op.quantity.lt" => false,
+        "quire.op.quantity.add" => {
+            graph
+                .index
+                .get(result_type)
+                .and_then(|position| graph.kinds.get(*position))
+                != Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+                || quantity_unit(result_type, graph)
+                    .and_then(|unit| graph.index.get(unit))
+                    .is_some_and(|position| {
+                        &graph.nodes[*position].semantic_type != first_dimension
+                    })
+        }
+        "quire.op.quantity.convert" => quantity_unit(result_type, graph)
             .and_then(|unit| graph.index.get(unit))
-            .is_some_and(|position| &graph.nodes[*position].semantic_type != first_dimension)
+            .is_some_and(|position| &graph.nodes[*position].semantic_type != first_dimension),
+        _ => return None,
     };
     (operand_mismatch || result_mismatch).then(|| {
         application.refuse(

@@ -1043,7 +1043,7 @@ fn carried_quantity_shape(
         ]
 }
 
-fn canonical_rational(value: &str) -> Option<(BigInt, BigInt)> {
+pub(super) fn canonical_rational(value: &str) -> Option<(BigInt, BigInt)> {
     let integer = |text: &str| {
         text.parse::<BigInt>()
             .ok()

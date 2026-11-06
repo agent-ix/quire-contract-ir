@@ -419,6 +419,25 @@ impl Package {
         self.ids.insert(name.to_owned(), id);
     }
 
+    fn compound_unit(&mut self) {
+        let id = json!({
+            "package": self.wire["name"],
+            "path": ["scalar_type", "compound_unit"],
+            "ordinal": 0,
+        });
+        self.wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"scalar_type","semantic_form":"compound_unit",
+                "semantic_type":id,"dependencies":[],
+                "occurrences":[{"role":"expression","ordinal":0}],
+                "body":{"term":"aggregate","members":[]},
+            }));
+        self.ids.insert("compound_unit".into(), id);
+    }
+
     fn bounded(&mut self, name: &str, unit: &str, min: &str, max: &str) {
         let rational = self.ids["rational"].clone();
         let unit = self.ids[unit].clone();
@@ -498,6 +517,7 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
         .expect("published bounded forms");
     assert_published_ids(forms, "BQ", &["BQ-01", "BQ-04", "BQ-05", "BQ-06", "BQ-07"]);
     let case = |id| forms.iter().find(|form| form["id"] == id).expect("BQ case");
+    assert_eq!(case("BQ-07")["expected"]["cause"], "requires-bound");
     for (id, admitted) in [
         ("BQ-01", true),
         ("BQ-04", true),
@@ -516,6 +536,8 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
         if admitted {
             package.parameter("bounded_parameter", "bounded");
             package.parameter("bare_parameter", "unit_m");
+            package.compound_unit();
+            package.parameter("compound_parameter", "compound_unit");
             let ids = package.ids.clone();
             let CheckedPackageV2ReadResult::Admitted(model) = package.read() else {
                 panic!("{id} must admit");
@@ -555,7 +577,10 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
                 .collect::<Vec<_>>();
             let request = resolved_fixture_id(&ids["bounded_parameter"], &graph_ids);
             let bare_request = resolved_fixture_id(&ids["bare_parameter"], &graph_ids);
-            let records = model.lower(&[request, bare_request], &profile).records;
+            let compound_request = resolved_fixture_id(&ids["compound_parameter"], &graph_ids);
+            let records = model
+                .lower(&[request, bare_request, compound_request], &profile)
+                .records;
             assert!(
                 matches!(records[0], CompleteLoweringRecordV2::Lowered { .. }),
                 "{id} bounded parameter: {:?}",
@@ -570,6 +595,16 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
             assert_eq!(
                 *unbounded_type,
                 resolved_fixture_id(&ids["unit_m"], &graph_ids)
+            );
+            let CompleteLoweringRecordV2::RequiresBound { unbounded_type, .. } = &records[2] else {
+                panic!(
+                    "BQ-07 compound-unit parameter must require a bound: {:?}",
+                    records[2]
+                );
+            };
+            assert_eq!(
+                *unbounded_type,
+                resolved_fixture_id(&ids["compound_unit"], &graph_ids)
             );
         } else {
             let CheckedPackageV2ReadResult::Refused(refusal) = package.read() else {
@@ -597,6 +632,87 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
             }
         }
     }
+}
+
+/// Trace: FR-038-AC-482, FR-019-AC-26; QSpec FR-322-AC-384.
+#[trace("TC-048", "TC-058", "FR-038-AC-482", "FR-019-AC-26")]
+#[test]
+fn published_bounded_quantity_unit_and_alias_identity() {
+    let published = bounded_vectors();
+    let forms = published["forms"].as_array().expect("BQ forms");
+    assert_published_ids(forms, "BQ", &["BQ-01", "BQ-02", "BQ-03"]);
+    let case = |id| forms.iter().find(|form| form["id"] == id).expect("BQ case");
+    let metre = case("BQ-01");
+    let centimetre = case("BQ-02");
+    let alias = case("BQ-03");
+    assert_eq!(metre["unit"], alias["unit"]);
+    assert_eq!(metre["min"], alias["min"]);
+    assert_eq!(metre["max"], alias["max"]);
+    assert_ne!(metre["unit"], centimetre["unit"]);
+    let mut package = Package::new();
+    let all = &vectors()["nodes"];
+    for name in ["rational", "text", "integer"] {
+        package.add(name, all);
+    }
+    package.bounded(
+        "metre",
+        "unit_m",
+        &bound_text(&metre["min"]),
+        &bound_text(&metre["max"]),
+    );
+    package.bounded(
+        "centimetre",
+        "unit_cm",
+        &bound_text(&centimetre["min"]),
+        &bound_text(&centimetre["max"]),
+    );
+    let metre_id = package.ids["metre"].clone();
+    package.ids.insert("aliased_metre".into(), metre_id);
+    package.parameter("direct", "metre");
+    package.parameter("through_alias", "aliased_metre");
+    let ids = package.ids.clone();
+    let CheckedPackageV2ReadResult::Admitted(model) = package.read() else {
+        panic!("BQ-01 through BQ-03 must admit");
+    };
+    let graph_ids = model
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| json!({"node_id":node.node_id}))
+        .collect::<Vec<_>>();
+    let metre_id = resolved_fixture_id(&ids["metre"], &graph_ids);
+    let centimetre_id = resolved_fixture_id(&ids["centimetre"], &graph_ids);
+    assert_ne!(metre_id, centimetre_id, "BQ-02 changes structural identity");
+    let direct_id = resolved_fixture_id(&ids["direct"], &graph_ids);
+    let alias_id = resolved_fixture_id(&ids["through_alias"], &graph_ids);
+    let direct = model
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == direct_id)
+        .expect("direct parameter");
+    let through_alias = model
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == alias_id)
+        .expect("alias parameter");
+    let direct_type = serde_json::to_value(&direct.semantic_type).expect("direct type");
+    let alias_type = serde_json::to_value(&through_alias.semantic_type).expect("alias type");
+    assert_eq!(resolved_fixture_id(&direct_type, &graph_ids), metre_id);
+    assert_eq!(
+        resolved_fixture_id(&alias_type, &graph_ids),
+        metre_id,
+        "BQ-03 forwards to one node"
+    );
+    let bounded_nodes = model
+        .graph()
+        .nodes
+        .iter()
+        .zip(model.node_kinds())
+        .filter(|(_, kind)| **kind == CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity))
+        .count();
+    assert_eq!(bounded_nodes, 2, "BQ-03 adds no alias node");
 }
 
 /// Trace: FR-038-AC-483; QSpec FR-322-AC-384.
@@ -652,6 +768,56 @@ fn published_bounded_quantity_add_convert_and_lt_admit() {
             ScalarTypeForm::BoundedQuantity
         )));
     }
+}
+
+/// Trace: FR-038-AC-483; QSpec FR-322-AC-384.
+#[trace("TC-048", "FR-038-AC-483")]
+#[test]
+fn bounded_quantity_add_requires_an_ordinary_unit_result() {
+    let published = bounded_vectors();
+    let case = published["forms"]
+        .as_array()
+        .expect("BQ forms")
+        .iter()
+        .find(|form| form["id"] == "BQ-08")
+        .expect("BQ-08");
+    assert!(case["operations"]
+        .as_array()
+        .expect("BQ operations")
+        .iter()
+        .any(|operation| operation == "quire.op.quantity.add"));
+    let mut package = Package::new();
+    let all = &vectors()["nodes"];
+    for name in ["rational", "text", "integer"] {
+        package.add(name, all);
+    }
+    package.bounded("bounded", "unit_m", "0", "20");
+    let at = package.application(
+        &json!({"application":{
+            "operation":"quire.op.quantity.add", "operand_types":["bounded"],
+            "result_type":"unit_m", "mode":null
+        }}),
+        all,
+    );
+    let bounded = package.ids["bounded"].clone();
+    let node = &mut package.wire["semantic_graph"]["nodes"][at];
+    node["semantic_type"] = bounded.clone();
+    node["body"]["result_type"] = bounded;
+    let CheckedPackageV2ReadResult::Refused(refusal) = package.read() else {
+        panic!("quantity.add must refuse a bounded result type");
+    };
+    assert_eq!(
+        refusal.code,
+        quire_contract_model::CheckedPackageRefusalCode::IllTyped
+    );
+    assert_eq!(
+        refusal.cause,
+        Some(quire_contract_model::CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{at}"))
+    );
 }
 
 /// Trace: FR-038-AC-483; QSpec FR-322-AC-384.
@@ -1067,25 +1233,7 @@ fn carried_quantity_binding_and_path_mutations_refuse_at_the_type() {
 fn conversion_into_a_carried_quantity_requires_a_unit_or_carried_source() {
     let vectors = vectors();
     let mut package = Package::new();
-    let compound = json!({
-        "package":package.wire["name"],
-        "path":["scalar_type","compound_unit"],
-        "ordinal":0,
-    });
-    package.wire["semantic_graph"]["nodes"]
-        .as_array_mut()
-        .expect("nodes")
-        .push(json!({
-            "node_id":compound,
-            "schema_version":"quire.checked-semantic-graph/v2",
-            "node_tag":"scalar_type",
-            "semantic_form":"compound_unit",
-            "semantic_type":compound,
-            "dependencies":[],
-            "occurrences":[{"role":"expression","ordinal":0}],
-            "body":{"term":"aggregate","members":[]},
-        }));
-    package.ids.insert("compound_unit".into(), compound);
+    package.compound_unit();
     let at = package.application(
         &json!({"application":{
             "operation":"quire.op.quantity.convert",
