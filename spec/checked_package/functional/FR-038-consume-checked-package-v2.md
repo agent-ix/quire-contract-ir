@@ -1759,6 +1759,30 @@ reference for CB-01..08 and the existing clause cases, constructing full
 compensation packages around the abstract cases. It SHALL keep no local copy
 of either vector, schema or fixture.
 
+For `quire.temporal.timed/v1`, the reader SHALL admit a clause with
+`clock_name` `model-time` and no `temporal_bindings` row. It SHALL refuse any
+row naming that clause as `invalid_package`/`timed-node-reference` at the
+whole `/temporal_bindings/{i}` row, with the clause node as locus. When the
+clause's `over` parameter has a model subject, the reader SHALL join the
+subject's model root to a checked `timed_model` root and its `time_source`.
+Without a matching source it SHALL refuse `invalid_package`/
+`timed-node-reference` at `/semantic_graph/nodes/{clause}/body`, with the
+clause node as locus. A trace subject takes timestamped positions and order
+from the temporal profile input and requires no checked time source. The
+existing three configured profiles keep their row requirements and kind
+joins. Validation and join visits consume the existing finite work meter.
+
+The borrowed monitor clock read SHALL represent the Timed alternative as a
+model-time binding carrying the exact admitted source unit and model root,
+distinct from the three closed `ClockConfiguration` kinds. Its lookup SHALL
+charge each inspected root and source against the caller's finite work limit;
+one below the required allowance refuses with a typed work limit and no
+partial view. The read SHALL not manufacture a temporal row or a clock unit
+for a trace subject. TC-048 SHALL read QSpec's
+`proposals/checked-package-v2/timed-clock-no-row-vectors.json` by reference
+and test TN-01 through TN-05 against admission or exact refusal, including
+the primary pointer and node locus.
+
 ### Temporal clause names (planned until IR-1278)
 
 The V2 reader SHALL admit QSpec FR-322's separate, closed
@@ -5931,6 +5955,9 @@ copying QSL execution semantics into IR.
 | FR-038-AC-479 | PLANNED/UNRUN (IR-1362). Source and selected-model dimension reads use the explicit admitted or selected-document `base` flag when identifying a base `Time`, validating a dimension term target, choosing a base equivalence root and normalizing a dimension. An empty `base: false` dimension normalizes to a dimensionless derived map; it is never treated as a base dimension or a base `Time`, even when its selected name is `Time`. A `base: true` dimension remains a base only when its terms are empty. Changing only a source dimension's `base` flag does not change its assigned node id, but the reader still validates its body and semantic joins. | Test (TC-280; QSpec FR-322-AC-387) |
 | FR-038-AC-480 | PLANNED/UNRUN (IR-1362). Tests read QSpec main's `positive-timed-model-nodes.json`, `positive-nominal-identities.json`, `dimension-equivalence-vectors.json` and `adverse.json` by `QUIRE_SPECIFICATION_DIR`, without copying their bytes into IR. The QSpec #625 positive timed-model dimension at node 42 no longer refuses `malformed_wire` at `/semantic_graph/nodes/42/body`; the reader reaches the subsequent timed checks. The positive nominal base and dimensionless-derived dimensions retain their distinct meanings, and NB-07 through NB-09 yield their published strict-wire refusals. | Test (TC-233; TC-280; TC-367) |
 | FR-038-AC-481 | PLANNED/UNRUN (IR-1362). A public typed writer constructs base and derived source dimension bodies with explicit `base` values, including a derived empty-term body, and emits `true` and `false` verbatim in the canonical checked-package V2 wire. Strict reader admission retains the same flag; the public package writer followed by another strict read returns an equal admitted package and the same declaration-path node identities without a producer-side JSON or lock rewrite. A typed constructor rejects `base: true` with nonempty terms at its body-relative locus before it can emit a package. The round-trip tests use the selected QSpec #625 positive nominal and timed fixtures by reference. | Test (TC-233; TC-367; QSpec FR-322-AC-387) |
+| FR-038-AC-482 | A `quire.temporal.timed/v1` clause with `clock_name` `model-time` and no `temporal_bindings` row admits for a trace subject and for a model subject whose model root joins one checked `timed_model` root and `time_source`; the configured profiles retain their current row behavior (TN-01, TN-02, TN-05). A model subject with no matching source refuses `invalid_package`/`timed-node-reference` at its clause body with the clause node locus (TN-03). | Test (TC-048) |
+| FR-038-AC-483 | Any `temporal_bindings` row naming a Timed clause refuses `invalid_package`/`timed-node-reference` at the whole row with the clause node locus (TN-04), before a row clock-name or configuration-kind comparison; no row is synthesized. | Test (TC-048) |
+| FR-038-AC-484 | A bounded public monitor clock read of a Timed model claim returns the admitted model root, time source and exact unit as a distinct model-time alternative, with selected root, clause, occurrence, clock name and claim name. It charges inspected root/source visits; exact allowance succeeds and one below yields a typed limit refusal with no partial value. A Timed trace claim has no fabricated checked-model unit. TC-048 reads QSpec's TN-01..TN-05 vectors by reference without copying them. | Test (TC-048) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
