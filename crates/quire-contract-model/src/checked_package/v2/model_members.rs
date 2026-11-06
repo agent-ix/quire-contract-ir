@@ -1045,18 +1045,26 @@ impl DomainModel {
         self.aliases.len()
     }
 
-    /// Whether this selected identity is a type declaration.
-    pub(super) fn population_member_type_exists(&self, name: &str) -> bool {
+    /// Whether this identity names any retained selected declaration, even
+    /// when that declaration is not an object type.
+    pub(super) fn population_member_declaration_exists(&self, name: &str) -> bool {
         self.object_types.contains_key(name)
             || self.state_machines.contains(name)
             || self.processes.contains(name)
             || self.persistence_interfaces.contains(name)
+            || self.persistence_operations.contains_key(name)
             || self.record_types.contains_key(name)
             || self.event_types.contains(name)
             || self.tuple_types.contains_key(name)
             || self.value_types.contains_key(name)
             || self.variant_types.contains_key(name)
             || self.collection_types.contains_key(name)
+            || self.dimensions.contains_key(name)
+            || self.units.contains_key(name)
+            || self.relationships.contains_key(name)
+            || self.populations.contains(name)
+            || self.relation_nodes.contains(name)
+            || self.other_types.contains_key(name)
     }
 
     /// Whether the admitted selected declaration has the systems Port meaning.

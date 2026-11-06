@@ -277,7 +277,7 @@ fn normalized_member<'a>(
         let Some(target) = model.population_alias_target(current) else {
             let reason = if model.object_types.contains_key(current) {
                 None
-            } else if model.population_member_type_exists(current) {
+            } else if model.population_member_declaration_exists(current) {
                 Some(CheckedModelPopulationMemberUnresolved::WrongKind)
             } else {
                 Some(CheckedModelPopulationMemberUnresolved::MissingType)

@@ -39,4 +39,4 @@ partial output, and a cloned package produces the same values and charges.
 
 ## Status
 
-IMPLEMENTED (IR-1358): `selected_population_catalog_keeps_unused_origins_and_full_effective_type_ids` and `selected_population_catalog_refuses_wrong_kind_without_partial_result` pass against admitted packages; `population_catalog_defensively_refuses_a_retained_unresolved_member` passes for the retained-state invariant control. Public inventory tests and scoped Clippy pass on PR #923.
+IMPLEMENTED (IR-1358): `selected_population_catalog_keeps_unused_origins_and_full_effective_type_ids` and `selected_population_catalog_refuses_wrong_kind_without_partial_result` and `selected_population_catalog_classifies_retained_namespace_as_wrong_kind` pass against admitted packages; `population_catalog_defensively_refuses_a_retained_unresolved_member` passes for the retained-state invariant control. Public inventory tests and scoped Clippy pass on PR #923.
