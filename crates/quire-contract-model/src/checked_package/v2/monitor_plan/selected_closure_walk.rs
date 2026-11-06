@@ -80,7 +80,7 @@ impl<'a> Walk<'a, '_> {
         })
     }
 
-    fn charge(&mut self, at: &CheckedNodeId) -> Result<(), RuntimeWalkError> {
+    fn charge(&mut self, _at: &CheckedNodeId) -> Result<(), RuntimeWalkError> {
         self.budget.set_locus_form("monitor_graph_inspection");
         read_charge(self.budget, NativeJoinChargeKind::Work, 1)?;
         self.work += 1;
