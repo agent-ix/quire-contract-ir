@@ -631,3 +631,112 @@ fn complete_identity_witness_retains_private_value_identities_after_producer_row
         &quire_exact::ValueType::Quantity(unit)
     );
 }
+
+#[trace("TC-467", "FR-352-AC-26", "FR-352-AC-29")]
+#[test]
+fn complete_identity_witness_source_joins_preserve_private_handle_ownership() {
+    let fixture = complete_witness_fixture();
+    let mut budget = ample();
+    let stage = SelectedExactIdentities::from_stage_rows(
+        &fixture.package,
+        fixture.identities.declaration_rows().cloned(),
+        fixture.identities.field_rows().iter().cloned(),
+        &mut budget,
+    )
+    .unwrap();
+    let private = stage
+        .with_admitted_type_rows(
+            &fixture.package,
+            &fixture.tuples,
+            &fixture.units,
+            &mut budget,
+        )
+        .unwrap();
+    let before = private.clone();
+    let quire_exact::UnitId::Declared(unit_key) = &fixture.units[0].unit_id else {
+        panic!("declared producer unit");
+    };
+    for claimed in [&fixture.tuples[0].node_key, unit_key] {
+        let mut union = fixture
+            .identities
+            .source_union_rows()
+            .next()
+            .unwrap()
+            .clone();
+        union.type_handle = claimed.clone();
+        let union_id = union.structural_node.clone();
+        let error = private
+            .with_source_union_rows(&fixture.package, [union], &mut ample())
+            .unwrap_err();
+        assert_eq!(error.code, Code::ConflictingIdentityWitness);
+        assert_eq!(error.at.as_deref(), Some(&union_id));
+        let mut record = fixture
+            .identities
+            .source_record_rows()
+            .next()
+            .unwrap()
+            .clone();
+        record.record_key = claimed.clone();
+        let record_id = record.structural_node.clone();
+        let error = private
+            .with_source_record_rows(&fixture.package, [record], &mut ample())
+            .unwrap_err();
+        assert_eq!(error.code, Code::ConflictingIdentityWitness);
+        assert_eq!(error.at.as_deref(), Some(&record_id));
+        let mut tuple = fixture
+            .identities
+            .source_tuple_rows()
+            .next()
+            .unwrap()
+            .clone();
+        tuple.type_handle = claimed.clone();
+        let tuple_id = tuple.structural_node.clone();
+        let error = private
+            .with_source_tuple_rows(&fixture.package, [tuple], &mut ample())
+            .unwrap_err();
+        assert_eq!(error.code, Code::ConflictingIdentityWitness);
+        assert_eq!(error.at.as_deref(), Some(&tuple_id));
+        let mut source_enum = fixture
+            .identities
+            .source_enum_rows()
+            .next()
+            .unwrap()
+            .clone();
+        source_enum.declaration.node_key = claimed.clone();
+        let enum_id = source_enum.declaration.structural_node.clone();
+        let error = private
+            .with_source_enum_rows(&fixture.package, [source_enum], &mut ample())
+            .unwrap_err();
+        assert_eq!(error.code, Code::ConflictingIdentityWitness);
+        assert_eq!(error.at.as_deref(), Some(&enum_id));
+        assert_eq!(
+            private, before,
+            "refusal never publishes competing ownership"
+        );
+    }
+    let record = fixture
+        .identities
+        .source_record_rows()
+        .next()
+        .unwrap()
+        .clone();
+    let source = stage
+        .with_source_record_rows(&fixture.package, [record.clone()], &mut ample())
+        .unwrap();
+    let mut tuple = fixture.tuples[0].clone();
+    tuple.node_key = record.record_key.clone();
+    let tuple_id = tuple.structural_node.clone();
+    let error = source
+        .with_admitted_type_rows(&fixture.package, &[tuple], &[], &mut ample())
+        .unwrap_err();
+    assert_eq!(error.code, Code::ConflictingIdentityWitness);
+    assert_eq!(error.at.as_deref(), Some(&tuple_id));
+    let mut unit = fixture.units[0].clone();
+    unit.unit_id = quire_exact::UnitId::Declared(record.record_key);
+    let unit_id = unit.structural_node.clone();
+    let error = source
+        .with_admitted_type_rows(&fixture.package, &[], &[unit], &mut ample())
+        .unwrap_err();
+    assert_eq!(error.code, Code::ConflictingIdentityWitness);
+    assert_eq!(error.at.as_deref(), Some(&unit_id));
+}
