@@ -20,8 +20,10 @@ order. One model declares two populations with distinct original identities
 and the same member type, one never used by any application; the other model
 declares an empty population, or no population in a separate control. Read the
 catalog and compare every selected model/root, population and member identity
-and normalized member type. Include an admitted member whose type cannot be
-resolved by the accessor and require its typed unresolved condition. Clone the
+and normalized structural `EffectiveId`, including its complete type owner
+component. In a crate-local defensive control, perturb retained member data
+after admission to an unresolved, cyclic-alias or wrong-kind type and require
+the accessor's typed whole-call refusal. Clone the
 package and compare the result. Discover the smallest successful work and
 entry allowances and call again one below each; compare typed refusal kind,
 consumed amount, first unpaid locus and absence of a partial result.

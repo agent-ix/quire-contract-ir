@@ -13,6 +13,8 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedModelFieldsError, CheckedModelObjectFields,
+    CheckedModelPopulationCatalogError, CheckedModelPopulationCatalogLimitKind,
+    CheckedModelPopulationCatalogLimits, CheckedModelPopulationMemberUnresolved,
     CheckedModelRecordFieldsError, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence,
     CheckedOccurrenceRole, CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
@@ -33,6 +35,169 @@ use std::collections::BTreeMap;
 const IDENTITY: &str = "acme/orders";
 const OBJECT: &str = "object_type";
 const INTERFACE: &str = "systems_interface";
+
+/// Trace: FR-038-AC-474, FR-038-AC-475, FR-038-AC-476, FR-038-AC-477.
+#[trace("FR-038-AC-474", "FR-038-AC-475", "FR-038-AC-476", "FR-038-AC-477")]
+#[test]
+fn selected_population_catalog_keeps_unused_origins_and_full_effective_type_ids() {
+    let mut selected = document(vec![
+        object("Gadget", &[], &[]),
+        object("Widget", &[], &[]),
+        json!({"identity": orders("WidgetAlias"), "kind": "alias", "target": orders("Widget")}),
+    ]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
+        }));
+    selected["populations"] = json!([
+        {"identity": orders("Active"), "displayName": "Active",
+         "kind": {"module": IDENTITY, "name": "population"},
+         "members": [orders("WidgetAlias"), orders("Gadget")], "extent": "closed",
+         "origin": {"source": {"sourceIdentity": "ix://acme/orders/spec",
+             "path": "spec/populations.md", "startLine": 1, "startColumn": 1}}},
+        {"identity": orders("Reserve"), "displayName": "Reserve",
+         "kind": {"module": IDENTITY, "name": "population"},
+         "members": [orders("Widget")], "extent": "closed",
+         "origin": {"source": {"sourceIdentity": "ix://acme/orders/spec",
+             "path": "spec/populations.md", "startLine": 2, "startColumn": 1}}},
+    ]);
+    let (mut wire, _, _) = self::package(&selected, &[("Gadget", OBJECT), ("Widget", OBJECT)], &[]);
+    select_model(&mut wire, "acme/other");
+    settle(&mut wire);
+    let evidence = evidence_with_document(&wire, IDENTITY, &selected);
+    let admitted = match read_with(&wire, &evidence, CheckedPackageReadLimits::bounded()) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("expected admitted selected populations, got {other:?}"),
+    };
+    let generous = CheckedModelPopulationCatalogLimits {
+        work: 1_000_000,
+        entries: 100,
+    };
+    let catalog = admitted
+        .selected_model_population_catalog(generous)
+        .expect("complete selected catalog");
+    assert_eq!(catalog.roots().len(), 2);
+    assert_eq!(catalog.roots()[0].model_identity(), IDENTITY);
+    assert_eq!(catalog.roots()[0].root().package.as_ref(), IDENTITY);
+    assert_eq!(catalog.roots()[1].model_identity(), "acme/other");
+    assert!(catalog.roots()[1].populations().is_empty());
+    let populations = catalog.roots()[0].populations();
+    assert_eq!(populations.len(), 2);
+    assert_eq!(populations[0].original_identity(), orders("Active"));
+    assert_eq!(populations[1].original_identity(), orders("Reserve"));
+    assert_eq!(populations[0].members().len(), 2);
+    assert_eq!(
+        populations[0].members()[0].original_identity(),
+        orders("Gadget")
+    );
+    let gadget = EffectiveId::new(
+        None,
+        OriginalDeclarationKey::new(IDENTITY, orders("Gadget")),
+    );
+    assert_eq!(
+        populations[0].members()[0].normalized_type_identity(),
+        &gadget
+    );
+    let active = &populations[0].members()[1];
+    assert_eq!(active.original_identity(), orders("WidgetAlias"));
+    let expected = EffectiveId::new(
+        None,
+        OriginalDeclarationKey::new(IDENTITY, orders("Widget")),
+    );
+    assert_eq!(active.normalized_type_identity(), &expected);
+    assert_eq!(
+        populations[1].members()[0].normalized_type_identity(),
+        &expected
+    );
+    assert_eq!(
+        populations[1].members()[0].original_identity(),
+        orders("Widget")
+    );
+    let exact = CheckedModelPopulationCatalogLimits {
+        work: catalog.work(),
+        entries: catalog.entries(),
+    };
+    assert_eq!(
+        admitted.selected_model_population_catalog(exact),
+        Ok(catalog.clone())
+    );
+    let cloned = admitted.clone();
+    assert_eq!(
+        cloned.selected_model_population_catalog(exact),
+        Ok(catalog.clone())
+    );
+    let one_less_work = CheckedModelPopulationCatalogLimits {
+        work: exact.work - 1,
+        ..exact
+    };
+    assert!(matches!(
+        admitted.selected_model_population_catalog(one_less_work),
+        Err(CheckedModelPopulationCatalogError::Limit {
+            kind: CheckedModelPopulationCatalogLimitKind::Work,
+            limit,
+            consumed,
+            locus,
+        }) if limit == exact.work - 1 && consumed == exact.work
+            && locus.model_identity == "acme/other"
+            && locus.root.package.as_ref() == "acme/other"
+            && locus.population.is_none()
+    ));
+    let one_less_entry = CheckedModelPopulationCatalogLimits {
+        entries: exact.entries - 1,
+        ..exact
+    };
+    assert!(matches!(
+        admitted.selected_model_population_catalog(one_less_entry),
+        Err(CheckedModelPopulationCatalogError::Limit {
+            kind: CheckedModelPopulationCatalogLimitKind::Entries,
+            limit,
+            consumed,
+            locus,
+        }) if limit == exact.entries - 1 && consumed == exact.entries
+            && locus.model_identity == "acme/other"
+            && locus.root.package.as_ref() == "acme/other"
+            && locus.population.is_none()
+    ));
+}
+
+/// Trace: FR-038-AC-475.
+#[trace("FR-038-AC-475")]
+#[test]
+fn selected_population_catalog_refuses_wrong_kind_without_partial_result() {
+    let mut selected = document(vec![value_type("Thousand", "integer", Some(("0", "1000")))]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": IDENTITY, "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
+        }));
+    selected["populations"] = json!([{
+        "identity": orders("Numbers"), "displayName": "Numbers",
+        "kind": {"module": IDENTITY, "name": "population"},
+        "members": [orders("Thousand")], "extent": "closed",
+        "origin": {"source": {"sourceIdentity": "ix://acme/orders/spec",
+            "path": "spec/populations.md", "startLine": 1, "startColumn": 1}},
+    }]);
+    let admitted = admit(&selected, &[], &[]);
+    let limits = CheckedModelPopulationCatalogLimits {
+        work: 1_000_000,
+        entries: 100,
+    };
+    assert!(matches!(
+        admitted.selected_model_population_catalog(limits),
+        Err(CheckedModelPopulationCatalogError::UnresolvedMember {
+            locus,
+            reason: CheckedModelPopulationMemberUnresolved::WrongKind,
+        }) if locus.model_identity == IDENTITY
+            && locus.root.package.as_ref() == IDENTITY
+            && locus.population == Some(orders("Numbers").as_str())
+            && locus.member == Some(orders("Thousand").as_str())
+    ));
+}
 
 /// Trace: FR-038-AC-467, FR-038-AC-468.
 #[trace("FR-038-AC-467", "FR-038-AC-468")]
