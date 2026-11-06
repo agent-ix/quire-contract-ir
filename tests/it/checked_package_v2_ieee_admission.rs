@@ -65,7 +65,7 @@ fn with_ieee_literal(kind: &str, declared_family: &str) -> (Value, usize) {
         "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "value", "semantic_form": "literal",
         "semantic_type": semantic_type,
-        "dependencies": [declared],
+        "dependencies": [],
         "occurrences": [{"role": "generated", "ordinal": 0}],
         "body": body,
     });
@@ -226,8 +226,7 @@ fn tc_048_ieee_bits_reject_every_familyless_declared_type() {
             let (mut standalone, position) = with_ieee_literal(kind, own_family);
             let declared = familyless_type(&standalone, tag, form);
             standalone["semantic_graph"]["nodes"][position]["body"]["type"] = declared.clone();
-            standalone["semantic_graph"]["nodes"][position]["dependencies"] =
-                json!([declared.clone()]);
+            standalone["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
             settle(&mut standalone);
             assert_literal_type_refusal(&standalone, position, "");
 

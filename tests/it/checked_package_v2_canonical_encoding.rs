@@ -882,7 +882,7 @@ fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() 
         // Node 3 is the `value`/`literal` node; its changed body needs a new
         // structural key before the canonical document is read.
         package["semantic_graph"]["nodes"][3]["semantic_type"] = integer_type.clone();
-        package["semantic_graph"]["nodes"][3]["dependencies"] = json!([integer_type]);
+        package["semantic_graph"]["nodes"][3]["dependencies"] = json!([]);
         package["semantic_graph"]["nodes"][3]["body"] = json!({
             "term": "literal", "type": integer_type, "value_kind": "integer", "value": literal
         });

@@ -2568,8 +2568,9 @@ fn build_v2_all_families() -> Value {
             "value",
             "literal",
             &aaaa,
-            &[aaaa.as_str()],
-            empty_aggregate(),
+            &[],
+            json!({"term": "literal", "type": node_id(&aaaa),
+                "value_kind": "boolean", "value": true}),
         ),
         plain_node(
             &eeee,
@@ -2857,14 +2858,7 @@ fn build_operation_identities() -> Value {
         &["Example", "Widget"],
     );
 
-    let literal_node = plain_node(
-        &literal_key,
-        "value",
-        "literal",
-        &root,
-        &[root.as_str()],
-        literal_body,
-    );
+    let literal_node = plain_node(&literal_key, "value", "literal", &root, &[], literal_body);
 
     let func_node = declared(
         plain_node(

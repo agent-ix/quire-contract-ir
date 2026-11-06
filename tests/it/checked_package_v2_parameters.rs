@@ -779,15 +779,7 @@ fn admitted_source_callable_returns_direct_parameter_and_literal_values() {
 fn integer_literal_node() -> (String, Value) {
     let body = literal(&INTEGER, "integer", "7");
     let key = "value/literal/integer-seven".to_owned();
-    let node = wire_node(
-        &key,
-        "value",
-        "literal",
-        &INTEGER,
-        &[&INTEGER],
-        "expression",
-        body,
-    );
+    let node = wire_node(&key, "value", "literal", &INTEGER, &[], "expression", body);
     (key, node)
 }
 

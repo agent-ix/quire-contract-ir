@@ -254,9 +254,8 @@ fn tc_050_non_lowered_records_are_terminal_and_independent() {
     // semantic_type `aaaa`, its two wire `dependencies` `aaaa`/`dddd`, and its
     // `reference` body's own target `dddd`), aaaa (1 + 1 aggregate term + 1
     // edge: its own semantic_type, self),
-    // dddd (1 + 1 aggregate term + 2 edges: semantic_type `aaaa` appearing
-    // once via the successor list's own leading entry and once via its one
-    // wire dependency) makes 1 + 6 + 3 + 4 = 14.
+    // dddd (1 + 1 literal term + 2 edges: semantic_type `aaaa` and its
+    // literal type annotation) makes 1 + 6 + 3 + 4 = 14.
     let exact = package.lower(&[id("eeee")], &profile(14));
     let mut expected_dependencies = vec![id("aaaa"), id("dddd")];
     expected_dependencies.sort();
@@ -330,7 +329,7 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
         .as_array()
         .expect("nodes")
         .iter()
-        .find(|node| node["node_tag"] == "value" && node["semantic_form"] == "literal")
+        .find(|node| node["node_id"] == checked_package::node_id(&key("dddd")))
         .map(|node| serde_json::from_value(node["node_id"].clone()).expect("node id"))
         .expect("value key");
     let result = package.lower(
@@ -345,7 +344,7 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
         }
     );
     let value_node = lowered(&result.records[1]);
-    let mut reached = vec![id("a3a3"), id("cccc")];
+    let mut reached = vec![id("a1a1"), id("a3a3"), id("cccc")];
     reached.sort();
     assert_eq!(value_node.dependencies, reached);
     assert_eq!(value_node.bounds, vec![id("cccc")]);
@@ -360,9 +359,17 @@ fn tc_050_unbounded_types_require_a_reachable_bounding_domain() {
     assert!(lowered(&unbounded.records[0]).bounds.is_empty());
 }
 
-/// The all-families fixture with the namespace node `1010` and the value
-/// node `dddd` typed at the unbounded `Integer` node (`a3a3`): `1010` reaches
-/// no bounded domain and `dddd` reaches the `integer_range` node `cccc`.
+fn parameter_body(text: &str, integer: &str) -> Value {
+    json!({"term": "aggregate", "members": [
+        {"term": "binding", "name": "name", "value": {"term": "literal",
+            "type": checked_package::node_id(text), "value_kind": "text", "value": "x"}},
+        {"term": "binding", "name": "level", "value": {"term": "literal",
+            "type": checked_package::node_id(integer), "value_kind": "integer", "value": "0"}},
+    ]})
+}
+
+/// The namespace `1010` is unbounded; the parameter replacing `dddd` reaches
+/// the `integer_range` node `cccc` through its own semantic type.
 fn integer_typed() -> Value {
     let mut value = v2_all_families();
     let nodes = value["semantic_graph"]["nodes"]
@@ -373,8 +380,11 @@ fn integer_typed() -> Value {
             node["semantic_type"] = checked_package::node_id(&key("a3a3"));
             node["dependencies"] = json!([checked_package::node_id(&key("a3a3"))]);
         } else if node["node_id"] == json!(checked_package::node_id(&key("dddd"))) {
-            node["semantic_type"] = checked_package::node_id(&key("a3a3"));
-            node["dependencies"] = json!([checked_package::node_id(&key("cccc"))]);
+            node["semantic_form"] = json!("parameter");
+            node["semantic_type"] = checked_package::node_id(&key("cccc"));
+            node["dependencies"] = json!([]);
+            node["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
+            node["body"] = parameter_body(&key("a1a1"), &key("a3a3"));
         }
     }
     settle(&mut value);
@@ -609,7 +619,9 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
     // Producer-assigned paths keep the scalar before the composite so the
     // least-key oracle can distinguish closure order from traversal order.
     let scalar_key = format!("lowering/a-scalar/{scalar_form}");
-    let value_key = "lowering/value/literal".to_owned();
+    let value_key = "lowering/value/parameter".to_owned();
+    let text_key = "lowering/annotation/text";
+    let integer_key = "lowering/annotation/integer";
     let self_typed = matches!(
         composite_form,
         "option" | "reference" | "set" | "bag" | "sequence" | "ordered_set"
@@ -651,15 +663,30 @@ fn forms_package(scalar_form: &str, composite_form: &str) -> Forms {
             empty()
         ),
         composite,
+        node(text_key, "scalar_type", "text", text_key, &[], empty()),
+        node(
+            integer_key,
+            "scalar_type",
+            "integer",
+            integer_key,
+            &[],
+            empty()
+        ),
         node(
             &value_key,
             "value",
-            "literal",
+            "parameter",
             &scalar_key,
-            &[&scalar_key],
-            empty()
+            &[],
+            parameter_body(text_key, integer_key)
         ),
     ]);
+    let parameter = nodes
+        .as_array_mut()
+        .expect("nodes")
+        .last_mut()
+        .expect("parameter");
+    parameter["occurrences"] = json!([{"role": "expression", "ordinal": 0}]);
     if composite_form == "reference" {
         let mut selected = value["semantic_graph"]["nodes"]
             .as_array()
@@ -784,11 +811,11 @@ fn tc_052_dependencies_contain_every_bound_and_claim_key() {
     // not a partition of it. The lowered-node preimage carries all three lists
     // as written, so a re-derivation that treats them as disjoint disagrees.
     let mut value = v2_all_families();
-    // Reach the bounded_domain and the claim from the value node, so at least
+    // Reach the bounded_domain and the claim from the namespace node, so at least
     // one lowered record has a nonempty bounds and claims list to check.
     let bound_key = value["semantic_graph"]["nodes"][2]["node_id"].clone();
     let claim_key = value["semantic_graph"]["nodes"][11]["node_id"].clone();
-    value["semantic_graph"]["nodes"][3]["dependencies"] = json!([bound_key, claim_key]);
+    value["semantic_graph"]["nodes"][6]["dependencies"] = json!([bound_key, claim_key]);
     refresh_identity(&mut value);
     let package = admit(&value);
     let keys = graph_keys(&value);

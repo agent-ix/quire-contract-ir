@@ -5053,7 +5053,7 @@ fn step_relation_reader_refuses_layout_alias_targets_and_premises() {
         .clone();
     integer_literal["node_id"] = node_id(&"f1".repeat(32));
     integer_literal["semantic_type"] = node_id(&family_key("a3a3"));
-    integer_literal["dependencies"] = json!([node_id(&family_key("a3a3"))]);
+    integer_literal["dependencies"] = json!([]);
     integer_package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes")

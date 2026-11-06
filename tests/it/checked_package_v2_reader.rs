@@ -641,6 +641,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             Box::new(|v| {
                 let first = v["semantic_graph"]["nodes"][3]["node_id"].clone();
                 let second = v["semantic_graph"]["nodes"][6]["node_id"].clone();
+                v["semantic_graph"]["nodes"][3]["node_tag"] = json!("expression");
+                v["semantic_graph"]["nodes"][3]["semantic_form"] = json!("reference");
                 v["semantic_graph"]["nodes"][3]["dependencies"] = json!([second]);
                 v["semantic_graph"]["nodes"][6]["dependencies"] = json!([first]);
                 refresh_identity(v);
@@ -657,6 +659,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             Box::new(|v| {
                 let first = v["semantic_graph"]["nodes"][3]["node_id"].clone();
                 let second = v["semantic_graph"]["nodes"][6]["node_id"].clone();
+                v["semantic_graph"]["nodes"][3]["node_tag"] = json!("expression");
+                v["semantic_graph"]["nodes"][3]["semantic_form"] = json!("reference");
                 v["semantic_graph"]["nodes"][3]["dependencies"] = json!([second]);
                 v["semantic_graph"]["nodes"][6]["dependencies"] = json!([first]);
                 v["semantic_graph"]["nodes"][3]["recursion_group"] = json!("left");
@@ -672,6 +676,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
             "self dependency without a recursion group",
             Box::new(|v| {
                 let own = v["semantic_graph"]["nodes"][3]["node_id"].clone();
+                v["semantic_graph"]["nodes"][3]["node_tag"] = json!("expression");
+                v["semantic_graph"]["nodes"][3]["semantic_form"] = json!("reference");
                 v["semantic_graph"]["nodes"][3]["dependencies"] = json!([own]);
                 refresh_identity(v);
             }),
@@ -710,7 +716,7 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     let body: Build = Box::new(|literal| {
         let mut changed = base.clone();
         changed["semantic_graph"]["nodes"][3]["semantic_type"] = integer_type.clone();
-        changed["semantic_graph"]["nodes"][3]["dependencies"] = json!([integer_type]);
+        changed["semantic_graph"]["nodes"][3]["dependencies"] = json!([]);
         changed["semantic_graph"]["nodes"][3]["body"] =
             json!({"term":"literal","type":integer_type,"value_kind":"integer","value":literal});
         refresh_identity(&mut changed);
@@ -753,6 +759,8 @@ fn tc_048_v2_reader_refuses_injected_wire_evidence_and_graph_faults() {
     let mut grouped = base.clone();
     let first = grouped["semantic_graph"]["nodes"][3]["node_id"].clone();
     let second = grouped["semantic_graph"]["nodes"][6]["node_id"].clone();
+    grouped["semantic_graph"]["nodes"][3]["node_tag"] = json!("expression");
+    grouped["semantic_graph"]["nodes"][3]["semantic_form"] = json!("reference");
     grouped["semantic_graph"]["nodes"][3]["dependencies"] = json!([second]);
     grouped["semantic_graph"]["nodes"][6]["dependencies"] = json!([first]);
     grouped["semantic_graph"]["nodes"][3]["recursion_group"] = json!("pair");
@@ -1761,7 +1769,7 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     // Give the graph a real dependency edge so every one of the six meters
     // is charged by this package and the axis check below is not vacuous.
     let bound_key = value["semantic_graph"]["nodes"][2]["node_id"].clone();
-    value["semantic_graph"]["nodes"][3]["dependencies"] = json!([bound_key]);
+    value["semantic_graph"]["nodes"][6]["dependencies"] = json!([bound_key]);
     value["diagnostics"]["entries"] = json!([{
         "stage": "type_checking",
         "code": "ill_typed",
@@ -1863,11 +1871,13 @@ fn tc_048_shipped_default_read_limits_are_exact_and_finite() {
     }
 }
 
-/// A self-typed body-root literal is the graph-cycle carve-out. The same
-/// self id nested in an aggregate, binding, or reference is a real cycle.
-#[trace("TC-048", "FR-038-AC-18")]
+/// A self-typed literal root remains admitted. Nonliteral value/literal bodies
+/// refuse before graph-cycle analysis. The private
+/// `tc_048_only_a_self_typed_body_root_literal_omits_its_cycle_edge` control
+/// retains the nested-edge assertion at the existing graph seam.
+#[trace("TC-048", "FR-038-AC-18", "FR-038-AC-472")]
 #[test]
-fn tc_048_self_typed_literal_root_is_exempt_but_nested_self_references_refuse() {
+fn tc_048_self_typed_literal_root_admits_and_nonliteral_self_bodies_refuse_strictly() {
     let mut package = v2_all_families();
     let scalar = package["semantic_graph"]["nodes"][0].clone();
     let scalar_id = scalar["node_id"].clone();
@@ -1920,8 +1930,8 @@ fn tc_048_self_typed_literal_root_is_exempt_but_nested_self_references_refuse() 
         assert_eq!(
             refused(&changed, &evidence_for(&changed)),
             refusal(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                "/semantic_graph/nodes/1"
+                CheckedPackageRefusalCode::MalformedWire,
+                "/semantic_graph/nodes/1/body"
             ),
             "{name}",
         );

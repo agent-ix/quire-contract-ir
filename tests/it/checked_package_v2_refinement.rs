@@ -2037,7 +2037,7 @@ fn refinement_history_reference_dependencies_exclude_type_annotations() {
         .push(json!({
             "node_id":literal_id, "schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"value", "semantic_form":"literal", "semantic_type":type_id,
-            "dependencies":[type_id], "occurrences":[{"role":"generated","ordinal":0}],
+            "dependencies":[], "occurrences":[{"role":"generated","ordinal":0}],
             "body":initial
         }));
     rebuild_source_map(&mut package);
@@ -2288,7 +2288,7 @@ fn refinement_dependency_only_protocol_argument_reference_is_required() {
         .push(json!({
             "node_id":literal, "schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"value", "semantic_form":"literal", "semantic_type":boolean,
-            "dependencies":[boolean], "occurrences":[{"role":"generated", "ordinal":0}],
+            "dependencies":[], "occurrences":[{"role":"generated", "ordinal":0}],
             "body":{"term":"literal", "type":boolean, "value_kind":"boolean", "value":true}
         }));
     let source = package["lock"]["sources"][0].clone();
@@ -3162,7 +3162,7 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
         "node_id":node_id("refinement/history-initial-literal"),
         "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"value",
         "semantic_form":"literal", "semantic_type":type_id,
-        "dependencies":[type_id], "occurrences":[{"role":"generated","ordinal":0}],
+        "dependencies":[], "occurrences":[{"role":"generated","ordinal":0}],
         "body":initial
     });
     let literal_id = literal["node_id"].clone();

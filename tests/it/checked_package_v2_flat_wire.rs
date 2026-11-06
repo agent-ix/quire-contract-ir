@@ -129,9 +129,10 @@ fn call_position(package: &Value) -> usize {
     position_of(package, "function", "pure_function")
 }
 
-/// The fixture's `value`/`literal` node, whose body is an empty aggregate.
+/// The namespace permits general term bodies, including aggregates. Literal
+/// nodes have a stricter body rule and cannot host these grammar controls.
 fn host_position(package: &Value) -> usize {
-    position_of(package, "value", "literal")
+    position_of(package, "model", "namespace")
 }
 
 /// The fixture with `edit` applied to the node at `position`, every identity
