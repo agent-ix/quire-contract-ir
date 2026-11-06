@@ -3777,9 +3777,12 @@ mod tests {
             Err(Error::WorkLimit { .. })
         ));
         let mut permuted = p;
-        permuted.wire.semantic_graph.nodes.reverse();
-        permuted.kinds.reverse();
-        permuted.terms.reverse();
+        std::sync::Arc::make_mut(&mut permuted.wire)
+            .semantic_graph
+            .nodes
+            .reverse();
+        std::sync::Arc::make_mut(&mut permuted.kinds).reverse();
+        std::sync::Arc::make_mut(&mut permuted.terms).reverse();
         permuted.node_index = permuted
             .wire
             .semantic_graph
