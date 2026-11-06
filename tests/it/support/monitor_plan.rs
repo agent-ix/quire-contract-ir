@@ -304,8 +304,11 @@ pub(super) fn materialize_on(
 ) -> (Value, usize) {
     // The selected support document predates the explicit base bit on a
     // source dimension. Complete monitor fixtures use the current V2 body.
-    let dimension = position(&wire, &find(&wire, "dimension"));
-    wire["semantic_graph"]["nodes"][dimension]["body"]["base"] = json!(true);
+    for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+        if node["semantic_form"] == "dimension" && node["owner"]["kind"] == "source" {
+            node["body"]["base"] = json!(true);
+        }
+    }
     let added_from = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
     let integer = find(&wire, "integer");
     let text = find(&wire, "text");
