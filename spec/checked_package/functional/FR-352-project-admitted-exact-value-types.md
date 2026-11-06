@@ -77,6 +77,15 @@ admission authority.
   `VariantId` from a key or case spelling. The current QSL `AdmittedEnum`
   facade does not expose the shape; a future same-emission producer handoff
   must supply it from checking-stage authority.
+- For a reached source collection type, one final-emission
+  `SelectedSourceCollectionRow` carrying its full emitted structural node,
+  emitted collection composite base node, emitted element type node and the
+  checker's complete opaque `ValueType::Collection`. A bounded collection's
+  structural node is its `bounded_domain/collection_bounds` node and its
+  `semantic_type` is the base; an unbounded collection's structural node is
+  the base. Collection nodes are anonymous structural types, so the row has
+  no invented declaration, member or source owner. A map without an emitted
+  collection type node has no such row.
 - For an admitted equality application, QSL checking/emission-stage identity
   rows from the same package construction. An application row carries the full
   emitted `CheckedNodeId`, its exact authored occurrence, the selected producer
@@ -309,6 +318,27 @@ inspected rows and cases under a finite allowance, preserve the opaque
 declaration/member keys and case identities, and ignore unrelated admitted
 nodes. Structural correspondence SHALL NOT authenticate caller-created
 opaque keys, shape or variants as QSL output.
+For a reached collection type, Contract IR SHALL join one complete selected
+collection row by its full emitted structural node. The joined node SHALL be
+either a `composite_type` of the admitted sequence, set, bag or ordered-set
+form, equal to the row's base node, or a `bounded_domain/collection_bounds`
+whose admitted `semantic_type` is that base node. The base SHALL carry exactly
+one admitted element-type reference equal to the row's element node. IR SHALL
+compare the checked `ValueType::Collection` kind, element and cardinality
+bound against the admitted base form, referenced element type and admitted
+minimum/maximum where those facts are representable by its native Exact
+projection and selected identity witnesses. IR SHALL return the native typed
+refusal for a needed but unavailable element identity or unrepresentable
+element. IR SHALL retain the checked opaque value in full. IR SHALL NOT
+reconstruct that value from a structural ID. Missing, foreign, duplicate, stale,
+wrong-form, changed-base, changed-element or changed-bound rows SHALL refuse
+at their first native structural locus before exposing a collection value.
+IR SHALL charge each inspected row, node, reference, bound and copied value
+under one finite projection allowance; the exact allowance SHALL succeed and
+one less SHALL refuse with charged work. Equal admitted inputs and rows,
+including a package clone, SHALL give equal values or equal first stops. This
+structural join does not authenticate caller-created opaque Exact values as
+QSL output and does not certify a complete four-entry monitor closure.
 The projection SHALL
 terminate or report work exhaustion within the caller's finite limit;
 neither recursion depth nor expansion of a cyclic type may bypass the limit.
@@ -343,6 +373,8 @@ AC-6 and AC-11; this projection alone does not satisfy those criteria.
 | FR-352-AC-17 | A missing row or a bare union declaration key returns `UnavailableIdentityWitness`. A foreign or stale structural node or payload node, unselected or mismatched source, wrong declaration form or qualified name, duplicate union row, missing/reordered/extra member, wrong member identifier, settled-key owner or payload count refuses with a named typed outcome before `Composite` or a partial union view. A caller-created row is not authenticated as QSL output by the IR join. | Test |
 | FR-352-AC-18 | A complete IR-owned selected source tuple row joins the selected source, admitted tuple form and original qualified declaration, one QSL-issued `AdmittedComposite::key()` type handle, and every ordered zero-based position with its final emitted type node and opaque `ValueType`. Exact projection returns `Composite` of that handle and the complete ordered tuple view, with exact-limit and clone equality. Missing, foreign, duplicate, stale, wrong-form, reordered, changed-type or incomplete rows refuse at a typed structural locus with no partial view; a bare key and caller-created opaque values do not establish QSL producer authority. This IR-owned row qualification does not claim the final QSL producer supplies positions or satisfy FR-357's monitor closure. | Test |
 | FR-352-AC-19 | A selected source enum row with one QSL-issued declaration key, opaque `EnumShape`, and all case rows in admitted canonical order joins the selected source, original declaration, ordered flag, final declaration and enum-value nodes, case names, member keys and `VariantId`s at their exact ranks. Exact projection returns `Enum` of the supplied shape and a complete ordered view; exact allowance and package clone agree. Missing, foreign, duplicate, wrong-form, reordered, changed-case, changed-variant, extra or incomplete rows, or a case whose admitted source-map region belongs to another selected source, refuse with typed locus and no partial view; unrelated admitted nodes do not affect the result. The IR-owned fixture proves structural joins but does not authenticate a caller as QSL or satisfy FR-357 AC1-4/AC11. | Test |
+| FR-352-AC-20 | PLANNED/UNRUN (IR-721 source collection prerequisite). A selected collection row with final structural, base and element nodes and the checked complete `ValueType::Collection` joins admitted unbounded sequence, set, bag and ordered-set types and a bounded `[0,3]` sequence, preserving exact kind, element and cardinality. A requested node typed by each collection returns the supplied complete Exact value; a bounded collection node is distinct from its base. The exact work allowance succeeds, one less refuses with charged work and first uncharged locus, and a package clone agrees. This IR-owned fixture does not prove same-emission QSL producer authority or FR-357 closure. | Test |
+| FR-352-AC-21 | PLANNED/UNRUN (IR-721 source collection prerequisite). Missing, foreign, duplicate, stale, wrong-form, changed-base, changed-element, changed-kind or changed-bound collection rows refuse with a named typed code at the first native node and no partial value. A collection with an unrepresentable or unwitnessed element retains the native unsupported-type or unavailable-witness refusal; a caller-created opaque element identity is not authenticated by the IR join. An unrelated unsupported declaration does not affect a selected collection read, and a map with no admitted collection type node is never fabricated as one. | Test |
 
 ## Dependencies
 
