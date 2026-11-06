@@ -487,6 +487,105 @@ fn source_union_row_matches(package: &CheckedPackageV2, row: &SelectedSourceUnio
         })
 }
 
+// The unmetered matcher is also used by the read-only projection. Its native
+// caller pays for every string it may inspect before entering that matcher.
+fn charge_source_union_text(
+    package: &CheckedPackageV2,
+    row: &SelectedSourceUnionRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ExactTypeProjectionError> {
+    let id = &row.structural_node;
+    for source in &package.lock().sources {
+        charge_native_text_pair(
+            budget,
+            id,
+            "source_union_source",
+            &source.authority,
+            &row.source_authority,
+        )?;
+        charge_native_text_pair(
+            budget,
+            id,
+            "source_union_source",
+            &source.identity,
+            &row.source_identity,
+        )?;
+    }
+    if let Some(node) = package.node(id) {
+        if let Some(CheckedNodeOwner::Source {
+            authority,
+            identity,
+        }) = &node.owner
+        {
+            charge_native_text_pair(
+                budget,
+                id,
+                "source_union_owner",
+                authority,
+                &row.source_authority,
+            )?;
+            charge_native_text_pair(
+                budget,
+                id,
+                "source_union_owner",
+                identity,
+                &row.source_identity,
+            )?;
+        }
+        if let Some(declaration) = &node.declaration {
+            for segment in &declaration.qualified_name {
+                charge_native_work(
+                    budget,
+                    id,
+                    id,
+                    "source_union_declaration",
+                    segment.len() as u128,
+                )?;
+            }
+            for segment in &row.qualified_declaration {
+                charge_native_work(
+                    budget,
+                    id,
+                    id,
+                    "source_union_declaration",
+                    segment.len() as u128,
+                )?;
+            }
+        }
+    }
+    if let Some(members) = package.term(id).and_then(typed_aggregate) {
+        for member in members {
+            if let CheckedTerm::Binding { name, .. } = member {
+                charge_native_work(budget, id, id, "source_union_member", name.len() as u128)?;
+            }
+        }
+        for member in &row.members {
+            charge_native_work(
+                budget,
+                id,
+                id,
+                "source_union_payload",
+                member.payload_nodes.len() as u128,
+            )?;
+            charge_native_work(
+                budget,
+                id,
+                id,
+                "source_union_member",
+                member.member.identifier().len() as u128,
+            )?;
+            charge_native_work(
+                budget,
+                id,
+                id,
+                "source_union_member",
+                member.member.variant().case().len() as u128,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn source_record_row_matches(package: &CheckedPackageV2, row: &SelectedSourceRecordRow) -> bool {
     let Some(node) = package.node(&row.structural_node) else {
         return false;
@@ -805,6 +904,15 @@ fn validate_source_enum_row(
         // entry per occurrence; its regions identify the selected raw source.
         for occurrence in &member_node.occurrences {
             charge_work(requested, at, "enum_case_occurrence", work, limit)?;
+            // The lookup key owns a node-id copy. The role and ordinal are
+            // fixed-shape, but their tuple slots are retained for the lookup.
+            charge_meter_storage(
+                requested,
+                at,
+                "enum_case_source_index_key",
+                work,
+                storage::node(at).saturating_add(2),
+            )?;
             let source_entry = package
                 .source_index
                 .get(&(at.clone(), occurrence.role.clone(), occurrence.ordinal))
@@ -1129,6 +1237,20 @@ impl SelectedExactIdentities {
                 else {
                     return Err(selected_declaration_error(package, node));
                 };
+                charge_native_text_pair(
+                    budget,
+                    node,
+                    "stage_document",
+                    document,
+                    &row.selected_document,
+                )?;
+                charge_native_text_pair(
+                    budget,
+                    node,
+                    "stage_original",
+                    original,
+                    &row.original_identity,
+                )?;
                 if document != row.selected_document.as_ref()
                     || original != row.original_identity.as_ref()
                     || !row.form.matches_admitted(form)
@@ -1154,6 +1276,20 @@ impl SelectedExactIdentities {
                 let mut owner_exists = false;
                 for (document, form, original) in &owners {
                     charge_native_work(budget, node, node, "stage_owner", 1)?;
+                    charge_native_text_pair(
+                        budget,
+                        node,
+                        "stage_owner",
+                        document,
+                        &row.selected_document,
+                    )?;
+                    charge_native_text_pair(
+                        budget,
+                        node,
+                        "stage_owner",
+                        original,
+                        &row.original_identity,
+                    )?;
                     owner_exists |= document.as_ref() == row.selected_document.as_ref()
                         && *form == row.form
                         && original.as_ref() == row.original_identity.as_ref();
@@ -1209,12 +1345,38 @@ impl SelectedExactIdentities {
                 else {
                     return Err(selected_declaration_error(package, node));
                 };
+                charge_native_text_pair(
+                    budget,
+                    node,
+                    "stage_field_document",
+                    document,
+                    &row.selected_document,
+                )?;
+                charge_native_text_pair(
+                    budget,
+                    node,
+                    "stage_field_original",
+                    original,
+                    &row.record_original_identity,
+                )?;
+                let mut field_matches = false;
+                if let Some((_, admitted_fields)) = package.models.selected_record_fields(node) {
+                    for field in admitted_fields {
+                        charge_native_work(budget, node, node, "stage_field_identity", 1)?;
+                        charge_native_text_pair(
+                            budget,
+                            node,
+                            "stage_field_identity",
+                            field.identity,
+                            &row.field_original_identity,
+                        )?;
+                        field_matches |= field.identity == row.field_original_identity.as_ref();
+                    }
+                }
                 if document != row.selected_document.as_ref()
                     || original != row.record_original_identity.as_ref()
                     || form != DeclarationForm::RecordValueType
-                    || !package
-                        .models
-                        .selected_record_field(node, &row.field_original_identity)
+                    || !field_matches
                 {
                     return Err(witness_error(
                         node,
@@ -1243,6 +1405,13 @@ impl SelectedExactIdentities {
                 let mut field_exists = false;
                 for (prior_node, prior_field) in &seen_fields {
                     charge_native_work(budget, node, node, "stage_field_prior", 1)?;
+                    charge_native_text_pair(
+                        budget,
+                        node,
+                        "stage_field_prior",
+                        prior_field,
+                        &row.field_original_identity,
+                    )?;
                     field_exists |= prior_node == node
                         && prior_field.as_ref() == row.field_original_identity.as_ref();
                 }
@@ -1407,6 +1576,7 @@ impl SelectedExactIdentities {
                 if package.node(id).is_none() {
                     return Err(selected_declaration_error(package, id));
                 }
+                charge_source_union_text(package, &row, budget)?;
                 if !source_union_row_matches(package, &row) {
                     return Err(witness_error(
                         id,
@@ -2331,6 +2501,17 @@ pub(super) fn charge_native_work(
         NativeJoinChargeKind::Work,
         amount,
     )
+}
+
+fn charge_native_text_pair(
+    budget: &mut NativeJoinBudget,
+    at: &CheckedNodeId,
+    form: &'static str,
+    left: &str,
+    right: &str,
+) -> Result<(), ExactTypeProjectionError> {
+    let bytes = (left.len() as u128).saturating_add(right.len() as u128);
+    charge_native_work(budget, at, at, form, bytes)
 }
 
 fn charge_native_storage(

@@ -5,8 +5,9 @@
 
 use crate::support::checked_package::{
     boolean_key, bounds_body, canonical, evidence_for, evidence_with_document, integer_key,
-    node_id, reassign_node_id, refresh_identity, refresh_identity_projection, resolved_fixture_id,
-    select_model, settle, v2_all_families, v2_nominal,
+    node_id, nominal_fixture_members, nominal_package, reassign_node_id, refresh_identity,
+    refresh_identity_projection, resolved_fixture_id, select_model, settle, v2_all_families,
+    v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -2346,4 +2347,269 @@ fn tc_228_model_owner_is_closed_and_required_on_the_graph_node() {
         CheckedPackageRefusalCode::MalformedWire,
         &format!("{prefix}/owner"),
     );
+}
+
+/// A single admitted source supplies every native join family. Each row is
+/// populated, so the cumulative budget includes the family's validation and
+/// retained map entries rather than only an empty Arc handle.
+#[trace("FR-358-AC-3", "FR-358-AC-4")]
+#[test]
+fn native_budget_counts_nonempty_source_families_on_one_package() {
+    use quire_contract_model::{
+        NativeJoinBudget, NativeJoinCharge, SelectedEnumDeclarationRow, SelectedEnumMemberRow,
+        SelectedSourceCollectionRow, SelectedSourceEnumRow, SelectedSourceUnionRow,
+        SelectedTuplePositionRow, SelectedUnionMemberRow,
+    };
+    use quire_exact::{CollectionKind, CollectionType, EnumShape, UnionMember, VariantId};
+
+    let mut members = nominal_fixture_members();
+    members[1].0["members"] = json!(["ACTIVE"]);
+    members.truncate(2);
+    let mut wire = nominal_package(&members);
+    let source = wire["lock"]["sources"][0].clone();
+    let owner =
+        json!({"kind":"source", "authority":source["authority"], "identity":source["identity"]});
+    let integer = node_id("native-budget-integer");
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "node_id":integer, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"scalar_type", "semantic_form":"integer", "semantic_type":integer,
+            "dependencies":[], "occurrences":[{"role":"type","ordinal":0}],
+            "body":{"term":"aggregate","members":[]}
+        }));
+    for (name, form, body, role) in [
+        (
+            "Union",
+            "union",
+            json!({"term":"aggregate","members":[
+                {"term":"binding","name":"One","value":{"term":"aggregate","members":[
+                    {"term":"reference","target":integer}
+                ]}}
+            ]}),
+            "declaration",
+        ),
+        (
+            "Record",
+            "record",
+            json!({"term":"aggregate","members":[
+                {"term":"binding","name":"n","value":{"term":"reference","target":integer}}
+            ]}),
+            "declaration",
+        ),
+        (
+            "Tuple",
+            "tuple",
+            json!({"term":"aggregate","members":[
+                {"term":"reference","target":integer}
+            ]}),
+            "declaration",
+        ),
+        (
+            "Sequence",
+            "sequence",
+            json!({"term":"aggregate","members":[
+                {"term":"reference","target":integer}
+            ]}),
+            "type",
+        ),
+    ] {
+        let id = node_id(&format!("native-budget-{name}"));
+        let mut node = json!({
+            "node_id":id, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"composite_type", "semantic_form":form, "semantic_type":id,
+            "dependencies":[integer], "occurrences":[{"role":role,"ordinal":0}],
+            "body":body
+        });
+        if role == "declaration" {
+            node["owner"] = owner.clone();
+            node["declaration"] = json!({"qualified_name":["Example",name]});
+        }
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(node);
+    }
+    settle(&mut wire);
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+        panic!("combined native join fixture admits");
+    };
+    let named = |form: &str| {
+        package
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.semantic_form.as_ref() == form)
+            .expect("named node")
+            .node_id
+            .clone()
+    };
+    let integer = named("integer");
+    let union_id = named("union");
+    let record_id = named("record");
+    let tuple_id = named("tuple");
+    let sequence_id = named("sequence");
+    let enum_id = named("enum");
+    let case_id = named("enum_value");
+    let selected_source = &package.lock().sources[0];
+    let source_authority = selected_source.authority.clone();
+    let source_identity = selected_source.identity.clone();
+    let key = |name: &str| {
+        NodeKey::new(
+            "native-budget-fixture",
+            vec![PathSegment::Text(name.into())],
+            0,
+        )
+        .unwrap()
+    };
+    let settled = key("settled");
+    let union = SelectedSourceUnionRow::new(
+        union_id.clone(),
+        source_authority.clone(),
+        source_identity.clone(),
+        vec!["Example".into(), "Union".into()],
+        key("union"),
+        settled.clone(),
+        vec![SelectedUnionMemberRow::new(
+            UnionMember::from_admitted(settled, "One").unwrap(),
+            vec![integer.clone()],
+            vec![ValueType::Integer],
+        )],
+    );
+    let mut long_source = union.clone();
+    long_source.source_authority = "x".repeat(4096).into();
+    let mut short_text = NativeJoinBudget::new(128, u64::MAX);
+    let error = SelectedExactIdentities::empty()
+        .with_source_union_rows(&package, [long_source], &mut short_text)
+        .expect_err("union source text must be charged before comparison");
+    assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(error.at.as_deref(), Some(&union_id));
+    assert_eq!(
+        short_text.first_unpaid().unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
+    assert!(short_text.first_unpaid().unwrap().amount >= 4096);
+    let record = SelectedSourceRecordRow {
+        structural_node: record_id.clone(),
+        source_authority: source_authority.clone(),
+        source_identity: source_identity.clone(),
+        qualified_declaration: vec!["Example".into(), "Record".into()],
+        record_key: key("record"),
+        members: vec![SelectedSourceRecordMemberRow {
+            original_member_identity: "n".into(),
+            admitted_name: "n".into(),
+            presence: Presence::Required,
+            type_node: integer.clone(),
+            value_type: ValueType::Integer,
+        }],
+    };
+    let tuple = SelectedSourceTupleRow {
+        structural_node: tuple_id.clone(),
+        source_authority: source_authority.clone(),
+        source_identity: source_identity.clone(),
+        qualified_declaration: vec!["Example".into(), "Tuple".into()],
+        type_handle: key("tuple"),
+        positions: vec![SelectedTuplePositionRow {
+            ordinal: 0,
+            type_node: integer.clone(),
+            value_type: ValueType::Integer,
+        }],
+    };
+    let variant = VariantId::new(key("variant-owner"), "opaque-A").unwrap();
+    let source_enum = SelectedSourceEnumRow {
+        declaration: SelectedEnumDeclarationRow {
+            structural_node: enum_id.clone(),
+            source_authority: source_authority.clone(),
+            source_identity: source_identity.clone(),
+            qualified_declaration: vec!["Example".into(), "Status".into()],
+            node_key: key("enum"),
+            shape: EnumShape::new(false, vec![variant.clone()]),
+        },
+        members: vec![SelectedEnumMemberRow {
+            structural_node: case_id,
+            source_authority,
+            source_identity,
+            declaration_node: enum_id,
+            declaration_qualified_name: vec!["Example".into(), "Status".into()],
+            case: "ACTIVE".into(),
+            member_key: key("member"),
+            variant,
+        }],
+    };
+    let mut storage_limit = 0;
+    let mut denied_lookup = false;
+    for _ in 0..128 {
+        let mut trial = NativeJoinBudget::new(u64::MAX, storage_limit);
+        let error = SelectedExactIdentities::empty()
+            .with_source_enum_rows(&package, [source_enum.clone()], &mut trial)
+            .expect_err("storage bound stops before a complete enum row");
+        let denied = trial.first_unpaid().expect("first denied storage charge");
+        assert_eq!(
+            denied.kind,
+            quire_contract_model::NativeJoinChargeKind::Storage
+        );
+        if error.form.as_ref() == "enum_case_source_index_key" {
+            assert!(denied.amount > 2);
+            assert!(trial.last_success_delta().is_none());
+            denied_lookup = true;
+            break;
+        }
+        storage_limit = trial.consumed().storage + u64::try_from(denied.amount).unwrap();
+    }
+    assert!(
+        denied_lookup,
+        "enum source-index key must require a storage charge"
+    );
+    let collection = SelectedSourceCollectionRow {
+        structural_node: sequence_id.clone(),
+        base_node: sequence_id,
+        element_node: integer,
+        value_type: ValueType::collection(CollectionType::new(
+            CollectionKind::Sequence,
+            ValueType::Integer,
+            None,
+        )),
+    };
+    let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let mut deltas = Vec::new();
+    let stage = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut budget).unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let union_selected = stage
+        .with_source_union_rows(&package, [union.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let record_selected = union_selected
+        .with_source_record_rows(&package, [record.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let tuple_selected = record_selected
+        .with_source_tuple_rows(&package, [tuple.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let enum_selected = tuple_selected
+        .with_source_enum_rows(&package, [source_enum.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let complete = enum_selected
+        .with_source_collection_rows(&package, [collection.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    assert_eq!(complete.source_union_rows().next(), Some(&union));
+    assert_eq!(complete.source_record_rows().next(), Some(&record));
+    assert_eq!(complete.source_tuple_rows().next(), Some(&tuple));
+    assert_eq!(complete.source_enum_rows().next(), Some(&source_enum));
+    assert_eq!(complete.source_collection_rows().next(), Some(&collection));
+    assert!(deltas[0].storage > 0);
+    assert!(deltas[1..]
+        .iter()
+        .all(|delta| delta.work > 0 && delta.storage > 0));
+    let sum = deltas
+        .into_iter()
+        .fold(NativeJoinCharge::default(), |sum, delta| NativeJoinCharge {
+            work: sum.work + delta.work,
+            storage: sum.storage + delta.storage,
+        });
+    assert_eq!(budget.consumed(), sum);
+    assert_eq!(budget.first_unpaid(), None);
 }

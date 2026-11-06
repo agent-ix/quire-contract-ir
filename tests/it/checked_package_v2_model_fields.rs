@@ -6044,7 +6044,7 @@ mod operation_census;
 mod option_types;
 
 /// Selected identity rows must join the complete admitted declaration key.
-#[trace("FR-352-AC-4", "FR-358-AC-5")]
+#[trace("FR-352-AC-4", "FR-358-AC-3", "FR-358-AC-5")]
 #[test]
 fn exact_projection_identity_joins_refuse_changed_and_competing_owners() {
     let mut selected = document(vec![
@@ -6097,6 +6097,19 @@ fn exact_projection_identity_joins_refuse_changed_and_competing_owners() {
     };
     let receipt = row("Receipt");
     let other = row("OtherReceipt");
+    let mut long_original = receipt.clone();
+    long_original.original_identity = "x".repeat(4096).into();
+    let mut short = quire_contract_model::NativeJoinBudget::new(128, u64::MAX);
+    let error =
+        SelectedExactIdentities::from_stage_rows(&admitted, [long_original], [], &mut short)
+            .expect_err("stage text must be charged before comparison");
+    assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(error.at.as_deref(), Some(&receipt.structural_node));
+    assert_eq!(
+        short.first_unpaid().unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
+    assert!(short.first_unpaid().unwrap().amount >= 4096);
     let identities = SelectedExactIdentities::from_stage_rows(
         &admitted,
         [receipt.clone(), other.clone()],
