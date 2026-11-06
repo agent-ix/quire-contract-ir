@@ -7,7 +7,7 @@ use super::model_members::DomainModel;
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
     CheckedRational, CheckedTerm, ClockConfiguration, CompositeTypeForm, FunctionForm, LiteralKind,
-    RawSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm, WorkMeter,
+    RawSemanticNodeV2, ScalarTypeForm, TemporalForm, TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -207,13 +207,33 @@ pub struct CheckedMonitorBufferRef<'a> {
     buffer: &'a Buffer,
 }
 
+/// One admitted monitor clock binding. Timed clauses do not carry a clock row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedMonitorClock<'a> {
+    /// One of the three admitted temporal binding configurations.
+    Configured(&'a ClockConfiguration),
+    /// The checked model time binding and exact source unit.
+    ModelTime {
+        /// The checked timed-model root that owns the source.
+        timed_root: &'a CheckedNodeId,
+        /// The selected model subject of the clause.
+        model: &'a CheckedNodeId,
+        /// The checked timed-model time source.
+        source: &'a CheckedNodeId,
+        /// The exact checked time unit.
+        unit: &'a CheckedNodeId,
+    },
+    /// Timestamped trace positions supplied to the temporal profile.
+    TraceTime,
+}
+
 /// An admitted clock and claim name for one selected monitor clause occurrence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedMonitorClockRead<'a> {
     root: &'a CheckedNodeId,
     clause: &'a CheckedNodeId,
     occurrence: CheckedOccurrence,
-    clock: &'a ClockConfiguration,
+    clock: CheckedMonitorClock<'a>,
     clock_name: &'a str,
     claim_name: &'a str,
     work: u64,
@@ -232,8 +252,8 @@ impl<'a> CheckedMonitorClockRead<'a> {
     pub fn occurrence(&self) -> &CheckedOccurrence {
         &self.occurrence
     }
-    /// The admitted closed clock configuration.
-    pub fn clock(&self) -> &'a ClockConfiguration {
+    /// The admitted configured, model-time or trace-time binding.
+    pub fn clock(&self) -> CheckedMonitorClock<'a> {
         self.clock
     }
     /// The clause's exact admitted clock name.
@@ -343,6 +363,16 @@ fn selected_row<'a, T>(
     Ok(None)
 }
 
+fn admitted_clock_name(term: &CheckedTerm) -> Option<&str> {
+    let CheckedTerm::Application { arguments, .. } = term else {
+        return None;
+    };
+    let CheckedTerm::Literal { value, .. } = arguments.get(1)? else {
+        return None;
+    };
+    value.as_str()
+}
+
 impl CheckedPackageV2 {
     /// Admitted monitor roots, in ascending resolved structural-key order.
     pub fn monitor_plans(&self) -> impl ExactSizeIterator<Item = CheckedMonitorPlanRef<'_>> {
@@ -379,7 +409,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
     pub fn clause(&self) -> &'a CheckedNodeId {
         self.id(0)
     }
-    /// Join one independently selected claim occurrence to this root's admitted clock and name.
+    /// Join one independently selected claim occurrence to its admitted
+    /// configured, model-time or trace-time clock and claim name.
     ///
     /// The caller supplies a final-emission clause ID and its full occurrence;
     /// this read neither chooses a claim nor executes the monitor.
@@ -414,15 +445,38 @@ impl<'a> CheckedMonitorPlanRef<'a> {
         if !found {
             return Err(budget.error(CheckedMonitorClockReadErrorCode::UnknownOccurrence, clause));
         }
-        let binding = selected_row(
-            self.package,
-            self.package.temporal_bindings().unwrap_or_default(),
-            clause,
-            occurrence.ordinal,
-            |row| (&row.declaration, row.occurrence),
-            &mut budget,
-        )?
-        .ok_or_else(|| budget.error(CheckedMonitorClockReadErrorCode::MissingClock, clause))?;
+        let clause_term = self
+            .package
+            .term(clause)
+            .expect("admitted monitor clause body");
+        let timed = matches!(clause_term, CheckedTerm::Application { operation, .. }
+            if operation.law_definitions().ok().is_some_and(|laws|
+                matches!(laws, [law] if TemporalProfile::from_wire(&law.identity)
+                    == Some(TemporalProfile::Timed))));
+        let clock = if timed {
+            match super::timed_model::admitted_model_time(self.package, clause, |id| {
+                budget.charge(id)
+            })? {
+                Some(binding) => CheckedMonitorClock::ModelTime {
+                    timed_root: binding.timed_root,
+                    model: binding.model,
+                    source: binding.source,
+                    unit: binding.unit,
+                },
+                None => CheckedMonitorClock::TraceTime,
+            }
+        } else {
+            let binding = selected_row(
+                self.package,
+                self.package.temporal_bindings().unwrap_or_default(),
+                clause,
+                occurrence.ordinal,
+                |row| (&row.declaration, row.occurrence),
+                &mut budget,
+            )?
+            .ok_or_else(|| budget.error(CheckedMonitorClockReadErrorCode::MissingClock, clause))?;
+            CheckedMonitorClock::Configured(&binding.clock)
+        };
         let name = selected_row(
             self.package,
             self.package.temporal_clause_names().unwrap_or_default(),
@@ -436,8 +490,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             root: self.node_id(),
             clause: self.clause(),
             occurrence: occurrence.clone(),
-            clock: &binding.clock,
-            clock_name: &binding.clock_name,
+            clock,
+            clock_name: admitted_clock_name(clause_term).expect("admitted clause clock"),
             claim_name: &name.name,
             work: budget.work,
         })

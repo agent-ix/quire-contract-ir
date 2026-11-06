@@ -134,6 +134,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     let mut package = CheckedPackageV2 {
         schedulability_claim_index: Vec::new(),
         monitor_plan_index: Vec::new(),
+        timed_model_roots: Vec::new(),
         node_index: super::super::retained_node_index(&wire),
         structural_keys: Vec::new(),
         source_index: super::super::retained_source_index(&wire),

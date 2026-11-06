@@ -128,8 +128,9 @@ pub use model_population_catalog::{
     CheckedModelPopulationMemberUnresolved, CheckedSelectedModelPopulations,
 };
 pub use monitor_plan::{
-    CheckedMonitorBufferRef, CheckedMonitorClockRead, CheckedMonitorClockReadError,
-    CheckedMonitorClockReadErrorCode, CheckedMonitorEntryRef, CheckedMonitorPlanRef,
+    CheckedMonitorBufferRef, CheckedMonitorClock, CheckedMonitorClockRead,
+    CheckedMonitorClockReadError, CheckedMonitorClockReadErrorCode, CheckedMonitorEntryRef,
+    CheckedMonitorPlanRef,
 };
 pub use native_join_budget::{
     NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
@@ -138,6 +139,9 @@ pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use selected_facts::{
     SelectedFactEquality, SelectedFactEqualityId, SelectedFactField, SelectedFactFieldId,
     SelectedFactIds, SelectedFactRows, SelectedFacts, SelectedFactsError, SelectedFactsErrorCode,
+};
+pub use timed_model::{
+    CheckedModelTimeRead, CheckedModelTimeReadError, CheckedModelTimeReadErrorCode,
 };
 mod exact_projection;
 pub use exact_projection::{
@@ -888,6 +892,7 @@ pub struct CheckedPackageV2 {
     kinds: Vec<CheckedNodeKind>,
     schedulability_claim_index: Vec<(usize, usize)>,
     monitor_plan_index: Vec<monitor_plan::Plan>,
+    timed_model_roots: Vec<usize>,
     terms: Vec<CheckedTerm>,
     /// Admission-derived lookup; excluded from content equality.
     node_index: BTreeMap<CheckedNodeId, usize>,
@@ -1326,11 +1331,19 @@ impl CheckedPackageV2 {
         };
         let node_index = retained_node_index(&wire);
         let source_index = retained_source_index(&wire);
+        let timed_model_roots = kinds
+            .iter()
+            .enumerate()
+            .filter_map(|(position, kind)| {
+                (*kind == CheckedNodeKind::TimedModel(TimedModelForm::Model)).then_some(position)
+            })
+            .collect();
         Ok(Self {
             wire,
             kinds,
             schedulability_claim_index,
             monitor_plan_index,
+            timed_model_roots,
             terms,
             node_index,
             structural_keys,
@@ -4225,6 +4238,7 @@ mod tests {
                 let package = super::CheckedPackageV2 {
                     schedulability_claim_index: Vec::new(),
                     monitor_plan_index: Vec::new(),
+                    timed_model_roots: Vec::new(),
                     node_index: Default::default(),
                     structural_keys: keys,
                     source_index: Default::default(),

@@ -197,7 +197,7 @@ fn validate_shape(
     Ok(())
 }
 
-fn profile_law(node: &RawSemanticNodeV2) -> Option<super::CheckedArtifactRef> {
+pub(super) fn profile_law(node: &RawSemanticNodeV2) -> Option<super::CheckedArtifactRef> {
     let operation: super::operations::OperationWire =
         serde_json::from_value(node.body.get("operation")?.clone()).ok()?;
     let [law] = operation.laws.as_slice() else {
@@ -229,7 +229,7 @@ fn selected_profile(lock: &CheckedPackageLockV2) -> Option<TemporalProfile> {
 }
 
 #[ix_trace_rs::string_edge]
-fn clock_name(node: &RawSemanticNodeV2, argument: usize) -> Option<&str> {
+pub(super) fn clock_name(node: &RawSemanticNodeV2, argument: usize) -> Option<&str> {
     let term = node.body.get("arguments")?.as_array()?.get(argument)?;
     let term = if term.get("term")?.as_str()? == "binding" {
         term.get("value")?
@@ -283,6 +283,14 @@ pub(super) fn validate(
                 | CheckedNodeKind::Protocol(ProtocolForm::Compensation)
         ) {
             return Err(invalid(at.key("declaration"), &row.declaration));
+        }
+        if kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
+            && profile_law(&nodes[position])
+                .as_ref()
+                .and_then(|law| TemporalProfile::from_wire(&law.identity))
+                == Some(TemporalProfile::Timed)
+        {
+            return Err(invalid(at, &row.declaration));
         }
         let role = if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
             CheckedOccurrenceRole::Declaration

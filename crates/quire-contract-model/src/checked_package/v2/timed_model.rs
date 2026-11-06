@@ -572,7 +572,8 @@ pub(super) fn check_wire(
 }
 
 use super::{
-    CheckedFrameModification, CheckedNodeKind, ScalarTypeForm, StateForm, ValueForm, WorkMeter,
+    CheckedFrameModification, CheckedNodeKind, CompositeTypeForm, ScalarTypeForm, StateForm,
+    TemporalForm, TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use num_bigint::BigUint;
@@ -1897,6 +1898,217 @@ fn check_timed_reference_order(
     Ok(())
 }
 
+/// Resolve a clause's model subject, leaving trace subjects without a model join.
+fn clause_model_subject<'a>(graph: &'a Graph<'_>, position: usize) -> Option<&'a CheckedNodeId> {
+    let CheckedTerm::Application { arguments, .. } = graph.terms.get(position)?.as_ref()? else {
+        return None;
+    };
+    let parameter = *graph.index.get(typed_target(arguments.first()?)?)?;
+    if graph.kinds.get(parameter) != Some(&CheckedNodeKind::Value(ValueForm::Parameter)) {
+        return None;
+    }
+    let type_id = &graph.nodes[parameter].semantic_type;
+    let type_position = *graph.index.get(type_id)?;
+    match graph.kinds.get(type_position)? {
+        CheckedNodeKind::Model(_) => Some(type_id),
+        CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
+            let target = typed_members(graph.terms.get(type_position)?.as_ref()?).first()?;
+            let model = typed_target(target)?;
+            let model_position = *graph.index.get(model)?;
+            matches!(
+                graph.kinds.get(model_position),
+                Some(CheckedNodeKind::Model(_))
+            )
+            .then_some(model)
+        }
+        _ => None,
+    }
+}
+
+/// The four admitted identities of a selected model-time binding.
+#[derive(Clone, Copy)]
+pub(super) struct ModelTimeBinding<'a> {
+    /// The checked timed-model root.
+    pub timed_root: &'a CheckedNodeId,
+    /// The clause's model subject.
+    pub model: &'a CheckedNodeId,
+    /// The checked time source.
+    pub source: &'a CheckedNodeId,
+    /// The source's exact unit.
+    pub unit: &'a CheckedNodeId,
+}
+
+/// Find the admitted model-time source without allocating or inspecting an
+/// uncharged timed root. A trace subject has no checked-model source.
+pub(super) fn admitted_model_time<'a, E>(
+    package: &'a super::CheckedPackageV2,
+    clause: &CheckedNodeId,
+    mut charge: impl FnMut(&CheckedNodeId) -> Result<(), E>,
+) -> Result<Option<ModelTimeBinding<'a>>, E> {
+    let Some(CheckedTerm::Application { arguments, .. }) = package.term(clause) else {
+        return Ok(None);
+    };
+    let Some(parameter) = arguments.first().and_then(typed_target) else {
+        return Ok(None);
+    };
+    let Some(parameter_node) = package.node(parameter) else {
+        return Ok(None);
+    };
+    let type_id = &parameter_node.semantic_type;
+    let model = match package.node_kind(type_id) {
+        Some(CheckedNodeKind::Model(_)) => Some(type_id),
+        Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)) => package
+            .term(type_id)
+            .and_then(|term| typed_members(term).first())
+            .and_then(typed_target)
+            .filter(|target| matches!(package.node_kind(target), Some(CheckedNodeKind::Model(_)))),
+        _ => None,
+    };
+    let Some(model) = model else {
+        return Ok(None);
+    };
+    for &position in &package.timed_model_roots {
+        let root = &package.graph().nodes[position];
+        charge(&root.node_id)?;
+        let Some(body) = package.term(&root.node_id) else {
+            continue;
+        };
+        if bound(body, 0).and_then(typed_target) != Some(model) {
+            continue;
+        }
+        let Some(source) = bound(body, 2).and_then(typed_target) else {
+            continue;
+        };
+        charge(source)?;
+        let Some(unit) = package
+            .term(source)
+            .and_then(|body| bound(body, 1))
+            .and_then(typed_target)
+        else {
+            continue;
+        };
+        charge(unit)?;
+        return Ok(Some(ModelTimeBinding {
+            timed_root: &root.node_id,
+            model,
+            source,
+            unit,
+        }));
+    }
+    Ok(None)
+}
+
+/// A checked model-time binding borrowed from one admitted Timed clause.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CheckedModelTimeRead<'a> {
+    clause: &'a CheckedNodeId,
+    timed_root: &'a CheckedNodeId,
+    model: &'a CheckedNodeId,
+    source: &'a CheckedNodeId,
+    unit: &'a CheckedNodeId,
+    work: u64,
+}
+
+impl<'a> CheckedModelTimeRead<'a> {
+    /// The Timed clause read by this call.
+    pub fn clause(&self) -> &'a CheckedNodeId {
+        self.clause
+    }
+    /// The checked timed-model root.
+    pub fn timed_root(&self) -> &'a CheckedNodeId {
+        self.timed_root
+    }
+    /// The clause's selected model subject.
+    pub fn model(&self) -> &'a CheckedNodeId {
+        self.model
+    }
+    /// The root's checked time source.
+    pub fn source(&self) -> &'a CheckedNodeId {
+        self.source
+    }
+    /// The source's exact admitted time unit.
+    pub fn unit(&self) -> &'a CheckedNodeId {
+        self.unit
+    }
+    /// Work charged by this read.
+    pub fn work(&self) -> u64 {
+        self.work
+    }
+}
+
+/// Stable refusal of a bounded model-time read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedModelTimeReadErrorCode {
+    /// The supplied node is not an admitted Timed clause.
+    WrongClause,
+    /// The next inspection exceeds the caller's finite allowance.
+    WorkLimit,
+}
+
+/// No partial model-time binding is returned on a read refusal.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("model-time read refused: {code:?} at {at:?}")]
+pub struct CheckedModelTimeReadError {
+    /// Stable refusal code.
+    pub code: CheckedModelTimeReadErrorCode,
+    /// The first uncharged node, or the wrong clause.
+    pub at: Box<CheckedNodeId>,
+    /// Work consumed before refusal.
+    pub work: u64,
+    /// First refused charge, zero for a semantic refusal.
+    pub attempted_work: u64,
+}
+
+impl super::CheckedPackageV2 {
+    /// Read the checked source for one Timed model clause under a finite work limit.
+    /// A Timed trace clause returns `None`: its timestamps come from profile input.
+    pub fn model_time_for_clause(
+        &self,
+        clause: &CheckedNodeId,
+        work_limit: u64,
+    ) -> Result<Option<CheckedModelTimeRead<'_>>, CheckedModelTimeReadError> {
+        let mut work = 0;
+        let mut charge = |at: &CheckedNodeId| {
+            if work >= work_limit {
+                return Err(CheckedModelTimeReadError {
+                    code: CheckedModelTimeReadErrorCode::WorkLimit,
+                    at: Box::new(at.clone()),
+                    work,
+                    attempted_work: 1,
+                });
+            }
+            work += 1;
+            Ok(())
+        };
+        charge(clause)?;
+        let timed = self.node_kind(clause)
+            == Some(CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
+            && self.term(clause).is_some_and(|term| {
+                matches!(term, CheckedTerm::Application { operation, .. }
+                    if operation.law_definitions().ok().is_some_and(|laws|
+                        matches!(laws, [law] if TemporalProfile::from_wire(&law.identity)
+                            == Some(TemporalProfile::Timed))))
+            });
+        if !timed {
+            return Err(CheckedModelTimeReadError {
+                code: CheckedModelTimeReadErrorCode::WrongClause,
+                at: Box::new(clause.clone()),
+                work,
+                attempted_work: 0,
+            });
+        }
+        let selected = admitted_model_time(self, clause, &mut charge)?;
+        Ok(selected.map(|binding| CheckedModelTimeRead {
+            clause: &self.node(clause).expect("admitted Timed clause").node_id,
+            timed_root: binding.timed_root,
+            model: binding.model,
+            source: binding.source,
+            unit: binding.unit,
+            work,
+        }))
+    }
+}
+
 /// Join the retained timed roots, members and local typed targets in structural ID order.
 #[ix_trace_rs::string_edge]
 pub(super) fn validate_models<'a>(
@@ -2441,7 +2653,7 @@ pub(super) fn validate_models<'a>(
             }
         }
     }
-    for root in roots {
+    for &root in &roots {
         let body = graph.body(root)?;
         let mut anchors = BTreeSet::new();
         let mut used_constraints = BTreeSet::new();
@@ -2546,6 +2758,43 @@ pub(super) fn validate_models<'a>(
                         .key("target"),
                 ));
             }
+        }
+    }
+    for (position, node) in nodes.iter().enumerate() {
+        if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
+            || super::temporal_binding::profile_law(node)
+                .as_ref()
+                .and_then(|law| TemporalProfile::from_wire(&law.identity))
+                != Some(TemporalProfile::Timed)
+        {
+            continue;
+        }
+        let at = node_pointer(position).key("body");
+        meter.charge(1, || at.clone())?;
+        if super::temporal_binding::clock_name(node, 1) != Some("model-time") {
+            return Err(graph.issue(position, Cause::TimedNodeReference, at));
+        }
+        let Some(subject) = clause_model_subject(&graph, position) else {
+            continue;
+        };
+        let mut matched = false;
+        for &root in &roots {
+            meter.charge(1, || at.clone())?;
+            let root_body = graph.body(root)?;
+            if bound(root_body, 0).and_then(typed_target) == Some(subject)
+                && bound(root_body, 2)
+                    .and_then(typed_target)
+                    .and_then(|source| index.get(source))
+                    .is_some_and(|&source| {
+                        kinds.get(source) == Some(&CheckedNodeKind::TimedModel(Form::Source))
+                    })
+            {
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            return Err(graph.issue(position, Cause::TimedNodeReference, at));
         }
     }
     Ok(())
