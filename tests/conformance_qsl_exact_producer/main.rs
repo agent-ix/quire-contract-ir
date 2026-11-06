@@ -430,15 +430,57 @@ fn fresh_qsl_all_ten_derived_shapes_match_selected_model_members() {
     }
 }
 
+// This byte producer uses QSL's own dependency resolution. Exact-identity
+// witness tests above still require their existing shared typed model.
+fn prepare_literal_emitter() -> (Scratch, PathBuf, PathBuf) {
+    let qsl = PathBuf::from(env::var_os("QUIRE_SPEC_LANGUAGE_DIR").expect("QSL checkout"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let target = env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target"));
+    assert!(target.is_absolute(), "producer target must be absolute");
+    let scratch =
+        Scratch(env::temp_dir().join(format!("ir-literal-emitter-{}", std::process::id())));
+    fs::create_dir(&scratch.0).expect("create emitter scratch");
+    let helper = scratch.0.join("helper");
+    fs::create_dir_all(helper.join("src/bin")).expect("create emitter source directory");
+    let mut manifest = String::from("[package]\nname = \"ir-literal-emitter\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n");
+    for name in [
+        "qsl-cst",
+        "qsl-forms",
+        "qsl-foundation",
+        "qsl-semantics",
+        "qsl-package",
+    ] {
+        manifest.push_str(&format!("{name} = {{ path = {:?} }}\n", qsl.join(name)));
+    }
+    manifest.push_str("quire-semantic-value = { git = \"https://github.com/agent-ix/quire-semantic-value\", branch = \"main\" }\n");
+    fs::write(helper.join("Cargo.toml"), manifest).expect("write producer-only manifest");
+    fs::copy(qsl.join("Cargo.lock"), helper.join("Cargo.lock"))
+        .expect("seed owner lock resolution");
+    fs::copy(
+        root.join("tests/conformance_qsl_exact_producer/literal_bodies.rs"),
+        helper.join("src/bin/producer.rs"),
+    )
+    .expect("copy independently authored producer program");
+    let resolved = cargo(
+        &helper,
+        &target,
+        &["metadata", "--offline", "--format-version=1"],
+    );
+    assert!(
+        resolved.status.success(),
+        "producer dependency resolution: {}",
+        String::from_utf8_lossy(&resolved.stderr)
+    );
+    (scratch, helper, target)
+}
+
 #[trace("FR-038-AC-471", "FR-038-AC-472")]
 #[test]
 fn genuine_u12_literal_exponent_admits_and_nonliteral_bodies_refuse() {
-    let (_scratch, helper, target) = prepare_consumer(
-        "literal-bodies",
-        "tests/conformance_qsl_exact_producer/literal_bodies.rs",
-        &[],
-    );
-    let emitted = cargo(
+    let (_scratch, helper, target) = prepare_literal_emitter();
+    let built = cargo(
         &helper,
         &target,
         &[
@@ -452,10 +494,10 @@ fn genuine_u12_literal_exponent_admits_and_nonliteral_bodies_refuse() {
         ],
     );
     assert!(
-        emitted.status.success(),
-        "literal body producer control:\n{}\n{}",
-        String::from_utf8_lossy(&emitted.stdout),
-        String::from_utf8_lossy(&emitted.stderr)
+        built.status.success(),
+        "literal emitter build:\n{}\n{}",
+        String::from_utf8_lossy(&built.stdout),
+        String::from_utf8_lossy(&built.stderr)
     );
     let emitted = Command::new(
         target
@@ -463,15 +505,119 @@ fn genuine_u12_literal_exponent_admits_and_nonliteral_bodies_refuse() {
             .join(format!("producer{}", env::consts::EXE_SUFFIX)),
     )
     .output()
-    .expect("run built producer consumer");
+    .expect("run emitter");
     assert!(
         emitted.status.success(),
-        "producer consumer failed:\n{}\n{}",
-        String::from_utf8_lossy(&emitted.stdout),
+        "literal emitter failed:\n{}",
         String::from_utf8_lossy(&emitted.stderr)
     );
-    assert!(String::from_utf8_lossy(&emitted.stdout).contains(
+    verify_literal_bodies(&emitted.stdout);
+}
+
+fn verify_literal_bodies(bytes: &[u8]) {
+    use quire_contract_model::{
+        CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageReadLimits,
+        CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
+        CompleteLoweringProfileV2, CompleteLoweringRecordV2, LiteralKind, LoweringProfileRef,
+    };
+    use serde_json::json;
+    let wire: Value = serde_json::from_slice(bytes).expect("emitted V2");
+    let mut evidence = CheckedPackageEvidence::new();
+    for feature in wire["lock"]["required_features"]
+        .as_array()
+        .expect("features")
+    {
+        evidence.support_feature(feature.as_str().expect("feature name"));
+    }
+    let package =
+        match CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), &evidence) {
+            CheckedPackageV2ReadResult::Admitted(package) => package,
+            other => panic!("genuine U12 square must admit: {other:?}"),
+        };
+    let nodes = wire["semantic_graph"]["nodes"].as_array().expect("nodes");
+    let square_position = nodes
+        .iter()
+        .position(|node| node["body"]["operation"]["identity"] == "quire.op.quantity.pow")
+        .expect("square application");
+    let exponent_id: CheckedNodeId =
+        serde_json::from_value(nodes[square_position]["body"]["arguments"][1]["target"].clone())
+            .expect("referenced exponent");
+    let exponent_position = nodes
+        .iter()
+        .position(|node| {
+            node["node_id"] == serde_json::to_value(&exponent_id).expect("exponent id")
+        })
+        .expect("exponent node");
+    let exponent = &package.graph().nodes[exponent_position];
+    assert!(exponent.dependencies.is_empty());
+    let CheckedTerm::Literal {
+        type_id,
+        value_kind,
+        value,
+    } = &exponent.body
+    else {
+        panic!("Integer literal exponent")
+    };
+    assert_eq!(*value_kind, LiteralKind::Integer);
+    assert_eq!(*value, json!("2"));
+    assert_eq!(*type_id, exponent.semantic_type);
+    let integer = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_id == *type_id)
+        .expect("Integer type");
+    assert_eq!(integer.semantic_form.as_ref(), "integer");
+    assert_eq!(integer.node_tag, CheckedNodeTag::ScalarType);
+    let request = package.graph().nodes[square_position].node_id.clone();
+    let result = package.lower(
+        std::slice::from_ref(&request),
+        &CompleteLoweringProfileV2 {
+            reference: LoweringProfileRef {
+                authority: "quire".into(),
+                identity: "literal-admission".into(),
+            },
+            required_source_selections: Vec::new(),
+            supported_tags: CheckedNodeTag::ALL.iter().copied().collect(),
+            require_bounds: true,
+            work_limit: 100_000,
+        },
+    );
+    let [CompleteLoweringRecordV2::Lowered { node }] = result.records.as_slice() else {
+        panic!(
+            "genuine square lowers with literal exponent: {:?}",
+            result.records
+        )
+    };
+    assert!(node.dependencies.contains(&exponent_id));
+    assert!(node.dependencies.contains(type_id));
+    for body in [
+        json!({"term": "reference", "target": nodes[square_position]["body"]["arguments"][0]["target"]}),
+        json!({"term": "aggregate", "members": []}),
+    ] {
+        let mut invalid = wire.clone();
+        invalid["semantic_graph"]["nodes"][exponent_position]["body"] = body;
+        // Preserve every other producer member. Strict body refusal must win
+        // without rekeying, repairing the envelope, or reaching lowering.
+        let bytes = serde_json::to_vec(&invalid).expect("canonical mutation");
+        match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
+            CheckedPackageV2ReadResult::Refused(refusal) => {
+                assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+                assert_eq!(refusal.cause, None);
+                assert_eq!(refusal.locus.as_ref(), Some(&exponent_id));
+                assert_eq!(
+                    refusal.loci[0]
+                        .path
+                        .as_ref()
+                        .expect("body pointer")
+                        .as_str(),
+                    format!("/semantic_graph/nodes/{exponent_position}/body")
+                );
+            }
+            other => panic!("nonliteral exponent must refuse before bounds lowering: {other:?}"),
+        }
+    }
+    println!(
         "FR-038-AC-472 genuine U12 literal admitted; body-only reference and aggregate refused"
-    ));
-    print!("{}", String::from_utf8_lossy(&emitted.stdout));
+    );
 }
