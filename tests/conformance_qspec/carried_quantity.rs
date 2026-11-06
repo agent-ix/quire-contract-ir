@@ -635,7 +635,7 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-485", "FR-038-AC-487")]
+#[trace("TC-048", "FR-038-AC-485", "FR-038-AC-488")]
 #[test]
 fn admitted_bounded_quantity_is_a_map_scalar_key() {
     let published = bounded_vectors();
