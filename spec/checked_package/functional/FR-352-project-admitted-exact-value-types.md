@@ -9,6 +9,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-349
     type: depends_on
+  - target: ix://agent-ix/quire-contract-ir/FR-358
+    type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-390
     type: references
   - target: ix://agent-ix/quire-spec-language/FR-400
@@ -350,6 +352,155 @@ evaluator. QSL owns supplied-value and observation admission and the result
 and charge-log parity of [FR-390](ix://agent-ix/quire-spec-language/FR-390)
 AC-6 and AC-11; this projection alone does not satisfy those criteria.
 
+### Complete existing-witness validation and rebinding
+
+This read is planned under IR-1360 for the complete identity supplier required by
+[QSL FR-390](ix://agent-ix/quire-spec-language/FR-390) AC-66. It is not the
+monitor-root reachability or runtime-environment projection of
+[FR-357](./FR-357-project-selected-generated-type-closure.md). A family join
+validates its new input rows; it does not certify that an existing whole witness
+is complete for another retained package.
+
+The public operation SHALL have this signature:
+
+```rust
+impl SelectedExactIdentities {
+    pub fn validate_and_rebind(
+        &self,
+        package: &CheckedPackageV2,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Self, ExactTypeProjectionError>;
+}
+```
+
+When a consumer supplies an existing witness, Contract IR SHALL validate its
+entire content against the specified retained admitted package before returning
+a rebound witness. The operation SHALL borrow the input witness without mutating
+or consuming it. On success, the returned witness SHALL preserve every supplied
+row, opaque identity, member order, value type and private map entry unchanged.
+The returned witness SHALL carry the successfully checked retained-package
+binding. A failed call SHALL return no rebound or partially validated witness.
+
+### Completeness domain of an existing witness
+
+The completeness domain SHALL be derived from the target package's admitted
+selected-document tables and graph, not from the rows the caller chose to keep.
+It is the complete package-local identity-witness domain of this container:
+
+- Every admitted selected declaration whose native Exact identity channel is
+  `SelectedExactDeclarationRow`, and every admission-retained effective field
+  of each such selected model record, including fields no expression reads.
+- Every admitted source-owned union, record, tuple and enum declaration in the
+  respective native source-row domain, together with all of its admitted
+  members, cases, positions and payload references in native order.
+- Every emitted structural collection type in the native collection-row domain,
+  including a distinct bounded type and its emitted base where both are present.
+  A map with no emitted collection type creates no collection-row obligation.
+- Every admitted selected model tuple covered by the private `admitted_tuples`
+  channel and every admitted source-owned declared unit covered by the private
+  `admitted_source_units` channel.
+
+Contract IR SHALL derive a required declaration's original identity, selected
+document or source, form and member census from admission-retained facts. A
+selected document declaration required by these channels but lacking its emitted
+structural node SHALL produce `UnresolvedSelectedDeclaration` at its admitted
+model-root locus. An identity-bearing type for which this container has no
+native authoritative channel SHALL retain the native unavailable-witness or
+unsupported-type refusal; the operation SHALL NOT silently omit that type to
+certify completeness. Primitive scalar nodes without an identity-witness
+obligation SHALL require no row. A package with no obligations and an empty
+witness SHALL succeed within its measured allowance.
+
+The read SHALL inspect the finite native tables and graph iteratively. It SHALL
+neither parse source nor infer reachability from caller selections. This whole
+package-local census does not assert that a monitor entry closure is complete,
+does not follow an unselected cross-package reference, and does not construct a
+`TypeEnvironment`. Any supplied foreign row or private-map key SHALL be checked
+even when no expression reads it.
+
+### Retained binding and all-family correspondence
+
+Native acquisition SHALL retain enough private admitted provenance to check the
+complete witness's package binding, including entries in the two private maps.
+The complete check SHALL establish that all families belong to the target's
+same admitted selection, owners, original declarations and structural content.
+Equal package names, display labels, numeric indexes or structural selectors
+alone SHALL NOT establish this binding. A clone of an admitted package SHALL
+preserve the binding and yield an equal decision. An independently selected
+foreign package with colliding labels or local indexes SHALL NOT reuse that
+binding. The operation SHALL recheck changed admission-retained owners, source
+selections, document facts and type/member references before accepting rows.
+
+For each declaration and field row, the check SHALL preserve the existing native
+selected-document, original-identity, form, Exact-domain, member-owner and
+uniqueness checks. For each source union, record, tuple, enum and collection
+row, the check SHALL preserve that family's full native structural, source,
+ordering, member/payload and value-shape checks. It SHALL detect conflicts
+between family channels as well as within a channel. A checked member or opaque
+key SHALL NOT acquire a different owner during rebinding.
+
+For every `admitted_tuples` entry, the operation SHALL check its retained
+selected-document/original tuple provenance, exact tuple form and key against
+the target's admitted tuple declaration. For every `admitted_source_units`
+entry, it SHALL check its retained selected-source/original declaration
+provenance, exact source-unit form and declared `UnitId` domain. A private-map
+entry absent from the target, missing from a required channel, or bound to a
+different owner SHALL refuse. The implementation SHALL retain the native
+provenance needed for those checks rather than reconstructing the witness from
+public rows and losing either map.
+
+IR SHALL expose no new public private-map getter, unchecked rebinding setter or
+caller-supplied completeness flag for this operation. Cloning a witness SHALL
+preserve its existing binding without validating it for another package. The
+operation SHALL preserve the trusted-producer boundary: a structurally matching
+caller-created opaque Exact identity is not authenticated as QSL output.
+
+### Refusals, order and shared allowance
+
+The operation SHALL use the same caller-owned `NativeJoinBudget` defined by the
+frozen [FR-358](./FR-358-compose-native-identity-join-budget.md), without a fresh
+local allowance or a second public budget API. It SHALL charge all native
+inspections, text/sequence scans, completeness-census steps and uniqueness
+checks as FR-358 work. It SHALL precharge every newly retained or copied row,
+key, map/set entry, container, shared handle, element and dynamic byte as FR-358
+logical storage before reserve, clone or insertion. Borrowed inspection SHALL
+incur no storage charge. Returning a new witness, copying private maps and
+retaining any new private provenance SHALL obey those same storage rules.
+
+On success, the budget SHALL expose the cumulative work/storage counters and
+this operation's exact success delta. On any refusal, the operation SHALL clear
+the current success delta while retaining earlier admitted charges. A denied
+charge SHALL record its kind and attempted amount without incrementing the
+denied counter. Arithmetic exhaustion SHALL be a denial. No temporary storage
+release SHALL refund previously admitted consumption.
+
+The validation order SHALL be package-binding checks, supplied-content checks,
+then completeness checks. Within each latter phase, the family order SHALL be
+declarations, effective fields, private admitted tuples, private admitted source
+units, source unions, source records, source tuples, source enums and source
+collections. Keyed entries and required graph nodes SHALL use ascending full
+structural identity; retained field/member/position/case sequences SHALL use
+their native producer order. The first failing native step or first unpaid
+charge SHALL determine the refusal; a later defect SHALL NOT replace it.
+
+A missing required row, family or private-map entry SHALL return the stable
+`IncompleteIdentityWitness` cause in `ExactTypeProjectionErrorCode`, naming the
+first missing obligation's admitted structural locus and family form. A foreign
+binding or node SHALL return `ForeignNode`; an unresolved same-package node,
+changed owner or mismatched original fact SHALL retain its native
+`UnknownNode`, `UnresolvedSelectedDeclaration` or `MismatchedIdentityWitness`
+cause as applicable. Duplicate or competing ownership SHALL retain
+`ConflictingIdentityWitness`. Work/storage exhaustion SHALL use FR-358's typed
+exhausted kind, native first unpaid locus and attempted charge. Callers SHALL
+not parse diagnostic text to distinguish these outcomes.
+
+This operation's owned diagnostic payload qualification remains with IR-1359.
+Using the shared join budget SHALL NOT claim that existing diagnostic
+allocations are precharged, that zero-storage refusals allocate nothing, or
+that an allocation failure can already be represented without allocation.
+No compatibility wrapper, pin, new wire identity, copied producer artifact or
+alternate QSL-side validator is introduced by this requirement.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -375,6 +526,13 @@ AC-6 and AC-11; this projection alone does not satisfy those criteria.
 | FR-352-AC-19 | A selected source enum row with one QSL-issued declaration key, opaque `EnumShape`, and all case rows in admitted canonical order joins the selected source, original declaration, ordered flag, final declaration and enum-value nodes, case names, member keys and `VariantId`s at their exact ranks. Exact projection returns `Enum` of the supplied shape and a complete ordered view; exact allowance and package clone agree. Missing, foreign, duplicate, wrong-form, reordered, changed-case, changed-variant, extra or incomplete rows, or a case whose admitted source-map region belongs to another selected source, refuse with typed locus and no partial view; unrelated admitted nodes do not affect the result. The IR-owned fixture proves structural joins but does not authenticate a caller as QSL or satisfy FR-357 AC1-4/AC11. | Test |
 | FR-352-AC-20 | Implemented (IR-721 source collection prerequisite; IR-owned strict fixture). A selected collection row with final structural, base and element nodes and the checked complete `ValueType::Collection` joins admitted unbounded sequence, set, bag and ordered-set types and a bounded `[0,3]` sequence, preserving exact kind, element and cardinality. A requested node typed by each collection returns the supplied complete Exact value; a bounded collection node is distinct from its base. The exact work allowance succeeds, one less refuses with charged work and first uncharged locus, and a package clone agrees. This IR-owned fixture does not prove same-emission QSL producer authority or FR-357 closure. | Test |
 | FR-352-AC-21 | Implemented (IR-721 source collection prerequisite; IR-owned strict fixture). Missing, foreign, duplicate, stale, wrong-form, changed-base, changed-element, changed-kind or changed-bound collection rows refuse with a named typed code at the first native node and no partial value. A collection with an unrepresentable or unwitnessed element retains the native unsupported-type or unavailable-witness refusal; a caller-created opaque element identity is not authenticated by the IR join. An unrelated unsupported declaration does not affect a selected collection read, and a map with no admitted collection type node is never fabricated as one. | Test |
+| FR-352-AC-22 | PLANNED (IR-1360). A complete admitted fixture contains declaration and effective-field rows, all five source-row families, a selected model tuple and a source-owned declared unit. `validate_and_rebind` succeeds with an ample shared `NativeJoinBudget`; all rows, ordered payloads, opaque identities and both private maps remain equal. Repeating against an admitted package clone gives an equal result and budget deltas. A genuinely obligation-free admitted package accepts an empty witness. | Test |
+| FR-352-AC-23 | PLANNED (IR-1360). Removing, in turn, a required declaration, unread effective field, source-family row, private admitted-tuple entry or private source-unit entry returns `IncompleteIdentityWitness` at the first missing native obligation. Retaining only a valid subset or removing an entire family cannot shrink the package-derived domain. Each refusal returns no rebound witness and leaves the input unchanged. | Test |
+| FR-352-AC-24 | PLANNED (IR-1360). A witness acquired for a foreign admitted selection is refused even when package/display names and local indexes collide. Changing a retained owner, selected document/source or structural/member reference also refuses with the defined native cause. Foreign rows in an otherwise unread family and foreign private-map entries are checked. A package clone remains accepted; arbitrary opaque keys gain no producer authentication. | Test, Inspection |
+| FR-352-AC-25 | PLANNED (IR-1360). A complete mixed-family witness succeeds at separately measured exact work and storage requirements. One unit below either requirement refuses at the exact first unpaid kind, amount and native locus with no rebound value. Prior acquisition charges remain consumed when the same budget is reused; two individually affordable operations whose combined cost exceeds its remaining allowance cannot reset the budget. Counters and first stops are deterministic and checked arithmetic cannot wrap. | Test |
+| FR-352-AC-26 | PLANNED (IR-1360). Complete-witness validation detects stale forms, missing/reordered/extra members, positions or cases inside a supplied row, wrong tuple/source-unit domains and cross-family identity conflicts with the existing typed causes. A fixture with two independent defects demonstrates binding-before-content-before-completeness ordering and the defined family/native order; the later defect never masks the first. All refusal paths preserve the immutable input. | Test |
+| FR-352-AC-27 | PLANNED (IR-1360). A nonempty witness forces retained-map/provenance copies on successful rebinding. Logical storage is charged before each copy/reserve/insert; one unit below an identified copy charge refuses without publishing any part of the output. Borrowed checks charge work but no owned storage. Success deltas and refused-call cumulative counters follow FR-358 without claiming IR-1359 diagnostic allocation qualification. | Test, Inspection |
+| FR-352-AC-28 | PLANNED (IR-1360). A default-feature external consumer calls the single public `validate_and_rebind` signature with `&mut NativeJoinBudget`. The public surface exposes no private-map getter, unchecked rebind, completeness flag, wrapper or second validator. Full finite package-local checks use native admitted facts, terminate iteratively, perform no source parse, and acquire no QSL/runtime dependency or pin. Missing emitted declarations or unsupported native identity channels refuse truthfully rather than yielding a partial complete witness. | Test, Inspection |
 
 ## Dependencies
 
