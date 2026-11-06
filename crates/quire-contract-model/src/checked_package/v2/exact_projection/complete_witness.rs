@@ -1040,7 +1040,6 @@ pub(super) fn check_package_binding(
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
