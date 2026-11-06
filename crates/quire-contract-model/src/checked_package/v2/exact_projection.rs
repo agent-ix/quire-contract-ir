@@ -2622,24 +2622,40 @@ fn charge_native(
     if budget.charge(kind, amount) {
         return Ok(());
     }
-    if !budget.exact_diagnostics() {
-        return Err(ExactTypeProjectionError {
-            code: match kind {
-                NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
-                NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
-            },
-            requested: Some(Box::new(requested.clone())),
-            at: Some(Box::new(at.clone())),
-            form: Some(form.into()),
-            work: budget.consumed().work,
-            denied: None,
-        });
-    }
-    Err(ExactTypeProjectionError::compact(
-        kind,
-        amount,
-        budget.consumed().work,
+    Err(native_budget_denial(
+        budget, kind, amount, requested, at, form,
     ))
+}
+
+fn native_budget_denial(
+    budget: &mut NativeJoinBudget,
+    kind: NativeJoinChargeKind,
+    amount: u128,
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    form: &str,
+) -> ExactTypeProjectionError {
+    if budget.exact_diagnostics() {
+        return ExactTypeProjectionError::compact(kind, amount, budget.consumed().work);
+    }
+    let diagnostic_storage = storage::node(requested)
+        .saturating_add(storage::node(at))
+        .saturating_add(form.len() as u128)
+        .saturating_add(2);
+    if !budget.charge(NativeJoinChargeKind::Storage, diagnostic_storage) {
+        return ExactTypeProjectionError::compact(kind, amount, budget.consumed().work);
+    }
+    ExactTypeProjectionError {
+        code: match kind {
+            NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
+            NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
+        },
+        requested: Some(Box::new(requested.clone())),
+        at: Some(Box::new(at.clone())),
+        form: Some(form.into()),
+        work: budget.consumed().work,
+        denied: Some(NativeJoinDeniedCharge { kind, amount }),
+    }
 }
 
 pub(super) fn charge_native_work(
@@ -2693,7 +2709,7 @@ trait WorkMeter {
     fn admit(&mut self, amount: u64, limit: u64) -> bool;
     fn admit_native_storage(&mut self, amount: u128) -> bool;
     fn resource_error(
-        &self,
+        &mut self,
         kind: NativeJoinChargeKind,
         amount: u128,
         requested: &CheckedNodeId,
@@ -2724,7 +2740,7 @@ impl WorkMeter for u64 {
     }
 
     fn resource_error(
-        &self,
+        &mut self,
         kind: NativeJoinChargeKind,
         amount: u128,
         requested: &CheckedNodeId,
@@ -2763,28 +2779,14 @@ impl WorkMeter for NativeJoinBudget {
     }
 
     fn resource_error(
-        &self,
+        &mut self,
         kind: NativeJoinChargeKind,
         amount: u128,
         requested: &CheckedNodeId,
         at: &CheckedNodeId,
         form: &str,
     ) -> ExactTypeProjectionError {
-        if self.exact_diagnostics() {
-            ExactTypeProjectionError::compact(kind, amount, self.consumed().work)
-        } else {
-            ExactTypeProjectionError {
-                code: match kind {
-                    NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
-                    NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
-                },
-                requested: Some(Box::new(requested.clone())),
-                at: Some(Box::new(at.clone())),
-                form: Some(form.into()),
-                work: self.consumed().work,
-                denied: None,
-            }
-        }
+        native_budget_denial(self, kind, amount, requested, at, form)
     }
 }
 
@@ -3840,6 +3842,7 @@ impl CheckedPackageV2 {
 mod tests {
     use super::*;
     use crate::checked_package::v2::{CheckedPackageWireV2, RetainedModels};
+    use ix_trace_rs::trace;
     use serde_json::{json, Value};
 
     fn id(path: &str) -> Value {
@@ -3934,6 +3937,42 @@ mod tests {
 
     fn checked_id(path: &str) -> CheckedNodeId {
         serde_json::from_value(id(path)).expect("fixture identity")
+    }
+
+    #[trace("FR-358-AC-2", "FR-358-AC-3")]
+    #[test]
+    fn source_join_denial_charges_complete_first_locus_or_returns_compact() {
+        let requested = checked_id("receipt");
+        let at = checked_id("range9");
+        // requested: 20, at: 19, form: 11 bytes plus one owned unit,
+        // and one envelope unit.
+        let diagnostic_floor = 52;
+        for storage_limit in [0, diagnostic_floor - 1, diagnostic_floor] {
+            let mut budget = NativeJoinBudget::new(0, storage_limit);
+            let denied = charge_native_work(&mut budget, &requested, &at, "native_test", 1)
+                .expect_err("zero work denies first native step");
+            assert_eq!(denied.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+            assert_eq!(
+                denied.denied,
+                Some(NativeJoinDeniedCharge {
+                    kind: NativeJoinChargeKind::Work,
+                    amount: 1,
+                })
+            );
+            assert_eq!(denied.denied, budget.first_unpaid());
+            assert_eq!(budget.consumed().work, 0);
+            if storage_limit < diagnostic_floor {
+                assert_eq!(budget.consumed().storage, 0);
+                assert_eq!(denied.requested, None);
+                assert_eq!(denied.at, None);
+                assert_eq!(denied.form, None);
+            } else {
+                assert_eq!(budget.consumed().storage, diagnostic_floor);
+                assert_eq!(denied.requested.as_deref(), Some(&requested));
+                assert_eq!(denied.at.as_deref(), Some(&at));
+                assert_eq!(denied.form.as_deref(), Some("native_test"));
+            }
+        }
     }
 
     #[test]

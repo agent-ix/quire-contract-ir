@@ -2667,6 +2667,18 @@ fn native_source_family_fixture_with_authority(
             variant,
         }],
     };
+    let case_node = &source_enum.members[0].structural_node;
+    let case_node_storage = 2
+        + case_node.package.len() as u128
+        + case_node
+            .path
+            .iter()
+            .map(|segment| match segment {
+                quire_contract_model::CheckedNodePathSegment::Name(name) => 1 + name.len() as u128,
+                _ => 1,
+            })
+            .sum::<u128>();
+    let index_key_storage = case_node_storage + 2;
     let mut storage_limit = 0;
     let mut denied_lookup = false;
     for _ in 0..128 {
@@ -2679,12 +2691,18 @@ fn native_source_family_fixture_with_authority(
             denied.kind,
             quire_contract_model::NativeJoinChargeKind::Storage
         );
-        if error.form.as_deref() == Some("enum_case_source_index_key") {
-            assert!(denied.amount > 2);
+        if denied.amount == index_key_storage {
+            assert_eq!(
+                error.form, None,
+                "diagnostic floor exceeds remaining storage"
+            );
+            assert_eq!(error.requested, None);
+            assert_eq!(error.at, None);
             assert!(trial.last_success_delta().is_none());
             denied_lookup = true;
             break;
         }
+        assert_eq!(error.requested, None, "earlier diagnostic is compact");
         storage_limit = trial.consumed().storage + u64::try_from(denied.amount).unwrap();
     }
     assert!(
