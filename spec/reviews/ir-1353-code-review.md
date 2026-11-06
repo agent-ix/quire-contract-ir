@@ -29,3 +29,13 @@ CONDITIONAL. The reached-model unit path loops over `self.models.selected_models
 - Plan completion: not assessed.
 - Focused fmt, Clippy, unit, integration, and scoped Quire checks were reported by the coder and accepted without rerun.
 - No applicable AssuranceProfile was found under spec/.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 62b15c793, RetainedModels::selected_model uses the admitted identity index; model unit projection charges one lookup and no longer walks unrelated selected documents. The new TC-469 test inserts an unrelated selected model before the reached one and asserts identical facts and exact work. |
+
+## Disposition pass 1 evidence
+
+Current frozen PR head: 62b15c793. Current test case: TC-469. The historical Findings and Coverage sections retain their original TC-468 context. No new findings were found in the two fix commits.

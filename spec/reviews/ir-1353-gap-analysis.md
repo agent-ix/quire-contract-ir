@@ -29,3 +29,13 @@ CONDITIONAL. The three reached-read tests cover missing field/unit, foreign sour
 - Plan completion: not assessed.
 - Focused fmt, Clippy, unit, integration, and scoped Quire checks were reported by the coder and accepted without rerun.
 - No applicable AssuranceProfile was found under spec/.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 62b15c793, TC-469 reached-read tests assert typed refusals for changed owner and original identity, stale field and model/source unit rows, unresolved field/operation/ancestry/unit dependencies, and an unrepresentable Float32 member. |
+
+## Disposition pass 1 evidence
+
+Current frozen PR head: 62b15c793. Current test case: TC-469. The historical Findings and Coverage sections retain their original TC-468 context. No new findings were found in the two fix commits.
