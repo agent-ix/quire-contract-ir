@@ -46,3 +46,19 @@ Static fix review does not change this method's original scoped conclusion. No g
 ## Round 2 Evidence Status
 
 The static scope and earlier method conclusion remain qualified as before. No global matrix recomputation or Cargo checks were run by the reviewer. New regression results and the final combined-tree gate remain pending. Code-review FND-006 requires a same-PR correction before merge.
+
+
+## Round 3 Evidence Status
+
+All six code findings are now statically fixed with no new finding. New regression checks are running and their actual results remain pending; no runtime PASS is claimed here. Original scoped matrix qualification and pre-existing global gaps remain unchanged. The lead final combined-tree gate remains pending.
+
+
+## Final Focused Evidence and Current Verdict
+
+PASS for the reviewed specification scope. All six code findings have a latest fixed disposition; no new finding remains. This current evidence update supersedes the earlier round notes saying that regression execution was pending.
+
+Actual current-production regression receipts were read in full: /tmp/ir1366-round3-focused.sh and its head log identify the reviewed production candidate; the set-e script completed workspace checks with conformance-cli enabled. Tests passed: 2 runtime helper tests, 3 native-budget tests, 4 Exact helper tests, 86 model/runtime integration tests, and 13 nominal integration tests (108 total; zero failed/ignored in these selections). These include shared slot multiplicities, fixed first-denial metadata, earlier-row tuple/unit insertion attribution, unresolved declaration coordinates, context restoration, and the multi-term parent-dimension denial regression. Workspace Clippy with warnings denied and the integration-target compile check passed. That Clippy invocation omitted --all-targets; broader lint coverage remains pending with the lead/coder. This is focused execution evidence, not the final combined-tree gate.
+
+All five FR-360 criteria were tagged in the earlier computed matrix. Its repository-wide pre-existing gaps remain qualified and were not recomputed or resolved here; no global repository assurance PASS is claimed. Plan completion: not assessed.
+
+Merge readiness remains conditional on committing the latest versions of all six scratch review artifacts and the lead-owned final combined-tree gate, including the required all-targets coverage. No reviewer build, source edit, push or merge was performed.

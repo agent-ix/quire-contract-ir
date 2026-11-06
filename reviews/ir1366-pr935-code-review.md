@@ -59,6 +59,7 @@ No Cargo rebuild or aggregate gate was run by this reviewer. Inspected existing 
 | FND-004 | fixed | Round 2: Both post-witness index insertion loops now activate the current TupleRow/SourceUnitRow and insertion form before storage_node. |
 | FND-005 | fixed | Round 2: ProjectionBudget and nominal Budget no longer carry an identity-map locator; charge/storage update only fixed metadata before charging. Nominal node_with_position pays identity traversal before the shared lookup. Graph and row positions are retained; unresolved declaration coordinates resolve honestly to None without iterator scans. |
 | FND-006 | still-open | Round 2: New finding: the second term inspection retains the previously resolved child graph position. |
+| FND-006 | fixed | Round 3: Every sibling term reactivates its already-paid parent dimension position before exponent work; child lookup may then change the context without leaking into the next sibling. |
 
 ## Round 1 Verdict
 
@@ -74,3 +75,19 @@ FAIL. FND-001 through FND-003 are statically addressed; FND-004 and FND-005 rema
 ## Round 2 Verdict
 
 FAIL. FND-001 through FND-005 are statically addressed; FND-006 remains open. Fixed-size declaration ordinals truthfully identify unresolved input requests; denied_node performs only slice/graph direct indexing and never reconstructs identities. New insertion tests require a successful two-row witness join and assert earlier-row storage denial, preventing the previous stale insertion context. The nominal worklist retains graph positions and precharges new metadata vectors. Active runtime/Exact context restoration remains in place. New focused regression checks are still pending; no runtime PASS is claimed for the fixes. Earlier 102 receipts apply only to the earlier candidate. Lead-owned final combined-tree gate remains pending.
+
+
+## Round 3 Verdict
+
+CONDITIONAL pending execution evidence and the lead final gate. All six findings are statically fixed; no new finding was found in this round. The production delta adds only a fixed-size parent graph-position activation before every dimension term charge, without any identity lookup, allocation or key clone. The multi-term integration test first requires ample successful runtime projection, then exhausts every work boundary and identifies the unique sixteen-unit second exponent charge, asserting the resolved parent instead of the prior child and matching preserved first-denial metadata. Its positive matched-boundary count prevents a silently skipped oracle. The unrelated test fixture now borrows its row instead of moving it. New focused regression execution is still running; this review does not claim runtime PASS. The original 102-test receipts remain earlier-candidate evidence only. Final combined-tree validation is lead-owned and pending.
+
+
+## Final Focused Evidence and Current Verdict
+
+PASS for the reviewed changed scope. All six code findings have a latest fixed disposition; no new finding remains. This current evidence update supersedes the earlier round notes saying that regression execution was pending.
+
+Actual current-production regression receipts were read in full: /tmp/ir1366-round3-focused.sh and its head log identify the reviewed production candidate; the set-e script completed workspace checks with conformance-cli enabled. Tests passed: 2 runtime helper tests, 3 native-budget tests, 4 Exact helper tests, 86 model/runtime integration tests, and 13 nominal integration tests (108 total; zero failed/ignored in these selections). These include shared slot multiplicities, fixed first-denial metadata, earlier-row tuple/unit insertion attribution, unresolved declaration coordinates, context restoration, and the multi-term parent-dimension denial regression. Workspace Clippy with warnings denied and the integration-target compile check passed. That Clippy invocation omitted --all-targets; broader lint coverage remains pending with the lead/coder. This is focused execution evidence, not the final combined-tree gate.
+
+All five FR-360 criteria were tagged in the earlier computed matrix. Its repository-wide pre-existing gaps remain qualified and were not recomputed or resolved here; no global repository assurance PASS is claimed. Plan completion: not assessed.
+
+Merge readiness remains conditional on committing the latest versions of all six scratch review artifacts and the lead-owned final combined-tree gate, including the required all-targets coverage. No reviewer build, source edit, push or merge was performed.
