@@ -7245,6 +7245,13 @@ fn source_collection_with_unprojectable_option_element_keeps_native_refusal() {
         ExactTypeProjectionErrorCode::UnsupportedExactType
     );
     assert_eq!(refusal.at.as_deref(), Some(&option));
+    let cloned = package.clone();
+    let mut repeated_budget = quire_contract_model::NativeJoinBudget::new(500, u64::MAX);
+    assert_eq!(
+        cloned.project_exact_type(&requested, &selected, &mut repeated_budget),
+        Err(refusal.clone())
+    );
+    assert_eq!(repeated_budget.consumed(), ample.consumed());
     let exact_storage = ample.consumed().storage;
     let mut exact = quire_contract_model::NativeJoinBudget::new(500, exact_storage);
     assert_eq!(
@@ -7260,6 +7267,13 @@ fn source_collection_with_unprojectable_option_element_keeps_native_refusal() {
     assert_eq!(unpaid.at, None);
     assert_eq!(unpaid.form, None);
     assert_eq!(short.last_success_delta(), None);
+    let mut repeated_short = quire_contract_model::NativeJoinBudget::new(500, exact_storage - 1);
+    assert_eq!(
+        cloned.project_exact_type(&requested, &selected, &mut repeated_short),
+        Err(unpaid)
+    );
+    assert_eq!(repeated_short.consumed(), short.consumed());
+    assert_eq!(repeated_short.first_unpaid(), short.first_unpaid());
 }
 
 /// Trace: FR-352-AC-20, FR-352-AC-21.

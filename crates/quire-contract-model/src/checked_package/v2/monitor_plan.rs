@@ -344,17 +344,19 @@ impl ClockBudget<'_> {
         }
     }
 
-    fn charge(&mut self, at: &CheckedNodeId) -> Result<(), CheckedMonitorClockReadError> {
+    fn charge(&mut self) -> Result<(), CheckedMonitorClockReadError> {
         if !self.budget.charge(NativeJoinChargeKind::Work, 1) {
-            let mut error = self.error(CheckedMonitorClockReadErrorCode::WorkLimit, at);
-            error.attempted_work = 1;
-            if error.code == CheckedMonitorClockReadErrorCode::WorkLimit {
-                error.denied = Some(NativeJoinDeniedCharge {
+            return Err(CheckedMonitorClockReadError {
+                code: CheckedMonitorClockReadErrorCode::WorkLimit,
+                at: None,
+                occurrence: None,
+                work: self.budget.consumed().work - self.start_work,
+                attempted_work: 1,
+                denied: Some(NativeJoinDeniedCharge {
                     kind: NativeJoinChargeKind::Work,
                     amount: 1,
-                });
-            }
-            return Err(error);
+                }),
+            });
         }
         Ok(())
     }
@@ -395,7 +397,7 @@ fn selected_row<'a, T>(
         let middle = low + (high - low) / 2;
         let row = &rows[middle];
         let (id, row_ordinal) = key(row);
-        budget.charge(id)?;
+        budget.charge()?;
         let row_key = package
             .structural_key(id)
             .expect("admitted temporal row key");
@@ -475,8 +477,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
             start_work: before.work,
             budget: native_budget,
         };
-        budget.charge(self.node_id())?;
-        budget.charge(clause)?;
+        budget.charge()?;
+        budget.charge()?;
         if clause != self.clause() {
             return Err(budget.error(CheckedMonitorClockReadErrorCode::WrongClause, clause));
         }
@@ -486,7 +488,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
         let admitted = self.package.node(clause).expect("admitted monitor clause");
         let mut found = false;
         for candidate in &admitted.occurrences {
-            budget.charge(clause)?;
+            budget.charge()?;
             if candidate == occurrence {
                 found = true;
                 break;
@@ -504,8 +506,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 matches!(laws, [law] if TemporalProfile::from_wire(&law.identity)
                     == Some(TemporalProfile::Timed))));
         let clock = if timed {
-            match super::timed_model::admitted_model_time(self.package, clause, |id| {
-                budget.charge(id)
+            match super::timed_model::admitted_model_time(self.package, clause, |_| {
+                budget.charge()
             })? {
                 Some(binding) => CheckedMonitorClock::ModelTime {
                     timed_root: binding.timed_root,

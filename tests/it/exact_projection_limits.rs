@@ -52,7 +52,7 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
     }
 }
 
-#[trace("TC-468", "FR-359-AC-1", "FR-359-AC-2", "FR-359-AC-3")]
+#[trace("TC-468", "FR-359-AC-1", "FR-359-AC-2", "FR-359-AC-3", "FR-359-AC-5")]
 #[test]
 fn exact_projection_charges_complete_values_and_semantic_diagnostics() {
     let empty = json!({"term":"aggregate","members":[]});

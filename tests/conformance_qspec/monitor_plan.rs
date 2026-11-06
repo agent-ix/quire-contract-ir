@@ -8,7 +8,7 @@ use super::*;
 use quire_contract_model::CheckedMonitorPlanRef;
 use quire_contract_model::{
     CheckedMonitorClock, CheckedMonitorClockReadErrorCode, CheckedOccurrence,
-    CheckedOccurrenceRole, ClockConfiguration, NativeJoinBudget,
+    CheckedOccurrenceRole, ClockConfiguration, NativeJoinBudget, NativeJoinChargeKind,
 };
 use std::collections::BTreeSet;
 
@@ -20,7 +20,14 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
 }
 
 /// Trace: FR-038-AC-470, TC-048.
-#[trace("TC-048", "TC-468", "FR-038-AC-470", "FR-359-AC-2", "FR-359-AC-3")]
+#[trace(
+    "TC-048",
+    "TC-468",
+    "FR-038-AC-470",
+    "FR-359-AC-2",
+    "FR-359-AC-3",
+    "FR-359-AC-5"
+)]
 #[test]
 fn monitor_plan_refuses_binding_wrapped_clock_before_public_read() {
     let (mut wire, root) = materialize(&recipes()["base"]);
@@ -182,8 +189,23 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
         .unwrap_err();
     assert_eq!(denied.code, CheckedMonitorClockReadErrorCode::WorkLimit);
     assert_eq!(denied.work, exact - 1);
-    assert_eq!(denied.at.as_deref(), Some(&selected));
+    assert_eq!(denied.at, None);
+    assert_eq!(denied.occurrence, None);
     assert_eq!(denied.attempted_work, 1);
+    assert_eq!(denied.denied.unwrap().kind, NativeJoinChargeKind::Work);
+    let mut zero_storage_work = NativeJoinBudget::new(exact - 1, 0);
+    let compact = plan
+        .clock_for_claim(&selected, &second, &mut zero_storage_work)
+        .unwrap_err();
+    assert_eq!(compact.code, CheckedMonitorClockReadErrorCode::WorkLimit);
+    assert_eq!(compact.at, None);
+    assert_eq!(compact.occurrence, None);
+    assert_eq!(compact.denied.unwrap().kind, NativeJoinChargeKind::Work);
+    assert_eq!(zero_storage_work.consumed().storage, 0);
+    assert_eq!(
+        zero_storage_work.first_unpaid().unwrap().kind,
+        NativeJoinChargeKind::Work
+    );
     let cloned = package.clone();
     assert_eq!(
         cloned
@@ -412,7 +434,8 @@ fn monitor_plan_reads_timed_model_source_and_exact_unit() {
         (denied.code, denied.work, denied.attempted_work),
         (CheckedMonitorClockReadErrorCode::WorkLimit, exact - 1, 1)
     );
-    assert_eq!(denied.at.as_deref(), Some(plan.clause()));
+    assert_eq!(denied.at, None);
+    assert_eq!(denied.occurrence, None);
 }
 fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
     assert_eq!(
