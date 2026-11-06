@@ -3715,6 +3715,13 @@ impl CheckedPackageV2 {
                         .unwrap_or(u64::MAX),
                     )?;
                 }
+                charge_native_storage(
+                    work,
+                    requested,
+                    type_id,
+                    "source_record_name_scratch",
+                    row.members.len() as u128,
+                )?;
                 if !source_record_row_matches(self, row) {
                     return Err(refuse!(
                         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
