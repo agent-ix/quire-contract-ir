@@ -1691,4 +1691,49 @@ mod tests {
             })
         );
     }
+    #[trace("TC-470", "FR-357-AC-12", "FR-360-AC-2", "FR-360-AC-3")]
+    #[test]
+    fn repeated_runtime_reference_adds_one_term_charge_and_no_edge_copy() {
+        let mut single = admitted_monitor();
+        let plan = single.monitor_plans().next().unwrap();
+        let entry = plan.init().node_id().clone();
+        let target = plan.state().clone();
+        let (position, _) = single.node_with_position(&entry).unwrap();
+        single.terms[position] =
+            CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
+        let mut repeated = single.clone();
+        repeated.terms[position] = CheckedTerm::aggregate(vec![
+            CheckedTerm::reference(target.clone()),
+            CheckedTerm::reference(target),
+        ]);
+        let mut once_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let mut twice_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let once = single
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .selected_graph_walk(&mut once_budget)
+            .unwrap();
+        let twice = repeated
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .selected_graph_walk(&mut twice_budget)
+            .unwrap();
+        assert_eq!(twice.nodes, once.nodes);
+        assert_eq!(
+            twice.work,
+            once.work + 1,
+            "only the additional term inspection is work; the edge is already admitted"
+        );
+        assert_eq!(
+            twice_budget.consumed().work,
+            once_budget.consumed().work + 1
+        );
+        assert_eq!(
+            twice_budget.consumed().storage,
+            once_budget.consumed().storage + 2,
+            "only the extra borrowed visitor continuation and child frames are retained"
+        );
+    }
 }
