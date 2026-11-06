@@ -16,7 +16,7 @@ use quire_contract_model::{
     SelectedSourceRecordMemberRow, SelectedSourceRecordRow, SelectedSourceTupleRow,
     SelectedTuplePositionRow,
 };
-use quire_exact::{NodeKey, PathSegment, Presence, ValueType};
+use quire_exact::{EffectiveId, NodeKey, OriginalDeclarationKey, PathSegment, Presence, ValueType};
 use serde_json::{json, Value};
 
 fn source_package_form(tag: &str, form: &str, name: &str) -> Value {
@@ -116,7 +116,7 @@ fn source_record_with_members() -> Value {
 }
 
 /// Trace: FR-352-AC-18.
-#[trace("FR-352-AC-18")]
+#[trace("FR-352-AC-18", "FR-358-AC-2")]
 #[test]
 fn selected_source_tuple_requires_complete_ordered_position_rows() {
     let mut wire = source_record_with_members();
@@ -165,20 +165,40 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
             },
         ],
     };
+    let (budgeted, _) = crate::native_join_budget::assert_exact_join(
+        &structural_node,
+        &structural_node,
+        |budget| {
+            SelectedExactIdentities::empty().with_source_tuple_rows(&package, [row.clone()], budget)
+        },
+    );
     let identities = SelectedExactIdentities::empty()
-        .with_source_tuple_rows(&package, [row.clone()], 100)
+        .with_source_tuple_rows(
+            &package,
+            [row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .unwrap();
+    assert_eq!(identities, budgeted);
     let join_exact = (0..=100)
         .find(|&limit| {
             SelectedExactIdentities::empty()
-                .with_source_tuple_rows(&package, [row.clone()], limit)
+                .with_source_tuple_rows(
+                    &package,
+                    [row.clone()],
+                    &mut quire_contract_model::NativeJoinBudget::new(limit, u64::MAX),
+                )
                 .is_ok()
         })
         .unwrap();
     assert!(join_exact > 0);
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [row.clone()], join_exact - 1)
+            .with_source_tuple_rows(
+                &package,
+                [row.clone()],
+                &mut quire_contract_model::NativeJoinBudget::new(join_exact - 1, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::ExhaustedWork
@@ -225,7 +245,11 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     changed.positions[1].type_node = changed.positions[0].type_node.clone();
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [changed], 100)
+            .with_source_tuple_rows(
+                &package,
+                [changed],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -234,7 +258,11 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     reordered.positions.swap(0, 1);
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [reordered], 100)
+            .with_source_tuple_rows(
+                &package,
+                [reordered],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -243,7 +271,11 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     incomplete.positions.pop();
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [incomplete], 100)
+            .with_source_tuple_rows(
+                &package,
+                [incomplete],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -264,7 +296,11 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     ] {
         assert_eq!(
             SelectedExactIdentities::empty()
-                .with_source_tuple_rows(&package, [changed], 100)
+                .with_source_tuple_rows(
+                    &package,
+                    [changed],
+                    &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
@@ -274,14 +310,22 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
     foreign.structural_node.package = "other-package".into();
     let foreign_id = foreign.structural_node.clone();
     let refusal = SelectedExactIdentities::empty()
-        .with_source_tuple_rows(&package, [foreign], 100)
+        .with_source_tuple_rows(
+            &package,
+            [foreign],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ForeignNode);
     assert_eq!(refusal.requested.as_ref(), &foreign_id);
     assert_eq!(refusal.at.as_deref(), Some(&foreign_id));
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_tuple_rows(&package, [row.clone(), row], 200)
+            .with_source_tuple_rows(
+                &package,
+                [row.clone(), row],
+                &mut quire_contract_model::NativeJoinBudget::new(200, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::ConflictingIdentityWitness
@@ -289,7 +333,7 @@ fn selected_source_tuple_requires_complete_ordered_position_rows() {
 }
 
 /// Trace: FR-357-AC-10, TC-048.
-#[trace("TC-048", "FR-357-AC-10")]
+#[trace("TC-048", "FR-357-AC-10", "FR-358-AC-2", "FR-358-AC-3")]
 #[test]
 fn selected_source_record_requires_complete_ordered_producer_rows() {
     let wire = source_record_with_members();
@@ -350,19 +394,52 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         record_key: key.clone(),
         members,
     };
+    let (budgeted, base_charge) =
+        crate::native_join_budget::assert_exact_join(&record, &record, |budget| {
+            SelectedExactIdentities::empty().with_source_record_rows(
+                &package,
+                [row.clone()],
+                budget,
+            )
+        });
+    let mut dynamic = row.clone();
+    dynamic.members[1].value_type = ValueType::Reference(EffectiveId::new(
+        None,
+        OriginalDeclarationKey::new("p".repeat(64), "n".repeat(64)),
+    ));
+    let mut dynamic_budget = quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let retained_dynamic = SelectedExactIdentities::empty()
+        .with_source_record_rows(&package, [dynamic.clone()], &mut dynamic_budget)
+        .expect("opaque dynamic Exact type remains a producer claim");
+    assert_eq!(retained_dynamic.source_record_rows().next(), Some(&dynamic));
+    assert!(dynamic_budget.consumed().storage >= base_charge.storage + 128);
+    assert!(dynamic_budget.consumed().work > base_charge.work);
     let identities = SelectedExactIdentities::empty()
-        .with_source_record_rows(&package, [row.clone()], 100)
+        .with_source_record_rows(
+            &package,
+            [row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect("complete source row");
+    assert_eq!(identities, budgeted);
     let join_exact = (0..=100)
         .find(|&limit| {
             SelectedExactIdentities::empty()
-                .with_source_record_rows(&package, [row.clone()], limit)
+                .with_source_record_rows(
+                    &package,
+                    [row.clone()],
+                    &mut quire_contract_model::NativeJoinBudget::new(limit, u64::MAX),
+                )
                 .is_ok()
         })
         .expect("bounded join succeeds");
     assert!(join_exact > 0);
     assert!(SelectedExactIdentities::empty()
-        .with_source_record_rows(&package, [row.clone()], join_exact - 1)
+        .with_source_record_rows(
+            &package,
+            [row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(join_exact - 1, u64::MAX)
+        )
         .is_err_and(|error| error.code == ExactTypeProjectionErrorCode::ExhaustedWork));
     assert_eq!(identities.source_record_rows().next(), Some(&row));
     let projected = package
@@ -404,7 +481,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
     let mut opaque = row.clone();
     opaque.members[0].value_type = ValueType::String;
     let opaque_identities = SelectedExactIdentities::empty()
-        .with_source_record_rows(&package, [opaque.clone()], 100)
+        .with_source_record_rows(
+            &package,
+            [opaque.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect("opaque producer type remains a producer claim");
     let opaque_projection = package
         .project_exact_type(&record, &opaque_identities, 100)
@@ -464,7 +545,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
     ];
     for variant in variants {
         let refusal = SelectedExactIdentities::empty()
-            .with_source_record_rows(&package, [variant], 100)
+            .with_source_record_rows(
+                &package,
+                [variant],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+            )
             .unwrap_err();
         assert_eq!(
             refusal.code,
@@ -473,7 +558,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
         assert_eq!(refusal.at.as_deref(), Some(&record));
     }
     let duplicate = SelectedExactIdentities::empty()
-        .with_source_record_rows(&package, [row.clone(), row.clone()], 200)
+        .with_source_record_rows(
+            &package,
+            [row.clone(), row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(200, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         duplicate.code,
@@ -483,7 +572,11 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
     foreign.structural_node.package = "other-package".into();
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_record_rows(&package, [foreign], 100)
+            .with_source_record_rows(
+                &package,
+                [foreign],
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::ForeignNode

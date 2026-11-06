@@ -283,7 +283,7 @@ fn selected_population_catalog_classifies_retained_namespace_as_wrong_kind() {
 }
 
 /// Trace: FR-038-AC-467, FR-038-AC-468.
-#[trace("FR-038-AC-467", "FR-038-AC-468")]
+#[trace("FR-038-AC-467", "FR-038-AC-468", "FR-358-AC-2")]
 #[test]
 fn selected_record_fields_expose_presence_and_shape_without_exact_member_projection() {
     let mut selected = document(vec![
@@ -384,8 +384,23 @@ fn selected_record_fields_expose_presence_and_shape_without_exact_member_project
             MemberId::new(MemberOwner::Node(key.clone()), name).unwrap(),
         )
     });
-    let identities = SelectedExactIdentities::from_stage_rows(&admitted, [declaration], field_rows)
-        .expect("record identity rows");
+    let (budgeted, _) =
+        crate::native_join_budget::assert_exact_join(&receipt, &receipt, |budget| {
+            SelectedExactIdentities::from_stage_rows(
+                &admitted,
+                [declaration.clone()],
+                field_rows.clone(),
+                budget,
+            )
+        });
+    let identities = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [declaration],
+        field_rows,
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .expect("record identity rows");
+    assert_eq!(identities, budgeted);
     let refusal = admitted
         .project_exact_type(&receipt, &identities, 100)
         .expect_err("unselected object member cannot complete Exact projection");
@@ -503,7 +518,7 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
                 format!("{}/{name}", orders("Wrapped")),
                 MemberId::new(MemberOwner::Node(key.clone()), name).unwrap(),
             ));
-            let identities = SelectedExactIdentities::from_stage_rows(&admitted, [declaration], fields).unwrap();
+            let identities = SelectedExactIdentities::from_stage_rows(&admitted, [declaration], fields, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)).unwrap();
             let clone = admitted.clone();
             let projection = admitted.project_exact_type(&structural, &identities, 200).unwrap();
             let work = projection.work();
@@ -554,7 +569,7 @@ fn selected_record_projects_nested_collection_and_option_members_with_bounded_wo
         .unwrap();
 }
 
-#[trace("FR-352-AC-14")]
+#[trace("FR-352-AC-14", "FR-358-AC-5")]
 #[test]
 fn nested_collection_of_nominal_record_keeps_target_identity_and_refuses_missing_witness() {
     let mut selected = document(vec![
@@ -608,8 +623,13 @@ fn nested_collection_of_nominal_record_keeps_target_identity_and_refuses_missing
             MemberId::new(MemberOwner::Node(key(owner)), name).unwrap(),
         )
     });
-    let witnesses =
-        SelectedExactIdentities::from_stage_rows(&admitted, rows.clone(), fields.clone()).unwrap();
+    let witnesses = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        rows.clone(),
+        fields.clone(),
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .unwrap();
     let projection = admitted
         .project_exact_type(&structural("A"), &witnesses, 100)
         .unwrap();
@@ -630,6 +650,7 @@ fn nested_collection_of_nominal_record_keeps_target_identity_and_refuses_missing
             .clone()
             .into_iter()
             .filter(|row| row.record_node != structural("B")),
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .unwrap();
     let refused = admitted
@@ -646,17 +667,20 @@ fn nested_collection_of_nominal_record_keeps_target_identity_and_refuses_missing
     let assert_stage_refusal = |declarations: Vec<SelectedExactDeclarationRow>,
                                 expected_code,
                                 expected_node: &CheckedNodeId| {
+        let mut budget = quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX);
         let error = SelectedExactIdentities::from_stage_rows(
             &admitted,
             declarations,
             Vec::<SelectedExactFieldRow>::new(),
+            &mut budget,
         )
         .expect_err("invalid target identity cannot produce projection witnesses");
         assert_eq!(error.code, expected_code);
         assert_eq!(error.requested.as_ref(), expected_node);
         assert_eq!(error.at.as_deref(), Some(expected_node));
         assert_eq!(error.form.as_ref(), "selected_identity");
-        assert_eq!(error.work, 0);
+        assert_eq!(error.work, budget.consumed().work);
+        assert!(error.work > 0);
     };
     let mut foreign = rows[1].clone();
     foreign.structural_node.package = "foreign/package".into();
@@ -1662,6 +1686,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
         &admitted,
         [record_row.clone(), base_row.clone(), child_row.clone()],
         [record_field.clone()],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect("selected rows join");
     let complete = admitted
@@ -1726,6 +1751,7 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
         &incomplete_graph,
         [record_row.clone(), base_row.clone(), child_row.clone()],
         [record_field.clone()],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect("represented rows still join");
     let unrepresented = incomplete_graph
@@ -1736,9 +1762,13 @@ fn selected_runtime_types_keep_record_and_object_fields_and_parents() {
         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
     );
 
-    let missing_child =
-        SelectedExactIdentities::from_stage_rows(&admitted, [record_row, base_row], [record_field])
-            .expect("other selected rows join");
+    let missing_child = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [record_row, base_row],
+        [record_field],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .expect("other selected rows join");
     let refusal = admitted
         .project_selected_type_declarations(&missing_child, &[], &[], 1000)
         .expect_err("missing object witness refuses the whole view");
@@ -1885,7 +1915,14 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         equality_applications: &[],
         equality_facts: &[],
     };
-    let complete = admitted.project_selected_facts(ids, rows, 100_000).unwrap();
+    let complete = admitted
+        .project_selected_facts(
+            ids,
+            rows,
+            100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap();
     assert_eq!(complete.declarations, vec![declaration.clone()]);
     assert_eq!(complete.fields.len(), 1);
     assert_eq!(complete.fields[0].row, field_row);
@@ -1940,7 +1977,12 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         equality_facts: &[],
     };
     let combined = admitted
-        .project_selected_facts(combined_ids(), combined_rows(), 100_000)
+        .project_selected_facts(
+            combined_ids(),
+            combined_rows(),
+            100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect("one admitted read retains model, field and equality facts");
     assert_eq!(combined.declarations, complete.declarations);
     assert_eq!(combined.fields.len(), 2);
@@ -1956,13 +1998,21 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         &original_application
     );
     assert_eq!(
-        admitted
-            .clone()
-            .project_selected_facts(combined_ids(), combined_rows(), combined.work),
+        admitted.clone().project_selected_facts(
+            combined_ids(),
+            combined_rows(),
+            combined.work,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+        ),
         Ok(combined.clone()),
     );
     let combined_short = admitted
-        .project_selected_facts(combined_ids(), combined_rows(), combined.work - 1)
+        .project_selected_facts(
+            combined_ids(),
+            combined_rows(),
+            combined.work - 1,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .expect_err("one less than complete selected-fact work refuses");
     assert_eq!(combined_short.code, SelectedFactsErrorCode::Equality);
     assert_eq!(
@@ -1984,6 +2034,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
                 equality_facts: &[],
             },
             100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap();
     assert_eq!(exact.declarations.len(), 1);
@@ -2004,6 +2055,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
                 equality_facts: &[],
             },
             complete.work,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap();
     assert_eq!(replay, complete);
@@ -2022,6 +2074,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
                 equality_facts: &[],
             },
             complete.work - 1,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(exhausted.code, SelectedFactsErrorCode::ExhaustedWork);
@@ -2044,6 +2097,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             equality_facts: &[],
         },
         100_000,
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     );
     let longer = longer.unwrap();
     assert_eq!(longer.declarations, complete.declarations);
@@ -2064,14 +2118,24 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     };
     assert_eq!(
         admitted
-            .project_selected_facts(selected_once(), with_rows(&[], &fields), 100_000)
+            .project_selected_facts(
+                selected_once(),
+                with_rows(&[], &fields),
+                100_000,
+                &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+            )
             .unwrap_err()
             .code,
         SelectedFactsErrorCode::MissingRow,
     );
     assert_eq!(
         admitted
-            .project_selected_facts(selected_once(), with_rows(&declarations, &[]), 100_000)
+            .project_selected_facts(
+                selected_once(),
+                with_rows(&declarations, &[]),
+                100_000,
+                &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
+            )
             .unwrap_err()
             .code,
         SelectedFactsErrorCode::MissingRow,
@@ -2082,7 +2146,8 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             .project_selected_facts(
                 selected_once(),
                 with_rows(&duplicate_declarations, &fields),
-                100_000
+                100_000,
+                &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
             )
             .unwrap_err()
             .code,
@@ -2096,6 +2161,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             selected_once(),
             with_rows(&wrong_document_rows, &fields),
             100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(wrong.code, SelectedFactsErrorCode::Exact);
@@ -2108,7 +2174,12 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     stale.structural_node.package = "foreign/document".into();
     let stale_rows = [stale];
     let stale_error = admitted
-        .project_selected_facts(selected_once(), with_rows(&stale_rows, &fields), 100_000)
+        .project_selected_facts(
+            selected_once(),
+            with_rows(&stale_rows, &fields),
+            100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(stale_error.code, SelectedFactsErrorCode::Exact);
     assert_eq!(
@@ -2129,6 +2200,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             selected_once(),
             with_rows(&declarations, &wrong_field_rows),
             100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(wrong_field_error.code, SelectedFactsErrorCode::Exact);
@@ -2151,6 +2223,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             },
             with_rows(&declarations, &fields),
             100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(foreign_result.code, SelectedFactsErrorCode::ForeignNode);
@@ -2162,6 +2235,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             selected_once(),
             with_rows(&mixed_declarations, &fields),
             100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(mixed_declaration.code, SelectedFactsErrorCode::DuplicateRow);
@@ -2177,6 +2251,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             selected_once(),
             with_rows(&declarations, &mixed_fields),
             100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(mixed_field.code, SelectedFactsErrorCode::DuplicateRow);
@@ -2190,7 +2265,12 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
     oversized.original_identity = "x".repeat(1_000_000).into();
     let oversized_rows = [oversized];
     let denied = admitted
-        .project_selected_facts(selected_once(), with_rows(&oversized_rows, &fields), 10)
+        .project_selected_facts(
+            selected_once(),
+            with_rows(&oversized_rows, &fields),
+            10,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(denied.code, SelectedFactsErrorCode::ExhaustedWork);
     assert_eq!(denied.at.as_ref(), &record);
@@ -2206,6 +2286,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             },
             with_rows(&declarations, &fields),
             100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(
@@ -2222,6 +2303,7 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             },
             with_rows(&declarations, &fields),
             100_000,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .unwrap_err();
     assert_eq!(unrepresentable.code, SelectedFactsErrorCode::Exact);
@@ -2238,7 +2320,8 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
         admitted.project_selected_facts(
             selected_once(),
             with_rows(&declarations, &fields),
-            complete.work
+            complete.work,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
         ),
         Ok(complete),
         "unselected unsupported forms and fields must not change the selected result",
@@ -2275,8 +2358,13 @@ fn selected_runtime_types_refuse_unprojected_object_redefinition() {
             )),
         )
     });
-    let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, rows, [])
-        .expect("selected object rows join");
+    let witnessed = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        rows,
+        [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .expect("selected object rows join");
     let error = admitted
         .project_selected_type_declarations(&witnessed, &[], &[], 1000)
         .expect_err("redefinition needs its own admitted join");
@@ -2311,6 +2399,7 @@ fn selected_runtime_types_refuse_object_operations_without_callable_facts() {
             )),
         )],
         [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect("selected object row joins");
     let error = admitted
@@ -2344,8 +2433,13 @@ fn selected_runtime_types_refuse_tuple_without_stage_identity() {
             "construct": {"meaning": "quire.meaning.model.tuple-value-type/v1"}
         }));
     let admitted = admit(&selected, &[("Pair", "tuple_value_type")], &[]);
-    let witnessed = SelectedExactIdentities::from_stage_rows(&admitted, [], [])
-        .expect("no supplied row can witness a tuple yet");
+    let witnessed = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [],
+        [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .expect("no supplied row can witness a tuple yet");
     let error = admitted
         .project_selected_type_declarations(&witnessed, &[], &[], 1000)
         .expect_err("a tuple cannot produce a partial environment view");
@@ -2532,6 +2626,7 @@ fn selected_record_field_uses_witnessed_tuple_key() {
             format!("{record}/pair"),
             MemberId::new(MemberOwner::Node(record_key.clone()), "pair").unwrap(),
         )],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .unwrap();
     let tuple_row =
@@ -2611,8 +2706,13 @@ fn selected_record_many_fields_respects_exact_work_boundary() {
             )
         })
         .collect::<Vec<_>>();
-    let identities =
-        SelectedExactIdentities::from_stage_rows(&admitted, [declaration], fields).unwrap();
+    let identities = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [declaration],
+        fields,
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .unwrap();
     assert_eq!(identities.field_rows().len(), names.len());
     let view = admitted
         .project_selected_type_declarations(&identities, &[], &[], 30_000)
@@ -2768,6 +2868,7 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         &admitted,
         [record_row.clone()],
         [field_row.clone()],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .unwrap();
     let missing_error = admitted
@@ -2785,7 +2886,8 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         SelectedExactIdentities::from_stage_rows(
             &admitted,
             [record_row.clone(), wrong_original],
-            [field_row.clone()]
+            [field_row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
         )
         .unwrap_err()
         .code,
@@ -2797,7 +2899,8 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         SelectedExactIdentities::from_stage_rows(
             &admitted,
             [record_row.clone(), wrong_document],
-            [field_row.clone()]
+            [field_row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
         )
         .unwrap_err()
         .code,
@@ -2809,7 +2912,8 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         SelectedExactIdentities::from_stage_rows(
             &admitted,
             [record_row.clone(), wrong_form],
-            [field_row.clone()]
+            [field_row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
         )
         .unwrap_err()
         .code,
@@ -2821,7 +2925,8 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         SelectedExactIdentities::from_stage_rows(
             &admitted,
             [record_row.clone(), foreign],
-            [field_row.clone()]
+            [field_row.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
         )
         .unwrap_err()
         .code,
@@ -2834,6 +2939,7 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
         &admitted,
         [record_row.clone(), shared_key],
         [field_row.clone()],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .unwrap_err();
     assert_eq!(
@@ -2842,9 +2948,13 @@ fn admitted_selected_declared_unit_projects_only_with_matching_witness() {
     );
     assert_eq!(collision.at.as_deref(), Some(&unit));
 
-    let witnessed =
-        SelectedExactIdentities::from_stage_rows(&admitted, [record_row, unit_row], [field_row])
-            .unwrap();
+    let witnessed = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [record_row, unit_row],
+        [field_row],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .unwrap();
     let projected = admitted
         .project_exact_type(&record, &witnessed, 100)
         .unwrap();
@@ -2953,6 +3063,7 @@ fn admitted_selected_records_project_complete_exact_views() {
                 row.field_original_identity.as_ref() != format!("{}/count", orders("Tick"))
             })
             .cloned(),
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect("the other rows join");
     let tick_node = &records[3].1;
@@ -2974,15 +3085,20 @@ fn admitted_selected_records_project_complete_exact_views() {
             &admitted,
             declaration_rows.clone(),
             conflicting_fields,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX)
         )
         .expect_err("distinct effective fields cannot share one Exact member")
         .code,
         ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
     );
 
-    let witnesses =
-        SelectedExactIdentities::from_stage_rows(&admitted, declaration_rows, field_rows)
-            .expect("all selected rows join the admitted package");
+    let witnesses = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        declaration_rows,
+        field_rows,
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .expect("all selected rows join the admitted package");
     let projections = records
         .iter()
         .map(|(_, structural, key)| {
@@ -3200,6 +3316,7 @@ fn admitted_record_with_unsupported_field_refuses_without_view() {
             format!("{}/value", orders("Unsupported")),
             MemberId::new(MemberOwner::Node(key), "value").expect("Exact member ID"),
         )],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect("selected rows");
     let refusal = admitted
@@ -3270,6 +3387,7 @@ fn admitted_native_record_late_unsupported_field_respects_exact_work_boundary() 
                 SelectedExactIdentity::Record(key.clone()),
             )],
             field_rows,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .expect("both native field witnesses join this independently admitted record");
         let cloned = admitted.clone();
@@ -3455,6 +3573,7 @@ fn admitted_nested_record_and_reference_fields_require_target_witnesses_and_work
             envelope_row.clone(),
         ],
         field_rows.clone(),
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
     )
     .expect("selected target and field rows");
     let projection = admitted
@@ -3469,9 +3588,13 @@ fn admitted_nested_record_and_reference_fields_require_target_witnesses_and_work
         (vec![person_row.clone(), envelope_row.clone()], &address),
         (vec![address_row, envelope_row], &person),
     ] {
-        let missing =
-            SelectedExactIdentities::from_stage_rows(&admitted, declarations, field_rows.clone())
-                .expect("incomplete target rows retain valid field joins");
+        let missing = SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            declarations,
+            field_rows.clone(),
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .expect("incomplete target rows retain valid field joins");
         let refusal = admitted
             .project_exact_type(&envelope, &missing, 100)
             .expect_err("missing target witness refuses the complete view");
@@ -5921,7 +6044,7 @@ mod operation_census;
 mod option_types;
 
 /// Selected identity rows must join the complete admitted declaration key.
-#[trace("FR-352-AC-4")]
+#[trace("FR-352-AC-4", "FR-358-AC-5")]
 #[test]
 fn exact_projection_identity_joins_refuse_changed_and_competing_owners() {
     let mut selected = document(vec![
@@ -5974,9 +6097,13 @@ fn exact_projection_identity_joins_refuse_changed_and_competing_owners() {
     };
     let receipt = row("Receipt");
     let other = row("OtherReceipt");
-    let identities =
-        SelectedExactIdentities::from_stage_rows(&admitted, [receipt.clone(), other.clone()], [])
-            .unwrap();
+    let identities = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        [receipt.clone(), other.clone()],
+        [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .unwrap();
     for expected in [&receipt, &other] {
         let SelectedExactIdentity::Record(key) = &expected.exact_identity else {
             panic!("record row")
@@ -5990,13 +6117,15 @@ fn exact_projection_identity_joins_refuse_changed_and_competing_owners() {
         );
     }
     let check = |rows: Vec<SelectedExactDeclarationRow>, locus: &CheckedNodeId, code| {
-        let error = SelectedExactIdentities::from_stage_rows(&admitted, rows, [])
+        let mut budget = quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let error = SelectedExactIdentities::from_stage_rows(&admitted, rows, [], &mut budget)
             .expect_err("invalid identity join");
         assert_eq!(error.code, code);
         assert_eq!(error.requested.as_ref(), locus);
         assert_eq!(error.at.as_deref(), Some(locus));
         assert_eq!(error.form.as_ref(), "selected_identity");
-        assert_eq!(error.work, 0);
+        assert_eq!(error.work, budget.consumed().work);
+        assert!(error.work > 0);
     };
     for changed in [
         {
@@ -6132,7 +6261,13 @@ fn exact_reference_projection_preserves_each_selected_object_identity() {
             )),
         )
     });
-    let identities = SelectedExactIdentities::from_stage_rows(&admitted, rows.clone(), []).unwrap();
+    let identities = SelectedExactIdentities::from_stage_rows(
+        &admitted,
+        rows.clone(),
+        [],
+        &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+    )
+    .unwrap();
     let references = wire["semantic_graph"]["nodes"]
         .as_array()
         .unwrap()
@@ -6161,9 +6296,13 @@ fn exact_reference_projection_preserves_each_selected_object_identity() {
         assert_eq!(own.form.as_ref(), "model/object_type");
         assert_eq!(own.requested.as_ref(), &row.structural_node);
         assert_eq!(own.work, 2);
-        let missing =
-            SelectedExactIdentities::from_stage_rows(&admitted, [rows[1 - index].clone()], [])
-                .unwrap();
+        let missing = SelectedExactIdentities::from_stage_rows(
+            &admitted,
+            [rows[1 - index].clone()],
+            [],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap();
         let error = admitted
             .project_exact_type(&references[index], &missing, 100)
             .expect_err("another object cannot witness this reference");
@@ -6336,29 +6475,58 @@ fn source_collection_fixture() -> (
 }
 
 /// Trace: FR-352-AC-20.
-#[trace("FR-352-AC-20")]
+#[trace("FR-352-AC-20", "FR-358-AC-2")]
 #[test]
 fn source_collection_rows_project_all_kinds_and_bounds() {
     let (package, rows) = source_collection_fixture();
     let first_row = rows[0].0.clone();
+    let (budgeted, _) = crate::native_join_budget::assert_exact_join(
+        &first_row.structural_node,
+        &first_row.structural_node,
+        |budget| {
+            SelectedExactIdentities::empty().with_source_collection_rows(
+                &package,
+                [first_row.clone()],
+                budget,
+            )
+        },
+    );
+    assert_eq!(budgeted.source_collection_rows().next(), Some(&first_row));
     let join_exact = (1..=500)
         .find(|&limit| {
             SelectedExactIdentities::empty()
-                .with_source_collection_rows(&package, [first_row.clone()], limit)
+                .with_source_collection_rows(
+                    &package,
+                    [first_row.clone()],
+                    &mut quire_contract_model::NativeJoinBudget::new(limit, u64::MAX),
+                )
                 .is_ok()
         })
         .expect("finite exact join allowance");
+    let mut join_budget = quire_contract_model::NativeJoinBudget::new(join_exact - 1, u64::MAX);
     let join_exhausted = SelectedExactIdentities::empty()
-        .with_source_collection_rows(&package, [first_row], join_exact - 1)
+        .with_source_collection_rows(&package, [first_row], &mut join_budget)
         .expect_err("one below join allowance");
     assert_eq!(
         join_exhausted.code,
         ExactTypeProjectionErrorCode::ExhaustedWork
     );
-    assert_eq!(join_exhausted.work, join_exact - 1);
-    assert_eq!(join_exhausted.at.as_deref(), Some(&rows[0].0.element_node));
+    assert_eq!(join_exhausted.work, join_budget.consumed().work);
+    assert!(join_exhausted.work < join_exact);
+    assert_eq!(
+        join_exhausted.at.as_deref(),
+        Some(&rows[0].0.structural_node)
+    );
+    assert_eq!(
+        join_budget.first_unpaid().unwrap().kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
     let selected = SelectedExactIdentities::empty()
-        .with_source_collection_rows(&package, rows.iter().map(|(row, _)| row.clone()), 500)
+        .with_source_collection_rows(
+            &package,
+            rows.iter().map(|(row, _)| row.clone()),
+            &mut quire_contract_model::NativeJoinBudget::new(500, u64::MAX),
+        )
         .expect("complete collection rows join");
     assert_eq!(selected.source_collection_rows().count(), rows.len());
     for (row, requested) in &rows {
@@ -6408,6 +6576,140 @@ fn source_collection_rows_project_all_kinds_and_bounds() {
     );
 }
 
+#[trace("FR-358-AC-1", "FR-358-AC-3", "FR-358-AC-4")]
+#[test]
+fn native_collection_joins_share_budget_and_precharge_nonempty_prior_map_copy() {
+    use quire_contract_model::{NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind};
+
+    let (package, rows) = source_collection_fixture();
+    let first = rows[0].0.clone();
+    let second = rows[1].0.clone();
+    let mut ample = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let selected = SelectedExactIdentities::empty()
+        .with_source_collection_rows(&package, [first.clone()], &mut ample)
+        .unwrap();
+    let first_delta = ample.last_success_delta().unwrap();
+    assert_eq!(ample.consumed(), first_delta);
+    let complete = selected
+        .with_source_collection_rows(&package, [second.clone()], &mut ample)
+        .unwrap();
+    let second_delta = ample.last_success_delta().unwrap();
+    let total = NativeJoinCharge {
+        work: first_delta.work + second_delta.work,
+        storage: first_delta.storage + second_delta.storage,
+    };
+    assert_eq!(ample.consumed(), total);
+    assert_eq!(complete.source_collection_rows().count(), 2);
+    assert_eq!(selected.source_collection_rows().next(), Some(&first));
+    assert_eq!(selected.source_collection_rows().count(), 1);
+    assert_eq!(complete.source_collection_rows().next(), Some(&first));
+    assert_eq!(
+        ample.consumed(),
+        total,
+        "borrowed reads do not consume storage"
+    );
+
+    let cloned_package = package.clone();
+    let mut replay = NativeJoinBudget::new(total.work, total.storage);
+    let replay_first = SelectedExactIdentities::empty()
+        .with_source_collection_rows(&cloned_package, [first.clone()], &mut replay)
+        .unwrap();
+    assert_eq!(replay.last_success_delta(), Some(first_delta));
+    let replay_complete = replay_first
+        .with_source_collection_rows(&cloned_package, [second.clone()], &mut replay)
+        .unwrap();
+    assert_eq!(replay_complete, complete);
+    assert_eq!(replay.last_success_delta(), Some(second_delta));
+    assert_eq!(replay.consumed(), total);
+
+    for kind in [NativeJoinChargeKind::Work, NativeJoinChargeKind::Storage] {
+        let (work, storage) = match kind {
+            NativeJoinChargeKind::Work => (total.work - 1, u64::MAX),
+            NativeJoinChargeKind::Storage => (u64::MAX, total.storage - 1),
+        };
+        let mut short = NativeJoinBudget::new(work, storage);
+        let prior = SelectedExactIdentities::empty()
+            .with_source_collection_rows(&package, [first.clone()], &mut short)
+            .expect("first operation is individually affordable");
+        assert_eq!(short.last_success_delta(), Some(first_delta));
+        let denied = prior
+            .with_source_collection_rows(&package, [second.clone()], &mut short)
+            .expect_err("combined allowance stops in second operation");
+        assert_eq!(denied.requested.as_ref(), &second.structural_node);
+        assert_eq!(
+            denied.code,
+            match kind {
+                NativeJoinChargeKind::Work => ExactTypeProjectionErrorCode::ExhaustedWork,
+                NativeJoinChargeKind::Storage => ExactTypeProjectionErrorCode::ExhaustedStorage,
+            }
+        );
+        assert_eq!(short.first_unpaid().unwrap().kind, kind);
+        assert!(short.first_unpaid().unwrap().amount > 0);
+        assert_eq!(short.last_success_delta(), None);
+        assert!(short.consumed().work >= first_delta.work);
+        assert!(short.consumed().storage >= first_delta.storage);
+        assert_eq!(prior.source_collection_rows().count(), 1);
+        assert_eq!(prior.source_collection_rows().next(), Some(&first));
+        if kind == NativeJoinChargeKind::Storage {
+            assert!(short.first_unpaid().unwrap().amount > 1);
+            assert!(short.consumed().storage < storage);
+            assert_eq!(
+                u128::from(short.consumed().storage) + short.first_unpaid().unwrap().amount,
+                u128::from(total.storage),
+                "the denied final charge is the nonempty prior map copy"
+            );
+        }
+    }
+}
+
+#[trace("FR-358-AC-4")]
+#[test]
+fn native_budget_counts_stage_and_each_join_on_one_admitted_package() {
+    use quire_contract_model::{
+        NativeJoinBudget, NativeJoinCharge, SelectedSourceEnumRow, SelectedSourceRecordRow,
+        SelectedSourceTupleRow, SelectedSourceUnionRow,
+    };
+
+    let (package, rows) = source_collection_fixture();
+    let collection = rows[0].0.clone();
+    let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let mut deltas = Vec::new();
+    let stage = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut budget).unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let union = stage
+        .with_source_union_rows(&package, Vec::<SelectedSourceUnionRow>::new(), &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let record = union
+        .with_source_record_rows(&package, Vec::<SelectedSourceRecordRow>::new(), &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let tuple = record
+        .with_source_tuple_rows(&package, Vec::<SelectedSourceTupleRow>::new(), &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let source_enum = tuple
+        .with_source_enum_rows(&package, Vec::<SelectedSourceEnumRow>::new(), &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    let completed = source_enum
+        .with_source_collection_rows(&package, [collection.clone()], &mut budget)
+        .unwrap();
+    deltas.push(budget.last_success_delta().unwrap());
+    assert_eq!(completed.source_collection_rows().next(), Some(&collection));
+    assert_eq!(deltas.len(), 6);
+    assert!(deltas[0].storage > 0);
+    assert!(deltas[1..5].iter().all(|delta| delta.storage > 0));
+    let sum = deltas
+        .into_iter()
+        .fold(NativeJoinCharge::default(), |sum, delta| NativeJoinCharge {
+            work: sum.work + delta.work,
+            storage: sum.storage + delta.storage,
+        });
+    assert_eq!(budget.consumed(), sum);
+    assert_eq!(budget.first_unpaid(), None);
+}
+
 /// Trace: FR-352-AC-20, FR-352-AC-21.
 #[trace("FR-352-AC-20", "FR-352-AC-21")]
 #[test]
@@ -6415,26 +6717,42 @@ fn source_collection_incremental_join_charges_prior_rows_before_copy() {
     let (package, rows) = source_collection_fixture();
     let prior = rows[..2].iter().map(|(row, _)| row.clone());
     let populated = SelectedExactIdentities::empty()
-        .with_source_collection_rows(&package, prior, 500)
+        .with_source_collection_rows(
+            &package,
+            prior,
+            &mut quire_contract_model::NativeJoinBudget::new(500, u64::MAX),
+        )
         .expect("two prior collection rows");
     let next = rows[2].0.clone();
     let empty_exact = (1..=500)
         .find(|&limit| {
             SelectedExactIdentities::empty()
-                .with_source_collection_rows(&package, [next.clone()], limit)
+                .with_source_collection_rows(
+                    &package,
+                    [next.clone()],
+                    &mut quire_contract_model::NativeJoinBudget::new(limit, u64::MAX),
+                )
                 .is_ok()
         })
         .expect("empty-table exact allowance");
     let populated_exact = (1..=500)
         .find(|&limit| {
             populated
-                .with_source_collection_rows(&package, [next.clone()], limit)
+                .with_source_collection_rows(
+                    &package,
+                    [next.clone()],
+                    &mut quire_contract_model::NativeJoinBudget::new(limit, u64::MAX),
+                )
                 .is_ok()
         })
         .expect("populated-table exact allowance");
     assert_eq!(populated_exact, empty_exact + 2);
     let joined = populated
-        .with_source_collection_rows(&package, [next.clone()], populated_exact)
+        .with_source_collection_rows(
+            &package,
+            [next.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(populated_exact, u64::MAX),
+        )
         .expect("exact allowance charges both prior entries");
     assert_eq!(joined.source_collection_rows().count(), 3);
     let first_unpaid = rows[..2]
@@ -6443,15 +6761,21 @@ fn source_collection_incremental_join_charges_prior_rows_before_copy() {
         .max()
         .expect("two prior entries");
     let refusal = populated
-        .with_source_collection_rows(&package, [next.clone()], populated_exact - 1)
+        .with_source_collection_rows(
+            &package,
+            [next.clone()],
+            &mut quire_contract_model::NativeJoinBudget::new(populated_exact - 1, u64::MAX),
+        )
         .expect_err("one below the populated-table allowance");
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     assert_eq!(refusal.work, populated_exact - 1);
     assert_eq!(refusal.at.as_deref(), Some(first_unpaid));
     assert_eq!(
-        populated
-            .clone()
-            .with_source_collection_rows(&package, [next], populated_exact - 1),
+        populated.clone().with_source_collection_rows(
+            &package,
+            [next],
+            &mut quire_contract_model::NativeJoinBudget::new(populated_exact - 1, u64::MAX)
+        ),
         Err(refusal)
     );
 }
@@ -6471,7 +6795,11 @@ fn source_collection_rows_refuse_missing_and_changed_structural_facts() {
     );
     let join = |candidate: SelectedSourceCollectionRow| {
         SelectedExactIdentities::empty()
-            .with_source_collection_rows(&package, [candidate], 500)
+            .with_source_collection_rows(
+                &package,
+                [candidate],
+                &mut quire_contract_model::NativeJoinBudget::new(500, u64::MAX),
+            )
             .expect_err("changed collection row")
     };
     let mut foreign = row.clone();
@@ -6520,7 +6848,11 @@ fn source_collection_rows_refuse_missing_and_changed_structural_facts() {
     );
     assert_eq!(
         SelectedExactIdentities::empty()
-            .with_source_collection_rows(&package, [row.clone(), row.clone()], 500)
+            .with_source_collection_rows(
+                &package,
+                [row.clone(), row.clone()],
+                &mut quire_contract_model::NativeJoinBudget::new(500, u64::MAX)
+            )
             .unwrap_err()
             .code,
         ExactTypeProjectionErrorCode::ConflictingIdentityWitness
@@ -6532,7 +6864,11 @@ fn source_collection_rows_refuse_missing_and_changed_structural_facts() {
         Some(CardinalityBound::new(0, 3).unwrap()),
     ));
     let selected = SelectedExactIdentities::empty()
-        .with_source_collection_rows(&package, [changed_opaque_element], 500)
+        .with_source_collection_rows(
+            &package,
+            [changed_opaque_element],
+            &mut quire_contract_model::NativeJoinBudget::new(500, u64::MAX),
+        )
         .expect("structural row joins before element projection");
     let refusal = package
         .project_exact_type(requested, &selected, 500)
@@ -6603,7 +6939,11 @@ fn source_collection_with_unprojectable_option_element_keeps_native_refusal() {
         )),
     };
     let selected = SelectedExactIdentities::empty()
-        .with_source_collection_rows(&package, [row], 500)
+        .with_source_collection_rows(
+            &package,
+            [row],
+            &mut quire_contract_model::NativeJoinBudget::new(500, u64::MAX),
+        )
         .expect("structural collection row joins");
     let refusal = package
         .project_exact_type(&requested, &selected, 500)
@@ -6685,7 +7025,11 @@ fn nested_collection_rows_follow_final_element_nodes_without_recursion() {
         value_type: outer_type.clone(),
     };
     let identities = SelectedExactIdentities::empty()
-        .with_source_collection_rows(&admitted, [outer_row, inner_row], 500)
+        .with_source_collection_rows(
+            &admitted,
+            [outer_row, inner_row],
+            &mut quire_contract_model::NativeJoinBudget::new(500, u64::MAX),
+        )
         .expect("both nested rows join");
     let projected = admitted
         .project_exact_type(&outer, &identities, 500)
@@ -6700,7 +7044,7 @@ fn nested_collection_rows_follow_final_element_nodes_without_recursion() {
                 element_node: inner.clone(),
                 value_type: outer_type,
             }],
-            500,
+            &mut quire_contract_model::NativeJoinBudget::new(500, u64::MAX),
         )
         .expect("outer structural row joins alone");
     let refusal = admitted

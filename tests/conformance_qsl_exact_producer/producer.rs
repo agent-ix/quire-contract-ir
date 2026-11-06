@@ -82,7 +82,7 @@ fn join_error(
     node: &CheckedNodeId,
     code: Code,
 ) {
-    let error = SelectedExactIdentities::from_stage_rows(admitted, declarations, fields)
+    let error = SelectedExactIdentities::from_stage_rows(admitted, declarations, fields, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
         .expect_err("invalid producer rows must not yield a projection witness");
     assert_eq!(error.code, code, "{error:?}");
     assert_eq!(error.requested.as_ref(), node);
@@ -239,7 +239,7 @@ fn main() {
         .cloned()
         .collect::<Vec<_>>();
     let absent_object =
-        SelectedExactIdentities::from_stage_rows(&admitted, absent_object_rows, fields.clone())
+        SelectedExactIdentities::from_stage_rows(&admitted, absent_object_rows, fields.clone(), &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
             .expect("record witnesses still join without the object row");
     let error = admitted
         .project_exact_type(&reference.node_id, &absent_object, 256)
@@ -267,7 +267,7 @@ fn main() {
         .collect::<Vec<_>>();
     assert_eq!(missing_fields.len() + 1, fields.len());
     let missing =
-        SelectedExactIdentities::from_stage_rows(&admitted, declarations.clone(), missing_fields)
+        SelectedExactIdentities::from_stage_rows(&admitted, declarations.clone(), missing_fields, &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX))
             .expect("other genuine producer rows still join");
     let error = admitted
         .project_exact_type(&record.structural_node, &missing, 256)
