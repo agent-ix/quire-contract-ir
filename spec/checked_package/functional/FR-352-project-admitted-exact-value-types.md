@@ -361,7 +361,67 @@ monitor-root reachability or runtime-environment projection of
 validates its new input rows; it does not certify that an existing whole witness
 is complete for another retained package.
 
-The public operation SHALL have this signature:
+### Checked acquisition of admitted tuple and source-unit rows
+
+The private `admitted_tuples` and `admitted_source_units` channels cannot be
+populated through `from_stage_rows` or the five source-family joins. A selected
+model tuple is not a source-owned tuple, and a source-owned declared unit is not
+a model-owned declared-unit stage row. Contract IR SHALL expose one checked
+acquisition path for the existing producer types `SelectedTupleDeclarationRow`
+and `SelectedSourceUnitRow` before a caller checks whole-witness completeness.
+
+The public admitted-type join SHALL have this signature:
+
+```rust
+impl SelectedExactIdentities {
+    pub fn with_admitted_type_rows(
+        &self,
+        package: &CheckedPackageV2,
+        tuple_rows: &[SelectedTupleDeclarationRow],
+        source_unit_rows: &[SelectedSourceUnitRow],
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Self, ExactTypeProjectionError>;
+}
+```
+
+This operation SHALL replace the existing private unchecked admitted-type copy
+path with the checked native join. The selected-type declaration projection
+SHALL use that same checked path; a public wrapper around a second unchecked
+copy algorithm SHALL NOT establish the contract.
+
+When tuple rows are supplied, Contract IR SHALL join each full structural node
+to its admission-retained selected document, original identity and exact model
+tuple declaration form before retaining the producer's `NodeKey`. When
+source-unit rows are supplied, Contract IR SHALL join each full structural node
+to the selected source authority/identity, source owner, original qualified
+declaration and exact unit form before retaining a `UnitId::Declared` value.
+A compound unit or wrong declaration domain SHALL refuse with the native typed
+mismatch; a source-family row SHALL NOT substitute for either channel.
+
+The join SHALL extend the receiver's existing admitted-type channels without
+discarding any other family. It SHALL retain the complete native provenance of
+each supplied row privately so a later complete check can revalidate the
+binding, rather than retaining only an unassociated key. Missing target nodes,
+foreign selections, changed owners, stale original identities and conflicting
+opaque handles SHALL retain their native typed first causes. Duplicate rows
+within one input or against a previously retained entry SHALL return
+`ConflictingIdentityWitness` even when their contents are equal. Cross-family
+ownership and handle conflicts SHALL use the same native identity rules as the
+complete check.
+
+The join SHALL borrow both input slices and the receiver, charge the same
+caller-owned `NativeJoinBudget` for native inspections and precharged copies as
+defined below, and return an extended witness only after every supplied row
+passes. A refusal SHALL leave the receiver unchanged and expose no partial
+extension. Empty slices SHALL add no obligation or completeness claim. Callers
+may acquire the two channels incrementally with the same budget; only
+`validate_and_rebind` establishes package-derived whole-witness completeness.
+The join SHALL expose neither private-map getters nor an unchecked map setter,
+and it SHALL NOT mint or authenticate caller-created opaque producer identities.
+
+### Atomic validation of the acquired witness
+
+The public complete-witness operation SHALL have this signature:
 
 ```rust
 impl SelectedExactIdentities {
@@ -457,9 +517,10 @@ caller-created opaque Exact identity is not authenticated as QSL output.
 
 ### Refusals, order and shared allowance
 
-The operation SHALL use the same caller-owned `NativeJoinBudget` defined by the
+The admitted-type join and complete-witness operation SHALL use the same
+caller-owned `NativeJoinBudget` defined by the
 frozen [FR-358](./FR-358-compose-native-identity-join-budget.md), without a fresh
-local allowance or a second public budget API. It SHALL charge all native
+local allowance or a second public budget API. Each operation SHALL charge its native
 inspections, text/sequence scans, completeness-census steps and uniqueness
 checks as FR-358 work. It SHALL precharge every newly retained or copied row,
 key, map/set entry, container, shared handle, element and dynamic byte as FR-358
@@ -474,7 +535,13 @@ charge SHALL record its kind and attempted amount without incrementing the
 denied counter. Arithmetic exhaustion SHALL be a denial. No temporary storage
 release SHALL refund previously admitted consumption.
 
-The validation order SHALL be package-binding checks, supplied-content checks,
+The admitted-type join SHALL check retained package binding first, then supplied
+tuple rows in slice order, then supplied source-unit rows in slice order. Each
+row's native checks SHALL precede its precharged retention. The first failing
+native step or first unpaid charge SHALL determine its refusal; no partly joined
+maps SHALL be published.
+
+The complete-witness validation order SHALL be package-binding checks, supplied-content checks,
 then completeness checks. Within each latter phase, the family order SHALL be
 declarations, effective fields, private admitted tuples, private admitted source
 units, source unions, source records, source tuples, source enums and source
@@ -526,13 +593,14 @@ alternate QSL-side validator is introduced by this requirement.
 | FR-352-AC-19 | A selected source enum row with one QSL-issued declaration key, opaque `EnumShape`, and all case rows in admitted canonical order joins the selected source, original declaration, ordered flag, final declaration and enum-value nodes, case names, member keys and `VariantId`s at their exact ranks. Exact projection returns `Enum` of the supplied shape and a complete ordered view; exact allowance and package clone agree. Missing, foreign, duplicate, wrong-form, reordered, changed-case, changed-variant, extra or incomplete rows, or a case whose admitted source-map region belongs to another selected source, refuse with typed locus and no partial view; unrelated admitted nodes do not affect the result. The IR-owned fixture proves structural joins but does not authenticate a caller as QSL or satisfy FR-357 AC1-4/AC11. | Test |
 | FR-352-AC-20 | Implemented (IR-721 source collection prerequisite; IR-owned strict fixture). A selected collection row with final structural, base and element nodes and the checked complete `ValueType::Collection` joins admitted unbounded sequence, set, bag and ordered-set types and a bounded `[0,3]` sequence, preserving exact kind, element and cardinality. A requested node typed by each collection returns the supplied complete Exact value; a bounded collection node is distinct from its base. The exact work allowance succeeds, one less refuses with charged work and first uncharged locus, and a package clone agrees. This IR-owned fixture does not prove same-emission QSL producer authority or FR-357 closure. | Test |
 | FR-352-AC-21 | Implemented (IR-721 source collection prerequisite; IR-owned strict fixture). Missing, foreign, duplicate, stale, wrong-form, changed-base, changed-element, changed-kind or changed-bound collection rows refuse with a named typed code at the first native node and no partial value. A collection with an unrepresentable or unwitnessed element retains the native unsupported-type or unavailable-witness refusal; a caller-created opaque element identity is not authenticated by the IR join. An unrelated unsupported declaration does not affect a selected collection read, and a map with no admitted collection type node is never fabricated as one. | Test |
-| FR-352-AC-22 | PLANNED (IR-1360). A complete admitted fixture contains declaration and effective-field rows, all five source-row families, a selected model tuple and a source-owned declared unit. `validate_and_rebind` succeeds with an ample shared `NativeJoinBudget`; all rows, ordered payloads, opaque identities and both private maps remain equal. Repeating against an admitted package clone gives an equal result and budget deltas. A genuinely obligation-free admitted package accepts an empty witness. | Test |
-| FR-352-AC-23 | PLANNED (IR-1360). Removing, in turn, a required declaration, unread effective field, source-family row, private admitted-tuple entry or private source-unit entry returns `IncompleteIdentityWitness` at the first missing native obligation. Retaining only a valid subset or removing an entire family cannot shrink the package-derived domain. Each refusal returns no rebound witness and leaves the input unchanged. | Test |
+| FR-352-AC-22 | PLANNED (IR-1360). A default-feature external consumer constructs a complete admitted fixture's witness through `from_stage_rows`, all five source joins and the checked public `with_admitted_type_rows`, using actual selected model-tuple and source-unit producer rows and one shared `NativeJoinBudget`. `validate_and_rebind` succeeds with an ample allowance; all rows, ordered payloads, opaque identities and both privately retained channels remain equal. Repeating against an admitted package clone gives an equal result and budget deltas. A genuinely obligation-free admitted package accepts an empty witness. | Test |
+| FR-352-AC-23 | PLANNED (IR-1360). Omitting, in turn, a required declaration, unread effective field, source-family row, selected model-tuple acquisition row or source-unit acquisition row returns `IncompleteIdentityWitness` at the first missing native obligation during complete validation. The latter two cases exercise missing private-map entries through public acquisition, without a getter or unchecked mutation. Retaining only a valid subset or removing an entire family cannot shrink the package-derived domain. Each refusal returns no rebound witness and leaves the input unchanged. | Test |
 | FR-352-AC-24 | PLANNED (IR-1360). A witness acquired for a foreign admitted selection is refused even when package/display names and local indexes collide. Changing a retained owner, selected document/source or structural/member reference also refuses with the defined native cause. Foreign rows in an otherwise unread family and foreign private-map entries are checked. A package clone remains accepted; arbitrary opaque keys gain no producer authentication. | Test, Inspection |
 | FR-352-AC-25 | PLANNED (IR-1360). A complete mixed-family witness succeeds at separately measured exact work and storage requirements. One unit below either requirement refuses at the exact first unpaid kind, amount and native locus with no rebound value. Prior acquisition charges remain consumed when the same budget is reused; two individually affordable operations whose combined cost exceeds its remaining allowance cannot reset the budget. Counters and first stops are deterministic and checked arithmetic cannot wrap. | Test |
 | FR-352-AC-26 | PLANNED (IR-1360). Complete-witness validation detects stale forms, missing/reordered/extra members, positions or cases inside a supplied row, wrong tuple/source-unit domains and cross-family identity conflicts with the existing typed causes. A fixture with two independent defects demonstrates binding-before-content-before-completeness ordering and the defined family/native order; the later defect never masks the first. All refusal paths preserve the immutable input. | Test |
 | FR-352-AC-27 | PLANNED (IR-1360). A nonempty witness forces retained-map/provenance copies on successful rebinding. Logical storage is charged before each copy/reserve/insert; one unit below an identified copy charge refuses without publishing any part of the output. Borrowed checks charge work but no owned storage. Success deltas and refused-call cumulative counters follow FR-358 without claiming IR-1359 diagnostic allocation qualification. | Test, Inspection |
-| FR-352-AC-28 | PLANNED (IR-1360). A default-feature external consumer calls the single public `validate_and_rebind` signature with `&mut NativeJoinBudget`. The public surface exposes no private-map getter, unchecked rebind, completeness flag, wrapper or second validator. Full finite package-local checks use native admitted facts, terminate iteratively, perform no source parse, and acquire no QSL/runtime dependency or pin. Missing emitted declarations or unsupported native identity channels refuse truthfully rather than yielding a partial complete witness. | Test, Inspection |
+| FR-352-AC-28 | PLANNED (IR-1360). A default-feature external consumer calls the checked public `with_admitted_type_rows` and single `validate_and_rebind` signatures with `&mut NativeJoinBudget`. The selected-type declaration projection uses the same checked admitted-type join; the old unchecked copy path is absent. The public surface exposes no private-map getter, unchecked rebind, completeness flag, wrapper or second validator. Full finite package-local checks use native admitted facts, terminate iteratively, perform no source parse, and acquire no QSL/runtime dependency or pin. Missing emitted declarations or unsupported native identity channels refuse truthfully rather than yielding a partial complete witness. | Test, Inspection |
+| FR-352-AC-29 | PLANNED (IR-1360). The checked admitted-type acquisition joins a genuine selected model tuple and source-owned declared unit, preserving their complete private provenance and other witness families. Foreign nodes, wrong selected document/source, wrong tuple/unit form, changed owner/original declaration, compound `UnitId`, duplicate rows and cross-family handle conflicts refuse with the typed first native cause and no partial extension. Exact measured work and storage allowances succeed; one unit below either requirement refuses at the first unpaid kind, amount and locus before the corresponding copy. Incremental calls reuse cumulative budget consumption, and a package clone gives equal results or first stops. | Test |
 
 ## Dependencies
 
