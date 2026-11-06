@@ -536,6 +536,7 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNo
 pub(super) struct RetainedModels {
     index: DeclarationIndex,
     original_declarations: BTreeMap<(usize, Box<str>), Option<CheckedNodeId>>,
+    by_identity: BTreeMap<Box<str>, usize>,
     object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>>,
     /// Admitted selected documents, including their field tables, for
     /// catalog binder resolution only when a refinement requests it.
@@ -787,6 +788,11 @@ impl RetainedModels {
         &self.models
     }
 
+    /// Look up one admitted selected document without visiting other selections.
+    pub(super) fn selected_model(&self, identity: &str) -> Option<&DomainModel> {
+        self.models.get(*self.by_identity.get(identity)?)
+    }
+
     /// Effective operation classes of the selected model document named by its identity.
     pub(super) fn operation_classes(
         &self,
@@ -924,6 +930,11 @@ impl RetainedModels {
             .exposed_names(&declared.node)
     }
     pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
+        let by_identity = models
+            .iter()
+            .enumerate()
+            .map(|(selection, model)| (model.identity.clone(), selection))
+            .collect();
         let mut object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>> =
             BTreeMap::new();
         let mut original_declarations = BTreeMap::new();
@@ -979,6 +990,7 @@ impl RetainedModels {
         Self {
             index,
             original_declarations,
+            by_identity,
             object_declarations,
             models,
             operation_types,

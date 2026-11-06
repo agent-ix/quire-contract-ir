@@ -488,8 +488,23 @@ mod tests {
     }
 
     fn admitted_monitor_with_variant(reach_variant: bool) -> CheckedPackageV2 {
-        let (wire, document) =
+        admitted_monitor_with_selected_model(reach_variant, false)
+    }
+
+    fn admitted_monitor_with_selected_model(
+        reach_variant: bool,
+        unrelated_model: bool,
+    ) -> CheckedPackageV2 {
+        let (mut wire, document) =
             monitor_plan_fixtures::model_fact_monitor_with_variant(reach_variant);
+        if unrelated_model {
+            fixture_support::select_model(&mut wire, "aaa/other");
+            fixture_support::refresh_identity(&mut wire);
+        }
+        admit_wire(&wire, &document)
+    }
+
+    fn admit_wire(wire: &serde_json::Value, document: &serde_json::Value) -> CheckedPackageV2 {
         let evidence = fixture_support::evidence_with_document(&wire, "test/families", &document);
         let result = CheckedPackageV2::read(
             &fixture_support::canonical(&wire),
@@ -500,6 +515,26 @@ mod tests {
             panic!("self-contained monitor admits: {result:?}")
         };
         *package
+    }
+
+    fn with_unemitted_record(document: &mut serde_json::Value) {
+        let mut record = document["types"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|ty| ty["identity"] == "ix://test/families/Receipt")
+            .unwrap()
+            .clone();
+        record["identity"] = serde_json::json!("ix://test/families/Unemitted");
+        record["displayName"] = serde_json::json!("Unemitted");
+        record["fields"] = serde_json::json!([]);
+        document["types"].as_array_mut().unwrap().push(record);
+    }
+
+    fn admitted_document_change(change: impl FnOnce(&mut serde_json::Value)) -> CheckedPackageV2 {
+        let (wire, mut document) = monitor_plan_fixtures::model_fact_monitor_with_variant(false);
+        change(&mut document);
+        admit_wire(&wire, &document)
     }
 
     fn read<'a>(
@@ -648,7 +683,7 @@ mod tests {
         )
     }
 
-    #[ix_trace_rs::trace("TC-468", "FR-357-AC-13", "FR-357-AC-14")]
+    #[ix_trace_rs::trace("TC-469", "FR-357-AC-13", "FR-357-AC-14")]
     #[test]
     fn self_contained_model_fact_monitor_admits() {
         let package = admitted_monitor();
@@ -792,7 +827,27 @@ mod tests {
         );
     }
 
-    #[ix_trace_rs::trace("TC-468", "FR-357-AC-14")]
+    #[ix_trace_rs::trace("TC-469", "FR-357-AC-14")]
+    #[test]
+    fn unrelated_selected_model_does_not_change_reached_work() {
+        let baseline = admitted_monitor();
+        let with_unrelated = admitted_monitor_with_selected_model(false, true);
+        let (declarations, fields, units) = producer_rows(&baseline);
+        let expected = read(&baseline, &declarations, &fields, &units, u64::MAX)
+            .expect("baseline reached facts");
+        let actual = read(
+            &with_unrelated,
+            &declarations,
+            &fields,
+            &units,
+            expected.work,
+        )
+        .expect("unrelated selected model uses the same exact allowance");
+        assert_eq!(actual.work, expected.work);
+        assert_eq!(actual.types, expected.types);
+    }
+
+    #[ix_trace_rs::trace("TC-469", "FR-357-AC-14")]
     #[test]
     fn reached_rows_refuse_missing_foreign_and_duplicate_claims() {
         let package = admitted_monitor();
@@ -831,7 +886,190 @@ mod tests {
         );
     }
 
-    #[ix_trace_rs::trace("TC-468", "FR-357-AC-14")]
+    #[ix_trace_rs::trace("TC-469", "FR-357-AC-14")]
+    #[test]
+    fn changed_owner_original_and_stale_reached_rows_refuse() {
+        use crate::ExactTypeProjectionErrorCode as Code;
+        let package = admitted_monitor();
+        let (declarations, fields, units) = producer_rows(&package);
+        let record = selected_node(&package, "ix://test/families/Receipt");
+
+        let mut changed_owner = declarations.clone();
+        changed_owner[0].selected_document = "aaa/other".into();
+        let owner_error = read(&package, &changed_owner, &fields, &units, u64::MAX).unwrap_err();
+        assert!(
+            matches!(owner_error,ReachedModelError::Exact {ref error,..}
+            if error.code == Code::MismatchedIdentityWitness && error.at.as_deref() == Some(&record)),
+            "{owner_error:?}"
+        );
+
+        let mut changed_original = declarations.clone();
+        changed_original[0].original_identity = "ix://test/families/Other".into();
+        let original_error =
+            read(&package, &changed_original, &fields, &units, u64::MAX).unwrap_err();
+        assert!(
+            matches!(original_error,ReachedModelError::Exact {ref error,..}
+            if error.code == Code::MismatchedIdentityWitness && error.at.as_deref() == Some(&record)),
+            "{original_error:?}"
+        );
+
+        let mut stale_fields = fields.clone();
+        stale_fields[0].record_node.package = "foreign".into();
+        let stale_field_node = stale_fields[0].record_node.clone();
+        let field_error =
+            read(&package, &declarations, &stale_fields, &units, u64::MAX).unwrap_err();
+        assert!(
+            matches!(field_error,ReachedModelError::Exact {ref error,..}
+            if error.code == Code::ForeignNode && error.at.as_deref() == Some(&stale_field_node)),
+            "{field_error:?}"
+        );
+
+        let mut stale_model_units = declarations.clone();
+        stale_model_units[2].structural_node.package = "foreign".into();
+        let stale_model_node = stale_model_units[2].structural_node.clone();
+        let model_error =
+            read(&package, &stale_model_units, &fields, &units, u64::MAX).unwrap_err();
+        assert!(
+            matches!(model_error,ReachedModelError::Exact {ref error,..}
+            if error.code == Code::ForeignNode && error.at.as_deref() == Some(&stale_model_node)),
+            "{model_error:?}"
+        );
+
+        let mut stale_source_units = units.clone();
+        stale_source_units[0].structural_node.package = "foreign".into();
+        let stale_source_node = stale_source_units[0].structural_node.clone();
+        let source_error = read(
+            &package,
+            &declarations,
+            &fields,
+            &stale_source_units,
+            u64::MAX,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(source_error,ReachedModelError::Types(ref error)
+            if error.code == Code::ForeignNode && error.at.as_ref() == &stale_source_node),
+            "{source_error:?}"
+        );
+    }
+
+    #[ix_trace_rs::trace("TC-469", "FR-357-AC-14")]
+    #[test]
+    fn reached_field_operation_ancestry_and_unit_dependencies_refuse_when_unemitted() {
+        use crate::ExactTypeProjectionErrorCode as Code;
+        let missing_record = || -> CheckedNodeId {
+            serde_json::from_value(fixture_support::structural_id(
+                "test/families",
+                vec![
+                    serde_json::json!("model"),
+                    serde_json::json!("record_value_type"),
+                    serde_json::json!("ix://test/families/Unemitted"),
+                ],
+                0,
+            ))
+            .unwrap()
+        };
+        let field_package = admitted_document_change(|document| {
+            with_unemitted_record(document);
+            let receipt = document["types"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|ty| ty["identity"] == "ix://test/families/Receipt")
+                .unwrap();
+            receipt["fields"][0]["typeRef"] = serde_json::json!("ix://test/families/Unemitted");
+        });
+        let (decl, fields, units) = producer_rows(&field_package);
+        let field_error = read(&field_package, &decl, &fields, &units, u64::MAX).unwrap_err();
+        assert!(
+            matches!(field_error,ReachedModelError::UnresolvedDependency {ref at,..}
+            if at == &missing_record()),
+            "{field_error:?}"
+        );
+
+        let operation_package = admitted_document_change(|document| {
+            with_unemitted_record(document);
+            let account = document["types"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|ty| ty["identity"] == "ix://test/families/Account")
+                .unwrap();
+            account["operations"][0]["params"][0]["typeRef"] =
+                serde_json::json!("ix://test/families/Unemitted");
+        });
+        let (decl, fields, units) = producer_rows(&operation_package);
+        let operation_error =
+            read(&operation_package, &decl, &fields, &units, u64::MAX).unwrap_err();
+        assert!(
+            matches!(operation_error,ReachedModelError::UnresolvedDependency {ref at,..}
+            if at == &missing_record()),
+            "{operation_error:?}"
+        );
+
+        let ancestry_package = admitted_document_change(|document| {
+            document["types"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "identity":"ix://test/families/Base","displayName":"Base",
+                    "kind":{"module":"test/families","name":"entity"},
+                    "roles":[],"constraints":[],"extensions":[],"unknownPolicy":"reject",
+                    "supertypes":[],"fields":[],"operations":[]
+                }));
+            let account = document["types"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|ty| ty["identity"] == "ix://test/families/Account")
+                .unwrap();
+            account["supertypes"] = serde_json::json!(["ix://test/families/Base"]);
+        });
+        let (decl, fields, units) = producer_rows(&ancestry_package);
+        let account = selected_node(&ancestry_package, "ix://test/families/Account");
+        let ancestry_error = read(&ancestry_package, &decl, &fields, &units, u64::MAX).unwrap_err();
+        assert!(
+            matches!(ancestry_error,ReachedModelError::UnresolvedDependency {ref at,..}
+            if at == &account),
+            "{ancestry_error:?}"
+        );
+
+        let unit_package = admitted_monitor();
+        let (mut decl, fields, units) = producer_rows(&unit_package);
+        decl.remove(2); // Foot is the reached conversion target of Inch.
+        let foot = selected_node(&unit_package, "ix://test/families/unit/Foot");
+        let unit_error = read(&unit_package, &decl, &fields, &units, u64::MAX).unwrap_err();
+        assert!(
+            matches!(unit_error,ReachedModelError::Types(ref error)
+            if error.code == Code::UnavailableIdentityWitness && error.at.as_ref() == &foot),
+            "{unit_error:?}"
+        );
+    }
+
+    #[ix_trace_rs::trace("TC-469", "FR-357-AC-14")]
+    #[test]
+    fn reached_unrepresentable_member_refuses_without_facts() {
+        let package = admitted_document_change(|document| {
+            let receipt = document["types"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|ty| ty["identity"] == "ix://test/families/Receipt")
+                .unwrap();
+            receipt["fields"][0]["typeRef"] = serde_json::json!("ix://quire/native/Float32");
+        });
+        let (decl, fields, units) = producer_rows(&package);
+        let record = selected_node(&package, "ix://test/families/Receipt");
+        let error = read(&package, &decl, &fields, &units, u64::MAX).unwrap_err();
+        assert!(
+            matches!(error,ReachedModelError::Types(ref refusal)
+            if refusal.code == crate::ExactTypeProjectionErrorCode::UnsupportedExactType
+                && refusal.at.as_ref() == &record),
+            "{error:?}"
+        );
+    }
+
+    #[ix_trace_rs::trace("TC-469", "FR-357-AC-14")]
     #[test]
     fn reached_variant_needs_qsl_issued_shape() {
         let package = admitted_monitor_with_variant(true);

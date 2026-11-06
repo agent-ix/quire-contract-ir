@@ -1344,15 +1344,8 @@ impl CheckedPackageV2 {
                         work,
                     ));
                 };
-                let mut selected = None;
-                for model in self.models.selected_models() {
-                    charge(&mut work, work_limit, id, "model_unit_selection")?;
-                    if model.identity == *identity {
-                        selected = Some(model);
-                        break;
-                    }
-                }
-                let model = selected.ok_or_else(|| {
+                charge(&mut work, work_limit, id, "model_unit_selection")?;
+                let model = self.models.selected_model(identity).ok_or_else(|| {
                     SelectedTypeDeclarationsError::at(
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                         id,

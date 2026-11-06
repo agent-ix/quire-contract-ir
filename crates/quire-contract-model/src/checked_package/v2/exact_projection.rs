@@ -101,9 +101,8 @@ fn admitted_selected_declaration<'a>(
     };
     package
         .models
-        .selected_models()
-        .iter()
-        .any(|model| model.identity.as_ref() == identity.as_ref() && model.units.contains_key(node))
+        .selected_model(identity)
+        .is_some_and(|model| model.units.contains_key(node))
         .then_some((identity, node, AdmittedDeclarationForm::DeclaredUnit))
 }
 
@@ -128,25 +127,21 @@ fn admitted_selected_declaration_native<'a>(
     let Some(CheckedNodeOwner::Model { identity, node }) = checked.owner.as_ref() else {
         return Ok(None);
     };
-    for model in package.models.selected_models() {
-        charge_native_work(budget, key, key, "stage_unit_model", 1)?;
-        charge_native_text_pair(budget, key, "stage_unit_model", &model.identity, identity)?;
-        if model.identity.as_ref() != identity.as_ref() {
-            continue;
-        }
-        for original in model.units.keys() {
-            charge_native_work(budget, key, key, "stage_unit_identity", 1)?;
-            charge_native_text_pair(budget, key, "stage_unit_identity", original, node)?;
-            if original.as_ref() == node.as_ref() {
-                return Ok(Some((
-                    identity,
-                    node,
-                    AdmittedDeclarationForm::DeclaredUnit,
-                )));
-            }
-        }
-    }
-    Ok(None)
+    charge_native_work(budget, key, key, "stage_unit_model", 1)?;
+    let Some(model) = package.models.selected_model(identity) else {
+        return Ok(None);
+    };
+    charge_native_text_pair(budget, key, "stage_unit_model", &model.identity, identity)?;
+    charge_native_work(budget, key, key, "stage_unit_identity", 1)?;
+    let Some((original, _)) = model.units.get_key_value(node) else {
+        return Ok(None);
+    };
+    charge_native_text_pair(budget, key, "stage_unit_identity", original, node)?;
+    Ok(Some((
+        identity,
+        node,
+        AdmittedDeclarationForm::DeclaredUnit,
+    )))
 }
 
 /// One QSL-stage declaration row, keyed by selected original IR identity.
