@@ -4,7 +4,8 @@
 use super::extension::integer_range_bounds;
 use super::model_members::DeclarationForm;
 use super::model_members::{CollectionKind as CheckedCollectionKind, MemberType};
-use super::native_join_budget::{NativeJoinBudget, NativeJoinChargeKind};
+use super::native_join_budget::{NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind};
+use super::native_join_storage as storage;
 use super::structural::{reference_type_target_typed, typed_aggregate};
 use super::{
     BoundedDomainForm, CheckedLiteralValue, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner,
@@ -663,7 +664,7 @@ fn validate_source_enum_row(
     package: &CheckedPackageV2,
     row: &SelectedSourceEnumRow,
     requested: &CheckedNodeId,
-    work: &mut u64,
+    work: &mut impl WorkMeter,
     limit: u64,
 ) -> Result<(), ExactTypeProjectionError> {
     let declaration = &row.declaration;
@@ -672,7 +673,7 @@ fn validate_source_enum_row(
     let node = package.node(id).ok_or_else(|| {
         let mut error = selected_declaration_error(package, id);
         error.requested = Box::new(requested.clone());
-        error.work = *work;
+        error.work = work.current();
         error
     })?;
     let mut selected_source = false;
@@ -708,7 +709,7 @@ fn validate_source_enum_row(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            *work,
+            work.current(),
         ));
     };
     if package.node_kind(id) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Enum))
@@ -722,10 +723,11 @@ fn validate_source_enum_row(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            *work,
+            work.current(),
         ));
     }
     let mut variants = declaration.shape.variants();
+    charge_meter_storage(requested, id, "enum_uniqueness_sets", work, 3)?;
     let mut seen_nodes = BTreeSet::new();
     let mut seen_keys = BTreeSet::new();
     let mut seen_variants = BTreeSet::new();
@@ -745,7 +747,7 @@ fn validate_source_enum_row(
                 requested,
                 at,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                *work,
+                work.current(),
             ));
         };
         if member.declaration_node != *id
@@ -759,25 +761,29 @@ fn validate_source_enum_row(
                 requested,
                 at,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                *work,
+                work.current(),
             ));
         }
-        if !seen_nodes.insert(at)
-            || !seen_keys.insert(&member.member_key)
-            || !seen_variants.insert(&member.variant)
+        if seen_nodes.contains(at)
+            || seen_keys.contains(&member.member_key)
+            || seen_variants.contains(&member.variant)
             || member.member_key == declaration.node_key
         {
             return Err(source_enum_error(
                 requested,
                 at,
                 ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
-                *work,
+                work.current(),
             ));
         }
+        charge_meter_storage(requested, at, "enum_uniqueness_entries", work, 3)?;
+        seen_nodes.insert(at);
+        seen_keys.insert(&member.member_key);
+        seen_variants.insert(&member.variant);
         let member_node = package.node(at).ok_or_else(|| {
             let mut error = selected_declaration_error(package, at);
             error.requested = Box::new(requested.clone());
-            error.work = *work;
+            error.work = work.current();
             error
         })?;
         let literal = member_node.body.literal_read();
@@ -792,7 +798,7 @@ fn validate_source_enum_row(
                 requested,
                 at,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                *work,
+                work.current(),
             ));
         }
         // Enum-value nodes are owner-free. Admission requires one source-map
@@ -808,7 +814,7 @@ fn validate_source_enum_row(
                     requested,
                     at,
                     ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                    *work,
+                    work.current(),
                 ));
             };
             for region in &source_entry.regions {
@@ -820,7 +826,7 @@ fn validate_source_enum_row(
                         requested,
                         at,
                         ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                        *work,
+                        work.current(),
                     ));
                 }
             }
@@ -831,7 +837,7 @@ fn validate_source_enum_row(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            *work,
+            work.current(),
         ));
     }
     Ok(())
@@ -866,7 +872,7 @@ fn validate_source_collection_row(
     package: &CheckedPackageV2,
     row: &SelectedSourceCollectionRow,
     requested: &CheckedNodeId,
-    work: &mut u64,
+    work: &mut impl WorkMeter,
     limit: u64,
 ) -> Result<(), ExactTypeProjectionError> {
     let id = &row.structural_node;
@@ -874,7 +880,7 @@ fn validate_source_collection_row(
     let node = package.node(id).ok_or_else(|| {
         let mut error = selected_declaration_error(package, id);
         error.requested = Box::new(requested.clone());
-        error.work = *work;
+        error.work = work.current();
         error
     })?;
     charge_work(
@@ -887,7 +893,7 @@ fn validate_source_collection_row(
     let base = package.node(&row.base_node).ok_or_else(|| {
         let mut error = selected_declaration_error(package, &row.base_node);
         error.requested = Box::new(requested.clone());
-        error.work = *work;
+        error.work = work.current();
         error
     })?;
     let Some(CheckedNodeKind::CompositeType(form)) = package.node_kind(&row.base_node) else {
@@ -895,7 +901,7 @@ fn validate_source_collection_row(
             requested,
             &row.base_node,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            *work,
+            work.current(),
         ));
     };
     let Some(kind) = exact_collection_kind(form) else {
@@ -903,7 +909,7 @@ fn validate_source_collection_row(
             requested,
             &row.base_node,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            *work,
+            work.current(),
         ));
     };
     let bound = if id == &row.base_node {
@@ -912,7 +918,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                *work,
+                work.current(),
             ));
         }
         None
@@ -927,7 +933,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                *work,
+                work.current(),
             ));
         }
         let (lower, upper) = package
@@ -938,7 +944,7 @@ fn validate_source_collection_row(
                     requested,
                     id,
                     ExactTypeProjectionErrorCode::UnsupportedExactType,
-                    *work,
+                    work.current(),
                 )
             })?;
         charge_work_amount(
@@ -954,7 +960,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::UnsupportedExactType,
-                *work,
+                work.current(),
             )
         })?;
         let upper = upper.parse::<u64>().map_err(|_| {
@@ -962,7 +968,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::UnsupportedExactType,
-                *work,
+                work.current(),
             )
         })?;
         Some(CardinalityBound::new(lower, upper).map_err(|_| {
@@ -970,7 +976,7 @@ fn validate_source_collection_row(
                 requested,
                 id,
                 ExactTypeProjectionErrorCode::UnsupportedExactType,
-                *work,
+                work.current(),
             )
         })?)
     };
@@ -984,7 +990,7 @@ fn validate_source_collection_row(
     if package.node(&row.element_node).is_none() {
         let mut error = selected_declaration_error(package, &row.element_node);
         error.requested = Box::new(requested.clone());
-        error.work = *work;
+        error.work = work.current();
         return Err(error);
     }
     let ValueType::Collection(collection) = &row.value_type else {
@@ -992,7 +998,7 @@ fn validate_source_collection_row(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            *work,
+            work.current(),
         ));
     };
     if base.semantic_type != row.base_node
@@ -1008,7 +1014,7 @@ fn validate_source_collection_row(
             requested,
             id,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            *work,
+            work.current(),
         ));
     }
     Ok(())
@@ -1037,6 +1043,56 @@ impl SelectedExactIdentities {
         Self::default()
     }
 
+    fn begin_source_join(
+        &self,
+        budget: &mut NativeJoinBudget,
+        first: &CheckedNodeId,
+    ) -> Result<(Self, NativeJoinCharge), ExactTypeProjectionError> {
+        let before = budget.begin();
+        charge_native_storage(
+            budget,
+            first,
+            first,
+            "selected_identity_handles",
+            storage::selected_clone(),
+        )?;
+        Ok((self.clone(), before))
+    }
+
+    fn finish_source_join(
+        result: Result<Self, ExactTypeProjectionError>,
+        budget: &mut NativeJoinBudget,
+        before: NativeJoinCharge,
+    ) -> Result<Self, ExactTypeProjectionError> {
+        if result.is_ok() {
+            budget.finish(before);
+        }
+        result.map_err(|mut error| {
+            error.work = budget.consumed().work;
+            error
+        })
+    }
+
+    fn empty_source_join(
+        &self,
+        package: &CheckedPackageV2,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Self, ExactTypeProjectionError> {
+        let before = budget.begin();
+        if let Some(first) = package.graph().nodes.first().map(|node| &node.node_id) {
+            charge_native_storage(
+                budget,
+                first,
+                first,
+                "selected_identity_handles",
+                storage::selected_clone(),
+            )?;
+        }
+        let selected = self.clone();
+        budget.finish(before);
+        Ok(selected)
+    }
+
     /// Validate the stage's selected rows against one admitted package.
     ///
     /// This checks structural, selected-document, form and original-identity
@@ -1047,101 +1103,173 @@ impl SelectedExactIdentities {
         package: &CheckedPackageV2,
         declarations: impl IntoIterator<Item = SelectedExactDeclarationRow>,
         fields: impl IntoIterator<Item = SelectedExactFieldRow>,
+        budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
-        let mut selected = Self::empty();
-        let mut owners = BTreeSet::new();
-        let mut node_identities = BTreeSet::new();
-        let mut object_identities = BTreeSet::new();
-        for row in declarations {
-            let node = &row.structural_node;
-            let Some((document, original, form)) = admitted_selected_declaration(package, node)
-            else {
-                return Err(selected_declaration_error(package, node));
-            };
-            if document != row.selected_document.as_ref()
-                || original != row.original_identity.as_ref()
-                || !row.form.matches_admitted(form)
-                || !row.form.matches(&row.exact_identity)
-            {
-                return Err(witness_error(
-                    node,
-                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                ));
-            }
-            let unique_exact = match &row.exact_identity {
-                SelectedExactIdentity::Record(key)
-                | SelectedExactIdentity::Union(key)
-                | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => {
-                    node_identities.insert(key.clone())
+        let before = budget.begin();
+        let mut declarations = declarations.into_iter().peekable();
+        let mut fields = fields.into_iter().peekable();
+        let first = declarations
+            .peek()
+            .map(|row| &row.structural_node)
+            .or_else(|| fields.peek().map(|row| &row.record_node))
+            .or_else(|| package.graph().nodes.first().map(|node| &node.node_id));
+        if let Some(first) = first {
+            charge_native_storage(budget, first, first, "stage_selection", 14)?;
+        }
+        let result = (|| {
+            let mut selected = Self::empty();
+            let mut owners: BTreeSet<(Box<str>, SelectedExactDeclarationForm, Box<str>)> =
+                BTreeSet::new();
+            let mut node_identities = BTreeSet::new();
+            let mut object_identities = BTreeSet::new();
+            for row in declarations {
+                let node = &row.structural_node;
+                charge_native_work(budget, node, node, "stage_declaration", 1)?;
+                let Some((document, original, form)) = admitted_selected_declaration(package, node)
+                else {
+                    return Err(selected_declaration_error(package, node));
+                };
+                if document != row.selected_document.as_ref()
+                    || original != row.original_identity.as_ref()
+                    || !row.form.matches_admitted(form)
+                    || !row.form.matches(&row.exact_identity)
+                {
+                    return Err(witness_error(
+                        node,
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    ));
                 }
-                SelectedExactIdentity::Object(effective) => {
-                    object_identities.insert(effective.clone())
+                let unique_exact = match &row.exact_identity {
+                    SelectedExactIdentity::Record(key)
+                    | SelectedExactIdentity::Union(key)
+                    | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => {
+                        !node_identities.contains(key)
+                    }
+                    SelectedExactIdentity::Object(effective) => {
+                        !object_identities.contains(effective)
+                    }
+                    SelectedExactIdentity::DeclaredUnit(UnitId::Compound(_)) => false,
+                };
+                charge_native_work(budget, node, node, "stage_uniqueness", 3)?;
+                let mut owner_exists = false;
+                for (document, form, original) in &owners {
+                    charge_native_work(budget, node, node, "stage_owner", 1)?;
+                    owner_exists |= document.as_ref() == row.selected_document.as_ref()
+                        && *form == row.form
+                        && original.as_ref() == row.original_identity.as_ref();
                 }
-                SelectedExactIdentity::DeclaredUnit(UnitId::Compound(_)) => false,
-            };
-            if !unique_exact
-                || !owners.insert((
+                if !unique_exact || owner_exists || selected.declarations.contains_key(node) {
+                    return Err(witness_error(
+                        node,
+                        ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                    ));
+                }
+                match &row.exact_identity {
+                    SelectedExactIdentity::Object(id) => {
+                        storage::preflight_effective(id, budget, node)?;
+                    }
+                    SelectedExactIdentity::DeclaredUnit(id) => {
+                        storage::preflight_unit(id, budget, node)?;
+                    }
+                    SelectedExactIdentity::Record(_) | SelectedExactIdentity::Union(_) => {}
+                }
+                let units = storage::stage_declaration(&row)
+                    .saturating_add(storage::node(node))
+                    .saturating_add(storage::stage_owner_key(&row))
+                    .saturating_add(match &row.exact_identity {
+                        SelectedExactIdentity::Object(id) => storage::effective_identity(id),
+                        _ => 1,
+                    })
+                    .saturating_add(3);
+                charge_native_storage(budget, node, node, "stage_declaration", units)?;
+                match &row.exact_identity {
+                    SelectedExactIdentity::Record(key)
+                    | SelectedExactIdentity::Union(key)
+                    | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => {
+                        node_identities.insert(key.clone());
+                    }
+                    SelectedExactIdentity::Object(effective) => {
+                        object_identities.insert(effective.clone());
+                    }
+                    SelectedExactIdentity::DeclaredUnit(UnitId::Compound(_)) => {}
+                }
+                owners.insert((
                     row.selected_document.clone(),
                     row.form,
                     row.original_identity.clone(),
-                ))
-                || selected.declarations.contains_key(node)
-            {
-                return Err(witness_error(
-                    node,
-                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
                 ));
+                Arc::make_mut(&mut selected.declarations).insert(node.clone(), row);
             }
-            Arc::make_mut(&mut selected.declarations).insert(node.clone(), row);
+            let mut seen_fields: BTreeSet<(CheckedNodeId, Box<str>)> = BTreeSet::new();
+            let mut seen_members = BTreeSet::new();
+            for row in fields {
+                let node = &row.record_node;
+                charge_native_work(budget, node, node, "stage_field", 1)?;
+                let Some((document, original, form)) = package.models.selected_declaration(node)
+                else {
+                    return Err(selected_declaration_error(package, node));
+                };
+                if document != row.selected_document.as_ref()
+                    || original != row.record_original_identity.as_ref()
+                    || form != DeclarationForm::RecordValueType
+                    || !package
+                        .models
+                        .selected_record_field(node, &row.field_original_identity)
+                {
+                    return Err(witness_error(
+                        node,
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    ));
+                }
+                let Some(declaration) = selected.declarations.get(node) else {
+                    return Err(witness_error(
+                        node,
+                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    ));
+                };
+                let SelectedExactIdentity::Record(record_key) = &declaration.exact_identity else {
+                    return Err(witness_error(
+                        node,
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    ));
+                };
+                if !matches!(row.member_id.owner(), MemberOwner::Node(key) if key == record_key) {
+                    return Err(witness_error(
+                        node,
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    ));
+                }
+                charge_native_work(budget, node, node, "stage_field_uniqueness", 2)?;
+                let mut field_exists = false;
+                for (prior_node, prior_field) in &seen_fields {
+                    charge_native_work(budget, node, node, "stage_field_prior", 1)?;
+                    field_exists |= prior_node == node
+                        && prior_field.as_ref() == row.field_original_identity.as_ref();
+                }
+                if field_exists || seen_members.contains(&row.member_id) {
+                    return Err(witness_error(
+                        node,
+                        ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                    ));
+                }
+                let units = storage::stage_field(&row)
+                    .saturating_add(storage::stage_field_key(&row))
+                    .saturating_add(storage::member_identity(&row.member_id))
+                    .saturating_add(3);
+                charge_native_storage(budget, node, node, "stage_field", units)?;
+                seen_fields.insert((node.clone(), row.field_original_identity.clone()));
+                seen_members.insert(row.member_id.clone());
+                Arc::make_mut(&mut selected.fields).push(row);
+            }
+            Ok(selected)
+        })();
+        if result.is_ok() {
+            budget.finish(before);
         }
-        let mut seen_fields = BTreeSet::new();
-        let mut seen_members = BTreeSet::new();
-        for row in fields {
-            let node = &row.record_node;
-            let Some((document, original, form)) = package.models.selected_declaration(node) else {
-                return Err(selected_declaration_error(package, node));
-            };
-            if document != row.selected_document.as_ref()
-                || original != row.record_original_identity.as_ref()
-                || form != DeclarationForm::RecordValueType
-                || !package
-                    .models
-                    .selected_record_field(node, &row.field_original_identity)
-            {
-                return Err(witness_error(
-                    node,
-                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                ));
-            }
-            let Some(declaration) = selected.declarations.get(node) else {
-                return Err(witness_error(
-                    node,
-                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                ));
-            };
-            let SelectedExactIdentity::Record(record_key) = &declaration.exact_identity else {
-                return Err(witness_error(
-                    node,
-                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                ));
-            };
-            if row.member_id.owner() != &MemberOwner::Node(record_key.clone()) {
-                return Err(witness_error(
-                    node,
-                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                ));
-            }
-            if !seen_fields.insert((node.clone(), row.field_original_identity.clone()))
-                || !seen_members.insert(row.member_id.clone())
-            {
-                return Err(witness_error(
-                    node,
-                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
-                ));
-            }
-            Arc::make_mut(&mut selected.fields).push(row);
-        }
-        Ok(selected)
+        result.map_err(|mut error| {
+            error.work = budget.consumed().work;
+            error
+        })
     }
 
     /// The validated declaration rows, keyed by structural node identity.
@@ -1163,70 +1291,169 @@ impl SelectedExactIdentities {
         &self,
         package: &CheckedPackageV2,
         rows: impl IntoIterator<Item = SelectedSourceUnionRow>,
+        budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
-        let mut selected = self.clone();
-        let mut handles = self
-            .declarations
-            .values()
-            .filter_map(|row| match &row.exact_identity {
-                SelectedExactIdentity::Record(key)
-                | SelectedExactIdentity::Union(key)
-                | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => Some(key.clone()),
-                _ => None,
-            })
-            .collect::<BTreeSet<_>>();
-        let mut settled_keys = selected
-            .source_unions
-            .values()
-            .map(|row| row.settled_key.clone())
-            .collect::<BTreeSet<_>>();
-        handles.extend(
-            selected
-                .source_unions
-                .values()
-                .map(|row| row.type_handle.clone()),
-        );
-        handles.extend(
-            selected
+        let mut rows = rows.into_iter().peekable();
+        let Some(first) = rows.peek().map(|row| &row.structural_node) else {
+            return self.empty_source_join(package, budget);
+        };
+        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        charge_native_storage(
+            budget,
+            first,
+            first,
+            "source_join_first_node",
+            storage::node(first),
+        )?;
+        let first = first.clone();
+        let result = (|| {
+            charge_native_storage(budget, &first, &first, "union_uniqueness_sets", 2)?;
+            let mut handles = BTreeSet::new();
+            let mut settled_keys = BTreeSet::new();
+            for declaration in selected.declarations.values() {
+                charge_native_work(
+                    budget,
+                    &first,
+                    &declaration.structural_node,
+                    "union_prior_handle",
+                    1,
+                )?;
+                let key = match &declaration.exact_identity {
+                    SelectedExactIdentity::Record(key)
+                    | SelectedExactIdentity::Union(key)
+                    | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key)) => Some(key),
+                    _ => None,
+                };
+                if let Some(key) = key.filter(|key| !handles.contains(*key)) {
+                    charge_native_storage(
+                        budget,
+                        &first,
+                        &declaration.structural_node,
+                        "union_prior_handle",
+                        2,
+                    )?;
+                    handles.insert(key.clone());
+                }
+            }
+            for row in selected.source_unions.values() {
+                charge_native_work(
+                    budget,
+                    &first,
+                    &row.structural_node,
+                    "union_prior_handle",
+                    1,
+                )?;
+                if !settled_keys.contains(&row.settled_key) {
+                    charge_native_storage(
+                        budget,
+                        &first,
+                        &row.structural_node,
+                        "union_prior_settled",
+                        2,
+                    )?;
+                    settled_keys.insert(row.settled_key.clone());
+                }
+                if !handles.contains(&row.type_handle) {
+                    charge_native_storage(
+                        budget,
+                        &first,
+                        &row.structural_node,
+                        "union_prior_handle",
+                        2,
+                    )?;
+                    handles.insert(row.type_handle.clone());
+                }
+            }
+            for (id, key) in selected
                 .source_records
-                .values()
-                .map(|row| row.record_key.clone()),
-        );
-        handles.extend(
-            selected
-                .source_tuples
-                .values()
-                .map(|row| row.type_handle.clone()),
-        );
-        handles.extend(
-            selected
-                .source_enums
-                .values()
-                .map(|row| row.declaration.node_key.clone()),
-        );
-        for row in rows {
-            let id = &row.structural_node;
-            if package.node(id).is_none() {
-                return Err(selected_declaration_error(package, id));
-            }
-            if !source_union_row_matches(package, &row) {
-                return Err(witness_error(
-                    id,
-                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                ));
-            }
-            if selected.source_unions.contains_key(id)
-                || !handles.insert(row.type_handle.clone())
-                || !settled_keys.insert(row.settled_key.clone())
+                .iter()
+                .map(|(id, row)| (id, &row.record_key))
+                .chain(
+                    selected
+                        .source_tuples
+                        .iter()
+                        .map(|(id, row)| (id, &row.type_handle)),
+                )
+                .chain(
+                    selected
+                        .source_enums
+                        .iter()
+                        .map(|(id, row)| (id, &row.declaration.node_key)),
+                )
             {
-                return Err(witness_error(
-                    id,
-                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
-                ));
+                charge_native_work(budget, &first, id, "union_prior_handle", 1)?;
+                if !handles.contains(key) {
+                    charge_native_storage(budget, &first, id, "union_prior_handle", 2)?;
+                    handles.insert(key.clone());
+                }
             }
-            Arc::make_mut(&mut selected.source_unions).insert(id.clone(), row);
-        }
-        Ok(selected)
+            for row in rows {
+                let id = &row.structural_node;
+                charge_native_work(budget, id, id, "source_union_row", 1)?;
+                charge_native_work(
+                    budget,
+                    id,
+                    id,
+                    "source_union_shape",
+                    u128::try_from(
+                        package
+                            .lock()
+                            .sources
+                            .len()
+                            .saturating_add(row.members.len()),
+                    )
+                    .unwrap_or(u128::MAX),
+                )?;
+                if package.node(id).is_none() {
+                    return Err(selected_declaration_error(package, id));
+                }
+                if !source_union_row_matches(package, &row) {
+                    return Err(witness_error(
+                        id,
+                        ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    ));
+                }
+                if selected.source_unions.contains_key(id)
+                    || handles.contains(&row.type_handle)
+                    || settled_keys.contains(&row.settled_key)
+                {
+                    return Err(witness_error(
+                        id,
+                        ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                    ));
+                }
+                for member in &row.members {
+                    for value_type in &member.payload {
+                        storage::preflight_value_type(value_type, budget, id)?;
+                    }
+                }
+                let row_units = storage::source_union(&row)
+                    .saturating_add(storage::node(id))
+                    .saturating_add(7);
+                charge_native_storage(budget, id, id, "source_union_row", row_units)?;
+                if Arc::strong_count(&selected.source_unions) > 1 {
+                    charge_native_work(
+                        budget,
+                        id,
+                        id,
+                        "source_union_prior_copy",
+                        u128::try_from(selected.source_unions.len()).unwrap_or(u128::MAX),
+                    )?;
+                    charge_native_storage(
+                        budget,
+                        id,
+                        id,
+                        "source_union_prior_copy",
+                        storage::prior_arc_map(&selected.source_unions),
+                    )?;
+                }
+                handles.insert(row.type_handle.clone());
+                settled_keys.insert(row.settled_key.clone());
+                Arc::make_mut(&mut selected.source_unions).insert(id.clone(), Arc::new(row));
+            }
+            Ok(selected)
+        })();
+        Self::finish_source_join(result, budget, before)
     }
 
     /// Validated source union rows, keyed by the full admitted structural node.
@@ -1242,126 +1469,165 @@ impl SelectedExactIdentities {
         &self,
         package: &CheckedPackageV2,
         rows: impl IntoIterator<Item = SelectedSourceRecordRow>,
-        work_limit: u64,
+        budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
-        let mut selected = self.clone();
-        let mut work = 0;
-        for row in rows {
-            let id = &row.structural_node;
-            charge_work(id, id, "source_record_row", &mut work, work_limit)?;
-            for _ in &package.lock().sources {
-                charge_work(id, id, "selected_source", &mut work, work_limit)?;
-            }
-            for segment in &row.qualified_declaration {
-                charge_work_amount(
+        let mut rows = rows.into_iter().peekable();
+        let Some(first) = rows.peek().map(|row| &row.structural_node) else {
+            return self.empty_source_join(package, budget);
+        };
+        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        let result = (|| {
+            let work_limit = u64::MAX;
+            for row in rows {
+                let id = &row.structural_node;
+                charge_work(id, id, "source_record_row", budget, work_limit)?;
+                for _ in &package.lock().sources {
+                    charge_work(id, id, "selected_source", budget, work_limit)?;
+                }
+                for segment in &row.qualified_declaration {
+                    charge_work_amount(
+                        id,
+                        id,
+                        "record_declaration",
+                        budget,
+                        work_limit,
+                        u64::try_from(segment.len()).unwrap_or(u64::MAX),
+                    )?;
+                }
+                for member in &row.members {
+                    charge_work(
+                        id,
+                        &member.type_node,
+                        "source_record_member",
+                        budget,
+                        work_limit,
+                    )?;
+                    charge_work_amount(
+                        id,
+                        &member.type_node,
+                        "source_record_member_identity",
+                        budget,
+                        work_limit,
+                        u64::try_from(
+                            member
+                                .original_member_identity
+                                .len()
+                                .saturating_add(member.admitted_name.len()),
+                        )
+                        .unwrap_or(u64::MAX),
+                    )?;
+                }
+                if package.node(id).is_none() {
+                    let mut error = selected_declaration_error(package, id);
+                    error.work = budget.consumed().work;
+                    return Err(error);
+                }
+                charge_native_storage(
+                    budget,
                     id,
                     id,
-                    "record_declaration",
-                    &mut work,
-                    work_limit,
-                    u64::try_from(segment.len()).unwrap_or(u64::MAX),
+                    "record_unique_names",
+                    u128::try_from(row.members.len())
+                        .unwrap_or(u128::MAX)
+                        .saturating_add(1),
                 )?;
+                if !source_record_row_matches(package, &row) {
+                    let mut error =
+                        witness_error(id, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
+                    error.work = budget.consumed().work;
+                    return Err(error);
+                }
+                let mut conflicting_handle = false;
+                for declaration in selected.declarations.values() {
+                    charge_work(
+                        id,
+                        &declaration.structural_node,
+                        "record_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= matches!(
+                        &declaration.exact_identity,
+                        SelectedExactIdentity::Record(key)
+                            | SelectedExactIdentity::Union(key)
+                            | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key))
+                            if key == &row.record_key
+                    );
+                }
+                for union in selected.source_unions.values() {
+                    charge_work(
+                        id,
+                        &union.structural_node,
+                        "record_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= union.type_handle == row.record_key;
+                }
+                for record in selected.source_records.values() {
+                    charge_work(
+                        id,
+                        &record.structural_node,
+                        "record_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= record.record_key == row.record_key;
+                }
+                for tuple in selected.source_tuples.values() {
+                    charge_work(
+                        id,
+                        &tuple.structural_node,
+                        "record_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= tuple.type_handle == row.record_key;
+                }
+                for source_enum in selected.source_enums.values() {
+                    charge_work(
+                        id,
+                        &source_enum.declaration.structural_node,
+                        "record_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= source_enum.declaration.node_key == row.record_key;
+                }
+                if selected.source_records.contains_key(id) || conflicting_handle {
+                    let mut error =
+                        witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
+                    error.work = budget.consumed().work;
+                    return Err(error);
+                }
+                for member in &row.members {
+                    storage::preflight_value_type(&member.value_type, budget, id)?;
+                }
+                let row_units = storage::source_record(&row)
+                    .saturating_add(storage::node(id))
+                    .saturating_add(3);
+                charge_native_storage(budget, id, id, "source_record_row", row_units)?;
+                if Arc::strong_count(&selected.source_records) > 1 {
+                    charge_native_work(
+                        budget,
+                        id,
+                        id,
+                        "source_record_prior_copy",
+                        u128::try_from(selected.source_records.len()).unwrap_or(u128::MAX),
+                    )?;
+                    charge_native_storage(
+                        budget,
+                        id,
+                        id,
+                        "source_record_prior_copy",
+                        storage::prior_arc_map(&selected.source_records),
+                    )?;
+                }
+                Arc::make_mut(&mut selected.source_records).insert(id.clone(), Arc::new(row));
             }
-            for member in &row.members {
-                charge_work(
-                    id,
-                    &member.type_node,
-                    "source_record_member",
-                    &mut work,
-                    work_limit,
-                )?;
-                charge_work_amount(
-                    id,
-                    &member.type_node,
-                    "source_record_member_identity",
-                    &mut work,
-                    work_limit,
-                    u64::try_from(
-                        member
-                            .original_member_identity
-                            .len()
-                            .saturating_add(member.admitted_name.len()),
-                    )
-                    .unwrap_or(u64::MAX),
-                )?;
-            }
-            if package.node(id).is_none() {
-                let mut error = selected_declaration_error(package, id);
-                error.work = work;
-                return Err(error);
-            }
-            if !source_record_row_matches(package, &row) {
-                let mut error =
-                    witness_error(id, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
-                error.work = work;
-                return Err(error);
-            }
-            let mut conflicting_handle = false;
-            for declaration in selected.declarations.values() {
-                charge_work(
-                    id,
-                    &declaration.structural_node,
-                    "record_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= matches!(
-                    &declaration.exact_identity,
-                    SelectedExactIdentity::Record(key)
-                        | SelectedExactIdentity::Union(key)
-                        | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key))
-                        if key == &row.record_key
-                );
-            }
-            for union in selected.source_unions.values() {
-                charge_work(
-                    id,
-                    &union.structural_node,
-                    "record_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= union.type_handle == row.record_key;
-            }
-            for record in selected.source_records.values() {
-                charge_work(
-                    id,
-                    &record.structural_node,
-                    "record_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= record.record_key == row.record_key;
-            }
-            for tuple in selected.source_tuples.values() {
-                charge_work(
-                    id,
-                    &tuple.structural_node,
-                    "record_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= tuple.type_handle == row.record_key;
-            }
-            for source_enum in selected.source_enums.values() {
-                charge_work(
-                    id,
-                    &source_enum.declaration.structural_node,
-                    "record_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= source_enum.declaration.node_key == row.record_key;
-            }
-            if selected.source_records.contains_key(id) || conflicting_handle {
-                let mut error =
-                    witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
-                error.work = work;
-                return Err(error);
-            }
-            Arc::make_mut(&mut selected.source_records).insert(id.clone(), Arc::new(row));
-        }
-        Ok(selected)
+            Ok(selected)
+        })();
+        Self::finish_source_join(result, budget, before)
     }
 
     /// Validated source record rows, keyed by the final admitted node.
@@ -1377,110 +1643,140 @@ impl SelectedExactIdentities {
         &self,
         package: &CheckedPackageV2,
         rows: impl IntoIterator<Item = SelectedSourceTupleRow>,
-        work_limit: u64,
+        budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
-        let mut selected = self.clone();
-        let mut work = 0;
-        for row in rows {
-            let id = &row.structural_node;
-            charge_work(id, id, "source_tuple_row", &mut work, work_limit)?;
-            for _ in &package.lock().sources {
-                charge_work(id, id, "selected_source", &mut work, work_limit)?;
-            }
-            for segment in &row.qualified_declaration {
-                charge_work_amount(
-                    id,
-                    id,
-                    "tuple_declaration",
-                    &mut work,
-                    work_limit,
-                    u64::try_from(segment.len()).unwrap_or(u64::MAX),
-                )?;
-            }
-            for position in &row.positions {
-                charge_work(
-                    id,
-                    &position.type_node,
-                    "tuple_position",
-                    &mut work,
-                    work_limit,
-                )?;
-            }
-            if package.node(id).is_none() {
-                let mut error = selected_declaration_error(package, id);
-                error.work = work;
-                return Err(error);
-            }
-            if !source_tuple_row_matches(package, &row) {
-                let mut error =
-                    witness_error(id, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
-                error.work = work;
-                return Err(error);
-            }
-            let mut conflicting_handle = false;
-            for declaration in selected.declarations.values() {
-                charge_work(
-                    id,
-                    &declaration.structural_node,
-                    "tuple_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= matches!(&declaration.exact_identity,
+        let mut rows = rows.into_iter().peekable();
+        let Some(first) = rows.peek().map(|row| &row.structural_node) else {
+            return self.empty_source_join(package, budget);
+        };
+        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        let result = (|| {
+            let work_limit = u64::MAX;
+            for row in rows {
+                let id = &row.structural_node;
+                charge_work(id, id, "source_tuple_row", budget, work_limit)?;
+                for _ in &package.lock().sources {
+                    charge_work(id, id, "selected_source", budget, work_limit)?;
+                }
+                for segment in &row.qualified_declaration {
+                    charge_work_amount(
+                        id,
+                        id,
+                        "tuple_declaration",
+                        budget,
+                        work_limit,
+                        u64::try_from(segment.len()).unwrap_or(u64::MAX),
+                    )?;
+                }
+                for position in &row.positions {
+                    charge_work(
+                        id,
+                        &position.type_node,
+                        "tuple_position",
+                        budget,
+                        work_limit,
+                    )?;
+                }
+                if package.node(id).is_none() {
+                    let mut error = selected_declaration_error(package, id);
+                    error.work = budget.consumed().work;
+                    return Err(error);
+                }
+                if !source_tuple_row_matches(package, &row) {
+                    let mut error =
+                        witness_error(id, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
+                    error.work = budget.consumed().work;
+                    return Err(error);
+                }
+                let mut conflicting_handle = false;
+                for declaration in selected.declarations.values() {
+                    charge_work(
+                        id,
+                        &declaration.structural_node,
+                        "tuple_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= matches!(&declaration.exact_identity,
                     SelectedExactIdentity::Record(key)
                     | SelectedExactIdentity::Union(key)
                     | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key))
                     if key == &row.type_handle);
+                }
+                for union in selected.source_unions.values() {
+                    charge_work(
+                        id,
+                        &union.structural_node,
+                        "tuple_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= union.type_handle == row.type_handle;
+                }
+                for record in selected.source_records.values() {
+                    charge_work(
+                        id,
+                        &record.structural_node,
+                        "tuple_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= record.record_key == row.type_handle;
+                }
+                for tuple in selected.source_tuples.values() {
+                    charge_work(
+                        id,
+                        &tuple.structural_node,
+                        "tuple_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= tuple.type_handle == row.type_handle;
+                }
+                for source_enum in selected.source_enums.values() {
+                    charge_work(
+                        id,
+                        &source_enum.declaration.structural_node,
+                        "tuple_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting_handle |= source_enum.declaration.node_key == row.type_handle;
+                }
+                if selected.source_tuples.contains_key(id) || conflicting_handle {
+                    let mut error =
+                        witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
+                    error.work = budget.consumed().work;
+                    return Err(error);
+                }
+                for position in &row.positions {
+                    storage::preflight_value_type(&position.value_type, budget, id)?;
+                }
+                let row_units = storage::source_tuple(&row)
+                    .saturating_add(storage::node(id))
+                    .saturating_add(3);
+                charge_native_storage(budget, id, id, "source_tuple_row", row_units)?;
+                if Arc::strong_count(&selected.source_tuples) > 1 {
+                    charge_native_work(
+                        budget,
+                        id,
+                        id,
+                        "source_tuple_prior_copy",
+                        u128::try_from(selected.source_tuples.len()).unwrap_or(u128::MAX),
+                    )?;
+                    charge_native_storage(
+                        budget,
+                        id,
+                        id,
+                        "source_tuple_prior_copy",
+                        storage::prior_arc_map(&selected.source_tuples),
+                    )?;
+                }
+                Arc::make_mut(&mut selected.source_tuples).insert(id.clone(), Arc::new(row));
             }
-            for union in selected.source_unions.values() {
-                charge_work(
-                    id,
-                    &union.structural_node,
-                    "tuple_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= union.type_handle == row.type_handle;
-            }
-            for record in selected.source_records.values() {
-                charge_work(
-                    id,
-                    &record.structural_node,
-                    "tuple_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= record.record_key == row.type_handle;
-            }
-            for tuple in selected.source_tuples.values() {
-                charge_work(
-                    id,
-                    &tuple.structural_node,
-                    "tuple_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= tuple.type_handle == row.type_handle;
-            }
-            for source_enum in selected.source_enums.values() {
-                charge_work(
-                    id,
-                    &source_enum.declaration.structural_node,
-                    "tuple_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting_handle |= source_enum.declaration.node_key == row.type_handle;
-            }
-            if selected.source_tuples.contains_key(id) || conflicting_handle {
-                let mut error =
-                    witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
-                error.work = work;
-                return Err(error);
-            }
-            Arc::make_mut(&mut selected.source_tuples).insert(id.clone(), Arc::new(row));
-        }
-        Ok(selected)
+            Ok(selected)
+        })();
+        Self::finish_source_join(result, budget, before)
     }
 
     /// Structurally joined source tuple rows, keyed by final admitted node.
@@ -1495,107 +1791,145 @@ impl SelectedExactIdentities {
         &self,
         package: &CheckedPackageV2,
         rows: impl IntoIterator<Item = SelectedSourceEnumRow>,
-        work_limit: u64,
+        budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
-        let mut selected = self.clone();
-        let mut work = 0;
-        for row in rows {
-            let id = &row.declaration.structural_node;
-            validate_source_enum_row(package, &row, id, &mut work, work_limit)?;
-            let mut conflicting = selected.source_enums.contains_key(id);
-            for declaration in selected.declarations.values() {
-                charge_work(
-                    id,
-                    &declaration.structural_node,
-                    "enum_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting |= matches!(&declaration.exact_identity,
+        let mut rows = rows.into_iter().peekable();
+        let Some(first) = rows.peek().map(|row| &row.declaration.structural_node) else {
+            return self.empty_source_join(package, budget);
+        };
+        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        let result = (|| {
+            let work_limit = u64::MAX;
+            for row in rows {
+                let id = &row.declaration.structural_node;
+                validate_source_enum_row(package, &row, id, budget, work_limit)?;
+                let mut conflicting = selected.source_enums.contains_key(id);
+                for declaration in selected.declarations.values() {
+                    charge_work(
+                        id,
+                        &declaration.structural_node,
+                        "enum_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting |= matches!(&declaration.exact_identity,
                     SelectedExactIdentity::Record(key)
                     | SelectedExactIdentity::Union(key)
                     | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key))
                     if key == &row.declaration.node_key);
-            }
-            for union in selected.source_unions.values() {
-                charge_work(
-                    id,
-                    &union.structural_node,
-                    "enum_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting |= union.type_handle == row.declaration.node_key;
-            }
-            for record in selected.source_records.values() {
-                charge_work(
-                    id,
-                    &record.structural_node,
-                    "enum_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting |= record.record_key == row.declaration.node_key;
-            }
-            for tuple in selected.source_tuples.values() {
-                charge_work(
-                    id,
-                    &tuple.structural_node,
-                    "enum_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting |= tuple.type_handle == row.declaration.node_key;
-            }
-            for existing in selected.source_enums.values() {
-                charge_work(
-                    id,
-                    &existing.declaration.structural_node,
-                    "enum_handle_join",
-                    &mut work,
-                    work_limit,
-                )?;
-                conflicting |= existing.declaration.node_key == row.declaration.node_key;
-                for prior in &existing.members {
-                    charge_work(
-                        id,
-                        &prior.structural_node,
-                        "enum_member_handle_join",
-                        &mut work,
-                        work_limit,
-                    )?;
-                    conflicting |= prior.member_key == row.declaration.node_key;
                 }
-                for member in &row.members {
+                for union in selected.source_unions.values() {
                     charge_work(
                         id,
-                        &member.structural_node,
-                        "enum_member_handle_join",
-                        &mut work,
+                        &union.structural_node,
+                        "enum_handle_join",
+                        budget,
                         work_limit,
                     )?;
-                    conflicting |= existing.declaration.node_key == member.member_key;
+                    conflicting |= union.type_handle == row.declaration.node_key;
+                }
+                for record in selected.source_records.values() {
+                    charge_work(
+                        id,
+                        &record.structural_node,
+                        "enum_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting |= record.record_key == row.declaration.node_key;
+                }
+                for tuple in selected.source_tuples.values() {
+                    charge_work(
+                        id,
+                        &tuple.structural_node,
+                        "enum_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting |= tuple.type_handle == row.declaration.node_key;
+                }
+                for existing in selected.source_enums.values() {
+                    charge_work(
+                        id,
+                        &existing.declaration.structural_node,
+                        "enum_handle_join",
+                        budget,
+                        work_limit,
+                    )?;
+                    conflicting |= existing.declaration.node_key == row.declaration.node_key;
                     for prior in &existing.members {
                         charge_work(
                             id,
                             &prior.structural_node,
                             "enum_member_handle_join",
-                            &mut work,
+                            budget,
                             work_limit,
                         )?;
-                        conflicting |= prior.member_key == member.member_key;
+                        conflicting |= prior.member_key == row.declaration.node_key;
+                    }
+                    for member in &row.members {
+                        charge_work(
+                            id,
+                            &member.structural_node,
+                            "enum_member_handle_join",
+                            budget,
+                            work_limit,
+                        )?;
+                        conflicting |= existing.declaration.node_key == member.member_key;
+                        for prior in &existing.members {
+                            charge_work(
+                                id,
+                                &prior.structural_node,
+                                "enum_member_handle_join",
+                                budget,
+                                work_limit,
+                            )?;
+                            conflicting |= prior.member_key == member.member_key;
+                        }
                     }
                 }
+                if conflicting {
+                    let mut error =
+                        witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
+                    error.work = budget.consumed().work;
+                    return Err(error);
+                }
+                for variant in row.declaration.shape.variants() {
+                    charge_native_work(
+                        budget,
+                        id,
+                        id,
+                        "native_enum_shape_footprint",
+                        u128::try_from(variant.case().len())
+                            .unwrap_or(u128::MAX)
+                            .saturating_add(2),
+                    )?;
+                }
+                let row_units = storage::source_enum(&row)
+                    .saturating_add(storage::node(id))
+                    .saturating_add(3);
+                charge_native_storage(budget, id, id, "source_enum_row", row_units)?;
+                if Arc::strong_count(&selected.source_enums) > 1 {
+                    charge_native_work(
+                        budget,
+                        id,
+                        id,
+                        "source_enum_prior_copy",
+                        u128::try_from(selected.source_enums.len()).unwrap_or(u128::MAX),
+                    )?;
+                    charge_native_storage(
+                        budget,
+                        id,
+                        id,
+                        "source_enum_prior_copy",
+                        storage::prior_arc_map(&selected.source_enums),
+                    )?;
+                }
+                Arc::make_mut(&mut selected.source_enums).insert(id.clone(), Arc::new(row));
             }
-            if conflicting {
-                let mut error =
-                    witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
-                error.work = work;
-                return Err(error);
-            }
-            Arc::make_mut(&mut selected.source_enums).insert(id.clone(), Arc::new(row));
-        }
-        Ok(selected)
+            Ok(selected)
+        })();
+        Self::finish_source_join(result, budget, before)
     }
 
     /// Structurally joined source enum rows, keyed by admitted declaration.
@@ -1611,40 +1945,70 @@ impl SelectedExactIdentities {
         &self,
         package: &CheckedPackageV2,
         rows: impl IntoIterator<Item = SelectedSourceCollectionRow>,
-        work_limit: u64,
+        budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
-        let mut selected = self.clone();
-        let mut work = 0;
-        let mut pending = BTreeMap::new();
-        for row in rows {
-            let id = &row.structural_node;
-            validate_source_collection_row(package, &row, id, &mut work, work_limit)?;
-            if self.source_collections.contains_key(id) || pending.contains_key(id) {
-                return Err(source_collection_error(
+        let mut rows = rows.into_iter().peekable();
+        let Some(first) = rows.peek().map(|row| &row.structural_node) else {
+            return self.empty_source_join(package, budget);
+        };
+        let (mut selected, before) = self.begin_source_join(budget, first)?;
+        charge_native_storage(
+            budget,
+            first,
+            first,
+            "source_join_first_node",
+            storage::node(first),
+        )?;
+        let first = first.clone();
+        let result = (|| {
+            let work_limit = u64::MAX;
+            charge_native_storage(budget, &first, &first, "source_collection_pending", 1)?;
+            let mut pending = BTreeMap::new();
+            for row in rows {
+                let id = &row.structural_node;
+                validate_source_collection_row(package, &row, id, budget, work_limit)?;
+                if self.source_collections.contains_key(id) || pending.contains_key(id) {
+                    return Err(source_collection_error(
+                        id,
+                        id,
+                        ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                        budget.consumed().work,
+                    ));
+                }
+                storage::preflight_value_type(&row.value_type, budget, id)?;
+                charge_native_storage(
+                    budget,
                     id,
                     id,
-                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
-                    work,
-                ));
-            }
-            pending.insert(id.clone(), Arc::new(row));
-        }
-        if let Some(first_new) = pending.keys().next() {
-            let mut joined = BTreeMap::new();
-            for (id, row) in self.source_collections.iter() {
-                charge_work(
-                    first_new,
-                    id,
-                    "source_collection_prior_row_copy",
-                    &mut work,
-                    work_limit,
+                    "source_collection_row",
+                    storage::source_collection(&row)
+                        .saturating_add(storage::node(id))
+                        .saturating_add(3),
                 )?;
-                joined.insert(id.clone(), Arc::clone(row));
+                pending.insert(id.clone(), Arc::new(row));
             }
-            joined.append(&mut pending);
-            selected.source_collections = Arc::new(joined);
-        }
-        Ok(selected)
+            if let Some(first_new) = pending.keys().next() {
+                for id in self.source_collections.keys() {
+                    charge_work(
+                        first_new,
+                        id,
+                        "source_collection_prior_row_copy",
+                        budget,
+                        work_limit,
+                    )?;
+                }
+                charge_native_storage(
+                    budget,
+                    first_new,
+                    first_new,
+                    "source_collection_prior_map_copy",
+                    storage::prior_arc_map(&selected.source_collections),
+                )?;
+                Arc::make_mut(&mut selected.source_collections).append(&mut pending);
+            }
+            Ok(selected)
+        })();
+        Self::finish_source_join(result, budget, before)
     }
 
     /// Structurally joined collection rows, keyed by final emitted type node.
@@ -1952,7 +2316,7 @@ fn charge_native(
     })
 }
 
-fn charge_native_work(
+pub(super) fn charge_native_work(
     budget: &mut NativeJoinBudget,
     requested: &CheckedNodeId,
     at: &CheckedNodeId,
@@ -1986,11 +2350,68 @@ fn charge_native_storage(
     )
 }
 
+trait WorkMeter {
+    fn current(&self) -> u64;
+    fn admit(&mut self, amount: u64, limit: u64) -> bool;
+    fn admit_native_storage(&mut self, amount: u128) -> bool;
+}
+
+impl WorkMeter for u64 {
+    fn current(&self) -> u64 {
+        *self
+    }
+
+    fn admit(&mut self, amount: u64, limit: u64) -> bool {
+        if amount > limit.saturating_sub(*self) {
+            return false;
+        }
+        *self += amount;
+        true
+    }
+
+    fn admit_native_storage(&mut self, _amount: u128) -> bool {
+        true
+    }
+}
+
+impl WorkMeter for NativeJoinBudget {
+    fn current(&self) -> u64 {
+        self.consumed().work
+    }
+
+    fn admit(&mut self, amount: u64, _limit: u64) -> bool {
+        self.charge(NativeJoinChargeKind::Work, u128::from(amount))
+    }
+
+    fn admit_native_storage(&mut self, amount: u128) -> bool {
+        self.charge(NativeJoinChargeKind::Storage, amount)
+    }
+}
+
+fn charge_meter_storage(
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    form: &str,
+    work: &mut impl WorkMeter,
+    amount: u128,
+) -> Result<(), ExactTypeProjectionError> {
+    if work.admit_native_storage(amount) {
+        return Ok(());
+    }
+    Err(ExactTypeProjectionError {
+        code: ExactTypeProjectionErrorCode::ExhaustedStorage,
+        requested: Box::new(requested.clone()),
+        at: Some(Box::new(at.clone())),
+        form: form.into(),
+        work: work.current(),
+    })
+}
+
 fn charge_work(
     requested: &CheckedNodeId,
     at: &CheckedNodeId,
     form: &str,
-    work: &mut u64,
+    work: &mut impl WorkMeter,
     limit: u64,
 ) -> Result<(), ExactTypeProjectionError> {
     charge_work_amount(requested, at, form, work, limit, 1)
@@ -2000,20 +2421,19 @@ fn charge_work_amount(
     requested: &CheckedNodeId,
     at: &CheckedNodeId,
     form: &str,
-    work: &mut u64,
+    work: &mut impl WorkMeter,
     limit: u64,
     amount: u64,
 ) -> Result<(), ExactTypeProjectionError> {
-    if amount > limit.saturating_sub(*work) {
+    if !work.admit(amount, limit) {
         return Err(ExactTypeProjectionError {
             code: ExactTypeProjectionErrorCode::ExhaustedWork,
             requested: Box::new(requested.clone()),
             at: Some(Box::new(at.clone())),
             form: form.into(),
-            work: *work,
+            work: work.current(),
         });
     }
-    *work += amount;
     Ok(())
 }
 

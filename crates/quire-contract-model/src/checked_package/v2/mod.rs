@@ -40,6 +40,7 @@ mod model_population_catalog;
 mod model_root;
 mod monitor_plan;
 mod native_join_budget;
+mod native_join_storage;
 mod natural;
 mod node_index;
 mod operation_catalog;

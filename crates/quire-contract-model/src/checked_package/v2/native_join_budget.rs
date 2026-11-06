@@ -97,3 +97,48 @@ impl NativeJoinBudget {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge};
+    use ix_trace_rs::trace;
+
+    #[trace("FR-358-AC-4")]
+    #[test]
+    fn overflowing_native_charge_does_not_wrap_or_erase_prior_work() {
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let before = budget.begin();
+        assert!(budget.charge(NativeJoinChargeKind::Work, 1));
+        budget.finish(before);
+        assert_eq!(
+            budget.last_success_delta(),
+            Some(NativeJoinCharge {
+                work: 1,
+                storage: 0
+            })
+        );
+
+        budget.begin();
+        assert!(!budget.charge(NativeJoinChargeKind::Work, u128::MAX));
+        assert_eq!(
+            budget.consumed(),
+            NativeJoinCharge {
+                work: 1,
+                storage: 0
+            }
+        );
+        assert_eq!(budget.last_success_delta(), None);
+        assert_eq!(
+            budget.first_unpaid(),
+            Some(NativeJoinDeniedCharge {
+                kind: NativeJoinChargeKind::Work,
+                amount: u128::MAX,
+            })
+        );
+        assert!(!budget.charge(NativeJoinChargeKind::Storage, u128::MAX));
+        assert_eq!(
+            budget.first_unpaid().unwrap().kind,
+            NativeJoinChargeKind::Work
+        );
+    }
+}
