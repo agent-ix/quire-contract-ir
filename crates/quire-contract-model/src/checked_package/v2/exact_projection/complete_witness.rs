@@ -696,36 +696,17 @@ impl SelectedExactIdentities {
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
                     )
                 })?;
-            for original in model
+            if let Some(original) = model
                 .processes
                 .iter()
                 .chain(model.state_machines.iter())
                 .chain(model.persistence_interfaces.iter())
                 .chain(model.event_types.iter())
-                .chain(
-                    model
-                        .object_types
-                        .iter()
-                        .filter(|(_, declaration)| declaration.interface)
-                        .map(|(original, _)| original),
-                )
+                .next()
             {
                 charge_native_work(budget, root, root, "complete_unsupported_identity_type", 1)?;
-                let mut at = root;
-                for (id, declaration) in package.models.selected_declarations() {
-                    charge_native_work(budget, root, id, "complete_unsupported_original", 1)?;
-                    charge_native_text_pair(
-                        budget,
-                        root,
-                        "complete_unsupported_original",
-                        &declaration.node,
-                        original,
-                    )?;
-                    if declaration.selection == selection && &declaration.node == original {
-                        at = id;
-                        break;
-                    }
-                }
+                let at = selected_original_locus(package, selection, root, original, budget)?
+                    .unwrap_or(root);
                 return Err(witness_error(
                     at,
                     ExactTypeProjectionErrorCode::UnsupportedExactType,
@@ -739,17 +720,18 @@ impl SelectedExactIdentities {
                 .chain(model.units.keys())
             {
                 charge_native_work(budget, root, root, "complete_selected_document", 1)?;
-                let mut emitted = false;
-                for (id, declaration) in package.models.selected_declarations() {
-                    charge_native_work(budget, root, id, "complete_selected_original", 1)?;
-                    charge_native_text_pair(
-                        budget,
-                        root,
-                        "complete_selected_original",
-                        &declaration.node,
-                        original,
-                    )?;
-                    emitted |= declaration.selection == selection && &declaration.node == original;
+                let emitted_node =
+                    selected_original_locus(package, selection, root, original, budget)?;
+                let mut emitted = emitted_node.is_some();
+                if model
+                    .object_types
+                    .get(original)
+                    .is_some_and(|declaration| declaration.interface)
+                {
+                    return Err(witness_error(
+                        emitted_node.unwrap_or(root),
+                        ExactTypeProjectionErrorCode::UnsupportedExactType,
+                    ));
                 }
                 if model.units.contains_key(original) {
                     for id in package.node_index.keys() {
@@ -766,10 +748,12 @@ impl SelectedExactIdentities {
                     ));
                 }
             }
-            if !model.variant_types.is_empty() {
+            if let Some(original) = model.variant_types.keys().next() {
                 charge_native_work(budget, root, root, "complete_selected_variant", 1)?;
+                let at = selected_original_locus(package, selection, root, original, budget)?
+                    .unwrap_or(root);
                 return Err(witness_error(
-                    root,
+                    at,
                     ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                 ));
             }
@@ -1073,6 +1057,30 @@ pub(super) fn check_package_binding(
         ));
     }
     Ok(())
+}
+
+fn selected_original_locus<'a>(
+    package: &'a CheckedPackageV2,
+    selection: usize,
+    root: &CheckedNodeId,
+    original: &str,
+    budget: &mut NativeJoinBudget,
+) -> Result<Option<&'a CheckedNodeId>, ExactTypeProjectionError> {
+    let mut found = None;
+    for (id, declaration) in package.models.selected_declarations() {
+        charge_native_work(budget, root, id, "complete_selected_original", 1)?;
+        charge_native_text_pair(
+            budget,
+            root,
+            "complete_selected_original",
+            &declaration.node,
+            original,
+        )?;
+        if declaration.selection == selection && declaration.node.as_ref() == original {
+            found = Some(id);
+        }
+    }
+    Ok(found)
 }
 
 #[cfg(test)]
