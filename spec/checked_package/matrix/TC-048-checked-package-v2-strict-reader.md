@@ -2783,7 +2783,7 @@ The published FM set contains no case where the carried rounding mode differs
 from an operand or result type's rounding mode. Record that as unverified by
 these vectors; do not infer its reader outcome from their results.
 
-## Anonymous Map type admission (FR-038-AC-485 through FR-038-AC-488)
+## Anonymous Map type admission (FR-038-AC-487 through FR-038-AC-490)
 
 Status: IMPLEMENTED (IR-1356; focused reader and QSpec MT controls pass). Read QSpec's current
 `proposals/checked-package-v2/map-type-vectors.json` through
