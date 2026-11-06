@@ -401,7 +401,8 @@ pub(super) mod tests {
         ids: &BTreeMap<char, CheckedNodeId>,
     ) -> &'a mut Value {
         let position = at(package, &ids[&'7']);
-        let super::super::CheckedTerm::Application { operation, .. } = &mut package.terms[position]
+        let super::super::CheckedTerm::Application { operation, .. } =
+            &mut std::sync::Arc::make_mut(&mut package.terms)[position]
         else {
             panic!("admitted reaches application term");
         };
@@ -414,7 +415,10 @@ pub(super) mod tests {
         let (mut package, ids) = admitted();
         let expected = package.relationship_end(&ids[&'7']).expect("admitted end");
         let position = at(&package, &ids[&'7']);
-        package.wire.semantic_graph.nodes[position].body = CheckedTerm::aggregate(Vec::new());
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::aggregate(Vec::new());
         assert_eq!(package.relationship_end(&ids[&'7']), Ok(expected));
     }
 
@@ -442,7 +446,7 @@ pub(super) mod tests {
         assert_eq!(inverse.destination_type, ids[&'a']);
 
         let mut without_record = package.clone();
-        without_record.models = RetainedModels::default();
+        without_record.models = RetainedModels::default().into();
         assert_eq!(package, without_record);
         assert_eq!(
             without_record.relationship_end(&ids[&'7']),
@@ -491,7 +495,7 @@ pub(super) mod tests {
                 "declaration node no longer has the declaration shape",
                 Box::new(|p, ids| {
                     let position = at(p, &ids[&'c']);
-                    p.terms[position] = CheckedTerm::Aggregate {
+                    std::sync::Arc::make_mut(&mut p.terms)[position] = CheckedTerm::Aggregate {
                         members: vec![CheckedTerm::Reference {
                             target: ids[&'1'].clone(),
                         }],

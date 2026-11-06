@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn admitted_parameter_lookup_reads_the_retained_typed_body() {
         let mut package = fixture_package();
-        package.terms[2] = CheckedTerm::Reference {
+        std::sync::Arc::make_mut(&mut package.terms)[2] = CheckedTerm::Reference {
             target: node_id('4'),
         };
         assert_eq!(
@@ -289,9 +289,12 @@ mod tests {
             let mut package = fixture_package();
             let mut body = serde_json::to_value(&package.terms[2]).expect("fixture body");
             mutate(&mut body);
-            package.terms[2] = CheckedTerm::decode_admitted(&body)
+            std::sync::Arc::make_mut(&mut package.terms)[2] = CheckedTerm::decode_admitted(&body)
                 .expect("mutated fixture retains a grammar-admitted term");
-            package.wire.semantic_graph.nodes[2].body = package.terms[2].clone();
+            std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[2]
+                .body = package.terms[2].clone();
             assert_eq!(
                 package.parameter_declaration(&node_id('3')),
                 Err(CheckedParameterDeclarationError::MalformedBody),
