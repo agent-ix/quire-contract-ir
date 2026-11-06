@@ -243,7 +243,7 @@ fn select_rows<T: Clone>(
     Ok(selected)
 }
 
-impl CheckedMonitorPlanRef<'_> {
+impl<'a> CheckedMonitorPlanRef<'a> {
     /// Project one complete selected monitor type closure under one finite caller budget.
     ///
     /// All source rows are structural claims over admitted facts. Their opaque Exact
@@ -252,7 +252,7 @@ impl CheckedMonitorPlanRef<'_> {
         &self,
         rows: SelectedMonitorClosureRows<'_>,
         budget: &mut NativeJoinBudget,
-    ) -> Result<SelectedMonitorTypeClosure<'_>, SelectedMonitorTypeClosureError> {
+    ) -> Result<SelectedMonitorTypeClosure<'a>, SelectedMonitorTypeClosureError> {
         let before = budget.begin();
         let result = (|| {
             let reached = self

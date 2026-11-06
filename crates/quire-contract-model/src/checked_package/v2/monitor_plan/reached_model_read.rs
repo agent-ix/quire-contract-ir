@@ -829,7 +829,9 @@ mod tests {
     use crate::checked_package::v2::{
         CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
     };
-    use crate::checked_package::v2::{SelectedExactDeclarationForm, SelectedExactIdentity};
+    use crate::checked_package::v2::{
+        ExactTypeProjectionErrorCode, SelectedExactDeclarationForm, SelectedExactIdentity,
+    };
     use ix_trace_rs::trace;
     use quire_exact::{
         CollectionKind, CollectionType, EffectiveId, MemberId, MemberOwner, NodeKey,
@@ -841,7 +843,12 @@ mod tests {
     }
 
     fn admitted_monitor_for_closure() -> CheckedPackageV2 {
-        let (mut wire, document) = monitor_plan_fixtures::model_fact_monitor_with_variant(false);
+        admitted_monitor_for_closure_with_status("integer")
+    }
+
+    fn admitted_monitor_for_closure_with_status(status: &str) -> CheckedPackageV2 {
+        let (mut wire, document) =
+            monitor_plan_fixtures::model_fact_monitor_with_status(false, status);
         let source = wire["lock"]["sources"][0].clone();
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
             if node["node_tag"] != "composite_type"
@@ -1143,7 +1150,7 @@ mod tests {
                         source_authority: source.authority.clone(),
                         source_identity: source.identity.clone(),
                         qualified_declaration,
-                        record_key: key(&format!("record:{:?}", node.node_id)),
+                        record_key: key(&format!("fixture-record-{}", records.len())),
                         members,
                     });
                 }
@@ -1170,7 +1177,7 @@ mod tests {
                         source_authority: source.authority.clone(),
                         source_identity: source.identity.clone(),
                         qualified_declaration,
-                        type_handle: key(&format!("tuple:{:?}", node.node_id)),
+                        type_handle: key(&format!("fixture-tuple-{}", tuples.len())),
                         positions,
                     });
                 }
@@ -1289,8 +1296,75 @@ mod tests {
         assert_eq!(closure.model_types().records().len(), 1);
         assert_eq!(closure.model_types().objects().len(), 1);
         assert_eq!(closure.plan().state(), plan.state());
+        assert_eq!(closure.plan().init().node_id(), plan.init().node_id());
+        assert_eq!(closure.plan().on_event().body(), plan.on_event().body());
+        assert_eq!(
+            closure.plan().on_watermark().result_type(),
+            plan.on_watermark().result_type()
+        );
+        assert_eq!(closure.plan().on_gap().parameter_types().len(), 2);
+        let union = closure
+            .identities()
+            .source_union_rows()
+            .next()
+            .expect("reached union");
+        assert_eq!(union.members, source_unions[0].members);
+        assert_eq!(union.type_handle, source_unions[0].type_handle);
+        let projected_union = closure
+            .exact_types()
+            .iter()
+            .find(|projection| projection.type_node() == &union.structural_node)
+            .expect("reached union Exact type");
+        assert_eq!(
+            projected_union.value_type(),
+            &ValueType::Composite(union.type_handle.clone())
+        );
+        let record = closure
+            .identities()
+            .source_record_rows()
+            .find(|row| {
+                row.qualified_declaration
+                    .last()
+                    .is_some_and(|name| name.as_ref() == "Result")
+            })
+            .expect("reached result record");
+        assert_eq!(record.members.len(), 2);
+        assert_eq!(record.members[0].admitted_name.as_ref(), "instance");
+        assert_eq!(record.members[1].admitted_name.as_ref(), "outcome");
+        assert_eq!(record.members[1].value_type, ValueType::Integer);
         let used = budget.consumed();
         assert_eq!(closure.work(), used.work);
+        let mut model_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        plan.read_reached_model_facts(
+            ReachedProducerRows {
+                declarations: &declarations,
+                fields: &fields,
+                tuples: &[],
+                source_units: &source_units,
+                enum_declarations: &[],
+                enum_members: &[],
+                enum_shapes: &[],
+            },
+            &mut model_budget,
+        )
+        .expect("individually affordable reached read");
+        let mut source_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        SelectedExactIdentities::empty()
+            .with_source_record_rows(&package, source_records.clone(), &mut source_budget)
+            .expect("individually affordable source join");
+        let combined_short = model_budget
+            .consumed()
+            .work
+            .max(source_budget.consumed().work);
+        assert!(combined_short < used.work);
+        let mut combined_budget = NativeJoinBudget::new(combined_short, used.storage);
+        assert_eq!(
+            plan.project_selected_type_closure(rows, &mut combined_budget)
+                .err()
+                .expect("combined charge refuses")
+                .code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::WorkLimit
+        );
         let mut exact = NativeJoinBudget::new(used.work, used.storage);
         assert_eq!(
             plan.project_selected_type_closure(rows, &mut exact)
@@ -1300,10 +1374,195 @@ mod tests {
             closure.exact_types().len()
         );
         let mut short = NativeJoinBudget::new(used.work - 1, used.storage);
-        assert!(plan
-            .project_selected_type_closure(rows, &mut short)
-            .is_err());
+        assert_eq!(
+            plan.project_selected_type_closure(rows, &mut short)
+                .err()
+                .expect("work refusal")
+                .code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::WorkLimit
+        );
         assert!(short.first_unpaid_locus().is_some());
+        let mut short_storage = NativeJoinBudget::new(used.work, used.storage - 1);
+        assert_eq!(
+            plan.project_selected_type_closure(rows, &mut short_storage)
+                .err()
+                .expect("storage refusal")
+                .code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::StorageLimit
+        );
+        assert!(short_storage.first_unpaid_locus().is_some());
+        let mut zero_storage = NativeJoinBudget::new(used.work, 0);
+        let compact = plan
+            .project_selected_type_closure(rows, &mut zero_storage)
+            .err()
+            .expect("zero storage refusal");
+        assert_eq!(
+            compact.code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::StorageLimit
+        );
+        assert_eq!(compact.at, None);
+        assert_eq!(compact.denied.unwrap().kind, NativeJoinChargeKind::Storage);
+        let cloned = package.clone();
+        let mut cloned_budget = NativeJoinBudget::new(used.work, used.storage);
+        let cloned_closure = cloned
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .project_selected_type_closure(rows, &mut cloned_budget)
+            .unwrap();
+        assert_eq!(cloned_budget.consumed(), used);
+        assert_eq!(cloned_closure.model_types(), closure.model_types());
+        assert_eq!(cloned_closure.identities(), closure.identities());
+        assert_eq!(cloned_closure.exact_types(), closure.exact_types());
+    }
+
+    #[trace("TC-470", "FR-357-AC-2", "FR-357-AC-3")]
+    #[test]
+    fn selected_monitor_closure_refuses_reached_rows_and_ignores_unreached_rows() {
+        use super::super::selected_type_closure::{
+            SelectedMonitorClosureRows, SelectedMonitorTypeClosureErrorCode as Code,
+        };
+        let package = admitted_monitor_for_closure();
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let (source_records, source_tuples, source_unions, source_collections) =
+            source_rows(&package);
+        let plan = package.monitor_plans().next().unwrap();
+        let read = |records: &[crate::SelectedSourceRecordRow]| {
+            let rows = SelectedMonitorClosureRows {
+                declarations: &declarations,
+                fields: &fields,
+                model_tuples: &[],
+                source_units: &source_units,
+                model_enum_declarations: &[],
+                model_enum_members: &[],
+                model_enum_shapes: &[],
+                source_records: records,
+                source_tuples: &source_tuples,
+                source_unions: &source_unions,
+                source_enums: &[],
+                source_collections: &source_collections,
+            };
+            plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
+                .map(|closure| (closure.work(), closure.identities().clone()))
+        };
+        let (baseline_work, baseline) = read(&source_records).expect("complete fixture");
+        let mut missing = source_records.clone();
+        missing.retain(|row| {
+            row.qualified_declaration
+                .last()
+                .is_none_or(|name| name.as_ref() != "Result")
+        });
+        let error = read(&missing).err().expect("reached record requires row");
+        assert_eq!(
+            error.code,
+            Code::Exact(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
+        );
+        assert!(error.at.is_some());
+        let missing_rows = SelectedMonitorClosureRows {
+            declarations: &declarations,
+            fields: &fields,
+            model_tuples: &[],
+            source_units: &source_units,
+            model_enum_declarations: &[],
+            model_enum_members: &[],
+            model_enum_shapes: &[],
+            source_records: &missing,
+            source_tuples: &source_tuples,
+            source_unions: &source_unions,
+            source_enums: &[],
+            source_collections: &source_collections,
+        };
+        let mut diagnostic_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let semantic = plan
+            .project_selected_type_closure(missing_rows, &mut diagnostic_budget)
+            .err()
+            .expect("complete diagnostic");
+        assert_eq!(
+            semantic.code,
+            Code::Exact(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
+        );
+        let mut short_diagnostic =
+            NativeJoinBudget::new(u64::MAX, diagnostic_budget.consumed().storage - 1);
+        let compact = plan
+            .project_selected_type_closure(missing_rows, &mut short_diagnostic)
+            .err()
+            .expect("diagnostic storage refusal");
+        assert_eq!(
+            compact.code,
+            Code::Exact(ExactTypeProjectionErrorCode::ExhaustedStorage)
+        );
+        assert_eq!(compact.at, None);
+        assert!(compact.denied_locus.is_some());
+        let mut foreign = source_records.clone();
+        foreign[0].source_identity = "other/source".into();
+        let error = read(&foreign)
+            .err()
+            .expect("foreign selected source refuses");
+        assert_eq!(
+            error.code,
+            Code::Exact(ExactTypeProjectionErrorCode::MismatchedIdentityWitness)
+        );
+        assert_eq!(error.at, Some(foreign[0].structural_node.clone()));
+        let mut stale = source_records.clone();
+        stale[0].members[0].type_node = plan.state().clone();
+        let error = read(&stale).err().expect("stale member type refuses");
+        assert_eq!(
+            error.code,
+            Code::Exact(ExactTypeProjectionErrorCode::MismatchedIdentityWitness)
+        );
+        let mut with_unreached = source_records.clone();
+        let mut irrelevant = source_records[0].clone();
+        irrelevant.structural_node = CheckedNodeId {
+            package: "foreign/package".into(),
+            path: vec![crate::CheckedNodePathSegment::Name("unsupported".into())],
+            ordinal: 0,
+        };
+        irrelevant.source_identity = "unsupported/source".into();
+        with_unreached.push(irrelevant);
+        let (work, selected) = read(&with_unreached).expect("unreached row ignored");
+        assert_eq!(selected, baseline);
+        assert!(
+            work > baseline_work,
+            "unreached row lookup still charges inspection"
+        );
+        let unrepresentable = admitted_monitor_for_closure_with_status("text");
+        let (unrepresentable_declarations, unrepresentable_fields, unrepresentable_units) =
+            producer_rows(&unrepresentable);
+        let (
+            unrepresentable_records,
+            unrepresentable_tuples,
+            unrepresentable_unions,
+            unrepresentable_collections,
+        ) = source_rows(&unrepresentable);
+        let error = unrepresentable
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .project_selected_type_closure(
+                SelectedMonitorClosureRows {
+                    declarations: &unrepresentable_declarations,
+                    fields: &unrepresentable_fields,
+                    model_tuples: &[],
+                    source_units: &unrepresentable_units,
+                    model_enum_declarations: &[],
+                    model_enum_members: &[],
+                    model_enum_shapes: &[],
+                    source_records: &unrepresentable_records,
+                    source_tuples: &unrepresentable_tuples,
+                    source_unions: &unrepresentable_unions,
+                    source_enums: &[],
+                    source_collections: &unrepresentable_collections,
+                },
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .err()
+            .expect("unrepresentable reached type");
+        assert_eq!(
+            error.code,
+            Code::Exact(ExactTypeProjectionErrorCode::UnsupportedExactType),
+            "first native locus: {:?}",
+            error.at
+        );
     }
 
     /// Trace: FR-357, FR-357-AC-13. The admitted root reaches exactly the
