@@ -606,11 +606,8 @@ impl CheckedPackageV2 {
                 exact_keys.insert(key.clone());
             }
         }
-        // The checked acquisition is the sole native tuple/source-unit validator.
-        // The loops below only meter projection-owned indexes and opaque keys.
-        let admitted_identities = identities
-            .with_admitted_type_rows(self, tuple_rows, source_unit_rows, join_budget)
-            .map_err(|error| SelectedTypeDeclarationsError::from_exact(error, work))?;
+        // Preflight projection-owned row bytes and index keys before any
+        // semantic inspection. The native join has its own caller allowance.
         for row in tuple_rows {
             charge(
                 &mut work,
@@ -645,18 +642,6 @@ impl CheckedPackageV2 {
                 "selected_tuple_row",
                 &row.node_key,
             )?;
-            if tuple_by_node
-                .insert(row.structural_node.clone(), row)
-                .is_some()
-                || !exact_keys.insert(row.node_key.clone())
-            {
-                return Err(SelectedTypeDeclarationsError::at(
-                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
-                    &row.structural_node,
-                    "selected_tuple_row",
-                    work,
-                ));
-            }
         }
         for row in source_unit_rows {
             charge(
@@ -709,6 +694,26 @@ impl CheckedPackageV2 {
                     key,
                 )?;
             }
+        }
+        // This checked acquisition is the sole semantic tuple/unit authority.
+        let admitted_identities = identities
+            .with_admitted_type_rows(self, tuple_rows, source_unit_rows, join_budget)
+            .map_err(|error| SelectedTypeDeclarationsError::from_exact(error, work))?;
+        for row in tuple_rows {
+            if tuple_by_node
+                .insert(row.structural_node.clone(), row)
+                .is_some()
+                || !exact_keys.insert(row.node_key.clone())
+            {
+                return Err(SelectedTypeDeclarationsError::at(
+                    ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                    &row.structural_node,
+                    "selected_tuple_row",
+                    work,
+                ));
+            }
+        }
+        for row in source_unit_rows {
             let UnitId::Declared(key) = &row.unit_id else {
                 unreachable!("checked declared domain")
             };
