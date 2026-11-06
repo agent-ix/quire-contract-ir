@@ -7651,7 +7651,7 @@ fn complete_review_model_unit(original: &str, extra_nodes: usize) -> CheckedPack
     ] {
         nodes.push(
             json!({"node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
-            "node_tag":"scalar_type","semantic_form":form,"semantic_type":ty,"dependencies":[],
+            "node_tag":"scalar_type","semantic_form":form,"semantic_type":ty,"dependencies":if form == "unit" { vec![dimension.clone()] } else { vec![] },
             "occurrences":[{"role":"generated","ordinal":0}],
             "owner":{"kind":"model","identity":IDENTITY,"node":original},"body":empty()}),
         );
@@ -7732,7 +7732,7 @@ fn complete_identity_witness_precharges_long_model_unit_owner_text() {
     // One selected model; record and unit document obligations; the sole
     // selected declaration is inspected once for each obligation. This is a
     // fixed logical ledger, independent of an ample implementation run.
-    let mut prefix = 8 + 5 + 3 * record_original.len() + original.len();
+    let mut prefix = 16 + 5 + 3 * record_original.len() + original.len();
     let mut nodes: Vec<_> = package.graph().nodes.iter().collect();
     nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
     let mut expected_amount = None;
@@ -7780,8 +7780,9 @@ fn complete_identity_witness_precharges_every_unrelated_census_candidate() {
             CheckedPackageV2ReadResult::Admitted(package) => *package,
             other => panic!("unrelated census fixture admits: {other:?}"),
         };
-        // Binding consumes eight; even an empty selected model costs one.
-        let mut empty_model = quire_contract_model::NativeJoinBudget::new(8, u64::MAX);
+        // Outer binding and content-stage binding each consume eight;
+        // even an empty selected model costs one.
+        let mut empty_model = quire_contract_model::NativeJoinBudget::new(16, u64::MAX);
         let error = SelectedExactIdentities::empty()
             .validate_and_rebind(&package, &mut empty_model)
             .unwrap_err();
@@ -7789,13 +7790,57 @@ fn complete_identity_witness_precharges_every_unrelated_census_candidate() {
         assert_eq!(empty_model.first_unpaid().unwrap().amount, 1);
         // The next unit-declaration candidate must be paid before node_kind,
         // even when all candidates happen to be unrelated non-units.
-        let mut candidate = quire_contract_model::NativeJoinBudget::new(9, u64::MAX);
+        let mut candidate = quire_contract_model::NativeJoinBudget::new(17, u64::MAX);
         let error = SelectedExactIdentities::empty()
             .validate_and_rebind(&package, &mut candidate)
             .unwrap_err();
         assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
         assert_eq!(error.form.as_ref(), "complete_model_unit_candidate");
-        assert_eq!(candidate.consumed().work, 9);
+        assert_eq!(candidate.consumed().work, 17);
         assert_eq!(candidate.first_unpaid().unwrap().amount, 1);
     }
+}
+
+#[trace("TC-467", "FR-352-AC-28", "FR-352-AC-29")]
+#[test]
+fn complete_identity_witness_tuple_validation_matches_projection() {
+    let package = integer_add_control();
+    let primitive = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_tag.as_ref() == "scalar_type")
+        .unwrap()
+        .node_id
+        .clone();
+    let row = SelectedTupleDeclarationRow::new(
+        primitive.clone(),
+        "nonexistent-document",
+        "nonexistent-tuple",
+        NodeKey::new("review", vec![PathSegment::Text("Tuple".into())], 0).unwrap(),
+    );
+    let empty = SelectedExactIdentities::empty();
+    let direct = empty
+        .with_admitted_type_rows(
+            &package,
+            std::slice::from_ref(&row),
+            &[],
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap_err();
+    let projection = package
+        .project_selected_type_declarations(
+            &empty,
+            &[row],
+            &[],
+            u64::MAX,
+            &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
+        )
+        .unwrap_err();
+    assert_eq!(
+        direct.code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
+    assert_eq!(projection.code, direct.code);
+    assert_eq!(projection.at.as_deref(), Some(&primitive));
 }
