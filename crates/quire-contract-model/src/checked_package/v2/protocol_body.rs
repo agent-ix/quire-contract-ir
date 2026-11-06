@@ -4994,6 +4994,7 @@ struct SlotLocals<'a> {
     nodes: Vec<(Option<usize>, SlotLocal<'a>)>,
     index: BTreeMap<(Option<usize>, &'a str), usize>,
     arms: BTreeMap<(Option<usize>, usize, usize), usize>,
+    binders: BTreeMap<(Option<usize>, usize), usize>,
 }
 
 enum SlotLocal<'a> {
@@ -5024,8 +5025,12 @@ impl<'a> SlotLocals<'a> {
     }
 
     fn bind_node(&mut self, parent: Option<usize>, binder: usize) -> usize {
+        if let Some(&id) = self.binders.get(&(parent, binder)) {
+            return id;
+        }
         let id = self.nodes.len();
         self.nodes.push((parent, SlotLocal::Binder(binder)));
+        self.binders.insert((parent, binder), id);
         id
     }
 
