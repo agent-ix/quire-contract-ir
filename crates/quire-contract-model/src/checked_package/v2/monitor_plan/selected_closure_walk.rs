@@ -5,7 +5,13 @@
 //! These IDs are not declaration or Exact facts and cannot build an environment.
 
 use super::*;
+use crate::checked_package::v2::native_join_budget::{
+    read_charge, read_node_storage, read_node_work, NativeReadDenied,
+};
 use crate::checked_package::v2::typed_terms::{SelectedTermEdge, SelectedTermVisit};
+use crate::checked_package::v2::{
+    NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource,
+};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum EdgeRole {
@@ -25,7 +31,6 @@ pub(super) struct SelectedGraphWalk {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SelectedGraphWalkErrorCode {
-    WorkLimit,
     UnknownNode,
     ForeignDependency,
     UnsupportedTerm,
@@ -39,43 +44,62 @@ pub(super) struct SelectedGraphWalkError {
     pub(super) attempted_work: u64,
 }
 
-struct Walk<'a> {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum RuntimeWalkError {
+    Semantic(SelectedGraphWalkError),
+    Native(NativeReadDenied),
+}
+impl From<NativeReadDenied> for RuntimeWalkError {
+    fn from(error: NativeReadDenied) -> Self {
+        Self::Native(error)
+    }
+}
+
+struct Walk<'a, 'b> {
     package: &'a CheckedPackageV2,
-    limit: u64,
+    budget: &'b mut NativeJoinBudget,
     work: u64,
-    pending: Vec<CheckedNodeId>,
+    pending: Vec<(CheckedNodeId, NativeJoinLocusSource)>,
     seen_nodes: BTreeSet<CheckedNodeId>,
     seen_edges: BTreeSet<(CheckedNodeId, EdgeRole, CheckedNodeId)>,
     nodes: Vec<CheckedNodeId>,
 }
 
-impl Walk<'_> {
-    fn error(
-        &self,
-        code: SelectedGraphWalkErrorCode,
-        at: &CheckedNodeId,
-    ) -> SelectedGraphWalkError {
-        SelectedGraphWalkError {
+impl Walk<'_, '_> {
+    fn error(&mut self, code: SelectedGraphWalkErrorCode, at: &CheckedNodeId) -> RuntimeWalkError {
+        if let Err(error) = read_node_storage(self.budget, at) {
+            return error.into();
+        }
+        RuntimeWalkError::Semantic(SelectedGraphWalkError {
             code,
             at: at.clone(),
             work: self.work,
             attempted_work: 0,
-        }
+        })
     }
 
-    fn charge(&mut self, at: &CheckedNodeId) -> Result<(), SelectedGraphWalkError> {
-        if self.work >= self.limit {
-            let mut error = self.error(SelectedGraphWalkErrorCode::WorkLimit, at);
-            error.attempted_work = 1;
-            return Err(error);
-        }
+    fn charge(&mut self, at: &CheckedNodeId) -> Result<(), RuntimeWalkError> {
+        self.budget.set_locus_form("monitor_graph_inspection");
+        read_node_work(self.budget, at)?;
         self.work += 1;
         Ok(())
     }
+    fn retain_node(&mut self, node: &CheckedNodeId) -> Result<(), RuntimeWalkError> {
+        read_node_storage(self.budget, node)?;
+        read_charge(self.budget, NativeJoinChargeKind::Storage, 1)?;
+        Ok(())
+    }
 
-    fn seed(&mut self, id: &CheckedNodeId) -> Result<(), SelectedGraphWalkError> {
+    fn seed(&mut self, id: &CheckedNodeId) -> Result<(), RuntimeWalkError> {
         self.charge(id)?;
-        self.pending.push(id.clone());
+        self.retain_node(id)?;
+        self.pending.push((
+            id.clone(),
+            self.budget
+                .active_locus()
+                .expect("monitor seed context")
+                .source,
+        ));
         Ok(())
     }
 
@@ -84,24 +108,41 @@ impl Walk<'_> {
         from: &CheckedNodeId,
         role: EdgeRole,
         to: &CheckedNodeId,
-    ) -> Result<(), SelectedGraphWalkError> {
+    ) -> Result<(), RuntimeWalkError> {
+        self.charge(from)?;
+        self.charge(to)?;
+        self.retain_node(from)?;
+        self.retain_node(to)?;
         let edge = (from.clone(), role, to.clone());
         if self.seen_edges.contains(&edge) {
             return Ok(());
         }
         self.charge(to)?;
         self.seen_edges.insert(edge);
-        self.pending.push(to.clone());
+        self.retain_node(to)?;
+        self.pending.push((
+            to.clone(),
+            self.budget
+                .active_locus()
+                .expect("monitor edge context")
+                .source,
+        ));
         Ok(())
     }
 
-    fn visit(&mut self) -> Result<(), SelectedGraphWalkError> {
-        while let Some(id) = self.pending.pop() {
+    fn visit(&mut self) -> Result<(), RuntimeWalkError> {
+        while let Some((id, source)) = self.pending.pop() {
+            self.budget.set_active_locus(Some(NativeJoinLocus {
+                source,
+                form: "monitor_graph_node",
+            }));
+            self.charge(&id)?;
+            self.retain_node(&id)?;
             if !self.seen_nodes.insert(id.clone()) {
                 continue;
             }
             self.charge(&id)?;
-            let Some(node) = self.package.node(&id) else {
+            let Some((position, node)) = self.package.node_with_position(&id) else {
                 let code = if id.package.as_ref() == self.package.name() {
                     SelectedGraphWalkErrorCode::UnknownNode
                 } else {
@@ -109,6 +150,9 @@ impl Walk<'_> {
                 };
                 return Err(self.error(code, &id));
             };
+            self.budget
+                .set_locus_source(NativeJoinLocusSource::GraphNode(position));
+            self.retain_node(&id)?;
             self.nodes.push(id.clone());
             for dependency in &node.dependencies {
                 self.edge(&id, EdgeRole::Dependency, dependency)?;
@@ -152,17 +196,24 @@ impl CheckedMonitorPlanRef<'_> {
     /// Internal prerequisite only: reached graph IDs are not a type closure.
     pub(super) fn selected_graph_walk(
         &self,
-        work_limit: u64,
-    ) -> Result<SelectedGraphWalk, SelectedGraphWalkError> {
+        budget: &mut NativeJoinBudget,
+    ) -> Result<SelectedGraphWalk, RuntimeWalkError> {
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::MonitorSeed(0),
+            form: "monitor_graph_storage",
+        }));
+        read_charge(budget, NativeJoinChargeKind::Storage, 4)?;
+        let before_work = budget.consumed().work;
         let mut walk = Walk {
             package: self.package,
-            limit: work_limit,
+            budget,
             work: 0,
             pending: Vec::new(),
             seen_nodes: BTreeSet::new(),
             seen_edges: BTreeSet::new(),
             nodes: Vec::new(),
         };
+        let mut seed_index = 0;
         for seed in [
             self.state(),
             self.inputs(),
@@ -173,7 +224,12 @@ impl CheckedMonitorPlanRef<'_> {
             self.on_watermark().node_id(),
             self.on_gap().node_id(),
         ] {
+            walk.budget.set_active_locus(Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::MonitorSeed(seed_index),
+                form: "monitor_seed",
+            }));
             walk.seed(seed)?;
+            seed_index += 1;
         }
         for entry in [
             self.init(),
@@ -182,14 +238,24 @@ impl CheckedMonitorPlanRef<'_> {
             self.on_gap(),
         ] {
             for ty in entry.parameter_types() {
+                walk.budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::MonitorSeed(seed_index),
+                    form: "monitor_parameter_seed",
+                }));
                 walk.seed(ty)?;
+                seed_index += 1;
             }
+            walk.budget.set_active_locus(Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::MonitorSeed(seed_index),
+                form: "monitor_result_seed",
+            }));
             walk.seed(entry.result_type())?;
+            seed_index += 1;
         }
         walk.visit()?;
         Ok(SelectedGraphWalk {
             nodes: walk.nodes,
-            work: walk.work,
+            work: walk.budget.consumed().work - before_work,
         })
     }
 }
@@ -278,27 +344,29 @@ mod tests {
     fn selected_walk_is_bounded_deduplicated_and_clone_stable() {
         let package = admitted_seeded_package(false);
         let plan = package.monitor_plans().next().expect("internal seed plan");
-        let complete = plan.selected_graph_walk(u64::MAX).expect("selected walk");
+        let complete = plan
+            .selected_graph_walk(&mut NativeJoinBudget::new(u64::MAX, u64::MAX))
+            .expect("selected walk");
         let application = plan.init().node_id().clone();
         let frame = id_for(&package, "state", "frame");
         assert!(complete.nodes.contains(&application));
         assert!(!complete.nodes.contains(&frame));
         assert!(complete.work > complete.nodes.len() as u64);
         assert_eq!(
-            plan.selected_graph_walk(complete.work),
+            plan.selected_graph_walk(&mut NativeJoinBudget::new(complete.work, u64::MAX)),
             Ok(complete.clone())
         );
-        let denied = plan.selected_graph_walk(complete.work - 1).unwrap_err();
-        assert_eq!(denied.code, SelectedGraphWalkErrorCode::WorkLimit);
-        assert_eq!(denied.work, complete.work - 1);
-        assert_eq!(denied.attempted_work, 1);
+        let denied = plan
+            .selected_graph_walk(&mut NativeJoinBudget::new(complete.work - 1, u64::MAX))
+            .unwrap_err();
+        assert!(matches!(denied, RuntimeWalkError::Native(_)));
         assert_eq!(
             package
                 .clone()
                 .monitor_plans()
                 .next()
                 .unwrap()
-                .selected_graph_walk(complete.work),
+                .selected_graph_walk(&mut NativeJoinBudget::new(complete.work, u64::MAX)),
             Ok(complete)
         );
         let extra = admitted_seeded_package(true);
@@ -307,12 +375,12 @@ mod tests {
                 .monitor_plans()
                 .next()
                 .unwrap()
-                .selected_graph_walk(u64::MAX),
+                .selected_graph_walk(&mut NativeJoinBudget::new(u64::MAX, u64::MAX)),
             package
                 .monitor_plans()
                 .next()
                 .unwrap()
-                .selected_graph_walk(u64::MAX)
+                .selected_graph_walk(&mut NativeJoinBudget::new(u64::MAX, u64::MAX))
         );
     }
 
@@ -346,8 +414,11 @@ mod tests {
             .monitor_plans()
             .next()
             .unwrap()
-            .selected_graph_walk(u64::MAX)
+            .selected_graph_walk(&mut NativeJoinBudget::new(u64::MAX, u64::MAX))
             .unwrap_err();
+        let RuntimeWalkError::Semantic(error) = error else {
+            panic!("expected semantic refusal")
+        };
         assert_eq!(error.code, SelectedGraphWalkErrorCode::ForeignDependency);
         assert_eq!(error.at, foreign);
         assert_eq!(error.attempted_work, 0);
@@ -383,8 +454,11 @@ mod tests {
             .monitor_plans()
             .next()
             .unwrap()
-            .selected_graph_walk(u64::MAX)
+            .selected_graph_walk(&mut NativeJoinBudget::new(u64::MAX, u64::MAX))
             .unwrap_err();
+        let RuntimeWalkError::Semantic(error) = error else {
+            panic!("expected semantic refusal")
+        };
         assert_eq!(error.code, SelectedGraphWalkErrorCode::UnsupportedTerm);
         assert_eq!(error.at, entry);
     }
@@ -421,13 +495,13 @@ mod tests {
             .monitor_plans()
             .next()
             .unwrap()
-            .selected_graph_walk(u64::MAX)
+            .selected_graph_walk(&mut NativeJoinBudget::new(u64::MAX, u64::MAX))
             .unwrap();
         let twice = repeated
             .monitor_plans()
             .next()
             .unwrap()
-            .selected_graph_walk(u64::MAX)
+            .selected_graph_walk(&mut NativeJoinBudget::new(u64::MAX, u64::MAX))
             .unwrap();
         assert_eq!(twice.nodes, once.nodes);
         assert_eq!(twice.work, once.work + 1);

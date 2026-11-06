@@ -211,6 +211,29 @@ pub struct SelectedTypeUnit {
     pub offset: CheckedRational,
 }
 
+/// A selected model-owned unit and its admitted exact conversion.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedTypeModelUnit {
+    /// Final structural unit node.
+    pub structural_node: CheckedNodeId,
+    /// Selected model document identity.
+    pub selected_document: Box<str>,
+    /// Original unit identity in the selected model.
+    pub original_identity: Box<str>,
+    /// QSL-issued declared unit identity.
+    pub unit_id: UnitId,
+    /// Admitted dimension node.
+    pub dimension_node: CheckedNodeId,
+    /// Admitted dimension terms.
+    pub dimension_terms: Vec<DimensionTerm>,
+    /// Conversion target, if this unit is derived.
+    pub target_node: Option<CheckedNodeId>,
+    /// Exact admitted scale.
+    pub scale: CheckedRational,
+    /// Exact admitted offset.
+    pub offset: CheckedRational,
+}
+
 /// A dimension in the complete selected source-unit dependency closure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SelectedTypeDimension {
@@ -247,6 +270,7 @@ pub struct SelectedTypeDeclarations {
     tuples: Vec<SelectedTypeTuple>,
     objects: Vec<SelectedTypeObject>,
     units: Vec<SelectedTypeUnit>,
+    model_units: Vec<SelectedTypeModelUnit>,
     dimensions: Vec<SelectedTypeDimension>,
     work: u64,
 }
@@ -270,6 +294,11 @@ impl SelectedTypeDeclarations {
     /// Selected source units in structural identity order.
     pub fn units(&self) -> &[SelectedTypeUnit] {
         &self.units
+    }
+
+    /// Reached model-owned units in structural identity order.
+    pub fn model_units(&self) -> &[SelectedTypeModelUnit] {
+        &self.model_units
     }
 
     /// Complete dimension dependency closure of selected source units.
@@ -313,7 +342,9 @@ impl SelectedTypeDeclarationsError {
         source_unit_rows: &'a [SelectedSourceUnitRow],
     ) -> Option<&'a CheckedNodeId> {
         match self.denied_locus?.source {
-            NativeJoinLocusSource::Package => None,
+            NativeJoinLocusSource::Package
+            | NativeJoinLocusSource::MonitorSeed(_)
+            | NativeJoinLocusSource::ReachedRow(_) => None,
             NativeJoinLocusSource::GraphNode(index) => {
                 package.graph().nodes.get(index).map(|node| &node.node_id)
             }
@@ -702,6 +733,23 @@ impl CheckedPackageV2 {
         source_unit_rows: &[SelectedSourceUnitRow],
         budget: &mut NativeJoinBudget,
     ) -> Result<SelectedTypeDeclarations, SelectedTypeDeclarationsError> {
+        self.project_type_declarations_for_nodes(
+            identities,
+            tuple_rows,
+            source_unit_rows,
+            budget,
+            None,
+        )
+    }
+
+    pub(super) fn project_type_declarations_for_nodes(
+        &self,
+        identities: &SelectedExactIdentities,
+        tuple_rows: &[SelectedTupleDeclarationRow],
+        source_unit_rows: &[SelectedSourceUnitRow],
+        budget: &mut NativeJoinBudget,
+        reached: Option<&BTreeSet<CheckedNodeId>>,
+    ) -> Result<SelectedTypeDeclarations, SelectedTypeDeclarationsError> {
         let before = budget.begin();
         let previous_locus = budget.active_locus();
         budget.set_active_locus(Some(NativeJoinLocus {
@@ -712,8 +760,44 @@ impl CheckedPackageV2 {
             let mut ctx = ProjectionBudget { budget, before };
             ctx.charge_storage(1)?;
             let mut selected_source_units = Vec::new();
-            for (index, (node, kind)) in
-                self.graph().nodes.iter().zip(self.node_kinds()).enumerate()
+            ctx.charge_storage(1)?;
+            let mut selected_model_units = Vec::new();
+            let mut reached_nodes = Vec::new();
+            if let Some(reached) = reached {
+                ctx.charge_storage(1)?;
+                for (request_index, id) in reached.iter().enumerate() {
+                    ctx.activate(
+                        NativeJoinLocusSource::ReachedRow(request_index),
+                        "reached_graph_node",
+                    );
+                    ctx.charge_structural_id(id, "reached_graph_node")?;
+                    let Some((position, node)) = self.node_with_position(id) else {
+                        return Err(ctx.error(
+                            ExactTypeProjectionErrorCode::UnknownNode,
+                            id,
+                            "graph_node",
+                        ));
+                    };
+                    ctx.activate(
+                        NativeJoinLocusSource::GraphNode(position),
+                        "reached_graph_node",
+                    );
+                    ctx.charge_storage(1)?;
+                    reached_nodes.push((position, (node, &self.node_kinds()[position])));
+                }
+            }
+            for (index, (node, kind)) in self
+                .graph()
+                .nodes
+                .iter()
+                .zip(self.node_kinds())
+                .enumerate()
+                .take(if reached.is_none() {
+                    self.graph().nodes.len()
+                } else {
+                    0
+                })
+                .chain(reached_nodes)
             {
                 ctx.activate(NativeJoinLocusSource::GraphNode(index), "graph_node");
                 ctx.charge(&node.node_id, "graph_node")?;
@@ -724,6 +808,14 @@ impl CheckedPackageV2 {
                     ctx.storage_node(&node.node_id)?;
                     ctx.charge_storage(1)?;
                     selected_source_units.push((index, node.node_id.clone()));
+                } else if reached.is_some()
+                    && *kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
+                    && matches!(node.owner, Some(CheckedNodeOwner::Model { .. }))
+                {
+                    ctx.charge_structural_id(&node.node_id, "selected_model_unit")?;
+                    ctx.storage_node(&node.node_id)?;
+                    ctx.charge_storage(1)?;
+                    selected_model_units.push((index, node.node_id.clone()));
                 } else if matches!(
                     kind,
                     CheckedNodeKind::ScalarType(
@@ -748,6 +840,12 @@ impl CheckedPackageV2 {
                     "selected_declaration",
                 );
                 ctx.charge(id, "selected_declaration")?;
+                if let Some(reached) = reached {
+                    ctx.charge_structural_id(id, "reached_declaration")?;
+                    if !reached.contains(id) {
+                        continue;
+                    }
+                }
                 ctx.charge_storage(1)?;
                 if by_original
                     .insert(
@@ -762,7 +860,7 @@ impl CheckedPackageV2 {
                         "selected_declaration",
                     ));
                 }
-                if matches!(declaration.form, DeclarationForm::VariantType) {
+                if reached.is_none() && matches!(declaration.form, DeclarationForm::VariantType) {
                     return Err(ctx.error(
                         ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
                         id,
@@ -775,6 +873,9 @@ impl CheckedPackageV2 {
             // currently names. Such a document cannot yield a complete runtime
             // environment from this graph and must refuse as a whole.
             for (selection, model) in self.models.selected_models().iter().enumerate() {
+                if reached.is_some() {
+                    continue;
+                }
                 ctx.activate(
                     NativeJoinLocusSource::GraphNode(model.root),
                     "selected_document_type",
@@ -833,7 +934,8 @@ impl CheckedPackageV2 {
             }
 
             ctx.package_locus("runtime_identity_indices");
-            ctx.charge_storage(3)?;
+            ctx.charge_storage(4)?;
+            let mut model_unit_by_node = BTreeMap::new();
             let mut tuple_by_node = BTreeMap::new();
             let mut source_unit_by_node = BTreeMap::new();
             let mut exact_keys = BTreeSet::new();
@@ -854,6 +956,11 @@ impl CheckedPackageV2 {
                     ctx.charge_node_key(&row.structural_node, "selected_exact_key", key)?;
                     ctx.charge_storage(2)?;
                     exact_keys.insert(key.clone());
+                }
+                if row.form == super::SelectedExactDeclarationForm::DeclaredUnit {
+                    ctx.storage_node(&row.structural_node)?;
+                    ctx.charge_storage(1)?;
+                    model_unit_by_node.insert(row.structural_node.clone(), row);
                 }
             }
             for (index, row) in tuple_rows.iter().enumerate() {
@@ -963,6 +1070,21 @@ impl CheckedPackageV2 {
                 }
             }
 
+            for (position, id) in &selected_model_units {
+                ctx.activate(
+                    NativeJoinLocusSource::GraphNode(*position),
+                    "selected_model_unit",
+                );
+                ctx.charge_structural_id(id, "selected_model_unit")?;
+                if !model_unit_by_node.contains_key(id) {
+                    return Err(ctx.error(
+                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                        id,
+                        "selected_model_unit",
+                    ));
+                }
+            }
+
             let identities = &admitted_identities;
             ctx.package_locus("runtime_declarations");
             ctx.charge_storage(3)?;
@@ -974,6 +1096,13 @@ impl CheckedPackageV2 {
                     NativeJoinLocusSource::SelectedDeclaration(index),
                     "selected_declaration",
                 );
+                ctx.charge(id, "selected_declaration")?;
+                if let Some(reached) = reached {
+                    ctx.charge_structural_id(id, "reached_declaration")?;
+                    if !reached.contains(id) {
+                        continue;
+                    }
+                }
                 let Some(model) = self.models.selected_models().get(declaration.selection) else {
                     return Err(ctx.error(
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
@@ -1426,13 +1555,22 @@ impl CheckedPackageV2 {
             let mut units = Vec::new();
             for (index, unit) in unit_read.units.iter().enumerate() {
                 ctx.activate(
-                    NativeJoinLocusSource::GraphNode(requested_positions[index]),
+                    NativeJoinLocusSource::ReachedRow(index),
+                    "selected_source_unit_result",
+                );
+                ctx.charge_structural_id(&unit.node.node_id, "selected_source_unit_result")?;
+                let (position, _) = self
+                    .node_with_position(&unit.node.node_id)
+                    .expect("read admitted source unit");
+                ctx.activate(
+                    NativeJoinLocusSource::GraphNode(position),
                     "selected_source_unit",
                 );
                 ctx.charge(&unit.node.node_id, "selected_source_unit")?;
-                let row = source_unit_by_node
-                    .get(&unit.node.node_id)
-                    .expect("read selected source unit");
+                ctx.charge_structural_id(&unit.node.node_id, "selected_source_unit")?;
+                let Some(row) = source_unit_by_node.get(&unit.node.node_id) else {
+                    continue;
+                };
                 ctx.charge_storage(1)?;
                 ctx.storage_node(&unit.node.node_id)?;
                 ctx.storage_text(&row.source_authority)?;
@@ -1476,12 +1614,197 @@ impl CheckedPackageV2 {
                     terms: dimension.terms.to_vec(),
                 });
             }
+            ctx.package_locus("runtime_model_units");
+            ctx.charge_storage(1)?;
+            let mut model_units = Vec::new();
+            if let Some(reached) = reached {
+                let find_model_node =
+                    |model_identity: &str,
+                     original: &str,
+                     form: ScalarTypeForm,
+                     ctx: &mut ProjectionBudget<'_>,
+                     at: &CheckedNodeId|
+                     -> Result<CheckedNodeId, SelectedTypeDeclarationsError> {
+                        for candidate in reached {
+                            ctx.charge_structural_id(candidate, "model_unit_dependency")?;
+                            let Some(node) = self.node(candidate) else {
+                                continue;
+                            };
+                            if self.node_kind(candidate) == Some(CheckedNodeKind::ScalarType(form))
+                                && matches!(&node.owner, Some(CheckedNodeOwner::Model { identity, node })
+                                if identity.as_ref() == model_identity && node.as_ref() == original)
+                            {
+                                ctx.storage_node(candidate)?;
+                                return Ok(candidate.clone());
+                            }
+                        }
+                        Err(ctx.error(
+                            ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                            at,
+                            "model_unit_dependency",
+                        ))
+                    };
+                for (position, id) in &selected_model_units {
+                    ctx.activate(NativeJoinLocusSource::GraphNode(*position), "model_unit");
+                    ctx.charge(id, "model_unit")?;
+                    let row = model_unit_by_node[id];
+                    let Some(CheckedNodeOwner::Model {
+                        identity,
+                        node: original,
+                    }) = self.node(id).and_then(|node| node.owner.as_ref())
+                    else {
+                        return Err(ctx.error(
+                            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                            id,
+                            "model_unit_owner",
+                        ));
+                    };
+                    ctx.charge(id, "model_unit_selection")?;
+                    let model = self.models.selected_model(identity).ok_or_else(|| {
+                        ctx.error(
+                            ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                            id,
+                            "model_unit_selection",
+                        )
+                    })?;
+                    let unit = model.units.get(original).ok_or_else(|| {
+                        ctx.error(
+                            ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                            id,
+                            "model_unit",
+                        )
+                    })?;
+                    let dimension_node = find_model_node(
+                        identity,
+                        &unit.dimension,
+                        ScalarTypeForm::Dimension,
+                        &mut ctx,
+                        id,
+                    )?;
+                    ctx.charge_storage(4)?;
+                    let mut pending = vec![unit.dimension.as_ref()];
+                    let mut seen_dimensions = BTreeSet::new();
+                    let mut unit_terms = Vec::new();
+                    while let Some(current) = pending.pop() {
+                        ctx.charge(id, "model_dimension")?;
+                        ctx.charge_work(id, "model_dimension", current.len())?;
+                        ctx.charge_storage(1)?;
+                        if !seen_dimensions.insert(current) {
+                            continue;
+                        }
+                        let current_node = find_model_node(
+                            identity,
+                            current,
+                            ScalarTypeForm::Dimension,
+                            &mut ctx,
+                            id,
+                        )?;
+                        let current_dimension = model.dimensions.get(current).ok_or_else(|| {
+                            ctx.error(
+                                ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
+                                id,
+                                "model_unit_dimension",
+                            )
+                        })?;
+                        ctx.charge_storage(1)?;
+                        let mut terms = Vec::new();
+                        for (original, exponent) in &current_dimension.terms {
+                            ctx.charge(id, "model_dimension_term")?;
+                            ctx.charge_storage(2)?;
+                            ctx.storage_text(exponent)?;
+                            terms.push(DimensionTerm {
+                                dimension_node_id: find_model_node(
+                                    identity,
+                                    original,
+                                    ScalarTypeForm::Dimension,
+                                    &mut ctx,
+                                    id,
+                                )?,
+                                exponent: exponent.clone(),
+                            });
+                            pending.push(original);
+                        }
+                        if current == unit.dimension.as_ref() {
+                            ctx.storage_dimension_terms(&terms)?;
+                            unit_terms = terms.clone();
+                        }
+                        ctx.charge_work(id, "model_dimension_join", dimensions.len())?;
+                        if !dimensions
+                            .iter()
+                            .any(|entry| entry.structural_node == current_node)
+                        {
+                            ctx.charge_storage(1)?;
+                            dimensions.push(SelectedTypeDimension {
+                                structural_node: current_node,
+                                terms,
+                            });
+                        }
+                    }
+                    let target_node = unit
+                        .target
+                        .as_ref()
+                        .map(|target| {
+                            find_model_node(identity, target, ScalarTypeForm::Unit, &mut ctx, id)
+                        })
+                        .transpose()?;
+                    let ratio =
+                    |raw: &str,
+                     ctx: &mut ProjectionBudget<'_>|
+                     -> Result<CheckedRational, SelectedTypeDeclarationsError> {
+                        ctx.charge_work(id, "model_unit_ratio", raw.len())?;
+                        let (numerator, denominator) = raw.split_once('/').unwrap_or((raw, "1"));
+                        ctx.storage_text(numerator)?;
+                        ctx.storage_text(denominator)?;
+                        if numerator.is_empty()
+                            || denominator.is_empty()
+                            || numerator.parse::<num_bigint::BigInt>().is_err()
+                            || denominator
+                                .parse::<num_bigint::BigInt>()
+                                .ok()
+                                .is_none_or(|value| value <= 0.into())
+                        {
+                            return Err(ctx.error(
+                                ExactTypeProjectionErrorCode::UnsupportedExactType,
+                                id,
+                                "model_unit_ratio",
+                            ));
+                        }
+                        ctx.storage_text(numerator)?;
+                        ctx.storage_text(denominator)?;
+                        Ok(CheckedRational {
+                            numerator: numerator.into(),
+                            denominator: denominator.into(),
+                        })
+                    };
+                    let SelectedExactIdentity::DeclaredUnit(unit_id) = &row.exact_identity else {
+                        unreachable!("joined model unit")
+                    };
+                    ctx.charge_storage(1)?;
+                    ctx.storage_node(id)?;
+                    ctx.storage_text(&row.selected_document)?;
+                    ctx.storage_text(&row.original_identity)?;
+                    ctx.charge_storage(native_join_storage::unit(unit_id))?;
+                    model_units.push(SelectedTypeModelUnit {
+                        structural_node: id.clone(),
+                        selected_document: row.selected_document.clone(),
+                        original_identity: row.original_identity.clone(),
+                        unit_id: unit_id.clone(),
+                        dimension_node,
+                        dimension_terms: unit_terms,
+                        target_node,
+                        scale: ratio(&unit.scale, &mut ctx)?,
+                        offset: ratio(&unit.offset, &mut ctx)?,
+                    });
+                }
+            }
+
             ctx.budget.finish(before);
             Ok(SelectedTypeDeclarations {
                 records,
                 tuples,
                 objects,
                 units,
+                model_units,
                 dimensions,
                 work: ctx.work(),
             })

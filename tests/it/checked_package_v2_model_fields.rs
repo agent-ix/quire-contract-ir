@@ -2519,7 +2519,7 @@ fn selected_runtime_types_refuse_tuple_without_stage_identity() {
 #[trace(
     "FR-354-AC-1",
     "FR-354-AC-2",
-    "TC-469",
+    "TC-470",
     "FR-360-AC-1",
     "FR-360-AC-2",
     "FR-360-AC-3",
@@ -8344,7 +8344,7 @@ fn complete_identity_witness_tuple_validation_matches_projection() {
 }
 
 #[test]
-#[trace("TC-469", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
+#[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
 fn runtime_two_tuple_indices_activate_the_first_row_after_witness_join() {
     use quire_contract_model::{NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource};
     let tuple = |name: &str| {

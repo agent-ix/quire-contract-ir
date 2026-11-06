@@ -944,7 +944,7 @@ fn member_rows<'a>(
 #[trace(
     "FR-354-AC-5",
     "FR-354-AC-7",
-    "TC-469",
+    "TC-470",
     "FR-360-AC-1",
     "FR-360-AC-2",
     "FR-360-AC-3",
@@ -1374,7 +1374,7 @@ fn derived_dimension_dependencies_are_returned_as_borrowed_canonical_terms() {
 }
 
 #[test]
-#[trace("TC-469", "FR-360-AC-2", "FR-360-AC-3")]
+#[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3")]
 fn dimension_sibling_term_denial_restores_the_paid_parent_coordinate() {
     use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocusSource};
     let mut members = nominal_fixture_members()

@@ -1,12 +1,12 @@
 ---
-id: TC-469
+id: TC-470
 title: "Shared native budget for runtime type projection"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-contract-ir/FR-360
     type: verifies
 ---
-# TC-469: Shared native budget for runtime type projection
+# TC-470: Shared native budget for runtime type projection
 
 ## Description
 

@@ -1659,7 +1659,7 @@ fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {
 mod intake_retention;
 
 /// Runtime helper ownership is charged before scalar, unit, alias and wrapper copies.
-#[trace("TC-469", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
+#[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
 #[test]
 fn runtime_member_helpers_precharge_each_owned_layer_and_unit_handle() {
     fn check(
@@ -1766,7 +1766,7 @@ fn runtime_member_helpers_precharge_each_owned_layer_and_unit_handle() {
 }
 
 /// One shared slot decision table preserves ordinary and runtime multiplicities.
-#[trace("TC-469", "FR-360-AC-4", "FR-360-AC-5")]
+#[trace("TC-470", "FR-360-AC-4", "FR-360-AC-5")]
 #[test]
 fn runtime_and_ordinary_slots_share_all_multiplicity_decisions() {
     for (lower, upper, ordered, unique, expected) in [
@@ -1847,7 +1847,7 @@ fn runtime_and_ordinary_slots_share_all_multiplicity_decisions() {
     }
 }
 
-#[trace("TC-469", "FR-360-AC-2", "FR-360-AC-4", "FR-360-AC-5")]
+#[trace("TC-470", "FR-360-AC-2", "FR-360-AC-4", "FR-360-AC-5")]
 #[test]
 fn runtime_duration_lookup_preserves_exact_owner_and_global_selection() {
     let node = |owner: &str| CheckedNodeId {

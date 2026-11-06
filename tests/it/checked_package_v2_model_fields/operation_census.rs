@@ -33,7 +33,7 @@ fn effect_row(short: &str, operation: &str, modifies: Vec<Value>) -> Value {
     "FR-354-AC-10",
     "FR-354-AC-11",
     "FR-038-AC-406",
-    "TC-469",
+    "TC-470",
     "FR-360-AC-2",
     "FR-360-AC-5"
 )]

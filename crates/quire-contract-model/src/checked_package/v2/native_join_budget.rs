@@ -33,6 +33,10 @@ pub struct NativeJoinDeniedCharge {
 pub enum NativeJoinLocusSource {
     /// Allocation belonging to the package-wide projection itself.
     Package,
+    /// Flattened selected monitor seed in the caller plan.
+    MonitorSeed(usize),
+    /// Reached reader input row before graph identity resolution.
+    ReachedRow(usize),
     /// Index into the admitted package's semantic graph.
     GraphNode(usize),
     /// Index into the admitted model declaration iterator.
@@ -154,12 +158,6 @@ impl NativeJoinBudget {
         self.last_success_delta = None;
     }
 
-    /// Keep the next native join inside an enclosing reader's remaining work allowance.
-    pub(super) fn tighten_work_limit(&mut self, remaining: u64) {
-        let shared_limit = self.consumed.work.saturating_add(remaining);
-        self.work_limit = self.work_limit.min(shared_limit);
-    }
-
     pub(super) fn charge(&mut self, kind: NativeJoinChargeKind, amount: u128) -> bool {
         let (consumed, limit) = match kind {
             NativeJoinChargeKind::Work => (&mut self.consumed.work, self.work_limit),
@@ -180,6 +178,54 @@ impl NativeJoinBudget {
     }
 }
 
+/// Compact private refusal used before any owning runtime diagnostic is payable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct NativeReadDenied;
+
+pub(super) fn read_charge(
+    budget: &mut NativeJoinBudget,
+    kind: NativeJoinChargeKind,
+    amount: u128,
+) -> Result<(), NativeReadDenied> {
+    if budget.charge(kind, amount) {
+        Ok(())
+    } else {
+        Err(NativeReadDenied)
+    }
+}
+
+/// Admit the identity walk before computing its shared footprint or using it as a key.
+pub(super) fn read_node_work(
+    budget: &mut NativeJoinBudget,
+    node: &super::CheckedNodeId,
+) -> Result<(), NativeReadDenied> {
+    read_charge(budget, NativeJoinChargeKind::Work, 1)?;
+    read_charge(
+        budget,
+        NativeJoinChargeKind::Work,
+        node.package.len() as u128,
+    )?;
+    for segment in &node.path {
+        read_charge(budget, NativeJoinChargeKind::Work, 1)?;
+        if let super::CheckedNodePathSegment::Name(name) = segment {
+            read_charge(budget, NativeJoinChargeKind::Work, name.len() as u128)?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn read_node_storage(
+    budget: &mut NativeJoinBudget,
+    node: &super::CheckedNodeId,
+) -> Result<(), NativeReadDenied> {
+    read_node_work(budget, node)?;
+    read_charge(
+        budget,
+        NativeJoinChargeKind::Storage,
+        super::native_join_storage::node(node),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::native_join_storage;
@@ -190,8 +236,8 @@ mod tests {
         QuantityCarrier, RationalDomain, RoundingMode, UnitId, ValueType,
     };
 
-    /// Trace: TC-469, FR-360-AC-3.
-    #[trace("TC-469", "FR-360-AC-3")]
+    /// Trace: TC-470, FR-360-AC-3.
+    #[trace("TC-470", "FR-360-AC-3")]
     #[test]
     fn first_native_denial_retains_its_original_fixed_locus() {
         use super::{NativeJoinLocus, NativeJoinLocusSource};
