@@ -10924,6 +10924,99 @@ fn recovery_case_shared_body_is_checked_under_each_arm_scope() {
     assert_recovery_case_binder_refusal(&package, compensation);
 }
 
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_local_cannot_launder_a_known_stage_binder_or_barred_state() {
+    let (mut package, compensation, case, binder, circle, _) = slot_case_fixture();
+    let boolean = node_id(&family_key("aaaa"));
+    let known = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][1]["value"]
+        ["target"]
+        .clone();
+    let at = node_position_for_key(&package, &known);
+    assert_eq!(
+        package["semantic_graph"]["nodes"][at]["semantic_type"],
+        boolean
+    );
+    let literal = node_id("fixture/protocol-body/case-boolean-payload");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":literal, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value", "semantic_form":"literal", "semantic_type":boolean,
+            "dependencies":[], "occurrences":[{"role":"expression","ordinal":0}],
+            "body":{"term":"literal","type":boolean,"value_kind":"boolean","value":true}
+        }));
+    let union = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "composite_type" && node["semantic_form"] == "union")
+        .expect("Shape union");
+    package["semantic_graph"]["nodes"][union]["body"]["members"][0]["value"]["members"] =
+        json!([{"term":"reference","target":boolean}]);
+    package["semantic_graph"]["nodes"][union]["dependencies"] = json!([boolean]);
+    let at = node_position_for_key(&package, &circle);
+    package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["members"][0]["target"] =
+        literal;
+    let at = node_position_for_key(&package, &binder);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = boolean.clone();
+    package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["value"] =
+        json!("forward");
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = boolean.clone();
+    package["semantic_graph"]["nodes"][at]["body"]["result_type"] = boolean.clone();
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][2]["value"]["members"][1] =
+        json!({"term":"literal","type":boolean,"value_kind":"boolean","value":false});
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][12]["value"]["members"]
+        [1]["value"] = json!({"term":"reference","target":case});
+    settle_after_structural_rekey(&mut package);
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"][1] =
+        json!({"term":"reference","target":binder});
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "same-name local Boolean binder must admit: {:?}",
+        read(&package)
+    );
+
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"][1] =
+        json!({"term":"reference","target":known});
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("known stage binder cannot be laundered by a same-name case local");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_protocol_refusal_at(&refusal, &package, compensation);
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope {name, stage, read, ..})
+        if name.as_ref() == "forward" && stage.as_ref() == "recovery" && read.as_ref() == "stage"));
+
+    let clause = clause_position(&package);
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][2]["value"]["members"][1] =
+        json!({"term":"reference","target":over});
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("barred state read must refuse before binder scope");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::ModelStateRead {slot})
+        if slot.as_ref() == "recovery.predicate"));
+}
+
 #[trace("FR-038-AC-465")]
 #[test]
 fn recovery_slot_let_body_reads_its_own_local_binder() {
