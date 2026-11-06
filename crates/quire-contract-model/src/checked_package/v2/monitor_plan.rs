@@ -367,7 +367,11 @@ fn admitted_clock_name(term: &CheckedTerm) -> Option<&str> {
     let CheckedTerm::Application { arguments, .. } = term else {
         return None;
     };
-    let CheckedTerm::Literal { value, .. } = arguments.get(1)? else {
+    let argument = match arguments.get(1)? {
+        CheckedTerm::Binding { value, .. } => value.as_ref(),
+        direct => direct,
+    };
+    let CheckedTerm::Literal { value, .. } = argument else {
         return None;
     };
     value.as_str()

@@ -22,6 +22,54 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
 /// Trace: FR-038-AC-470, TC-048.
 #[trace("TC-048", "FR-038-AC-470")]
 #[test]
+fn monitor_plan_refuses_binding_wrapped_clock_before_public_read() {
+    let (mut wire, root) = materialize(&recipes()["base"]);
+    let control = admitted(&wire);
+    let control_plan = control
+        .monitor_plans()
+        .next()
+        .expect("admitted monitor root");
+    let occurrence = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Claim,
+        ordinal: 0,
+    };
+    let read = control_plan
+        .clock_for_claim(control_plan.clause(), &occurrence, 100)
+        .expect("admitted direct clock read");
+    assert_eq!(read.clock_name(), "model-steps");
+    assert_eq!(
+        read.clock(),
+        CheckedMonitorClock::Configured(&control.temporal_bindings().unwrap()[0].clock)
+    );
+
+    let rows = wire["temporal_bindings"].clone();
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    let clause =
+        wire["semantic_graph"]["nodes"][root]["body"]["members"][0]["value"]["target"].clone();
+    let position = position(&wire, &clause);
+    let clock = &mut wire["semantic_graph"]["nodes"][position]["body"]["arguments"][1];
+    let literal = std::mem::replace(clock, Value::Null);
+    *clock = binding("clock", literal);
+    finish(&mut wire);
+    wire["temporal_bindings"] = rows;
+    fixture_support::refresh_identity_projection(&mut wire);
+
+    let CheckedPackageV2ReadResult::Refused(refusal) = read_package(&wire).unwrap() else {
+        panic!("wrapped clock must refuse before the monitor read");
+    };
+    assert_eq!(
+        (refusal.code, refusal.cause),
+        (Code::IllTyped, Some(Cause::OperatorIneligible))
+    );
+    assert_eq!(
+        refusal.loci[0].path.as_ref().unwrap().as_str(),
+        format!("/semantic_graph/nodes/{position}/body/arguments/1")
+    );
+}
+
+/// Trace: FR-038-AC-470, TC-048.
+#[trace("TC-048", "FR-038-AC-470")]
+#[test]
 fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
     let (mut wire, root) = materialize(&recipes()["base"]);
     let clause =
