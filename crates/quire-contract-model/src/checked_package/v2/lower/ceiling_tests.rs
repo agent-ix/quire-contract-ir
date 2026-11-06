@@ -204,7 +204,9 @@ fn shared_closure_package(roots: usize, shared: usize) -> (CheckedPackageV2, Vec
             })
         })
         .collect::<Vec<_>>();
-    package.wire.semantic_graph.nodes = serde_json::from_value(json!(nodes)).expect("nodes");
+    std::sync::Arc::make_mut(&mut package.wire)
+        .semantic_graph
+        .nodes = serde_json::from_value(json!(nodes)).expect("nodes");
     package.kinds =
         vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); shared + roots].into();
     retain_graph_indices(&mut package);

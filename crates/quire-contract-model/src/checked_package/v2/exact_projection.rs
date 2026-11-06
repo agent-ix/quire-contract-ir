@@ -1279,12 +1279,10 @@ impl SelectedExactIdentities {
             .or_else(|| fields.peek().map(|row| &row.record_node))
             .or_else(|| package.graph().nodes.first().map(|node| &node.node_id));
         if let Some(first) = first {
+            Self::empty().check_binding(package, budget, first)?;
             charge_native_storage(budget, first, first, "stage_selection", 15)?;
         }
         let result = (|| {
-            if let Some(first) = first {
-                Self::empty().check_binding(package, budget, first)?;
-            }
             let mut selected = Self::empty();
             selected.binding = Some(package.admission_binding.clone());
             let mut owners: BTreeSet<(Box<str>, SelectedExactDeclarationForm, Box<str>)> =

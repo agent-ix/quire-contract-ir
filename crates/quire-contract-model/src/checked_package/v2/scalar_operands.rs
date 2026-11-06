@@ -504,27 +504,38 @@ mod tests {
     /// Vary graph size while keeping the same admitted scalar argument shape.
     fn padded_package(graph_nodes: usize) -> CheckedPackageV2 {
         let mut package = fixture_package();
-        let application = package
-            .wire
+        let application = std::sync::Arc::make_mut(&mut package.wire)
             .semantic_graph
             .nodes
             .pop()
             .expect("application");
-        let application_term = package.terms.pop().expect("application term");
-        let application_kind = package.kinds.pop().expect("application kind");
+        let application_term = std::sync::Arc::make_mut(&mut package.terms)
+            .pop()
+            .expect("application term");
+        let application_kind = std::sync::Arc::make_mut(&mut package.kinds)
+            .pop()
+            .expect("application kind");
         for offset in 0..(graph_nodes - 4) {
             let mut filler = package.wire.semantic_graph.nodes[0].clone();
             filler.node_id = serde_json::from_value(json!({
                 "package": "test", "path": [format!("filler-{offset}")], "ordinal": 0,
             }))
             .expect("filler identity");
-            package.wire.semantic_graph.nodes.push(filler);
-            package.terms.push(package.terms[0].clone());
-            package.kinds.push(package.kinds[0]);
+            std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes
+                .push(filler);
+            let term = package.terms[0].clone();
+            std::sync::Arc::make_mut(&mut package.terms).push(term);
+            let kind = package.kinds[0];
+            std::sync::Arc::make_mut(&mut package.kinds).push(kind);
         }
-        package.wire.semantic_graph.nodes.push(application);
-        package.terms.push(application_term);
-        package.kinds.push(application_kind);
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes
+            .push(application);
+        std::sync::Arc::make_mut(&mut package.terms).push(application_term);
+        std::sync::Arc::make_mut(&mut package.kinds).push(application_kind);
         package.node_index = super::super::retained_node_index(&package.wire).into();
         package
     }

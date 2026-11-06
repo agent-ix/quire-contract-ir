@@ -3787,7 +3787,8 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(position, node)| (node.node_id.clone(), position))
-            .collect();
+            .collect::<std::collections::BTreeMap<_, _>>()
+            .into();
         assert_eq!(read(&permuted), Ok(result));
     }
 
@@ -3931,8 +3932,8 @@ mod tests {
         // seam because a structural comparison reaching IEEE cannot admit.
         let admitted = package();
         let mut nodes = admitted.wire.semantic_graph.nodes.clone();
-        let mut kinds = admitted.kinds.clone();
-        let mut index = admitted.node_index.clone();
+        let mut kinds = admitted.kinds.as_ref().clone();
+        let mut index = admitted.node_index.as_ref().clone();
         let template = nodes[1].clone();
         let mut append = |tag: &str,
                           form: &str,

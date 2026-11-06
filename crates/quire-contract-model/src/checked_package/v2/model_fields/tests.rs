@@ -273,17 +273,14 @@ fn exact_reference_uses_the_selected_object_row() {
             target: object.clone(),
         }],
     };
-    fixture
-        .package
-        .wire
+    std::sync::Arc::make_mut(&mut fixture.package.wire)
         .semantic_graph
         .nodes
         .push(reference_node.clone());
-    fixture.package.terms.push(reference_node.body);
-    fixture.package.kinds[0] = CheckedNodeKind::Model(ModelForm::ObjectType);
-    fixture
-        .package
-        .kinds
+    std::sync::Arc::make_mut(&mut fixture.package.terms).push(reference_node.body);
+    std::sync::Arc::make_mut(&mut fixture.package.kinds)[0] =
+        CheckedNodeKind::Model(ModelForm::ObjectType);
+    std::sync::Arc::make_mut(&mut fixture.package.kinds)
         .push(CheckedNodeKind::CompositeType(CompositeTypeForm::Reference));
     fixture.package.node_index = super::super::retained_node_index(&fixture.package.wire).into();
 
@@ -293,9 +290,7 @@ fn exact_reference_uses_the_selected_object_row() {
         .expect("witnessed reference");
     assert_eq!(projected.value_type(), &ValueType::Reference(effective));
 
-    fixture
-        .package
-        .models
+    std::sync::Arc::make_mut(&mut fixture.package.models)
         .index
         .0
         .get_mut(&object)
