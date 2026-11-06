@@ -2142,6 +2142,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | CompositeTypeForm::Set
             | CompositeTypeForm::Bag
             | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Map
             | CompositeTypeForm::Record
             | CompositeTypeForm::Tuple
             | CompositeTypeForm::Union
@@ -2328,6 +2329,27 @@ fn validate_body(
 ) -> Result<u64, ValidationFailure> {
     #[cfg(test)]
     lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
+    if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Map) {
+        let members = body.get("members").and_then(Value::as_array);
+        let valid = body.get("term").and_then(Value::as_str) == Some("aggregate")
+            && members.is_some_and(|members| {
+                matches!(members.as_slice(), [key, value]
+                    if key.get("term").and_then(Value::as_str) == Some("binding")
+                        && key.get("name").and_then(Value::as_str) == Some("key")
+                        && key.get("value").and_then(|value| value.get("term"))
+                            .and_then(Value::as_str) == Some("reference")
+                        && value.get("term").and_then(Value::as_str) == Some("binding")
+                        && value.get("name").and_then(Value::as_str) == Some("value")
+                        && value.get("value").and_then(|value| value.get("term"))
+                            .and_then(Value::as_str) == Some("reference"))
+            });
+        if !valid {
+            return Err(refuse(
+                CheckedPackageRefusalCode::MalformedWire,
+                at.pointer(),
+            ));
+        }
+    }
     if source_nominal_body(kind, body) {
         let nominal = identity::NominalBody::from_value(body, at.pointer())?;
         let site = ReferenceSite {
@@ -2464,6 +2486,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | CompositeTypeForm::Set
             | CompositeTypeForm::Bag
             | CompositeTypeForm::OrderedSet
+            | CompositeTypeForm::Map
             | CompositeTypeForm::Record
             | CompositeTypeForm::Tuple
             | CompositeTypeForm::Union

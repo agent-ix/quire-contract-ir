@@ -156,6 +156,7 @@ enum StructuralForm {
     StateClause,
     StateTransition,
     UnionType,
+    MapType,
     UnionValue,
     ProtocolReference,
     AbstractionRelation,
@@ -179,6 +180,7 @@ impl StructuralForm {
             | Self::CarriedQuantity
             | Self::BoundedQuantity
             | Self::UnionType
+            | Self::MapType
             | Self::UnionValue => None,
         }
     }
@@ -212,6 +214,7 @@ impl StructuralForm {
                 | ScalarTypeForm::Enum,
             ) => None,
             K::CompositeType(CompositeTypeForm::Union) => Some(Self::UnionType),
+            K::CompositeType(CompositeTypeForm::Map) => Some(Self::MapType),
             K::CompositeType(
                 CompositeTypeForm::Option
                 | CompositeTypeForm::Sequence
@@ -655,6 +658,24 @@ pub(super) fn validate_structural_nodes_with_keys(
                 .and_then(typed_union_type_body)
                 .is_none()
                 .then_some(Defect::Body),
+            Some(StructuralForm::MapType) => {
+                let Some([key, value]) = term.and_then(typed_aggregate) else {
+                    return Err(refuse(Defect::Body));
+                };
+                let Some(key) = typed_binding(key, "key").and_then(typed_reference) else {
+                    return Err(refuse(Defect::Body));
+                };
+                let Some(value) = typed_binding(value, "value").and_then(typed_reference) else {
+                    return Err(refuse(Defect::Body));
+                };
+                (!dependency_order.matches(
+                    &node.dependencies,
+                    BTreeSet::from([key, value]),
+                    index,
+                    structural_keys,
+                ))
+                .then_some(Defect::Dependencies)
+            }
             Some(StructuralForm::UnionValue) => term
                 .and_then(typed_union_value_body)
                 .is_none()
@@ -798,6 +819,53 @@ pub(super) fn validate_derived_type_shapes(
                         .and_then(typed_aggregate)
                         .is_some_and(|members| matches!(members, [CheckedTerm::Reference { target }] if target.is_well_formed()))
             }
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Map) => {
+                let operands = term.and_then(typed_aggregate).and_then(|members| {
+                    let [key, value] = members else { return None; };
+                    Some((
+                        typed_reference(typed_binding(key, "key")?)?,
+                        typed_reference(typed_binding(value, "value")?)?,
+                    ))
+                });
+                node.semantic_type == node.node_id
+                    && operands.is_some_and(|(key, value)| {
+                        matches!(graph.kind(key), Some(CheckedNodeKind::ScalarType(
+                            ScalarTypeForm::Boolean | ScalarTypeForm::Integer
+                            | ScalarTypeForm::Rational | ScalarTypeForm::Decimal
+                            | ScalarTypeForm::Float32 | ScalarTypeForm::Float64
+                            | ScalarTypeForm::Text | ScalarTypeForm::String
+                            | ScalarTypeForm::Uuid | ScalarTypeForm::Timestamp
+                            | ScalarTypeForm::Unit | ScalarTypeForm::Enum
+                            | ScalarTypeForm::CompoundUnit | ScalarTypeForm::CarriedQuantity
+                            | ScalarTypeForm::BoundedQuantity
+                        )))
+                            && matches!(graph.kind(value),
+                                Some(CheckedNodeKind::ScalarType(_)
+                                    | CheckedNodeKind::CompositeType(_)
+                                    | CheckedNodeKind::BoundedDomain(_)
+                                    | CheckedNodeKind::Model(
+                                        ModelForm::RecordValueType
+                                            | ModelForm::TupleValueType
+                                            | ModelForm::VariantType
+                                    )))
+                            && !matches!(graph.kind(value), Some(CheckedNodeKind::ScalarType(
+                                ScalarTypeForm::Dimension | ScalarTypeForm::DimensionEquivalence
+                            )))
+                            && structural_keys.get(position).is_some_and(|id| {
+                                matches!(id.path.as_slice(),
+                                    [CheckedNodePathSegment::Name(tag),
+                                     CheckedNodePathSegment::Name(form),
+                                     CheckedNodePathSegment::Node(key_id),
+                                     CheckedNodePathSegment::Node(value_id)]
+                                        if tag.as_ref() == "composite_type"
+                                            && form.as_ref() == "map"
+                                            && key_id.as_ref()
+                                                == super::structural_key(key, index, structural_keys)
+                                            && value_id.as_ref()
+                                                == super::structural_key(value, index, structural_keys))
+                            })
+                    })
+            }
             CheckedNodeKind::BoundedDomain(BoundedDomainForm::TextBounds) => {
                 // A bound's form selects its own base, regardless of its authored identity.
                 if !graph.type_matches(&node.semantic_type, ScalarTypeForm::Text) {
@@ -828,7 +896,8 @@ pub(super) fn validate_derived_type_shapes(
                     _ => matches!(graph.kind(&node.semantic_type),
                         Some(CheckedNodeKind::CompositeType(
                             CompositeTypeForm::Set | CompositeTypeForm::Bag
-                            | CompositeTypeForm::Sequence | CompositeTypeForm::OrderedSet))),
+                            | CompositeTypeForm::Sequence | CompositeTypeForm::OrderedSet
+                            | CompositeTypeForm::Map))),
                 };
                 let natural = kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds);
                 base_valid && term.and_then(typed_aggregate).is_some_and(|members| {
@@ -909,6 +978,8 @@ pub(super) fn validate_derived_type_shapes(
                             .key("value")
                     })
                     .unwrap_or_else(|| node_pointer(position))
+            } else if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Map) {
+                node_pointer(position)
             } else {
                 node_pointer(position).key("node_id")
             };

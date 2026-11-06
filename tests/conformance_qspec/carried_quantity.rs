@@ -12,7 +12,8 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageReadLimits,
     CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
-    CompleteLoweringRecordV2, LiteralKind, ScalarTypeForm,
+    CompleteLoweringRecordV2, CompositeTypeForm, ExactTypeProjectionErrorCode, LiteralKind,
+    ScalarTypeForm, SelectedExactIdentities,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -632,6 +633,79 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
             }
         }
     }
+}
+
+#[trace("TC-048", "FR-038-AC-485", "FR-038-AC-488")]
+#[test]
+fn admitted_bounded_quantity_is_a_map_scalar_key() {
+    let published = bounded_vectors();
+    let form = published["forms"]
+        .as_array()
+        .expect("published bounded forms")
+        .iter()
+        .find(|form| form["id"] == "BQ-01")
+        .expect("BQ-01");
+    let mut package = Package::new();
+    let all = &vectors()["nodes"];
+    for name in ["rational", "text", "integer"] {
+        package.add(name, all);
+    }
+    package.bounded(
+        "bounded",
+        "unit_m",
+        &bound_text(&form["min"]),
+        &bound_text(&form["max"]),
+    );
+    let key = package.ids["bounded"].clone();
+    let value = package.ids["integer"].clone();
+    let map = json!({"package": package.wire["name"],
+        "path": ["composite_type", "map", key, value], "ordinal": 0});
+    let dependencies = vec![key.clone(), value.clone()];
+    package.wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id": map, "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "composite_type", "semantic_form": "map",
+            "semantic_type": map, "dependencies": dependencies,
+            "occurrences": [{"role": "type", "ordinal": 0}],
+            "body": {"term": "aggregate", "members": [
+                {"term": "binding", "name": "key",
+                    "value": {"term": "reference", "target": key}},
+                {"term": "binding", "name": "value",
+                    "value": {"term": "reference", "target": value}}
+            ]}
+        }));
+    let CheckedPackageV2ReadResult::Admitted(admitted) = package.read() else {
+        panic!("Map<BoundedQuantity,Integer> must admit");
+    };
+    let (map, _) = admitted
+        .graph()
+        .nodes
+        .iter()
+        .zip(admitted.node_kinds())
+        .find(|(_, kind)| **kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
+        .expect("admitted Map");
+    let Some(CheckedTerm::Aggregate { members }) = admitted.term(&map.node_id) else {
+        panic!("retained Map body");
+    };
+    let CheckedTerm::Binding { value, .. } = &members[0] else {
+        panic!("Map key binding");
+    };
+    let CheckedTerm::Reference { target } = value.as_ref() else {
+        panic!("Map key reference");
+    };
+    assert_eq!(
+        admitted.node_kind(target),
+        Some(CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity))
+    );
+    let refusal = admitted
+        .project_exact_type(&map.node_id, &SelectedExactIdentities::empty(), 100)
+        .expect_err("Exact Map requires a Text key");
+    assert_eq!(
+        refusal.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
 }
 
 /// Trace: FR-038-AC-485, FR-019-AC-26; QSpec FR-322-AC-384.
