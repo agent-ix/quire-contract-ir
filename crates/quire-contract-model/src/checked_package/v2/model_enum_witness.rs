@@ -284,6 +284,10 @@ impl<'a> SelectedModelEnums<'a> {
         budget: &mut NativeJoinBudget,
     ) -> Result<Self, RuntimeEnumError> {
         let previous_locus = budget.active_locus();
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::Package,
+            form: "model_enum_join_storage",
+        }));
         let result = (|| {
             Self::from_stage_rows_inner(
                 package,

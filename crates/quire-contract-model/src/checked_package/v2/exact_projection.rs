@@ -1188,6 +1188,10 @@ impl SelectedExactIdentities {
         budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
         if let Some(first) = rows.first() {
+            budget.set_active_locus(Some(super::NativeJoinLocus {
+                source: super::NativeJoinLocusSource::Package,
+                form: "model_enum_shape_index_storage",
+            }));
             charge_native_storage(
                 budget,
                 &first.structural_node,
