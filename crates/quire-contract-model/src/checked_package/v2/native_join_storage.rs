@@ -21,8 +21,16 @@ fn add(left: u128, right: u128) -> u128 {
     left.saturating_add(right)
 }
 
+/// One owned text buffer assembled from borrowed parts, including its container.
+pub(super) fn text_parts(parts: &[&str]) -> u128 {
+    parts
+        .iter()
+        .try_fold(1_u128, |units, part| units.checked_add(length(part.len())))
+        .unwrap_or(u128::MAX)
+}
+
 fn text(value: &str) -> u128 {
-    add(1, length(value.len()))
+    text_parts(&[value])
 }
 
 fn text_vec(values: &[Box<str>]) -> u128 {

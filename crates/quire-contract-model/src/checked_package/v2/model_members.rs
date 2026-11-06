@@ -1024,9 +1024,7 @@ fn runtime_storage(
 }
 
 fn runtime_text_storage(value: &str) -> u128 {
-    u128::try_from(value.len())
-        .unwrap_or(u128::MAX)
-        .saturating_add(1)
+    super::native_join_storage::text_parts(&[value])
 }
 
 fn runtime_declaration_storage(identity: &str, form: DeclarationForm, node: &str) -> u128 {
@@ -1411,24 +1409,23 @@ impl DomainModel {
         budget: &mut Option<&mut NativeJoinBudget>,
     ) -> Result<Option<&CheckedNodeId>, RuntimeTypeBudgetDenied> {
         const UNIT_PREFIX: &str = "ix://quire/unit/";
-        for (key, node) in self.unit_refs.iter() {
-            runtime_work(budget, key.len() as u128 + 1)?;
-            let Some(resolved) = key.strip_prefix(DURATION_RESOLVED_PREFIX) else {
-                continue;
-            };
-            let matches = if self.own_seconds_declared {
-                resolved
-                    .strip_prefix(UNIT_PREFIX)
-                    .and_then(|name| name.strip_suffix("/s"))
-                    == Some(self.identity.as_ref())
-            } else {
-                resolved == "ix://quire/unit/s"
-            };
-            if matches {
-                return Ok(Some(node));
-            }
-        }
-        Ok(None)
+        let parts = if self.own_seconds_declared {
+            [
+                DURATION_RESOLVED_PREFIX,
+                UNIT_PREFIX,
+                self.identity.as_ref(),
+                "/s",
+            ]
+        } else {
+            [DURATION_RESOLVED_PREFIX, UNIT_PREFIX, "", "s"]
+        };
+        // Compute the single buffer's footprint from borrowed parts. Both its
+        // inspection and ownership are payable before construction or lookup.
+        let key_storage = super::native_join_storage::text_parts(&parts);
+        runtime_work(budget, key_storage)?;
+        runtime_storage(budget, key_storage)?;
+        let key = parts.concat();
+        Ok(self.unit_refs.get(key.as_str()))
     }
 
     fn element_type_leaf_runtime(
