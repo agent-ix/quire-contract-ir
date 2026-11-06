@@ -32,3 +32,10 @@ The changed trace tags cover admission, bounds refusal, direct unit RequiresBoun
 **CONDITIONAL** for this method.
 
 Plan completion: not assessed.
+
+## Dispositions
+
+| Round | FND | Outcome | Evidence |
+| --- | --- | --- | --- |
+| 1 | FND-001 | fixed | published_bounded_quantity_unit_and_alias_identity asserts BQ-02 changes structural identity and BQ-03 forwards both parameter types to one bounded node, with a bounded-node census of two. |
+| 1 | FND-002 | fixed | published_bounded_quantity_shape_and_bounds_policy requests a compound-unit parameter under require_bounds and asserts RequiresBound names its exact structural ID. |
