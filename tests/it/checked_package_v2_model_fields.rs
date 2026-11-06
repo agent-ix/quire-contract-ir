@@ -7842,5 +7842,5 @@ fn complete_identity_witness_tuple_validation_matches_projection() {
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
     );
     assert_eq!(projection.code, direct.code);
-    assert_eq!(projection.at.as_deref(), Some(&primitive));
+    assert_eq!(projection.at.as_ref(), &primitive);
 }
