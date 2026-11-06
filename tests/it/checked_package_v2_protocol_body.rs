@@ -5,10 +5,11 @@
 
 use crate::support::checked_package::{
     admitted_protocol_families, application_node_key, canonical, evidence_for,
-    evidence_with_document, family_key, family_model_document, node_id, protocol_named_node,
-    protocol_role_node, reassign_node_id, rebuild_source_map, refresh_identity,
-    refresh_identity_projection, refusal, refusal_at_id, rename_node, role_port_fixture,
-    select_model, selected_interface_model_node, settle, v2_all_families,
+    evidence_with_document, family_key, family_model_document, fixture_source, node_id,
+    owned_structural_node, protocol_named_node, protocol_role_node, reassign_node_id,
+    rebuild_source_map, refresh_identity, refresh_identity_projection, refusal, refusal_at_id,
+    rename_node, role_port_fixture, select_model, selected_interface_model_node, settle,
+    source_owner, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -10725,6 +10726,354 @@ fn slot_let_fixture(initializer_reads_local: bool) -> (Value, usize) {
     set_recovery_predicate(&mut package, compensation, &expression);
     settle(&mut package);
     (package, compensation)
+}
+
+fn case_arm(member: &str, binders: &[Value], body: Value) -> Value {
+    json!({"term":"binding", "name":member, "value":{"term":"aggregate", "members":[
+        {"term":"aggregate", "members":binders.iter().map(|binder| json!({"term":"reference", "target":binder})).collect::<Vec<_>>()},
+        body
+    ]}})
+}
+
+fn slot_case_fixture() -> (Value, usize, Value, Value, Value, Value) {
+    let (mut package, _, compensation) = package_with_admitted_compensation();
+    let integer = node_id(&family_key("a3a3"));
+    let boolean = node_id(&family_key("aaaa"));
+    let shape = node_id("fixture/protocol-body/Shape");
+    let two = node_id("fixture/protocol-body/two");
+    let circle = node_id("fixture/protocol-body/circle");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    nodes.push(owned_structural_node(json!({
+        "node_id":shape, "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"composite_type", "semantic_form":"union", "semantic_type":shape,
+        "dependencies":[integer], "occurrences":[{"role":"declaration","ordinal":0}],
+        "declaration":{"qualified_name":["Shape"]},
+        "body":{"term":"aggregate","members":[
+            {"term":"binding","name":"Circle","value":{"term":"aggregate","members":[{"term":"reference","target":integer}]}},
+            {"term":"binding","name":"Empty","value":{"term":"aggregate","members":[]}}
+        ]}
+    }), source_owner(&fixture_source())));
+    nodes.push(json!({
+        "node_id":two, "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"value", "semantic_form":"literal", "semantic_type":integer,
+        "dependencies":[], "occurrences":[{"role":"expression","ordinal":0}],
+        "body":{"term":"literal","type":integer,"value_kind":"integer","value":"2"}
+    }));
+    nodes.push(json!({
+        "node_id":circle, "schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"value", "semantic_form":"union_value", "semantic_type":shape,
+        "dependencies":[two], "occurrences":[{"role":"expression","ordinal":0}],
+        "body":{"term":"aggregate","members":[{"term":"binding","name":"Circle","value":
+            {"term":"aggregate","members":[{"term":"reference","target":two}]}}]}
+    }));
+    let arm_r = clause_parameter(&mut package, "arm_r", "0");
+    let at = node_position_for_key(&package, &arm_r);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = integer.clone();
+    let case = slot_application(
+        &mut package,
+        "case",
+        "quire.op.control.case",
+        &integer,
+        json!([
+            {"term":"reference","target":circle},
+            case_arm("Circle", std::slice::from_ref(&arm_r), json!({"term":"reference","target":arm_r})),
+            case_arm("Empty", &[], json!({"term":"literal","type":integer,"value_kind":"integer","value":"0"}))
+        ]),
+        Value::Null,
+    );
+    let predicate = boolean_expression(
+        &mut package,
+        "quire.op.integer.ge",
+        &[case.clone(), two.clone()],
+    );
+    set_recovery_predicate(&mut package, compensation, &predicate);
+    settle_after_structural_rekey(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    (package, compensation, case, arm_r, circle, boolean)
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_arm_binder_is_local_to_its_arm_body() {
+    let (package, _, case, binder, _, _) = slot_case_fixture();
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package) else {
+        panic!("case arm binder must admit: {:?}", read(&package));
+    };
+    let case_id = checked_node_id(&case);
+    let binder_id = checked_node_id(&binder);
+    let Some(CheckedTerm::Application { arguments, .. }) = admitted.term(&case_id) else {
+        panic!("admitted case body");
+    };
+    let [_, CheckedTerm::Binding { value: circle, .. }, CheckedTerm::Binding { value: empty, .. }] =
+        arguments.as_slice()
+    else {
+        panic!("admitted case arms");
+    };
+    let CheckedTerm::Aggregate { members: circle } = circle.as_ref() else {
+        panic!("Circle arm");
+    };
+    let [CheckedTerm::Aggregate { members: binders }, CheckedTerm::Reference { target: body }] =
+        circle.as_slice()
+    else {
+        panic!("Circle binder and body");
+    };
+    assert_eq!(
+        binders.as_slice(),
+        &[CheckedTerm::Reference {
+            target: binder_id.clone()
+        }]
+    );
+    assert_eq!(body, &binder_id);
+    let CheckedTerm::Aggregate { members: empty } = empty.as_ref() else {
+        panic!("Empty arm");
+    };
+    assert!(matches!(&empty[1], CheckedTerm::Literal { value, .. } if value == "0"));
+}
+
+fn assert_recovery_case_binder_refusal(package: &Value, compensation: usize) {
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
+        panic!("out-of-scope case binder must refuse: {:?}", read(package));
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_protocol_refusal_at(&refusal, package, compensation);
+    let owner = checked_node_id(&package["semantic_graph"]["nodes"][compensation]["node_id"]);
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope {name, stage, read, owner: actual})
+        if name.as_ref() == "arm_r" && stage.as_ref() == "recovery"
+            && read.as_ref() == "stage" && actual == &owner));
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_arm_binder_does_not_escape_to_the_outer_predicate() {
+    let (mut package, compensation, _, binder, _, _) = slot_case_fixture();
+    let predicate = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][12]
+        ["value"]["members"][1]["value"]["target"]
+        .clone();
+    let at = node_position_for_key(&package, &predicate);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["target"] = binder;
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    assert_recovery_case_binder_refusal(&package, compensation);
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_arm_binder_does_not_escape_to_its_scrutinee() {
+    let (mut package, _, case, binder, circle, _) = slot_case_fixture();
+    let shape = package["semantic_graph"]["nodes"][node_position_for_key(&package, &circle)]
+        ["semantic_type"]
+        .clone();
+    let integer = node_id(&family_key("a3a3"));
+    let empty = node_id("fixture/protocol-body/case-empty-scrutinee");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":empty, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value", "semantic_form":"union_value", "semantic_type":shape,
+            "dependencies":[], "occurrences":[{"role":"expression","ordinal":0}],
+            "body":{"term":"aggregate","members":[
+                {"term":"binding","name":"Empty","value":{"term":"aggregate","members":[]}}
+            ]}
+        }));
+    let union = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "composite_type" && node["semantic_form"] == "union")
+        .expect("Shape union");
+    package["semantic_graph"]["nodes"][union]["body"]["members"][0]["value"]["members"] =
+        json!([{"term":"reference","target":shape}]);
+    package["semantic_graph"]["nodes"][union]["dependencies"] = json!([shape]);
+    package["semantic_graph"]["nodes"][union]["recursion_group"] = json!("case-recursive-union");
+    let at = node_position_for_key(&package, &circle);
+    package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["members"][0]["target"] =
+        empty;
+    let at = node_position_for_key(&package, &binder);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = shape;
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"][1] =
+        json!({"term":"literal","type":integer,"value_kind":"integer","value":"1"});
+    settle_after_structural_rekey(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "recursive Shape baseline must admit: {:?}",
+        read(&package)
+    );
+
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][0]["target"] = binder;
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    assert_recovery_case_binder_refusal(&package, compensation);
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_same_name_sibling_binders_remain_identity_distinct() {
+    let (mut package, _, case, circle_binder, _, _) = slot_case_fixture();
+    let integer = node_id(&family_key("a3a3"));
+    let empty_binder = clause_parameter(&mut package, "arm_other", "0");
+    let at = node_position_for_key(&package, &empty_binder);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = integer.clone();
+    package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["value"] = json!("arm_r");
+    let union = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "composite_type" && node["semantic_form"] == "union")
+        .expect("Shape union");
+    package["semantic_graph"]["nodes"][union]["body"]["members"][1]["value"]["members"] =
+        json!([{"term":"reference","target":integer}]);
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][2] = case_arm(
+        "Empty",
+        std::slice::from_ref(&empty_binder),
+        json!({"term":"reference","target":empty_binder}),
+    );
+    settle_after_structural_rekey(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "same-name sibling binders must each admit in their own arm: {:?}",
+        read(&package)
+    );
+
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][2]["value"]["members"][1] =
+        json!({"term":"reference","target":circle_binder});
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    assert_recovery_case_binder_refusal(&package, compensation);
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_shared_body_is_checked_under_each_arm_scope() {
+    let (mut package, _, case, binder, _, _) = slot_case_fixture();
+    let integer = node_id(&family_key("a3a3"));
+    let shared = slot_application(
+        &mut package,
+        "binary",
+        "quire.op.integer.add",
+        &integer,
+        json!([
+            {"term":"reference","target":binder},
+            {"term":"literal","type":integer,"value_kind":"integer","value":"0"}
+        ]),
+        Value::Null,
+    );
+    let at = node_position_for_key(&package, &case);
+    for arm in [1, 2] {
+        package["semantic_graph"]["nodes"][at]["body"]["arguments"][arm]["value"]["members"][1] =
+            json!({"term":"reference","target":shared});
+    }
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    assert_recovery_case_binder_refusal(&package, compensation);
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_local_cannot_launder_a_known_stage_binder_or_barred_state() {
+    let (mut package, compensation, case, binder, circle, _) = slot_case_fixture();
+    let boolean = node_id(&family_key("aaaa"));
+    let former_predicate = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"]
+        [12]["value"]["members"][1]["value"]["target"]
+        .clone();
+    let known = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][1]["value"]
+        ["target"]
+        .clone();
+    let at = node_position_for_key(&package, &known);
+    assert_eq!(
+        package["semantic_graph"]["nodes"][at]["semantic_type"],
+        boolean
+    );
+    let literal = node_id("fixture/protocol-body/case-boolean-payload");
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":literal, "schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"value", "semantic_form":"literal", "semantic_type":boolean,
+            "dependencies":[], "occurrences":[{"role":"expression","ordinal":0}],
+            "body":{"term":"literal","type":boolean,"value_kind":"boolean","value":true}
+        }));
+    let union = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "composite_type" && node["semantic_form"] == "union")
+        .expect("Shape union");
+    package["semantic_graph"]["nodes"][union]["body"]["members"][0]["value"]["members"] =
+        json!([{"term":"reference","target":boolean}]);
+    package["semantic_graph"]["nodes"][union]["dependencies"] = json!([boolean]);
+    let at = node_position_for_key(&package, &circle);
+    package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["members"][0]["target"] =
+        literal.clone();
+    let at = node_position_for_key(&package, &binder);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = boolean.clone();
+    package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["value"] =
+        json!("forward");
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = boolean.clone();
+    package["semantic_graph"]["nodes"][at]["body"]["result_type"] = boolean.clone();
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][2]["value"]["members"][1] =
+        json!({"term":"literal","type":boolean,"value_kind":"boolean","value":false});
+    let at = node_position_for_key(&package, &former_predicate);
+    package["semantic_graph"]["nodes"][at]["body"]["operation"]["identity"] =
+        json!("quire.op.boolean.and");
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["target"] = literal;
+    package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][12]["value"]["members"]
+        [1]["value"] = json!({"term":"reference","target":case});
+    settle_after_structural_rekey(&mut package);
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"][1] =
+        json!({"term":"reference","target":binder});
+    settle(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "same-name local Boolean binder must admit: {:?}",
+        read(&package)
+    );
+
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"][1] =
+        json!({"term":"reference","target":known});
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("known stage binder cannot be laundered by a same-name case local");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_protocol_refusal_at(&refusal, &package, compensation);
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope {name, stage, read, ..})
+        if name.as_ref() == "forward" && stage.as_ref() == "recovery" && read.as_ref() == "stage"));
+
+    let clause = clause_position(&package);
+    let over = package["semantic_graph"]["nodes"][clause]["body"]["arguments"][0]["value"]
+        ["target"]
+        .clone();
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][2]["value"]["members"][1] =
+        json!({"term":"reference","target":over});
+    settle(&mut package);
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(&package) else {
+        panic!("barred state read must refuse before binder scope");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+    assert_eq!(
+        refusal.cause,
+        Some(CheckedPackageRefusalCause::OperatorIneligible)
+    );
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::ModelStateRead {slot})
+        if slot.as_ref() == "recovery.predicate"));
 }
 
 #[trace("FR-038-AC-465")]
