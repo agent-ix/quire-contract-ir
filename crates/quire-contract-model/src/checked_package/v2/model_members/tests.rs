@@ -1755,3 +1755,85 @@ fn runtime_member_helpers_precharge_each_owned_layer_and_unit_handle() {
         |budget| model.slot_type_runtime(slot, budget),
     );
 }
+
+/// One shared slot decision table preserves ordinary and runtime multiplicities.
+#[trace("TC-469", "FR-360-AC-4", "FR-360-AC-5")]
+#[test]
+fn runtime_and_ordinary_slots_share_all_multiplicity_decisions() {
+    for (lower, upper, ordered, unique, expected) in [
+        (1, Some(1), false, true, Some(MemberType::Integer)),
+        (
+            0,
+            None,
+            false,
+            true,
+            Some(MemberType::Collection {
+                kind: CollectionKind::Set,
+                element: Box::new(MemberType::Integer),
+                bounds: None,
+            }),
+        ),
+        (1, None, false, true, None),
+        (
+            0,
+            Some(3),
+            false,
+            true,
+            Some(MemberType::Collection {
+                kind: CollectionKind::Set,
+                element: Box::new(MemberType::Integer),
+                bounds: Some((0, 3)),
+            }),
+        ),
+        (
+            0,
+            Some(3),
+            true,
+            true,
+            Some(MemberType::Collection {
+                kind: CollectionKind::OrderedSet,
+                element: Box::new(MemberType::Integer),
+                bounds: Some((0, 3)),
+            }),
+        ),
+        (
+            0,
+            Some(3),
+            false,
+            false,
+            Some(MemberType::Collection {
+                kind: CollectionKind::Bag,
+                element: Box::new(MemberType::Integer),
+                bounds: Some((0, 3)),
+            }),
+        ),
+        (
+            0,
+            Some(3),
+            true,
+            false,
+            Some(MemberType::Collection {
+                kind: CollectionKind::Sequence,
+                element: Box::new(MemberType::Integer),
+                bounds: Some((0, 3)),
+            }),
+        ),
+    ] {
+        let mut field = field(WIDGET, "values", "ix://quire/native/Integer");
+        field["multiplicity"] = multiplicity(lower, upper);
+        field["multiplicity"]["ordered"] = json!(ordered);
+        field["multiplicity"]["unique"] = json!(unique);
+        let model = read(&document(vec![object_type(WIDGET, &[], vec![field])])).unwrap();
+        let slot = &model.object_types[WIDGET].fields[0].slot;
+        assert_eq!(model.slot_type(slot), expected);
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        assert_eq!(
+            model.slot_type_runtime(slot, &mut budget).unwrap(),
+            expected
+        );
+        let measured = budget.consumed();
+        let mut exact = NativeJoinBudget::new(measured.work, measured.storage);
+        assert_eq!(model.slot_type_runtime(slot, &mut exact).unwrap(), expected);
+        assert_eq!(exact.consumed(), measured);
+    }
+}

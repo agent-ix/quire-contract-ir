@@ -12,8 +12,9 @@ use super::{
     CheckedNodePathSegment, CheckedOperationEffect, CheckedOperationEffectProvenance,
     CheckedPackageV2, CheckedRational, CheckedScopedDeletion, DimensionTerm,
     ExactTypeProjectionError, ExactTypeProjectionErrorCode, NativeJoinBudget, NativeJoinCharge,
-    NativeJoinChargeKind, NativeJoinDeniedCharge, ScalarTypeForm, SelectedExactIdentities,
-    SelectedExactIdentity, SelectedRecordView, SelectedSourceUnitRow, SelectedTupleDeclarationRow,
+    NativeJoinChargeKind, NativeJoinDeniedCharge, NativeJoinLocus, NativeJoinLocusSource,
+    ScalarTypeForm, SelectedExactIdentities, SelectedExactIdentity, SelectedRecordView,
+    SelectedSourceUnitRow, SelectedTupleDeclarationRow,
 };
 use quire_exact::{EffectiveId, NodeKey, PathSegmentView, Presence, UnitId, ValueType};
 use std::collections::{BTreeMap, BTreeSet};
@@ -284,7 +285,7 @@ impl SelectedTypeDeclarations {
 
 /// A typed refusal with the first failing admitted node and charged work.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-#[error("selected runtime type projection refused: {code:?} at {form:?}")]
+#[error("selected runtime type projection refused: {code:?} at {form:?} (native locus {denied_locus:?})")]
 pub struct SelectedTypeDeclarationsError {
     /// Stable refusal category shared with Exact type projection.
     pub code: ExactTypeProjectionErrorCode,
@@ -296,9 +297,33 @@ pub struct SelectedTypeDeclarationsError {
     pub work: u64,
     /// The first unpaid charge when the budget refused construction.
     pub denied: Option<NativeJoinDeniedCharge>,
+    /// Fixed-size native location resolved against the original package and rows.
+    pub denied_locus: Option<NativeJoinLocus>,
 }
 
 impl SelectedTypeDeclarationsError {
+    /// Resolve a denied node using the package and row slices supplied to projection.
+    /// Package-wide allocation loci have no node; inspect `denied_locus` instead.
+    pub fn denied_node<'a>(
+        &self,
+        package: &'a CheckedPackageV2,
+        tuple_rows: &'a [SelectedTupleDeclarationRow],
+        source_unit_rows: &'a [SelectedSourceUnitRow],
+    ) -> Option<&'a CheckedNodeId> {
+        match self.denied_locus?.source {
+            NativeJoinLocusSource::Package => None,
+            NativeJoinLocusSource::GraphNode(index) => {
+                package.graph().nodes.get(index).map(|node| &node.node_id)
+            }
+            NativeJoinLocusSource::TupleRow(index) => {
+                tuple_rows.get(index).map(|row| &row.structural_node)
+            }
+            NativeJoinLocusSource::SourceUnitRow(index) => {
+                source_unit_rows.get(index).map(|row| &row.structural_node)
+            }
+        }
+    }
+
     fn exhausted(budget: &NativeJoinBudget, before: NativeJoinCharge) -> Self {
         let denied = budget.first_unpaid();
         Self {
@@ -312,6 +337,7 @@ impl SelectedTypeDeclarationsError {
             form: None,
             work: budget.consumed().work - before.work,
             denied,
+            denied_locus: budget.first_unpaid_locus(),
         }
     }
 }
@@ -319,18 +345,43 @@ impl SelectedTypeDeclarationsError {
 struct ProjectionBudget<'a> {
     budget: &'a mut NativeJoinBudget,
     before: NativeJoinCharge,
+    package: &'a CheckedPackageV2,
+    row_locus: Option<(NativeJoinLocusSource, &'a CheckedNodeId)>,
 }
 
 impl ProjectionBudget<'_> {
+    fn package_locus(&mut self, form: &'static str) {
+        self.budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::Package,
+            form,
+        }));
+    }
+
+    fn locate(&mut self, at: &CheckedNodeId, form: &'static str) {
+        let source =
+            if let Some((source, _)) = self.row_locus.filter(|(_, node)| std::ptr::eq(*node, at)) {
+                source
+            } else if let Some(index) = self.package.node_index.get(at) {
+                NativeJoinLocusSource::GraphNode(*index)
+            } else {
+                self.budget
+                    .active_locus()
+                    .map_or(NativeJoinLocusSource::Package, |locus| locus.source)
+            };
+        self.budget
+            .set_active_locus(Some(NativeJoinLocus { source, form }));
+    }
+
     fn work(&self) -> u64 {
         self.budget.consumed().work - self.before.work
     }
 
     fn charge(
         &mut self,
-        _at: &CheckedNodeId,
-        _form: &str,
+        at: &CheckedNodeId,
+        form: &'static str,
     ) -> Result<(), SelectedTypeDeclarationsError> {
+        self.locate(at, form);
         self.charge_amount(NativeJoinChargeKind::Work, 1)
     }
 
@@ -351,10 +402,11 @@ impl ProjectionBudget<'_> {
 
     fn charge_work(
         &mut self,
-        _at: &CheckedNodeId,
-        _form: &str,
+        at: &CheckedNodeId,
+        form: &'static str,
         amount: usize,
     ) -> Result<(), SelectedTypeDeclarationsError> {
+        self.locate(at, form);
         self.charge_amount(
             NativeJoinChargeKind::Work,
             u128::try_from(amount).unwrap_or(u128::MAX),
@@ -452,7 +504,7 @@ impl ProjectionBudget<'_> {
         &mut self,
         code: ExactTypeProjectionErrorCode,
         at: &CheckedNodeId,
-        form: &str,
+        form: &'static str,
     ) -> SelectedTypeDeclarationsError {
         // The diagnostic is built only after each owned component is payable.
         if let Err(error) = self.charge_structural_id(at, "runtime_diagnostic") {
@@ -474,6 +526,7 @@ impl ProjectionBudget<'_> {
             form: Some(form.into()),
             work: self.work(),
             denied: None,
+            denied_locus: None,
         }
     }
 
@@ -502,14 +555,16 @@ impl ProjectionBudget<'_> {
             form: Some(format!("{tag}/{semantic}").into()),
             work: self.work(),
             denied: None,
+            denied_locus: None,
         }
     }
 
     fn charge_structural_id(
         &mut self,
         at: &CheckedNodeId,
-        form: &str,
+        form: &'static str,
     ) -> Result<(), SelectedTypeDeclarationsError> {
+        self.locate(at, form);
         self.charge_storage(2)?;
         let mut pending = vec![at];
         while let Some(id) = pending.pop() {
@@ -533,9 +588,10 @@ impl ProjectionBudget<'_> {
     fn charge_node_key(
         &mut self,
         at: &CheckedNodeId,
-        form: &str,
+        form: &'static str,
         key: &NodeKey,
     ) -> Result<(), SelectedTypeDeclarationsError> {
+        self.locate(at, form);
         self.charge_storage(2)?;
         let mut pending = vec![key.view()];
         while let Some(view) = pending.pop() {
@@ -560,9 +616,11 @@ impl ProjectionBudget<'_> {
         read: impl FnOnce(&mut NativeJoinBudget) -> Result<T, ExactTypeProjectionError>,
     ) -> Result<T, ExactTypeProjectionError> {
         let previous = self.budget.exact_diagnostics();
+        let previous_locus = self.budget.active_locus();
         self.budget.set_exact_diagnostics(true);
         let result = read(self.budget);
         self.budget.set_exact_diagnostics(previous);
+        self.budget.set_active_locus(previous_locus);
         result
     }
 
@@ -577,13 +635,14 @@ impl ProjectionBudget<'_> {
             form: error.form,
             work: self.work(),
             denied: None,
+            denied_locus: None,
         }
     }
 
     fn exact_error_with_form(
         &mut self,
         error: ExactTypeProjectionError,
-        form: &str,
+        form: &'static str,
     ) -> SelectedTypeDeclarationsError {
         if error.denied.is_some() {
             return SelectedTypeDeclarationsError::exhausted(self.budget, self.before);
@@ -597,6 +656,7 @@ impl ProjectionBudget<'_> {
             form: Some(form.into()),
             work: self.work(),
             denied: None,
+            denied_locus: None,
         }
     }
 }
@@ -607,7 +667,7 @@ fn projected_field_type(
     member_type: Option<&MemberType>,
     optional: bool,
     at: &CheckedNodeId,
-    form: &str,
+    form: &'static str,
     ctx: &mut ProjectionBudget<'_>,
 ) -> Result<ValueType, SelectedTypeDeclarationsError> {
     let member_type = member_type
@@ -647,8 +707,18 @@ impl CheckedPackageV2 {
         budget: &mut NativeJoinBudget,
     ) -> Result<SelectedTypeDeclarations, SelectedTypeDeclarationsError> {
         let before = budget.begin();
+        let previous_locus = budget.active_locus();
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::Package,
+            form: "runtime_projection",
+        }));
         let result = (|| {
-            let mut ctx = ProjectionBudget { budget, before };
+            let mut ctx = ProjectionBudget {
+                budget,
+                before,
+                package: self,
+                row_locus: None,
+            };
             ctx.charge_storage(1)?;
             let mut selected_source_units = Vec::new();
             for (node, kind) in self.graph().nodes.iter().zip(self.node_kinds()) {
@@ -674,9 +744,11 @@ impl CheckedPackageV2 {
                 }
             }
 
+            ctx.package_locus("selected_declaration_index");
             ctx.charge_storage(1)?;
             let mut by_original = BTreeMap::new();
             for (id, declaration) in self.models.selected_declarations() {
+                ctx.locate(id, "selected_declaration");
                 ctx.charge(id, "selected_declaration")?;
                 ctx.charge_storage(1)?;
                 if by_original
@@ -758,6 +830,7 @@ impl CheckedPackageV2 {
                 }
             }
 
+            ctx.package_locus("runtime_identity_indices");
             ctx.charge_storage(3)?;
             let mut tuple_by_node = BTreeMap::new();
             let mut source_unit_by_node = BTreeMap::new();
@@ -777,7 +850,9 @@ impl CheckedPackageV2 {
                     exact_keys.insert(key.clone());
                 }
             }
-            for row in tuple_rows {
+            for (index, row) in tuple_rows.iter().enumerate() {
+                ctx.row_locus =
+                    Some((NativeJoinLocusSource::TupleRow(index), &row.structural_node));
                 ctx.charge(&row.structural_node, "selected_tuple_row")?;
                 ctx.charge_structural_id(&row.structural_node, "selected_tuple_row")?;
                 ctx.charge_work(
@@ -792,7 +867,11 @@ impl CheckedPackageV2 {
                 )?;
                 ctx.charge_node_key(&row.structural_node, "selected_tuple_row", &row.node_key)?;
             }
-            for row in source_unit_rows {
+            for (index, row) in source_unit_rows.iter().enumerate() {
+                ctx.row_locus = Some((
+                    NativeJoinLocusSource::SourceUnitRow(index),
+                    &row.structural_node,
+                ));
                 ctx.charge(&row.structural_node, "selected_source_unit_row")?;
                 ctx.charge_structural_id(&row.structural_node, "selected_source_unit_row")?;
                 ctx.charge_work(
@@ -817,13 +896,16 @@ impl CheckedPackageV2 {
                     ctx.charge_node_key(&row.structural_node, "selected_source_unit_row", key)?;
                 }
             }
+            ctx.row_locus = None;
             // The checked join remains the sole semantic tuple/unit authority.
             let admitted_identities = ctx
                 .exact_read(|budget| {
                     identities.with_admitted_type_rows(self, tuple_rows, source_unit_rows, budget)
                 })
                 .map_err(|error| ctx.exact_error(error))?;
-            for row in tuple_rows {
+            for (index, row) in tuple_rows.iter().enumerate() {
+                ctx.row_locus =
+                    Some((NativeJoinLocusSource::TupleRow(index), &row.structural_node));
                 ctx.storage_node(&row.structural_node)?;
                 ctx.charge_storage(4)?;
                 if tuple_by_node
@@ -838,7 +920,11 @@ impl CheckedPackageV2 {
                     ));
                 }
             }
-            for row in source_unit_rows {
+            for (index, row) in source_unit_rows.iter().enumerate() {
+                ctx.row_locus = Some((
+                    NativeJoinLocusSource::SourceUnitRow(index),
+                    &row.structural_node,
+                ));
                 let UnitId::Declared(key) = &row.unit_id else {
                     unreachable!("checked declared domain")
                 };
@@ -856,6 +942,7 @@ impl CheckedPackageV2 {
                     ));
                 }
             }
+            ctx.row_locus = None;
             for id in &selected_source_units {
                 ctx.charge(id, "selected_source_unit")?;
                 if !source_unit_by_node.contains_key(id) {
@@ -868,11 +955,13 @@ impl CheckedPackageV2 {
             }
 
             let identities = &admitted_identities;
+            ctx.package_locus("runtime_declarations");
             ctx.charge_storage(3)?;
             let mut records = Vec::new();
             let mut tuples = Vec::new();
             let mut objects = Vec::new();
             for (id, declaration) in self.models.selected_declarations() {
+                ctx.locate(id, "selected_declaration");
                 let Some(model) = self.models.selected_models().get(declaration.selection) else {
                     return Err(ctx.error(
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
@@ -1250,9 +1339,12 @@ impl CheckedPackageV2 {
                 }
             }
             selected_source_units.sort();
+            ctx.package_locus("runtime_nominal_rows");
             ctx.charge_storage(1)?;
             let mut nominal_rows = Vec::new();
+            ctx.row_locus = None;
             for id in &selected_source_units {
+                ctx.locate(id, "selected_source_unit");
                 ctx.charge_storage(1)?;
                 let row = source_unit_by_node
                     .get(id)
@@ -1297,9 +1389,11 @@ impl CheckedPackageV2 {
                     };
                     ctx.error(code, error.node, "selected_source_unit")
                 })?;
+            ctx.package_locus("runtime_unit_results");
             ctx.charge_storage(2)?;
             let mut units = Vec::new();
             for unit in &unit_read.units {
+                ctx.locate(&unit.node.node_id, "selected_source_unit");
                 let row = source_unit_by_node
                     .get(&unit.node.node_id)
                     .expect("read selected source unit");
@@ -1334,6 +1428,7 @@ impl CheckedPackageV2 {
             }
             let mut dimensions = Vec::new();
             for dimension in &unit_read.dimensions {
+                ctx.locate(&dimension.node.node_id, "selected_dimension");
                 ctx.charge_storage(1)?;
                 ctx.storage_node(&dimension.node.node_id)?;
                 ctx.storage_dimension_terms(dimension.terms)?;
@@ -1352,6 +1447,7 @@ impl CheckedPackageV2 {
                 work: ctx.work(),
             })
         })();
+        budget.set_active_locus(previous_locus);
         if result.is_err() {
             budget.abort();
         }

@@ -2594,6 +2594,7 @@ fn witness_error_with_budget(
     if !budget.exact_diagnostics() {
         return witness_error(node, code);
     }
+    budget.set_locus_form("selected_identity");
     exact_diagnostic(
         budget,
         code,
@@ -2645,6 +2646,7 @@ fn charge_native(
     kind: NativeJoinChargeKind,
     amount: u128,
 ) -> Result<(), ExactTypeProjectionError> {
+    budget.set_locus_form(form);
     if budget.charge(kind, amount) {
         return Ok(());
     }

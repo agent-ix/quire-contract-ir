@@ -5,7 +5,7 @@
 use super::super::{
     CheckedDeclaration, CheckedLiteralValue, CheckedNodeId, CheckedNodeOwner,
     CheckedNodePathSegment, CheckedPackageV2, CheckedSemanticNodeV2, CheckedTerm, NativeJoinBudget,
-    NativeJoinCharge, NativeJoinChargeKind,
+    NativeJoinCharge, NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource,
 };
 use super::{CheckedRational, DimensionTerm, NominalBodyKind};
 use quire_exact::{NodeKey, UnitId};
@@ -86,6 +86,7 @@ struct Budget<'b> {
     limit: u64,
     native: Option<&'b mut NativeJoinBudget>,
     before: NativeJoinCharge,
+    node_index: Option<&'b std::collections::BTreeMap<CheckedNodeId, usize>>,
 }
 impl Budget<'_> {
     fn numeric(limit: u64) -> Self {
@@ -94,16 +95,35 @@ impl Budget<'_> {
             limit,
             native: None,
             before: NativeJoinCharge::default(),
+            node_index: None,
         }
     }
 
-    fn native(budget: &mut NativeJoinBudget) -> Budget<'_> {
+    fn native<'a>(
+        budget: &'a mut NativeJoinBudget,
+        node_index: &'a std::collections::BTreeMap<CheckedNodeId, usize>,
+    ) -> Budget<'a> {
         let before = budget.begin();
         Budget {
             work: 0,
             limit: budget.remaining_work(),
             native: Some(budget),
             before,
+            node_index: Some(node_index),
+        }
+    }
+
+    fn locate(&mut self, node: &CheckedNodeId) {
+        if let (Some(budget), Some(index)) = (
+            &mut self.native,
+            self.node_index.and_then(|index| index.get(node)),
+        ) {
+            if budget.active_locus().is_some() {
+                budget.set_active_locus(Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::GraphNode(*index),
+                    form: "selected_unit_definition",
+                }));
+            }
         }
     }
 
@@ -112,6 +132,7 @@ impl Budget<'_> {
         amount: u128,
         node: &'a CheckedNodeId,
     ) -> Result<(), NominalReadError<'a>> {
+        self.locate(node);
         if self
             .native
             .as_mut()
@@ -141,6 +162,7 @@ impl Budget<'_> {
         amount: usize,
         node: &'a CheckedNodeId,
     ) -> Result<(), NominalReadError<'a>> {
+        self.locate(node);
         let amount = u64::try_from(amount).unwrap_or(u64::MAX);
         if let Some(budget) = &mut self.native {
             if !budget.charge(NativeJoinChargeKind::Work, u128::from(amount)) {
@@ -311,7 +333,7 @@ impl CheckedPackageV2 {
         rows: &'a [NominalDeclarationRow<'a>],
         native_budget: &mut NativeJoinBudget,
     ) -> Result<UnitDefinitionRead<'a>, NominalReadError<'a>> {
-        let mut budget = Budget::native(native_budget);
+        let mut budget = Budget::native(native_budget, &self.node_index);
         let locus = requested
             .first()
             .or_else(|| rows.first().map(|row| row.node));

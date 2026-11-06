@@ -1029,18 +1029,6 @@ fn runtime_text_storage(value: &str) -> u128 {
         .saturating_add(1)
 }
 
-fn runtime_node_storage(value: &CheckedNodeId) -> u128 {
-    value.path.iter().fold(
-        2_u128.saturating_add(value.package.len() as u128),
-        |amount, segment| {
-            amount.saturating_add(match segment {
-                CheckedNodePathSegment::Name(name) => runtime_text_storage(name),
-                CheckedNodePathSegment::Node(_) | CheckedNodePathSegment::Index(_) => 1,
-            })
-        },
-    )
-}
-
 fn runtime_declaration_storage(identity: &str, form: DeclarationForm, node: &str) -> u128 {
     runtime_text_storage(identity)
         .saturating_add(runtime_text_storage(form.tag()))
@@ -1455,7 +1443,10 @@ impl DomainModel {
                 let Some(node) = self.unit_refs.get(name) else {
                     return Ok(None);
                 };
-                runtime_storage(budget, runtime_node_storage(node).saturating_add(1))?;
+                runtime_storage(
+                    budget,
+                    super::native_join_storage::node(node).saturating_add(1),
+                )?;
                 return Ok(Some(MemberType::Quantity(node.clone())));
             }
             SelectedTypeRef::Native(native) => {
@@ -1474,7 +1465,10 @@ impl DomainModel {
                         let Some(node) = self.duration_unit_node(budget)? else {
                             return Ok(None);
                         };
-                        runtime_storage(budget, runtime_node_storage(node).saturating_add(1))?;
+                        runtime_storage(
+                            budget,
+                            super::native_join_storage::node(node).saturating_add(1),
+                        )?;
                         Some(MemberType::Quantity(node.clone()))
                     }
                     NativeTypeRef::Rational | NativeTypeRef::Decimal | NativeTypeRef::Text => None,
@@ -1500,7 +1494,10 @@ impl DomainModel {
                     MemberType::RationalRange(*bounds)
                 }
                 ValueBounds::Rational(bounds, Some(unit)) => {
-                    runtime_storage(budget, runtime_node_storage(unit).saturating_add(1))?;
+                    runtime_storage(
+                        budget,
+                        super::native_join_storage::node(unit).saturating_add(1),
+                    )?;
                     MemberType::CarriedRational(*bounds, unit.clone())
                 }
                 ValueBounds::Text(bounds) => {
@@ -1633,22 +1630,37 @@ impl DomainModel {
     /// FR-322 step 4 over one declared `typeRef` and multiplicity; `None`
     /// when the tables give the slot no type.
     pub(super) fn slot_type(&self, slot: &TypedSlot) -> Option<MemberType> {
-        let element = self.element_type(slot.type_ref.as_ref()?)?;
+        self.slot_type_inner(slot, None).ok().flatten()
+    }
+
+    fn slot_type_inner(
+        &self,
+        slot: &TypedSlot,
+        mut budget: Option<&mut NativeJoinBudget>,
+    ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
+        let Some(type_ref) = slot.type_ref.as_ref() else {
+            return Ok(None);
+        };
+        let Some(element) = self.element_type_runtime_inner(type_ref, budget.as_deref_mut())?
+        else {
+            return Ok(None);
+        };
         let multiplicity = slot.multiplicity;
         if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
-            return Some(element);
+            return Ok(Some(element));
         }
         let kind = CollectionKind::of(multiplicity.ordered, multiplicity.unique);
         let bounds = match (multiplicity.lower, multiplicity.upper) {
             (0, None) => None,
-            (_, None) => return None,
+            (_, None) => return Ok(None),
             (lower, Some(upper)) => Some((lower, upper)),
         };
-        Some(MemberType::Collection {
+        runtime_storage(&mut budget, 2)?;
+        Ok(Some(MemberType::Collection {
             kind,
             element: Box::new(element),
             bounds,
-        })
+        }))
     }
 
     /// A field's type. Timed clock collections retain optionality on each
@@ -1679,31 +1691,7 @@ impl DomainModel {
         slot: &TypedSlot,
         budget: &mut NativeJoinBudget,
     ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
-        let Some(type_ref) = slot.type_ref.as_ref() else {
-            return Ok(None);
-        };
-        let Some(element) = self.element_type_runtime(type_ref, budget)? else {
-            return Ok(None);
-        };
-        let multiplicity = slot.multiplicity;
-        if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
-            return Ok(Some(element));
-        }
-        let kind = CollectionKind::of(multiplicity.ordered, multiplicity.unique);
-        let bounds = match (multiplicity.lower, multiplicity.upper) {
-            (0, None) => None,
-            (_, None) => return Ok(None),
-            (lower, Some(upper)) => Some((lower, upper)),
-        };
-        budget
-            .charge(NativeJoinChargeKind::Storage, 2)
-            .then_some(())
-            .ok_or(RuntimeTypeBudgetDenied)?;
-        Ok(Some(MemberType::Collection {
-            kind,
-            element: Box::new(element),
-            bounds,
-        }))
+        self.slot_type_inner(slot, Some(budget))
     }
 
     /// Checked binder types of one record in effective field order.

@@ -135,6 +135,7 @@ pub use monitor_plan::{
 };
 pub use native_join_budget::{
     NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
+    NativeJoinLocus, NativeJoinLocusSource,
 };
 pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use selected_facts::{

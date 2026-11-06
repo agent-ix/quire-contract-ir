@@ -5,7 +5,7 @@ use super::super::model_members::DeclarationForm;
 use super::super::native_join_storage as storage;
 use super::super::{
     BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
-    CheckedTerm, CompositeTypeForm, NativeJoinBudget, ScalarTypeForm,
+    CheckedTerm, CompositeTypeForm, NativeJoinBudget, NativeJoinLocusSource, ScalarTypeForm,
 };
 use super::{
     charge_native_storage, charge_native_text_pair, charge_native_work, charge_source_union_text,
@@ -63,6 +63,11 @@ impl SelectedExactIdentities {
             return self.empty_source_join(package, budget);
         };
         let before = budget.begin();
+        if !tuple_rows.is_empty() {
+            budget.set_locus_source(NativeJoinLocusSource::TupleRow(0));
+        } else if !source_unit_rows.is_empty() {
+            budget.set_locus_source(NativeJoinLocusSource::SourceUnitRow(0));
+        }
         let result = (|| {
             self.check_binding(package, budget, at)?;
             charge_native_storage(
@@ -77,6 +82,7 @@ impl SelectedExactIdentities {
                 selected.binding = package.admission_binding.clone();
             }
             for (index, row) in tuple_rows.iter().enumerate() {
+                budget.set_locus_source(NativeJoinLocusSource::TupleRow(index));
                 validate_admitted_tuple(package, row, budget)?;
                 let id = &row.structural_node;
                 for prior in &tuple_rows[..index] {
@@ -137,6 +143,7 @@ impl SelectedExactIdentities {
                     .insert(id.clone(), Arc::new(row.clone()));
             }
             for (index, row) in source_unit_rows.iter().enumerate() {
+                budget.set_locus_source(NativeJoinLocusSource::SourceUnitRow(index));
                 validate_admitted_source_unit(package, row, budget)?;
                 let id = &row.structural_node;
                 let UnitId::Declared(key) = &row.unit_id else {

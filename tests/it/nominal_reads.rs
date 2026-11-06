@@ -823,6 +823,16 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
     assert_eq!(tight.at, None);
     assert_eq!(tight.form, None);
     assert_eq!(
+        tight.denied_node(&package, &[], &long_rows),
+        Some(&converted.node_id)
+    );
+    assert_eq!(
+        tight.denied_locus.unwrap().source,
+        quire_contract_model::NativeJoinLocusSource::SourceUnitRow(1)
+    );
+    assert_eq!(tight.denied_locus.unwrap().form, "selected_source_unit_row");
+
+    assert_eq!(
         tight.denied.unwrap().kind,
         quire_contract_model::NativeJoinChargeKind::Work
     );

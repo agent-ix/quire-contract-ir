@@ -2579,6 +2579,8 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
             .unwrap_err();
         assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedWork);
         assert_eq!(error.denied, limited.first_unpaid());
+        assert_eq!(error.denied_locus, limited.first_unpaid_locus());
+        assert!(error.denied_locus.is_some());
         assert!(limited.consumed().work <= work);
         assert_eq!(limited.last_success_delta(), None);
     }
@@ -2610,6 +2612,8 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
             .unwrap_err();
         assert_eq!(error.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
         assert_eq!(error.denied, limited.first_unpaid());
+        assert_eq!(error.denied_locus, limited.first_unpaid_locus());
+        assert!(error.denied_locus.is_some());
         assert_eq!(error.at, None);
         assert_eq!(error.form, None);
         assert!(limited.consumed().storage <= storage);
@@ -2831,6 +2835,84 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
         tight.denied.unwrap().kind,
         quire_contract_model::NativeJoinChargeKind::Work
     );
+    use quire_contract_model::{NativeJoinLocus, NativeJoinLocusSource};
+    assert_eq!(
+        tight.denied_locus,
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::TupleRow(0),
+            form: "selected_tuple_row"
+        })
+    );
+    assert_eq!(
+        tight.denied_node(&admitted, std::slice::from_ref(&long_row), &[]),
+        Some(&long_row.structural_node)
+    );
+    let two_rows = [row.clone(), long_row.clone()];
+    let mut row_budget = quire_contract_model::NativeJoinBudget::new(view.work() + 500, u64::MAX);
+    let second_row = admitted
+        .project_selected_type_declarations(&identities, &two_rows, &[], &mut row_budget)
+        .unwrap_err();
+    assert_eq!(
+        second_row.denied_locus,
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::TupleRow(1),
+            form: "selected_tuple_row"
+        })
+    );
+    assert_eq!(
+        second_row.denied_node(&admitted, &two_rows, &[]),
+        Some(&two_rows[1].structural_node)
+    );
+    assert_eq!(second_row.denied, row_budget.first_unpaid());
+    assert_eq!(second_row.denied_locus, row_budget.first_unpaid_locus());
+    let mut zero_storage = quire_contract_model::NativeJoinBudget::new(u64::MAX, 0);
+    let zero = admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&row),
+            &[],
+            &mut zero_storage,
+        )
+        .unwrap_err();
+    assert_eq!(
+        zero.denied_locus,
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::Package,
+            form: "runtime_projection"
+        })
+    );
+    assert_eq!(zero.at, None);
+    assert_eq!(zero.form, None);
+    assert_eq!(zero_storage.consumed().storage, 0);
+    assert_eq!(zero.denied_locus, zero_storage.first_unpaid_locus());
+    let mut zero_work = quire_contract_model::NativeJoinBudget::new(0, u64::MAX);
+    let zero = admitted
+        .project_selected_type_declarations(
+            &identities,
+            std::slice::from_ref(&row),
+            &[],
+            &mut zero_work,
+        )
+        .unwrap_err();
+    assert_eq!(
+        zero.denied_locus,
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::GraphNode(0),
+            form: "graph_node"
+        })
+    );
+    assert_eq!(
+        zero.denied_node(&admitted, &[], &[]),
+        Some(&admitted.graph().nodes[0].node_id)
+    );
+    // Runtime context must not leak into the caller's ordinary native joins.
+    let _ = identities.with_admitted_type_rows(
+        &admitted,
+        std::slice::from_ref(&row),
+        &[],
+        &mut zero_work,
+    );
+    assert_eq!(zero_work.first_unpaid_locus(), None);
 }
 
 #[test]

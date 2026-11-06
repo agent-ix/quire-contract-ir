@@ -220,7 +220,7 @@ pub use checked_package::{
     ContractUnsupportedSourceKindError, CorrespondenceForm, DimensionTerm, ExactTypeProjection,
     ExactTypeProjectionError, ExactTypeProjectionErrorCode, ExpressionForm, FunctionForm,
     HybridForm, JsonPointer, LoweringProfileRef, ModelForm, NativeJoinBudget, NativeJoinCharge,
-    NativeJoinChargeKind, NativeJoinDeniedCharge, NominalBody, ProtocolForm, RelationForm,
+    NativeJoinChargeKind, NativeJoinDeniedCharge, NativeJoinLocus, NativeJoinLocusSource, NominalBody, ProtocolForm, RelationForm,
     ScalarTypeForm, SelectedEnumDeclarationRow, SelectedEnumMemberRow,
     SelectedExactDeclarationForm, SelectedExactDeclarationRow, SelectedExactFieldRow,
     SelectedExactIdentities, SelectedExactIdentity, SelectedFactEquality, SelectedFactEqualityId,
