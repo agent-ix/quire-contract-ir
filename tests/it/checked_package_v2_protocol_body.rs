@@ -10832,6 +10832,72 @@ fn recovery_case_arm_binder_is_local_to_its_arm_body() {
     assert!(matches!(&empty[1], CheckedTerm::Literal { value, .. } if value == "0"));
 }
 
+fn assert_recovery_case_binder_refusal(package: &Value, compensation: usize) {
+    let CheckedPackageV2ReadResult::Refused(refusal) = read(package) else {
+        panic!("out-of-scope case binder must refuse: {:?}", read(package));
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+    assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+    assert_protocol_refusal_at(&refusal, package, compensation);
+    let owner = checked_node_id(&package["semantic_graph"]["nodes"][compensation]["node_id"]);
+    assert!(matches!(refusal.protocol_detail.as_deref(),
+        Some(CheckedProtocolRefusalDetail::BinderScope {name, stage, read, owner: actual})
+        if name.as_ref() == "arm_r" && stage.as_ref() == "recovery"
+            && read.as_ref() == "stage" && actual == &owner));
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_arm_binder_does_not_escape_to_the_outer_predicate() {
+    let (mut package, compensation, _, binder, _, _) = slot_case_fixture();
+    let predicate = package["semantic_graph"]["nodes"][compensation]["body"]["arguments"][12]
+        ["value"]["members"][1]["value"]["target"]
+        .clone();
+    let at = node_position_for_key(&package, &predicate);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["target"] = binder;
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    assert_recovery_case_binder_refusal(&package, compensation);
+}
+
+#[trace("FR-038-AC-473")]
+#[test]
+fn recovery_case_same_name_sibling_binders_remain_identity_distinct() {
+    let (mut package, _, case, circle_binder, _, _) = slot_case_fixture();
+    let integer = node_id(&family_key("a3a3"));
+    let empty_binder = clause_parameter(&mut package, "arm_other", "0");
+    let at = node_position_for_key(&package, &empty_binder);
+    package["semantic_graph"]["nodes"][at]["semantic_type"] = integer.clone();
+    package["semantic_graph"]["nodes"][at]["body"]["members"][0]["value"]["value"] = json!("arm_r");
+    let union = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "composite_type" && node["semantic_form"] == "union")
+        .expect("Shape union");
+    package["semantic_graph"]["nodes"][union]["body"]["members"][1]["value"]["members"] =
+        json!([{"term":"reference","target":integer}]);
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][2] = case_arm(
+        "Empty",
+        std::slice::from_ref(&empty_binder),
+        json!({"term":"reference","target":empty_binder}),
+    );
+    settle_after_structural_rekey(&mut package);
+    assert!(
+        matches!(read(&package), CheckedPackageV2ReadResult::Admitted(_)),
+        "same-name sibling binders must each admit in their own arm: {:?}",
+        read(&package)
+    );
+
+    let at = node_position_for_key(&package, &case);
+    package["semantic_graph"]["nodes"][at]["body"]["arguments"][2]["value"]["members"][1] =
+        json!({"term":"reference","target":circle_binder});
+    settle(&mut package);
+    let compensation = protocol_position(&package, "compensation");
+    assert_recovery_case_binder_refusal(&package, compensation);
+}
+
 #[trace("FR-038-AC-465")]
 #[test]
 fn recovery_slot_let_body_reads_its_own_local_binder() {
