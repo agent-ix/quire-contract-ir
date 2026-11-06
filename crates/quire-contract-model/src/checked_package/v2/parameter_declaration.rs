@@ -162,6 +162,7 @@ mod tests {
             closure_index: Default::default(),
             admission_binding: Default::default(),
         }
+        .retain_original_admission()
     }
 
     #[trace("TC-048", "FR-038-AC-258", "FR-038-AC-259")]

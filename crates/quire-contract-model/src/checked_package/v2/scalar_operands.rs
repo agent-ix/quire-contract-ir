@@ -499,6 +499,7 @@ mod tests {
             closure_index: Default::default(),
             admission_binding: Default::default(),
         }
+        .retain_original_admission()
     }
 
     /// Vary graph size while keeping the same admitted scalar argument shape.

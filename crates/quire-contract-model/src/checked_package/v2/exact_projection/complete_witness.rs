@@ -1,7 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Atomic package-local validation of every retained identity channel.
 
-use super::*;
+use super::super::model_members::DeclarationForm;
+use super::super::native_join_storage as storage;
+use super::super::{
+    BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
+    CheckedTerm, CompositeTypeForm, NativeJoinBudget, ScalarTypeForm,
+};
+use super::{
+    charge_native_storage, charge_native_text_pair, charge_native_work, charge_source_union_text,
+    exact_collection_kind, selected_declaration_error, witness_error, ExactTypeProjectionError,
+    ExactTypeProjectionErrorCode, SelectedExactIdentities, SelectedExactIdentity,
+    SelectedSourceUnitRow, SelectedTupleDeclarationRow,
+};
+use quire_exact::{NodeKey, UnitId};
+use std::{collections::BTreeMap, sync::Arc};
 
 impl SelectedExactIdentities {
     pub(super) fn check_binding(
@@ -60,7 +73,7 @@ impl SelectedExactIdentities {
             )?;
             let mut selected = self.clone();
             if selected.binding.is_none() {
-                selected.binding = Some(package.admission_binding.clone());
+                selected.binding = package.admission_binding.clone();
             }
             for (index, row) in tuple_rows.iter().enumerate() {
                 validate_admitted_tuple(package, row, budget)?;
@@ -216,7 +229,7 @@ impl SelectedExactIdentities {
             )?;
             let mut rebound = self.clone();
             if rebound.binding.is_none() {
-                rebound.binding = Some(package.admission_binding.clone());
+                rebound.binding = package.admission_binding.clone();
             }
             Ok(rebound)
         })();
@@ -1046,11 +1059,17 @@ pub(super) fn check_package_binding(
     at: &CheckedNodeId,
 ) -> Result<(), ExactTypeProjectionError> {
     charge_native_work(budget, at, at, "identity_package_binding", 1)?;
-    if binding.is_some_and(|binding| binding != &package.admission_binding) {
+    let Some(target_binding) = package.admission_binding.as_ref() else {
+        return Err(witness_error(
+            at,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+        ));
+    };
+    if binding.is_some_and(|binding| binding != target_binding) {
         return Err(witness_error(at, ExactTypeProjectionErrorCode::ForeignNode));
     }
     charge_native_work(budget, at, at, "identity_admitted_buffers", 7)?;
-    if !package.admission_binding.retains(package) {
+    if !target_binding.retains(package) {
         return Err(witness_error(
             at,
             ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
@@ -1085,9 +1104,11 @@ fn selected_original_locus<'a>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::NativeJoinCharge;
+    use super::super::{SelectedExactDeclarationForm, SelectedExactDeclarationRow};
     use super::*;
     use ix_trace_rs::trace;
-    use quire_exact::OriginalDeclarationKey;
+    use quire_exact::{EffectiveId, OriginalDeclarationKey};
 
     #[trace("TC-467", "FR-352-AC-24", "FR-352-AC-26")]
     #[test]

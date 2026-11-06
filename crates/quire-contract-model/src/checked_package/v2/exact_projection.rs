@@ -1213,7 +1213,7 @@ impl SelectedExactIdentities {
         )?;
         let mut selected = self.clone();
         if selected.binding.is_none() {
-            selected.binding = Some(package.admission_binding.clone());
+            selected.binding = package.admission_binding.clone();
         }
         Ok((selected, before))
     }
@@ -1252,7 +1252,7 @@ impl SelectedExactIdentities {
         }
         let mut selected = self.clone();
         if selected.binding.is_none() {
-            selected.binding = Some(package.admission_binding.clone());
+            selected.binding = package.admission_binding.clone();
         }
         budget.finish(before);
         Ok(selected)
@@ -1290,7 +1290,7 @@ impl SelectedExactIdentities {
         }
         let result = (|| {
             let mut selected = Self::empty();
-            selected.binding = Some(package.admission_binding.clone());
+            selected.binding = package.admission_binding.clone();
             let mut owners: BTreeSet<(Box<str>, SelectedExactDeclarationForm, Box<str>)> =
                 BTreeSet::new();
             let mut node_identities = BTreeSet::new();
@@ -3532,6 +3532,7 @@ mod tests {
             closure_index: Default::default(),
             admission_binding: Default::default(),
         }
+        .retain_original_admission()
     }
 
     fn checked_id(path: &str) -> CheckedNodeId {

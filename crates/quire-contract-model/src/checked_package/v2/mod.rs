@@ -889,7 +889,7 @@ pub enum CheckedPackageV2ReadResult {
 #[derive(Clone)]
 pub struct CheckedPackageV2 {
     /// Private admission capability; clones preserve it, independent reads do not.
-    admission_binding: AdmissionBinding,
+    admission_binding: Option<AdmissionBinding>,
     wire: Arc<CheckedPackageWireV2>,
     kinds: Arc<Vec<CheckedNodeKind>>,
     schedulability_claim_index: Vec<(usize, usize)>,
@@ -933,16 +933,7 @@ struct AdmissionBuffers {
 }
 
 #[derive(Clone)]
-struct AdmissionBinding(Arc<Option<AdmissionBuffers>>);
-
-// Private manually assembled unit fixtures do not carry public admission.
-// The reader always constructs Some(AdmissionBuffers) below.
-#[cfg(test)]
-impl Default for AdmissionBinding {
-    fn default() -> Self {
-        Self(Arc::new(None))
-    }
-}
+struct AdmissionBinding(Arc<AdmissionBuffers>);
 
 impl std::fmt::Debug for AdmissionBinding {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -961,19 +952,32 @@ impl Eq for AdmissionBinding {}
 
 impl AdmissionBinding {
     fn retains(&self, package: &CheckedPackageV2) -> bool {
-        match self.0.as_ref() {
-            Some(original) => {
-                Arc::ptr_eq(&original.wire, &package.wire)
-                    && Arc::ptr_eq(&original.kinds, &package.kinds)
-                    && Arc::ptr_eq(&original.terms, &package.terms)
-                    && Arc::ptr_eq(&original.models, &package.models)
-                    && Arc::ptr_eq(&original.node_index, &package.node_index)
-                    && Arc::ptr_eq(&original.source_index, &package.source_index)
-                    && Arc::ptr_eq(&original.selected_documents, &package.selected_documents)
-            }
-            // This arm cannot be constructed by a public admission path.
-            None => true,
-        }
+        let original = &self.0;
+        Arc::ptr_eq(&original.wire, &package.wire)
+            && Arc::ptr_eq(&original.kinds, &package.kinds)
+            && Arc::ptr_eq(&original.terms, &package.terms)
+            && Arc::ptr_eq(&original.models, &package.models)
+            && Arc::ptr_eq(&original.node_index, &package.node_index)
+            && Arc::ptr_eq(&original.source_index, &package.source_index)
+            && Arc::ptr_eq(&original.selected_documents, &package.selected_documents)
+    }
+}
+
+impl CheckedPackageV2 {
+    /// Finish internal construction by retaining the original immutable fact
+    /// buffers. The public reader calls this only after strict admission;
+    /// private unit fixture builders use the same construction invariant.
+    fn retain_original_admission(mut self) -> Self {
+        self.admission_binding = Some(AdmissionBinding(Arc::new(AdmissionBuffers {
+            wire: Arc::clone(&self.wire),
+            kinds: Arc::clone(&self.kinds),
+            terms: Arc::clone(&self.terms),
+            models: Arc::clone(&self.models),
+            node_index: Arc::clone(&self.node_index),
+            source_index: Arc::clone(&self.source_index),
+            selected_documents: Arc::clone(&self.selected_documents),
+        })));
+        self
     }
 }
 
@@ -1404,17 +1408,8 @@ impl CheckedPackageV2 {
         let node_index = Arc::new(node_index);
         let source_index = Arc::new(source_index);
         let selected_documents = Arc::new(selected_documents);
-        let admission_binding = AdmissionBinding(Arc::new(Some(AdmissionBuffers {
-            wire: Arc::clone(&wire),
-            kinds: Arc::clone(&kinds),
-            terms: Arc::clone(&terms),
-            models: Arc::clone(&models),
-            node_index: Arc::clone(&node_index),
-            source_index: Arc::clone(&source_index),
-            selected_documents: Arc::clone(&selected_documents),
-        })));
         Ok(Self {
-            admission_binding,
+            admission_binding: None,
             wire,
             kinds,
             schedulability_claim_index,
@@ -1430,7 +1425,8 @@ impl CheckedPackageV2 {
             selected_documents,
             direct_dependencies,
             closure_index,
-        })
+        }
+        .retain_original_admission())
     }
 
     /// The package's exact name identity.
@@ -4328,7 +4324,8 @@ mod tests {
                     direct_dependencies: Vec::new(),
                     closure_index: Default::default(),
                     admission_binding: Default::default(),
-                };
+                }
+                .retain_original_admission();
                 let package_debug = format!("{package:?}");
                 assert_eq!(package_debug.matches("package: ").count(), CHAIN_LEN + 1);
                 assert_eq!(package_debug.matches("Node(#").count(), CHAIN_LEN);
