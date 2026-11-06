@@ -505,9 +505,9 @@ mod tests {
     }
 
     fn admit_wire(wire: &serde_json::Value, document: &serde_json::Value) -> CheckedPackageV2 {
-        let evidence = fixture_support::evidence_with_document(&wire, "test/families", &document);
+        let evidence = fixture_support::evidence_with_document(wire, "test/families", document);
         let result = CheckedPackageV2::read(
-            &fixture_support::canonical(&wire),
+            &fixture_support::canonical(wire),
             CheckedPackageReadLimits::bounded(),
             &evidence,
         );
@@ -857,7 +857,7 @@ mod tests {
         let missing_field = read(&package, &declarations, &[], &units, u64::MAX).unwrap_err();
         assert!(
             matches!(missing_field,ReachedModelError::Types(ref error)
-            if error.code == crate::ExactTypeProjectionErrorCode::UnavailableIdentityWitness && error.at.as_ref() == &reached_record),
+            if error.code == crate::ExactTypeProjectionErrorCode::UnavailableIdentityWitness && error.at.as_deref() == Some(&reached_record)),
             "{missing_field:?}"
         );
         let without_model_unit = declarations[..2].to_vec();
@@ -865,7 +865,7 @@ mod tests {
             read(&package, &without_model_unit, &fields, &units, u64::MAX).unwrap_err();
         assert!(
             matches!(missing_unit,ReachedModelError::Types(ref error)
-            if error.code == crate::ExactTypeProjectionErrorCode::UnavailableIdentityWitness && error.at.as_ref() == &reached_unit),
+            if error.code == crate::ExactTypeProjectionErrorCode::UnavailableIdentityWitness && error.at.as_deref() == Some(&reached_unit)),
             "{missing_unit:?}"
         );
         let mut foreign_units = units.clone();
@@ -948,7 +948,7 @@ mod tests {
         .unwrap_err();
         assert!(
             matches!(source_error,ReachedModelError::Types(ref error)
-            if error.code == Code::ForeignNode && error.at.as_ref() == &stale_source_node),
+            if error.code == Code::ForeignNode && error.at.as_deref() == Some(&stale_source_node)),
             "{source_error:?}"
         );
     }
@@ -1041,7 +1041,7 @@ mod tests {
         let unit_error = read(&unit_package, &decl, &fields, &units, u64::MAX).unwrap_err();
         assert!(
             matches!(unit_error,ReachedModelError::Types(ref error)
-            if error.code == Code::UnavailableIdentityWitness && error.at.as_ref() == &foot),
+            if error.code == Code::UnavailableIdentityWitness && error.at.as_deref() == Some(&foot)),
             "{unit_error:?}"
         );
     }
@@ -1064,7 +1064,7 @@ mod tests {
         assert!(
             matches!(error,ReachedModelError::Types(ref refusal)
             if refusal.code == crate::ExactTypeProjectionErrorCode::UnsupportedExactType
-                && refusal.at.as_ref() == &record),
+                && refusal.at.as_deref() == Some(&record)),
             "{error:?}"
         );
     }

@@ -2987,10 +2987,12 @@ pub(super) fn project_record_field_type(
                     Some(target)
                 ));
             }
-            let shape = identities
-                .model_enum_shapes
-                .get(target)
-                .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness, Some(target)))?;
+            let shape = identities.model_enum_shapes.get(target).ok_or_else(|| {
+                refuse!(
+                    ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                    Some(target)
+                )
+            })?;
             charge_native_storage(budget, requested, requested, "record_field_variant", 1)?;
             return Ok(ValueType::Enum(shape.clone()));
         }
@@ -3066,7 +3068,7 @@ fn project_wrapped_record_field_type(
     if let MemberType::Reference(target)
     | MemberType::Record(target)
     | MemberType::Quantity(target)
-    | MemberType::Tuple(target) = leaf
+    | MemberType::Tuple(target)
     | MemberType::Variant(target) = leaf
     {
         charge_work(requested, target, "record_field_target", work, work_limit)?;
