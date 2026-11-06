@@ -383,7 +383,6 @@ fn tk36_rational_shape(package: &mut Value, row: &Value, integer_node: &Value) -
         bound("denominator_min"),
         bound("denominator_max"),
     ];
-    assert_eq!(bounds, ["-3", "7", "1", "12"], "published TK-36 bounds");
     let integer_index = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("model nodes")
@@ -685,7 +684,12 @@ fn apply_published_intake_patch(document: &mut Value, row: &Value) {
                     ("denominator_max", "maxDenominator"),
                 ] {
                     if let Some(bound) = declared[member].as_str() {
-                        let bound = bound.parse::<i64>().expect("published rational bound");
+                        let number = bound.parse::<i64>().expect("published rational bound");
+                        let bound = if number.unsigned_abs() <= (1_u64 << 53) {
+                            json!(number)
+                        } else {
+                            json!(bound)
+                        };
                         constraints.push(json!({
                             "identity":format!("{identity}/constraint/{keyword}"),
                             "appliesTo":identity,
@@ -944,6 +948,76 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
     assert!(
         seen.contains("TK-36"),
         "missing published bounded Rational intake case"
+    );
+}
+
+/// Trace: FR-038-AC-487, FR-322-AC-380, TC-981 (RV-01).
+#[trace("TC-981", "FR-038-AC-487")]
+#[test]
+fn selected_rational_minimum_reaches_public_tuple_member_type() {
+    let fixtures = fixtures_dir();
+    let proposal = proposal_dir_of(&fixtures);
+    let vectors = read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple and union vectors");
+    let mut row = vectors["intake_cases"]
+        .as_array()
+        .expect("published intake cases")
+        .iter()
+        .find(|row| row["name"] == "TK-36")
+        .expect("published Rational value-type case")
+        .clone();
+    row["patch"][0]["value"][0]["numerator_min"] = json!("-9223372036854775808");
+
+    let mut document = selected_document(&proposal);
+    apply_published_intake_patch(&mut document, &row);
+    let mut package = read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published selected model package");
+    let integer_node = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "integer")
+        .expect("published Integer node")
+        .clone();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published nodes")
+        .retain(|node| node["node_tag"] == "model");
+    let model_ids: Vec<_> = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("model nodes")
+        .iter()
+        .map(|node| node["node_id"].clone())
+        .collect();
+    package["source_map"]
+        .as_array_mut()
+        .expect("source map")
+        .retain(|entry| model_ids.contains(&entry["node_id"]));
+    let range_id = tk36_rational_shape(&mut package, &row, &integer_node);
+    super::fixture_support::settle(&mut package);
+
+    let admitted = read_selected_variant_package(&package, &document);
+    let tuple_identity = document["types"][1]["identity"]
+        .as_str()
+        .expect("selected tuple identity");
+    let (_, tuple_id) = tuple_node(&package, tuple_identity);
+    assert_eq!(
+        admitted.model_tuple_position_type(&tuple_id, 0),
+        Some(CheckedMemberType::RationalRange {
+            numerator_min: i128::from(i64::MIN),
+            numerator_max: 7,
+            denominator_min: 1,
+            denominator_max: 12,
+        }),
+        "the public selected-model member type keeps i64::MIN"
+    );
+    assert!(
+        admitted
+            .graph()
+            .nodes
+            .iter()
+            .any(|node| node.node_id == range_id),
+        "the exact range has an admitted structural node"
     );
 }
 

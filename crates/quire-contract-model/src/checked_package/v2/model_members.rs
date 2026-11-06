@@ -4954,8 +4954,17 @@ mod structural_member_type_tests {
                 "{bad}"
             );
         }
-        for unsafe_integer in [9_007_199_254_740_993_i64, 9_007_199_254_740_994_i64] {
-            let result = read(&selected(json!(-3), json!(unsafe_integer)));
+        for (constraint, unsafe_integer) in [
+            (1, 9_007_199_254_740_993_i64),
+            (1, 9_007_199_254_740_994_i64),
+            (0, -9_007_199_254_740_994_i64),
+        ] {
+            let (lower, upper) = if constraint == 0 {
+                (json!(unsafe_integer), json!(7))
+            } else {
+                (json!(-3), json!(unsafe_integer))
+            };
+            let result = read(&selected(lower, upper));
             let Err(SelectionFailure::InexactNumber {
                 document_pointer,
                 cause,
@@ -4966,7 +4975,7 @@ mod structural_member_type_tests {
             assert_eq!(cause, CheckedPackageRefusalCause::InexactInteger);
             assert_eq!(
                 document_pointer.to_string(),
-                "/types/0/constraints/1/operands/value"
+                format!("/types/0/constraints/{constraint}/operands/value")
             );
         }
     }
