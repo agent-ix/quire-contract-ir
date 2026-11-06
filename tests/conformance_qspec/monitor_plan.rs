@@ -34,7 +34,11 @@ fn monitor_plan_refuses_binding_wrapped_clock_before_public_read() {
         ordinal: 0,
     };
     let read = control_plan
-        .clock_for_claim(control_plan.clause(), &occurrence, 100)
+        .clock_for_claim(
+            control_plan.clause(),
+            &occurrence,
+            &mut NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect("admitted direct clock read");
     assert_eq!(read.clock_name(), "model-steps");
     assert_eq!(
@@ -203,7 +207,7 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
         CheckedMonitorClockReadErrorCode::WrongClause
     );
     assert_eq!(wrong_clause.at.as_deref(), Some(foreign));
-    assert_eq!(wrong_clause.occurrence, Some(first));
+    assert_eq!(wrong_clause.occurrence.as_ref(), Some(&first));
     assert_eq!(wrong_clause.attempted_work, 0);
     let mut semantic_budget = NativeJoinBudget::new(100, u64::MAX);
     let expected = plan
@@ -290,7 +294,7 @@ fn monitor_plan_binds_selected_claim_occurrence_to_its_admitted_clock() {
         CheckedMonitorClockReadErrorCode::MissingClock
     );
     assert_eq!(no_clock.at.as_deref(), Some(no_clock_plan.clause()));
-    assert_eq!(no_clock.occurrence, Some(second));
+    assert_eq!(no_clock.occurrence.as_ref(), Some(&second));
     assert_eq!(no_clock.attempted_work, 0);
 
     let mut extended = wire.clone();
@@ -364,7 +368,11 @@ fn monitor_plan_reads_timed_model_source_and_exact_unit() {
         ordinal: 0,
     };
     let clock = plan
-        .clock_for_claim(plan.clause(), &occurrence, 100)
+        .clock_for_claim(
+            plan.clause(),
+            &occurrence,
+            &mut NativeJoinBudget::new(100, u64::MAX),
+        )
         .expect("Timed model clock");
     let model_time = package
         .model_time_for_clause(plan.clause(), 100)
@@ -384,19 +392,27 @@ fn monitor_plan_reads_timed_model_source_and_exact_unit() {
     );
     let exact = clock.work();
     assert_eq!(
-        plan.clock_for_claim(plan.clause(), &occurrence, exact)
-            .unwrap()
-            .work(),
+        plan.clock_for_claim(
+            plan.clause(),
+            &occurrence,
+            &mut NativeJoinBudget::new(exact, u64::MAX),
+        )
+        .unwrap()
+        .work(),
         exact
     );
     let denied = plan
-        .clock_for_claim(plan.clause(), &occurrence, exact - 1)
+        .clock_for_claim(
+            plan.clause(),
+            &occurrence,
+            &mut NativeJoinBudget::new(exact - 1, u64::MAX),
+        )
         .unwrap_err();
     assert_eq!(
         (denied.code, denied.work, denied.attempted_work),
         (CheckedMonitorClockReadErrorCode::WorkLimit, exact - 1, 1)
     );
-    assert_eq!(*denied.at, *plan.clause());
+    assert_eq!(denied.at.as_deref(), Some(plan.clause()));
 }
 fn assert_reads(plan: CheckedMonitorPlanRef<'_>, facts: &Value) {
     assert_eq!(
