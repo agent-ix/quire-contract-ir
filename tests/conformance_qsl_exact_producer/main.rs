@@ -545,6 +545,9 @@ fn verify_literal_bodies(bytes: &[u8]) {
         })
         .expect("exponent node");
     let exponent = &package.graph().nodes[exponent_position];
+    assert_eq!(exponent.node_id, exponent_id);
+    assert_eq!(exponent.node_tag.as_ref(), "value");
+    assert_eq!(exponent.semantic_form.as_ref(), "literal");
     assert!(exponent.dependencies.is_empty());
     let CheckedTerm::Literal {
         type_id,
