@@ -7,7 +7,7 @@ use super::exact_projection::{
     SelectedSourceEnumRow, SelectedSourceRecordRow, SelectedSourceTupleRow, SelectedSourceUnionRow,
 };
 use super::{CheckedNodeId, CheckedNodePathSegment, NativeJoinBudget};
-use quire_exact::{EffectiveId, MemberId, MemberOwner, UnitId, ValueType};
+use quire_exact::{EffectiveId, MemberId, MemberOwner, QuantityCarrier, UnitId, ValueType};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -115,6 +115,15 @@ pub(super) fn preflight_value_type(
             }
             ValueType::Quantity(unit_id) => {
                 preflight_unit(unit_id, budget, at)?;
+                return Ok(());
+            }
+            ValueType::CarriedQuantity(carried) => {
+                preflight_unit(carried.unit(), budget, at)?;
+                let numeric_work = match carried.carrier() {
+                    QuantityCarrier::Decimal(_) | QuantityCarrier::Integer { .. } => 2,
+                    QuantityCarrier::Rational(_) => 4,
+                };
+                charge_native_work(budget, at, at, "native_numeric_footprint", numeric_work)?;
                 return Ok(());
             }
             ValueType::BoundedQuantity(bounded) => {
@@ -229,6 +238,18 @@ pub(super) fn value_type(value: &ValueType) -> u128 {
                 });
             }
             ValueType::Quantity(unit_id) => return add(units, unit(unit_id)),
+            ValueType::CarriedQuantity(carried) => {
+                let carrier = match carried.carrier() {
+                    QuantityCarrier::Decimal(bounds) => {
+                        add(integer(bounds.lower()), integer(bounds.upper()))
+                    }
+                    QuantityCarrier::Integer { domain, .. } => interval(domain),
+                    QuantityCarrier::Rational(bounds) => {
+                        add(interval(bounds.numerator()), interval(bounds.denominator()))
+                    }
+                };
+                return add(units, add(unit(carried.unit()), add(1, carrier)));
+            }
             ValueType::Reference(id) => return add(units, effective(id)),
             ValueType::Boolean
             | ValueType::Integer
