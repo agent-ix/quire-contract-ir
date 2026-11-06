@@ -463,11 +463,7 @@ fn prepare_literal_emitter() -> (Scratch, PathBuf, PathBuf) {
         helper.join("src/bin/producer.rs"),
     )
     .expect("copy independently authored producer program");
-    let resolved = cargo(
-        &helper,
-        &target,
-        &["metadata", "--offline", "--format-version=1"],
-    );
+    let resolved = cargo(&helper, &target, &["metadata", "--format-version=1"]);
     assert!(
         resolved.status.success(),
         "producer dependency resolution: {}",
