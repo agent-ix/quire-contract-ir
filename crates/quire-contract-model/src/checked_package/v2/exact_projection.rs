@@ -6,12 +6,13 @@ use super::model_members::DeclarationForm;
 use super::model_members::{CollectionKind as CheckedCollectionKind, MemberType};
 use super::structural::{reference_type_target_typed, typed_aggregate};
 use super::{
-    BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
-    CheckedTerm, CompositeTypeForm, ModelForm, ScalarTypeForm,
+    BoundedDomainForm, CheckedLiteralValue, CheckedNodeId, CheckedNodeKind, CheckedNodeOwner,
+    CheckedPackageV2, CheckedTerm, CompositeTypeForm, ModelForm, ScalarTypeForm, ValueForm,
 };
 use quire_exact::{
-    CardinalityBound, CollectionKind, CollectionType, EffectiveId, FieldDeclaration, Integer,
-    IntegerInterval, MemberId, MemberOwner, NodeKey, Presence, UnionMember, UnitId, ValueType,
+    CardinalityBound, CollectionKind, CollectionType, EffectiveId, EnumShape, FieldDeclaration,
+    Integer, IntegerInterval, MemberId, MemberOwner, NodeKey, Presence, UnionMember, UnitId,
+    ValueType, VariantId,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -257,6 +258,8 @@ pub struct SelectedEnumDeclarationRow {
     pub qualified_declaration: Vec<Box<str>>,
     /// The enum key issued by the QSL checking stage.
     pub node_key: NodeKey,
+    /// QSL-issued canonical Exact shape, including ordered flag and variants.
+    pub shape: EnumShape,
 }
 
 impl SelectedEnumDeclarationRow {
@@ -267,6 +270,7 @@ impl SelectedEnumDeclarationRow {
         source_identity: impl Into<Box<str>>,
         qualified_declaration: Vec<Box<str>>,
         node_key: NodeKey,
+        shape: EnumShape,
     ) -> Self {
         Self {
             structural_node,
@@ -274,6 +278,7 @@ impl SelectedEnumDeclarationRow {
             source_identity: source_identity.into(),
             qualified_declaration,
             node_key,
+            shape,
         }
     }
 }
@@ -581,6 +586,8 @@ pub struct SelectedEnumMemberRow {
     pub case: Box<str>,
     /// The member key issued by the QSL checking stage.
     pub member_key: NodeKey,
+    /// QSL-issued variant identity at this case's canonical rank.
+    pub variant: VariantId,
 }
 
 impl SelectedEnumMemberRow {
@@ -593,6 +600,7 @@ impl SelectedEnumMemberRow {
         declaration_qualified_name: Vec<Box<str>>,
         case: impl Into<Box<str>>,
         member_key: NodeKey,
+        variant: VariantId,
     ) -> Self {
         Self {
             structural_node,
@@ -602,8 +610,183 @@ impl SelectedEnumMemberRow {
             declaration_qualified_name,
             case: case.into(),
             member_key,
+            variant,
         }
     }
+}
+
+/// One complete source enum declaration and its canonical ordered case rows.
+///
+/// The opaque Exact identities are producer claims. IR verifies their
+/// structural correspondence with admitted nodes and the supplied shape.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedSourceEnumRow {
+    /// Selected declaration and QSL-issued Exact shape.
+    pub declaration: SelectedEnumDeclarationRow,
+    /// Every admitted case in canonical order.
+    pub members: Vec<SelectedEnumMemberRow>,
+}
+
+fn source_enum_error(
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    code: ExactTypeProjectionErrorCode,
+    work: u64,
+) -> ExactTypeProjectionError {
+    ExactTypeProjectionError {
+        code,
+        requested: Box::new(requested.clone()),
+        at: Some(Box::new(at.clone())),
+        form: "selected_source_enum".into(),
+        work,
+    }
+}
+
+fn validate_source_enum_row(
+    package: &CheckedPackageV2,
+    row: &SelectedSourceEnumRow,
+    requested: &CheckedNodeId,
+    work: &mut u64,
+    limit: u64,
+) -> Result<(), ExactTypeProjectionError> {
+    let declaration = &row.declaration;
+    let id = &declaration.structural_node;
+    charge_work(requested, id, "source_enum_row", work, limit)?;
+    let node = package.node(id).ok_or_else(|| {
+        let mut error = selected_declaration_error(package, id);
+        error.requested = Box::new(requested.clone());
+        error.work = *work;
+        error
+    })?;
+    let mut selected_source = false;
+    for source in &package.lock().sources {
+        charge_work(requested, id, "selected_source", work, limit)?;
+        selected_source |= source.authority == declaration.source_authority
+            && source.identity == declaration.source_identity;
+    }
+    for segment in &declaration.qualified_declaration {
+        charge_work_amount(
+            requested,
+            id,
+            "enum_declaration",
+            work,
+            limit,
+            u64::try_from(segment.len()).unwrap_or(u64::MAX),
+        )?;
+    }
+    let matching_owner = matches!(&node.owner,
+        Some(CheckedNodeOwner::Source { authority, identity })
+            if authority == &declaration.source_authority
+                && identity == &declaration.source_identity);
+    let matching_declaration = node
+        .declaration
+        .as_ref()
+        .is_some_and(|name| name.qualified_name == declaration.qualified_declaration);
+    let details = match &node.body {
+        CheckedTerm::NominalBody(body) => body.enum_details(),
+        _ => None,
+    };
+    let Some((ordered, cases)) = details else {
+        return Err(source_enum_error(
+            requested,
+            id,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            *work,
+        ));
+    };
+    if package.node_kind(id) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Enum))
+        || !selected_source
+        || !matching_owner
+        || !matching_declaration
+        || declaration.shape.is_ordered() != ordered
+        || cases.len() != row.members.len()
+    {
+        return Err(source_enum_error(
+            requested,
+            id,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            *work,
+        ));
+    }
+    let mut variants = declaration.shape.variants();
+    let mut seen_nodes = BTreeSet::new();
+    let mut seen_keys = BTreeSet::new();
+    let mut seen_variants = BTreeSet::new();
+    for (case, member) in cases.iter().zip(&row.members) {
+        let at = &member.structural_node;
+        charge_work(requested, at, "enum_case", work, limit)?;
+        charge_work_amount(
+            requested,
+            at,
+            "enum_case_identity",
+            work,
+            limit,
+            u64::try_from(case.len().saturating_add(member.case.len())).unwrap_or(u64::MAX),
+        )?;
+        let Some(variant) = variants.next() else {
+            return Err(source_enum_error(
+                requested,
+                at,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                *work,
+            ));
+        };
+        if member.declaration_node != *id
+            || member.declaration_qualified_name != declaration.qualified_declaration
+            || member.source_authority != declaration.source_authority
+            || member.source_identity != declaration.source_identity
+            || member.case != *case
+            || member.variant != *variant
+        {
+            return Err(source_enum_error(
+                requested,
+                at,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                *work,
+            ));
+        }
+        if !seen_nodes.insert(at)
+            || !seen_keys.insert(&member.member_key)
+            || !seen_variants.insert(&member.variant)
+            || member.member_key == declaration.node_key
+        {
+            return Err(source_enum_error(
+                requested,
+                at,
+                ExactTypeProjectionErrorCode::ConflictingIdentityWitness,
+                *work,
+            ));
+        }
+        let member_node = package.node(at).ok_or_else(|| {
+            let mut error = selected_declaration_error(package, at);
+            error.requested = Box::new(requested.clone());
+            error.work = *work;
+            error
+        })?;
+        let literal = member_node.body.literal_read();
+        if package.node_kind(at) != Some(CheckedNodeKind::Value(ValueForm::EnumValue))
+            || member_node.semantic_type != *id
+            || literal.is_none_or(|literal| {
+                literal.type_id != id || literal.value != CheckedLiteralValue::Enum(case)
+            })
+        {
+            return Err(source_enum_error(
+                requested,
+                at,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                *work,
+            ));
+        }
+    }
+    if variants.next().is_some() {
+        return Err(source_enum_error(
+            requested,
+            id,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            *work,
+        ));
+    }
+    Ok(())
 }
 
 /// Selected identities supplied by the checking stage alongside a package.
@@ -619,6 +802,7 @@ pub struct SelectedExactIdentities {
     source_unions: Arc<BTreeMap<CheckedNodeId, SelectedSourceUnionRow>>,
     source_records: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceRecordRow>>>,
     source_tuples: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceTupleRow>>>,
+    source_enums: Arc<BTreeMap<CheckedNodeId, Arc<SelectedSourceEnumRow>>>,
 }
 
 impl SelectedExactIdentities {
@@ -788,6 +972,12 @@ impl SelectedExactIdentities {
                 .values()
                 .map(|row| row.type_handle.clone()),
         );
+        handles.extend(
+            selected
+                .source_enums
+                .values()
+                .map(|row| row.declaration.node_key.clone()),
+        );
         for row in rows {
             let id = &row.structural_node;
             if package.node(id).is_none() {
@@ -927,6 +1117,16 @@ impl SelectedExactIdentities {
                 )?;
                 conflicting_handle |= tuple.type_handle == row.record_key;
             }
+            for source_enum in selected.source_enums.values() {
+                charge_work(
+                    id,
+                    &source_enum.declaration.structural_node,
+                    "record_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= source_enum.declaration.node_key == row.record_key;
+            }
             if selected.source_records.contains_key(id) || conflicting_handle {
                 let mut error =
                     witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
@@ -1036,6 +1236,16 @@ impl SelectedExactIdentities {
                 )?;
                 conflicting_handle |= tuple.type_handle == row.type_handle;
             }
+            for source_enum in selected.source_enums.values() {
+                charge_work(
+                    id,
+                    &source_enum.declaration.structural_node,
+                    "tuple_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting_handle |= source_enum.declaration.node_key == row.type_handle;
+            }
             if selected.source_tuples.contains_key(id) || conflicting_handle {
                 let mut error =
                     witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
@@ -1050,6 +1260,121 @@ impl SelectedExactIdentities {
     /// Structurally joined source tuple rows, keyed by final admitted node.
     pub fn source_tuple_rows(&self) -> impl Iterator<Item = &SelectedSourceTupleRow> {
         self.source_tuples.values().map(Arc::as_ref)
+    }
+
+    /// Join complete source enum declarations and canonical case rows.
+    ///
+    /// This bounded check does not authenticate opaque QSL-stage identities.
+    pub fn with_source_enum_rows(
+        &self,
+        package: &CheckedPackageV2,
+        rows: impl IntoIterator<Item = SelectedSourceEnumRow>,
+        work_limit: u64,
+    ) -> Result<Self, ExactTypeProjectionError> {
+        let mut selected = self.clone();
+        let mut work = 0;
+        for row in rows {
+            let id = &row.declaration.structural_node;
+            validate_source_enum_row(package, &row, id, &mut work, work_limit)?;
+            let mut conflicting = selected.source_enums.contains_key(id);
+            for declaration in selected.declarations.values() {
+                charge_work(
+                    id,
+                    &declaration.structural_node,
+                    "enum_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting |= matches!(&declaration.exact_identity,
+                    SelectedExactIdentity::Record(key)
+                    | SelectedExactIdentity::Union(key)
+                    | SelectedExactIdentity::DeclaredUnit(UnitId::Declared(key))
+                    if key == &row.declaration.node_key);
+            }
+            for union in selected.source_unions.values() {
+                charge_work(
+                    id,
+                    &union.structural_node,
+                    "enum_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting |= union.type_handle == row.declaration.node_key;
+            }
+            for record in selected.source_records.values() {
+                charge_work(
+                    id,
+                    &record.structural_node,
+                    "enum_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting |= record.record_key == row.declaration.node_key;
+            }
+            for tuple in selected.source_tuples.values() {
+                charge_work(
+                    id,
+                    &tuple.structural_node,
+                    "enum_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting |= tuple.type_handle == row.declaration.node_key;
+            }
+            for existing in selected.source_enums.values() {
+                charge_work(
+                    id,
+                    &existing.declaration.structural_node,
+                    "enum_handle_join",
+                    &mut work,
+                    work_limit,
+                )?;
+                conflicting |= existing.declaration.node_key == row.declaration.node_key;
+                for prior in &existing.members {
+                    charge_work(
+                        id,
+                        &prior.structural_node,
+                        "enum_member_handle_join",
+                        &mut work,
+                        work_limit,
+                    )?;
+                    conflicting |= prior.member_key == row.declaration.node_key;
+                }
+                for member in &row.members {
+                    charge_work(
+                        id,
+                        &member.structural_node,
+                        "enum_member_handle_join",
+                        &mut work,
+                        work_limit,
+                    )?;
+                    conflicting |= existing.declaration.node_key == member.member_key;
+                    for prior in &existing.members {
+                        charge_work(
+                            id,
+                            &prior.structural_node,
+                            "enum_member_handle_join",
+                            &mut work,
+                            work_limit,
+                        )?;
+                        conflicting |= prior.member_key == member.member_key;
+                    }
+                }
+            }
+            if conflicting {
+                let mut error =
+                    witness_error(id, ExactTypeProjectionErrorCode::ConflictingIdentityWitness);
+                error.work = work;
+                return Err(error);
+            }
+            Arc::make_mut(&mut selected.source_enums).insert(id.clone(), Arc::new(row));
+        }
+        Ok(selected)
+    }
+
+    /// Structurally joined source enum rows, keyed by admitted declaration.
+    pub fn source_enum_rows(&self) -> impl Iterator<Item = &SelectedSourceEnumRow> {
+        self.source_enums.values().map(Arc::as_ref)
     }
 
     pub(super) fn with_admitted_type_rows(
@@ -1171,6 +1496,7 @@ pub struct ExactTypeProjection {
     record_view: Option<SelectedRecordView>,
     source_record_view: Option<Arc<SelectedSourceRecordRow>>,
     source_tuple_view: Option<Arc<SelectedSourceTupleRow>>,
+    source_enum_view: Option<Arc<SelectedSourceEnumRow>>,
     work: u64,
 }
 
@@ -1205,6 +1531,11 @@ impl ExactTypeProjection {
     /// Complete structurally joined source tuple row, when this type is a source tuple.
     pub fn source_tuple_view(&self) -> Option<&SelectedSourceTupleRow> {
         self.source_tuple_view.as_deref()
+    }
+
+    /// Complete structurally joined source enum row, including canonical cases.
+    pub fn source_enum_view(&self) -> Option<&SelectedSourceEnumRow> {
+        self.source_enum_view.as_deref()
     }
 
     /// Work units charged by this complete projection.
@@ -1626,12 +1957,24 @@ impl CheckedPackageV2 {
         let mut record_view = None;
         let mut source_record_view = None;
         let mut source_tuple_view = None;
+        let mut source_enum_view = None;
         let value_type = match kind {
             CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => ValueType::Boolean,
             CheckedNodeKind::ScalarType(ScalarTypeForm::Integer) => ValueType::Integer,
             CheckedNodeKind::ScalarType(ScalarTypeForm::String) => ValueType::String,
             CheckedNodeKind::ScalarType(ScalarTypeForm::Uuid) => ValueType::Uuid,
             CheckedNodeKind::ScalarType(ScalarTypeForm::Timestamp) => ValueType::Timestamp,
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Enum) => {
+                let row = identities.source_enums.get(type_id).ok_or_else(|| {
+                    refuse(
+                        ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
+                        work,
+                    )
+                })?;
+                validate_source_enum_row(self, row, requested, &mut work, work_limit)?;
+                source_enum_view = Some(Arc::clone(row));
+                ValueType::Enum(row.declaration.shape.clone())
+            }
             CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => {
                 let (lower, upper) = range_bounds.ok_or_else(|| {
                     refuse(ExactTypeProjectionErrorCode::UnsupportedExactType, work)
@@ -1916,6 +2259,7 @@ impl CheckedPackageV2 {
             record_view,
             source_record_view,
             source_tuple_view,
+            source_enum_view,
             work,
         })
     }

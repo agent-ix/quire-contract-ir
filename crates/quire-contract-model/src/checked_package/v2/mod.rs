@@ -132,7 +132,7 @@ pub use exact_projection::{
     ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
     SelectedEnumDeclarationRow, SelectedEnumMemberRow, SelectedExactDeclarationForm,
     SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
-    SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView,
+    SelectedExactIdentity, SelectedRecordFieldView, SelectedRecordView, SelectedSourceEnumRow,
     SelectedSourceRecordMemberRow, SelectedSourceRecordRow, SelectedSourceTupleRow,
     SelectedSourceUnionRow, SelectedSourceUnitRow, SelectedTupleDeclarationRow,
     SelectedTuplePositionRow, SelectedUnionMemberRow,

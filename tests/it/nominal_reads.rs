@@ -11,10 +11,10 @@ use quire_contract_model::nominal_reads::{
 };
 use quire_contract_model::{
     CheckedNodeOwner, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedSemanticNodeV2, ExactTypeProjectionErrorCode, SelectedExactIdentities,
-    SelectedSourceUnitRow,
+    CheckedSemanticNodeV2, ExactTypeProjectionErrorCode, SelectedEnumDeclarationRow,
+    SelectedEnumMemberRow, SelectedExactIdentities, SelectedSourceEnumRow, SelectedSourceUnitRow,
 };
-use quire_exact::{NodeKey, PathSegment, UnitId};
+use quire_exact::{EnumShape, NodeKey, PathSegment, UnitId, ValueType, VariantId};
 use serde_json::{json, Value};
 
 fn fixture(ordered: bool) -> Box<CheckedPackageV2> {
@@ -56,6 +56,23 @@ fn fixture(ordered: bool) -> Box<CheckedPackageV2> {
         other => panic!("nominal fixture must admit: {other:?}"),
     }
 }
+fn minimal_enum_fixture(ordered: bool) -> Box<CheckedPackageV2> {
+    let mut members = nominal_fixture_members();
+    members[1].0["ordered"] = json!(ordered);
+    let mut done = members[0].0.clone();
+    done["case"] = json!("DONE");
+    members.truncate(2);
+    members.push((done, "value/enum_value/DONE".to_owned()));
+    let wire = nominal_package(&members);
+    match CheckedPackageV2::read(
+        &canonical(&wire),
+        CheckedPackageReadLimits::bounded(),
+        &evidence_for(&wire),
+    ) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("minimal enum fixture must admit: {other:?}"),
+    }
+}
 fn node<'a>(package: &'a CheckedPackageV2, form: &str, name: &str) -> &'a CheckedSemanticNodeV2 {
     package
         .graph()
@@ -72,6 +89,235 @@ fn node<'a>(package: &'a CheckedPackageV2, form: &str, name: &str) -> &'a Checke
 }
 fn key(name: &str) -> NodeKey {
     NodeKey::new("stage-row-fixture", vec![PathSegment::Text(name.into())], 0).unwrap()
+}
+
+fn source_enum_row(package: &CheckedPackageV2, ordered: bool) -> SelectedSourceEnumRow {
+    let declaration = node(package, "enum", "Status");
+    let source = &package.lock().sources[0];
+    let declaration_key = key("Status-opaque");
+    let variants = ["opaque-A", "opaque-B"]
+        .map(|name| VariantId::new(key("variant-owner"), name).expect("fixture variant"));
+    let shape = EnumShape::new(ordered, variants.clone());
+    let members = [
+        ("ACTIVE", "value/enum_value/ACTIVE", "member-A"),
+        ("DONE", "value/enum_value/DONE", "member-B"),
+    ]
+    .into_iter()
+    .zip(variants)
+    .map(|((case, id, member_key), variant)| SelectedEnumMemberRow {
+        structural_node: serde_json::from_value(node_id(id)).expect("member ID"),
+        source_authority: source.authority.clone(),
+        source_identity: source.identity.clone(),
+        declaration_node: declaration.node_id.clone(),
+        declaration_qualified_name: vec!["Example".into(), "Status".into()],
+        case: case.into(),
+        member_key: key(member_key),
+        variant,
+    })
+    .collect();
+    SelectedSourceEnumRow {
+        declaration: SelectedEnumDeclarationRow {
+            structural_node: declaration.node_id.clone(),
+            source_authority: source.authority.clone(),
+            source_identity: source.identity.clone(),
+            qualified_declaration: vec!["Example".into(), "Status".into()],
+            node_key: declaration_key,
+            shape,
+        },
+        members,
+    }
+}
+
+/// Trace: FR-352-AC-19.
+#[trace("FR-352-AC-19")]
+#[test]
+fn source_enum_exact_projection_requires_complete_canonical_rows() {
+    for ordered in [false, true] {
+        let package = fixture(ordered);
+        let row = source_enum_row(&package, ordered);
+        let id = row.declaration.structural_node.clone();
+        let selected = SelectedExactIdentities::empty()
+            .with_source_enum_rows(&package, [row.clone()], 1000)
+            .expect("complete source enum join");
+        let join_exact = (0..=1000)
+            .find(|&limit| {
+                SelectedExactIdentities::empty()
+                    .with_source_enum_rows(&package, [row.clone()], limit)
+                    .is_ok()
+            })
+            .unwrap();
+        assert!(join_exact > 0);
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_enum_rows(&package, [row.clone()], join_exact - 1)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::ExhaustedWork
+        );
+        assert_eq!(selected.source_enum_rows().next(), Some(&row));
+        let projection = package.project_exact_type(&id, &selected, 1000).unwrap();
+        assert_eq!(
+            projection.value_type(),
+            &ValueType::Enum(row.declaration.shape.clone())
+        );
+        assert_eq!(projection.source_enum_view(), Some(&row));
+        assert_eq!(
+            projection.source_enum_view().unwrap().members[0].member_key,
+            key("member-A")
+        );
+        let exact = projection.work();
+        assert_eq!(
+            package.project_exact_type(&id, &selected, exact).unwrap(),
+            projection
+        );
+        assert_eq!(
+            package
+                .project_exact_type(&id, &selected, exact - 1)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::ExhaustedWork
+        );
+        assert_eq!(
+            package
+                .clone()
+                .project_exact_type(&id, &selected, exact)
+                .unwrap(),
+            projection
+        );
+        let minimal = minimal_enum_fixture(ordered);
+        let minimal_row = source_enum_row(&minimal, ordered);
+        let minimal_selected = SelectedExactIdentities::empty()
+            .with_source_enum_rows(&minimal, [minimal_row], 1000)
+            .unwrap();
+        assert_eq!(
+            minimal
+                .project_exact_type(&id, &minimal_selected, exact)
+                .unwrap(),
+            projection
+        );
+        assert_eq!(
+            package
+                .project_exact_type(&id, &SelectedExactIdentities::empty(), 1000)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+        );
+
+        let mut changed_case = row.clone();
+        changed_case.members[1].case = "OTHER".into();
+        let refusal = SelectedExactIdentities::empty()
+            .with_source_enum_rows(&package, [changed_case], 1000)
+            .unwrap_err();
+        assert_eq!(
+            refusal.code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        assert_eq!(refusal.at.as_deref(), Some(&row.members[1].structural_node));
+
+        let mut changed_variant = row.clone();
+        changed_variant.members[1].variant = changed_variant.members[0].variant.clone();
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_enum_rows(&package, [changed_variant], 1000)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        let mut reordered = row.clone();
+        reordered.members.swap(0, 1);
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_enum_rows(&package, [reordered], 1000)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        let mut incomplete = row.clone();
+        incomplete.members.pop();
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_enum_rows(&package, [incomplete], 1000)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        let mut extra = row.clone();
+        extra.members.push(extra.members[0].clone());
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_enum_rows(&package, [extra], 1000)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        let mut duplicate_key = row.clone();
+        duplicate_key.members[1].member_key = duplicate_key.members[0].member_key.clone();
+        let refusal = SelectedExactIdentities::empty()
+            .with_source_enum_rows(&package, [duplicate_key], 1000)
+            .unwrap_err();
+        assert_eq!(
+            refusal.code,
+            ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+        );
+        assert_eq!(refusal.at.as_deref(), Some(&row.members[1].structural_node));
+        let mut wrong_source = row.clone();
+        wrong_source.declaration.source_identity = "other-source".into();
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_enum_rows(&package, [wrong_source], 1000)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        let mut wrong_form = row.clone();
+        wrong_form.declaration.structural_node = row.members[0].structural_node.clone();
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_enum_rows(&package, [wrong_form], 1000)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        let mut wrong_member_node = row.clone();
+        wrong_member_node.members[0].structural_node =
+            serde_json::from_value(node_id("value/enum_value/OtherStatus/ACTIVE")).unwrap();
+        let refusal = SelectedExactIdentities::empty()
+            .with_source_enum_rows(&package, [wrong_member_node], 1000)
+            .unwrap_err();
+        assert_eq!(
+            refusal.code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        assert_eq!(
+            refusal.at.as_deref(),
+            Some(&serde_json::from_value(node_id("value/enum_value/OtherStatus/ACTIVE")).unwrap())
+        );
+        let mut wrong_ordered = row.clone();
+        wrong_ordered.declaration.shape =
+            EnumShape::new(!ordered, row.declaration.shape.variants().cloned());
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_enum_rows(&package, [wrong_ordered], 1000)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
+        let mut foreign = row.clone();
+        foreign.declaration.structural_node.package = "other-package".into();
+        let foreign_id = foreign.declaration.structural_node.clone();
+        let refusal = SelectedExactIdentities::empty()
+            .with_source_enum_rows(&package, [foreign], 1000)
+            .unwrap_err();
+        assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ForeignNode);
+        assert_eq!(refusal.at.as_deref(), Some(&foreign_id));
+        assert_eq!(
+            SelectedExactIdentities::empty()
+                .with_source_enum_rows(&package, [row.clone(), row], 2000)
+                .unwrap_err()
+                .code,
+            ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+        );
+    }
 }
 
 /// Trace: FR-353-AC-7, FR-352-AC-11.
