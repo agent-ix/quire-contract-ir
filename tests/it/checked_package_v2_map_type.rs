@@ -353,6 +353,16 @@ fn non_text_scalar_key_admits_but_has_no_exact_projection() {
     );
 }
 
+fn sort_map_fixture_dependencies(wire: &mut Value) {
+    for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+        node["dependencies"].as_array_mut().unwrap().sort_by(|left, right| {
+            let left: CheckedNodeId = serde_json::from_value(left.clone()).unwrap();
+            let right: CheckedNodeId = serde_json::from_value(right.clone()).unwrap();
+            left.cmp(&right)
+        });
+    }
+}
+
 fn source_map_fixture() -> (CheckedPackageV2, quire_contract_model::SelectedSourceCollectionRow) {
     let (wire, position) = map_package();
     let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
@@ -532,6 +542,7 @@ fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
         "node_tag":"bounded_domain", "semantic_form":"collection_bounds", "semantic_type":outer,
         "dependencies":[outer], "occurrences":[{"role":"type","ordinal":0}], "body":bounds_body("1","3")
     }));
+    sort_map_fixture_dependencies(&mut wire);
     settle(&mut wire);
     index_fixture_node_ids(&mut wire);
     let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
@@ -639,6 +650,7 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
     wire["semantic_graph"]["nodes"][map_position]["body"]["members"][1]["value"]["target"] = range.clone();
     let text = wire["semantic_graph"]["nodes"][map_position - 2]["node_id"].clone();
     wire["semantic_graph"]["nodes"][map_position]["dependencies"] = json!([text,range]);
+    sort_map_fixture_dependencies(&mut wire);
     settle(&mut wire);
     index_fixture_node_ids(&mut wire);
     let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
