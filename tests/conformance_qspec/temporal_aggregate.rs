@@ -5,6 +5,7 @@
 
 use super::{
     cause_word, code_word, fixture_support, fixtures_dir, proposal_dir_of, read_json, read_package,
+    read_package_with_document,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{CheckedNodeId, CheckedPackageV2ReadResult, CheckedTerm};
@@ -468,4 +469,145 @@ fn reachable_aggregate_refusals_follow_formula_identity_order() {
         ))
     );
     assert_ne!(first_position, second_position);
+}
+
+const OWNER: &str = "acme/orders";
+
+/// The identity `ix://acme/orders/<kind>/<name>` of a time dimension or unit
+/// the fixture declares in `example`, when `value` is its node identity.
+fn owned_identity(value: &Value) -> Option<(String, String)> {
+    let members = value.as_object()?;
+    if members.get("package") != Some(&json!("example")) {
+        return None;
+    }
+    let path = members.get("path")?.as_array()?;
+    let [tag, kind, name] = path.as_slice() else {
+        return None;
+    };
+    let (kind, name) = (kind.as_str()?, name.as_str()?);
+    (tag == "scalar_type"
+        && ((kind == "unit" && ["ms", "s"].contains(&name))
+            || (kind == "dimension" && name == "Time")))
+        .then(|| (kind.to_owned(), format!("ix://{OWNER}/{kind}/{name}")))
+}
+
+fn rename_time(value: &mut Value) {
+    if let Some((kind, identity)) = owned_identity(value) {
+        *value = json!({"package": OWNER, "path": ["scalar_type", kind, identity], "ordinal": 0});
+        return;
+    }
+    match value {
+        Value::Object(members) => members.values_mut().for_each(rename_time),
+        Value::Array(items) => items.iter_mut().for_each(rename_time),
+        _ => {}
+    }
+}
+
+/// Moves the time dimension and units out of the clause's package into the
+/// selected model package `OWNER`, as model-owned nodes named by identity.
+fn move_time_to_owner(package: &mut Value) {
+    rename_time(package);
+    let mut owned = Vec::new();
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+    {
+        if node["node_id"]["package"] == OWNER && node["node_id"]["path"][0] == "scalar_type" {
+            let identity = node["node_id"]["path"][2].clone();
+            node.as_object_mut().expect("node").remove("declaration");
+            node["owner"] = json!({"kind": "model", "identity": OWNER, "node": identity});
+            node["body"] = json!({"term": "aggregate", "members": []});
+            node["occurrences"] = json!([{"role": "type", "ordinal": 0}]);
+            owned.push(node["node_id"].clone());
+        }
+    }
+    for row in package["source_map"].as_array_mut().expect("source map") {
+        if owned.contains(&row["node_id"]) {
+            row["role"] = json!("type");
+        }
+    }
+}
+
+/// The selected domain document extended with the model's own time units.
+fn document_with_time_units() -> std::path::PathBuf {
+    let mut document =
+        read_json(&proposal_dir_of(&fixtures_dir()).join("domain-package-acme-orders.json"))
+            .expect("published selected document");
+    document["dimensions"] = json!([{
+        "identity": format!("ix://{OWNER}/dimension/Time"), "name": "Time", "base": true, "terms": [],
+    }]);
+    document["units"] = json!([
+        {"identity": format!("ix://{OWNER}/unit/ms"), "name": "ms",
+         "dimension": format!("ix://{OWNER}/dimension/Time"), "scale": "1", "offset": "0"},
+        {"identity": format!("ix://{OWNER}/unit/s"), "name": "s",
+         "dimension": format!("ix://{OWNER}/dimension/Time"),
+         "target": format!("ix://{OWNER}/unit/ms"), "scale": "1000", "offset": "0"},
+    ]);
+    let directory = std::env::temp_dir().join(format!(
+        "qsl-1662-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&directory).expect("temp dir");
+    let path = directory.join("domain-with-time-units.json");
+    std::fs::write(&path, serde_json::to_vec(&document).expect("document"))
+        .expect("write document");
+    path
+}
+
+/// The clock unit node is the unit's own node in its owning package (QSpec
+/// FR-370-AC-20), not in the package of the clause that uses it.
+#[trace("TC-048", "FR-038-AC-518")]
+#[test]
+fn duration_bounds_are_typed_by_the_clock_unit_in_its_owning_package() {
+    let published = vectors();
+    let case = published["positive"]
+        .as_array()
+        .expect("positive cases")
+        .iter()
+        .find(|case| case["id"] == "AG-07-duration-quantile")
+        .expect("published duration case");
+    let (mut package, formula) = package_for(case, &published);
+    move_time_to_owner(&mut package);
+    let identity = format!("ix://{OWNER}/unit/ms");
+    package["temporal_bindings"][0]["clock"]["timestamp_unit"] = json!(identity);
+    let document = document_with_time_units();
+    match read_package_with_document(&package, "owned clock unit", &document).expect("package") {
+        CheckedPackageV2ReadResult::Admitted(_) => {}
+        CheckedPackageV2ReadResult::Refused(refusal) => panic!(
+            "bounds typed by the owning package's unit node admit: {} {:?} {:?}",
+            code_word(refusal.code),
+            refusal.cause.map(cause_word),
+            refusal.loci[0].path.as_ref().map(ToString::to_string)
+        ),
+        CheckedPackageV2ReadResult::Incomplete(_) => panic!("complete package"),
+    }
+
+    // QSpec FR-370-AC-20: `upper` typed by the unit `s` node under a clock in
+    // `ms` refuses at `upper`'s value.
+    let s_unit = json!({
+        "package": OWNER, "ordinal": 0,
+        "path": ["scalar_type", "unit", format!("ix://{OWNER}/unit/s")],
+    });
+    let members = package["semantic_graph"]["nodes"][formula]["body"]["arguments"][0]["members"]
+        .as_array_mut()
+        .expect("aggregate members");
+    let upper = members
+        .iter()
+        .position(|member| member["name"] == "upper")
+        .expect("upper binding");
+    members[upper]["value"]["type"] = s_unit;
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_package_with_document(&package, "upper in s", &document).expect("package")
+    else {
+        panic!("an upper bound typed by the s node must refuse");
+    };
+    assert_eq!(code_word(refusal.code), "ill_typed");
+    assert_eq!(refusal.cause.map(cause_word), Some("unit-mismatch"));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{formula}/body/arguments/0/members/{upper}/value"
+        ))
+    );
 }
