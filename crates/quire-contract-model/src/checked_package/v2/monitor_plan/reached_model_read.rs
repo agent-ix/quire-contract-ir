@@ -920,13 +920,38 @@ mod tests {
         }
         if maps {
             let text = monitor_plan_fixtures::find(&wire, "text");
-            let activation = wire["semantic_graph"]["nodes"]
-                .as_array()
-                .unwrap()
+            let target = |node: &serde_json::Value, name: &str| {
+                node["body"]["members"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|binding| binding["name"] == name)
+                    .unwrap_or_else(|| panic!("existing {name} binding"))["value"]["target"]
+                    .clone()
+            };
+            let graph = wire["semantic_graph"]["nodes"].as_array().unwrap();
+            let root = graph
                 .iter()
-                .find(|node| node["declaration"]["qualified_name"][1] == "Activation")
-                .expect("source Activation record")["node_id"]
-                .clone();
+                .find(|node| node["semantic_form"] == "monitor_plan")
+                .unwrap();
+            let inputs_id = target(root, "inputs");
+            let state_id = target(root, "state");
+            let state = graph
+                .iter()
+                .find(|node| node["node_id"] == state_id)
+                .unwrap();
+            let activations_id = target(state, "activations");
+            let activations = graph
+                .iter()
+                .find(|node| node["node_id"] == activations_id)
+                .unwrap();
+            let activation = activations["body"]["members"][0]["target"].clone();
+            assert!(
+                graph.iter().any(|node| node["node_id"] == activation
+                    && node["semantic_form"] == "record"
+                    && node["declaration"].is_object()),
+                "the state sequence names an existing declared activation record"
+            );
             let boolean = monitor_plan_fixtures::find(&wire, "boolean");
             let append_map = |wire: &mut serde_json::Value, value: &serde_json::Value| {
                 let key_position = monitor_plan_fixtures::position(wire, &text);
@@ -950,8 +975,8 @@ mod tests {
                 .as_array_mut()
                 .unwrap()
                 .iter_mut()
-                .find(|node| node["declaration"]["qualified_name"][1] == "Inputs")
-                .expect("source Inputs record");
+                .find(|node| node["node_id"] == inputs_id)
+                .expect("monitor's actual Inputs record");
             inputs["body"]["members"]
                 .as_array_mut()
                 .unwrap()
@@ -1431,6 +1456,16 @@ mod tests {
             } else {
                 ValueType::collection(CollectionType::new(CollectionKind::Sequence, value, None))
             };
+        }
+        for record in &mut records {
+            for member in &mut record.members {
+                if let Some(map) = collections
+                    .iter()
+                    .find(|row| row.key_node.is_some() && row.structural_node == member.type_node)
+                {
+                    member.value_type = map.value_type.clone();
+                }
+            }
         }
         (records, tuples, unions, collections)
     }
@@ -2708,6 +2743,15 @@ mod tests {
                 .filter(|row| row.key_node.is_some())
                 .collect();
             assert_eq!(maps, vec![row]);
+            let member = closure
+                .identities()
+                .source_record_rows()
+                .flat_map(|record| record.members.iter())
+                .find(|member| member.type_node == row.structural_node)
+                .expect("the retained Inputs member names the reached map");
+            assert_eq!(member.admitted_name.as_ref(), "by_key");
+            assert_eq!(member.value_type, row.value_type);
+
             assert_eq!(
                 package.node_kind(row.key_node.as_ref().expect("key")),
                 Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))

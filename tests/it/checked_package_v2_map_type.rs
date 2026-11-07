@@ -784,65 +784,77 @@ fn source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix() {
     use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocusSource};
     let (package, row) = source_map_fixture();
     let initial = SelectedExactIdentities::empty();
-    let project = |budget: &mut NativeJoinBudget| {
+    let acquire = |budget: &mut NativeJoinBudget| {
         initial.with_source_collection_rows(&package, [row.clone()], budget)
     };
     let mut ample = NativeJoinBudget::new(1_000_000, 1_000_000);
-    project(&mut ample).expect("complete projection");
-    // Locate the boundary through the public refusal metadata, without assuming
-    // the size of any earlier native allocation or the retained map footprint.
-    let copy_boundary = (0..ample.consumed().storage)
-        .rfind(|limit| {
-            let mut budget = NativeJoinBudget::new(1_000_000, *limit);
-            project(&mut budget).is_err()
-                && budget
-                    .first_unpaid_locus()
-                    .is_some_and(|locus| locus.form == "source_collection_row")
-        })
-        .expect("map copy has an observable storage boundary");
+    acquire(&mut ample).expect("complete acquisition");
+    let at_row = |limit: &u64| {
+        let mut budget = NativeJoinBudget::new(1_000_000, *limit);
+        acquire(&mut budget).is_err()
+            && budget
+                .first_unpaid_locus()
+                .is_some_and(|locus| locus.form == "source_collection_row")
+    };
+    let prefix_storage = (0..ample.consumed().storage).find(at_row).unwrap();
+    let copy_boundary = (0..ample.consumed().storage).rfind(at_row).unwrap();
     let mut short = NativeJoinBudget::new(1_000_000, copy_boundary);
-    let mut refusal = None;
-    let unpaid_allocations = allocation_counter::measure(|| {
-        refusal = Some(project(&mut short));
-    });
-    let refusal = refusal.unwrap().expect_err("one below map copy allocation");
-    let denied = short.first_unpaid().expect("copy charge");
+    let refusal = acquire(&mut short).expect_err("one below complete row acquisition");
+    let denied = short.first_unpaid().unwrap();
     assert_eq!(denied.kind, NativeJoinChargeKind::Storage);
     assert_eq!(refusal.denied, Some(denied));
     assert_eq!(refusal.configured_bound, Some(copy_boundary));
-    let locus = short.first_unpaid_locus().expect("copy locus");
-    assert_eq!(locus.form, "source_collection_row");
-    assert_eq!(locus.source, NativeJoinLocusSource::ReachedRow(0));
-    assert!(
-        short.consumed().storage > 0,
-        "admitted traversal storage remains spent"
-    );
-    assert_eq!(
-        unpaid_allocations.count_total, 0,
-        "the unpaid native row is the first actual allocation despite paid handle charges"
-    );
-    let mut paid = NativeJoinBudget::new(1_000_000, copy_boundary + 1);
-    let mut paid_result = None;
-    let paid_allocations = allocation_counter::measure(|| {
-        paid_result = Some(project(&mut paid));
+    let expected_locus = quire_contract_model::NativeJoinLocus {
+        source: NativeJoinLocusSource::ReachedRow(0),
+        form: "source_collection_row",
+    };
+    assert_eq!(short.first_unpaid_locus(), Some(expected_locus));
+    assert!(short.consumed().storage >= prefix_storage);
+    assert_eq!(short.last_success_delta(), None);
+    // One-under may pay for an owned error after the row refusal. Measure the
+    // same row operation at the start of its storage reservation instead: no
+    // diagnostic fits there, so these two scopes differ by actual acquisition.
+    let unpaid_row = row.clone();
+    let mut unpaid = NativeJoinBudget::new(1_000_000, prefix_storage);
+    let mut result = None;
+    let before = allocation_counter::measure(|| {
+        result = Some(initial.with_source_collection_rows(&package, [unpaid_row], &mut unpaid));
     });
-    let paid_error = paid_result
+    let error = result.unwrap().expect_err("no row storage remains");
+    assert_eq!(error.denied, Some(denied));
+    assert_eq!(unpaid.first_unpaid_locus(), Some(expected_locus));
+    assert_eq!(error.requested, None);
+    assert_eq!(error.at, None);
+    assert_eq!(error.form, None);
+    assert_eq!(unpaid.consumed().storage, prefix_storage);
+    assert!(
+        before.count_total > 0,
+        "previously admitted node copies really allocate"
+    );
+    let paid_row = row.clone();
+    let mut paid = NativeJoinBudget::new(1_000_000, copy_boundary + 1);
+    let mut result = None;
+    let after = allocation_counter::measure(|| {
+        result = Some(initial.with_source_collection_rows(&package, [paid_row], &mut paid));
+    });
+    let error = result
         .unwrap()
-        .expect_err("later owned result remains unpaid");
+        .expect_err("later owner map copy remains unpaid");
     assert_eq!(
         paid.first_unpaid_locus().unwrap().form,
         "source_collection_prior_map_copy"
     );
-    assert_eq!(paid_error.denied, paid.first_unpaid());
+    assert_eq!(error.requested, None);
+    assert_eq!(error.at, None);
+    assert_eq!(error.form, None);
     assert_eq!(
-        paid.consumed().storage - short.consumed().storage,
-        u64::try_from(denied.amount).expect("map copy charge fits")
+        paid.consumed().storage - unpaid.consumed().storage,
+        u64::try_from(denied.amount).unwrap()
     );
     assert!(
-        paid_allocations.count_total > unpaid_allocations.count_total,
-        "the retained row and native map entry allocate only after their charge is admitted"
+        after.count_total > before.count_total,
+        "the retained row and native map entry allocate only after their storage admission"
     );
-    assert_eq!(short.last_success_delta(), None);
     assert_eq!(paid.last_success_delta(), None);
 }
 
@@ -923,10 +935,36 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
             result = Some(initial.with_source_collection_rows(&package, [cold_row], &mut budget));
         });
         let error = result.unwrap().expect_err("unpaid cold map row");
-        assert_eq!(
-            allocations.count_total, 0,
-            "footprint inspection must not initialize cold integer caches"
-        );
+        if limit == 0 {
+            assert_eq!(
+                allocations.count_total, 0,
+                "zero storage admits no allocation"
+            );
+        } else {
+            let ordinary_interval = IntegerInterval::new(
+                lower.parse::<Integer>().unwrap(),
+                upper.parse::<Integer>().unwrap(),
+            )
+            .unwrap();
+            let ordinary_row = source_map_row(&package, &id, ValueType::Int(ordinary_interval));
+            let mut ordinary_budget = NativeJoinBudget::new(1_000_000, limit);
+            let mut ordinary_result = None;
+            let ordinary = allocation_counter::measure(|| {
+                ordinary_result = Some(initial.with_source_collection_rows(
+                    &package,
+                    [ordinary_row],
+                    &mut ordinary_budget,
+                ));
+            });
+            let ordinary_error = ordinary_result
+                .unwrap()
+                .expect_err("same late row reservation");
+            assert_eq!(ordinary_error.denied, error.denied);
+            assert_eq!(ordinary_budget.consumed(), budget.consumed());
+            assert_eq!(allocations.count_total, ordinary.count_total,
+                "a fresh cold copied domain adds no cache allocation to the identical native prefix");
+            assert_eq!(allocations.bytes_total, ordinary.bytes_total);
+        }
         assert_eq!(error.denied, budget.first_unpaid());
         assert_eq!(error.configured_bound, Some(limit));
         assert_eq!(budget.last_success_delta(), None);
