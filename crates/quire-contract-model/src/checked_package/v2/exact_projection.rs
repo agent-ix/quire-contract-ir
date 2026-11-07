@@ -3379,7 +3379,7 @@ fn project_collection_element(
         ));
     }
     let projection = package
-        .project_exact_type_inner(at, identities, work)
+        .project_exact_type_inner(at, identities, work, ProjectionLocusMode::PreserveCaller)
         .map_err(|mut error| {
             if error.requested.is_some() {
                 let amount = storage::node(requested);
@@ -3654,6 +3654,12 @@ fn project_source_collection(
     Ok(first.value_type.clone())
 }
 
+#[derive(Clone, Copy)]
+enum ProjectionLocusMode {
+    InitializeRequestedNode,
+    PreserveCaller,
+}
+
 impl CheckedPackageV2 {
     /// Read one admitted node's semantic type without reparsing its source.
     ///
@@ -3668,14 +3674,18 @@ impl CheckedPackageV2 {
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> {
         let before = budget.begin();
         let previous_locus = budget.active_locus();
-        if previous_locus.is_none() {
-            budget.set_active_locus(Some(super::NativeJoinLocus {
-                source: super::NativeJoinLocusSource::Package,
-                form: "exact_projection_node",
-            }));
-        }
+        let locus_mode = match previous_locus {
+            None => {
+                budget.set_active_locus(Some(super::NativeJoinLocus {
+                    source: super::NativeJoinLocusSource::Package,
+                    form: "exact_projection_node",
+                }));
+                ProjectionLocusMode::InitializeRequestedNode
+            }
+            Some(_) => ProjectionLocusMode::PreserveCaller,
+        };
         budget.set_exact_diagnostics(true);
-        let result = self.project_exact_type_inner(requested, identities, budget);
+        let result = self.project_exact_type_inner(requested, identities, budget, locus_mode);
         budget.set_exact_diagnostics(false);
         budget.set_active_locus(previous_locus);
         match result {
@@ -3696,6 +3706,7 @@ impl CheckedPackageV2 {
         requested: &CheckedNodeId,
         identities: &SelectedExactIdentities,
         budget: &mut NativeJoinBudget,
+        locus_mode: ProjectionLocusMode,
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> {
         let work_limit = u64::MAX;
         let work = budget;
@@ -3714,10 +3725,7 @@ impl CheckedPackageV2 {
                 ExactDiagnosticForm::Literal("unknown_node"),
             )
         })?;
-        if work.active_locus().is_some_and(|locus| {
-            locus.source == super::NativeJoinLocusSource::Package
-                && locus.form == "exact_projection_node"
-        }) {
+        if let ProjectionLocusMode::InitializeRequestedNode = locus_mode {
             work.set_active_locus(Some(super::NativeJoinLocus {
                 source: super::NativeJoinLocusSource::GraphNode(position),
                 form: "exact_projection_type",
@@ -3853,7 +3861,12 @@ impl CheckedPackageV2 {
                     )
                     .map_err(|_| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
                     let map = self
-                        .project_exact_type_inner(&type_node.semantic_type, identities, work)
+                        .project_exact_type_inner(
+                            &type_node.semantic_type,
+                            identities,
+                            work,
+                            ProjectionLocusMode::PreserveCaller,
+                        )
                         .map_err(|mut error| {
                             if error.requested.is_some() {
                                 let amount = storage::node(requested);
@@ -4250,39 +4263,86 @@ mod tests {
         use super::super::{NativeJoinLocus, NativeJoinLocusSource};
         let package = fixture();
         let requested: CheckedNodeId = serde_json::from_value(id("boolean")).unwrap();
-        let position = package.graph().nodes.iter().position(|node| node.node_id == requested).unwrap();
-        for caller in [None,
-            Some(NativeJoinLocus { source: NativeJoinLocusSource::Package, form: "exact_projection_node" }),
-            Some(NativeJoinLocus { source: NativeJoinLocusSource::ReachedRow(9), form: "caller_row" }),
+        let position = package
+            .graph()
+            .nodes
+            .iter()
+            .position(|node| node.node_id == requested)
+            .unwrap();
+        for caller in [
+            None,
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::Package,
+                form: "exact_projection_node",
+            }),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::ReachedRow(9),
+                form: "caller_row",
+            }),
         ] {
             let mut budget = NativeJoinBudget::new(1, 0);
             budget.set_active_locus(caller);
-            let error = package.project_exact_type(&requested, &SelectedExactIdentities::empty(), &mut budget)
+            let error = package
+                .project_exact_type(&requested, &SelectedExactIdentities::empty(), &mut budget)
                 .expect_err("lookup is paid but the following type inspection is not");
             let expected = match caller {
                 Some(locus) => locus,
-                None => NativeJoinLocus { source: NativeJoinLocusSource::GraphNode(position), form: "exact_projection_type" },
+                None => NativeJoinLocus {
+                    source: NativeJoinLocusSource::GraphNode(position),
+                    form: "exact_projection_type",
+                },
             };
             assert_eq!(budget.first_unpaid_locus(), Some(expected));
-            assert_eq!(budget.active_locus(), caller, "restore the caller context after refusal");
+            assert_eq!(
+                budget.active_locus(),
+                caller,
+                "restore the caller context after refusal"
+            );
             assert_eq!(error.configured_bound, Some(1));
-            let denied = NativeJoinDeniedCharge { kind: NativeJoinChargeKind::Work, amount: 1 };
+            let denied = NativeJoinDeniedCharge {
+                kind: NativeJoinChargeKind::Work,
+                amount: 1,
+            };
             assert_eq!(error.denied, Some(denied));
-            assert_eq!(budget.accounted_charge(NativeJoinChargeKind::Storage, 99,
-                NativeJoinLocus { source: NativeJoinLocusSource::Package, form: "later" }), Err(denied));
+            assert_eq!(
+                budget.accounted_charge(
+                    NativeJoinChargeKind::Storage,
+                    99,
+                    NativeJoinLocus {
+                        source: NativeJoinLocusSource::Package,
+                        form: "later"
+                    }
+                ),
+                Err(denied)
+            );
             assert_eq!(budget.first_unpaid_locus(), Some(expected));
             assert_eq!(budget.last_success_delta(), None);
         }
         let mut unpaid = NativeJoinBudget::new(0, 0);
-        package.project_exact_type(&requested, &SelectedExactIdentities::empty(), &mut unpaid).unwrap_err();
-        let package_locus = NativeJoinLocus { source: NativeJoinLocusSource::Package, form: "exact_projection_node" };
+        package
+            .project_exact_type(&requested, &SelectedExactIdentities::empty(), &mut unpaid)
+            .unwrap_err();
+        let package_locus = NativeJoinLocus {
+            source: NativeJoinLocusSource::Package,
+            form: "exact_projection_node",
+        };
         assert_eq!(unpaid.first_unpaid_locus(), Some(package_locus));
         assert_eq!(unpaid.consumed().work, 0);
         assert_eq!(unpaid.active_locus(), None);
         let missing: CheckedNodeId = serde_json::from_value(id("missing")).unwrap();
         let mut unavailable = NativeJoinBudget::new(1, 0);
-        package.project_exact_type(&missing, &SelectedExactIdentities::empty(), &mut unavailable).unwrap_err();
-        assert_eq!(unavailable.first_unpaid_locus(), Some(package_locus), "an unavailable lookup has no graph position");
+        package
+            .project_exact_type(
+                &missing,
+                &SelectedExactIdentities::empty(),
+                &mut unavailable,
+            )
+            .unwrap_err();
+        assert_eq!(
+            unavailable.first_unpaid_locus(),
+            Some(package_locus),
+            "an unavailable lookup has no graph position"
+        );
         assert_eq!(unavailable.active_locus(), None);
     }
 
