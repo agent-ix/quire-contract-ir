@@ -50,6 +50,7 @@ mod native_join_budget;
 mod native_join_storage;
 mod natural;
 mod node_index;
+pub(in crate::checked_package) use node_index::StructuralOrder;
 mod operation_catalog;
 mod read_charge;
 pub use operation_catalog::{initialize_operation_catalog, CatalogReadError};

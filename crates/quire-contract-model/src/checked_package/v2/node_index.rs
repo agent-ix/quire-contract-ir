@@ -97,6 +97,315 @@ impl StructuralInterner {
     }
 }
 
+/// The sentinel of a pointer-table slot whose key has no entry yet.
+const NO_ENTRY: usize = usize::MAX;
+
+struct OrderEntry<'k> {
+    key: &'k super::CheckedNodeId,
+    parent: Option<usize>,
+    left: Option<usize>,
+    right: Option<usize>,
+    size: usize,
+    priority: u64,
+}
+
+/// The structural order of the resolved keys of one or more graphs, in
+/// `CheckedNodeId::cmp` order, built once and charged once.
+///
+/// Equal keys, whichever document built them, share one entry, so an entry is
+/// an equality token; the entries' positions in the order are dense ranks. A
+/// key is found by its `Arc`'s address in a sorted pointer table and an
+/// arbitrary resolved ID by descending the order, so no lookup allocates. The
+/// order is a balanced tree whose entries enter children before parents, so a
+/// parent's comparison reads the positions of its operands and never walks a
+/// shared operand spine, whatever the depth.
+///
+/// Every table is charged to the budget's read storage before it is made: the
+/// pointer table (`16` bytes a key), the entries, the worklist and the rank
+/// table. Implements: FR-038 "Budget-charged strict read", stage `NodeIndex`.
+pub(in crate::checked_package) struct StructuralOrder<'k> {
+    entries: Vec<OrderEntry<'k>>,
+    /// Key addresses in ascending order, with the entry of each.
+    pointers: Vec<(*const super::CheckedNodeId, usize)>,
+    root: Option<usize>,
+    random: u64,
+    /// The position of each entry in the order.
+    positions: Vec<usize>,
+}
+
+impl<'k> StructuralOrder<'k> {
+    /// Orders every key of `lists`, and every operand reachable from them,
+    /// charging at the node-index stage's table index 0. `None` when an
+    /// operand is not itself one of the listed keys.
+    pub(super) fn build(
+        lists: &[&'k [Arc<super::CheckedNodeId>]],
+        budget: &mut NativeJoinBudget,
+        site: Site,
+    ) -> Result<Option<Self>, ValidationFailure> {
+        let total = lists.iter().map(|list| list.len()).sum();
+        let mut pointers: Vec<(*const super::CheckedNodeId, usize)> =
+            read_charge::with_capacity(budget, site, total)?;
+        for list in lists {
+            pointers.extend(list.iter().map(|key| (Arc::as_ptr(key), NO_ENTRY)));
+        }
+        pointers.sort_unstable_by_key(|(pointer, _)| *pointer);
+        pointers.dedup_by_key(|(pointer, _)| *pointer);
+        let entries = read_charge::with_capacity(budget, site, pointers.len())?;
+        let mut order = Self {
+            entries,
+            pointers,
+            root: None,
+            random: 0x9e37_79b9_7f4a_7c15,
+            positions: Vec::new(),
+        };
+        let mut pending: Vec<(&'k super::CheckedNodeId, bool)> = Vec::new();
+        for root in lists.iter().flat_map(|list| list.iter()) {
+            read_charge::push(budget, site, &mut pending, (root.as_ref(), false))?;
+            while let Some((key, finish)) = pending.pop() {
+                let Some(slot) = order.slot(std::ptr::from_ref(key)) else {
+                    return Ok(None);
+                };
+                if order.pointers[slot].1 != NO_ENTRY {
+                    continue;
+                }
+                if finish {
+                    let Some(entry) = order.insert(key) else {
+                        return Ok(None);
+                    };
+                    order.pointers[slot].1 = entry;
+                } else {
+                    read_charge::push(budget, site, &mut pending, (key, true))?;
+                    for segment in key.path.iter().rev() {
+                        if let CheckedNodePathSegment::Node(child) = segment {
+                            read_charge::push(budget, site, &mut pending, (child.as_ref(), false))?;
+                        }
+                    }
+                }
+            }
+        }
+        order.positions = read_charge::filled(budget, site, order.entries.len(), 0usize)?;
+        let mut stack: Vec<usize> = Vec::new();
+        let (mut at, mut next) = (order.root, 0usize);
+        while at.is_some() || !stack.is_empty() {
+            while let Some(current) = at {
+                read_charge::push(budget, site, &mut stack, current)?;
+                at = order.entries[current].left;
+            }
+            let Some(current) = stack.pop() else { break };
+            order.positions[current] = next;
+            next += 1;
+            at = order.entries[current].right;
+        }
+        Ok(Some(order))
+    }
+
+    /// [`Self::build`] under a budget that charges nothing, for readers that
+    /// hold no caller budget.
+    pub(in crate::checked_package) fn build_unmetered(
+        lists: &[&'k [Arc<super::CheckedNodeId>]],
+    ) -> Option<Self> {
+        let mut budget = NativeJoinBudget::unlimited();
+        let site = Site::new(PackageReadStage::NodeIndex, 0, "node_index");
+        Self::build(lists, &mut budget, site).ok().flatten()
+    }
+
+    /// The equality token of a key built into the order: keys that are equal
+    /// share one, in whichever document they were built.
+    pub(super) fn token(&self, key: &Arc<super::CheckedNodeId>) -> Option<usize> {
+        let slot = self.slot(Arc::as_ptr(key))?;
+        Some(self.pointers[slot].1).filter(|entry| *entry != NO_ENTRY)
+    }
+
+    /// The dense rank of a key built into the order, in `CheckedNodeId::cmp`
+    /// order: equal keys share a rank.
+    pub(in crate::checked_package) fn rank(
+        &self,
+        key: &Arc<super::CheckedNodeId>,
+    ) -> Option<usize> {
+        self.positions.get(self.token(key)?).copied()
+    }
+
+    #[allow(dead_code)] // Consumed by the graph validators' import index.
+    /// The token of a resolved ID equal to a key of the order, found without
+    /// allocating, or `None` when no key equals it or an operand of it is not
+    /// a key of the order.
+    pub(super) fn find(&self, id: &super::CheckedNodeId) -> Option<usize> {
+        let mut at = self.root;
+        while let Some(current) = at {
+            at = match self.compare(id, self.entries[current].key)? {
+                std::cmp::Ordering::Equal => return Some(current),
+                std::cmp::Ordering::Less => self.entries[current].left,
+                std::cmp::Ordering::Greater => self.entries[current].right,
+            };
+        }
+        None
+    }
+
+    fn slot(&self, address: *const super::CheckedNodeId) -> Option<usize> {
+        self.pointers
+            .binary_search_by_key(&address, |(pointer, _)| *pointer)
+            .ok()
+    }
+
+    fn entry_of(&self, operand: &Arc<super::CheckedNodeId>) -> Option<usize> {
+        let slot = self.slot(Arc::as_ptr(operand))?;
+        Some(self.pointers[slot].1).filter(|entry| *entry != NO_ENTRY)
+    }
+
+    fn size(&self, index: Option<usize>) -> usize {
+        index.map_or(0, |at| self.entries[at].size)
+    }
+
+    fn position(&self, mut at: usize) -> usize {
+        let mut position = self.size(self.entries[at].left);
+        while let Some(parent) = self.entries[at].parent {
+            if self.entries[parent].right == Some(at) {
+                position += self.size(self.entries[parent].left) + 1;
+            }
+            at = parent;
+        }
+        position
+    }
+
+    /// `CheckedNodeId::cmp`, reading operand order from the tree. `None` when
+    /// an operand of either ID is not in the order yet.
+    fn compare(
+        &self,
+        left: &super::CheckedNodeId,
+        right: &super::CheckedNodeId,
+    ) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering;
+        let package = left.package.cmp(&right.package);
+        if package != Ordering::Equal {
+            return Some(package);
+        }
+        for (a, b) in left.path.iter().zip(&right.path) {
+            let order = match (a, b) {
+                (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => a.cmp(b),
+                (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b))
+                | (CheckedNodePathSegment::Operand(a), CheckedNodePathSegment::Operand(b)) => {
+                    a.cmp(b)
+                }
+                (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
+                    let (a, b) = (self.entry_of(a)?, self.entry_of(b)?);
+                    self.position(a).cmp(&self.position(b))
+                }
+                (CheckedNodePathSegment::Name(_), _) => Ordering::Less,
+                (_, CheckedNodePathSegment::Name(_)) => Ordering::Greater,
+                (CheckedNodePathSegment::Index(_), _) => Ordering::Less,
+                (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Index(_)) => {
+                    Ordering::Greater
+                }
+                (CheckedNodePathSegment::Operand(_), _) => Ordering::Less,
+                (CheckedNodePathSegment::Node(_), _) => Ordering::Greater,
+            };
+            if order != Ordering::Equal {
+                return Some(order);
+            }
+        }
+        Some(
+            left.path
+                .len()
+                .cmp(&right.path.len())
+                .then_with(|| left.ordinal.cmp(&right.ordinal)),
+        )
+    }
+
+    fn rotate_up(&mut self, child: usize) {
+        let Some(parent) = self.entries[child].parent else {
+            return;
+        };
+        let grand = self.entries[parent].parent;
+        if self.entries[parent].left == Some(child) {
+            let moved = self.entries[child].right;
+            self.entries[parent].left = moved;
+            if let Some(moved) = moved {
+                self.entries[moved].parent = Some(parent);
+            }
+            self.entries[child].right = Some(parent);
+        } else {
+            let moved = self.entries[child].left;
+            self.entries[parent].right = moved;
+            if let Some(moved) = moved {
+                self.entries[moved].parent = Some(parent);
+            }
+            self.entries[child].left = Some(parent);
+        }
+        self.entries[parent].parent = Some(child);
+        self.entries[child].parent = grand;
+        if let Some(grand) = grand {
+            if self.entries[grand].left == Some(parent) {
+                self.entries[grand].left = Some(child);
+            } else {
+                self.entries[grand].right = Some(child);
+            }
+        } else {
+            self.root = Some(child);
+        }
+        self.entries[parent].size =
+            1 + self.size(self.entries[parent].left) + self.size(self.entries[parent].right);
+        self.entries[child].size =
+            1 + self.size(self.entries[child].left) + self.size(self.entries[child].right);
+    }
+
+    /// Enters `key`, or returns the entry of the key equal to it. `None` when
+    /// an operand has no entry yet.
+    fn insert(&mut self, key: &'k super::CheckedNodeId) -> Option<usize> {
+        use std::cmp::Ordering;
+        let mut parent = None;
+        let mut at = self.root;
+        let mut side = Ordering::Equal;
+        while let Some(current) = at {
+            side = self.compare(key, self.entries[current].key)?;
+            if side == Ordering::Equal {
+                return Some(current);
+            }
+            parent = Some(current);
+            at = if side == Ordering::Less {
+                self.entries[current].left
+            } else {
+                self.entries[current].right
+            };
+        }
+        // The priority is for tree balance only; it never identifies a
+        // package, file or tool, and it does not affect structural order.
+        self.random = self
+            .random
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let index = self.entries.len();
+        self.entries.push(OrderEntry {
+            key,
+            parent,
+            left: None,
+            right: None,
+            size: 1,
+            priority: self.random,
+        });
+        if let Some(parent) = parent {
+            if side == Ordering::Less {
+                self.entries[parent].left = Some(index);
+            } else {
+                self.entries[parent].right = Some(index);
+            }
+            let mut ancestor = Some(parent);
+            while let Some(current) = ancestor {
+                self.entries[current].size += 1;
+                ancestor = self.entries[current].parent;
+            }
+        } else {
+            self.root = Some(index);
+        }
+        while let Some(parent) = self.entries[index].parent {
+            if self.entries[index].priority <= self.entries[parent].priority {
+                break;
+            }
+            self.rotate_up(index);
+        }
+        Some(index)
+    }
+}
+
 fn malformed(at: JsonPointer) -> ValidationFailure {
     ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
 }
@@ -1163,8 +1472,110 @@ pub(super) fn restore_slots(id: &mut super::CheckedNodeId, row: &[u64]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_inline_node_path, locate};
+    use super::{contains_inline_node_path, locate, StructuralOrder};
+    use crate::checked_package::v2::native_join_budget::{
+        NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+    };
+    use crate::checked_package::v2::read_charge::Site;
+    use crate::checked_package::v2::{CheckedNodeId, CheckedNodePathSegment};
     use quire_canonical::Node;
+    use std::sync::Arc;
+
+    fn key(name: &str, operand: Option<&Arc<CheckedNodeId>>, ordinal: u64) -> Arc<CheckedNodeId> {
+        let mut path = vec![CheckedNodePathSegment::Name(name.into())];
+        path.extend(operand.map(|operand| CheckedNodePathSegment::Node(Arc::clone(operand))));
+        Arc::new(CheckedNodeId {
+            package: "p".into(),
+            path,
+            ordinal,
+        })
+    }
+
+    /// `length` keys, each naming the one before it, with `salt` as the last
+    /// ordinal so that two chains differ only at their tops.
+    fn chain(length: usize, salt: u64) -> Vec<Arc<CheckedNodeId>> {
+        let mut keys: Vec<Arc<CheckedNodeId>> = Vec::with_capacity(length);
+        for position in 0..length {
+            let ordinal = if position + 1 == length { salt } else { 0 };
+            let next = key("n", keys.last(), ordinal);
+            keys.push(next);
+        }
+        keys
+    }
+
+    fn node_index_site() -> Site {
+        Site::new(PackageReadStage::NodeIndex, 0, "node_index")
+    }
+
+    /// The order ranks keys as `CheckedNodeId::cmp` does, gives equal keys of
+    /// two documents one token, and finds a resolved ID without allocating.
+    ///
+    /// Trace: TC-472, FR-038-AC-500.
+    #[test]
+    fn structural_order_ranks_like_cmp_and_shares_tokens_across_documents() {
+        let first = chain(3000, 1);
+        let second = chain(3000, 1);
+        let other = chain(3000, 2);
+        let order = StructuralOrder::build_unmetered(&[&first, &second, &other])
+            .expect("every operand is a listed key");
+        for (a, b) in first.iter().zip(&second) {
+            assert!(!Arc::ptr_eq(a, b));
+            assert_eq!(order.token(a), order.token(b));
+            assert_eq!(order.rank(a), order.rank(b));
+        }
+        for left in first.iter().step_by(97) {
+            for right in other.iter().step_by(211) {
+                assert_eq!(
+                    left.as_ref().cmp(right.as_ref()),
+                    order.rank(left).cmp(&order.rank(right))
+                );
+            }
+        }
+        // The two tops differ only in ordinal, deep below the equal spine.
+        let (top, rival) = (first.last().unwrap(), other.last().unwrap());
+        assert_eq!(top.cmp(rival), order.rank(top).cmp(&order.rank(rival)));
+        assert_ne!(order.token(top), order.token(rival));
+        let copy = CheckedNodeId::clone(&second[10]);
+        assert_eq!(order.find(&copy), order.token(&first[10]));
+        let absent = CheckedNodeId {
+            package: "q".into(),
+            path: vec![CheckedNodePathSegment::Name("n".into())],
+            ordinal: 0,
+        };
+        assert_eq!(order.find(&absent), None);
+    }
+
+    /// The order's tables are charged exactly: the measured requirement
+    /// admits and one byte below is denied at the node-index locus.
+    ///
+    /// Trace: TC-472, FR-038-AC-500, FR-358-AC-13.
+    #[test]
+    fn structural_order_is_charged_to_the_byte_at_the_node_index_locus() {
+        let keys = chain(200, 0);
+        let mut measure = NativeJoinBudget::unlimited();
+        assert!(
+            StructuralOrder::build(&[&keys], &mut measure, node_index_site())
+                .expect("charged")
+                .is_some()
+        );
+        let required = measure.read_storage_consumed();
+        let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+        assert!(
+            StructuralOrder::build(&[&keys], &mut exact, node_index_site())
+                .expect("exact allowance admits")
+                .is_some()
+        );
+        assert_eq!(exact.read_storage_consumed(), required);
+        let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required - 1);
+        assert!(StructuralOrder::build(&[&keys], &mut short, node_index_site()).is_err());
+        assert_eq!(
+            short.first_unpaid_locus(),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::NodeIndex, 0),
+                form: "node_index",
+            })
+        );
+    }
 
     /// The pointer to every value of a document is found from its id alone.
     ///

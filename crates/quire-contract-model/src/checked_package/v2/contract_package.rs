@@ -1999,12 +1999,10 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
     }
     // Compare shallow interned descriptors: a long chain of source keys must
     // not compare every deep prefix again during duplicate detection.
-    let mut interner = super::node_index::StructuralInterner::new();
-    let tokens = interner
-        .tokens(&source_keys)
+    let order = super::StructuralOrder::build_unmetered(&[&source_keys])
         .ok_or_else(|| malformed(table_at.clone(), CheckedPackageRefusalCause::InvalidValue))?;
     let mut seen = BTreeSet::new();
-    for (position, token) in tokens.into_iter().enumerate() {
+    for (position, token) in source_keys.iter().map(|key| order.token(key)).enumerate() {
         if !seen.insert(token) {
             return Err(malformed(
                 table_at.clone().index(position),
@@ -2840,13 +2838,17 @@ impl ContractPackageWireV1 {
             |at| malformed(at, CheckedPackageRefusalCause::InvalidValue),
             &mut super::native_join_budget::NativeJoinBudget::unlimited(),
         )?;
-        let mut interner = super::node_index::StructuralInterner::new();
-        let structural_tokens = interner.tokens(&structural_keys).ok_or_else(|| {
-            malformed(
-                JsonPointer::root().key("semantic_graph").key("nodes"),
-                CheckedPackageRefusalCause::InvalidValue,
-            )
-        })?;
+        let order =
+            super::StructuralOrder::build_unmetered(&[&structural_keys]).ok_or_else(|| {
+                malformed(
+                    JsonPointer::root().key("semantic_graph").key("nodes"),
+                    CheckedPackageRefusalCause::InvalidValue,
+                )
+            })?;
+        let structural_tokens = structural_keys
+            .iter()
+            .map(|key| order.token(key))
+            .collect::<Vec<_>>();
         let mut seen = BTreeSet::new();
         let mut edges = 0_u64;
         let mut node_kinds = Vec::with_capacity(nodes.len());
