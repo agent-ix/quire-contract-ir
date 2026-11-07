@@ -266,7 +266,7 @@ fn ancestry_and_same_spelling_do_not_replace_the_operation_family() {
 #[trace("TC-472", "FR-354-AC-16")]
 #[test]
 fn wrong_kind_unrelated_and_cyclic_redefinition_links_refuse() {
-    for malformed in ["field", "unrelated", "cycle"] {
+    for malformed in ["field", "unrelated", "same-owner", "cycle"] {
         let mut document = family_document();
         let mut hidden = document["types"][0]["operations"][0].clone();
         hidden["identity"] = json!(format!("{ORDER}/hidden"));
@@ -278,8 +278,10 @@ fn wrong_kind_unrelated_and_cyclic_redefinition_links_refuse() {
                 format!("{ORDER}/marker")
             }
             "unrelated" => format!("{CUSTOMER}/total"),
-            "cycle" => {
-                hidden["redefines"] = json!(format!("{ORDER}/hidden"));
+            "same-owner" | "cycle" => {
+                if malformed == "cycle" {
+                    hidden["redefines"] = json!(format!("{ORDER}/hidden"));
+                }
                 document["types"][0]["operations"]
                     .as_array_mut()
                     .unwrap()

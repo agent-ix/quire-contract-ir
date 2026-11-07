@@ -1252,7 +1252,7 @@ impl DomainModel {
             let Some(&(target_owner, _)) = operations.get(target) else {
                 return Ok(false);
             };
-            if !self.conforms_to(owner, target_owner, budget)? {
+            if owner == target_owner || !self.conforms_to(owner, target_owner, budget)? {
                 return Ok(false);
             }
             current = target;
