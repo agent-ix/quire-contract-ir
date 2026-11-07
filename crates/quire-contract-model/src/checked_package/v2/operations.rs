@@ -576,12 +576,12 @@ fn literal_defect<'t>(
                 meter.push(&mut native, (valid, path))?;
             }
         }
-        let mut child = |meter: &mut WorkMeter,
-                         steps: &mut Vec<Step>,
-                         pending: &mut Vec<(&'t CheckedTerm, usize)>,
-                         term: &'t CheckedTerm,
-                         key: &'static str,
-                         index: Option<usize>|
+        let child = |meter: &mut WorkMeter,
+                     steps: &mut Vec<Step>,
+                     pending: &mut Vec<(&'t CheckedTerm, usize)>,
+                     term: &'t CheckedTerm,
+                     key: &'static str,
+                     index: Option<usize>|
          -> Result<(), ValidationFailure> {
             meter.push(
                 steps,

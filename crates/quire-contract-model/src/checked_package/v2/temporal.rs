@@ -26,8 +26,8 @@
 //! walk read, and the timed form's lowest-terms graph check
 //! ([`validate_timed_bounds_reduced`]), which runs before the frame step.
 
-use super::graph_storage::GraphIndex;
 use super::frame::StepGraph;
+use super::graph_storage::{GraphIndex, Stamps};
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::natural::{compare_rationals, coprime};
@@ -532,8 +532,10 @@ pub(super) fn validate_temporal(
         }
     }
     validate_diagnostic_references(nodes, kinds, context.diagnostics)?;
-    let clock_units = aggregate_clock_units(context.bindings);
-    let mut covered = BTreeSet::new();
+    meter.at_node(0, "temporal");
+    let clock_units = aggregate_clock_units(context.bindings, meter)?;
+    let mut covered = meter.filled(nodes.len(), false)?;
+    let mut stamps = Stamps::new(nodes.len(), meter)?;
     for &position in index.values() {
         if graph.kinds.get(position)
             == Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
@@ -545,11 +547,14 @@ pub(super) fn validate_temporal(
                 terms,
                 context.lock,
                 clock_units
-                    .get(&graph.nodes[position].node_id)
-                    .copied()
-                    .flatten(),
+                    .binary_search_by(|(declaration, _)| {
+                        (*declaration).cmp(&graph.nodes[position].node_id)
+                    })
+                    .ok()
+                    .and_then(|at| clock_units[at].1),
                 meter,
                 &mut covered,
+                &mut stamps,
             )?;
         }
     }
@@ -557,7 +562,7 @@ pub(super) fn validate_temporal(
     // interval is an interval all the same.
     for &position in index.values() {
         if graph.kinds.get(position) == Some(&CheckedNodeKind::Temporal(TemporalForm::Formula))
-            && !covered.contains(&position)
+            && !covered.get(position).copied().unwrap_or(false)
         {
             if let Some(interval) = interval_of(context.catalog, position, &graph) {
                 check_bounds(position, &interval, &graph, meter)?;
@@ -856,9 +861,11 @@ fn check_clause(
     lock: &CheckedPackageLockV2,
     clock_unit: Option<&str>,
     meter: &mut WorkMeter,
-    covered: &mut BTreeSet<usize>,
+    covered: &mut [bool],
+    stamps: &mut Stamps,
 ) -> Result<(), ValidationFailure> {
     let node = &graph.nodes[position];
+    meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
     let Some(operation) = operation_of(node) else {
         return Ok(());
     };
@@ -871,13 +878,9 @@ fn check_clause(
     }
     let at_node = node_pointer(position);
     let at_body = at_node.clone().key("body");
-    let arguments: Vec<&Value> = application_arguments(&node.body)
-        .into_iter()
-        .flatten()
-        .collect();
+    let arguments: &[Value] = application_arguments(&node.body).unwrap_or(&[]);
     let hybrid_claim = arguments
         .first()
-        .copied()
         .and_then(reference_target)
         .is_some_and(|over| {
             graph.node(&over).is_some_and(|(parameter, kind)| {
@@ -924,7 +927,7 @@ fn check_clause(
     // reference is (FR-040), refused with the path on the argument and, as a
     // frame entry's refusal is, the target's key as locus; a target that is no
     // node has none, so the clause's key stands.
-    if let Some(over) = arguments.first().copied().and_then(reference_target) {
+    if let Some(over) = arguments.first().and_then(reference_target) {
         let refusal = match graph.node(&over) {
             None => Some((ModelRefusal::missing_name(), node.node_id.clone())),
             Some(_) if !node.dependencies.contains(&over) => {
@@ -946,12 +949,8 @@ fn check_clause(
     }
 
     // Each fairness member resolves on its declaring node.
-    let fairness: Vec<&Value> = arguments
-        .get(4)
-        .into_iter()
-        .flat_map(|aggregate| aggregate_members(aggregate).into_iter().flatten())
-        .collect();
-    for reference in &fairness {
+    let fairness: &[Value] = arguments.get(4).and_then(aggregate_members).unwrap_or(&[]);
+    for reference in fairness {
         let Some((fair, member)) = fairness_member(reference, graph) else {
             continue;
         };
@@ -1013,11 +1012,12 @@ fn check_clause(
     // bounds of every interval.
     let FormulaReach { intervals, reached } = formula_intervals(
         catalog,
-        arguments.get(5).copied(),
+        arguments.get(5),
         graph,
         meter,
         &at_node,
         covered,
+        stamps,
     )?;
     if let Some(profile) = profile {
         let fit = profile.interval_fit();
@@ -1045,27 +1045,23 @@ fn check_clause(
     for (formula, interval) in &intervals {
         check_bounds(*formula, interval, graph, meter)?;
     }
-    let mut aggregates = reached
-        .into_iter()
-        .filter(|&formula| {
-            operation_of(&graph.nodes[formula]).is_some_and(|operation| {
-                operation.identity.as_ref() == "quire.op.temporal.aggregate"
-            })
-        })
-        .collect::<Vec<_>>();
-    aggregates.sort_by(|&left, &right| graph.nodes[left].node_id.cmp(&graph.nodes[right].node_id));
+    let mut aggregates = reached;
+    aggregates.retain(|&formula| {
+        operation_of(&graph.nodes[formula])
+            .is_some_and(|operation| operation.identity.as_ref() == "quire.op.temporal.aggregate")
+    });
+    // Equal ids keep position order, as the stable sort did.
+    aggregates.sort_unstable_by(|&left, &right| {
+        graph.nodes[left]
+            .node_id
+            .cmp(&graph.nodes[right].node_id)
+            .then(left.cmp(&right))
+    });
     // The clock unit is matched by `node_id.path` alone: the unit's own node
     // lives in the package that owns it, whatever the clause's package
     // (QSpec FR-370 "Window aggregate atom").
-    let clock_unit = clock_unit.map(|name| {
-        vec![
-            CheckedNodePathSegment::Name("scalar_type".into()),
-            CheckedNodePathSegment::Name("unit".into()),
-            CheckedNodePathSegment::Name(name.into()),
-        ]
-    });
     for formula in aggregates {
-        check_aggregate(formula, profile, clock_unit.as_deref(), graph, meter)?;
+        check_aggregate(formula, profile, clock_unit, graph, meter)?;
     }
     Ok(())
 }
@@ -1084,6 +1080,39 @@ fn interval_fits(fit: IntervalFit, interval: &Interval) -> bool {
             IntervalFit::ClosedOnly,
             Interval::Unbounded | Interval::LowerBounded | Interval::Timed { .. },
         ) => false,
+    }
+}
+
+/// Where each aggregate member is held: one slot per name of the closed set,
+/// so the table needs no heap.
+#[derive(Default)]
+struct Held([Option<usize>; AGGREGATE_NAMES.len()]);
+
+impl Held {
+    fn slot(name: &str) -> Option<usize> {
+        AGGREGATE_NAMES.iter().position(|known| *known == name)
+    }
+
+    fn contains_key(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+
+    fn get(&self, name: &str) -> Option<&usize> {
+        self.0.get(Self::slot(name)?)?.as_ref()
+    }
+
+    fn insert(&mut self, name: &str, at: usize) {
+        if let Some(slot) = Self::slot(name).and_then(|slot| self.0.get_mut(slot)) {
+            *slot = Some(at);
+        }
+    }
+}
+
+impl std::ops::Index<&str> for Held {
+    type Output = usize;
+
+    fn index(&self, name: &str) -> &usize {
+        self.get(name).expect("a held aggregate member")
     }
 }
 
@@ -1254,34 +1283,60 @@ fn aggregate_presence(kind: AggregateKind, name: &str) -> (bool, bool) {
 /// One scan of the occurrence rows records a clock unit only if every row
 /// for a clause names the same timestamp unit. A mixed clock has no single
 /// duration encoding and its aggregate bounds must refuse.
-fn aggregate_clock_units(
-    bindings: Option<&[TemporalBinding]>,
-) -> BTreeMap<&CheckedNodeId, Option<&str>> {
-    let mut units = BTreeMap::new();
-    for row in bindings.into_iter().flatten() {
+fn aggregate_clock_units<'b>(
+    bindings: Option<&'b [TemporalBinding]>,
+    meter: &mut WorkMeter,
+) -> Result<Vec<(&'b CheckedNodeId, Option<&'b str>)>, ValidationFailure> {
+    let rows = bindings.unwrap_or(&[]);
+    let mut keyed: Vec<(&CheckedNodeId, Option<&str>, usize)> = meter.vec(rows.len())?;
+    for (at, row) in rows.iter().enumerate() {
         let unit = match &row.clock {
             ClockConfiguration::TimestampedEvent { timestamp_unit } => {
                 Some(timestamp_unit.as_ref())
             }
             _ => None,
         };
-        units
-            .entry(&row.declaration)
-            .and_modify(|shared| {
+        keyed.push((&row.declaration, unit, at));
+    }
+    keyed.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.2.cmp(&right.2)));
+    let clauses = keyed
+        .iter()
+        .enumerate()
+        .filter(|(at, row)| *at == 0 || keyed[*at - 1].0 != row.0)
+        .count();
+    // One entry per clause, in id order: the unit its rows share, else none.
+    let mut units: Vec<(&CheckedNodeId, Option<&str>)> = meter.vec(clauses)?;
+    for (declaration, unit, _) in keyed {
+        match units.last_mut() {
+            Some((last, shared)) if *last == declaration => {
                 if *shared != unit {
                     *shared = None;
                 }
-            })
-            .or_insert(unit);
+            }
+            _ => units.push((declaration, unit)),
+        }
     }
-    units
+    Ok(units)
+}
+
+/// Whether a bound's type path is the clock's timestamp unit
+/// (`scalar_type/unit/<name>`), or both are absent.
+fn is_clock_unit_path(path: Option<&[CheckedNodePathSegment]>, unit: Option<&str>) -> bool {
+    use CheckedNodePathSegment::Name;
+    match (path, unit) {
+        (None, None) => true,
+        (Some([Name(kind), Name(form), Name(name)]), Some(unit)) => {
+            kind.as_ref() == "scalar_type" && form.as_ref() == "unit" && name.as_ref() == unit
+        }
+        _ => false,
+    }
 }
 
 #[ix_trace_rs::string_edge]
 fn check_aggregate(
     formula: usize,
     profile: Option<TemporalProfile>,
-    clock_unit: Option<&[CheckedNodePathSegment]>,
+    clock_unit: Option<&str>,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1303,7 +1358,7 @@ fn check_aggregate(
         return Ok(());
     };
 
-    let mut held = BTreeMap::<&str, usize>::new();
+    let mut held = Held::default();
     let mut last_rank = None;
     for (at, candidate) in members.iter().enumerate() {
         let rank = match CheckedTerm::view(candidate) {
@@ -1437,7 +1492,10 @@ fn check_aggregate(
                 };
                 let bound_type = CheckedNodeId::from_value(&term["type"]);
                 if window == AggregateWindow::Duration
-                    && bound_type.as_ref().map(|id| id.path.as_slice()) != clock_unit
+                    && !is_clock_unit_path(
+                        bound_type.as_ref().map(|id| id.path.as_slice()),
+                        clock_unit,
+                    )
                 {
                     return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
@@ -1606,7 +1664,8 @@ fn resolve_fairness(
 /// node ends its branch.
 struct FormulaReach {
     intervals: Vec<(usize, Interval)>,
-    reached: BTreeSet<usize>,
+    /// The positions reached, ascending.
+    reached: Vec<usize>,
 }
 
 fn formula_intervals(
@@ -1615,38 +1674,48 @@ fn formula_intervals(
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
-    covered: &mut BTreeSet<usize>,
+    covered: &mut [bool],
+    stamps: &mut Stamps,
 ) -> Result<FormulaReach, ValidationFailure> {
-    let mut pending: Vec<usize> = root
+    stamps.next();
+    let mut pending: Vec<usize> = Vec::new();
+    if let Some(start) = root
         .and_then(reference_target)
         .and_then(|target| graph.index.get(&target).copied())
-        .into_iter()
-        .collect();
-    let mut seen = BTreeSet::new();
+    {
+        meter.push(&mut pending, start)?;
+    }
+    let mut reached: Vec<usize> = Vec::new();
     let mut intervals = Vec::new();
     while let Some(position) = pending.pop() {
         if graph.kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::Formula))
-            || !seen.insert(position)
+            || !stamps.insert(position)
         {
             continue;
         }
         meter.charge(1, || at.clone())?;
-        covered.insert(position);
-        if let Some(interval) = interval_of(catalog, position, graph) {
-            intervals.push((position, interval));
+        meter.push(&mut reached, position)?;
+        if let Some(mark) = covered.get_mut(position) {
+            *mark = true;
         }
-        let operands: Vec<usize> = application_arguments(&graph.nodes[position].body)
-            .into_iter()
-            .flatten()
-            .filter_map(reference_target)
-            .filter_map(|target| graph.index.get(&target).copied())
-            .collect();
-        pending.extend(operands.into_iter().rev());
+        if let Some(interval) = interval_of(catalog, position, graph) {
+            meter.push(&mut intervals, (position, interval))?;
+        }
+        let operands = || {
+            application_arguments(&graph.nodes[position].body)
+                .into_iter()
+                .flatten()
+                .filter_map(reference_target)
+                .filter_map(|target| graph.index.get(&target).copied())
+        };
+        // The operands are pushed last-first so the first is visited first.
+        meter.room(&mut pending, operands().count())?;
+        let first = pending.len();
+        pending.extend(operands());
+        pending[first..].reverse();
     }
-    Ok(FormulaReach {
-        intervals,
-        reached: seen,
-    })
+    reached.sort_unstable();
+    Ok(FormulaReach { intervals, reached })
 }
 
 #[cfg(test)]

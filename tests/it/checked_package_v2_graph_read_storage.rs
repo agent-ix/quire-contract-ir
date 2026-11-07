@@ -157,6 +157,14 @@ fn the_graph_index_state_tables_and_walks_are_charged_at_graph_loci() {
         at("state") > 0,
         "the state step builds its tables on the budget"
     );
+    assert!(
+        at("temporal") > 0,
+        "the temporal step charges its clause tables at its nodes"
+    );
+    assert!(
+        at("protocol") > 0,
+        "the protocol step charges its tables at its nodes"
+    );
     let first = requests.first().expect("requests");
     assert_eq!(first.index, 0, "the index table is charged at node 0");
     assert!(requests

@@ -596,6 +596,44 @@ pub(super) fn first_repeat<K: Ord>(
         .min())
 }
 
+/// Visited marks over node positions that a repeated walk reuses: each walk
+/// starts a new generation instead of clearing or rebuilding the table.
+pub(super) struct Stamps {
+    marks: Vec<u32>,
+    generation: u32,
+}
+
+impl Stamps {
+    /// A table for `len` positions, charged first.
+    pub(super) fn new(len: usize, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+        Ok(Self {
+            marks: meter.filled(len, 0_u32)?,
+            generation: 0,
+        })
+    }
+
+    /// Starts a walk: no position counts as visited yet.
+    pub(super) fn next(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            self.marks.fill(0);
+            self.generation = 1;
+        }
+    }
+
+    /// Marks `position` visited; `false` when it already was this walk.
+    pub(super) fn insert(&mut self, position: usize) -> bool {
+        match self.marks.get_mut(position) {
+            Some(mark) if *mark == self.generation => false,
+            Some(mark) => {
+                *mark = self.generation;
+                true
+            }
+            None => true,
+        }
+    }
+}
+
 /// The static wire spelling of a node's `node_tag`, for a request's form.
 pub(super) fn node_form(tag: &str) -> &'static str {
     super::CheckedNodeTag::from_wire(tag).map_or("node", super::CheckedNodeTag::as_wire)
