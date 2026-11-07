@@ -57,6 +57,17 @@ mod model_option_types;
 mod support {
     pub(crate) use crate::fixture_support as checked_package;
 }
+// The shared map controls use these existing genuine reader/witness fixtures.
+#[path = "../it/checked_package_v2_model_fields.rs"]
+mod checked_package_v2_model_fields;
+#[path = "../it/checked_package_v2_owners.rs"]
+mod checked_package_v2_owners;
+#[path = "../it/checked_package_v2_parameters.rs"]
+mod checked_package_v2_parameters;
+// Exercise the complete witness fixture's acquisition and retention contract
+// alongside the map controls that consume its admitted unit identities.
+#[path = "../it/complete_identity_witness.rs"]
+mod complete_identity_witness;
 #[path = "../it/checked_package_v2_map_type.rs"]
 mod map_type;
 mod model_root;
@@ -64,6 +75,8 @@ mod model_tuple_union;
 mod monitor_plan;
 #[path = "../it/support/monitor_plan.rs"]
 mod monitor_plan_fixtures;
+#[path = "../it/native_join_budget.rs"]
+mod native_join_budget;
 mod node_index;
 mod node_ordinal;
 mod operation_effects;

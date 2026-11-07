@@ -79,3 +79,6 @@ quire-semantic-value = { git = "https://github.com/agent-ix/quire-semantic-value
 # Unicode identifier tables and the NFC check FR-450's "Rust spellings" name.
 unicode-ident = "=1.0.24"
 unicode-normalization = "=0.1.25"
+
+[dev-dependencies]
+allocation-counter = "0.8"

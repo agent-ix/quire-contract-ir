@@ -100,7 +100,6 @@ pub(super) fn validate_checked_term_data(
             .and_then(|member| member.get("kind"))
             .and_then(|kind| kind.as_str())
             != Some("operation")
-            || operation.member_declaration().ok().flatten() != Some(&table.operation.declaring)
             || member_name != Some(table.operation.operation.as_ref())
         {
             return Err(invalid(row.clone().key("operation")));
@@ -117,10 +116,31 @@ pub(super) fn validate_checked_term_data(
                 ))
             )
         });
-        // Operation admission already requires argument zero to be Reference
-        // of the selected member's declaring model node.
-        if table.context != table.operation.declaring || !context_is_model {
+        // The member and receiver context name the call's static type,
+        // while the selected operation may belong to an ancestor's family.
+        if operation.member_declaration().ok().flatten() != Some(&table.context)
+            || !context_is_model
+        {
             return Err(invalid(row.clone().key("context")));
+        }
+        let Some(context_owner) = models.owner_by_key(&table.context) else {
+            return Err(invalid(row.clone().key("context")));
+        };
+        let Some(family_owner) = models.owner_by_key(&table.operation.declaring) else {
+            return Err(invalid(row.clone().key("operation")));
+        };
+        if context_owner.selection != family_owner.selection {
+            return Err(invalid(row.clone().key("operation")));
+        }
+        let model = context_owner.package;
+        let mut budget = Budget::new(meter, model.root, model.bytes);
+        if !model.operation_in_family(
+            context_owner.node,
+            family_owner.node,
+            &table.operation.operation,
+            &mut budget,
+        )? {
+            return Err(invalid(row.clone().key("operation")));
         }
         let mut seen_keys = BTreeSet::new();
         for (candidate_index, candidate) in table.candidates.iter().enumerate() {
@@ -140,21 +160,18 @@ pub(super) fn validate_checked_term_data(
                 return Err(unsupported(at.clone().key("selection_key")));
             }
             let original = &candidate.selection_key.original;
-            let Some(context_owner) = models.owner_by_key(&table.context) else {
-                return Err(invalid(row.clone().key("context")));
-            };
-            let model = context_owner.package;
             if model.identity.as_ref() != original.package.as_ref()
                 || !model.object_types.contains_key(original.node.as_ref())
             {
                 return Err(invalid(at.clone().key("selection_key")));
             }
             let mut budget = Budget::new(meter, model.root, model.bytes);
-            if !model.conforms_to(&original.node, context_owner.node, &mut budget)?
-                || !model
-                    .effective_operation_names(&original.node, &mut budget)?
-                    .contains(&table.operation.operation)
-            {
+            if !model.operation_in_family(
+                &original.node,
+                family_owner.node,
+                &table.operation.operation,
+                &mut budget,
+            )? {
                 return Err(invalid(at.clone().key("selection_key")));
             }
             let body_kind = index

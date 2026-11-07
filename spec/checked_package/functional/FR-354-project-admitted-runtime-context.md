@@ -154,6 +154,48 @@ If the checked package does not retain a producer decision required by this
 view, Contract IR SHALL return a typed unsupported outcome until QSpec and its
 producer carry that fact. A newly inferred value is not an admitted decision.
 
+### Inherited operation dispatch admission
+
+For a captured dispatch row, Contract IR SHALL distinguish the call member's
+static receiver declaration from the selected operation family's declaring
+witness. Equality of these two declaration identities SHALL NOT be required
+for an inherited operation. When the identities differ, admission SHALL join
+both identities to the retained selected model, resolve the named effective
+operation on the static receiver, and establish that the table's declaring
+witness owns an operation in that same admitted redefinition family. Family
+membership SHALL follow admitted inheritance and declared `redefines` edges;
+matching operation names or a subtype relationship alone SHALL NOT establish
+that join. An operation inherited unchanged and a most-derived redefinition
+belong to their admitted family's original operation. The check SHALL use the
+reader's bounded selected-model resolution and charge its inspection work to
+the existing reader meter before exposing the row.
+
+Admission SHALL require the captured receiver context to equal the call
+member's static declaration, and the selected model SHALL establish that this
+context conforms to the operation-family declaring witness. Each candidate's
+original selected type SHALL conform to that family declaration; a candidate
+need not conform to the narrower static receiver subtype. Candidate effective
+operations SHALL reach the same declared family anchor through admitted
+`redefines` links. Each traversed target SHALL be an actual retained operation
+member declared by an ancestor of the redefining operation's owner in the same
+selected document; the existence of a member identifier alone SHALL NOT
+establish a valid edge. The bounded walk SHALL refuse absent, wrong-kind or
+unrelated-owner targets and cycles rather than treating them as family
+membership. Work exhaustion SHALL propagate the existing selected-model
+reader exhaustion and owner locus without resetting the meter or returning a
+partial family result.
+
+Admission SHALL preserve the call member's static declaration, the table's
+selected declaring witness, the receiver context, and each candidate's exact
+selected-operation witness. It SHALL NOT repair either identity, choose a
+candidate, or re-link a dispatch table. Existing direct-operation joins and
+application, occurrence, candidate-key uniqueness, body and precondition
+checks remain required. A mismatched table witness outside the selected operation family,
+including an unrelated same-named operation or a mismatch with no inherited
+family relation, SHALL refuse `InvalidPackage` with cause `InvalidValue` at
+`/checked_term_data/dispatch_tables/{row}/operation`, before returning an
+admitted dispatch view.
+
 When the consumer requests units, Contract IR SHALL expose each selected
 unit's witnessed identity, dimension, target unit, exact scale and offset, and
 the admitted links needed to form a semantic-value `UnitTable`. It SHALL keep
@@ -200,6 +242,10 @@ typed outcomes.
 | FR-354-AC-10 | A selected `Ledger` with own `pay` and `payTaxed` operations (the QSL `child_composite` signature pattern) exposes them in declaration order with their selected declaring owner and original member identities, ordered typed parameters, optional result and producer-declared effects, including an empty effect and a nonempty effect in the test case, sufficient for QSL `ObjectTypeDeclaration::with_operations`; inherited visibility does not change ownership or add an own operation to the subtype. | Test |
 | FR-354-AC-11 | A missing, foreign, duplicate or conflicting operation/effect fact, wrong document, owner or member, a producer row with no admission-retained own operation, or unrepresentable admission-retained signature or producer effect returns a named typed outcome without any partial declaration view; an admitted signature without the required producer effect fact refuses. The operation signature comes only from the admission-retained selected `OperationDecl`; the QSpec STD-640 producer effect row contains no parameter or result signature to compare. Repeated bounded reads of the admitted package and its clone agree, and a limit one below the charged work reports exhaustion without a partial view. | Test |
 | FR-354-AC-12 | A strictly admitted ordinary source function whose body directly references a parameter or literal value returns that admitted Value node as its callable body through source_callable and the general callable table; an expression body remains valid. The selective read reports its charged work and succeeds at that exact limit, refuses one below with WorkLimit, charged work and the selected function locus, and agrees across a package clone. A body reference to a scalar type or foreign-owned value refuses with MalformedBody. An admitted monitor-plan entry still accepts only an expression body. | Test |
+| FR-354-AC-13 | A genuine inherited call whose operation member names static receiver `Sub` while its captured table names the selected `ConfigVersion` operation-family witness admits through the strict reader. Its public dispatch view preserves both distinct identities, receiver context `Sub`, the complete producer candidate order and each candidate's exact selected-operation witness. A genuine `ConfigVersion` family candidate remains admitted although it is not a subtype of the narrower static receiver `Sub`. A direct call with equal declaration identities continues to admit. | Test |
+| FR-354-AC-14 | Changing only that captured table's declaring witness to an unrelated selected declaration with a same-named operation refuses `InvalidPackage` with cause `InvalidValue` at `/checked_term_data/dispatch_tables/0/operation`; it returns no admitted package or dispatch view. Names alone cannot satisfy the family join. | Test |
+| FR-354-AC-15 | A table witness that differs from the call member's static declaration without an admitted inherited operation-family relation refuses `InvalidPackage` with cause `InvalidValue` at `/checked_term_data/dispatch_tables/0/operation`. In particular, merely making its declaration an ancestor with a same-named independent operation cannot replace the declared operation/redefinition-family join. | Test |
+| FR-354-AC-16 | A retained redefinition link to a field, to an operation outside the redefiner owner's ancestry, or into a cycle cannot authorize a mismatched table witness and refuses `InvalidPackage` with cause `InvalidValue` at the row's `operation` pointer. A valid multi-hop operation-family join succeeds with sufficient reader work; one unit below its measured successful work allowance returns the existing typed reader exhaustion with its selected-model owner locus and no admitted package. | Test |
 
 ## Dependencies
 

@@ -60,6 +60,31 @@ unpaid kind, full attempted amount and caller-supplied non-owning locus without
 incrementing consumption. Later external charges in that phase return the
 first refusal without performing work. No public method restores spent allowance.
 
+`NativeJoinLocusSource` SHALL include the unindexed native source
+`MonitorAuthority` for Contract IR's own authority-row inspections made before
+the selected occurrence is resolved, `AdapterRow(usize)` for a producer
+row being converted into an IR-owned row by an external adapter,
+`AuthorityRow` for an external preparer's charges while building the
+same-emission authority row of
+[FR-361](./FR-361-bind-monitor-authority-and-runtime-layout-context.md),
+`PreparationOutput(usize)` for an owned output item an external preparer
+allocates after a native read, and `PreparationSelection(usize)` for an
+external preparer's selection comparison, indexed by its position in that
+preparer's comparison order. The index is the position in the adapter's
+input or the preparer's output sequence, and the locus `form` names the row
+channel or output kind. The external variants let every external charge in
+one preparation report a non-owning first-unpaid locus without allocating;
+they do not change any native read's own loci.
+
+`NativeJoinLocusSource` SHALL also include `PackageRead(PackageReadStage,
+usize)` for a charge of the strict V2 checked-package read of
+[FR-038](./FR-038-consume-checked-package-v2.md). `PackageReadStage` is a
+closed, `Copy` enum of the read's stages in their order: `Envelope`,
+`Canonical`, `WireDecode`, `WireChecks`, `NodeIndex`, `Lock`, `ModelDocument`,
+`Graph`, `SourceMap`, `Equivalence`, `Extension`, `Capabilities`,
+`Diagnostics`, `OperationEffects`, `CheckedTermData` and `Retained`. The index
+and `form` of each stage are those FR-038's stage table names.
+
 The budget SHALL expose its original configured work and storage limits through
 `work_limit` and `storage_limit`; successful charges, denied charges and later
 operations SHALL NOT change these values. A native resource refusal carried by
@@ -95,7 +120,9 @@ identity uniqueness checks and inserts. Each source join charges its row,
 selected-source checks, member or case validations and duplicate/identity
 checks. Successful work is never discarded between operations.
 
-A **storage unit** is a logical ownership unit, not an allocator byte count:
+A **storage unit** is a logical ownership unit, not an allocator byte count
+(the strict package read charges its heap bytes to the separate read-storage
+counter below, never to this one):
 one unit for each newly owned container, retained row, key, handle, element or
 map/set entry, plus one unit per byte of newly copied owned text or binary
 payload. An opaque fixed-size identity counts as one handle; an owned dynamic
@@ -110,6 +137,68 @@ the same admitted package and ordered rows; it does not claim exact heap
 capacity or allocator overhead. IR SHALL compute and admit the required
 storage charge before every corresponding reserve, clone or insertion. A
 storage refusal cannot expose a partly extended selection.
+
+**Read storage.** `NativeJoinBudget` SHALL hold a second storage counter,
+**read storage**, with its own configured limit, used only by the strict V2
+checked-package read of FR-038. Its unit is one byte of heap requested from
+the allocator. The logical storage counter above, its unit and every existing
+charge to it are unchanged; the strict read charges nothing to it, and no
+other operation charges read storage. Each counter therefore has one unit and
+its limit keeps one meaning.
+
+- `NativeJoinBudget::new(work_limit, storage_limit)` creates a budget whose
+  read-storage limit is zero, so a strict read with no read-storage allowance
+  refuses at its first allocation rather than reading unbounded.
+- `with_read_storage_limit(self, bytes) -> Self` sets that limit at
+  construction; `read_storage_limit()` returns it unchanged by any charge or
+  operation.
+- `read_storage_consumed()` returns cumulative admitted read storage, and
+  `last_success_read_storage_delta()` the most recent successful operation's
+  read-storage delta, absent after a refused or exhausted operation.
+- `NativeJoinBudget::unlimited()` creates a budget whose work, logical storage
+  and read-storage allowances are unlimited: it admits every charge, and its
+  counters saturate at `u64::MAX` instead of denying, so an operation on it is
+  never refused for a budget charge.
+- A read-storage denial is reported by `first_unpaid_read_storage() ->
+  Option<u128>`, the full attempted amount, with its locus in
+  `first_unpaid_locus()`; it increments no counter. `first_unpaid()` reports
+  only work and logical storage denials and is `None` after a read-storage
+  denial. `NativeJoinChargeKind`, `NativeJoinCharge`, `NativeJoinDeniedCharge`
+  and the existing getters keep their variants, fields and meanings, so no
+  existing match on them changes.
+
+Each allocation request, and each reallocation request, made by the strict
+read charges read storage with the full size in bytes of the block requested
+(for a reallocation, its full new size, not the growth), before the request is
+made. The read's read-storage delta is therefore the total number of bytes it
+requested from the allocator, counted at each request, not its peak or
+retained heap. The allocation classes are:
+
+- a `Vec`, boxed slice or `String` that grows: element size times the new
+  capacity, the read reserving exactly the capacity it computed
+  (`try_reserve_exact` or `with_capacity`);
+- a `Box<T>` or `Box<str>`: the size of `T` or the string's byte length;
+- an `Arc<T>`, `Arc<[T]>` or `Arc<str>`: the size of the shared allocation,
+  its two reference counts followed by the value, padded to the value's
+  alignment; cloning an `Arc` charges nothing;
+- the shared reader's arena and scratch lists and the shared writer's work
+  lists, the quire-walk walker's work stacks, and the limbs of quire-exact
+  integers the read parses or reduces: the bytes each library's caller
+  reservation asks, which is the full size of each block it requests;
+- decoded or copied text: its byte length, inside its containing class.
+
+A zero-size allocation requests nothing and charges nothing; a borrowed
+inspection charges nothing. The rule is cumulative with no refund: memory
+released during the read, including scratch lists, temporary tables, a parsed
+document that is not retained and a partly built diagnostic, keeps its charge.
+The read's work counter keeps FR-038's validation-visit units.
+
+IR SHALL supply the budget, as a reservation charging read storage at the
+active `PackageRead` locus, to `quire_canonical`'s reader and writer, to the
+quire-walk walker and to the quire-exact parse and reduction entries the read
+uses. A denied reservation records the first unpaid read-storage charge with
+the bytes asked and that locus; the library then makes no request for it and
+returns no document, output, walk or number.
 
 When a native stage-row or source-join budget charge is denied, IR SHALL attempt to charge
 the complete owned diagnostic before constructing it. Its logical-storage
@@ -159,11 +248,26 @@ limit or compatibility entry point is permitted.
 | FR-358-AC-7 | The admitted equality read requires the same caller-owned `NativeJoinBudget` and charges selected decisions, owned identities, row material, QSV work and typed refusal storage before the corresponding inspection or allocation. A complete admitted decision at exact work and storage allowances equals the ample value; one unit below either allowance refuses with the exhausted kind and first unpaid amount. Two individually affordable equality reads composed on a shared budget refuse at the first unpaid step of the second, retain cumulative consumption and clear the success delta. A nonzero allowance below a variable-size QSV cause's full diagnostic charge returns a compact typed code and original locus without the owned cause; its exact full charge retains the original cause. At zero storage a refusal owns no node, form or materialization payload. | Test, Inspection |
 | FR-358-AC-8 | The public work and storage getters return the caller's original, distinct configured limits before acquisition, after successful stage and type projection operations, and after a later shared-budget denial; neither getter reports the remaining allowance. Each full or compact `ExactTypeProjectionError` resource refusal carries the original bound of its denied resource, including zero and the first work denial when diagnostic storage is also denied. A non-resource refusal has no configured bound. | Test |
 | FR-358-AC-9 | Two external call sites use public `resume` and `accounted_charge` on one `NativeJoinBudget` before passing it to a native stage and projection read. Exact combined work and storage limits succeed; one below refuses with typed first unpaid charge, original bound and first locus. An external zero-storage denial occurs before allocation and does not consume storage. Resuming preserves all spent counters and configured limits; the budget offers no public counter reset or clone. | Test, Inspection |
+| FR-358-AC-10 | An external adapter charging row `i` of a channel with `NativeJoinLocusSource::AdapterRow(i)`, a charge with `AuthorityRow`, a preparer charging output item `k` with `PreparationOutput(k)`, and a preparer charging comparison `k` with `PreparationSelection(k)` each admit at an allowance exactly equal to the cumulative consumption including that charge, and, one unit below, leave exactly that source, form, kind and attempted amount as the first unpaid locus without allocating; admitted charges with these sources are cumulative with the following native read. | Test |
+| FR-358-AC-11 | `NativeJoinLocusSource::PackageRead(stage, index)` exists for every `PackageReadStage` of FR-038 in its stage order, is `Copy` and owns no node, key or string. A strict V2 read denied in each stage leaves `first_unpaid_locus` naming exactly that stage, the index FR-038 names and its static `form`, with no allocation made for the locus. The existing variants and their loci are unchanged. | Test, Inspection (TC-472) |
+| FR-358-AC-12 | At a `PackageRead` locus, the read-storage charge of each allocation class — exact-capacity `Vec`, boxed slice and `String` growth charged at the full new capacity, `Box<T>`, `Box<str>`, `Arc<T>`, `Arc<[T]>` and `Arc<str>` allocation, and shared reader, writer, quire-walk and quire-exact reservations — equals the size a counting global allocator observes for that allocation or reallocation request (a reallocation counted at its new size); a zero-size allocation and an `Arc` clone charge nothing and are observed as nothing. Released memory keeps its charge: a read whose scratch and temporary tables are dropped before it returns has a read-storage delta equal to the total bytes it requested, not its retained bytes. | Test (TC-472) |
+| FR-358-AC-13 | The strict read passes the caller budget to `quire_canonical`'s reader and writer, the quire-walk walker and the quire-exact entries it uses as their reservation; a reservation one byte past the remaining read storage is denied with `first_unpaid_read_storage` equal to the bytes asked at the active `PackageRead` locus, the library makes no request for it and returns no partial result. A strict read charges zero logical storage, and a native join after it on the same budget has the same exact and one-below logical storage limits as on a fresh budget, while their work charges sum in the one work counter. | Test (TC-472) |
+| FR-358-AC-14 | `NativeJoinBudget::new(work, storage)` has a zero read-storage limit; `with_read_storage_limit(bytes)` sets it; `read_storage_limit()` returns it unchanged after admitted charges, a denial and later operations. `read_storage_consumed()` and `last_success_read_storage_delta()` report the read-storage counter alone; `consumed()`, `last_success_delta()`, `work_limit()` and `storage_limit()` keep their meanings and are unchanged by read-storage charges. A read-storage denial reports its attempted amount through `first_unpaid_read_storage` and its locus through `first_unpaid_locus`, leaves `first_unpaid` `None`, and increments no counter; checked arithmetic exhaustion is a denial. `NativeJoinBudget::unlimited()` admits charges whose sum exceeds `u64::MAX` on every counter, saturating, and never records a denial. `NativeJoinChargeKind`, `NativeJoinCharge` and `NativeJoinDeniedCharge` gain no variant or field. | Test (TC-472) |
 
 ## Dependencies
 
 - [FR-038](./FR-038-consume-checked-package-v2.md) owns admission, selected
-  source identity and typed first structural refusals.
+  source identity and typed first structural refusals, and the stages and
+  outcomes of the budget-charged strict read. This FR owns that read's
+  accounting unit, retention rule and loci.
+- `agent-ix/quire-canonical` owns the shared strict reader and the canonical
+  writer and their caller `Reservation` entries (quire-canonical PR #17 for
+  the writer and PR #18 for the reader), which charge the full size of each
+  block requested.
+- `agent-ix/quire-walk` owns the walker whose caller-reservation entry the
+  read's term walks use, and `agent-ix/quire-exact` owns the charged integer
+  and rational parse and reduction entries the read's numeric checks use;
+  FR-038's "Owner prerequisites" states each entry point.
 - [FR-352](./FR-352-project-admitted-exact-value-types.md) owns the native
   identity joins and Exact projection semantics. This FR owns their shared
   work and storage accounting.

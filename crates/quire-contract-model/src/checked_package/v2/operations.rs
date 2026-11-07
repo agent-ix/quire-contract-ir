@@ -6614,7 +6614,7 @@ mod tests {
     /// a `type_argument` that is not a `scalar_type`/`carried_quantity` node
     /// refuses
     /// `ill_typed`/`operator-ineligible` at the application.
-    #[trace("TC-048", "FR-038-AC-495")]
+    #[trace("TC-048", "FR-038-AC-519")]
     #[test]
     fn carried_member_refuses_a_type_argument_that_is_not_a_carried_quantity() {
         for (form, declared) in [
@@ -6638,7 +6638,7 @@ mod tests {
 
     /// The same application over a `carried_quantity` type argument satisfies
     /// `carried_member` and is not refused.
-    #[trace("TC-048", "FR-038-AC-495")]
+    #[trace("TC-048", "FR-038-AC-519")]
     #[test]
     fn carried_member_admits_a_carried_quantity_type_argument() {
         let (_, result) = carried_sum_defect("carried_quantity", "exact", '4');
@@ -6649,7 +6649,7 @@ mod tests {
     /// type argument under a mode its type does not pin refuses
     /// `invalid_package`/`operation-mode-type-mismatch`, not
     /// `operator-ineligible`.
-    #[trace("TC-048", "FR-038-AC-495")]
+    #[trace("TC-048", "FR-038-AC-519")]
     #[test]
     fn carried_member_is_checked_only_once_the_pinned_mode_agrees() {
         let (application, result) = carried_sum_defect("unit", "nearest-even", '4');

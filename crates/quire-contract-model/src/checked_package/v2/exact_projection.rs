@@ -451,9 +451,11 @@ pub struct SelectedSourceTupleRow {
 pub struct SelectedSourceCollectionRow {
     /// The collection type node, including bounds when present.
     pub structural_node: CheckedNodeId,
-    /// The underlying sequence, set, bag or ordered-set node.
+    /// The underlying sequence, set, bag, ordered-set or map node.
     pub base_node: CheckedNodeId,
-    /// The base node's sole referenced element type.
+    /// The map's admitted key type; absent for unary collections.
+    pub key_node: Option<CheckedNodeId>,
+    /// The base node's element type, or its value type for a map.
     pub element_node: CheckedNodeId,
     /// The checker's complete Exact collection type.
     pub value_type: ValueType,
@@ -1013,11 +1015,26 @@ fn exact_collection_kind(form: CompositeTypeForm) -> Option<CollectionKind> {
     }
 }
 
+pub(super) fn source_map_key_matches(
+    package: &CheckedPackageV2,
+    row: &SelectedSourceCollectionRow,
+) -> bool {
+    let Some(key_node) = &row.key_node else {
+        return false;
+    };
+    let Some([key, value]) = package.term(&row.base_node).and_then(typed_aggregate) else {
+        return false;
+    };
+    typed_binding(key, "key").and_then(typed_reference) == Some(key_node)
+        && typed_binding(value, "value").and_then(typed_reference) == Some(&row.element_node)
+        && package.node_kind(key_node) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
+}
+
 fn validate_source_collection_row(
     package: &CheckedPackageV2,
     row: &SelectedSourceCollectionRow,
     requested: &CheckedNodeId,
-    work: &mut impl WorkMeter,
+    work: &mut NativeJoinBudget,
     limit: u64,
 ) -> Result<(), ExactTypeProjectionError> {
     let id = &row.structural_node;
@@ -1043,7 +1060,8 @@ fn validate_source_collection_row(
             work,
         ));
     };
-    let Some(kind) = exact_collection_kind(form) else {
+    let kind = exact_collection_kind(form);
+    if kind.is_none() && form != CompositeTypeForm::Map {
         return Err(source_collection_error(
             requested,
             &row.base_node,
@@ -1119,12 +1137,33 @@ fn validate_source_collection_row(
             )
         })?)
     };
-    charge_work(
+    if form == CompositeTypeForm::Map {
+        charge_native_work(
+            work,
+            requested,
+            row.key_node.as_ref().unwrap_or(id),
+            "source_map_key",
+            1,
+        )?;
+        if !source_map_key_matches(package, row) {
+            return Err(source_collection_error(
+                requested,
+                id,
+                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                work,
+            ));
+        }
+    }
+    charge_native_work(
+        work,
         requested,
         &row.element_node,
-        "source_collection_element",
-        work,
-        limit,
+        if form == CompositeTypeForm::Map {
+            "source_map_value"
+        } else {
+            "source_collection_element"
+        },
+        1,
     )?;
     if package.node(&row.element_node).is_none() {
         return Err(selected_declaration_error_budgeted(
@@ -1134,22 +1173,22 @@ fn validate_source_collection_row(
             work,
         ));
     }
-    let ValueType::Collection(collection) = &row.value_type else {
-        return Err(source_collection_error(
-            requested,
-            id,
-            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            work,
-        ));
+    let shape_matches = match (&row.value_type, kind, form) {
+        (ValueType::Collection(collection), Some(kind), _) => {
+            row.key_node.is_none()
+                && reference_type_target_typed(base).as_ref() == Some(&row.element_node)
+                && collection.kind() == kind
+                && collection.bound() == bound
+        }
+        (ValueType::Map(map), None, CompositeTypeForm::Map) => map.bound() == bound,
+        _ => false,
     };
     if base.semantic_type != row.base_node
         || base.owner.is_some()
         || base.declaration.is_some()
         || node.owner.is_some()
         || node.declaration.is_some()
-        || reference_type_target_typed(base).as_ref() != Some(&row.element_node)
-        || collection.kind() != kind
-        || collection.bound() != bound
+        || !shape_matches
     {
         return Err(source_collection_error(
             requested,
@@ -2242,10 +2281,27 @@ impl SelectedExactIdentities {
         rows: impl IntoIterator<Item = SelectedSourceCollectionRow>,
         budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
+        self.with_indexed_source_collection_rows(package, rows.into_iter().enumerate(), budget)
+    }
+
+    /// Join retained rows without replacing their original producer indices.
+    pub(super) fn with_indexed_source_collection_rows(
+        &self,
+        package: &CheckedPackageV2,
+        rows: impl IntoIterator<Item = (usize, SelectedSourceCollectionRow)>,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Self, ExactTypeProjectionError> {
         let mut rows = rows.into_iter().peekable();
-        let Some(first) = rows.peek().map(|row| &row.structural_node) else {
+        let Some((index, first)) = rows
+            .peek()
+            .map(|(index, row)| (*index, &row.structural_node))
+        else {
             return self.empty_source_join(package, budget);
         };
+        budget.set_active_locus(Some(super::NativeJoinLocus {
+            source: super::NativeJoinLocusSource::ReachedRow(index),
+            form: "source_collection_join",
+        }));
         let (mut selected, before) = self.begin_source_join(package, budget, first)?;
         charge_native_storage(
             budget,
@@ -2259,7 +2315,11 @@ impl SelectedExactIdentities {
             let work_limit = u64::MAX;
             charge_native_storage(budget, &first, &first, "source_collection_pending", 1)?;
             let mut pending = BTreeMap::new();
-            for row in rows {
+            for (index, row) in rows {
+                budget.set_active_locus(Some(super::NativeJoinLocus {
+                    source: super::NativeJoinLocusSource::ReachedRow(index),
+                    form: "source_collection_join",
+                }));
                 let id = &row.structural_node;
                 validate_source_collection_row(package, &row, id, budget, work_limit)?;
                 if self.source_collections.contains_key(id) || pending.contains_key(id) {
@@ -3319,7 +3379,7 @@ fn project_collection_element(
         ));
     }
     let projection = package
-        .project_exact_type_inner(at, identities, work)
+        .project_exact_type_inner(at, identities, work, ProjectionLocusMode::PreserveCaller)
         .map_err(|mut error| {
             if error.requested.is_some() {
                 let amount = storage::node(requested);
@@ -3343,6 +3403,141 @@ fn project_collection_element(
         storage::value_type(projection.value_type()),
     )?;
     Ok(projection.value_type().clone())
+}
+
+fn compare_source_collection_value(
+    mut expected: &ValueType,
+    mut actual: &ValueType,
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+) -> Result<bool, ExactTypeProjectionError> {
+    loop {
+        charge_native_work(budget, requested, at, "source_collection_comparison", 1)?;
+        match (expected, actual) {
+            (ValueType::Option(left), ValueType::Option(right)) => {
+                (expected, actual) = (left, right);
+            }
+            (ValueType::Collection(left), ValueType::Collection(right)) => {
+                if left.kind() != right.kind() || left.bound() != right.bound() {
+                    return Ok(false);
+                }
+                (expected, actual) = (left.element(), right.element());
+            }
+            (ValueType::Map(left), ValueType::Map(right)) => {
+                if left.bound() != right.bound() {
+                    return Ok(false);
+                }
+                (expected, actual) = (left.values(), right.values());
+            }
+            (ValueType::Int(left), ValueType::Int(right)) => {
+                return compare_source_numeric(
+                    &[left.lower(), left.upper(), right.lower(), right.upper()],
+                    requested,
+                    at,
+                    budget,
+                    |bits, cancel| left.try_eq_bounded(right, bits, cancel),
+                );
+            }
+            (ValueType::Rational(left), ValueType::Rational(right)) => {
+                return compare_source_numeric(
+                    &[
+                        left.numerator().lower(),
+                        left.numerator().upper(),
+                        left.denominator().lower(),
+                        left.denominator().upper(),
+                        right.numerator().lower(),
+                        right.numerator().upper(),
+                        right.denominator().lower(),
+                        right.denominator().upper(),
+                    ],
+                    requested,
+                    at,
+                    budget,
+                    |bits, cancel| left.try_eq_bounded(right, bits, cancel),
+                );
+            }
+            (ValueType::Decimal(left), ValueType::Decimal(right)) => {
+                return compare_source_numeric(
+                    &[left.lower(), left.upper(), right.lower(), right.upper()],
+                    requested,
+                    at,
+                    budget,
+                    |bits, cancel| left.try_eq_bounded(right, bits, cancel),
+                );
+            }
+            (ValueType::BoundedQuantity(_), ValueType::BoundedQuantity(_))
+            | (ValueType::CarriedQuantity(_), ValueType::CarriedQuantity(_))
+            | (
+                ValueType::Quantity(UnitId::Compound(_)),
+                ValueType::Quantity(UnitId::Compound(_)),
+            ) => {
+                // These leaves have no Exact projection here. Their derived
+                // equality may materialize numeric caches before that refusal.
+                return Err(source_collection_error(
+                    requested,
+                    at,
+                    ExactTypeProjectionErrorCode::UnsupportedExactType,
+                    budget,
+                ));
+            }
+            _ => return Ok(expected == actual),
+        }
+    }
+}
+
+fn compare_source_numeric(
+    endpoints: &[&Integer],
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+    compare: impl FnOnce(
+        u64,
+        &quire_exact::Cancel,
+    ) -> Result<bool, quire_exact::NumericTypeEqualityFailure>,
+) -> Result<bool, ExactTypeProjectionError> {
+    charge_native_work(
+        budget,
+        requested,
+        at,
+        "source_collection_numeric_endpoints",
+        endpoints.len() as u128,
+    )?;
+    let mut bits = 128_u64;
+    let mut limbs = 0_u128;
+    for endpoint in endpoints {
+        let count = u64::try_from(endpoint.copy_footprint().limbs)
+            .unwrap_or(u64::MAX)
+            .max(4);
+        bits = bits.max(count.saturating_mul(32));
+        limbs = limbs.saturating_add(u128::from(count));
+    }
+    charge_native_work(
+        budget,
+        requested,
+        at,
+        "source_collection_numeric_compare",
+        limbs.saturating_mul(2),
+    )?;
+    // NativeJoinBudget has no cancellation handle to borrow. The owner's
+    // bounded comparison needs one. FR-358 counts a shared Arc handle as one
+    // logical storage unit, admitted before acquiring that handle.
+    charge_native_storage(
+        budget,
+        requested,
+        at,
+        "source_collection_comparison_handle",
+        1,
+    )?;
+    let cancel = quire_exact::Cancel::new();
+    compare(bits, &cancel).map_err(|_| {
+        source_collection_error(
+            requested,
+            at,
+            ExactTypeProjectionErrorCode::UnsupportedExactType,
+            budget,
+        )
+    })
 }
 
 fn project_source_collection(
@@ -3374,20 +3569,25 @@ fn project_source_collection(
                 work,
             ));
         }
-        let ValueType::Collection(collection) = &row.value_type else {
-            return Err(source_collection_error(
-                requested,
-                &row.structural_node,
-                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                work,
-            ));
+        let element_value = match &row.value_type {
+            ValueType::Collection(collection) => collection.element(),
+            ValueType::Map(map) => map.values(),
+            _ => {
+                return Err(source_collection_error(
+                    requested,
+                    &row.structural_node,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    work,
+                ));
+            }
         };
         let element = &row.element_node;
         let next_kind = package.node_kind(element);
         if matches!(
             next_kind,
             Some(CheckedNodeKind::CompositeType(
-                CompositeTypeForm::Sequence
+                CompositeTypeForm::Map
+                    | CompositeTypeForm::Sequence
                     | CompositeTypeForm::Set
                     | CompositeTypeForm::Bag
                     | CompositeTypeForm::OrderedSet
@@ -3403,9 +3603,15 @@ fn project_source_collection(
                     work,
                 )
             })?;
-            charge_exact_value(requested, element, collection.element(), work, limit)?;
+            charge_exact_value(requested, element, element_value, work, limit)?;
             charge_exact_value(requested, element, &next.value_type, work, limit)?;
-            if collection.element() != &next.value_type {
+            if !compare_source_collection_value(
+                element_value,
+                &next.value_type,
+                requested,
+                element,
+                work,
+            )? {
                 return Err(source_collection_error(
                     requested,
                     element,
@@ -3417,9 +3623,9 @@ fn project_source_collection(
         } else {
             let actual =
                 project_collection_element(package, identities, requested, element, work, limit)?;
-            charge_exact_value(requested, element, collection.element(), work, limit)?;
+            charge_exact_value(requested, element, element_value, work, limit)?;
             charge_exact_value(requested, element, &actual, work, limit)?;
-            if collection.element() != &actual {
+            if !compare_source_collection_value(element_value, &actual, requested, element, work)? {
                 return Err(source_collection_error(
                     requested,
                     element,
@@ -3448,6 +3654,12 @@ fn project_source_collection(
     Ok(first.value_type.clone())
 }
 
+#[derive(Clone, Copy)]
+enum ProjectionLocusMode {
+    InitializeRequestedNode,
+    PreserveCaller,
+}
+
 impl CheckedPackageV2 {
     /// Read one admitted node's semantic type without reparsing its source.
     ///
@@ -3461,9 +3673,21 @@ impl CheckedPackageV2 {
         budget: &mut NativeJoinBudget,
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> {
         let before = budget.begin();
+        let previous_locus = budget.active_locus();
+        let locus_mode = match previous_locus {
+            None => {
+                budget.set_active_locus(Some(super::NativeJoinLocus {
+                    source: super::NativeJoinLocusSource::Package,
+                    form: "exact_projection_node",
+                }));
+                ProjectionLocusMode::InitializeRequestedNode
+            }
+            Some(_) => ProjectionLocusMode::PreserveCaller,
+        };
         budget.set_exact_diagnostics(true);
-        let result = self.project_exact_type_inner(requested, identities, budget);
+        let result = self.project_exact_type_inner(requested, identities, budget, locus_mode);
         budget.set_exact_diagnostics(false);
+        budget.set_active_locus(previous_locus);
         match result {
             Ok(mut projection) => {
                 projection.work = budget.consumed().work - before.work;
@@ -3482,11 +3706,12 @@ impl CheckedPackageV2 {
         requested: &CheckedNodeId,
         identities: &SelectedExactIdentities,
         budget: &mut NativeJoinBudget,
+        locus_mode: ProjectionLocusMode,
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> {
         let work_limit = u64::MAX;
         let work = budget;
         charge_work(requested, requested, "node", work, work_limit)?;
-        let node = self.node(requested).ok_or_else(|| {
+        let (position, node) = self.node_with_position(requested).ok_or_else(|| {
             let code = if requested.package == self.wire.name {
                 ExactTypeProjectionErrorCode::UnknownNode
             } else {
@@ -3500,6 +3725,12 @@ impl CheckedPackageV2 {
                 ExactDiagnosticForm::Literal("unknown_node"),
             )
         })?;
+        if let ProjectionLocusMode::InitializeRequestedNode = locus_mode {
+            work.set_active_locus(Some(super::NativeJoinLocus {
+                source: super::NativeJoinLocusSource::GraphNode(position),
+                form: "exact_projection_type",
+            }));
+        }
         let type_id = &node.semantic_type;
         charge_work(requested, type_id, "semantic_type", work, work_limit)?;
         let type_node = self.node(type_id).ok_or_else(|| {
@@ -3595,7 +3826,14 @@ impl CheckedPackageV2 {
                 | CompositeTypeForm::OrderedSet,
             )
             | CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds) => {
-                if kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds)
+                if let Some(row) = identities
+                    .source_collections
+                    .get(type_id)
+                    .filter(|row| matches!(row.value_type, ValueType::Map(_)))
+                {
+                    project_source_collection(self, identities, row, requested, work, work_limit)?
+                } else if kind
+                    == CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds)
                     && self.node_kind(&type_node.semantic_type)
                         == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
                 {
@@ -3623,7 +3861,12 @@ impl CheckedPackageV2 {
                     )
                     .map_err(|_| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
                     let map = self
-                        .project_exact_type_inner(&type_node.semantic_type, identities, work)
+                        .project_exact_type_inner(
+                            &type_node.semantic_type,
+                            identities,
+                            work,
+                            ProjectionLocusMode::PreserveCaller,
+                        )
                         .map_err(|mut error| {
                             if error.requested.is_some() {
                                 let amount = storage::node(requested);
@@ -3658,28 +3901,48 @@ impl CheckedPackageV2 {
                 }
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Map) => {
-                let [key, value] = self
-                    .term(type_id)
-                    .and_then(typed_aggregate)
-                    .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?
-                else {
-                    return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType));
-                };
-                let key = typed_binding(key, "key")
-                    .and_then(typed_reference)
-                    .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
-                let value = typed_binding(value, "value")
-                    .and_then(typed_reference)
-                    .ok_or_else(|| refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType))?;
-                charge_work(requested, key, "map_key", work, work_limit)?;
-                if self.node_kind(key) != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text)) {
-                    return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType));
+                let wrapper = (self.node_kind(requested)
+                    == Some(CheckedNodeKind::BoundedDomain(
+                        BoundedDomainForm::CollectionBounds,
+                    )))
+                .then_some(requested);
+                let row = wrapper
+                    .and_then(|id| identities.source_collections.get(id))
+                    .or_else(|| identities.source_collections.get(type_id));
+                if let Some(row) = row {
+                    project_source_collection(self, identities, row, requested, work, work_limit)?
+                } else {
+                    let [key, value] =
+                        self.term(type_id)
+                            .and_then(typed_aggregate)
+                            .ok_or_else(|| {
+                                refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType)
+                            })?
+                    else {
+                        return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType));
+                    };
+                    let key = typed_binding(key, "key")
+                        .and_then(typed_reference)
+                        .ok_or_else(|| {
+                            refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType)
+                        })?;
+                    let value = typed_binding(value, "value")
+                        .and_then(typed_reference)
+                        .ok_or_else(|| {
+                            refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType)
+                        })?;
+                    charge_work(requested, key, "map_key", work, work_limit)?;
+                    if self.node_kind(key)
+                        != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
+                    {
+                        return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType));
+                    }
+                    let projected = project_collection_element(
+                        self, identities, requested, value, work, work_limit,
+                    )?;
+                    charge_native_storage(work, requested, type_id, "map_result", 2)?;
+                    ValueType::map(MapType::new(projected, None))
                 }
-                let projected = project_collection_element(
-                    self, identities, requested, value, work, work_limit,
-                )?;
-                charge_native_storage(work, requested, type_id, "map_result", 2)?;
-                ValueType::map(MapType::new(projected, None))
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
                 let CheckedTerm::Aggregate { members } = &type_node.body else {
@@ -3993,6 +4256,168 @@ mod tests {
     use crate::checked_package::v2::{CheckedPackageWireV2, RetainedModels};
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
+
+    #[trace("TC-473", "FR-357-AC-20")]
+    #[test]
+    fn projection_locus_ownership_is_independent_of_diagnostic_form() {
+        use super::super::{NativeJoinLocus, NativeJoinLocusSource};
+        let package = fixture();
+        let requested: CheckedNodeId = serde_json::from_value(id("boolean")).unwrap();
+        let position = package
+            .graph()
+            .nodes
+            .iter()
+            .position(|node| node.node_id == requested)
+            .unwrap();
+        for caller in [
+            None,
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::Package,
+                form: "exact_projection_node",
+            }),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::ReachedRow(9),
+                form: "caller_row",
+            }),
+        ] {
+            let mut budget = NativeJoinBudget::new(1, 0);
+            budget.set_active_locus(caller);
+            let error = package
+                .project_exact_type(&requested, &SelectedExactIdentities::empty(), &mut budget)
+                .expect_err("lookup is paid but the following type inspection is not");
+            let expected = match caller {
+                Some(locus) => locus,
+                None => NativeJoinLocus {
+                    source: NativeJoinLocusSource::GraphNode(position),
+                    form: "exact_projection_type",
+                },
+            };
+            assert_eq!(budget.first_unpaid_locus(), Some(expected));
+            assert_eq!(
+                budget.active_locus(),
+                caller,
+                "restore the caller context after refusal"
+            );
+            assert_eq!(error.configured_bound, Some(1));
+            let denied = NativeJoinDeniedCharge {
+                kind: NativeJoinChargeKind::Work,
+                amount: 1,
+            };
+            assert_eq!(error.denied, Some(denied));
+            assert_eq!(
+                budget.accounted_charge(
+                    NativeJoinChargeKind::Storage,
+                    99,
+                    NativeJoinLocus {
+                        source: NativeJoinLocusSource::Package,
+                        form: "later"
+                    }
+                ),
+                Err(denied)
+            );
+            assert_eq!(budget.first_unpaid_locus(), Some(expected));
+            assert_eq!(budget.last_success_delta(), None);
+        }
+        let mut unpaid = NativeJoinBudget::new(0, 0);
+        package
+            .project_exact_type(&requested, &SelectedExactIdentities::empty(), &mut unpaid)
+            .unwrap_err();
+        let package_locus = NativeJoinLocus {
+            source: NativeJoinLocusSource::Package,
+            form: "exact_projection_node",
+        };
+        assert_eq!(unpaid.first_unpaid_locus(), Some(package_locus));
+        assert_eq!(unpaid.consumed().work, 0);
+        assert_eq!(unpaid.active_locus(), None);
+        let missing: CheckedNodeId = serde_json::from_value(id("missing")).unwrap();
+        let mut unavailable = NativeJoinBudget::new(1, 0);
+        package
+            .project_exact_type(
+                &missing,
+                &SelectedExactIdentities::empty(),
+                &mut unavailable,
+            )
+            .unwrap_err();
+        assert_eq!(
+            unavailable.first_unpaid_locus(),
+            Some(package_locus),
+            "an unavailable lookup has no graph position"
+        );
+        assert_eq!(unavailable.active_locus(), None);
+    }
+
+    #[trace("TC-473", "FR-357-AC-20")]
+    #[test]
+    fn numeric_map_comparison_handle_is_charged_before_its_single_allocation() {
+        let low: Integer = "170141183460469231731687303715884105728".parse().unwrap();
+        let high: Integer = "680564733841876926926749214863536422913".parse().unwrap();
+        let interval =
+            IntegerInterval::new(low.try_clone().unwrap(), high.try_clone().unwrap()).unwrap();
+        let expected = interval.clone();
+        let actual = interval.clone();
+        let requested: CheckedNodeId = serde_json::from_value(serde_json::json!({
+            "package":"exact-test", "path":["map"], "ordinal":0,
+        }))
+        .expect("node");
+        let locus = super::super::NativeJoinLocus {
+            source: super::super::NativeJoinLocusSource::ReachedRow(3),
+            form: "source_collection_comparison_handle",
+        };
+        let compare = |budget: &mut NativeJoinBudget| {
+            compare_source_numeric(
+                &[
+                    expected.lower(),
+                    expected.upper(),
+                    actual.lower(),
+                    actual.upper(),
+                ],
+                &requested,
+                &requested,
+                budget,
+                |bits, cancel| expected.try_eq_bounded(&actual, bits, cancel),
+            )
+        };
+        let mut zero = NativeJoinBudget::new(1_000_000, 0);
+        zero.set_active_locus(Some(locus));
+        let mut result = None;
+        let allocations = allocation_counter::measure(|| result = Some(compare(&mut zero)));
+        let error = result
+            .unwrap()
+            .expect_err("comparison handle storage unpaid");
+        assert_eq!(allocations.count_total, 0);
+        assert_eq!(
+            error.denied,
+            Some(NativeJoinDeniedCharge {
+                kind: NativeJoinChargeKind::Storage,
+                amount: 1,
+            })
+        );
+        assert_eq!(error.configured_bound, Some(0));
+        assert_eq!(zero.first_unpaid_locus(), Some(locus));
+        let required_work = zero.consumed().work;
+        let mut short = NativeJoinBudget::new(required_work - 1, 1);
+        short.set_active_locus(Some(locus));
+        let mut result = None;
+        let allocations = allocation_counter::measure(|| result = Some(compare(&mut short)));
+        assert_eq!(
+            allocations.count_total, 0,
+            "comparison work is admitted before handle acquisition"
+        );
+        assert_eq!(
+            result.unwrap().unwrap_err().denied.unwrap().kind,
+            NativeJoinChargeKind::Work
+        );
+        assert_eq!(short.consumed().storage, 0);
+        let mut paid = NativeJoinBudget::new(required_work, 1);
+        let mut result = None;
+        let allocations = allocation_counter::measure(|| result = Some(compare(&mut paid)));
+        assert_eq!(result.unwrap(), Ok(true));
+        assert_eq!(
+            allocations.count_total, 1,
+            "one admitted Arc handle, no cold integer cache allocation"
+        );
+        assert_eq!(paid.consumed().storage, 1);
+    }
 
     fn id(path: &str) -> Value {
         json!({"package":"exact-test","path":[path],"ordinal":0})

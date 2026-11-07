@@ -849,6 +849,10 @@ mod tests {
     }
 
     fn admitted_monitor_for_closure_with_status(status: &str) -> CheckedPackageV2 {
+        admitted_monitor_for_closure_with_maps(status, false)
+    }
+
+    fn admitted_monitor_for_closure_with_maps(status: &str, maps: bool) -> CheckedPackageV2 {
         let (mut wire, document) =
             monitor_plan_fixtures::model_fact_monitor_with_status(false, status);
         let boolean = monitor_plan_fixtures::find(&wire, "boolean");
@@ -913,6 +917,74 @@ mod tests {
             node["owner"] = fixture_support::source_owner(&source);
             node["declaration"] = serde_json::json!({"qualified_name":["Example",name]});
             node["occurrences"] = serde_json::json!([{"role":"declaration","ordinal":0}]);
+        }
+        if maps {
+            let text = monitor_plan_fixtures::find(&wire, "text");
+            let target = |node: &serde_json::Value, name: &str| {
+                node["body"]["members"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|binding| binding["name"] == name)
+                    .unwrap_or_else(|| panic!("existing {name} binding"))["value"]["target"]
+                    .clone()
+            };
+            let graph = wire["semantic_graph"]["nodes"].as_array().unwrap();
+            let root = graph
+                .iter()
+                .find(|node| node["semantic_form"] == "monitor_plan")
+                .unwrap();
+            let inputs_id = target(root, "inputs");
+            let state_id = target(root, "state");
+            let state = graph
+                .iter()
+                .find(|node| node["node_id"] == state_id)
+                .unwrap();
+            let activations_id = target(state, "activations");
+            let activations = graph
+                .iter()
+                .find(|node| node["node_id"] == activations_id)
+                .unwrap();
+            let activation = activations["body"]["members"][0]["target"].clone();
+            assert!(
+                graph.iter().any(|node| node["node_id"] == activation
+                    && node["semantic_form"] == "record"
+                    && node["declaration"].is_object()),
+                "the state sequence names an existing declared activation record"
+            );
+            let boolean = monitor_plan_fixtures::find(&wire, "boolean");
+            let append_map = |wire: &mut serde_json::Value, value: &serde_json::Value| {
+                let key_position = monitor_plan_fixtures::position(wire, &text);
+                let value_position = monitor_plan_fixtures::position(wire, value);
+                let id = serde_json::json!({"package":wire["name"],
+                    "path":["composite_type","map",{"node":key_position},{"node":value_position}],
+                    "ordinal":0});
+                wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(serde_json::json!({
+                    "schema_version":"quire.checked-semantic-graph/v2", "node_id":id,
+                    "node_tag":"composite_type", "semantic_form":"map", "semantic_type":id,
+                    "dependencies":[text,value], "occurrences":[{"role":"type","ordinal":0}],
+                    "body":{"term":"aggregate","members":[
+                        {"term":"binding","name":"key","value":{"term":"reference","target":text}},
+                        {"term":"binding","name":"value","value":{"term":"reference","target":value}}
+                    ]}}));
+                id
+            };
+            let map = append_map(&mut wire, &activation);
+            let _unrelated = append_map(&mut wire, &boolean);
+            let inputs = wire["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|node| node["node_id"] == inputs_id)
+                .expect("monitor's actual Inputs record");
+            inputs["body"]["members"]
+                .as_array_mut()
+                .unwrap()
+                .push(monitor_plan_fixtures::binding(
+                    "by_key",
+                    monitor_plan_fixtures::reference(&map),
+                ));
+            inputs["dependencies"].as_array_mut().unwrap().push(map);
         }
         fixture_support::rebuild_complete_source_map(&mut wire);
         fixture_support::refresh_identity(&mut wire);
@@ -1313,9 +1385,37 @@ mod tests {
                     collections.push(SelectedSourceCollectionRow {
                         structural_node: node.node_id.clone(),
                         base_node: node.node_id.clone(),
+                        key_node: None,
                         element_node: target.clone(),
                         value_type: ValueType::collection(CollectionType::new(
                             CollectionKind::Sequence,
+                            ValueType::Integer,
+                            None,
+                        )),
+                    });
+                }
+                (
+                    Some(CheckedNodeKind::CompositeType(super::super::CompositeTypeForm::Map)),
+                    None,
+                ) => {
+                    let [CheckedTerm::Binding { value: key, .. }, CheckedTerm::Binding { value, .. }] =
+                        members.as_slice()
+                    else {
+                        panic!("map operands");
+                    };
+                    let (
+                        CheckedTerm::Reference { target: key },
+                        CheckedTerm::Reference { target: value },
+                    ) = (key.as_ref(), value.as_ref())
+                    else {
+                        panic!("map reference operands");
+                    };
+                    collections.push(SelectedSourceCollectionRow {
+                        structural_node: node.node_id.clone(),
+                        base_node: node.node_id.clone(),
+                        key_node: Some(key.clone()),
+                        element_node: value.clone(),
+                        value_type: ValueType::map(quire_exact::MapType::new(
                             ValueType::Integer,
                             None,
                         )),
@@ -1342,9 +1442,30 @@ mod tests {
                         .find(|union| &union.structural_node == element)
                         .map(|union| ValueType::Composite(union.type_handle.clone()))
                 })
-                .unwrap_or(ValueType::Integer);
-            row.value_type =
-                ValueType::collection(CollectionType::new(CollectionKind::Sequence, value, None));
+                .unwrap_or_else(|| {
+                    if package.node_kind(element)
+                        == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
+                    {
+                        ValueType::Boolean
+                    } else {
+                        ValueType::Integer
+                    }
+                });
+            row.value_type = if row.key_node.is_some() {
+                ValueType::map(quire_exact::MapType::new(value, None))
+            } else {
+                ValueType::collection(CollectionType::new(CollectionKind::Sequence, value, None))
+            };
+        }
+        for record in &mut records {
+            for member in &mut record.members {
+                if let Some(map) = collections
+                    .iter()
+                    .find(|row| row.key_node.is_some() && row.structural_node == member.type_node)
+                {
+                    member.value_type = map.value_type.clone();
+                }
+            }
         }
         (records, tuples, unions, collections)
     }
@@ -2525,5 +2646,304 @@ mod tests {
             once_budget.consumed().storage + 2,
             "only the extra borrowed visitor continuation and child frames are retained"
         );
+    }
+    mod reached_map_rows {
+        use super::super::super::selected_type_closure::{
+            SelectedMonitorClosureRows, SelectedMonitorTypeClosureErrorCode,
+        };
+        use super::*;
+        use crate::{
+            SelectedEqualityApplicationRow, SelectedSourceCollectionRow, SelectedSourceRecordRow,
+            SelectedSourceTupleRow, SelectedSourceUnionRow,
+        };
+
+        struct Rows {
+            declarations: Vec<SelectedExactDeclarationRow>,
+            fields: Vec<SelectedExactFieldRow>,
+            units: Vec<SelectedSourceUnitRow>,
+            records: Vec<SelectedSourceRecordRow>,
+            tuples: Vec<SelectedSourceTupleRow>,
+            unions: Vec<SelectedSourceUnionRow>,
+            collections: Vec<SelectedSourceCollectionRow>,
+            equalities: Vec<SelectedEqualityApplicationRow>,
+        }
+        impl Rows {
+            fn new(package: &CheckedPackageV2) -> Self {
+                let (declarations, fields, units) = producer_rows(package);
+                let (records, tuples, unions, mut collections) = source_rows(package);
+                let unrelated = collections
+                    .iter()
+                    .position(|row| {
+                        row.key_node.is_some()
+                            && row.value_type
+                                == ValueType::map(quire_exact::MapType::new(
+                                    ValueType::Boolean,
+                                    None,
+                                ))
+                    })
+                    .expect("unrelated boolean map has no opaque record payload");
+                let unrelated = collections.remove(unrelated);
+                collections.insert(0, unrelated);
+                let selected_map = collections.iter().position(|row| row.key_node.is_some()
+                    && matches!(&row.value_type, ValueType::Map(map) if matches!(map.values(), ValueType::Composite(_))))
+                    .expect("selected map");
+                let selected_map = collections.remove(selected_map);
+                collections.insert(1, selected_map);
+                Self {
+                    declarations,
+                    fields,
+                    units,
+                    records,
+                    tuples,
+                    unions,
+                    collections,
+                    equalities: equality_rows(package),
+                }
+            }
+            fn view(&self) -> SelectedMonitorClosureRows<'_> {
+                SelectedMonitorClosureRows {
+                    declarations: &self.declarations,
+                    fields: &self.fields,
+                    model_tuples: &[],
+                    source_units: &self.units,
+                    model_enum_declarations: &[],
+                    model_enum_members: &[],
+                    model_enum_shapes: &[],
+                    source_records: &self.records,
+                    source_tuples: &self.tuples,
+                    source_unions: &self.unions,
+                    source_enums: &[],
+                    source_collections: &self.collections,
+                    equality_applications: &self.equalities,
+                    equality_facts: &[],
+                }
+            }
+            fn reached_map(&self) -> &SelectedSourceCollectionRow {
+                self.collections.iter().find(|row| row.key_node.is_some()
+                    && matches!(&row.value_type, ValueType::Map(map) if matches!(map.values(), ValueType::Composite(_))))
+                    .expect("map of authentic source record")
+            }
+        }
+
+        #[trace("TC-473", "FR-357-AC-19")]
+        #[trace("TC-473", "FR-357-AC-20")]
+        #[test]
+        fn selected_closure_retains_only_reached_map_and_composes_exact_budget() {
+            let package = admitted_monitor_for_closure_with_maps("integer", true);
+            let rows = Rows::new(&package);
+            let row = rows.reached_map();
+            let plan = package.monitor_plans().next().expect("plan");
+            let mut ample = NativeJoinBudget::new(u64::MAX, u64::MAX);
+            let closure = plan
+                .project_selected_type_closure(rows.view(), &mut ample)
+                .expect("reached map closure");
+            let maps: Vec<_> = closure
+                .identities()
+                .source_collection_rows()
+                .filter(|row| row.key_node.is_some())
+                .collect();
+            assert_eq!(maps, vec![row]);
+            let member = closure
+                .identities()
+                .source_record_rows()
+                .flat_map(|record| record.members.iter())
+                .find(|member| member.type_node == row.structural_node)
+                .expect("the retained Inputs member names the reached map");
+            assert_eq!(member.admitted_name.as_ref(), "by_key");
+            assert_eq!(member.value_type, row.value_type);
+
+            assert_eq!(
+                package.node_kind(row.key_node.as_ref().expect("key")),
+                Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
+            );
+            let record = closure
+                .identities()
+                .source_record_rows()
+                .find(|record| record.structural_node == row.element_node)
+                .expect("map value record reached");
+            assert_eq!(
+                row.value_type,
+                ValueType::map(quire_exact::MapType::new(
+                    ValueType::Composite(record.record_key.clone()),
+                    None
+                ))
+            );
+            let projected = closure
+                .exact_types()
+                .iter()
+                .find(|projection| projection.type_node() == &row.structural_node)
+                .expect("map exact projection");
+            assert_eq!(projected.value_type(), &row.value_type);
+            let used = ample.consumed();
+            let mut exact = NativeJoinBudget::new(used.work, used.storage);
+            let exact_closure = plan
+                .project_selected_type_closure(rows.view(), &mut exact)
+                .expect("exact map closure");
+            assert_eq!(exact_closure.identities(), closure.identities());
+            assert_eq!(exact_closure.exact_types(), closure.exact_types());
+            assert_eq!(exact.consumed(), used);
+            for kind in [NativeJoinChargeKind::Work, NativeJoinChargeKind::Storage] {
+                let limits = match kind {
+                    NativeJoinChargeKind::Work => (used.work - 1, used.storage),
+                    NativeJoinChargeKind::Storage => (used.work, used.storage - 1),
+                };
+                let mut short = NativeJoinBudget::new(limits.0, limits.1);
+                let error = plan
+                    .project_selected_type_closure(rows.view(), &mut short)
+                    .expect_err("one under map closure");
+                let denied = short.first_unpaid().expect("first unpaid");
+                assert_eq!(denied.kind, kind);
+                assert_eq!(error.denied, Some(denied));
+                assert_eq!(error.denied_locus, short.first_unpaid_locus());
+                assert!(short.consumed().work > 0 && short.consumed().storage > 0);
+                assert_eq!(short.last_success_delta(), None);
+                assert_eq!((short.work_limit(), short.storage_limit()), limits);
+            }
+        }
+
+        #[trace("TC-473", "FR-357-AC-19")]
+        #[test]
+        fn selected_map_key_refusal_is_typed_and_unreached_bad_key_is_ignored() {
+            let package = admitted_monitor_for_closure_with_maps("integer", true);
+            let plan = package.monitor_plans().next().expect("plan");
+            for mismatch in [false, true] {
+                let mut rows = Rows::new(&package);
+                let row = rows.reached_map().structural_node.clone();
+                let map = rows
+                    .collections
+                    .iter_mut()
+                    .find(|item| item.structural_node == row)
+                    .unwrap();
+                map.key_node = mismatch.then(|| map.element_node.clone());
+                let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+                let error = plan
+                    .project_selected_type_closure(rows.view(), &mut budget)
+                    .expect_err("malformed reached key");
+                assert_eq!(
+                    error.code,
+                    SelectedMonitorTypeClosureErrorCode::CollectionKey
+                );
+                assert_eq!(error.at.as_deref(), Some(&row));
+                assert!(error.work > 0);
+                assert_eq!(error.denied, None);
+                assert_eq!(budget.last_success_delta(), None);
+            }
+            let mut rows = Rows::new(&package);
+            rows.collections[0].key_node = None;
+            let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+            let closure = plan
+                .project_selected_type_closure(rows.view(), &mut budget)
+                .expect("unreached malformed map does not refuse");
+            assert!(!closure
+                .identities()
+                .source_collection_rows()
+                .any(|row| row.structural_node == rows.collections[0].structural_node));
+            let mut rows = Rows::new(&package);
+            let key = rows.reached_map().key_node.clone();
+            let unary = rows
+                .collections
+                .iter_mut()
+                .find(|row| row.key_node.is_none())
+                .expect("ordinary sequence");
+            let node = unary.structural_node.clone();
+            unary.key_node = key;
+            let error = plan
+                .project_selected_type_closure(
+                    rows.view(),
+                    &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+                )
+                .expect_err("unary collection cannot carry map key");
+            assert_eq!(
+                error.code,
+                SelectedMonitorTypeClosureErrorCode::CollectionKey
+            );
+            assert_eq!(error.at.as_deref(), Some(&node));
+        }
+        #[trace("TC-473", "FR-357-AC-20")]
+        #[test]
+        fn selected_map_row_keeps_original_index_and_precharges_its_actual_copy() {
+            let package = admitted_monitor_for_closure_with_maps("integer", true);
+            let plan = package.monitor_plans().next().expect("plan");
+            let rows = Rows::new(&package);
+            let index = rows
+                .collections
+                .iter()
+                .position(|row| row.structural_node == rows.reached_map().structural_node)
+                .unwrap();
+            assert!(
+                index > 0,
+                "an unrelated earlier row precedes this selected map"
+            );
+            let mut malformed = Rows::new(&package);
+            malformed.collections[index].key_node = None;
+            let mut diagnostic = NativeJoinBudget::new(u64::MAX, u64::MAX);
+            let error = plan
+                .project_selected_type_closure(malformed.view(), &mut diagnostic)
+                .unwrap_err();
+            assert_eq!(
+                error.code,
+                SelectedMonitorTypeClosureErrorCode::CollectionKey
+            );
+            let mut diagnostic_short =
+                NativeJoinBudget::new(u64::MAX, diagnostic.consumed().storage - 1);
+            plan.project_selected_type_closure(malformed.view(), &mut diagnostic_short)
+                .unwrap_err();
+            let prefix = diagnostic_short.consumed().storage;
+            let mut at_copy = NativeJoinBudget::new(u64::MAX, prefix);
+            plan.project_selected_type_closure(rows.view(), &mut at_copy)
+                .unwrap_err();
+            let copy_charge = at_copy.first_unpaid().expect("map row retention charge");
+            assert_eq!(copy_charge.kind, NativeJoinChargeKind::Storage);
+            assert_eq!(
+                at_copy.first_unpaid_locus(),
+                Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "source_collection_selection",
+                })
+            );
+            let exact_copy = prefix + u64::try_from(copy_charge.amount).unwrap();
+            let mut short = NativeJoinBudget::new(u64::MAX, exact_copy - 1);
+            let mut result = None;
+            let unpaid = allocation_counter::measure(|| {
+                result = Some(plan.project_selected_type_closure(rows.view(), &mut short));
+            });
+            let error = result.unwrap().expect_err("one below selected map copy");
+            assert_eq!(error.denied, Some(copy_charge));
+            assert_eq!(
+                error.denied_locus,
+                Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::ReachedRow(index),
+                    form: "source_collection_selection",
+                })
+            );
+            assert_eq!(short.consumed().storage, prefix);
+            assert_eq!(short.storage_limit(), exact_copy - 1);
+            assert_eq!(short.last_success_delta(), None);
+            let mut paid = NativeJoinBudget::new(u64::MAX, exact_copy);
+            let mut paid_result = None;
+            let admitted = allocation_counter::measure(|| {
+                paid_result = Some(plan.project_selected_type_closure(rows.view(), &mut paid));
+            });
+            paid_result.unwrap().expect_err("later join remains unpaid");
+            assert!(
+                admitted.count_total > unpaid.count_total,
+                "the selected map row is actually cloned only after its storage admission"
+            );
+            assert!(unpaid.count_total > 0, "earlier paid work allocated");
+            assert_eq!(paid.consumed().storage, exact_copy);
+            let mut zero = NativeJoinBudget::new(u64::MAX, 0);
+            let mut zero_result = None;
+            let zero_allocations = allocation_counter::measure(|| {
+                zero_result = Some(plan.project_selected_type_closure(rows.view(), &mut zero));
+            });
+            let error = zero_result.unwrap().expect_err("zero storage");
+            assert_eq!(zero_allocations.count_total, 0);
+            assert_eq!(
+                error.code,
+                SelectedMonitorTypeClosureErrorCode::StorageLimit
+            );
+            assert_eq!(error.at, None);
+            assert_eq!(zero.consumed().storage, 0);
+        }
     }
 }
