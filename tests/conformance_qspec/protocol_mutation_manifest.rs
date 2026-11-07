@@ -292,9 +292,11 @@ fn assert_paired_reader_refusal(first: &str, second: &str, first_node: usize) {
         refusal.document_pointer.as_ref().map(|at| at.as_str()),
         expected["expect"]["document_pointer"].as_str(),
     );
+    let mut resolved = edited.clone();
+    fixture_support::resolve_operands(&mut resolved);
     assert_eq!(
         serde_json::to_value(refusal.locus).expect("locus"),
-        edited["semantic_graph"]["nodes"][first_node]["node_id"],
+        resolved["semantic_graph"]["nodes"][first_node]["node_id"],
     );
 }
 

@@ -120,18 +120,8 @@ fn authoritative_owner_declaration_and_group_forms_are_retained_and_fail_closed(
         let published = wire_form["semantic_graph"]["nodes"]
             .as_array()
             .expect("published nodes");
-        assert_eq!(
-            admitted.resolved_graph().nodes.len(),
-            published.len(),
-            "{name}"
-        );
-        for (position, (node, golden)) in admitted
-            .resolved_graph()
-            .nodes
-            .iter()
-            .zip(published)
-            .enumerate()
-        {
+        assert_eq!(admitted.graph().nodes.len(), published.len(), "{name}");
+        for (position, (node, golden)) in admitted.graph().nodes.iter().zip(published).enumerate() {
             assert_eq!(
                 serde_json::to_value(&node.node_id).expect("id"),
                 golden["node_id"],

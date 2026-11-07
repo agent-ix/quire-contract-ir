@@ -1205,7 +1205,10 @@ fn qspec_admitted_values_members_and_catalog_constraints_are_exact() {
         quire_canonical::Limits::new(u64::MAX),
     )
     .expect("encode admitted QSpec package");
-    assert_eq!(serde_json::from_slice::<Value>(&encoded).unwrap(), wire);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&encoded).unwrap(),
+        fixture_support::wire_form(&wire)
+    );
 }
 
 #[trace("FR-349-AC-8", "FR-349-AC-9")]

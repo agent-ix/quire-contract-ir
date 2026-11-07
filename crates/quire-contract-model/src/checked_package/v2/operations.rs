@@ -10656,7 +10656,53 @@ mod tests {
         let path = std::path::Path::new(&root)
             .join("proposals/checked-package-v2/timed-slot-selector-vectors.json");
         let bytes = std::fs::read(path).expect("published timed slot vectors");
-        let vectors: Value = serde_json::from_slice(&bytes).expect("published vector JSON");
+        let mut vectors: Value = serde_json::from_slice(&bytes).expect("published vector JSON");
+        // Each published node holds operand slots beside its operand row, whose
+        // entries are graph indexes of the vector's fixture; this table names
+        // operands by those indexes.
+        fn resolve_rows(value: &mut Value) {
+            match value {
+                Value::Array(items) => items.iter_mut().for_each(resolve_rows),
+                Value::Object(object) => {
+                    let rows: Vec<String> = object
+                        .keys()
+                        .filter(|key| key.ends_with("_operand_row"))
+                        .cloned()
+                        .collect();
+                    for key in rows {
+                        let row: Vec<u64> =
+                            serde_json::from_value(object.remove(&key).expect("row"))
+                                .expect("operand row");
+                        let name = key.trim_end_matches("_operand_row");
+                        if let Some(node) = object.get_mut(name) {
+                            resolve_slots(node, &row);
+                        }
+                    }
+                    object.values_mut().for_each(resolve_rows);
+                }
+                _ => {}
+            }
+        }
+        fn resolve_slots(value: &mut Value, row: &[u64]) {
+            match value {
+                Value::Array(items) => items.iter_mut().for_each(|item| resolve_slots(item, row)),
+                Value::Object(object) => {
+                    let slot = (object.len() == 1)
+                        .then(|| object.get("operand").and_then(Value::as_u64))
+                        .flatten();
+                    if let Some(slot) = slot {
+                        let entry = row[usize::try_from(slot).expect("slot")];
+                        *value = json!({ "node": entry });
+                        return;
+                    }
+                    object
+                        .values_mut()
+                        .for_each(|member| resolve_slots(member, row));
+                }
+                _ => {}
+            }
+        }
+        resolve_rows(&mut vectors);
         let presence = &vectors["presence"];
         let model =
             presence["places"]["v"]["node"]["body"]["members"][0]["value"]["target"].clone();

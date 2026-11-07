@@ -852,6 +852,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
         );
 
         let mut duplicate = ordered_defect.clone();
+        fixture_support::resolve_operands(&mut duplicate);
         let nodes = duplicate["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes");

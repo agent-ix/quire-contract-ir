@@ -2512,7 +2512,7 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     let written: Value = serde_json::from_slice(&bytes).expect("writer JSON");
     assert_eq!(
         written["semantic_graph"]["nodes"][position],
-        *indexed_expected
+        crate::support::checked_package::wire_form(&indexed)["semantic_graph"]["nodes"][position]
     );
     let CheckedPackageV2ReadResult::Admitted(second) =
         CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
@@ -2592,8 +2592,8 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
         let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
         assert_eq!(
             written["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"],
-            indexed_package(&package)["semantic_graph"]["nodes"][position]["body"]["steps"][0]
-                ["target"]
+            crate::support::checked_package::wire_form(&indexed_package(&package))
+                ["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"]
         );
         let CheckedPackageV2ReadResult::Admitted(reread) =
             CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
