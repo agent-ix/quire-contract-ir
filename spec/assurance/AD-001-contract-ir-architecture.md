@@ -202,7 +202,9 @@ the authored-contract interchange.
   counter and its charges are unchanged, so each counter has one unit. The
   budgeted entry `read_with_budget` is the one implementation; the existing
   `read` and `read_checked_package` keep their signatures and results and call
-  it with `NativeJoinBudget::unlimited()`, so no existing caller changes.
+  it with `NativeJoinBudget::new(limits.work, u64::MAX)
+  .with_read_storage_limit(u64::MAX)`, so no existing caller or outcome
+  changes, including today's work-limit outcome.
   There is no private work meter or second read implementation. Structural read limits
   stay validation caps.
 - Read the package bytes and every selected model document with the one
