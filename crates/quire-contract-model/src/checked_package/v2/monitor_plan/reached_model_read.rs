@@ -849,6 +849,18 @@ mod tests {
     }
 
     fn admitted_monitor_for_closure_with_status(status: &str) -> CheckedPackageV2 {
+        admitted_monitor_for_closure_with(
+            status,
+            serde_json::json!([{"role":"expression","ordinal":0}]),
+            false,
+        )
+    }
+
+    fn admitted_monitor_for_closure_with(
+        status: &str,
+        equality_occurrences: serde_json::Value,
+        bounded_sequence: bool,
+    ) -> CheckedPackageV2 {
         let (mut wire, document) =
             monitor_plan_fixtures::model_fact_monitor_with_status(false, status);
         let boolean = monitor_plan_fixtures::find(&wire, "boolean");
@@ -866,8 +878,7 @@ mod tests {
             "monitor_equality",
         );
         let equality_position = monitor_plan_fixtures::position(&wire, &equality);
-        wire["semantic_graph"]["nodes"][equality_position]["occurrences"] =
-            serde_json::json!([{"role":"expression","ordinal":0}]);
+        wire["semantic_graph"]["nodes"][equality_position]["occurrences"] = equality_occurrences;
         let conditional_position = wire["semantic_graph"]["nodes"]
             .as_array()
             .unwrap()
@@ -888,15 +899,73 @@ mod tests {
                 "equality_decisions":[],"protocol_locations":[],
                 "dispatch_tables":[],"probabilistic_claims":[]});
         }
+        let decided_occurrence = wire["semantic_graph"]["nodes"][equality_position]["occurrences"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|occurrence| occurrence["role"] == "expression")
+            .unwrap_or(&wire["semantic_graph"]["nodes"][equality_position]["occurrences"][0])
+            .clone();
         wire["checked_term_data"]["equality_decisions"]
             .as_array_mut()
             .unwrap()
             .push(serde_json::json!({"application":equality,
-                "occurrence":{"role":"expression","ordinal":0},"term_path":[],
+                "occurrence":decided_occurrence,"term_path":[],
                 "operator":"equal","schedule":"plan",
                 "left":{"operand":0,"source_type":boolean,"conversion_target":null},
                 "right":{"operand":1,"source_type":boolean,"conversion_target":null},
                 "units":[],"enum_members":[]}));
+        if bounded_sequence {
+            let integer = monitor_plan_fixtures::find(&wire, "integer");
+            let plan_position = wire["semantic_graph"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .position(|node| node["semantic_form"] == "monitor_plan")
+                .expect("monitor plan");
+            let scope = wire["semantic_graph"]["nodes"][plan_position]["body"]["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|member| member["name"] == "scope")
+                .unwrap()["value"]["target"]
+                .clone();
+            let state_position = monitor_plan_fixtures::position(&wire, &scope);
+            let base = monitor_plan_fixtures::type_node(
+                &mut wire,
+                "sequence",
+                monitor_plan_fixtures::aggregate(vec![monitor_plan_fixtures::reference(&integer)]),
+                "bounded_base",
+            );
+            let integer_at = monitor_plan_fixtures::position(&wire, &integer);
+            let base_at = monitor_plan_fixtures::position(&wire, &base);
+            let bound = |name: &str, value: &str| {
+                serde_json::json!({"term":"binding","name":name,"value":{
+                    "term":"literal","type":integer,"value_kind":"integer","value":value}})
+            };
+            let wrapper = serde_json::json!({"package":wire["name"],"path":[
+                "bounded_domain","collection_bounds","min",{"node":integer_at},"0",
+                "max",{"node":integer_at},"3",{"node":base_at}],"ordinal":0});
+            wire["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                "schema_version":"quire.checked-semantic-graph/v2","node_id":wrapper,
+                "node_tag":"bounded_domain","semantic_form":"collection_bounds",
+                "semantic_type":base,"dependencies":[base],
+                "occurrences":[{"role":"type","ordinal":0}],
+                "body":monitor_plan_fixtures::aggregate(vec![bound("min","0"),bound("max","3")])}));
+            let state = &mut wire["semantic_graph"]["nodes"][state_position];
+            state["body"]["members"]
+                .as_array_mut()
+                .unwrap()
+                .push(monitor_plan_fixtures::binding(
+                    "bounded",
+                    monitor_plan_fixtures::reference(&wrapper),
+                ));
+            state["dependencies"].as_array_mut().unwrap().push(wrapper);
+            monitor_plan_fixtures::rekey(&mut wire, state_position);
+        }
         let source = wire["lock"]["sources"][0].clone();
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
             if node["node_tag"] != "composite_type"
@@ -934,20 +1003,24 @@ mod tests {
             matches!(node.node_id.path.get(2),
                 Some(crate::CheckedNodePathSegment::Name(name)) if name.as_ref() == "monitor_equality")
         }).expect("reached monitor equality").node_id.clone();
-        let occurrence = crate::CheckedOccurrence {
-            role: crate::CheckedOccurrenceRole::Expression,
-            ordinal: 0,
-        };
         let source_map_entry = package
             .source_map()
             .iter()
             .find(|row| {
-                row.node_id == application
-                    && row.role == occurrence.role
-                    && row.ordinal == occurrence.ordinal
+                row.node_id == application && row.role == crate::CheckedOccurrenceRole::Expression
+            })
+            .or_else(|| {
+                package
+                    .source_map()
+                    .iter()
+                    .find(|row| row.node_id == application)
             })
             .expect("equality source occurrence")
             .clone();
+        let occurrence = crate::CheckedOccurrence {
+            role: source_map_entry.role.clone(),
+            ordinal: source_map_entry.ordinal,
+        };
         let key = NodeKey::new(
             package.name(),
             vec![PathSegment::Text("monitor-equality".into())],
@@ -961,6 +1034,126 @@ mod tests {
             key.clone(),
             Location::new(key, Origin::new(Role::from("expression"), 0)),
         )]
+    }
+
+    /// Project `package` with the fixture's source rows plus `wrappers`, and
+    /// return the reached equality occurrences and the projected Exact type nodes.
+    fn project_closure(
+        package: &CheckedPackageV2,
+        wrappers: Vec<crate::SelectedSourceCollectionRow>,
+    ) -> Result<
+        (Vec<crate::CheckedOccurrence>, Vec<ValueType>),
+        super::super::selected_type_closure::SelectedMonitorTypeClosureError,
+    > {
+        let equality_apps = equality_rows(package);
+        let (declarations, fields, source_units) = producer_rows(package);
+        let (source_records, source_tuples, source_unions, mut source_collections) =
+            source_rows(package);
+        source_collections.retain(|row| {
+            !wrappers
+                .iter()
+                .any(|wrapper| wrapper.base_node == row.structural_node)
+        });
+        source_collections.extend(wrappers);
+        let rows = super::super::selected_type_closure::SelectedMonitorClosureRows {
+            declarations: &declarations,
+            fields: &fields,
+            model_tuples: &[],
+            source_units: &source_units,
+            model_enum_declarations: &[],
+            model_enum_members: &[],
+            model_enum_shapes: &[],
+            source_records: &source_records,
+            source_tuples: &source_tuples,
+            source_unions: &source_unions,
+            source_enums: &[],
+            source_collections: &source_collections,
+            equality_applications: &equality_apps,
+            equality_facts: &[],
+        };
+        let plan = package.monitor_plans().next().unwrap();
+        let closure = plan
+            .project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))?;
+        Ok((
+            closure
+                .equalities()
+                .iter()
+                .map(|equality| equality.id.occurrence.clone())
+                .collect(),
+            closure
+                .exact_types()
+                .iter()
+                .map(|projection| projection.value_type().clone())
+                .collect(),
+        ))
+    }
+
+    #[trace("TC-470", "FR-357-AC-21")]
+    #[test]
+    fn a_claim_registration_of_a_reached_equality_needs_no_decision() {
+        let both = admitted_monitor_for_closure_with(
+            "integer",
+            serde_json::json!([{"role":"claim","ordinal":0},{"role":"expression","ordinal":0}]),
+            false,
+        );
+        let (occurrences, _) = project_closure(&both, Vec::new()).expect("expression site decided");
+        assert_eq!(
+            occurrences,
+            vec![crate::CheckedOccurrence {
+                role: crate::CheckedOccurrenceRole::Expression,
+                ordinal: 0,
+            }]
+        );
+        let claim_only = admitted_monitor_for_closure_with(
+            "integer",
+            serde_json::json!([{"role":"claim","ordinal":0}]),
+            false,
+        );
+        let error = project_closure(&claim_only, Vec::new()).expect_err("no evaluation site");
+        assert_eq!(
+            error.code,
+            crate::SelectedMonitorTypeClosureErrorCode::Equality(
+                crate::AdmittedEqualityReadErrorCode::UnavailableEqualityDecision
+            )
+        );
+    }
+
+    #[trace("TC-470", "FR-357-AC-22")]
+    #[test]
+    fn a_bounded_collection_row_projects_its_base_with_the_wrapper() {
+        let package = admitted_monitor_for_closure_with(
+            "integer",
+            serde_json::json!([{"role":"expression","ordinal":0}]),
+            true,
+        );
+        let wrapper = package
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.semantic_form.as_ref() == "collection_bounds")
+            .expect("bounded wrapper");
+        let base = wrapper.semantic_type.clone();
+        let element = package
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| node.semantic_form.as_ref() == "integer")
+            .expect("integer")
+            .node_id
+            .clone();
+        let row = crate::SelectedSourceCollectionRow {
+            structural_node: wrapper.node_id.clone(),
+            base_node: base.clone(),
+            element_node: element,
+            value_type: ValueType::collection(CollectionType::new(
+                CollectionKind::Sequence,
+                ValueType::Integer,
+                Some(quire_exact::CardinalityBound::new(0, 3).unwrap()),
+            )),
+        };
+        let bounded = row.value_type.clone();
+        let (_, projected) = project_closure(&package, vec![row]).expect("wrapper row alone");
+        assert!(projected.contains(&bounded));
     }
 
     #[trace("TC-470", "FR-357-AC-1")]

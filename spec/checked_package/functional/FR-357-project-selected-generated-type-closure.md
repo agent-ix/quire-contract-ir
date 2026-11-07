@@ -125,6 +125,12 @@ or generated-source declaration closure is complete.
 
 ### Complete selected monitor closure read
 
+Equality decisions are read per evaluation site: the closure selects each
+`expression`-role occurrence of a reached equality application and reads its
+FR-353 decision. A `claim`-role occurrence is the clause's registration of the
+interned application and is not selected. A bounded collection row projects its
+unbounded base node together with the `collection_bounds` wrapper.
+
 The one bounded read on `CheckedMonitorPlanRef` SHALL seed a fixed traversal
 from State, Inputs, Scope, Results, the `tick_unit` premise and the four entry signatures and bodies in
 `init`, `on_event`, `on_watermark`, `on_gap` order. It SHALL use an iterative
@@ -342,6 +348,8 @@ result alone SHALL NOT authorize either construction.
 | FR-357-AC-16 | A reached admitted `composite_type`/`map` with a scalar key and a record value joins a collection row carrying its key node and value node in key-then-value order, and the closure retains the map's complete Exact `ValueType::Map`. A row whose `key_node` is absent, names another node, or is present on a non-map collection refuses `SelectedMonitorTypeClosureErrorCode::CollectionKey` at the collection node, with charged work and no partial closure; an unreached map row does not refuse. The closure with the map succeeds at its exact measured work and storage allowance, and one unit below either refuses at the first unpaid key-join charge with its kind, amount and locus. | Test |
 | FR-357-AC-17 | The closure read requires the same-emission authority row of FR-361 and returns either a complete closure carrying the receipt and layout context or one typed first refusal; no read exists without that row, and no partial closure escapes an authority refusal. | Test, Inspection |
 | FR-357-AC-18 | The closure read seeds the plan's `tick_unit` premise with its unit and dimension facts and exposes `SelectedMonitorTypeClosure::tick_unit_dimension() -> &CheckedNodeId`, the admitted dimension node of that unit. For a source tick unit and for a model tick unit, it returns that unit's own admitted dimension; a tick unit whose admitted dimension is not the base Time dimension refuses at strict admission before any closure exists; the seeded facts are charged and succeed at the exact allowance and refuse one unit below at the first unpaid seed charge. | Test |
+| FR-357-AC-21 | Implemented (IR-1399; TC-470). The closure requires one FR-353 equality decision at each `expression`-role occurrence of a reached equality application. A `claim`-role occurrence of the same node is the clause's registration of the interned application, not an evaluation site, and neither needs nor receives a decision. A reached equality application with no `expression` occurrence still returns `UnavailableEqualityDecision` at that node. | Test |
+| FR-357-AC-22 | Implemented (IR-1399; TC-470). Given a bounded collection row whose `structural_node` is the `collection_bounds` wrapper and whose `base_node` is the unbounded collection node, the closure projects the wrapper from that row and does not project the base on its own. A base node that another reached node is typed by still requires its own row and returns `UnavailableIdentityWitness` without one. | Test |
 
 ## Dependencies
 
