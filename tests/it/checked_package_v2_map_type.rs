@@ -655,61 +655,99 @@ fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
         ("source_map_value", &outer.element_node),
     ] {
         let expected_locus = quire_contract_model::NativeJoinLocus {
-            source: quire_contract_model::NativeJoinLocusSource::ReachedRow(1), form,
+            source: quire_contract_model::NativeJoinLocusSource::ReachedRow(1),
+            form,
         };
         let mut observed = false;
         for allowance in 0..join_work {
             let mut short = NativeJoinBudget::new(allowance, 1_000_000);
-            let error = SelectedExactIdentities::empty().with_source_collection_rows(
-                &package, [inner.clone(), outer.clone(), bounded.clone()], &mut short,
-            ).expect_err("work below complete native acquisition");
-            if short.first_unpaid_locus() != Some(expected_locus) { continue; }
+            let error = SelectedExactIdentities::empty()
+                .with_source_collection_rows(
+                    &package,
+                    [inner.clone(), outer.clone(), bounded.clone()],
+                    &mut short,
+                )
+                .expect_err("work below complete native acquisition");
+            if short.first_unpaid_locus() != Some(expected_locus) {
+                continue;
+            }
             let expected_charge = quire_contract_model::NativeJoinDeniedCharge {
-                kind: quire_contract_model::NativeJoinChargeKind::Work, amount: 1,
+                kind: quire_contract_model::NativeJoinChargeKind::Work,
+                amount: 1,
             };
             assert_eq!(error.denied, Some(expected_charge));
             assert_eq!(error.configured_bound, Some(allowance));
             assert_eq!(error.at.as_deref(), Some(at));
             assert_eq!(short.consumed().work, allowance);
-            assert!(short.consumed().storage > 0, "the preceding authentic map row remains paid");
+            assert!(
+                short.consumed().storage > 0,
+                "the preceding authentic map row remains paid"
+            );
             assert_eq!(short.last_success_delta(), None);
             let spent = short.consumed();
-            let later = short.accounted_charge(quire_contract_model::NativeJoinChargeKind::Storage,
-                99, expected_locus).unwrap_err();
+            let later = short
+                .accounted_charge(
+                    quire_contract_model::NativeJoinChargeKind::Storage,
+                    99,
+                    expected_locus,
+                )
+                .unwrap_err();
             assert_eq!(later, expected_charge);
             assert_eq!(short.first_unpaid_locus(), Some(expected_locus));
             assert_eq!(short.consumed(), spent);
             observed = true;
             break;
         }
-        assert!(observed, "native key/value work must expose its independently named original row phase");
+        assert!(
+            observed,
+            "native key/value work must expose its independently named original row phase"
+        );
     }
     let mut projection_budget = NativeJoinBudget::new(1_000_000, 1_000_000);
-    package.project_exact_type(&inner.structural_node, &joined, &mut projection_budget).unwrap();
+    package
+        .project_exact_type(&inner.structural_node, &joined, &mut projection_budget)
+        .unwrap();
     for (form, at) in [
         ("source_map_key", inner.key_node.as_ref().unwrap()),
         ("source_map_value", &inner.element_node),
     ] {
         let expected_locus = quire_contract_model::NativeJoinLocus {
-            source: quire_contract_model::NativeJoinLocusSource::GraphNode(inner_position), form,
+            source: quire_contract_model::NativeJoinLocusSource::GraphNode(inner_position),
+            form,
         };
         let mut observed = false;
         for allowance in 0..projection_budget.consumed().work {
             let mut short = NativeJoinBudget::new(allowance, 1_000_000);
-            let error = package.project_exact_type(&inner.structural_node, &joined, &mut short)
+            let error = package
+                .project_exact_type(&inner.structural_node, &joined, &mut short)
                 .expect_err("below complete projection work");
-            if short.first_unpaid_locus() != Some(expected_locus) { continue; }
-            assert_eq!(error.denied, Some(quire_contract_model::NativeJoinDeniedCharge {
-                kind: quire_contract_model::NativeJoinChargeKind::Work, amount: 1,
-            }));
+            if short.first_unpaid_locus() != Some(expected_locus) {
+                continue;
+            }
+            assert_eq!(
+                error.denied,
+                Some(quire_contract_model::NativeJoinDeniedCharge {
+                    kind: quire_contract_model::NativeJoinChargeKind::Work,
+                    amount: 1,
+                })
+            );
             assert_eq!(error.configured_bound, Some(allowance));
-            assert_eq!(error.at, None, "native projection resource errors remain compact");
+            assert_eq!(
+                error.at, None,
+                "native projection resource errors remain compact"
+            );
             assert_eq!(short.last_success_delta(), None);
-            assert!(package.node(at).is_some(), "the independently selected key/value node is admitted");
+            assert!(
+                package.graph().nodes.iter().any(|node| &node.node_id == at),
+                "the independently selected key/value node is admitted"
+            );
             observed = true;
             break;
         }
-        assert!(observed, "fresh projection must expose the authentic requested graph node and phase");
+        assert!(
+            observed,
+            "fresh projection must expose the authentic requested graph node and phase"
+        );
     }
     for row in [&inner, &outer, &bounded] {
         let projection = package
@@ -953,10 +991,13 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
     );
     assert_eq!(error.denied, Some(denied));
     assert_eq!(error.configured_bound, Some(handle_boundary));
-    assert_eq!(short.first_unpaid_locus(), Some(quire_contract_model::NativeJoinLocus {
-        source: NativeJoinLocusSource::GraphNode(map_position),
-        form: "source_collection_comparison_handle",
-    }));
+    assert_eq!(
+        short.first_unpaid_locus(),
+        Some(quire_contract_model::NativeJoinLocus {
+            source: NativeJoinLocusSource::GraphNode(map_position),
+            form: "source_collection_comparison_handle",
+        })
+    );
     assert_eq!(
         short.first_unpaid_locus().unwrap().form,
         "source_collection_comparison_handle"

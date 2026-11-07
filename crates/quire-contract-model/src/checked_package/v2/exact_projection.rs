@@ -1138,7 +1138,13 @@ fn validate_source_collection_row(
         })?)
     };
     if form == CompositeTypeForm::Map {
-        charge_native_work(work, requested, row.key_node.as_ref().unwrap_or(id), "source_map_key", 1)?;
+        charge_native_work(
+            work,
+            requested,
+            row.key_node.as_ref().unwrap_or(id),
+            "source_map_key",
+            1,
+        )?;
         if !source_map_key_matches(package, row) {
             return Err(source_collection_error(
                 requested,
@@ -1149,8 +1155,15 @@ fn validate_source_collection_row(
         }
     }
     charge_native_work(
-        work, requested, &row.element_node,
-        if form == CompositeTypeForm::Map { "source_map_value" } else { "source_collection_element" }, 1,
+        work,
+        requested,
+        &row.element_node,
+        if form == CompositeTypeForm::Map {
+            "source_map_value"
+        } else {
+            "source_collection_element"
+        },
+        1,
     )?;
     if package.node(&row.element_node).is_none() {
         return Err(selected_declaration_error_budgeted(
