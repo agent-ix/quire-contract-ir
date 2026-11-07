@@ -27,3 +27,9 @@ FAIL — FR-358-AC-7 has a materialization refusal storage gap; tests cover ordi
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The materialization refusal path is not backed by a test that compares its owned cause size with the charged diagnostic storage; a nonzero budget may return an undercharged payload. | crates/quire-contract-model/src/checked_package/v2/equality_projection.rs:1035 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fixed by equality_qsv_owned_refusal_requires_dynamic_storage_before_boxing: a 160-digit cause is tested at the exact full storage allowance and one below, asserting full payload only at exact and compact payload plus first unpaid charge below. |

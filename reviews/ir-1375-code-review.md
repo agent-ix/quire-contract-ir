@@ -27,3 +27,9 @@ FAIL — materialization refusal owns uncharged diagnostic payload.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | The QSV materialization refusal boxes the full owned cause after charging only two node IDs and one fixed unit. Variable-size cause contents can be returned without full precharge, contrary to FR-358-AC-7. | crates/quire-contract-model/src/checked_package/v2/equality_projection.rs:1035 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fixed at equality_projection.rs:1059-1087: a Resource cause receives a dynamic charge plus the diagnostic floor before boxing; otherwise the refusal retains compact typed code and locus without owning the full cause. |
