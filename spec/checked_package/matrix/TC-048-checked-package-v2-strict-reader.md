@@ -2785,11 +2785,12 @@ these vectors; do not infer its reader outcome from their results.
 
 ## Window aggregate clock unit owner (FR-038-AC-518)
 
-Build the published `AG-07-duration-quantile` package with the clause's
-`timestamp_unit` and the unit nodes moved to the identity
-`ix://acme/rpc/unit/ms` owned by package `acme/rpc`, a package other than the
-clause's. Require admission; typing a bound by a node in the clause package
-refuses `ill_typed`/`unit-mismatch` at that bound.
+Build the published `AG-07-duration-quantile` package in package `example`
+with the time dimension and units moved to model-owned nodes of the selected
+domain package `acme/orders` (`ix://acme/orders/unit/ms`, `.../unit/s`), the
+clause's `timestamp_unit` naming the `ms` identity. Require admission. Then
+type `upper` by the `s` node and require `ill_typed`/`unit-mismatch` at that
+bound's value.
 
 ## Anonymous Map type admission (FR-038-AC-488 through FR-038-AC-491)
 

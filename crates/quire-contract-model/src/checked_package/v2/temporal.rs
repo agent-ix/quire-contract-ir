@@ -1040,17 +1040,18 @@ fn check_clause(
         })
         .collect::<Vec<_>>();
     aggregates.sort_by(|&left, &right| graph.nodes[left].node_id.cmp(&graph.nodes[right].node_id));
-    let clock_unit = clock_unit.map(|name| CheckedNodeId {
-        package: unit_owner(name).map_or_else(|| node.node_id.package.clone(), Into::into),
-        path: vec![
+    // The clock unit is matched by `node_id.path` alone: the unit's own node
+    // lives in the package that owns it, whatever the clause's package
+    // (QSpec FR-370 "Window aggregate atom").
+    let clock_unit = clock_unit.map(|name| {
+        vec![
             CheckedNodePathSegment::Name("scalar_type".into()),
             CheckedNodePathSegment::Name("unit".into()),
             CheckedNodePathSegment::Name(name.into()),
-        ],
-        ordinal: 0,
+        ]
     });
     for formula in aggregates {
-        check_aggregate(formula, profile, clock_unit.as_ref(), graph, meter)?;
+        check_aggregate(formula, profile, clock_unit.as_deref(), graph, meter)?;
     }
     Ok(())
 }
@@ -1236,15 +1237,6 @@ fn aggregate_presence(kind: AggregateKind, name: &str) -> (bool, bool) {
     }
 }
 
-/// The package that owns a clock unit named by its identity
-/// `ix://<package>/unit/<name>` (QSpec FR-370-AC-20): the unit's own node lives
-/// there, not in the package of the clause that uses it. A bare unit name
-/// carries no owner.
-fn unit_owner(identity: &str) -> Option<&str> {
-    let (package, name) = identity.strip_prefix("ix://")?.rsplit_once("/unit/")?;
-    (!package.is_empty() && !name.is_empty()).then_some(package)
-}
-
 /// One scan of the occurrence rows records a clock unit only if every row
 /// for a clause names the same timestamp unit. A mixed clock has no single
 /// duration encoding and its aggregate bounds must refuse.
@@ -1275,7 +1267,7 @@ fn aggregate_clock_units(
 fn check_aggregate(
     formula: usize,
     profile: Option<TemporalProfile>,
-    clock_unit: Option<&CheckedNodeId>,
+    clock_unit: Option<&[CheckedNodePathSegment]>,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1430,7 +1422,9 @@ fn check_aggregate(
                     return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
                 };
                 let bound_type = CheckedNodeId::from_value(&term["type"]);
-                if window == AggregateWindow::Duration && bound_type.as_ref() != clock_unit {
+                if window == AggregateWindow::Duration
+                    && bound_type.as_ref().map(|id| id.path.as_slice()) != clock_unit
+                {
                     return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
                 if text.starts_with('-') {

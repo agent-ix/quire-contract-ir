@@ -543,7 +543,13 @@ fn document_with_time_units() -> std::path::PathBuf {
          "dimension": format!("ix://{OWNER}/dimension/Time"),
          "target": format!("ix://{OWNER}/unit/ms"), "scale": "1000", "offset": "0"},
     ]);
-    let path = std::env::temp_dir().join("qsl-1662-domain-with-time-units.json");
+    let directory = std::env::temp_dir().join(format!(
+        "qsl-1662-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&directory).expect("temp dir");
+    let path = directory.join("domain-with-time-units.json");
     std::fs::write(&path, serde_json::to_vec(&document).expect("document"))
         .expect("write document");
     path
@@ -577,19 +583,31 @@ fn duration_bounds_are_typed_by_the_clock_unit_in_its_owning_package() {
         CheckedPackageV2ReadResult::Incomplete(_) => panic!("complete package"),
     }
 
-    package["temporal_bindings"][0]["clock"]["timestamp_unit"] =
-        json!(format!("ix://{OWNER}/unit/s"));
+    // QSpec FR-370-AC-20: `upper` typed by the unit `s` node under a clock in
+    // `ms` refuses at `upper`'s value.
+    let s_unit = json!({
+        "package": OWNER, "ordinal": 0,
+        "path": ["scalar_type", "unit", format!("ix://{OWNER}/unit/s")],
+    });
+    let members = package["semantic_graph"]["nodes"][formula]["body"]["arguments"][0]["members"]
+        .as_array_mut()
+        .expect("aggregate members");
+    let upper = members
+        .iter()
+        .position(|member| member["name"] == "upper")
+        .expect("upper binding");
+    members[upper]["value"]["type"] = s_unit;
     let CheckedPackageV2ReadResult::Refused(refusal) =
-        read_package_with_document(&package, "other clock unit", &document).expect("package")
+        read_package_with_document(&package, "upper in s", &document).expect("package")
     else {
-        panic!("a bound typed by a different unit must refuse");
+        panic!("an upper bound typed by the s node must refuse");
     };
     assert_eq!(code_word(refusal.code), "ill_typed");
     assert_eq!(refusal.cause.map(cause_word), Some("unit-mismatch"));
-    assert!(refusal.loci[0]
-        .path
-        .as_ref()
-        .is_some_and(|path| path.to_string().starts_with(&format!(
-            "/semantic_graph/nodes/{formula}/body/arguments/0/members/"
-        ))));
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!(
+            "/semantic_graph/nodes/{formula}/body/arguments/0/members/{upper}/value"
+        ))
+    );
 }
