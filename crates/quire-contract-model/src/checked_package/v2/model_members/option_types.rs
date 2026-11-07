@@ -7,7 +7,7 @@ fn at(
     refusal: ModelRefusal,
     declaration: &Value,
     pointer: JsonPointer,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<SelectionRefusal, ValidationFailure> {
     let mut selected = SelectionRefusal::located(refusal, declaration, budget)?;
     selected.document_pointer = Some(pointer);
@@ -18,7 +18,7 @@ fn at(
 fn reference(
     model: &DomainModel,
     text: &str,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<Option<SelectedTypeRef>, ValidationFailure> {
     let mut current = text;
     let mut seen = BTreeSet::new();
@@ -41,7 +41,7 @@ pub(super) fn read(
     position: usize,
     model: &DomainModel,
     scope: &Scope<'_>,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<SelectedTypeDefinition, SelectionFailure> {
     let root = JsonPointer::root().key("types").index(position);
     let member = match kind {
@@ -145,7 +145,7 @@ pub(super) fn check_constraints(
     document: &Value,
     model: &DomainModel,
     scope: &Scope<'_>,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<(), SelectionFailure> {
     for (position, constraint) in list(document, "constraints")?.iter().enumerate() {
         budget.charge(1)?;

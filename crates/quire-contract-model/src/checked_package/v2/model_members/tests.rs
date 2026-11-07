@@ -1400,6 +1400,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let incomplete_at = |failure: ValidationFailure| match failure {
         ValidationFailure::Incomplete(record) => record.path.map(|path| path.to_string()),
         ValidationFailure::Refused(refusal) => panic!("a limit, not {refusal:?}"),
+        ValidationFailure::Budget(stop) => panic!("a limit, not {stop:?}"),
     };
     // The read: exact work admits, one less is incomplete at the row.
     let document = document(types());

@@ -283,6 +283,20 @@ pub(super) fn available(
     read.as_ref().map_err(Clone::clone)
 }
 
+/// Reads the production operation catalog now, so a later read's first call
+/// pays nothing for it. Returns the catalog's read error when it is
+/// unreadable, which every package read then reports as `CatalogUnavailable`.
+///
+/// # Errors
+///
+/// [`CatalogReadError`] when the production catalog bytes cannot be read.
+pub fn initialize_operation_catalog() -> Result<(), CatalogReadError> {
+    production_catalog()
+        .as_ref()
+        .map(|_| ())
+        .map_err(Clone::clone)
+}
+
 /// The catalog an admitted package was read against, kept so the package's
 /// own queries use it. Packages compare equal by content, not by catalog.
 #[derive(Clone, Copy)]

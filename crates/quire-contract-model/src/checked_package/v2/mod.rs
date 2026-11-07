@@ -7,6 +7,13 @@
 //! definition selections retain the owning names and exact structure.
 
 mod abstraction;
+mod budgeted_read;
+pub(in crate::checked_package) use budgeted_read::BudgetStop;
+pub use budgeted_read::{
+    CheckedPackageBudgetIncomplete, CheckedPackageBudgetedDispatchResult,
+    CheckedPackagePendingOutcome, CheckedPackageReadExhausted, CheckedPackageV2BudgetedReadResult,
+    PackageReadDeniedCharge, PackageReadResource,
+};
 mod callable;
 mod model_operations;
 pub use model_operations::{
@@ -44,7 +51,7 @@ mod native_join_storage;
 mod natural;
 mod node_index;
 mod operation_catalog;
-pub use operation_catalog::CatalogReadError;
+pub use operation_catalog::{initialize_operation_catalog, CatalogReadError};
 mod operation_effects;
 mod operation_witness;
 mod operations;
@@ -137,7 +144,7 @@ pub use monitor_plan::{
 };
 pub use native_join_budget::{
     NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
-    NativeJoinLocus, NativeJoinLocusSource,
+    NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
 };
 pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use selected_facts::{
@@ -204,9 +211,9 @@ use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
 use temporal::{validate_temporal, validate_timed_bounds_reduced, TemporalContext};
 
 use super::common::{
-    count, exceeds, is_nonempty, node_pointer, read_typed_prefix, validate_definition_ref,
-    validate_locked_source, validate_source_map_entries, validate_term, ReferenceMember,
-    ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
+    count, exceeds, is_nonempty, node_pointer, validate_definition_ref, validate_locked_source,
+    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
+    Step, TermGrammar, Trail, ValidationFailure,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -1092,20 +1099,38 @@ fn retained_source_index(
     super::selected_population::source_index(&wire.source_map)
 }
 
-/// Cumulative validation work against one caller limit.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct WorkMeter {
-    consumed: u64,
-    limit: u64,
+/// Cumulative validation work, charged either to the caller's budget (the
+/// strict read) or against one limit of its own (lowering and unit tests).
+#[derive(Debug)]
+pub(super) struct WorkMeter<'b> {
+    source: WorkSource<'b>,
 }
 
-impl WorkMeter {
+#[derive(Debug)]
+enum WorkSource<'b> {
+    Own { consumed: u64, limit: u64 },
+    Budget(&'b mut NativeJoinBudget),
+}
+
+impl<'b> WorkMeter<'b> {
     pub(super) const fn new(limit: u64) -> Self {
-        Self { consumed: 0, limit }
+        Self {
+            source: WorkSource::Own { consumed: 0, limit },
+        }
     }
 
-    pub(super) const fn consumed(&self) -> u64 {
-        self.consumed
+    /// A meter that charges the caller's budget work counter.
+    pub(super) fn over(budget: &'b mut NativeJoinBudget) -> Self {
+        Self {
+            source: WorkSource::Budget(budget),
+        }
+    }
+
+    pub(super) fn consumed(&self) -> u64 {
+        match &self.source {
+            WorkSource::Own { consumed, .. } => *consumed,
+            WorkSource::Budget(budget) => budget.consumed().work,
+        }
     }
 
     /// Charges `work` for the value at `at`, which an exhausted budget
@@ -1115,18 +1140,35 @@ impl WorkMeter {
         work: u64,
         at: impl FnOnce() -> JsonPointer,
     ) -> Result<(), ValidationFailure> {
-        self.consumed = self.consumed.saturating_add(work);
-        if exceeds(self.consumed, self.limit) {
-            #[cfg(test)]
-            work_probe::charge_denied();
-            Err(ValidationFailure::incomplete(
-                CheckedPackageLimit::Work,
-                self.limit,
-                self.consumed,
-                Some(at()),
-            ))
-        } else {
-            Ok(())
+        match &mut self.source {
+            WorkSource::Own { consumed, limit } => {
+                *consumed = consumed.saturating_add(work);
+                if exceeds(*consumed, *limit) {
+                    #[cfg(test)]
+                    work_probe::charge_denied();
+                    Err(ValidationFailure::incomplete(
+                        CheckedPackageLimit::Work,
+                        *limit,
+                        *consumed,
+                        Some(at()),
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            WorkSource::Budget(budget) => {
+                if budget.charge(NativeJoinChargeKind::Work, u128::from(work)) {
+                    Ok(())
+                } else {
+                    #[cfg(test)]
+                    work_probe::charge_denied();
+                    Err(ValidationFailure::Budget(BudgetStop {
+                        resource: PackageReadResource::Work,
+                        amount: u128::from(work),
+                        path: Some(at()),
+                    }))
+                }
+            }
         }
     }
 }
@@ -1324,48 +1366,16 @@ impl CheckedPackageV2 {
             .map(|node| (position, node))
     }
 
-    /// Reads one canonical V2 value without exposing a partial package.
-    pub fn read(
-        bytes: &[u8],
-        limits: CheckedPackageReadLimits,
-        evidence: &CheckedPackageEvidence,
-    ) -> CheckedPackageV2ReadResult {
-        Self::read_against(
-            operation_catalog::production_catalog(),
-            bytes,
-            limits,
-            evidence,
-        )
-    }
-
-    /// [`Self::read`] against the given result of reading the operation
-    /// catalog: an unreadable catalog returns before any node is checked.
-    fn read_against(
-        catalog: &'static Result<operation_catalog::OperationCatalog, CatalogReadError>,
-        bytes: &[u8],
-        limits: CheckedPackageReadLimits,
-        evidence: &CheckedPackageEvidence,
-    ) -> CheckedPackageV2ReadResult {
-        let catalog = match operation_catalog::available(catalog) {
-            Ok(catalog) => catalog,
-            Err(error) => return CheckedPackageV2ReadResult::CatalogUnavailable(error),
-        };
-        match Self::admit_bytes(catalog, bytes, limits, evidence) {
-            Ok(package) => CheckedPackageV2ReadResult::Admitted(Box::new(package)),
-            Err(stop) => stop.into_result(
-                CheckedPackageV2ReadResult::Refused,
-                CheckedPackageV2ReadResult::Incomplete,
-            ),
-        }
-    }
-
     fn admit_bytes(
         catalog: &'static operation_catalog::OperationCatalog,
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
+        budget: &mut NativeJoinBudget,
     ) -> Result<Self, ValidationFailure> {
-        read_typed_prefix(bytes, limits)?;
+        // The document the shared reader built is the grammar and canonical
+        // proof of the bytes; the typed decode below still reads the bytes.
+        drop(budgeted_read::read_envelope(bytes, limits, budget)?);
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
             Some(Value::String(version))
                 if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {
@@ -1411,7 +1421,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(catalog, &wire, &slot_ids, bytes, limits, evidence)?;
+        } = validate(catalog, &wire, &slot_ids, bytes, limits, evidence, budget)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1749,6 +1759,7 @@ fn validate(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
+    budget: &mut NativeJoinBudget,
 ) -> Result<ValidatedPackage, ValidationFailure> {
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
@@ -1756,7 +1767,7 @@ fn validate(
     let flat_kinds = flat_wire::check(wire)?;
     let structural_keys = node_index::check(bytes, wire, slot_ids, evidence)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds)?;
-    let mut meter = WorkMeter::new(limits.work);
+    let mut meter = WorkMeter::over(budget);
     let LockAdmission {
         models,
         documents,

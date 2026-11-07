@@ -176,7 +176,7 @@ struct Component<'m> {
 
 fn tables_of(
     model: &DomainModel,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<FieldTables, ValidationFailure> {
     let mut tables = FieldTables::default();
     for component in components(model) {
@@ -349,7 +349,7 @@ fn build_component(
     model: &DomainModel,
     component: &Component<'_>,
     built: &FieldTables,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<FieldTable, ValidationFailure> {
     #[cfg(test)]
     probe::built();

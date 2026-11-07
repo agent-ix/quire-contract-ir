@@ -2,7 +2,10 @@
 
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal};
-use super::v2::{CheckedPackageV2, CheckedPackageV2ReadResult};
+use super::v2::{
+    CheckedPackageBudgetedDispatchResult, CheckedPackageV2, CheckedPackageV2BudgetedReadResult,
+    CheckedPackageV2ReadResult, NativeJoinBudget,
+};
 
 /// The closed result of dispatching untrusted checked-package bytes.
 // The required inline typed refusal makes this public result larger than its
@@ -43,6 +46,36 @@ pub fn read_checked_package(
         }
         CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
             CheckedPackageDispatchResult::CatalogUnavailable(error)
+        }
+    }
+}
+
+/// [`read_checked_package`] under the caller's budget: the budgeted V2 read,
+/// with each variant mapped one to one. There is no V1 branch.
+pub fn read_checked_package_with_budget(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+    budget: &mut NativeJoinBudget,
+) -> CheckedPackageBudgetedDispatchResult {
+    match CheckedPackageV2::read_with_budget(bytes, limits, evidence, budget) {
+        CheckedPackageV2BudgetedReadResult::Admitted(package) => {
+            CheckedPackageBudgetedDispatchResult::AdmittedV2(package)
+        }
+        CheckedPackageV2BudgetedReadResult::Refused(refusal) => {
+            CheckedPackageBudgetedDispatchResult::Refused(refusal)
+        }
+        CheckedPackageV2BudgetedReadResult::Incomplete(incomplete) => {
+            CheckedPackageBudgetedDispatchResult::Incomplete(incomplete)
+        }
+        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) => {
+            CheckedPackageBudgetedDispatchResult::BudgetIncomplete(incomplete)
+        }
+        CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) => {
+            CheckedPackageBudgetedDispatchResult::Exhausted(exhausted)
+        }
+        CheckedPackageV2BudgetedReadResult::CatalogUnavailable(error) => {
+            CheckedPackageBudgetedDispatchResult::CatalogUnavailable(error)
         }
     }
 }

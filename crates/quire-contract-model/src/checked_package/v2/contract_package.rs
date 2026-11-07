@@ -793,6 +793,7 @@ impl From<ValidationFailure> for ContractRootViewError {
         match failure {
             ValidationFailure::Refused(refusal) => Self::Refused(refusal),
             ValidationFailure::Incomplete(incomplete) => Self::Incomplete(incomplete),
+            ValidationFailure::Budget(stop) => Self::Incomplete(stop.without_budget()),
         }
     }
 }
@@ -1721,6 +1722,9 @@ impl ContractPackageWireV1 {
             }
             Err(ValidationFailure::Incomplete(incomplete)) => {
                 ContractPackageReadResult::Incomplete(incomplete)
+            }
+            Err(ValidationFailure::Budget(stop)) => {
+                ContractPackageReadResult::Incomplete(stop.without_budget())
             }
         }
     }
