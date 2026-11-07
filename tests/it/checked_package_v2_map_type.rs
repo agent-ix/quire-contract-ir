@@ -596,7 +596,8 @@ fn source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix() {
     assert_eq!(locus.form, "source_collection_row");
     assert_eq!(locus.source, NativeJoinLocusSource::ReachedRow(0));
     assert!(short.consumed().storage > 0, "admitted traversal storage remains spent");
-    assert!(unpaid_allocations.count_total > 0, "earlier admitted traversal really allocates");
+    assert_eq!(unpaid_allocations.count_total, 0,
+        "the unpaid native row is the first actual allocation despite paid handle charges");
     let mut paid = NativeJoinBudget::new(1_000_000, copy_boundary + 1);
     let mut paid_result = None;
     let paid_allocations = allocation_counter::measure(|| {

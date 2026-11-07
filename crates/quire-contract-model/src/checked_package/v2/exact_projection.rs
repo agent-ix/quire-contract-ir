@@ -4139,6 +4139,55 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
 
+    #[trace("TC-473", "FR-357-AC-20")]
+    #[test]
+    fn numeric_map_comparison_handle_is_charged_before_its_single_allocation() {
+        let low: Integer = "170141183460469231731687303715884105728".parse().unwrap();
+        let high: Integer = "680564733841876926926749214863536422913".parse().unwrap();
+        let interval = IntegerInterval::new(low.try_clone().unwrap(), high.try_clone().unwrap()).unwrap();
+        let expected = interval.clone();
+        let actual = interval.clone();
+        let requested: CheckedNodeId = serde_json::from_value(serde_json::json!({
+            "package":"exact-test", "path":["map"], "ordinal":0,
+        })).expect("node");
+        let locus = super::super::NativeJoinLocus {
+            source: super::super::NativeJoinLocusSource::ReachedRow(3),
+            form: "source_collection_comparison_handle",
+        };
+        let compare = |budget: &mut NativeJoinBudget| {
+            compare_source_numeric(
+                &[expected.lower(), expected.upper(), actual.lower(), actual.upper()],
+                &requested, &requested, budget,
+                |bits, cancel| expected.try_eq_bounded(&actual, bits, cancel),
+            )
+        };
+        let mut zero = NativeJoinBudget::new(1_000_000, 0);
+        zero.set_active_locus(Some(locus));
+        let mut result = None;
+        let allocations = allocation_counter::measure(|| result = Some(compare(&mut zero)));
+        let error = result.unwrap().expect_err("comparison handle storage unpaid");
+        assert_eq!(allocations.count_total, 0);
+        assert_eq!(error.denied, Some(NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Storage, amount: 1,
+        }));
+        assert_eq!(error.configured_bound, Some(0));
+        assert_eq!(zero.first_unpaid_locus(), Some(locus));
+        let required_work = zero.consumed().work;
+        let mut short = NativeJoinBudget::new(required_work - 1, 1);
+        short.set_active_locus(Some(locus));
+        let mut result = None;
+        let allocations = allocation_counter::measure(|| result = Some(compare(&mut short)));
+        assert_eq!(allocations.count_total, 0, "comparison work is admitted before handle acquisition");
+        assert_eq!(result.unwrap().unwrap_err().denied.unwrap().kind, NativeJoinChargeKind::Work);
+        assert_eq!(short.consumed().storage, 0);
+        let mut paid = NativeJoinBudget::new(required_work, 1);
+        let mut result = None;
+        let allocations = allocation_counter::measure(|| result = Some(compare(&mut paid)));
+        assert_eq!(result.unwrap(), Ok(true));
+        assert_eq!(allocations.count_total, 1, "one admitted Arc handle, no cold integer cache allocation");
+        assert_eq!(paid.consumed().storage, 1);
+    }
+
     fn id(path: &str) -> Value {
         json!({"package":"exact-test","path":[path],"ordinal":0})
     }
