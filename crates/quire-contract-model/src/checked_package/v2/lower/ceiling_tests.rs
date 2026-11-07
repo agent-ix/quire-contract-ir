@@ -32,18 +32,13 @@ fn complete_node() -> CompleteContractNodeV2 {
 
 fn retain_graph_indices(package: &mut CheckedPackageV2) {
     package.node_index = super::super::retained_node_index(&package.wire).into();
-    let ids = package
-        .wire
-        .semantic_graph
-        .nodes
-        .iter()
-        .map(|node| &node.node_id)
-        .collect::<Vec<_>>();
+    let nodes = &package.wire.semantic_graph.nodes;
     package.structural_keys = super::super::node_index::rebuild_keys(
-        &ids,
-        None,
+        nodes.len(),
+        |position| &nodes[position].node_id,
         |_, _| unreachable!("fixture graph has only valid node IDs"),
         |_| unreachable!("fixture graph has only valid node IDs"),
+        &mut super::super::native_join_budget::NativeJoinBudget::unlimited(),
     )
     .expect("fixture structural keys");
 }

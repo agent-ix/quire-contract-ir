@@ -350,7 +350,7 @@ impl Reservation for ReadStorageReservation<'_> {
 }
 
 /// The denial the budget just recorded, as the stop that ends the read.
-fn denial(budget: &NativeJoinBudget) -> ValidationFailure {
+pub(super) fn denial(budget: &NativeJoinBudget) -> ValidationFailure {
     let (resource, amount) = budget
         .first_unpaid_resource()
         .unwrap_or((PackageReadResource::ReadStorage, 0));

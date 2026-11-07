@@ -1763,9 +1763,11 @@ impl ContractPackageWireV1 {
             })
             .collect::<BTreeMap<_, _>>();
         let projected_keys =
-            super::node_index::rebuild_graph_keys(&package.wire.semantic_graph.nodes, None, |_| {
-                unreachable!("admitted V1 graph was already index-checked")
-            })
+            super::node_index::rebuild_graph_keys(
+                &package.wire.semantic_graph.nodes,
+                |_| unreachable!("admitted V1 graph was already index-checked"),
+                &mut super::native_join_budget::NativeJoinBudget::unlimited(),
+            )
             .expect("admitted V1 graph keys");
         let mut projected_positions = vec![None; source.resolved_graph().nodes.len()];
         let mut source_positions = Vec::with_capacity(package.wire.semantic_graph.nodes.len());
@@ -1939,8 +1941,8 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
         })
         .collect::<Result<Vec<_>, _>>()?;
     let output_keys = super::node_index::rebuild_keys(
-        &output_ids.iter().collect::<Vec<_>>(),
-        None,
+        output_ids.len(),
+        |position| &output_ids[position],
         |position, slot| {
             graph_at
                 .clone()
@@ -1951,6 +1953,7 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
                 .key("node")
         },
         |at| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at),
+        &mut super::native_join_budget::NativeJoinBudget::unlimited(),
     )?;
     let table_at = JsonPointer::root().key("source_keys");
     let table = value["source_keys"]
@@ -1969,8 +1972,8 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
         })
         .collect::<Result<Vec<_>, _>>()?;
     let source_keys = super::node_index::rebuild_keys(
-        &source_ids.iter().collect::<Vec<_>>(),
-        None,
+        source_ids.len(),
+        |position| &source_ids[position],
         |position, slot| {
             table_at
                 .clone()
@@ -1980,6 +1983,7 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
                 .key("node")
         },
         |at| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at),
+        &mut super::native_join_budget::NativeJoinBudget::unlimited(),
     )?;
     let paths = source_ref_paths(value);
     for at in &paths {
@@ -2832,9 +2836,11 @@ impl ContractPackageWireV1 {
                 Some(JsonPointer::root().key("semantic_graph").key("nodes")),
             ));
         }
-        let structural_keys = super::node_index::rebuild_graph_keys(nodes, None, |at| {
-            malformed(at, CheckedPackageRefusalCause::InvalidValue)
-        })?;
+        let structural_keys = super::node_index::rebuild_graph_keys(
+            nodes,
+            |at| malformed(at, CheckedPackageRefusalCause::InvalidValue),
+            &mut super::native_join_budget::NativeJoinBudget::unlimited(),
+        )?;
         let mut interner = super::node_index::StructuralInterner::new();
         let structural_tokens = interner.tokens(&structural_keys).ok_or_else(|| {
             malformed(

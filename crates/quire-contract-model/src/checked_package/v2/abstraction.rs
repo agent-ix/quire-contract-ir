@@ -140,7 +140,7 @@ pub(super) fn scan_body(
     if body_term(body) == Some(BodyTerm::Application) {
         return validate_term(body, TermGrammar::V2, true, at, visit);
     }
-    scan_members(body, at)
+    super::read_charge::with_unmetered_walk(|walk| scan_members(body, at, walk))
 }
 
 /// A shape defect of the body: the code it refuses with and the path of the

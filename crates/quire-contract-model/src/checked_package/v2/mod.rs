@@ -50,6 +50,7 @@ mod native_join_budget;
 mod native_join_storage;
 mod natural;
 mod node_index;
+mod read_charge;
 mod operation_catalog;
 pub use operation_catalog::{initialize_operation_catalog, CatalogReadError};
 mod operation_effects;
@@ -1375,7 +1376,7 @@ impl CheckedPackageV2 {
     ) -> Result<Self, ValidationFailure> {
         // The document the shared reader built is the grammar and canonical
         // proof of the bytes; the typed decode below still reads the bytes.
-        drop(budgeted_read::read_envelope(bytes, limits, budget)?);
+        let document = budgeted_read::read_envelope(bytes, limits, budget)?;
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
             Some(Value::String(version))
                 if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {
@@ -1407,9 +1408,7 @@ impl CheckedPackageV2 {
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
         // Every later stage compares operands by graph index, so each node-held
-        // slot is read through its row once here; `slot_ids` keeps the nodes'
-        // own IDs as written for the operand checks.
-        let slot_ids = node_index::slot_ids(&wire);
+        // slot is read through its row once here.
         node_index::resolve_slots(&mut wire);
         validate_owner_schema(&wire)?;
         let ValidatedPackage {
@@ -1421,7 +1420,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(catalog, &wire, &slot_ids, bytes, limits, evidence, budget)?;
+        } = validate(catalog, &wire, &document, limits, evidence, budget)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1755,8 +1754,7 @@ struct ValidatedGraph {
 fn validate(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
-    slot_ids: &[CheckedNodeId],
-    bytes: &[u8],
+    document: &quire_canonical::Document,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
     budget: &mut NativeJoinBudget,
@@ -1764,9 +1762,9 @@ fn validate(
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
-    let flat_kinds = flat_wire::check(wire)?;
-    let structural_keys = node_index::check(bytes, wire, slot_ids, evidence)?;
-    flat_wire::check_interval_bounds(wire, &flat_kinds)?;
+    let flat_kinds = flat_wire::check(wire, budget)?;
+    let structural_keys = node_index::check(document, wire, evidence, budget)?;
+    flat_wire::check_interval_bounds(wire, &flat_kinds, budget)?;
     let mut meter = WorkMeter::over(budget);
     let LockAdmission {
         models,
