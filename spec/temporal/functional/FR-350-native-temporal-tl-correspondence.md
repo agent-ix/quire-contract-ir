@@ -57,10 +57,16 @@ contract; it assigns no QSL-typed API to either Contract IR package.
 - The `qsl_package::checked_views::Classification` returned by
   `mapping_support(&subject, surrounding)` (QSL FR-527), with its complete
   support disposition, retained subject and sealed authenticated selection.
-- The native `quire_spec_language::temporal::{Trace, Report, evaluate_v2}`
-  surface supplies explicit Boolean valuation cells, clock and observation
-  binding, captures, anchor, closure and history boundary, and the native result
-  supplied to the join. The checked-view classifier replaces the legacy
+- The native `qsl_eval::temporal::evidence::{EvidenceRequest, TraceBinding}`
+  input supplies positions with observation references, numeric stamps and
+  explicit Boolean valuation cells (including instance-bound valuations),
+  together with clock and observation binding, captures, opaque anchor, closure
+  and history boundary. Projection also takes the exact
+  `qsl_package::checked_views::ClauseOccurrence`, the selected valuation
+  instance identified by the request's trigger identity, and an independently
+  selected admitted observation identity with its numeric owner anchor. The
+  native `quire_spec_language::temporal::{Report, evaluate_v2}` surface supplies
+  the result for the join. The checked-view classifier replaces the legacy
   classification input; it does not replace the native evaluation contract.
 - Exact selected public contracts for TL formula, trace or position history,
   request and mapped result.
@@ -82,7 +88,7 @@ result axes QSpec FR-095 names.
 The `agent-ix/quire-integration` bridge SHALL implement the public profile
 `quire.native-temporal-correspondence/v1`. It consumes
 `qsl_package::checked_views::{temporal_subject, mapping_support, Classification,
-TemporalSubjectView}` and the native trace/report surface above. Its public
+TemporalSubjectView}` and the native evidence/report surface above. Its public
 operations SHALL be equivalent to:
 
 ```text
@@ -91,7 +97,10 @@ temporal::project_tl(
   subject: &qsl_package::checked_views::TemporalSubjectView,
   &qsl_package::checked_views::Classification,
   surrounding: qsl_package::checked_views::Closure,
-  &quire_spec_language::temporal::Trace,
+  request: &qsl_eval::temporal::evidence::EvidenceRequest,
+  occurrence: &qsl_package::checked_views::ClauseOccurrence,
+  valuation_instance: Option<&qsl_eval::temporal::evidence::SemanticTriggerIdentity>,
+  selected_observation: (admitted_observation_identity, owner_numeric_anchor),
   TlSelection,
   TlLimits
 ) -> TlProjectionDecision
@@ -136,6 +145,19 @@ validation and the cross-owner join. Neither `quire-contract-model` nor the
   every dimension the classification names and no formula, request or
   correspondence record. Successful input binding discharges none of the
   outstanding projection premises below.
+- The bridge SHALL authenticate `request.binding` with
+  `TraceBinding::authenticate` against the clause selection supplied by the
+  selected `TemporalSubjectView` (its declaration, profile and clock). It SHALL
+  require the supplied occurrence to be an exact member of
+  `subject.occurrences()` and to match the request's selected occurrence, and
+  the selected valuation instance to agree with the request's trigger identity
+  and instance-bound valuation cells. It SHALL locate the
+  request's opaque anchor only by exact equality with an independently selected
+  admitted observation identity in `request.positions`, then use that
+  observation's numeric owner anchor for projection. It SHALL NOT parse the
+  opaque identity, infer an alias or substitute a numeric position for the
+  observation selection. A missing, duplicate or mismatched selection SHALL
+  refuse before constructing a TL artifact.
 - The support domain SHALL be exactly QSL FR-045 and QSpec FR-095's table. It
   SHALL include each bounded past operator defined by QSpec FR-092, individually
   under both false-extension profiles when no future operator is reachable.
