@@ -220,6 +220,7 @@ pub fn v2_nominal() -> Value {
 pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
     const NODES: &str = "\u{1}nodes";
     const SOURCE_MAP: &str = "\u{1}source_map";
+    const ROWS: &str = "\u{1}rows";
     let boolean = family_key("aaaa");
     let mut previous = family_key("eeee");
     let mut package = v2_all_families();
@@ -258,7 +259,10 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
             .expect("an array")
             .push(json!(text));
     };
+    // The chain's nodes name operands by string, so each has an empty row.
+    let mut package = wire_form(&package);
     marker(&mut package, "/semantic_graph/nodes", NODES);
+    marker(&mut package, "/semantic_graph/operand_rows", ROWS);
     marker(&mut package, "/source_map", SOURCE_MAP);
     let splice = |text: String, marker: &str, entries: &[String]| {
         let quoted = serde_json::to_string(marker).expect("marker");
@@ -266,6 +270,7 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
     };
     let text = String::from_utf8(canonical(&package)).expect("utf-8");
     let text = splice(text, NODES, &nodes);
+    let text = splice(text, ROWS, &vec!["[]".to_owned(); length]);
     let text = splice(text, SOURCE_MAP, &source_map);
     (text.into_bytes(), previous)
 }
@@ -383,7 +388,7 @@ pub fn wire_operands(package: &mut Value) {
 
 /// Resolves one published node held beside its operand row: each operand slot
 /// becomes the index segment the row names.
-fn resolve_node_row(node: &mut Value, row: &Value) {
+pub fn resolve_node_row(node: &mut Value, row: &Value) {
     let row: Vec<u64> = serde_json::from_value(row.clone()).expect("operand row");
     for_each_segment(node, &mut |segment| {
         if let Some(slot) = segment.get("operand").and_then(Value::as_u64) {

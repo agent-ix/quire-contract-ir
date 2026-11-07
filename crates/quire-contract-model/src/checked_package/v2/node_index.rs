@@ -185,6 +185,7 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
         Path,
         Ordinal,
         Node,
+        Operand,
         Term,
     }
     enum Frame {
@@ -265,6 +266,7 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
                             Some(b"path") => Key::Path,
                             Some(b"ordinal") => Key::Ordinal,
                             Some(b"node") => Key::Node,
+                            Some(b"operand") => Key::Operand,
                             Some(b"term") => Key::Term,
                             _ => Key::Other,
                         };
@@ -273,6 +275,7 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
                             Key::Path => 2,
                             Key::Ordinal => 4,
                             Key::Node => 8,
+                            Key::Operand => 16,
                             Key::Term => 0,
                             Key::Other => 0,
                         };
@@ -325,10 +328,15 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
                     index,
                 }) = stack.last_mut()
                 {
+                    let prefix: &[u8] = if keys == 16 {
+                        b"{\"operand\":"
+                    } else {
+                        b"{\"node\":"
+                    };
                     let is_index = members == 1
-                        && keys == 8
+                        && (keys == 8 || keys == 16)
                         && bytes
-                            .get(start + b"{\"node\":".len()..at)
+                            .get(start + prefix.len()..at)
                             .and_then(|raw| std::str::from_utf8(raw).ok())
                             .and_then(|raw| raw.parse::<u64>().ok())
                             .is_some_and(|index| index <= 9_007_199_254_740_991);

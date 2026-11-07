@@ -172,6 +172,11 @@ fn operand_slots_rebuild_structural_keys_through_the_rows() {
         CheckedNodePathSegment::Operand(0),
         "the graph keeps the slot the wire holds"
     );
+    assert_eq!(
+        package.document_held_id(2).map(|id| id.path[3].clone()),
+        Some(CheckedNodePathSegment::Index(0)),
+        "a request names the operand by its graph index"
+    );
     // Node 3 names the same bounded domain through its own row.
     let body = serde_json::to_value(&package.graph().nodes[3].body).expect("body");
     let type_id = node_id_of(&body["arguments"][1]["type"]);

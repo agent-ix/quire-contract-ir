@@ -15,7 +15,12 @@ use std::collections::BTreeSet;
 fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
     match read_package(wire).expect("QSpec selection evidence") {
         CheckedPackageV2ReadResult::Admitted(package) => package,
-        other => panic!("monitor recipe must admit: {other:?}"),
+        other => {
+            let w = fixture_support::wire_form(wire);
+            eprintln!("DEBUGNODE {}", w["semantic_graph"]["nodes"][75]);
+            eprintln!("DEBUGROW {}", w["semantic_graph"]["operand_rows"][75]);
+            panic!("monitor recipe must admit: {other:?}")
+        }
     }
 }
 
