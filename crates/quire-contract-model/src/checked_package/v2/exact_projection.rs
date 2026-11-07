@@ -3466,6 +3466,17 @@ fn compare_source_collection_value(
                     |bits, cancel| left.try_eq_bounded(right, bits, cancel),
                 );
             }
+            (ValueType::BoundedQuantity(_), ValueType::BoundedQuantity(_))
+            | (ValueType::CarriedQuantity(_), ValueType::CarriedQuantity(_)) => {
+                // These leaves have no Exact projection here. Their derived
+                // equality may materialize numeric caches before that refusal.
+                return Err(source_collection_error(
+                    requested,
+                    at,
+                    ExactTypeProjectionErrorCode::UnsupportedExactType,
+                    budget,
+                ));
+            }
             _ => return Ok(expected == actual),
         }
     }
