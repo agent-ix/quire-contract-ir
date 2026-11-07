@@ -1780,7 +1780,7 @@ pub struct CheckedCapability {
 }
 
 #[cfg(test)]
-mod node_order_tests {
+pub(crate) mod node_order_tests {
     use super::{CheckedNodeId, CheckedNodePathSegment as Segment};
     use ix_trace_rs::trace;
     use std::cmp::Ordering;
@@ -1860,7 +1860,7 @@ mod node_order_tests {
         pairs
     }
 
-    fn corpus() -> Vec<CheckedNodeId> {
+    pub(crate) fn corpus() -> Vec<CheckedNodeId> {
         let packages = [
             "", "a", "ab", "b", "a\u{0}", "a\u{0}b", "\u{0}", "\u{1}", "\u{ff}",
         ];

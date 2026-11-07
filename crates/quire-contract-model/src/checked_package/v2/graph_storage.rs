@@ -487,6 +487,9 @@ pub(super) struct GraphIndex<'g> {
     /// A chain walk asks for no memory of its own; it stamps this table.
     walked: std::cell::RefCell<Vec<u32>>,
     walk: std::cell::Cell<u32>,
+    /// Each node's rank among the graph's structural keys, by position,
+    /// once `with_ranks` has built it.
+    ranks: Option<Box<[usize]>>,
 }
 
 #[allow(dead_code)] // map-shaped accessors the other read groups fold in
@@ -523,7 +526,60 @@ impl<'g> GraphIndex<'g> {
             entries: entries.into_boxed_slice(),
             walked: std::cell::RefCell::new(walked),
             walk: std::cell::Cell::new(0),
+            ranks: None,
         })
+    }
+
+    /// Adds the graph's key ranks, built once and charged here; a comparison
+    /// of two graph keys then reads two integers rather than walking
+    /// operand chains.
+    pub(super) fn with_ranks(
+        mut self,
+        structural_keys: &[std::sync::Arc<CheckedNodeId>],
+        meter: &mut WorkMeter,
+    ) -> Result<Self, ValidationFailure> {
+        self.ranks = rank_graph_keys(structural_keys, meter)?;
+        Ok(self)
+    }
+
+    /// The structural key of the node `id` names, ordered by its rank.
+    /// An id the graph does not hold keeps its own order.
+    pub(super) fn resolved<'a>(
+        &self,
+        id: &'a CheckedNodeId,
+        structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
+    ) -> ResolvedKey<'a> {
+        match self
+            .get(id)
+            .and_then(|&position| Some((structural_keys.get(position)?, position)))
+        {
+            Some((key, position)) => ResolvedKey {
+                id: key.as_ref(),
+                rank: self
+                    .ranks
+                    .as_ref()
+                    .and_then(|ranks| ranks.get(position))
+                    .copied(),
+            },
+            None => ResolvedKey::foreign(id),
+        }
+    }
+
+    /// The structural key at graph `position`, ordered by its rank.
+    pub(super) fn resolved_at<'a>(
+        &self,
+        position: usize,
+        structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
+    ) -> ResolvedKey<'a> {
+        ResolvedKey {
+            id: structural_keys[position].as_ref(),
+            rank: self.rank_at(position),
+        }
+    }
+
+    /// The rank of the key at graph `position`, when the graph ranked its keys.
+    pub(super) fn rank_at(&self, position: usize) -> Option<usize> {
+        self.ranks.as_ref()?.get(position).copied()
     }
 
     /// Starts a new chain walk: no node counts as visited by it yet.
@@ -611,6 +667,7 @@ impl<'g> FromIterator<(&'g CheckedNodeId, usize)> for GraphIndex<'g> {
         Self {
             walked: std::cell::RefCell::new(vec![0; entries.len()]),
             walk: std::cell::Cell::new(0),
+            ranks: None,
             entries: entries.into_boxed_slice(),
         }
     }
@@ -752,6 +809,327 @@ impl Stamps {
 }
 
 /// The static wire spelling of a node's `node_tag`, for a request's form.
+/// Sentinel for an absent link in the rank tree.
+const NO_LINK: usize = usize::MAX;
+
+/// One distinct key in the rank tree: a treap ordered by structural key,
+/// which keeps each subtree's size so a key's rank is a walk to the root.
+struct RankCell {
+    key: usize,
+    parent: usize,
+    left: usize,
+    right: usize,
+    size: usize,
+    priority: u64,
+}
+
+/// Ranks every key of the graph in `CheckedNodeId::cmp` order, without a
+/// comparison that walks operand chains: keys enter the order children
+/// first, so comparing two keys reads their children's ranks in the tree and
+/// never descends into an operand. Equal keys share a rank.
+///
+/// Every block is charged through `meter` at its full capacity before it is
+/// requested, and nothing here is depth-bounded: the traversals use explicit
+/// charged stacks. `None` when a key holds an operand outside `keys`, which
+/// leaves the caller on plain comparison for the ids it cannot rank.
+pub(super) fn rank_graph_keys(
+    keys: &[std::sync::Arc<CheckedNodeId>],
+    meter: &mut WorkMeter,
+) -> Result<Option<Box<[usize]>>, ValidationFailure> {
+    use crate::checked_package::shared::CheckedNodePathSegment as Segment;
+    let count = keys.len();
+    let mut by_pointer = meter.vec::<(*const CheckedNodeId, usize)>(count)?;
+    by_pointer.extend(
+        keys.iter()
+            .enumerate()
+            .map(|(position, key)| (std::sync::Arc::as_ptr(key), position)),
+    );
+    by_pointer.sort_unstable();
+    // The first position holding this allocation stands for all of them.
+    let canonical = |pointer: *const CheckedNodeId| -> Option<usize> {
+        let at = by_pointer.partition_point(|(held, _)| *held < pointer);
+        by_pointer
+            .get(at)
+            .filter(|(held, _)| *held == pointer)
+            .map(|(_, position)| *position)
+    };
+    let mut entry_of = meter.filled(count, NO_LINK)?;
+    let mut queued = meter.filled(count, false)?;
+    let mut cells = meter.vec::<RankCell>(count)?;
+    let mut stack = meter.vec::<(usize, usize)>(count)?;
+    let mut random = 0x9e37_79b9_7f4a_7c15_u64;
+    for root in 0..count {
+        let Some(root) = canonical(std::sync::Arc::as_ptr(&keys[root])) else {
+            return Ok(None);
+        };
+        if queued[root] {
+            continue;
+        }
+        queued[root] = true;
+        stack.push((root, 0));
+        'walk: while let Some(&(key, cursor)) = stack.last() {
+            meter.charge(1, || node_pointer(key))?;
+            for (offset, segment) in keys[key].path.iter().enumerate().skip(cursor) {
+                let Segment::Node(child) = segment else {
+                    continue;
+                };
+                let Some(child) = canonical(std::sync::Arc::as_ptr(child)) else {
+                    return Ok(None);
+                };
+                if !queued[child] {
+                    queued[child] = true;
+                    if let Some(top) = stack.last_mut() {
+                        top.1 = offset + 1;
+                    }
+                    stack.push((child, 0));
+                    continue 'walk;
+                }
+            }
+            stack.pop();
+            // Every child has an entry: it finished before this key.
+            let mut parent = NO_LINK;
+            let mut at = root_of(&cells);
+            let mut side = Ordering::Equal;
+            let mut existing = NO_LINK;
+            while at != NO_LINK {
+                let order = compare_keys(
+                    keys[key].as_ref(),
+                    &keys[cells[at].key],
+                    &cells,
+                    &entry_of,
+                    &canonical,
+                );
+                if order == Ordering::Equal {
+                    existing = at;
+                    break;
+                }
+                side = order;
+                parent = at;
+                at = if order == Ordering::Less {
+                    cells[at].left
+                } else {
+                    cells[at].right
+                };
+            }
+            if existing != NO_LINK {
+                entry_of[key] = existing;
+                continue;
+            }
+            random = random
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let entry = cells.len();
+            cells.push(RankCell {
+                key,
+                parent,
+                left: NO_LINK,
+                right: NO_LINK,
+                size: 1,
+                priority: random,
+            });
+            entry_of[key] = entry;
+            if parent != NO_LINK {
+                if side == Ordering::Less {
+                    cells[parent].left = entry;
+                } else {
+                    cells[parent].right = entry;
+                }
+                let mut ancestor = parent;
+                while ancestor != NO_LINK {
+                    cells[ancestor].size += 1;
+                    ancestor = cells[ancestor].parent;
+                }
+            }
+            while cells[entry].parent != NO_LINK
+                && cells[entry].priority > cells[cells[entry].parent].priority
+            {
+                rotate_up(&mut cells, entry);
+            }
+        }
+    }
+    // In-order walk of the tree over the same charged stack.
+    let mut positions = meter.filled(cells.len(), 0_usize)?;
+    stack.clear();
+    let mut at = root_of(&cells);
+    let mut next = 0_usize;
+    while at != NO_LINK || !stack.is_empty() {
+        while at != NO_LINK {
+            stack.push((at, 0));
+            at = cells[at].left;
+        }
+        let Some((current, _)) = stack.pop() else {
+            break;
+        };
+        positions[current] = next;
+        next += 1;
+        at = cells[current].right;
+    }
+    let mut ranks = meter.vec::<usize>(count)?;
+    for key in keys {
+        let Some(owner) = canonical(std::sync::Arc::as_ptr(key)) else {
+            return Ok(None);
+        };
+        ranks.push(positions[entry_of[owner]]);
+    }
+    Ok(Some(ranks.into_boxed_slice()))
+}
+
+/// The tree's root: the one cell without a parent.
+fn root_of(cells: &[RankCell]) -> usize {
+    // Rotations move the root; walk up from the newest cell, which is
+    // cheaper than keeping a second field in step.
+    let Some(mut at) = cells.len().checked_sub(1) else {
+        return NO_LINK;
+    };
+    while cells[at].parent != NO_LINK {
+        at = cells[at].parent;
+    }
+    at
+}
+
+fn rank_size(cells: &[RankCell], at: usize) -> usize {
+    if at == NO_LINK {
+        0
+    } else {
+        cells[at].size
+    }
+}
+
+/// The position of cell `at` among the distinct keys inserted so far.
+fn rank_position(cells: &[RankCell], mut at: usize) -> usize {
+    let mut position = rank_size(cells, cells[at].left);
+    while cells[at].parent != NO_LINK {
+        let parent = cells[at].parent;
+        if cells[parent].right == at {
+            position += rank_size(cells, cells[parent].left) + 1;
+        }
+        at = parent;
+    }
+    position
+}
+
+fn rotate_up(cells: &mut [RankCell], child: usize) {
+    let parent = cells[child].parent;
+    let grand = cells[parent].parent;
+    if cells[parent].left == child {
+        let moved = cells[child].right;
+        cells[parent].left = moved;
+        if moved != NO_LINK {
+            cells[moved].parent = parent;
+        }
+        cells[child].right = parent;
+    } else {
+        let moved = cells[child].left;
+        cells[parent].right = moved;
+        if moved != NO_LINK {
+            cells[moved].parent = parent;
+        }
+        cells[child].left = parent;
+    }
+    cells[parent].parent = child;
+    cells[child].parent = grand;
+    if grand != NO_LINK {
+        if cells[grand].left == parent {
+            cells[grand].left = child;
+        } else {
+            cells[grand].right = child;
+        }
+    }
+    cells[parent].size =
+        1 + rank_size(cells, cells[parent].left) + rank_size(cells, cells[parent].right);
+    cells[child].size =
+        1 + rank_size(cells, cells[child].left) + rank_size(cells, cells[child].right);
+}
+
+/// `CheckedNodeId::cmp` of two keys whose operand children are already in
+/// the tree: a child pair compares by tree position, so no step descends.
+fn compare_keys(
+    left: &CheckedNodeId,
+    right: &CheckedNodeId,
+    cells: &[RankCell],
+    entry_of: &[usize],
+    canonical: &dyn Fn(*const CheckedNodeId) -> Option<usize>,
+) -> Ordering {
+    use crate::checked_package::shared::CheckedNodePathSegment as Segment;
+    let package = left.package.cmp(&right.package);
+    if package != Ordering::Equal {
+        return package;
+    }
+    for (a, b) in left.path.iter().zip(&right.path) {
+        let order = match (a, b) {
+            (Segment::Name(a), Segment::Name(b)) => a.cmp(b),
+            (Segment::Index(a), Segment::Index(b)) | (Segment::Operand(a), Segment::Operand(b)) => {
+                a.cmp(b)
+            }
+            (Segment::Node(a), Segment::Node(b)) => {
+                let entry = |node: &std::sync::Arc<CheckedNodeId>| {
+                    canonical(std::sync::Arc::as_ptr(node)).map(|owner| entry_of[owner])
+                };
+                match (entry(a), entry(b)) {
+                    (Some(a), Some(b)) if a != NO_LINK && b != NO_LINK => {
+                        rank_position(cells, a).cmp(&rank_position(cells, b))
+                    }
+                    // Unreachable for keys ranked children first.
+                    _ => Ordering::Equal,
+                }
+            }
+            (Segment::Name(_), _) => Ordering::Less,
+            (_, Segment::Name(_)) => Ordering::Greater,
+            (Segment::Index(_), _) => Ordering::Less,
+            (Segment::Operand(_), Segment::Index(_)) => Ordering::Greater,
+            (Segment::Operand(_), _) => Ordering::Less,
+            (Segment::Node(_), _) => Ordering::Greater,
+        };
+        if order != Ordering::Equal {
+            return order;
+        }
+    }
+    left.path
+        .len()
+        .cmp(&right.path.len())
+        .then_with(|| left.ordinal.cmp(&right.ordinal))
+}
+
+/// A graph id resolved to its structural key, ordered by the key's rank when
+/// the graph ranked it and by `CheckedNodeId::cmp` otherwise. The two orders
+/// agree on every pair the graph ranks, so a ranked pair never walks an
+/// operand chain.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ResolvedKey<'a> {
+    id: &'a CheckedNodeId,
+    rank: Option<usize>,
+}
+
+impl<'a> ResolvedKey<'a> {
+    /// A key of another graph, or an id the graph does not hold.
+    pub(super) fn foreign(id: &'a CheckedNodeId) -> Self {
+        Self { id, rank: None }
+    }
+}
+
+impl PartialEq for ResolvedKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for ResolvedKey<'_> {}
+
+impl PartialOrd for ResolvedKey<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ResolvedKey<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self.rank, other.rank) {
+            (Some(left), Some(right)) => left.cmp(&right),
+            _ => self.id.cmp(other.id),
+        }
+    }
+}
+
 pub(super) fn node_form(tag: &str) -> &'static str {
     super::CheckedNodeTag::from_wire(tag).map_or("node", super::CheckedNodeTag::as_wire)
 }
@@ -823,5 +1201,139 @@ mod chain_walk_tests {
         let (refused, partial, _) = run(spent - 1);
         assert!(refused.is_none());
         assert!(partial.len() < 5, "the short run did not complete");
+    }
+}
+
+#[cfg(test)]
+mod rank_tests {
+    use super::rank_graph_keys;
+    use crate::checked_package::shared::node_order_tests::corpus;
+    use crate::checked_package::shared::{CheckedNodeId, CheckedNodePathSegment as Segment};
+    use crate::checked_package::v2::native_join_budget::NativeJoinBudget;
+    use crate::checked_package::v2::WorkMeter;
+    use ix_trace_rs::trace;
+    use std::sync::Arc;
+
+    /// Every distinct allocation reachable from `ids`: the corpus ids and each
+    /// nested operand, so each key's children are keys too.
+    fn keys_of(ids: &[CheckedNodeId]) -> Vec<Arc<CheckedNodeId>> {
+        let mut keys: Vec<Arc<CheckedNodeId>> = ids.iter().cloned().map(Arc::new).collect();
+        let mut seen: std::collections::HashSet<*const CheckedNodeId> =
+            keys.iter().map(Arc::as_ptr).collect();
+        let mut pending: Vec<Arc<CheckedNodeId>> = keys.clone();
+        while let Some(key) = pending.pop() {
+            for segment in &key.path {
+                if let Segment::Node(child) = segment {
+                    if seen.insert(Arc::as_ptr(child)) {
+                        keys.push(Arc::clone(child));
+                        pending.push(Arc::clone(child));
+                    }
+                }
+            }
+        }
+        keys
+    }
+
+    fn ranks_of(keys: &[Arc<CheckedNodeId>]) -> Box<[usize]> {
+        rank_graph_keys(keys, &mut WorkMeter::new(u64::MAX))
+            .ok()
+            .flatten()
+            .expect("graph keys rank")
+    }
+
+    fn assert_ranks_match_order(keys: &[Arc<CheckedNodeId>]) {
+        let ranks = ranks_of(keys);
+        assert_eq!(ranks.len(), keys.len());
+        for (left, a) in keys.iter().enumerate() {
+            for (right, b) in keys.iter().enumerate() {
+                assert_eq!(
+                    ranks[left].cmp(&ranks[right]),
+                    a.as_ref().cmp(b.as_ref()),
+                    "rank order differs from CheckedNodeId::cmp at ({left}, {right})"
+                );
+            }
+        }
+    }
+
+    /// The per-graph ranks order every pair of the adversarial corpus, and of
+    /// every operand it nests, as `CheckedNodeId::cmp` does.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn graph_ranks_equal_the_node_id_order_on_the_adversarial_corpus() {
+        let keys = keys_of(&corpus());
+        assert!(keys.len() > 700, "corpus size {}", keys.len());
+        assert_ranks_match_order(&keys);
+    }
+
+    /// Keys rebuilt from document-held ids by the reader's own key builder,
+    /// with shared operands, repeated ids and every segment kind.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn graph_ranks_equal_the_node_id_order_on_reader_rebuilt_keys() {
+        let mut ids: Vec<CheckedNodeId> = Vec::new();
+        for position in 0_u64..240 {
+            let mut path = vec![Segment::Name(
+                ["a", "b", "ab"][(position % 3) as usize].into(),
+            )];
+            if position > 0 {
+                path.push(Segment::Index((position * 31 + 5) % position));
+                if position % 4 == 0 {
+                    path.push(Segment::Index(position / 2));
+                }
+            }
+            ids.push(CheckedNodeId {
+                package: if position % 5 == 0 { "q" } else { "p" }.into(),
+                path,
+                ordinal: position % 3,
+            });
+        }
+        let refs: Vec<&CheckedNodeId> = ids.iter().collect();
+        let keys = crate::checked_package::v2::node_index::rebuild_keys(
+            &refs,
+            None,
+            |_, _| crate::checked_package::shared::JsonPointer::root(),
+            |_| unreachable!("acyclic table"),
+        )
+        .ok()
+        .expect("keys rebuild");
+        assert_ranks_match_order(&keys);
+    }
+
+    /// The rank table is charged before each block is requested: the exact
+    /// charge admits it, and one byte fewer is refused.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn graph_ranks_charge_every_block_first() {
+        let keys = keys_of(&corpus());
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let ranked = rank_graph_keys(&keys, &mut WorkMeter::over(&mut budget)).is_ok();
+            (ranked, budget.read_storage_consumed())
+        };
+        let (ranked, spent) = run(u64::MAX);
+        assert!(ranked && spent > 0);
+        assert!(run(spent).0, "the exact charge admits the table");
+        assert!(!run(spent - 1).0, "one byte fewer is refused");
+    }
+
+    /// A 16,000-level shared chain ranks with every child before its parent
+    /// and no comparison deeper than one segment.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn sixteen_thousand_nested_ids_rank_child_before_parent() {
+        let mut keys = vec![Arc::new(CheckedNodeId {
+            package: "p".into(),
+            path: vec![Segment::Name("leaf".into())],
+            ordinal: 0,
+        })];
+        for _ in 0..16_000 {
+            let child = Arc::clone(keys.last().expect("first key exists"));
+            keys.push(Arc::new(CheckedNodeId {
+                package: "p".into(),
+                path: vec![Segment::Name("option".into()), Segment::Node(child)],
+                ordinal: 0,
+            }));
+        }
+        assert!(ranks_of(&keys).iter().copied().eq(0..keys.len()));
     }
 }

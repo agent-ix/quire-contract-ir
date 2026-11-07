@@ -202,10 +202,10 @@ pub use temporal_clause_names::TemporalClauseName;
 pub use typed_terms::*;
 pub use vocabulary::*;
 
-use graph_storage::GraphIndex;
 use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
+use graph_storage::GraphIndex;
 use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
@@ -3091,7 +3091,8 @@ fn validate_graph(
         ));
     }
     meter.at_node(0, graph_storage::node_form(&graph.nodes[0].node_tag));
-    let index = GraphIndex::build(graph.nodes.iter().map(|node| &node.node_id), meter)?;
+    let index = GraphIndex::build(graph.nodes.iter().map(|node| &node.node_id), meter)?
+        .with_ranks(structural_keys, meter)?;
     let repeated_id = index.first_repeat();
     let mut kinds = meter.vec(graph.nodes.len())?;
     let mut references: Vec<Vec<BodyReference>> = meter.vec(graph.nodes.len())?;
@@ -3382,19 +3383,20 @@ fn validate_graph(
             continue;
         }
         let node = &graph.nodes[position];
-        let expected = references[position]
+        meter.at_node(position, graph_storage::node_form(&node.node_tag));
+        let targets = references[position]
             .iter()
-            .filter(|(_, site)| site.member == ReferenceMember::Target)
-            .map(|(target, _)| structural_key(target, &index, structural_keys).clone())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-        let actual = node
+            .filter(|(_, site)| site.member == ReferenceMember::Target);
+        let mut expected = meter.vec(targets.clone().count())?;
+        expected.extend(targets.map(|(target, _)| index.resolved(target, structural_keys)));
+        expected.sort_unstable();
+        expected.dedup();
+        if !node
             .dependencies
             .iter()
-            .map(|id| structural_key(id, &index, structural_keys).clone())
-            .collect::<Vec<_>>();
-        if actual != expected {
+            .map(|id| index.resolved(id, structural_keys))
+            .eq(expected)
+        {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 node_pointer(position).key("dependencies"),
@@ -3410,7 +3412,14 @@ fn validate_graph(
         &index,
         structural_keys,
     )?;
-    refinement::validate_dependencies(&graph.nodes, &kinds, &terms, &index, structural_keys)?;
+    refinement::validate_dependencies(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+        meter,
+    )?;
     let imported_nominals = validate_nominal_nodes(
         &graph.nodes,
         &kinds,

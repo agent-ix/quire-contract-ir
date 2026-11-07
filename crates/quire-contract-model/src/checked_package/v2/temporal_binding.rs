@@ -271,7 +271,7 @@ pub(super) fn validate(
     validate_shape(rows, meter)?;
     let compensation_profile = selected_profile(lock);
     let mut seen = BTreeSet::new();
-    let mut previous: Option<(&CheckedNodeId, u64)> = None;
+    let mut previous: Option<(super::graph_storage::ResolvedKey<'_>, u64)> = None;
     let mut resolved = Vec::with_capacity(rows.len());
     for (row_index, row) in rows.iter().enumerate() {
         let at = row_pointer(row_index);
@@ -317,7 +317,7 @@ pub(super) fn validate(
                 row.declaration.clone(),
             ));
         }
-        let structural = structural_keys[position].as_ref();
+        let structural = index.resolved_at(position, structural_keys);
         if let Some((previous_id, previous_occurrence)) = previous {
             if previous_id > structural {
                 return Err(invalid(at.key("declaration"), &row.declaration));

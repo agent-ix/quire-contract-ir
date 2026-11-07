@@ -55,7 +55,7 @@ pub(super) fn validate(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut seen = BTreeSet::new();
-    let mut previous: Option<(&CheckedNodeId, u64)> = None;
+    let mut previous: Option<(super::graph_storage::ResolvedKey<'_>, u64)> = None;
     for (row_index, row) in rows.unwrap_or_default().iter().enumerate() {
         let at = root().index(row_index);
         meter.charge(1, || at.clone())?;
@@ -94,7 +94,7 @@ pub(super) fn validate(
         if !seen.insert((&row.declaration, row.occurrence)) {
             return Err(invalid(at, Cause::ConflictingDefinition, &row.declaration));
         }
-        let key = (structural_keys[position].as_ref(), row.occurrence);
+        let key = (index.resolved_at(position, structural_keys), row.occurrence);
         if previous.is_some_and(|previous| previous > key) {
             return Err(invalid(at, Cause::InvalidValue, &row.declaration));
         }

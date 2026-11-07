@@ -1,6 +1,6 @@
 //! Closed FR-375 refinement body vocabulary and reader checks.
 
-use super::graph_storage::{GraphIndex, SortedTable};
+use super::graph_storage::{GraphIndex, ResolvedKey, SortedTable};
 use super::protocol_body::ChannelDelivery;
 use super::CheckedTerm;
 use crate::checked_package::common::{
@@ -1392,10 +1392,14 @@ fn canonical_order(
     }
     for (index, pair) in histories.windows(2).enumerate() {
         if (
-            super::structural_key(&pair[0].concrete_type, graph.index, graph.structural_keys),
+            graph
+                .index
+                .resolved(&pair[0].concrete_type, graph.structural_keys),
             pair[0].name.as_ref(),
         ) >= (
-            super::structural_key(&pair[1].concrete_type, graph.index, graph.structural_keys),
+            graph
+                .index
+                .resolved(&pair[1].concrete_type, graph.structural_keys),
             pair[1].name.as_ref(),
         ) {
             return Err(order_defect(position, "histories", index + 1));
@@ -1417,9 +1421,9 @@ fn canonical_order(
         fn key<'a>(
             row: &'a RefinementAssume,
             graph: &'a RefinementGraph<'_, '_>,
-        ) -> (&'a CheckedNodeId, &'static str, &'static str) {
+        ) -> (ResolvedKey<'a>, &'static str, &'static str) {
             (
-                super::structural_key(&row.operation, graph.index, graph.structural_keys),
+                graph.index.resolved(&row.operation, graph.structural_keys),
                 kind(row.kind),
                 granularity(row.granularity),
             )
@@ -1444,7 +1448,7 @@ fn canonical_order(
         fn key<'a>(
             row: &'a RefinementEnsure,
             graph: &'a RefinementGraph<'_, '_>,
-        ) -> (&'a CheckedNodeId, &'static str, &'static str) {
+        ) -> (ResolvedKey<'a>, &'static str, &'static str) {
             (
                 graph.resolved_key(&row.operation),
                 kind(row.kind),
@@ -1524,14 +1528,18 @@ impl<'a, 'e> RefinementGraph<'a, 'e> {
 }
 
 impl RefinementGraph<'_, '_> {
-    fn resolved_key<'a>(&'a self, key: &'a RefinementKey) -> &'a CheckedNodeId {
+    /// The graph key a reference names. A local key compares by its graph
+    /// rank; a key of a selected dependency package is another graph's and
+    /// compares by `CheckedNodeId::cmp`.
+    fn resolved_key<'a>(&'a self, key: &'a RefinementKey) -> ResolvedKey<'a> {
         match key {
-            RefinementKey::Local(id) => super::structural_key(id, self.index, self.structural_keys),
-            RefinementKey::External(external) => self
-                .dependencies
-                .selected_package(&external.package)
-                .and_then(|package| package.structural_key(&external.node))
-                .unwrap_or(&external.node),
+            RefinementKey::Local(id) => self.index.resolved(id, self.structural_keys),
+            RefinementKey::External(external) => ResolvedKey::foreign(
+                self.dependencies
+                    .selected_package(&external.package)
+                    .and_then(|package| package.structural_key(&external.node))
+                    .unwrap_or(&external.node),
+            ),
         }
     }
 
@@ -2569,7 +2577,10 @@ pub(super) fn validate_occurrences(
         meter.vec((0..graph.nodes.len()).filter(is_refinement).count())?;
     refinement_positions.extend((0..graph.nodes.len()).filter(is_refinement));
     refinement_positions.sort_unstable_by(|&left, &right| {
-        graph.structural_keys[left].cmp(&graph.structural_keys[right])
+        graph
+            .index
+            .resolved_at(left, graph.structural_keys)
+            .cmp(&graph.index.resolved_at(right, graph.structural_keys))
     });
     for position in refinement_positions {
         let node = &graph.nodes[position];
@@ -3682,7 +3693,7 @@ fn compare_declared_classes(
                 }
                 if found.node.local() != Some(node)
                     || matches!(&found.binder_types, BinderSignature::Known(expected)
-                        if binder_types.iter().map(|id| super::structural_key(id, graph.index, graph.structural_keys))
+                        if binder_types.iter().map(|id| graph.index.resolved(id, graph.structural_keys))
                             .ne(expected.iter().map(|key| graph.resolved_key(key))))
                 {
                     return Err(wrong_binding(entry_at, locus));
@@ -3904,26 +3915,32 @@ pub(super) fn validate_dependencies(
     terms: &[Option<CheckedTerm>],
     index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (position, ((node, kind), term)) in nodes.iter().zip(kinds).zip(terms).enumerate() {
         if *kind != super::CheckedNodeKind::Relation(super::RelationForm::Refinement) {
             continue;
         }
+        meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
         let expected = term.as_ref().and_then(local_dependencies).ok_or_else(|| {
             ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 crate::checked_package::common::node_pointer(position).key("body"),
             )
         })?;
-        let expected = expected
-            .iter()
-            .map(|id| super::structural_key(id, index, structural_keys))
-            .collect::<BTreeSet<_>>();
+        let mut keys = meter.vec(expected.len())?;
+        keys.extend(
+            expected
+                .iter()
+                .map(|id| index.resolved(id, structural_keys)),
+        );
+        keys.sort_unstable();
+        keys.dedup();
         if !node
             .dependencies
             .iter()
-            .map(|id| super::structural_key(id, index, structural_keys))
-            .eq(expected)
+            .map(|id| index.resolved(id, structural_keys))
+            .eq(keys)
         {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,

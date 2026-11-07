@@ -337,7 +337,10 @@ pub(super) fn validate_operations(
                 return Err(failure);
             }
             if first_refusal.as_ref().is_none_or(|(first, _)| {
-                order.structural_keys[position] < order.structural_keys[*first]
+                order
+                    .wire_index
+                    .resolved_at(position, order.structural_keys)
+                    < order.wire_index.resolved_at(*first, order.structural_keys)
             }) {
                 first_refusal = Some((position, failure));
             }
