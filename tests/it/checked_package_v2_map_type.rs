@@ -1127,9 +1127,10 @@ fn nested_bounded_quantity_maps() -> (
     };
     let (inner_position, inner) = append_map(&bounded);
     let (outer_position, _) = append_map(&inner);
-    sort_map_fixture_dependencies(&mut wire);
     settle(&mut wire);
     index_fixture_node_ids(&mut wire);
+    sort_map_fixture_dependencies(&mut wire);
+    settle(&mut wire);
     crate::support::checked_package::rebuild_complete_source_map(&mut wire);
     let admitted = read(&wire);
     let CheckedPackageV2ReadResult::Admitted(package) = admitted else {
