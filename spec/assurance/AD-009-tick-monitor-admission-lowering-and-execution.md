@@ -148,15 +148,16 @@ Each part consumes the public seam of the parts above it.
 | --- | --- | --- | --- |
 | 1 | IR-1390 | `quire-observation` | Structural node and typed claim identities in association rows. |
 | 2 | IR-1383 | `quire-spec-language` | Read-only `PlanRoot` and the same-emission authority handoff. |
-| 3 | IR-1388 | `quire-spec-language` | Budgeted equality, source enum, model enum shape and collection adapters returning IR rows. |
-| 4 | IR-1389 | `quire-spec-language` | Charged `identity_rows` materialization. |
-| 5 | IR-1384 | `quire-contract-ir` | FR-361 authority row and receipt; FR-357-AC-16 map key; FR-358-AC-10 locus sources. |
+| 3 | IR-1384 | `quire-contract-ir` | FR-358-AC-10 locus sources; FR-357-AC-16 map key row; FR-361 authority row and receipt. |
+| 4 | IR-1388 | `quire-spec-language` | Budgeted equality, source enum, model enum shape and collection adapters returning IR rows. |
+| 5 | IR-1389 | `quire-spec-language` | Charged `identity_rows` materialization. |
 | 6 | IR-721 | `quire-contract-ir`, `quire-driver` | FR-361 layout context; driver FR-019 preparation; real producer-to-construction qualification. |
-| 7 | IR-722 | `quire-contract-runtime` | Bounded execution and the complete TC-200 qualification. |
+| 7 | IR-722 | `quire-contract-runtime` | Bounded state, the construction boundary and the complete TC-200 qualification. |
 
-Steps 3 and 4 depend only on the public budget API and may proceed beside
-steps 1 and 2. Step 5 needs steps 1 and 2 for its integration criterion
-only; its IR-owned criteria need no producer.
+Step 3's IR-owned criteria need no producer, so it may proceed beside steps 1
+and 2; only its integration criterion FR-361-AC-6 waits for step 2. Steps 4
+and 5 use the locus sources and row shapes of step 3. Step 6 needs steps 2
+through 5, and step 7 needs step 6 for its genuine-producer qualification.
 
 ## Decisions
 
