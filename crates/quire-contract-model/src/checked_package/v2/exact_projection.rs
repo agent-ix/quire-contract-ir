@@ -3894,9 +3894,20 @@ impl CheckedPackageV2 {
                     )?;
                     ValueType::map(MapType::new(projected.values().clone(), Some(bound)))
                 } else {
-                    let row = identities.source_collections.get(type_id).ok_or_else(|| {
-                        refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
-                    })?;
+                    // A bounded collection's wrapper resolves to its unbounded
+                    // base as its semantic type, but the producer's row is keyed
+                    // by the wrapper that carries the bounds.
+                    let wrapper = (self.node_kind(requested)
+                        == Some(CheckedNodeKind::BoundedDomain(
+                            BoundedDomainForm::CollectionBounds,
+                        )))
+                    .then_some(requested);
+                    let row = wrapper
+                        .and_then(|wrapper| identities.source_collections.get(wrapper))
+                        .or_else(|| identities.source_collections.get(type_id))
+                        .ok_or_else(|| {
+                            refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
+                        })?;
                     project_source_collection(self, identities, row, requested, work, work_limit)?
                 }
             }
