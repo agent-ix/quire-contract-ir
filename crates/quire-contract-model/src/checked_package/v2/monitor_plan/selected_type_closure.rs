@@ -596,6 +596,7 @@ fn select_source_collections(
         read_charge(budget, NativeJoinChargeKind::Work, 1).map_err(|_| native_error(budget))?;
         if reached.contains(&row.structural_node) {
             preflight_source_collection(package, row, budget)?;
+            budget.set_locus_form("source_collection_selection");
             read_charge(
                 budget,
                 NativeJoinChargeKind::Storage,
