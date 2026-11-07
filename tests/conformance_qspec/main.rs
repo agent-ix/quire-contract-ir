@@ -467,7 +467,9 @@ fn reading_of(package: &Value) -> Result<String, String> {
         CheckedPackageV2ReadResult::Admitted(_) => "admitted".to_owned(),
         CheckedPackageV2ReadResult::Incomplete(_) => "incomplete".to_owned(),
         CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
-            return Err(format!("production operation catalog unavailable: {error:?}"));
+            return Err(format!(
+                "production operation catalog unavailable: {error:?}"
+            ));
         }
         CheckedPackageV2ReadResult::Refused(refusal) => match refusal.cause {
             Some(cause) => format!("refused:{}/{}", code_word(refusal.code), cause_word(cause)),
