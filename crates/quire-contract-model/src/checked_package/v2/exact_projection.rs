@@ -3391,6 +3391,87 @@ fn project_collection_element(
     Ok(projection.value_type().clone())
 }
 
+fn compare_source_collection_value(
+    mut expected: &ValueType,
+    mut actual: &ValueType,
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+) -> Result<bool, ExactTypeProjectionError> {
+    loop {
+        charge_native_work(budget, requested, at, "source_collection_comparison", 1)?;
+        match (expected, actual) {
+            (ValueType::Option(left), ValueType::Option(right)) => {
+                (expected, actual) = (left, right);
+            }
+            (ValueType::Collection(left), ValueType::Collection(right)) => {
+                if left.kind() != right.kind() || left.bound() != right.bound() {
+                    return Ok(false);
+                }
+                (expected, actual) = (left.element(), right.element());
+            }
+            (ValueType::Map(left), ValueType::Map(right)) => {
+                if left.bound() != right.bound() {
+                    return Ok(false);
+                }
+                (expected, actual) = (left.values(), right.values());
+            }
+            (ValueType::Int(left), ValueType::Int(right)) => {
+                return compare_source_numeric(
+                    &[left.lower(), left.upper(), right.lower(), right.upper()],
+                    requested, at, budget,
+                    |bits, cancel| left.try_eq_bounded(right, bits, cancel),
+                );
+            }
+            (ValueType::Rational(left), ValueType::Rational(right)) => {
+                return compare_source_numeric(
+                    &[left.numerator().lower(), left.numerator().upper(),
+                      left.denominator().lower(), left.denominator().upper(),
+                      right.numerator().lower(), right.numerator().upper(),
+                      right.denominator().lower(), right.denominator().upper()],
+                    requested, at, budget,
+                    |bits, cancel| left.try_eq_bounded(right, bits, cancel),
+                );
+            }
+            (ValueType::Decimal(left), ValueType::Decimal(right)) => {
+                return compare_source_numeric(
+                    &[left.lower(), left.upper(), right.lower(), right.upper()],
+                    requested, at, budget,
+                    |bits, cancel| left.try_eq_bounded(right, bits, cancel),
+                );
+            }
+            _ => return Ok(expected == actual),
+        }
+    }
+}
+
+fn compare_source_numeric(
+    endpoints: &[&Integer],
+    requested: &CheckedNodeId,
+    at: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+    compare: impl FnOnce(u64, &quire_exact::Cancel) -> Result<bool, quire_exact::NumericTypeEqualityFailure>,
+) -> Result<bool, ExactTypeProjectionError> {
+    charge_native_work(budget, requested, at, "source_collection_numeric_endpoints",
+        endpoints.len() as u128)?;
+    let mut bits = 128_u64;
+    let mut limbs = 0_u128;
+    for endpoint in endpoints {
+        let count = u64::try_from(endpoint.copy_footprint().limbs).unwrap_or(u64::MAX).max(4);
+        bits = bits.max(count.saturating_mul(32));
+        limbs = limbs.saturating_add(u128::from(count));
+    }
+    charge_native_work(budget, requested, at, "source_collection_numeric_compare",
+        limbs.saturating_mul(2))?;
+    // NativeJoinBudget has no cancellation handle to borrow. The owner's
+    // bounded comparison needs one; its single Arc allocation is paid first.
+    charge_native_storage(budget, requested, at, "source_collection_comparison_handle", 1)?;
+    let cancel = quire_exact::Cancel::new();
+    compare(bits, &cancel).map_err(|_| source_collection_error(
+        requested, at, ExactTypeProjectionErrorCode::UnsupportedExactType, budget,
+    ))
+}
+
 fn project_source_collection(
     package: &CheckedPackageV2,
     identities: &SelectedExactIdentities,
@@ -3456,7 +3537,7 @@ fn project_source_collection(
             })?;
             charge_exact_value(requested, element, element_value, work, limit)?;
             charge_exact_value(requested, element, &next.value_type, work, limit)?;
-            if element_value != &next.value_type {
+            if !compare_source_collection_value(element_value, &next.value_type, requested, element, work)? {
                 return Err(source_collection_error(
                     requested,
                     element,
@@ -3470,7 +3551,7 @@ fn project_source_collection(
                 project_collection_element(package, identities, requested, element, work, limit)?;
             charge_exact_value(requested, element, element_value, work, limit)?;
             charge_exact_value(requested, element, &actual, work, limit)?;
-            if element_value != &actual {
+            if !compare_source_collection_value(element_value, &actual, requested, element, work)? {
                 return Err(source_collection_error(
                     requested,
                     element,

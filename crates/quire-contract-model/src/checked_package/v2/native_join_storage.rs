@@ -545,10 +545,10 @@ mod map_copy_tests {
             let inspection = allocation_counter::measure(|| units = value_type(&cold));
             assert_eq!(inspection.count_total, 0, "cold storage inspection must not materialize integer caches");
             let mut copied = None;
-            let allocations = allocation_counter::measure(|| copied = Some(cold.clone()));
-            assert!(allocations.bytes_total >= u64::try_from(payload).unwrap());
+            let allocations = allocation_counter::measure(|| copied = Some(interval.clone()));
+            assert_eq!(allocations.bytes_total, u64::try_from(payload).unwrap());
             assert_eq!(units, 6 + payload as u128, "map, interval and endpoint slots plus actual reserved limbs");
-            assert_eq!(copied.unwrap(), cold);
+            assert_eq!(copied.unwrap(), *interval);
         }
     }
 }

@@ -2604,6 +2604,11 @@ mod tests {
                 }).expect("unrelated boolean map has no opaque record payload");
                 let unrelated = collections.remove(unrelated);
                 collections.insert(0, unrelated);
+                let selected_map = collections.iter().position(|row| row.key_node.is_some()
+                    && matches!(&row.value_type, ValueType::Map(map) if matches!(map.values(), ValueType::Composite(_))))
+                    .expect("selected map");
+                let selected_map = collections.remove(selected_map);
+                collections.insert(1, selected_map);
                 Self { declarations, fields, units, records, tuples, unions, collections,
                     equalities: equality_rows(package) }
             }
