@@ -122,6 +122,39 @@ impl NativeJoinBudget {
         self.denied_locus
     }
 
+    /// Start a caller-owned accounting phase on this same finite allowance.
+    ///
+    /// This clears the previous operation's success delta and denial metadata,
+    /// but preserves all admitted charges and the original configured limits.
+    /// Call before charging selection or adapter work, then pass this budget to
+    /// the native read without constructing another allowance.
+    pub fn resume(&mut self) {
+        self.begin();
+        self.active_locus = None;
+    }
+
+    /// Admit caller work or logical storage before performing it or allocating.
+    ///
+    /// The charge shares this budget's finite counters with subsequent native
+    /// reads. On denial, the first unpaid kind, attempted amount, and supplied
+    /// non-owning locus remain inspectable until the next `resume` or native
+    /// operation begins. A denied charge does not consume allowance.
+    pub fn accounted_charge(
+        &mut self,
+        kind: NativeJoinChargeKind,
+        amount: u128,
+        locus: NativeJoinLocus,
+    ) -> Result<(), NativeJoinDeniedCharge> {
+        let previous_locus = self.active_locus.replace(locus);
+        let admitted = self.charge(kind, amount);
+        self.active_locus = previous_locus;
+        if admitted {
+            Ok(())
+        } else {
+            Err(self.first_unpaid.expect("denied charge records first unpaid"))
+        }
+    }
+
     pub(super) fn active_locus(&self) -> Option<NativeJoinLocus> {
         self.active_locus
     }
