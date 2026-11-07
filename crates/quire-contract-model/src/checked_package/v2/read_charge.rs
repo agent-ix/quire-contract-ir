@@ -10,6 +10,7 @@ use super::native_join_budget::{
     NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
 };
 use crate::checked_package::common::ValidationFailure;
+use std::cell::{RefCell, RefMut};
 use std::sync::Arc;
 
 /// The smallest capacity a charged list grows to, and its growth factor: the
@@ -154,30 +155,50 @@ pub(super) fn end_stage(budget: &mut NativeJoinBudget) {
     budget.set_active_locus(None);
 }
 
-/// A reservation for the walker: its growths charge the budget at `site`, the
-/// calling check's stage and index with the form `"walk"`.
-pub(super) struct WalkReservation<'b> {
-    pub(super) budget: &'b mut NativeJoinBudget,
-    pub(super) site: Site,
+/// The caller's budget, shared by the parts of one metered walk: the walker's
+/// own stacks and the code that walks (a cursor's steps), each charged before
+/// it grows.
+pub(super) struct Meter<'b> {
+    budget: RefCell<&'b mut NativeJoinBudget>,
 }
 
-impl<'b> WalkReservation<'b> {
-    pub(super) fn new(budget: &'b mut NativeJoinBudget, site: Site) -> Self {
+impl<'b> Meter<'b> {
+    pub(super) fn new(budget: &'b mut NativeJoinBudget) -> Self {
         Self {
-            budget,
-            site: site.form("walk"),
+            budget: RefCell::new(budget),
         }
+    }
+
+    /// The budget, for the stage's own charges between walks.
+    pub(super) fn budget(&self) -> RefMut<'_, &'b mut NativeJoinBudget> {
+        self.budget.borrow_mut()
+    }
+
+    /// Charges `bytes` at `site`.
+    pub(super) fn charge(&self, site: Site, bytes: u128) -> Result<(), ValidationFailure> {
+        charge(&mut self.budget.borrow_mut(), site, bytes)
+    }
+
+    /// A reservation for a walk of the check at `check`; the walker's own
+    /// growths are charged with the form `"walk"`.
+    pub(super) fn reservation(&self, check: Site) -> WalkReservation<'_, 'b> {
+        WalkReservation { meter: self, check }
     }
 }
 
-impl quire_walk::Reservation for WalkReservation<'_> {
+/// A reservation for the walker: its growths charge the budget at the calling
+/// check's stage and index with the form `"walk"`.
+pub(super) struct WalkReservation<'m, 'b> {
+    pub(super) meter: &'m Meter<'b>,
+    /// The calling check's site: its form names the check's own temporaries.
+    pub(super) check: Site,
+}
+
+impl quire_walk::Reservation for WalkReservation<'_, '_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
-        self.budget.set_active_locus(Some(self.site.locus()));
-        if self.budget.charge_read_storage(bytes as u128) {
-            Ok(())
-        } else {
-            Err(quire_walk::Denied)
-        }
+        self.meter
+            .charge(self.check.form("walk"), bytes as u128)
+            .map_err(|_| quire_walk::Denied)
     }
 }
 
@@ -187,16 +208,97 @@ impl quire_walk::Reservation for WalkReservation<'_> {
 pub(super) fn walk<W: quire_walk::Walk + ?Sized>(
     walker: &mut W,
     root: W::Node,
-    reservation: &mut WalkReservation<'_>,
+    reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<std::ops::ControlFlow<W::Stop>, ValidationFailure> {
-    quire_walk::walk_reserved(walker, root, reservation).map_err(|_| denial(reservation.budget))
+    let meter = reservation.meter;
+    quire_walk::walk_reserved(walker, root, reservation).map_err(|_| denial(&meter.budget()))
 }
 
 /// Runs `walk` with a reservation that charges nothing. Only a walk whose
 /// calling stage has not yet threaded the read's budget to it uses this; that
-/// stage replaces the call with a [`WalkReservation`] over the budget.
-pub(super) fn with_unmetered_walk<R>(walk: impl FnOnce(&mut WalkReservation<'_>) -> R) -> R {
+/// stage replaces the call with a reservation over the budget.
+pub(super) fn with_unmetered_walk<R>(walk: impl FnOnce(&mut WalkReservation<'_, '_>) -> R) -> R {
     let mut budget = NativeJoinBudget::unlimited();
+    let meter = Meter::new(&mut budget);
     let site = Site::new(PackageReadStage::Graph, 0, "walk");
-    walk(&mut WalkReservation::new(&mut budget, site))
+    walk(&mut meter.reservation(site))
+}
+
+/// The node ID the JSON value `value` holds as a V2 wire ID, or `None` when it
+/// is not one: an object of exactly a nonempty `package` string, a nonempty
+/// `path` of names and `{"node": i}` / `{"operand": k}` segments no larger than
+/// 2^53 - 1, and an `ordinal` no larger than 2^53 - 1. The ID's package, path
+/// and names are charged at `site` before each is allocated.
+pub(super) fn node_id_from_value(
+    budget: &mut NativeJoinBudget,
+    site: Site,
+    value: &serde_json::Value,
+) -> Result<Option<super::CheckedNodeId>, ValidationFailure> {
+    use super::CheckedNodePathSegment as Segment;
+    const MAXIMUM: u64 = 9_007_199_254_740_991;
+    let Some(object) = value.as_object() else {
+        return Ok(None);
+    };
+    let (Some(package), Some(path), Some(ordinal)) = (
+        object.get("package").and_then(serde_json::Value::as_str),
+        object.get("path").and_then(serde_json::Value::as_array),
+        object.get("ordinal").and_then(serde_json::Value::as_u64),
+    ) else {
+        return Ok(None);
+    };
+    if object.len() != 3 || package.is_empty() || path.is_empty() || ordinal > MAXIMUM {
+        return Ok(None);
+    }
+    // Check every segment before the first allocation.
+    for segment in path {
+        let valid = match segment {
+            serde_json::Value::String(_) => true,
+            serde_json::Value::Object(map) if map.len() == 1 => {
+                map.iter().next().is_some_and(|(key, index)| {
+                    matches!(key.as_str(), "node" | "operand")
+                        && index.as_u64().is_some_and(|index| index <= MAXIMUM)
+                })
+            }
+            _ => false,
+        };
+        if !valid {
+            return Ok(None);
+        }
+    }
+    let package = boxed_str(budget, site, package)?;
+    let mut segments = with_capacity(budget, site, path.len())?;
+    for segment in path {
+        segments.push(match segment {
+            serde_json::Value::String(name) => Segment::Name(boxed_str(budget, site, name)?),
+            serde_json::Value::Object(map) => match map.iter().next() {
+                Some((key, index)) if key == "operand" => {
+                    Segment::Operand(index.as_u64().unwrap_or_default())
+                }
+                Some((_, index)) => Segment::Index(index.as_u64().unwrap_or_default()),
+                None => return Ok(None),
+            },
+            _ => return Ok(None),
+        });
+    }
+    Ok(Some(super::CheckedNodeId {
+        package,
+        path: segments,
+        ordinal,
+    }))
+}
+
+/// The target of a `reference` term, as an owned V2 node ID, or `None` when
+/// the term is no reference or its target is not a well-formed ID. The ID's
+/// package, path and names are charged at `site` before they are allocated.
+pub(super) fn reference_target(
+    budget: &mut NativeJoinBudget,
+    site: Site,
+    term: &serde_json::Value,
+) -> Result<Option<super::CheckedNodeId>, ValidationFailure> {
+    match super::CheckedTerm::view(term) {
+        Some(super::CheckedTermView::Reference { target }) => {
+            node_id_from_value(budget, site, target)
+        }
+        _ => Ok(None),
+    }
 }

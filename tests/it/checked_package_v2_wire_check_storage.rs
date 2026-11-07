@@ -44,17 +44,17 @@ fn stage_of(locus: NativeJoinLocus) -> Option<PackageReadStage> {
     }
 }
 
-/// The least read-storage limit at which the read gets past `stage`: it is
-/// admitted, or its first unpaid request is of a later stage. The stages run
-/// in order, so the answer is found by bisection.
-fn limit_past(stage: PackageReadStage) -> u64 {
-    let past = |limit: u64| {
+/// The least read-storage limit at which `past` holds of the read: it is
+/// admitted, or `past` holds of the stage and form of its first unpaid
+/// request. The stages run in order, so the answer is found by bisection.
+fn limit_where(past: impl Fn(PackageReadStage, &str) -> bool) -> u64 {
+    let reached = |limit: u64| {
         let outcome = read_under(limit);
         outcome.admitted
             || outcome
                 .denial
-                .and_then(|(locus, _)| stage_of(locus))
-                .is_some_and(|denied| denied > stage)
+                .and_then(|(locus, _)| stage_of(locus).map(|stage| past(stage, locus.form)))
+                .unwrap_or(false)
     };
     let mut measure = NativeJoinBudget::unlimited();
     let value = v2_all_families();
@@ -65,16 +65,21 @@ fn limit_past(stage: PackageReadStage) -> u64 {
         &mut measure,
     );
     let (mut low, mut high) = (0, measure.read_storage_consumed());
-    assert!(past(high), "the whole requirement gets past every stage");
+    assert!(reached(high), "the whole requirement reaches every stage");
     while low < high {
         let middle = low + (high - low) / 2;
-        if past(middle) {
+        if reached(middle) {
             high = middle;
         } else {
             low = middle + 1;
         }
     }
     low
+}
+
+/// The least limit at which the read gets past `stage`.
+fn limit_past(stage: PackageReadStage) -> u64 {
+    limit_where(|denied, _| denied > stage)
 }
 
 fn graph_node_count() -> usize {
@@ -90,14 +95,26 @@ fn denial_after(limit: u64) -> (NativeJoinLocus, u128) {
         .expect("a read one request short is denied")
 }
 
-/// The first request of the wire checks is the decoded kind table, one entry
-/// per graph node, at graph node 0 with the form `"flat_wire"`; the allowance
-/// that pays everything before it admits no more.
+/// The wire checks open with the owner-schema stage's worklist at graph node 0
+/// and `"owner_schema"`; once the owner schema is paid, the next is the decoded
+/// kind table, one entry per graph node, at graph node 0 and `"flat_wire"`.
 #[trace("TC-472", "FR-038-AC-499")]
 #[test]
-fn the_wire_checks_open_with_the_kind_table_at_flat_wire() {
+fn the_wire_checks_open_with_the_owner_schema_then_the_kind_table() {
     let before = limit_past(PackageReadStage::WireDecode);
-    let (locus, asked) = denial_after(before);
+    let (opening, _) = denial_after(before);
+    assert_eq!(
+        opening,
+        NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::WireChecks, 0),
+            form: "owner_schema",
+        }
+    );
+    let owner_paid = limit_where(|stage, form| {
+        stage > PackageReadStage::WireChecks
+            || (stage == PackageReadStage::WireChecks && form != "owner_schema")
+    });
+    let (locus, asked) = denial_after(owner_paid);
     assert_eq!(
         locus,
         NativeJoinLocus {
@@ -107,13 +124,11 @@ fn the_wire_checks_open_with_the_kind_table_at_flat_wire() {
     );
     let nodes = graph_node_count() as u128;
     assert!(asked > 0 && asked % nodes == 0, "one entry per node");
-    // Paying the table moves the first unpaid request on within the stage;
-    // one byte under the allowance stops before the stage.
-    let after_table = denial_after(before + u64::try_from(asked).expect("small"));
+    // Paying the table moves the first unpaid request on within the stage.
+    let after_table = denial_after(owner_paid + u64::try_from(asked).expect("small"));
     assert_eq!(stage_of(after_table.0), Some(PackageReadStage::WireChecks));
-    assert_ne!(after_table.0.form, "flat_wire");
-    let short = stage_of(denial_after(before - 1).0).expect("a package-read stage");
-    assert!(short < PackageReadStage::WireChecks);
+    assert_ne!(after_table, (locus, asked));
+    assert_ne!(after_table.0.form, "owner_schema");
 }
 
 /// The wire checks' last request paid, the node-index stage's first is the

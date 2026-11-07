@@ -28,7 +28,7 @@
 //! [`crate::checked_package::common::validate_term`]'s, later.
 
 use super::native_join_budget::{NativeJoinBudget, PackageReadStage};
-use super::read_charge::{self, Site, WalkReservation};
+use super::read_charge::{self, Meter, Site, WalkReservation};
 use super::temporal::{interval_bound_outside_pattern, timed_upper_is_null};
 use super::{
     body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
@@ -54,11 +54,6 @@ fn flat_site(index: usize) -> Site {
 /// The charge site of the interval-bound checks at graph node `index`.
 fn interval_site(index: usize) -> Site {
     Site::new(PackageReadStage::WireChecks, index, "interval_bounds")
-}
-
-/// The reservation of a walk the flat-wire check of node `index` makes.
-fn walk_at(budget: &mut NativeJoinBudget, index: usize) -> WalkReservation<'_> {
-    WalkReservation::new(budget, flat_site(index))
 }
 
 /// Where a term stands, which fixes what it may be.
@@ -112,8 +107,12 @@ pub(super) fn check(
     wire: &CheckedPackageWireV2,
     budget: &mut NativeJoinBudget,
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
-    let mut kinds =
-        read_charge::with_capacity(budget, flat_site(0), wire.semantic_graph.nodes.len())?;
+    let meter = Meter::new(budget);
+    let mut kinds = read_charge::with_capacity(
+        &mut meter.budget(),
+        flat_site(0),
+        wire.semantic_graph.nodes.len(),
+    )?;
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         let kind = super::decode_node_kind(node, |member| {
             crate::checked_package::common::node_pointer(position).key(member)
@@ -179,7 +178,7 @@ pub(super) fn check(
                         &at,
                         Place::BodyRoot,
                         false,
-                        &mut walk_at(budget, position),
+                        &mut meter.reservation(flat_site(position)),
                     )
                 }
             }
@@ -207,11 +206,13 @@ pub(super) fn check(
             // application at the root of an abstraction relation body is a
             // term of the closed grammar, placed by the abstraction step.
             BodyGrammar::Frame => {
-                scan_members(&node.body, &at, &mut walk_at(budget, position)).map(|_| ())
+                scan_members(&node.body, &at, &mut meter.reservation(flat_site(position)))
+                    .map(|_| ())
             }
             BodyGrammar::Term => {
                 if kind == CheckedNodeKind::Claim(super::ClaimForm::StepRelation) {
-                    scan_members(&node.body, &at, &mut walk_at(budget, position)).map(|_| ())
+                    scan_members(&node.body, &at, &mut meter.reservation(flat_site(position)))
+                        .map(|_| ())
                 } else if kind == CheckedNodeKind::Claim(super::ClaimForm::Schedulability) {
                     check_term_with_empty_leaf(
                         &node.body,
@@ -219,10 +220,14 @@ pub(super) fn check(
                         Place::BodyRoot,
                         false,
                         true,
-                        &mut walk_at(budget, position),
+                        &mut meter.reservation(flat_site(position)),
                     )
                 } else if kind == CheckedNodeKind::State(super::StateForm::OperationAnchor) {
-                    check_anchor_flat_wire(&node.body, &at, &mut walk_at(budget, position))
+                    check_anchor_flat_wire(
+                        &node.body,
+                        &at,
+                        &mut meter.reservation(flat_site(position)),
+                    )
                 } else if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
                     && body_term(&node.body) == Some(BodyTerm::Application)
                     && application_operator(&node.body)
@@ -238,7 +243,7 @@ pub(super) fn check(
                         &at,
                         Place::BodyRoot,
                         false,
-                        &mut walk_at(budget, position),
+                        &mut meter.reservation(flat_site(position)),
                     )
                     .and_then(|_| {
                         // QSpec FR-341-AC-19 fixes these two profile-member
@@ -358,10 +363,11 @@ pub(super) fn check(
                         &at,
                         Place::BodyRoot,
                         false,
-                        &mut walk_at(budget, position),
+                        &mut meter.reservation(flat_site(position)),
                     )
                 } else {
-                    scan_members(&node.body, &at, &mut walk_at(budget, position)).map(|_| ())
+                    scan_members(&node.body, &at, &mut meter.reservation(flat_site(position)))
+                        .map(|_| ())
                 }
             }
             BodyGrammar::Refinement => super::refinement::check_wire(&node.body, &at),
@@ -383,11 +389,11 @@ pub(super) fn check(
                 &Trail::Base(&steps),
                 Place::Member,
                 true,
-                &mut walk_at(budget, 0),
+                &mut meter.reservation(flat_site(0)),
             )?;
         }
     }
-    read_charge::end_stage(budget);
+    read_charge::end_stage(&mut meter.budget());
     Ok(kinds)
 }
 
@@ -396,7 +402,7 @@ pub(super) fn check(
 fn check_anchor_flat_wire(
     body: &Value,
     at: &Trail<'_>,
-    reservation: &mut WalkReservation<'_>,
+    reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<(), ValidationFailure> {
     let Some(members) = body.get("members").and_then(Value::as_array) else {
         return check_term(body, at, Place::BodyRoot, false, reservation);
@@ -667,7 +673,7 @@ fn check_term(
     at: &Trail<'_>,
     place: Place,
     details: bool,
-    reservation: &mut WalkReservation<'_>,
+    reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<(), ValidationFailure> {
     check_term_with_empty_leaf(root, at, place, details, false, reservation)
 }
@@ -680,9 +686,11 @@ fn check_term_with_empty_leaf(
     place: Place,
     details: bool,
     empty_leaf: bool,
-    reservation: &mut WalkReservation<'_>,
+    reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<(), ValidationFailure> {
-    let cursor = Cursor::at(at);
+    let (meter, site) = (reservation.meter, reservation.check);
+    let charge = move |bytes: usize| meter.charge(site, bytes as u128);
+    let cursor = Cursor::charged(at, &charge)?;
     let node = cursor.root(root, place);
     match read_charge::walk(
         &mut Flat {
@@ -702,7 +710,7 @@ fn check_term_with_empty_leaf(
 pub(super) fn check_refinement_term(
     root: &Value,
     at: &Trail<'_>,
-    reservation: &mut WalkReservation<'_>,
+    reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<(), ValidationFailure> {
     check_term(root, at, Place::BodyRoot, false, reservation)
 }
@@ -717,9 +725,11 @@ pub(super) fn check_refinement_term(
 pub(super) fn scan_members(
     body: &Value,
     at: &Trail<'_>,
-    reservation: &mut WalkReservation<'_>,
+    reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<u64, ValidationFailure> {
-    let cursor = Cursor::at(at);
+    let (meter, site) = (reservation.meter, reservation.check);
+    let charge = move |bytes: usize| meter.charge(site, bytes as u128);
+    let cursor = Cursor::charged(at, &charge)?;
     let root = cursor.root(body, true);
     let mut scan = Scan { cursor, work: 0 };
     match read_charge::walk(&mut scan, root, reservation)? {
@@ -746,7 +756,9 @@ impl<'a> Walk for Scan<'a> {
         node: At<'a, bool>,
         children: &mut Children<'_, At<'a, bool>>,
     ) -> ControlFlow<ValidationFailure> {
-        self.cursor.enter(&node);
+        if let Err(failure) = self.cursor.enter_charged(&node) {
+            return ControlFlow::Break(failure);
+        }
         self.work = self.work.saturating_add(1);
         let is_root = node.extra;
         if !is_root && body_term(node.value) == Some(BodyTerm::Application) {
@@ -795,7 +807,9 @@ impl<'a> Walk for Flat<'a> {
         node: At<'a, Place>,
         children: &mut Children<'_, At<'a, Place>>,
     ) -> ControlFlow<ValidationFailure> {
-        self.cursor.enter(&node);
+        if let Err(failure) = self.cursor.enter_charged(&node) {
+            return ControlFlow::Break(failure);
+        }
         let value = node.value;
         let place = node.extra;
         let wire = WireTerm::decode(value);

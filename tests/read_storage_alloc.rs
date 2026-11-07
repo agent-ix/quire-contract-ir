@@ -69,7 +69,7 @@ static ALLOCATOR: Counting = Counting;
 
 /// The bytes one read requested and the bytes it charged, under `limit`, and
 /// the stage of its first unpaid request.
-fn read_under(limit: u64) -> (u64, u64, Option<PackageReadStage>) {
+fn read_under(limit: u64) -> (u64, u64, Option<(PackageReadStage, &'static str)>) {
     let value = v2_all_families();
     let bytes = canonical(&value);
     let evidence = evidence_for(&value);
@@ -88,27 +88,33 @@ fn read_under(limit: u64) -> (u64, u64, Option<PackageReadStage>) {
     let stage = budget
         .first_unpaid_locus()
         .and_then(|locus| match locus.source {
-            NativeJoinLocusSource::PackageRead(stage, _) => Some(stage),
+            NativeJoinLocusSource::PackageRead(stage, _) => Some((stage, locus.form)),
             _ => None,
         });
     (requested, budget.read_storage_consumed(), stage)
 }
 
-/// The least limit at which the read's first unpaid request is of a stage
-/// after `stage`, or it is admitted.
-fn limit_past(stage: PackageReadStage) -> u64 {
+/// The least limit at which `past` holds of the stage and form of the read's
+/// first unpaid request, or the read is admitted.
+fn limit_where(past: impl Fn(PackageReadStage, &str) -> bool) -> u64 {
     let (_, whole, _) = read_under(u64::MAX);
     let (mut low, mut high) = (0, whole);
     while low < high {
         let middle = low + (high - low) / 2;
         let (_, _, denied) = read_under(middle);
-        if denied.is_none_or(|denied| denied > stage) {
+        if denied.is_none_or(|(stage, form)| past(stage, form)) {
             high = middle;
         } else {
             low = middle + 1;
         }
     }
     low
+}
+
+/// The least limit at which the read's first unpaid request is of a stage
+/// after `stage`, or it is admitted.
+fn limit_past(stage: PackageReadStage) -> u64 {
+    limit_where(|denied, _| denied > stage)
 }
 
 /// Every heap request of the node-index stage is charged: between a read that
@@ -121,9 +127,43 @@ fn node_index_requests_exactly_what_it_charges() {
     let end = limit_past(PackageReadStage::NodeIndex) - 1;
     let (first_requested, first_charged, first_stage) = read_under(start);
     let (last_requested, last_charged, last_stage) = read_under(end);
-    assert_eq!(first_stage, Some(PackageReadStage::NodeIndex));
-    assert_eq!(last_stage, Some(PackageReadStage::NodeIndex));
+    assert_eq!(
+        first_stage.map(|(stage, _)| stage),
+        Some(PackageReadStage::NodeIndex)
+    );
+    assert_eq!(
+        last_stage.map(|(stage, _)| stage),
+        Some(PackageReadStage::NodeIndex)
+    );
     assert!(last_charged > first_charged, "the stage charges something");
+    assert_eq!(
+        last_requested - first_requested,
+        last_charged - first_charged
+    );
+}
+
+/// Every heap request of the slot resolution and the owner-schema check is
+/// charged: between a read that stops at their first request and one that
+/// stops at their last, the bytes requested equal the bytes charged.
+#[trace("TC-472", "FR-038-AC-499", "FR-038-AC-511")]
+#[test]
+fn owner_schema_requests_exactly_what_it_charges() {
+    let start = limit_past(PackageReadStage::WireDecode);
+    let end = limit_where(|stage, form| {
+        stage > PackageReadStage::WireChecks
+            || (stage == PackageReadStage::WireChecks && form != "owner_schema")
+    }) - 1;
+    let (first_requested, first_charged, first_stage) = read_under(start);
+    let (last_requested, last_charged, last_stage) = read_under(end);
+    assert_eq!(
+        first_stage,
+        Some((PackageReadStage::WireChecks, "owner_schema"))
+    );
+    assert_eq!(
+        last_stage,
+        Some((PackageReadStage::WireChecks, "owner_schema"))
+    );
+    assert!(last_charged > first_charged, "the check charges something");
     assert_eq!(
         last_requested - first_requested,
         last_charged - first_charged

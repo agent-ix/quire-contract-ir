@@ -1035,10 +1035,17 @@ pub(super) fn check(
 /// index segment of the node its row names. The rest of the reader compares
 /// operands by graph index, so a slot is read through its row once, here.
 /// Every slot was range-checked by [`check`].
-pub(super) fn resolve_slots(wire: &mut RawCheckedPackageWireV2) {
+///
+/// The worklist of each body is charged at the `owner_schema` form of the
+/// wire checks, which this rewrite prepares; a rewritten segment reuses its
+/// own key text and allocates nothing.
+pub(super) fn resolve_slots(
+    wire: &mut RawCheckedPackageWireV2,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ValidationFailure> {
     let graph = &mut wire.semantic_graph;
     let rows = &graph.operand_rows;
-    for (node, row) in graph.nodes.iter_mut().zip(rows) {
+    for (position, (node, row)) in graph.nodes.iter_mut().zip(rows).enumerate() {
         let to_index = |id: &mut super::CheckedNodeId| {
             for segment in &mut id.path {
                 if let CheckedNodePathSegment::Operand(slot) = segment {
@@ -1055,15 +1062,26 @@ pub(super) fn resolve_slots(wire: &mut RawCheckedPackageWireV2) {
         if let Some(id) = node.owner_model.as_mut() {
             to_index(id);
         }
-        resolve_value_slots(&mut node.body, row);
+        let site = Site::new(PackageReadStage::WireChecks, position, "owner_schema");
+        resolve_value_slots(&mut node.body, row, budget, site)?;
     }
+    Ok(())
 }
 
-fn resolve_value_slots(body: &mut serde_json::Value, row: &[u64]) {
-    let mut pending = vec![body];
+fn resolve_value_slots(
+    body: &mut serde_json::Value,
+    row: &[u64],
+    budget: &mut NativeJoinBudget,
+    site: Site,
+) -> Result<(), ValidationFailure> {
+    let mut pending = Vec::new();
+    read_charge::push(budget, site, &mut pending, body)?;
     while let Some(value) = pending.pop() {
         match value {
-            serde_json::Value::Array(items) => pending.extend(items.iter_mut()),
+            serde_json::Value::Array(items) => {
+                read_charge::reserve(budget, site, &mut pending, items.len())?;
+                pending.extend(items.iter_mut());
+            }
             serde_json::Value::Object(object) => {
                 let is_node_id = object.len() == 3
                     && object.contains_key("package")
@@ -1077,20 +1095,29 @@ fn resolve_value_slots(body: &mut serde_json::Value, row: &[u64]) {
                                 }
                                 _ => None,
                             };
-                            if let Some(entry) = slot
-                                .and_then(|slot| usize::try_from(slot).ok())
-                                .and_then(|slot| row.get(slot))
-                            {
-                                *segment = serde_json::json!({ "node": entry });
+                            if let (Some(entry), serde_json::Value::Object(map)) = (
+                                slot.and_then(|slot| usize::try_from(slot).ok())
+                                    .and_then(|slot| row.get(slot)),
+                                &mut *segment,
+                            ) {
+                                // `{"operand": k}` becomes `{"node": entry}` by
+                                // renaming the key in the text it already owns.
+                                if let Some((mut key, _)) = map.remove_entry("operand") {
+                                    key.clear();
+                                    key.push_str("node");
+                                    map.insert(key, serde_json::Value::from(*entry));
+                                }
                             }
                         }
                     }
                 }
+                read_charge::reserve(budget, site, &mut pending, object.len())?;
                 pending.extend(object.values_mut());
             }
             _ => {}
         }
     }
+    Ok(())
 }
 
 /// Whether `id` names an operand by slot.

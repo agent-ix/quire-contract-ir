@@ -1409,8 +1409,8 @@ impl CheckedPackageV2 {
         intake::check_lossless_source(bytes, &wire)?;
         // Every later stage compares operands by graph index, so each node-held
         // slot is read through its row once here.
-        node_index::resolve_slots(&mut wire);
-        validate_owner_schema(&wire)?;
+        node_index::resolve_slots(&mut wire, budget)?;
+        validate_owner_schema(&wire, budget)?;
         let ValidatedPackage {
             kinds,
             schedulability_claim_index,
@@ -2184,11 +2184,61 @@ fn validate_domain_packages(
         .collect()
 }
 
-/// Checks a structural node identity and all nested operand identities.
+/// [`validate_node_id_charged`] under a budget that charges nothing, for the
+/// graph validators whose stage has not yet threaded the read's budget here.
 fn validate_node_id(
     id: &CheckedNodeId,
     at: impl FnOnce() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
+    validate_node_id_charged(
+        id,
+        at,
+        &mut NativeJoinBudget::unlimited(),
+        read_charge::Site::new(PackageReadStage::Graph, 0, "node_id"),
+    )
+}
+
+/// Whether a structural node identity and all nested operand identities are
+/// within the wire bounds. The worklist of nested operands is the only
+/// allocation, charged at `site`; a plain identity allocates nothing.
+fn node_id_is_valid(
+    id: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+    site: read_charge::Site,
+) -> Result<bool, ValidationFailure> {
+    const MAX_ORDINAL: u64 = 9_007_199_254_740_991;
+    let mut pending: Vec<&CheckedNodeId> = Vec::new();
+    let mut candidate = id;
+    loop {
+        if !is_nonempty(&candidate.package)
+            || candidate.path.is_empty()
+            || candidate.ordinal > MAX_ORDINAL
+        {
+            return Ok(false);
+        }
+        for segment in &candidate.path {
+            if let CheckedNodePathSegment::Node(child) = segment {
+                read_charge::push(budget, site, &mut pending, child.as_ref())?;
+            }
+        }
+        match pending.pop() {
+            Some(next) => candidate = next,
+            None => return Ok(true),
+        }
+    }
+}
+
+/// Checks a structural node identity and all nested operand identities. The
+/// pointer of a refusal is built only for a defective identity.
+fn validate_node_id_charged(
+    id: &CheckedNodeId,
+    at: impl FnOnce() -> JsonPointer,
+    budget: &mut NativeJoinBudget,
+    site: read_charge::Site,
+) -> Result<(), ValidationFailure> {
+    if node_id_is_valid(id, budget, site)? {
+        return Ok(());
+    }
     const MAX_ORDINAL: u64 = 9_007_199_254_740_991;
     let mut pending = vec![(id, at())];
     while let Some((candidate, pointer)) = pending.pop() {
