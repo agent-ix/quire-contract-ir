@@ -140,7 +140,7 @@ pub enum SelectedMonitorTypeClosureErrorCode {
     /// Exact identity or type projection refused.
     Exact(ExactTypeProjectionErrorCode),
     /// Runtime declaration projection refused.
-    Runtime(ExactTypeProjectionErrorCode),
+    TypeDeclaration(ExactTypeProjectionErrorCode),
     /// Selected clause clock correspondence refused.
     Clock(CheckedMonitorClockReadErrorCode),
     /// A reached admitted equality decision refused.
@@ -256,7 +256,7 @@ fn runtime_error(
     budget: &NativeJoinBudget,
 ) -> SelectedMonitorTypeClosureError {
     semantic_error(
-        SelectedMonitorTypeClosureErrorCode::Runtime(error.code),
+        SelectedMonitorTypeClosureErrorCode::TypeDeclaration(error.code),
         error.at,
         budget,
     )
