@@ -1916,10 +1916,10 @@ fn tc_472_declaration_tables_of_one_declaration_allocate_exactly_what_they_reque
 }
 
 /// With several declarations the tables are sorted by node id, whose
-/// comparison allocates until group D makes it not.
+/// comparison allocates until group D's shared.rs change is folded.
 #[trace("TC-472", "FR-038-AC-502")]
 #[test]
-#[ignore = "waits on CheckedNodeId::cmp non-allocating (group D shared.rs)"]
+#[ignore = "ModelOwners::build sorts and dedups rows by CheckedNodeId::cmp/==, whose pre-D heap stack allocates per comparison; passes once D 911aa4da (shared.rs) is folded"]
 fn tc_472_declaration_tables_allocate_exactly_what_they_request() {
     let names: Vec<String> = (0..9).map(|i| format!("R{i}")).collect();
     let types = names
