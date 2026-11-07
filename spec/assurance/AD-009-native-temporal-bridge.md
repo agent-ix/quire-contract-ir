@@ -89,28 +89,30 @@ reverse.
 - The valuation source is `ValuationEvidence`, the same six-bound relation the
   native evaluator uses; request valuation maps are not read.
 - TL results enter the join only as `ValidatedMappedResult` values, which only
-  quire-mltl's readers construct; the bridge re-reads them with the
-  non-evaluating mapping reader and never reads TL result bytes itself.
+  quire-mltl's readers construct; this is the TL owner's accepted result
+  input. The bridge re-reads them with the non-evaluating mapping reader and
+  never reads TL result bytes itself.
 - Corrections are checked against complete predecessor bytes on both sides:
   QSL's full-predecessor validation and quire-mltl's
   `validate_supplied_predecessor`. Identities alone never match.
 - Correspondence and join records are RFC 8785 canonical JSON with complete
-  owner bytes in hexadecimal; strict readers rebuild the expected record from
+  owner bytes in hexadecimal and every integer as a decimal string; strict readers rebuild the expected record from
   independent inputs and compare bytes.
 - Bridge limits are seven caller counters charged before work; owner work stays
   under the owners' limits, with byte ceilings lowered to `max_bytes`.
 
-## Build Order
+## Component Dependencies
 
-| Order | Part | Repository | Work item |
-| --- | --- | --- | --- |
-| 1 | FR-350, TC-461 and this description | `quire-contract-ir` | IR-1005 specification |
-| 2 | IT-022 integration scenarios and their TC | `quire-integration` | IR-1005 specification (integration) |
-| 3 | `RequestInput` on the branch=main TL/QObs cohort | `quire-mltl` | IR-1377 |
-| 4 | public direct-predecessor bytes and `validate_supplied_predecessor` | `quire-mltl` | IR-1379 |
-| 5 | TL owner ruling that `ValidatedMappedResult` values are the TL result input | TL planning | TL-301 |
-| 6 | bridge definition, projection, join, readers and TC-461 tests | `quire-integration` | IR-1378 and IR-1005, one PR |
-| 7 | strict-coverage rows for FR-350 | `quire-contract-ir` | IR-1003 |
+The bridge projection depends on the checked package model, the QSL checked
+views, native evidence request and valuation components, the observation
+authority and revision admission, the TL syntax, trace and history readers, the
+quire-mltl request derivation and reader, and the bridge definition. The
+bridge join depends on the projection, the QSL native report reader, bounded
+writer and full-predecessor validation, the quire-mltl mapped-result reader,
+`MappingSelection::for_result`, the public direct-predecessor bytes with
+`validate_supplied_predecessor`, and the Contract IR `NativeJoinBudget`. The
+quire-mltl request input uses the same tl-syntax, tl-mltl and Quire Observation
+types as the bridge. No Contract IR component depends on the bridge.
 
 ## Risks
 

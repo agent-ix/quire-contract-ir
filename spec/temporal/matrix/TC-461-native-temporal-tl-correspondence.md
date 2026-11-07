@@ -59,45 +59,66 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
    projection's values. Repeat each `[0,2]` case with a clock range start of 1,
    and again with `authoritative_origin` `Some(false)` and `None`; require
    `tl-projection-incomplete` with missing premise `history`.
-3. **Unsupported rows (AC-2).** Classify timestamped-event, mixed
-   past-and-future, infinite-trace unbounded and finite-window equivalence
-   subjects; require `tl-projection-unsupported` carrying the complete
-   classification and no projection.
+3. **Unsupported rows (AC-2).** Classify timestamped-event (finite-window),
+   mixed past-and-future and infinite-trace subjects; require
+   `tl-projection-unsupported` carrying the complete classification and no
+   projection.
 4. **Native input binding (AC-9).** Use a request whose opaque anchor is an
    observation identity spelled like a different numeric position; require
    the numeric TL anchor of the matching position. With `request.occurrence`
    absent on a single-occurrence subject require success, and on a
-   two-occurrence subject require refusal. Independently supply a wrong
-   binding, wrong node, role and ordinal, a control outside the subject's
-   requirements, a mismatched instance anchor, an empty capture instance, a
-   capture at another anchor, a missing, null, stale and wrong-type capture, a
-   retained `Refused` fault, an evicted capture, and an absent, duplicate and
-   foreign observation identity; require each typed error and no TL artifact.
+   two-occurrence subject require native-premise `occurrence`. For each
+   failure of FR-350 binding steps 2 to 8, supply one input exhibiting it and
+   require exactly the code and premise FR-350 assigns, with no TL artifact.
+   This includes: a wrong binding (`tl-projection-native-clock`); a counter
+   clock cover (`clock-cover`); a foreign correspondence reference
+   (`correspondence-reference`); wrong node, role and ordinal (`occurrence`);
+   a foreign control (`control`); an absent anchor and a trigger with no
+   admitted delivery or origin (incomplete `anchor`, `instance`); a mismatched
+   instance anchor and an empty capture instance (`anchor`); an activation
+   contradiction and a retained `Refused` fault (`activation`) and a retained
+   `Missing` fault (incomplete `activation`); missing, null and stale captures
+   and an evicted capture (incomplete `capture`); wrong-type and other-anchor
+   captures (`capture`); an observation reference of another bundle
+   (`observation-revision`); an absent and a duplicate observation identity
+   (incomplete `observation`, native-premise `observation`); a position of
+   another clock revision (`position`); a gap in stamps (incomplete
+   `position`); a timestamped range (`clock`); differing decision closure,
+   surrounding closure, progress and contradicted completeness
+   (`decision-closure`, `surrounding-closure`, `progress`, `completeness`);
+   and absent completeness (incomplete `complete-input`).
    Add per-position request valuation maps that contradict `ValuationEvidence`
    and require an unchanged projection.
 5. **Valuations (AC-6).** Supply complete rows with an explicit false value and
    require it in the TL input. Then independently supply a row for another
    occurrence, a position at `request.positions.len()`, another anchor,
    another capture instance, another revision and a non-leaf operand; require
-   `tl-projection-valuation` with that `ValuationCause` and row index. Repeat a
-   row with the same and with the opposite value and require the duplicate
-   refusal naming both row indices. Omit one row and require
-   `tl-projection-incomplete`. Project a formula with an aggregate atom and
-   require `tl-projection-formula`.
-6. **Fixed sample (AC-4).** Project a fixed-sample subject with matching epoch,
-   period and unit. Change only the period with equal formula bytes and
-   require refusal; reinterpret samples as event counts and require refusal;
-   omit a sample and require `incomplete`. Select a unit the TL request owner
-   cannot represent and require that owner's typed refusal, with no converted
-   value.
+   `tl-projection-valuation` with that `ValuationCause` and row index. Supply a
+   row with both a foreign operand and an out-of-range position and require
+   `OperandNotInFormula`, the owner's check order. Repeat a row with the same
+   value and require the projected value with both rows in the record; repeat
+   it with the opposite value, and omit one row, and require incomplete
+   `valuation{position, operand}`. Project a formula with an aggregate atom and
+   require `tl-projection-formula`; project an integer interval without an
+   upper bound and one above `u32::MAX` and require native-premise `interval`.
+6. **Fixed sample (AC-4).** Project a fixed-sample subject with a nanosecond
+   unit and matching epoch and period. Change only the period with equal
+   formula bytes and require native-premise `clock`; reinterpret samples as
+   event counts and require native-premise `clock`; omit a sample and require
+   incomplete `position`. With a millisecond unit, require native-premise
+   `clock-representation` for a future target and `tl-projection-owner`
+   carrying quire-mltl `ExpectedMismatch("clockBinding")` for a past target,
+   with no converted value.
 7. **Record members (AC-3, AC-10, AC-11).** Compute the expected
    correspondence record from the inputs by FR-350's member table and encoding
    rules and require byte equality for a future, a past and a fixed-sample
    projection. For each member's source input, mutate only that input,
    require exactly that member to change, and require `read_tl_projection` of
-   the original bytes against the mutated inputs to refuse. Reorder the
-   selected model identities of an otherwise equal package and require a
-   different `models` member. Require the request bytes in the record to equal
+   the original bytes against the mutated inputs to return
+   `tl-projection-correspondence-mismatch`. Require the `models` member to
+   equal `selected_model_packages()` in ascending order, and two packages
+   selecting the same models in different source orders to yield an identical
+   `models` member. Require the record to contain no JSON number. Require the request bytes in the record to equal
    the owner-read request, its `subject_identity` to be the native subject name
    and its `correspondence_identity` the profile name, and the request bytes to
    contain no record bytes. Supply a wrong subject name and a wrong profile name
@@ -108,7 +129,10 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
    value. Supply each owner reader refusal and require the typed owner error.
 9. **Join rows (AC-5).** From genuine native and TL results, construct one pair
    reaching each of R1 to R8 and require the decision, comparison, cause list
-   and Boolean of FR-350's table. For each pair of R1 to R6 rows build a pair
+   and Boolean of FR-350's table, including an equal-final pair whose
+   settlement differs (`P` false, R6), a final/pending pair (R6), a TL
+   `Failed` result (R2) and a native `InvalidPredecessor` (R6). For each pair
+   of R1 to R6 rows build a pair
    satisfying both and require the first decision and both causes once in row
    order. Require the native and TL result bytes in every join record. Build
    the expected join record by FR-350's rules and require byte equality.
@@ -122,12 +146,17 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
     each side and require R6 and `read_tl_join` refusal. Require a native
     `PredecessorLimit` to return `tl-join-limit-reached` with no join.
 11. **Limits (AC-8).** Require `TlLimits::default()` to equal FR-350's
-    defaults. For each limit and each operation that charges it, run the
-    operation with ample settings and read its usage `n` for that limit; rerun
-    with setting `n` and require admission, then with `n - 1` and require
+    defaults. For each limit and each operation that charges it, compute the
+    expected count `n` from the operation's inputs by FR-350's Limits table
+    (for example `request.positions.len()`, the row count, the owner-read
+    formula's node count, the cause-list length, or the largest checked byte
+    value), without reading the bridge's usage. Run with setting `n` and
+    require admission and reported usage `n`; run with `n - 1` and require
     `limit-reached{limit, value: n, setting: n - 1}`, an unvisited rejected
     unit and no partial value, all other settings ample. Set two limits so one
-    action crosses both and require only the first in table order.
+    action crosses both and require only the first in table order. Lower
+    `max_bytes` below one owner document's length and require `max_bytes`
+    limit-reached carrying the owner's error.
 12. **No evaluation (AC-6).** After each join, require the retained TL source
     result to equal the supplied one with unchanged `usage()`, and the retained
     native report to equal the supplied report. Inspect the bridge's call graph
