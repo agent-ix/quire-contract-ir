@@ -1762,13 +1762,12 @@ impl ContractPackageWireV1 {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        let projected_keys =
-            super::node_index::rebuild_graph_keys(
-                &package.wire.semantic_graph.nodes,
-                |_| unreachable!("admitted V1 graph was already index-checked"),
-                &mut super::native_join_budget::NativeJoinBudget::unlimited(),
-            )
-            .expect("admitted V1 graph keys");
+        let projected_keys = super::node_index::rebuild_graph_keys(
+            &package.wire.semantic_graph.nodes,
+            |_| unreachable!("admitted V1 graph was already index-checked"),
+            &mut super::native_join_budget::NativeJoinBudget::unlimited(),
+        )
+        .expect("admitted V1 graph keys");
         let mut projected_positions = vec![None; source.resolved_graph().nodes.len()];
         let mut source_positions = Vec::with_capacity(package.wire.semantic_graph.nodes.len());
         for (position, represented) in package.wire.semantic_graph.nodes.iter().enumerate() {

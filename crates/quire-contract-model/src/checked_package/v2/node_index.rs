@@ -125,9 +125,8 @@ fn locate(document: &Document, target: NodeRef<'_>) -> JsonPointer {
                 value = child;
             }
             Node::Array(items) => {
-                let Some((position, child)) = items
-                    .enumerate()
-                    .find(|(_, child)| child.id() >= target)
+                let Some((position, child)) =
+                    items.enumerate().find(|(_, child)| child.id() >= target)
                 else {
                     break;
                 };
@@ -189,7 +188,9 @@ impl Walk {
     fn index(self) -> usize {
         match self.scope {
             Scope::Node(holder) => holder,
-            Scope::Root | Scope::Graph | Scope::Nodes | Scope::Rows | Scope::Row | Scope::Other => 0,
+            Scope::Root | Scope::Graph | Scope::Nodes | Scope::Rows | Scope::Row | Scope::Other => {
+                0
+            }
         }
     }
 }
@@ -894,15 +895,17 @@ fn collect_sites<'d>(
                 collector.budget,
                 site(0),
                 &mut collector.row_sites,
-                RowSite {
-                    id: child,
-                    value,
-                },
+                RowSite { id: child, value },
             )?;
             continue;
         }
         if let Some(frame) = collector.enter(child, child_walk)? {
-            read_charge::push(collector.budget, site(child_walk.index()), &mut stack, frame)?;
+            read_charge::push(
+                collector.budget,
+                site(child_walk.index()),
+                &mut stack,
+                frame,
+            )?;
         }
     }
     let Collector {
@@ -974,8 +977,7 @@ pub(super) fn check(
     // sites are in document order, so a node's slots are consecutive and in
     // ascending node order.
     let longest_row = rows.iter().map(Vec::len).max().unwrap_or(0);
-    let mut entries: Vec<(u64, usize)> =
-        read_charge::with_capacity(budget, site(0), longest_row)?;
+    let mut entries: Vec<(u64, usize)> = read_charge::with_capacity(budget, site(0), longest_row)?;
     let mut slots = sites
         .iter()
         .filter(|site| site.slot && site.holder.is_some() && site.foreign_graph.is_none())
@@ -997,7 +999,9 @@ pub(super) fn check(
             .filter(|pair| pair[0].0 == pair[1].0)
             .map(|pair| pair[1].1)
             .min();
-        let unnamed = usize::try_from(named).ok().filter(|&named| named < row.len());
+        let unnamed = usize::try_from(named)
+            .ok()
+            .filter(|&named| named < row.len());
         if let Some(position) = [unnamed, repeated].into_iter().flatten().min() {
             return Err(malformed(
                 graph_at().key("operand_rows").index(node).index(position),
@@ -1155,16 +1159,7 @@ mod tests {
         found.sort();
         assert_eq!(
             found,
-            [
-                "",
-                "/a",
-                "/a/0",
-                "/a/1",
-                "/a/1/b",
-                "/a/1/c~0",
-                "/d",
-                "/d/e"
-            ]
+            ["", "/a", "/a/0", "/a/1", "/a/1/b", "/a/1/c~0", "/d", "/d/e"]
         );
     }
 

@@ -112,11 +112,8 @@ pub(super) fn check(
     wire: &CheckedPackageWireV2,
     budget: &mut NativeJoinBudget,
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
-    let mut kinds = read_charge::with_capacity(
-        budget,
-        flat_site(0),
-        wire.semantic_graph.nodes.len(),
-    )?;
+    let mut kinds =
+        read_charge::with_capacity(budget, flat_site(0), wire.semantic_graph.nodes.len())?;
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         let kind = super::decode_node_kind(node, |member| {
             crate::checked_package::common::node_pointer(position).key(member)
@@ -950,10 +947,10 @@ pub(super) fn nested_application_refusal(
 #[cfg(test)]
 mod tests {
     use super::{check, check_term, scan_members, Place};
-    use crate::checked_package::v2::read_charge::with_unmetered_walk as unmetered;
-    use crate::checked_package::v2::NativeJoinBudget;
     use crate::checked_package::common::Trail;
     use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
+    use crate::checked_package::v2::read_charge::with_unmetered_walk as unmetered;
+    use crate::checked_package::v2::NativeJoinBudget;
     use crate::checked_package::v2::{
         CheckedNodeTag, ExtensionForm, HybridForm, RawCheckedPackageWireV2, TimedModelForm,
     };
@@ -997,7 +994,8 @@ mod tests {
     }
 
     fn header_refusal(nodes: Vec<Value>, code: CheckedPackageRefusalCode, path: &str) {
-        let failure = check(&header_wire(nodes), &mut NativeJoinBudget::unlimited()).expect_err("damaged wire refuses");
+        let failure = check(&header_wire(nodes), &mut NativeJoinBudget::unlimited())
+            .expect_err("damaged wire refuses");
         let crate::checked_package::common::ValidationFailure::Refused(refusal) = failure else {
             panic!("a refusal, not an incomplete result");
         };

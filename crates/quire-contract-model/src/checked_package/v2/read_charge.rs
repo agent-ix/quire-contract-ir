@@ -116,9 +116,7 @@ pub(super) fn reserve<T>(
     if needed <= capacity {
         return Ok(());
     }
-    let target = needed
-        .max(capacity.saturating_mul(2))
-        .max(MINIMUM_CAPACITY);
+    let target = needed.max(capacity.saturating_mul(2)).max(MINIMUM_CAPACITY);
     charge_items::<T>(budget, site, target)?;
     list.try_reserve_exact(target - list.len())
         .map_err(|_| denial(budget))

@@ -110,10 +110,7 @@ fn the_wire_checks_open_with_the_kind_table_at_flat_wire() {
     // Paying the table moves the first unpaid request on within the stage;
     // one byte under the allowance stops before the stage.
     let after_table = denial_after(before + u64::try_from(asked).expect("small"));
-    assert_eq!(
-        stage_of(after_table.0),
-        Some(PackageReadStage::WireChecks)
-    );
+    assert_eq!(stage_of(after_table.0), Some(PackageReadStage::WireChecks));
     assert_ne!(after_table.0.form, "flat_wire");
     let short = stage_of(denial_after(before - 1).0).expect("a package-read stage");
     assert!(short < PackageReadStage::WireChecks);
