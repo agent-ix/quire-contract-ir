@@ -486,7 +486,7 @@ identities. **Lineage conflict** `L` holds as defined under Corrections.
 | R1 | either side `refused` | `refused` / `not-compared` | `result-refused` |
 | R2 | native `request.execution` is `Failed`, or TL side `failed` | `failed` / `not-compared` | `result-failed` |
 | R3 | either side `unavailable` | `unavailable` / `not-compared` | `result-unavailable` |
-| R4 | TL side `unsupported` | `unsupported` / `not-compared` | `result-unsupported` |
+| R4 (defensive) | TL side `unsupported` | `unsupported` / `not-compared` | `result-unsupported` |
 | R5 | either side `incomplete` | `incomplete` / `not-compared` | `result-incomplete` |
 | R6 | `L`; or native side `lineage`; or TL side `contradicted`; or both sides in `{final, pending}` and neither R7 nor R8 holds | `conflict` / `mismatch` | `result-mismatch` |
 | R7 | native `final(b)`, TL `final(b)` with the same `b`, `P`, and not `L` | `agreement` / `equal-final`, `b` | none |
@@ -501,6 +501,11 @@ are in `{final, pending}`: R7 requires both `final` and R8 both `pending`, so
 at most one holds, and R6 holds exactly when neither does (including an
 equal-final or equal-pending pair with `P` false, and a final/pending pair).
 Every pair therefore has exactly one decision.
+
+R4 is a defensive total-table row. A TL `Unsupported` execution cannot arise
+from a bridge-built `Supported` request: quire-mltl returns `Unsupported` only
+for an unsupported profile or past node, and any other request is refused at
+R1. R4 is therefore excluded from FR-350-AC-5's reachable-row coverage.
 
 The cause list SHALL hold the cause of every R1 to R6 row whose predicate
 holds, once each, in row order, followed by `result-pending` when R8 is the
@@ -520,6 +525,9 @@ previous admitted native report, the strict read uses
 and is followed by `Report::validate_predecessor`; `InvalidPredecessor` from
 either gives the native side state `lineage`. Equal result identities never
 establish a predecessor. A correction never rewrites the previous join.
+`L` SHALL be evaluated only when both the native report and the TL result are
+supplied; with an absent side, no `result-mismatch` cause is added on account
+of `L`.
 
 ### Join record
 
@@ -583,7 +591,14 @@ operation it reconstructs. Owner-internal work is bounded by the owners'
 counted here. An owner refusal at a byte ceiling lowered to `max_bytes` SHALL
 be reported as `limit-reached{limit: max_bytes, value: setting + 1, setting}`
 retaining the owner error; `value` then states that at least one byte exceeds
-the setting.
+the setting. This mapping is defensive and unreachable when the bridge's own
+input check precedes owner calls; it is not a tested AC clause.
+
+For `max_bytes`, the measured `n` of a correspondence or request record is its
+length computed with the setting itself embedded, because the quire-mltl
+request wire embeds the lowered `max_input_bytes` and `max_output_bytes`. The
+boundary is therefore the fixed point: the smallest setting `s` with
+`record_len(s) <= s` admits and `s - 1` refuses.
 
 ## Acceptance Criteria
 
@@ -593,10 +608,10 @@ the setting.
 | FR-350-AC-2 | Timestamped-event (finite-window), mixed past-and-future and infinite-trace classifications return `tl-projection-unsupported` carrying the complete classification and no formula, request or record. A changed support, retained field, definition selection or surrounding closure, a foreign subject, or a classification from another admission of equal bytes returns `tl-projection-binding`; a clone retaining the admission is accepted. | Test (TC-461) |
 | FR-350-AC-3 | Mutating each correspondence-record member's source input independently (source entry, declaration, lock, subject profile, model selection, binding, interval, anchor, capture instance, capture, trigger, payload, clock, each observation view, surrounding, origin, each position's observation reference and order key, owner document, valuation row, and each `native` member including the correspondence reference and trigger scope) changes exactly the corresponding record member, and `read_tl_projection` of the original bytes against the mutated inputs returns `tl-projection-correspondence-mismatch`; a non-`holds` atom returns `tl-projection-formula`. | Test (TC-461) |
 | FR-350-AC-4 | Fixed-sample projection with a nanosecond unit retains epoch, period and unit and matches them to the owner anchor by exact equality; a changed period or event-count reinterpretation with equal formula bytes returns native-premise `clock`; a missing sample returns incomplete `position`; a non-nanosecond unit is not converted and returns native-premise `clock-representation` for a future target and `tl-projection-owner` with the TL request owner's refusal for a past target. | Test (TC-461) |
-| FR-350-AC-5 | For each of R1 to R8 a genuine owner-produced pair reaches that row with the stated decision, comparison and cause list, including an equal-final pair with `P` false and a final/pending pair (R6), a TL `Failed` result (R2) and a native `InvalidPredecessor` (R6); for each pair of rows R1 to R6 a pair satisfying both returns the first decision and both causes once in row order; only R7 carries a Boolean; every join retains the complete native and TL result values. Each lineage condition of `L` and an equal-identity different-content predecessor yields R6, while a correction whose native and TL direct predecessors equal the previous join's admitted results reaches R7. | Test (TC-461) |
+| FR-350-AC-5 | For each of R1 to R8 a genuine owner-produced pair reaches that row with the stated decision, comparison and cause list, excluding the defensive row R4, including an equal-final pair with `P` false and a final/pending pair (R6), a TL `Failed` result (R2) and a native `InvalidPredecessor` (R6); for each pair of rows R1 to R6 a pair satisfying both returns the first decision and both causes once in row order; only R7 carries a Boolean; every join retains the complete native and TL result values. Each lineage condition of `L` and an equal-identity different-content predecessor yields R6, while a correction whose native and TL direct predecessors equal the previous join's admitted results reaches R7. | Test (TC-461) |
 | FR-350-AC-6 | Each binding step failure returns the code and premise FR-350 assigns it; a row failing several valuation checks returns the first cause in the owner's check order; repeated agreeing rows project their value and are all recorded; disagreeing or missing rows return incomplete `valuation{position, operand}`; each owner-reader refusal returns `tl-projection-owner`; non-canonical, reordered, unknown-member and trailing projection or join bytes return their mismatch code; no error leaves a partial value. Joined native and TL values equal the supplied values with unchanged owner usage, and no bridge operation has a call path to `evaluate_v2`, `quire_mltl::report::evaluate` or `quire_mltl::report::read`. | Test, Inspection (TC-461) |
 | FR-350-AC-7 | Withdrawn: the earlier fixed byte vector, SHA-256 known answers and derived correspondence reference were removed under the no-hash rule. This id is retained and never reused. | Withdrawn |
-| FR-350-AC-8 | For each of the seven limits, `TlLimits::default()` returns the stated default; with the other six settings above their counts, an operation whose expected count `n`, computed by the test from its inputs by the Limits table, admits at setting `n` and, at setting `n - 1`, returns `limit-reached{limit, value: n, setting: n - 1}` with the rejected unit unvisited and no partial value; the operation's reported usage equals `n`; an action crossing two limits at once returns only the first in table order; and an owner refusal at the lowered byte ceiling returns `max_bytes` limit-reached with the owner error. Projection exercises `max_bytes`, `max_nodes`, `max_positions`, `max_valuations` and `max_work`; join exercises `max_bytes`, `max_support`, `max_causes` and `max_work`; each strict reader exercises `max_bytes`. | Test (TC-461) |
+| FR-350-AC-8 | For each of the seven limits, `TlLimits::default()` returns the stated default; with the other six settings above their counts, an operation whose expected count `n`, computed by the test from its inputs by the Limits table, admits at setting `n` and, at setting `n - 1`, returns `limit-reached{limit, value: n, setting: n - 1}` with the rejected unit unvisited and no partial value; the operation's reported usage equals `n`; an action crossing two limits at once returns only the first in table order; for `max_bytes` the measured `n` is the record length with the setting embedded, so the boundary is the smallest setting `s` with `record_len(s) <= s`, which admits, while `s - 1` refuses. Projection exercises `max_bytes`, `max_nodes`, `max_positions`, `max_valuations` and `max_work`; join exercises `max_bytes`, `max_support`, `max_causes` and `max_work`; each strict reader exercises `max_bytes`. | Test (TC-461) |
 | FR-350-AC-9 | Given an authenticated `TraceBinding`, the exact occurrence, the assessed instance and complete `ValuationEvidence`, projection uses those values and maps the opaque `request.anchor` by exact equality with one position's observation identity in the admitted bundle to that position's numeric anchor, including when the opaque identity resembles another numeric position. An absent `request.occurrence` selects the sole occurrence; a wrong binding (`tl-projection-native-clock`), wrong node/role/ordinal, ambiguous occurrence or foreign control (native-premise `occurrence`/`control`), mismatched instance anchor or capture (native-premise `anchor`/`capture`), absent observation identity (incomplete `observation`) and duplicate observation identity (native-premise `observation`) each refuse before any TL artifact. Request per-position valuation maps that disagree with `ValuationEvidence` do not change the projection. | Test (TC-461) |
 | FR-350-AC-10 | The projection and join retain the exact supplied package admission; the `models` member equals `selected_model_packages()` in its ascending identity order, and two packages selecting the same model set in different source orders yield an identical `models` member. A correction join retains the complete native and TL direct predecessor bytes in `previous`, and `read_tl_join` with a different complete predecessor of equal result identity refuses. | Test (TC-461) |
 | FR-350-AC-11 | The test constructs the expected correspondence record and join record independently from the owner inputs by the member tables and encodings above (no JSON number appears) and requires byte equality with the bridge's output for a future, a past and a fixed-sample projection and for an R7 and a correction join; the request bytes inside the record equal the owner-read request, whose `subject_identity` is the native subject name and `correspondence_identity` the profile name, and the request contains no record bytes. A wrong subject or profile name refuses before a projection is returned. | Test (TC-461) |

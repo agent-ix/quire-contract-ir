@@ -128,7 +128,7 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
    whitespace and append a trailing byte; require refusal with no partial
    value. Supply each owner reader refusal and require the typed owner error.
 9. **Join rows (AC-5).** From genuine native and TL results, construct one pair
-   reaching each of R1 to R8 and require the decision, comparison, cause list
+   reaching each of R1 to R8 except the defensive R4 and require the decision, comparison, cause list
    and Boolean of FR-350's table, including an equal-final pair whose
    settlement differs (`P` false, R6), a final/pending pair (R6), a TL
    `Failed` result (R2) and a native `InvalidPredecessor` (R6). For each pair
@@ -154,9 +154,11 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
     require admission and reported usage `n`; run with `n - 1` and require
     `limit-reached{limit, value: n, setting: n - 1}`, an unvisited rejected
     unit and no partial value, all other settings ample. Set two limits so one
-    action crosses both and require only the first in table order. Lower
-    `max_bytes` below one owner document's length and require `max_bytes`
-    limit-reached carrying the owner's error.
+    action crosses both and require only the first in table order. For
+    `max_bytes`, compute `n` as the record length with the setting itself
+    embedded and test the fixed point: the smallest setting `s` with
+    `record_len(s) <= s` admits and `s - 1` refuses. The owner refusal at the
+    lowered byte ceiling is defensive and not a tested clause.
 12. **No evaluation (AC-6).** After each join, require the retained TL source
     result to equal the supplied one with unchanged `usage()`, and the retained
     native report to equal the supplied report. Inspect the bridge's call graph
