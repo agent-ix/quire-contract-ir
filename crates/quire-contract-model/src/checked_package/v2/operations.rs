@@ -2306,6 +2306,24 @@ fn check_operands(
                     )));
                 }
             }
+            // QSpec FR-322: the `type_argument` member must resolve to a
+            // `scalar_type`/`carried_quantity` node. The constraint names no
+            // operand, so it is checked against the member alone.
+            OperationConstraintKind::CarriedMember => {
+                let carried = member_declaration(operation)
+                    .and_then(|member| graph.index.get(&member).copied())
+                    .and_then(|position| graph.kinds.get(position))
+                    == Some(&CheckedNodeKind::ScalarType(
+                        ScalarTypeForm::CarriedQuantity,
+                    ));
+                if !carried {
+                    return Ok(Some(application.refuse(
+                        CheckedPackageRefusalCode::IllTyped,
+                        node_pointer(application.position),
+                        CheckedPackageRefusalCause::OperatorIneligible,
+                    )));
+                }
+            }
             OperationConstraintKind::ReferenceEdge => {
                 if let [first, second] = indices[..] {
                     if let Some(failure) = check_reference_edge(
@@ -6536,6 +6554,66 @@ mod tests {
                 node_id,
             )))
         );
+    }
+
+    /// `quire.op.collection.sum.carried_quantity` applied with a `type_argument`
+    /// member naming `member_form`'s scalar node, beside that node.
+    fn carried_sum_defect(
+        member_form: &str,
+    ) -> (
+        CheckedSemanticNodeV2,
+        Result<Option<ValidationFailure>, ValidationFailure>,
+    ) {
+        let mut operation = plain_operation("quire.op.collection.sum.carried_quantity");
+        operation["mode"] = json!({ "kind": "rounding", "value": "exact" });
+        operation["member"] = json!({
+            "kind": "type_argument",
+            "declaration": node_id('4'),
+        });
+        let mut application = custom_application_node(
+            "collection",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+        application.body["result_type"] = json!(node_id('4'));
+        let result = defect_for_graph(vec![
+            application.clone(),
+            scalar_type_node('4', member_form),
+        ]);
+        (application, result)
+    }
+
+    /// The `carried_member` constraint of the catalog's carried-quantity sum:
+    /// a `type_argument` that is not a `scalar_type`/`carried_quantity` node
+    /// refuses `ill_typed`/`operator-ineligible` at the application.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn carried_member_refuses_a_type_argument_that_is_not_a_carried_quantity() {
+        for form in ["unit", "bounded_quantity", "integer"] {
+            let (application, result) = carried_sum_defect(form);
+            assert_eq!(
+                result,
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::IllTyped,
+                    "/semantic_graph/nodes/0",
+                    Some(CheckedPackageRefusalCause::OperatorIneligible),
+                    application.node_id.clone(),
+                ))),
+                "a `{form}` type argument"
+            );
+        }
+    }
+
+    /// The same application over a `carried_quantity` type argument satisfies
+    /// `carried_member` and is not refused.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn carried_member_admits_a_carried_quantity_type_argument() {
+        let (_, result) = carried_sum_defect("carried_quantity");
+        assert_eq!(result, Ok(None));
     }
 
     /// `operator-class-mismatch`: agent-ix/quire-contract-ir#171. `binary` is

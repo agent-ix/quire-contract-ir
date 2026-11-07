@@ -2154,8 +2154,11 @@ kind and constraint kind the catalog declares is a member of the matching enum,
 so that reading the catalog never fails on a word the catalog declares. The
 catalog's operator classes include `case`, `temporal_formula` and
 `temporal_fairness`, its member kinds include `temporal_interval` and
-`fairness`, and its constraint kinds include `union_arms`; each is a member of
-its enum. The catalog's `union` and `temporal` families, the `arm_body` result
+`fairness`, and its constraint kinds include `union_arms` and `carried_member`;
+each is a member of its enum. `carried_member` (QSpec FR-322) holds when the
+`type_argument` member resolves to a `scalar_type`/`carried_quantity` node; it
+names no operand and no family, and a member that resolves to any other node
+refuses `ill_typed`/`operator-ineligible` at the application. The catalog's `union` and `temporal` families, the `arm_body` result
 form and the operand family names are catalog strings that the reader indexes
 and does not decode into an enum. The `union` family is a member of the
 `any_value`, `any_term` and `structural_kind` groups and the `temporal` family
@@ -6004,6 +6007,7 @@ copying QSL execution semantics into IR.
 | FR-038-AC-490 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). A non-scalar map key refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}` (MT-04); omitting the `value` binding refuses `malformed_wire` with no cause at `/semantic_graph/nodes/{n}/body` during closed-schema admission (MT-05); and a body key reference that disagrees with the structural path refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}` (MT-06). No case yields an admitted or partial typed map view. A map carrying a Clock place follows QSpec FR-415's separate clock-place admission, without inventing a Clock value node (MT-07). | Test (TC-048; QSpec FR-322-AC-385, MT-04..MT-07) |
 | FR-038-AC-491 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). TC-048 reads QSpec main's `proposals/checked-package-v2/map-type-vectors.json` through `QUIRE_SPECIFICATION_DIR`, applies MT-01 through MT-07 to complete otherwise valid packages, and compares each published admission or refusal, code, cause and primary RFC 6901 pointer. Positive reads also assert typed key/value references and structural identity; the collection-bounds control keeps bounds in its separate node. A missing upstream vector or a changed expected outcome fails the control; no QSpec fixture, vector or schema is copied into IR. | Test (TC-048; QSpec FR-322-AC-385, TC-233) |
 | FR-038-AC-494 | An admitted `CheckedPackageV2` exposes its selected model package identities as a borrowed sequence in ascending identity order through `selected_model_packages`. A package with no selected model returns an empty sequence; a refused or incomplete read exposes no package. The read neither invents source aliases nor accepts caller-authored model selections. | Test (TC-233) |
+| FR-038-AC-495 | The reader decodes the catalog constraint kind `carried_member`, so the production catalog, whose `quire.op.collection.sum.carried_quantity` entry carries it with an empty `operands` list and a `null` `family`, reads without error. For an application of an entry carrying `carried_member`, a `type_argument` member that resolves to a `scalar_type`/`carried_quantity` node satisfies it, and a member that resolves to a `scalar_type`/`unit`, `bounded_quantity` or other node refuses `ill_typed`/`operator-ineligible` at the application. A constraint kind outside the closed vocabulary in catalog bytes returns the typed catalog read error naming its entry and word and never panics. | Test (TC-048) |
 
 | FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
 | FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |
