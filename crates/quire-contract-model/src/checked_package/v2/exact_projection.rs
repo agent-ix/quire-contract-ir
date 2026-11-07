@@ -451,9 +451,11 @@ pub struct SelectedSourceTupleRow {
 pub struct SelectedSourceCollectionRow {
     /// The collection type node, including bounds when present.
     pub structural_node: CheckedNodeId,
-    /// The underlying sequence, set, bag or ordered-set node.
+    /// The underlying sequence, set, bag, ordered-set or map node.
     pub base_node: CheckedNodeId,
-    /// The base node's sole referenced element type.
+    /// The map's admitted key type; absent for unary collections.
+    pub key_node: Option<CheckedNodeId>,
+    /// The base node's element type, or its value type for a map.
     pub element_node: CheckedNodeId,
     /// The checker's complete Exact collection type.
     pub value_type: ValueType,
@@ -1013,6 +1015,21 @@ fn exact_collection_kind(form: CompositeTypeForm) -> Option<CollectionKind> {
     }
 }
 
+pub(super) fn source_map_key_matches(
+    package: &CheckedPackageV2,
+    row: &SelectedSourceCollectionRow,
+) -> bool {
+    let Some(key_node) = &row.key_node else {
+        return false;
+    };
+    let Some([key, value]) = package.term(&row.base_node).and_then(typed_aggregate) else {
+        return false;
+    };
+    typed_binding(key, "key").and_then(typed_reference) == Some(key_node)
+        && typed_binding(value, "value").and_then(typed_reference) == Some(&row.element_node)
+        && package.node_kind(key_node) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
+}
+
 fn validate_source_collection_row(
     package: &CheckedPackageV2,
     row: &SelectedSourceCollectionRow,
@@ -1043,7 +1060,8 @@ fn validate_source_collection_row(
             work,
         ));
     };
-    let Some(kind) = exact_collection_kind(form) else {
+    let kind = exact_collection_kind(form);
+    if kind.is_none() && form != CompositeTypeForm::Map {
         return Err(source_collection_error(
             requested,
             &row.base_node,
@@ -1119,6 +1137,14 @@ fn validate_source_collection_row(
             )
         })?)
     };
+    if form == CompositeTypeForm::Map {
+        charge_work(requested, id, "source_map_key", work, limit)?;
+        if !source_map_key_matches(package, row) {
+            return Err(source_collection_error(
+                requested, id, ExactTypeProjectionErrorCode::MismatchedIdentityWitness, work,
+            ));
+        }
+    }
     charge_work(
         requested,
         &row.element_node,
@@ -1134,22 +1160,24 @@ fn validate_source_collection_row(
             work,
         ));
     }
-    let ValueType::Collection(collection) = &row.value_type else {
-        return Err(source_collection_error(
-            requested,
-            id,
-            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-            work,
-        ));
+    let shape_matches = match (&row.value_type, kind, form) {
+        (ValueType::Collection(collection), Some(kind), _) => {
+            row.key_node.is_none()
+                && reference_type_target_typed(base).as_ref() == Some(&row.element_node)
+                && collection.kind() == kind
+                && collection.bound() == bound
+        }
+        (ValueType::Map(map), None, CompositeTypeForm::Map) => {
+            map.bound() == bound
+        }
+        _ => false,
     };
     if base.semantic_type != row.base_node
         || base.owner.is_some()
         || base.declaration.is_some()
         || node.owner.is_some()
         || node.declaration.is_some()
-        || reference_type_target_typed(base).as_ref() != Some(&row.element_node)
-        || collection.kind() != kind
-        || collection.bound() != bound
+        || !shape_matches
     {
         return Err(source_collection_error(
             requested,
@@ -2242,10 +2270,23 @@ impl SelectedExactIdentities {
         rows: impl IntoIterator<Item = SelectedSourceCollectionRow>,
         budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
+        self.with_indexed_source_collection_rows(package, rows.into_iter().enumerate(), budget)
+    }
+
+    pub(super) fn with_indexed_source_collection_rows(
+        &self,
+        package: &CheckedPackageV2,
+        rows: impl IntoIterator<Item = (usize, SelectedSourceCollectionRow)>,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Self, ExactTypeProjectionError> {
         let mut rows = rows.into_iter().peekable();
-        let Some(first) = rows.peek().map(|row| &row.structural_node) else {
+        let Some((index, first)) = rows.peek().map(|(index, row)| (*index, &row.structural_node)) else {
             return self.empty_source_join(package, budget);
         };
+        budget.set_active_locus(Some(super::NativeJoinLocus {
+            source: super::NativeJoinLocusSource::ReachedRow(index),
+            form: "source_collection_join",
+        }));
         let (mut selected, before) = self.begin_source_join(package, budget, first)?;
         charge_native_storage(
             budget,
@@ -2259,7 +2300,11 @@ impl SelectedExactIdentities {
             let work_limit = u64::MAX;
             charge_native_storage(budget, &first, &first, "source_collection_pending", 1)?;
             let mut pending = BTreeMap::new();
-            for row in rows {
+            for (index, row) in rows {
+                budget.set_active_locus(Some(super::NativeJoinLocus {
+                    source: super::NativeJoinLocusSource::ReachedRow(index),
+                    form: "source_collection_join",
+                }));
                 let id = &row.structural_node;
                 validate_source_collection_row(package, &row, id, budget, work_limit)?;
                 if self.source_collections.contains_key(id) || pending.contains_key(id) {
@@ -3374,20 +3419,25 @@ fn project_source_collection(
                 work,
             ));
         }
-        let ValueType::Collection(collection) = &row.value_type else {
-            return Err(source_collection_error(
-                requested,
-                &row.structural_node,
-                ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
-                work,
-            ));
+        let element_value = match &row.value_type {
+            ValueType::Collection(collection) => collection.element(),
+            ValueType::Map(map) => map.values(),
+            _ => {
+                return Err(source_collection_error(
+                    requested,
+                    &row.structural_node,
+                    ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+                    work,
+                ));
+            }
         };
         let element = &row.element_node;
         let next_kind = package.node_kind(element);
         if matches!(
             next_kind,
             Some(CheckedNodeKind::CompositeType(
-                CompositeTypeForm::Sequence
+                CompositeTypeForm::Map
+                    | CompositeTypeForm::Sequence
                     | CompositeTypeForm::Set
                     | CompositeTypeForm::Bag
                     | CompositeTypeForm::OrderedSet
@@ -3403,9 +3453,9 @@ fn project_source_collection(
                     work,
                 )
             })?;
-            charge_exact_value(requested, element, collection.element(), work, limit)?;
+            charge_exact_value(requested, element, element_value, work, limit)?;
             charge_exact_value(requested, element, &next.value_type, work, limit)?;
-            if collection.element() != &next.value_type {
+            if element_value != &next.value_type {
                 return Err(source_collection_error(
                     requested,
                     element,
@@ -3417,9 +3467,9 @@ fn project_source_collection(
         } else {
             let actual =
                 project_collection_element(package, identities, requested, element, work, limit)?;
-            charge_exact_value(requested, element, collection.element(), work, limit)?;
+            charge_exact_value(requested, element, element_value, work, limit)?;
             charge_exact_value(requested, element, &actual, work, limit)?;
-            if collection.element() != &actual {
+            if element_value != &actual {
                 return Err(source_collection_error(
                     requested,
                     element,
@@ -3595,7 +3645,11 @@ impl CheckedPackageV2 {
                 | CompositeTypeForm::OrderedSet,
             )
             | CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds) => {
-                if kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds)
+                if let Some(row) = identities.source_collections.get(type_id).filter(|row| {
+                    matches!(row.value_type, ValueType::Map(_))
+                }) {
+                    project_source_collection(self, identities, row, requested, work, work_limit)?
+                } else if kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds)
                     && self.node_kind(&type_node.semantic_type)
                         == Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
                 {
@@ -3658,6 +3712,9 @@ impl CheckedPackageV2 {
                 }
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Map) => {
+                if let Some(row) = identities.source_collections.get(type_id) {
+                    project_source_collection(self, identities, row, requested, work, work_limit)?
+                } else {
                 let [key, value] = self
                     .term(type_id)
                     .and_then(typed_aggregate)
@@ -3680,6 +3737,7 @@ impl CheckedPackageV2 {
                 )?;
                 charge_native_storage(work, requested, type_id, "map_result", 2)?;
                 ValueType::map(MapType::new(projected, None))
+                }
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
                 let CheckedTerm::Aggregate { members } = &type_node.body else {

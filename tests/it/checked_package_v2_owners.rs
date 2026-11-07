@@ -2712,6 +2712,7 @@ fn native_source_family_fixture_with_authority(
     let collection = SelectedSourceCollectionRow {
         structural_node: sequence_id.clone(),
         base_node: sequence_id,
+        key_node: None,
         element_node: integer,
         value_type: ValueType::collection(CollectionType::new(
             CollectionKind::Sequence,

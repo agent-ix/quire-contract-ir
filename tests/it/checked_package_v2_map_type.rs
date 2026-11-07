@@ -353,36 +353,153 @@ fn non_text_scalar_key_admits_but_has_no_exact_projection() {
     );
 }
 
-/// Trace: FR-357-AC-19.
-#[trace("TC-470", "FR-357-AC-19")]
-#[test]
-fn source_map_row_joins_and_projects_its_complete_value() {
+fn source_map_fixture() -> (CheckedPackageV2, quire_contract_model::SelectedSourceCollectionRow) {
     let (wire, position) = map_package();
     let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
         panic!("strict admitted map fixture");
     };
     let id: CheckedNodeId = serde_json::from_value(
         wire["semantic_graph"]["nodes"][position]["node_id"].clone(),
-    ).unwrap();
-    let CheckedTerm::Aggregate { members } = package.term(&id).unwrap() else {
+    ).expect("map id");
+    let row = source_map_row(&package, &id, quire_exact::ValueType::Integer);
+    (*package, row)
+}
+
+fn source_map_row(
+    package: &CheckedPackageV2,
+    id: &CheckedNodeId,
+    value: quire_exact::ValueType,
+) -> quire_contract_model::SelectedSourceCollectionRow {
+    let CheckedTerm::Aggregate { members } = package.term(id).expect("map term") else {
         panic!("map operands");
     };
-    let CheckedTerm::Binding { value, .. } = &members[1] else { panic!("value binding") };
-    let CheckedTerm::Reference { target } = value.as_ref() else { panic!("value target") };
-    let row = quire_contract_model::SelectedSourceCollectionRow {
+    let target = |ordinal: usize| {
+        let CheckedTerm::Binding { value, .. } = &members[ordinal] else { panic!("map binding") };
+        let CheckedTerm::Reference { target } = value.as_ref() else { panic!("map target") };
+        target.clone()
+    };
+    quire_contract_model::SelectedSourceCollectionRow {
         structural_node: id.clone(),
         base_node: id.clone(),
-        element_node: target.clone(),
-        value_type: quire_exact::ValueType::map(quire_exact::MapType::new(
-            quire_exact::ValueType::Integer, None,
-        )),
-    };
+        key_node: Some(target(0)),
+        element_node: target(1),
+        value_type: quire_exact::ValueType::map(quire_exact::MapType::new(value, None)),
+    }
+}
+
+/// Trace: FR-357-AC-19.
+#[trace("TC-470", "FR-357-AC-19")]
+#[test]
+fn source_map_row_joins_and_projects_its_complete_value() {
+    let (package, row) = source_map_fixture();
     let mut budget = quire_contract_model::NativeJoinBudget::new(1_000_000, 1_000_000);
     let joined = SelectedExactIdentities::empty()
         .with_source_collection_rows(&package, [row.clone()], &mut budget)
         .expect("authentic map row joins");
-    let projected = package.project_exact_type(&id, &joined, &mut budget)
+    let projected = package.project_exact_type(&row.structural_node, &joined, &mut budget)
         .expect("joined map projects");
     assert_eq!(projected.value_type(), &row.value_type);
     assert_eq!(joined.source_collection_rows().next(), Some(&row));
+}
+
+/// Trace: FR-357-AC-19.
+#[trace("TC-470", "FR-357-AC-19")]
+#[test]
+fn source_map_rows_preserve_key_and_non_collection_refusals() {
+    use quire_contract_model::NativeJoinBudget;
+    let (package, original) = source_map_fixture();
+    for row in [
+        quire_contract_model::SelectedSourceCollectionRow { key_node: None, ..original.clone() },
+        quire_contract_model::SelectedSourceCollectionRow {
+            key_node: Some(original.element_node.clone()), ..original.clone()
+        },
+        quire_contract_model::SelectedSourceCollectionRow {
+            value_type: quire_exact::ValueType::Boolean, ..original.clone()
+        },
+        quire_contract_model::SelectedSourceCollectionRow {
+            value_type: quire_exact::ValueType::map(quire_exact::MapType::new(
+                quire_exact::ValueType::Integer,
+                Some(quire_exact::CardinalityBound::new(0, 3).expect("bound")),
+            )), ..original.clone()
+        },
+    ] {
+        let mut budget = NativeJoinBudget::new(1_000_000, 1_000_000);
+        let refusal = SelectedExactIdentities::empty()
+            .with_source_collection_rows(&package, [row], &mut budget)
+            .expect_err("a mismatched native row refuses");
+        assert_eq!(refusal.code, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
+        assert_eq!(refusal.at.as_deref(), Some(&original.structural_node));
+        assert!(budget.consumed().work > 0);
+        assert_eq!(budget.last_success_delta(), None);
+    }
+}
+
+/// Trace: FR-357-AC-20.
+#[trace("TC-470", "FR-357-AC-20")]
+#[test]
+fn source_map_rows_compose_at_exact_budget_and_preserve_first_denial() {
+    use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind};
+    let (package, row) = source_map_fixture();
+    let initial = SelectedExactIdentities::empty();
+    let run = |budget: &mut NativeJoinBudget| {
+        let joined = initial.with_source_collection_rows(&package, [row.clone()], budget)?;
+        package.project_exact_type(&row.structural_node, &joined, budget)
+    };
+    let mut ample = NativeJoinBudget::new(1_000_000, 1_000_000);
+    let expected = run(&mut ample).expect("ample map read");
+    let used = ample.consumed();
+    let mut exact = NativeJoinBudget::new(used.work, used.storage);
+    assert_eq!(run(&mut exact).expect("exact cumulative map allowance"), expected);
+    assert_eq!(exact.consumed(), used);
+    for kind in [NativeJoinChargeKind::Work, NativeJoinChargeKind::Storage] {
+        let limits = match kind {
+            NativeJoinChargeKind::Work => (used.work - 1, used.storage),
+            NativeJoinChargeKind::Storage => (used.work, used.storage - 1),
+        };
+        let mut short = NativeJoinBudget::new(limits.0, limits.1);
+        let error = run(&mut short).expect_err("one under refuses the first unpaid operation");
+        let denied = short.first_unpaid().expect("native first charge");
+        assert_eq!(denied.kind, kind);
+        assert!(denied.amount > 0);
+        assert_eq!(error.denied, Some(denied));
+        assert_eq!(error.configured_bound, Some(match kind {
+            NativeJoinChargeKind::Work => limits.0,
+            NativeJoinChargeKind::Storage => limits.1,
+        }));
+        assert_eq!(short.work_limit(), limits.0);
+        assert_eq!(short.storage_limit(), limits.1);
+        assert_eq!(short.last_success_delta(), None);
+        let locus = short.first_unpaid_locus().expect("native locus");
+        let consumed = short.consumed();
+        assert!(consumed.work > 0 && consumed.storage > 0, "paid prefix remains spent");
+        let later = short.accounted_charge(kind, 99, locus).expect_err("first denial sticks");
+        assert_eq!(later, denied);
+        assert_eq!(short.first_unpaid_locus(), Some(locus));
+        assert_eq!(short.consumed(), consumed);
+    }
+}
+
+/// Trace: FR-357-AC-20.
+#[trace("TC-470", "FR-357-AC-20")]
+#[test]
+fn source_map_zero_storage_refuses_without_allocating_rows_or_diagnostics() {
+    use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind};
+    let (package, row) = source_map_fixture();
+    let initial = SelectedExactIdentities::empty();
+    let mut budget = NativeJoinBudget::new(1_000_000, 0);
+    let mut result = None;
+    let measured = allocation_counter::measure(|| {
+        result = Some(initial.with_source_collection_rows(&package, [row], &mut budget));
+    });
+    let refusal = result.expect("attempted join").expect_err("zero storage");
+    assert_eq!(measured.count_total, 0, "no allocation before the first storage admission");
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
+    assert_eq!(refusal.denied, budget.first_unpaid());
+    assert_eq!(refusal.denied.expect("storage charge").kind, NativeJoinChargeKind::Storage);
+    assert_eq!(refusal.configured_bound, Some(0));
+    assert_eq!(refusal.at, None);
+    assert_eq!(refusal.requested, None);
+    assert_eq!(refusal.form, None);
+    assert_eq!(budget.consumed().storage, 0);
+    assert_eq!(budget.last_success_delta(), None);
 }

@@ -436,7 +436,7 @@ pub(super) fn source_collection(row: &SelectedSourceCollectionRow) -> u128 {
             add(1, node(&row.structural_node)),
             add(node(&row.base_node), node(&row.element_node)),
         ),
-        value_type(&row.value_type),
+        add(row.key_node.as_ref().map_or(0, node), value_type(&row.value_type)),
     )
 }
 
