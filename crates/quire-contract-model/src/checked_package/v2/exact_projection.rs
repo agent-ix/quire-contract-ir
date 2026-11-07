@@ -3467,7 +3467,11 @@ fn compare_source_collection_value(
                 );
             }
             (ValueType::BoundedQuantity(_), ValueType::BoundedQuantity(_))
-            | (ValueType::CarriedQuantity(_), ValueType::CarriedQuantity(_)) => {
+            | (ValueType::CarriedQuantity(_), ValueType::CarriedQuantity(_))
+            | (
+                ValueType::Quantity(UnitId::Compound(_)),
+                ValueType::Quantity(UnitId::Compound(_)),
+            ) => {
                 // These leaves have no Exact projection here. Their derived
                 // equality may materialize numeric caches before that refusal.
                 return Err(source_collection_error(
