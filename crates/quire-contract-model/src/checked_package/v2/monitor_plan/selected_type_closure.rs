@@ -10,7 +10,7 @@ use super::{
     CheckedMonitorPlanRef,
 };
 use crate::checked_package::v2::equality_projection::equality_operator;
-use crate::checked_package::v2::native_join_budget::{read_charge, NativeReadDenied};
+use crate::checked_package::v2::native_join_budget::read_charge;
 use crate::checked_package::v2::native_join_storage as storage;
 use crate::checked_package::v2::{
     AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, ApplicationOperator, CheckedNodeId,
@@ -369,6 +369,113 @@ fn equality_fact_storage(row: &SelectedEqualityFactRow) -> u128 {
         .saturating_add(5)
 }
 
+fn preflight_work(
+    budget: &mut NativeJoinBudget,
+    count: usize,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    read_charge(budget, NativeJoinChargeKind::Work, count as u128).map_err(|_| native_error(budget))
+}
+
+fn preflight_source_record(
+    row: &SelectedSourceRecordRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    preflight_work(
+        budget,
+        row.qualified_declaration
+            .len()
+            .saturating_add(row.members.len()),
+    )?;
+    for member in &row.members {
+        storage::preflight_value_type(&member.value_type, budget, &member.type_node)
+            .map_err(|error| exact_error(error, budget))?;
+    }
+    Ok(())
+}
+
+fn preflight_source_tuple(
+    row: &SelectedSourceTupleRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    preflight_work(
+        budget,
+        row.qualified_declaration
+            .len()
+            .saturating_add(row.positions.len()),
+    )?;
+    for position in &row.positions {
+        storage::preflight_value_type(&position.value_type, budget, &position.type_node)
+            .map_err(|error| exact_error(error, budget))?;
+    }
+    Ok(())
+}
+
+fn preflight_source_union(
+    row: &SelectedSourceUnionRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    preflight_work(
+        budget,
+        row.qualified_declaration
+            .len()
+            .saturating_add(row.members.len()),
+    )?;
+    for member in &row.members {
+        preflight_work(
+            budget,
+            member
+                .payload_nodes
+                .len()
+                .saturating_add(member.payload.len()),
+        )?;
+        for value in &member.payload {
+            storage::preflight_value_type(value, budget, &row.structural_node)
+                .map_err(|error| exact_error(error, budget))?;
+        }
+    }
+    Ok(())
+}
+
+fn preflight_source_enum(
+    row: &SelectedSourceEnumRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    preflight_work(
+        budget,
+        row.declaration
+            .qualified_declaration
+            .len()
+            .saturating_add(row.members.len()),
+    )?;
+    storage::preflight_enum_shape(
+        &row.declaration.shape,
+        budget,
+        &row.declaration.structural_node,
+    )
+    .map_err(|error| exact_error(error, budget))?;
+    for member in &row.members {
+        preflight_work(budget, member.declaration_qualified_name.len())?;
+    }
+    Ok(())
+}
+
+fn preflight_source_collection(
+    row: &SelectedSourceCollectionRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    storage::preflight_value_type(&row.value_type, budget, &row.structural_node)
+        .map_err(|error| exact_error(error, budget))
+}
+
+fn preflight_source_unit(
+    row: &SelectedSourceUnitRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    preflight_work(budget, row.qualified_declaration.len())?;
+    storage::preflight_unit(&row.unit_id, budget, &row.structural_node)
+        .map_err(|error| exact_error(error, budget))
+}
+
 fn select_rows<T: Clone>(
     rows: &[T],
     reached: &BTreeSet<CheckedNodeId>,
@@ -376,19 +483,22 @@ fn select_rows<T: Clone>(
     form: &'static str,
     node: impl Fn(&T) -> &CheckedNodeId,
     storage_units: impl Fn(&T) -> u128,
-) -> Result<Vec<T>, NativeReadDenied> {
+    preflight: impl Fn(&T, &mut NativeJoinBudget) -> Result<(), SelectedMonitorTypeClosureError>,
+) -> Result<Vec<T>, SelectedMonitorTypeClosureError> {
     budget.set_locus_form(form);
-    read_charge(budget, NativeJoinChargeKind::Storage, 1)?;
+    read_charge(budget, NativeJoinChargeKind::Storage, 1).map_err(|_| native_error(budget))?;
     let mut selected = Vec::new();
     for (index, row) in rows.iter().enumerate() {
         budget.set_active_locus(Some(NativeJoinLocus {
             source: NativeJoinLocusSource::ReachedRow(index),
             form,
         }));
-        read_charge(budget, NativeJoinChargeKind::Work, 1)?;
+        read_charge(budget, NativeJoinChargeKind::Work, 1).map_err(|_| native_error(budget))?;
         let id = node(row);
         if reached.contains(id) {
-            read_charge(budget, NativeJoinChargeKind::Storage, storage_units(row))?;
+            preflight(row, budget)?;
+            read_charge(budget, NativeJoinChargeKind::Storage, storage_units(row))
+                .map_err(|_| native_error(budget))?;
             selected.push(row.clone());
         }
     }
@@ -412,6 +522,7 @@ fn select_equality_facts(
         if !reached.contains(&row.checked_application) {
             continue;
         }
+        preflight_work(budget, row.source_map_entry.regions.len())?;
         if let Some(value) = &row.value_type {
             storage::preflight_value_type(value, budget, &row.structural_node)
                 .map_err(|error| exact_error(error, budget))?;
@@ -553,8 +664,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 "equality_application_selection",
                 |row| &row.application,
                 equality_application_storage,
-            )
-            .map_err(|_| native_error(budget))?;
+                |row, budget| preflight_work(budget, row.source_map_entry.regions.len()),
+            )?;
             let equality_facts = select_equality_facts(rows.equality_facts, &equality_ids, budget)?;
             let source_units = select_rows(
                 rows.source_units,
@@ -563,8 +674,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 "equality_source_unit_selection",
                 |row| &row.structural_node,
                 storage::runtime_source_unit,
-            )
-            .map_err(|_| native_error(budget))?;
+                preflight_source_unit,
+            )?;
             let mut equalities = Vec::new();
             for (id, occurrence) in equality_occurrences {
                 let decision = self
@@ -599,8 +710,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 "source_record_selection",
                 |row| &row.structural_node,
                 storage::source_record,
-            )
-            .map_err(|_| native_error(budget))?;
+                preflight_source_record,
+            )?;
             let source_tuples = select_rows(
                 rows.source_tuples,
                 &reached.reached,
@@ -608,8 +719,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 "source_tuple_selection",
                 |row| &row.structural_node,
                 storage::source_tuple,
-            )
-            .map_err(|_| native_error(budget))?;
+                preflight_source_tuple,
+            )?;
             let source_unions = select_rows(
                 rows.source_unions,
                 &reached.reached,
@@ -617,8 +728,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 "source_union_selection",
                 |row| &row.structural_node,
                 storage::source_union,
-            )
-            .map_err(|_| native_error(budget))?;
+                preflight_source_union,
+            )?;
             let source_enums = select_rows(
                 rows.source_enums,
                 &reached.reached,
@@ -626,8 +737,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 "source_enum_selection",
                 |row| &row.declaration.structural_node,
                 storage::source_enum,
-            )
-            .map_err(|_| native_error(budget))?;
+                preflight_source_enum,
+            )?;
             let source_collections = select_rows(
                 rows.source_collections,
                 &reached.reached,
@@ -635,8 +746,8 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 "source_collection_selection",
                 |row| &row.structural_node,
                 storage::source_collection,
-            )
-            .map_err(|_| native_error(budget))?;
+                preflight_source_collection,
+            )?;
             let identities = reached
                 .identities
                 .with_source_record_rows(self.package, source_records, budget)
