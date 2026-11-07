@@ -9,16 +9,20 @@ use super::{
     CheckedMonitorClockRead, CheckedMonitorClockReadError, CheckedMonitorClockReadErrorCode,
     CheckedMonitorPlanRef,
 };
+use crate::checked_package::v2::equality_projection::equality_operator;
 use crate::checked_package::v2::native_join_budget::{read_charge, NativeReadDenied};
 use crate::checked_package::v2::native_join_storage as storage;
 use crate::checked_package::v2::{
-    CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, ExactTypeProjection,
-    ExactTypeProjectionError, ExactTypeProjectionErrorCode, NativeJoinBudget, NativeJoinChargeKind,
-    NativeJoinDeniedCharge, NativeJoinLocus, NativeJoinLocusSource, ScalarTypeForm,
+    AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, ApplicationOperator, CheckedNodeId,
+    CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, CheckedTerm, EqualityFactWitness,
+    ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode, NativeJoinBudget,
+    NativeJoinChargeKind, NativeJoinDeniedCharge, NativeJoinLocus, NativeJoinLocusSource,
+    ScalarTypeForm, SelectedEqualityApplicationRow, SelectedEqualityFactRow,
     SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
-    SelectedModelEnumDeclarationRow, SelectedModelEnumErrorCode, SelectedModelEnumMemberRow,
-    SelectedModelEnumShapeRow, SelectedSourceCollectionRow, SelectedSourceEnumRow,
-    SelectedSourceRecordRow, SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
+    SelectedFactEquality, SelectedFactEqualityId, SelectedModelEnumDeclarationRow,
+    SelectedModelEnumErrorCode, SelectedModelEnumMemberRow, SelectedModelEnumShapeRow,
+    SelectedSourceCollectionRow, SelectedSourceEnumRow, SelectedSourceRecordRow,
+    SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
     SelectedTupleDeclarationRow, SelectedTypeDeclarations, SelectedTypeDeclarationsError,
 };
 use std::collections::BTreeSet;
@@ -50,6 +54,10 @@ pub struct SelectedMonitorClosureRows<'a> {
     pub source_enums: &'a [SelectedSourceEnumRow],
     /// Selected structural source collections.
     pub source_collections: &'a [SelectedSourceCollectionRow],
+    /// Same-emission applications for reached admitted equality decisions.
+    pub equality_applications: &'a [SelectedEqualityApplicationRow],
+    /// Same-emission facts for reached admitted equality decisions.
+    pub equality_facts: &'a [SelectedEqualityFactRow],
 }
 
 /// A complete result for one admitted monitor root, with no executable plan.
@@ -61,6 +69,7 @@ pub struct SelectedMonitorTypeClosure<'a> {
     identities: SelectedExactIdentities,
     exact_types: Vec<ExactTypeProjection>,
     clocks: Vec<CheckedMonitorClockRead<'a>>,
+    equalities: Vec<SelectedFactEquality>,
     work: u64,
 }
 
@@ -73,6 +82,7 @@ impl std::fmt::Debug for SelectedMonitorTypeClosure<'_> {
             .field("identities", &self.identities)
             .field("exact_types", &self.exact_types)
             .field("clocks", &self.clocks)
+            .field("equalities", &self.equalities)
             .field("work", &self.work)
             .finish()
     }
@@ -103,6 +113,10 @@ impl<'a> SelectedMonitorTypeClosure<'a> {
     pub fn clocks(&self) -> &[CheckedMonitorClockRead<'a>] {
         &self.clocks
     }
+    /// Complete reached equality decisions in structural node and occurrence order.
+    pub fn equalities(&self) -> &[SelectedFactEquality] {
+        &self.equalities
+    }
     /// Total work charged to the shared caller allowance for this read.
     pub fn work(&self) -> u64 {
         self.work
@@ -128,6 +142,8 @@ pub enum SelectedMonitorTypeClosureErrorCode {
     Runtime(ExactTypeProjectionErrorCode),
     /// Selected clause clock correspondence refused.
     Clock(CheckedMonitorClockReadErrorCode),
+    /// A reached admitted equality decision refused.
+    Equality(AdmittedEqualityReadErrorCode),
     /// The next work charge exceeds the allowance.
     WorkLimit,
     /// The next owned storage charge exceeds the allowance.
@@ -259,6 +275,100 @@ fn clock_error(
     }
 }
 
+fn equality_error(
+    error: AdmittedEqualityReadError,
+    occurrence: &CheckedOccurrence,
+    budget: &NativeJoinBudget,
+) -> SelectedMonitorTypeClosureError {
+    SelectedMonitorTypeClosureError {
+        code: SelectedMonitorTypeClosureErrorCode::Equality(error.code),
+        at: error.at.or(error.application),
+        occurrence: Some(occurrence.clone()),
+        work: budget.consumed().work,
+        denied: budget.first_unpaid(),
+        denied_locus: budget.first_unpaid_locus(),
+    }
+}
+
+fn source_map_storage(entry: &crate::CheckedSourceMapEntry) -> u128 {
+    entry.regions.iter().fold(
+        storage::node(&entry.node_id).saturating_add(1),
+        |total, region| {
+            total
+                .saturating_add(region.source.authority.len() as u128)
+                .saturating_add(region.source.identity.len() as u128)
+                .saturating_add(3)
+        },
+    )
+}
+
+fn equality_application_storage(row: &SelectedEqualityApplicationRow) -> u128 {
+    storage::node(&row.application)
+        .saturating_add(source_map_storage(&row.source_map_entry))
+        .saturating_add(row.location.occurrence().role().as_str().len() as u128)
+        .saturating_add(4)
+}
+
+fn equality_fact_storage(row: &SelectedEqualityFactRow) -> u128 {
+    let owner = match row.owner.as_ref() {
+        Some(crate::CheckedNodeOwner::ModelRoot { identity }) => identity.len() as u128,
+        Some(crate::CheckedNodeOwner::Source {
+            authority,
+            identity,
+        }) => authority.len().saturating_add(identity.len()) as u128,
+        Some(crate::CheckedNodeOwner::Model { identity, node }) => {
+            identity.len().saturating_add(node.len()) as u128
+        }
+        None => 0,
+    };
+    let fact = match &row.fact {
+        EqualityFactWitness::OperandType { .. } | EqualityFactWitness::TextPlanType { .. } => 1,
+        EqualityFactWitness::Unit {
+            unit_id,
+            quantity_type,
+            ..
+        } => storage::unit(unit_id).saturating_add(storage::node(quantity_type)),
+        EqualityFactWitness::DimensionDeclaration { unit_id, .. } => storage::unit(unit_id),
+        EqualityFactWitness::DimensionTerm {
+            unit_id,
+            base_node,
+            exponent,
+            ..
+        } => storage::unit(unit_id)
+            .saturating_add(storage::node(base_node))
+            .saturating_add(exponent.len() as u128),
+        EqualityFactWitness::ConversionEdge {
+            unit_id,
+            target_node,
+            scale,
+            offset,
+            ..
+        } => storage::unit(unit_id)
+            .saturating_add(storage::node(target_node))
+            .saturating_add(scale.numerator.len() as u128)
+            .saturating_add(scale.denominator.len() as u128)
+            .saturating_add(offset.numerator.len() as u128)
+            .saturating_add(offset.denominator.len() as u128),
+        EqualityFactWitness::EnumMember {
+            source_declaration_node,
+            declaration_node,
+            member_node,
+            case,
+            ..
+        } => storage::node(source_declaration_node)
+            .saturating_add(storage::node(declaration_node))
+            .saturating_add(storage::node(member_node))
+            .saturating_add(case.len() as u128),
+    };
+    storage::node(&row.checked_application)
+        .saturating_add(storage::node(&row.structural_node))
+        .saturating_add(source_map_storage(&row.source_map_entry))
+        .saturating_add(row.value_type.as_ref().map_or(0, storage::value_type))
+        .saturating_add(owner)
+        .saturating_add(fact)
+        .saturating_add(5)
+}
+
 fn select_rows<T: Clone>(
     rows: &[T],
     reached: &BTreeSet<CheckedNodeId>,
@@ -281,6 +391,49 @@ fn select_rows<T: Clone>(
             read_charge(budget, NativeJoinChargeKind::Storage, storage_units(row))?;
             selected.push(row.clone());
         }
+    }
+    Ok(selected)
+}
+
+fn select_equality_facts(
+    rows: &[SelectedEqualityFactRow],
+    reached: &BTreeSet<CheckedNodeId>,
+    budget: &mut NativeJoinBudget,
+) -> Result<Vec<SelectedEqualityFactRow>, SelectedMonitorTypeClosureError> {
+    budget.set_locus_form("equality_fact_selection");
+    read_charge(budget, NativeJoinChargeKind::Storage, 1).map_err(|_| native_error(budget))?;
+    let mut selected = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::ReachedRow(index),
+            form: "equality_fact_selection",
+        }));
+        read_charge(budget, NativeJoinChargeKind::Work, 1).map_err(|_| native_error(budget))?;
+        if !reached.contains(&row.checked_application) {
+            continue;
+        }
+        if let Some(value) = &row.value_type {
+            storage::preflight_value_type(value, budget, &row.structural_node)
+                .map_err(|error| exact_error(error, budget))?;
+        }
+        let unit_id = match &row.fact {
+            EqualityFactWitness::Unit { unit_id, .. }
+            | EqualityFactWitness::DimensionDeclaration { unit_id, .. }
+            | EqualityFactWitness::DimensionTerm { unit_id, .. }
+            | EqualityFactWitness::ConversionEdge { unit_id, .. } => Some(unit_id),
+            _ => None,
+        };
+        if let Some(unit_id) = unit_id {
+            storage::preflight_unit(unit_id, budget, &row.structural_node)
+                .map_err(|error| exact_error(error, budget))?;
+        }
+        read_charge(
+            budget,
+            NativeJoinChargeKind::Storage,
+            equality_fact_storage(row),
+        )
+        .map_err(|_| native_error(budget))?;
+        selected.push(row.clone());
     }
     Ok(selected)
 }
@@ -335,6 +488,109 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 read_charge(budget, NativeJoinChargeKind::Storage, 1)
                     .map_err(|_| native_error(budget))?;
                 clocks.push(clock);
+            }
+            budget.set_active_locus(Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::MonitorSeed(0),
+                form: "selected_equality_output",
+            }));
+            read_charge(budget, NativeJoinChargeKind::Storage, 2)
+                .map_err(|_| native_error(budget))?;
+            let mut equality_ids = BTreeSet::new();
+            let mut equality_occurrences = Vec::new();
+            for id in &reached.reached {
+                let Some(node) = self.package.node(id) else {
+                    continue;
+                };
+                budget.set_locus_form("reached_equality_node");
+                read_charge(budget, NativeJoinChargeKind::Work, 1)
+                    .map_err(|_| native_error(budget))?;
+                if self.package.node_kind(id)
+                    != Some(CheckedNodeKind::Expression(crate::ExpressionForm::Binary))
+                {
+                    continue;
+                }
+                let Some(CheckedTerm::Application {
+                    operator: ApplicationOperator::Binary,
+                    operation,
+                    ..
+                }) = self.package.term(id)
+                else {
+                    continue;
+                };
+                if !operation
+                    .identity()
+                    .is_some_and(|name| equality_operator(name).is_some())
+                {
+                    continue;
+                }
+                read_charge(budget, NativeJoinChargeKind::Storage, storage::node(id))
+                    .map_err(|_| native_error(budget))?;
+                equality_ids.insert(id.clone());
+                if node.occurrences.is_empty() {
+                    read_charge(budget, NativeJoinChargeKind::Storage, storage::node(id))
+                        .map_err(|_| native_error(budget))?;
+                    return Err(semantic_error(
+                        SelectedMonitorTypeClosureErrorCode::Equality(
+                            AdmittedEqualityReadErrorCode::UnavailableEqualityDecision,
+                        ),
+                        Some(Box::new(id.clone())),
+                        budget,
+                    ));
+                }
+                for occurrence in &node.occurrences {
+                    budget.set_locus_form("reached_equality_occurrence");
+                    read_charge(budget, NativeJoinChargeKind::Work, 1)
+                        .map_err(|_| native_error(budget))?;
+                    read_charge(budget, NativeJoinChargeKind::Storage, 1)
+                        .map_err(|_| native_error(budget))?;
+                    equality_occurrences.push((id, occurrence));
+                }
+            }
+            let equality_applications = select_rows(
+                rows.equality_applications,
+                &equality_ids,
+                budget,
+                "equality_application_selection",
+                |row| &row.application,
+                equality_application_storage,
+            )
+            .map_err(|_| native_error(budget))?;
+            let equality_facts = select_equality_facts(rows.equality_facts, &equality_ids, budget)?;
+            let source_units = select_rows(
+                rows.source_units,
+                &reached.reached,
+                budget,
+                "equality_source_unit_selection",
+                |row| &row.structural_node,
+                storage::runtime_source_unit,
+            )
+            .map_err(|_| native_error(budget))?;
+            let mut equalities = Vec::new();
+            for (id, occurrence) in equality_occurrences {
+                let decision = self
+                    .package
+                    .admitted_equality(
+                        id,
+                        occurrence,
+                        &equality_applications,
+                        &equality_facts,
+                        &source_units,
+                        budget,
+                    )
+                    .map_err(|error| equality_error(error, occurrence, budget))?;
+                read_charge(
+                    budget,
+                    NativeJoinChargeKind::Storage,
+                    storage::node(id).saturating_add(2),
+                )
+                .map_err(|_| native_error(budget))?;
+                equalities.push(SelectedFactEquality {
+                    id: SelectedFactEqualityId {
+                        application: id.clone(),
+                        occurrence: occurrence.clone(),
+                    },
+                    decision,
+                });
             }
             let source_records = select_rows(
                 rows.source_records,
@@ -497,6 +753,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 identities,
                 exact_types,
                 clocks,
+                equalities,
                 work: budget.consumed().work - before.work,
             })
         })();

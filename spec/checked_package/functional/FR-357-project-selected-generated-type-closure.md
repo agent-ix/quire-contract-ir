@@ -20,7 +20,8 @@ relationships:
 
 ## Description
 
-The complete closure remains planned under IR-721. QSL-1630 retains the complete
+IR-1354 implements the public atomic closure over one admitted selected monitor
+using one caller-owned native work and storage budget. QSL-1630 retains the complete
 atom, guard and helper bodies in its plan identity; QSL-1631 supplies the
 final-emission source enum declaration/member rows. QSL-1723 and QSL-1727
 now supply final-emission source union and source record/member rows. Merged
@@ -30,12 +31,11 @@ producer/fact rows. Collections are structural Exact
 The IR-side union and source-record joins admit strict IR-owned fixture rows;
 they do not authenticate caller-created opaque Exact values. A genuine
 same-final-emission QSL-to-IR producer acceptance test in `quire-integration`
-remains required for the complete closure. The implemented first IR-721 slice
+remains required by AC-11 for real producer acceptance. The implemented first IR-721 slice
 reads an explicitly selected, bounded set of witnessed model declaration/field
 and equality facts, as specified below. It does not traverse a monitor root.
-IR-1353 adds a package-private bounded read of reached model and unit facts
-from an admitted monitor root. It remains a prerequisite, not the complete
-selected generated type closure.
+IR-1353 adds the package-private bounded read of reached model and unit facts
+from an admitted monitor root, reused by the public closure.
 When a consumer prepares one independently selected, admitted monitor root,
 Contract IR SHALL expose the complete ordinary
 type and declaration closure needed to form the canonical semantic-value
@@ -45,9 +45,9 @@ selection, type judgment, conversion choice or executable plan.
 
 ## Inputs
 
-The planned `CheckedMonitorPlanRef::project_selected_type_closure` read SHALL
-take one borrowed plan from an admitted `CheckedPackageV2`, a finite caller
-work allowance and one IR-owned
+The `CheckedMonitorPlanRef::project_selected_type_closure` read SHALL
+take one borrowed plan from an admitted `CheckedPackageV2`, one finite caller
+owned `NativeJoinBudget` for work and storage and one IR-owned
 `SelectedMonitorClosureRows` input containing the selected producer rows from
 the same final QSL emission. The plan itself supplies the State, Inputs,
 Scope and Results type nodes and the four ordered `init`, `on_event`,
@@ -150,14 +150,14 @@ result SHALL preserve original declaration/member identities alongside
 QSL-issued opaque Exact identities; a structural ID or display name SHALL
 NOT replace a missing opaque identity.
 
-The read SHALL use one shared finite work meter from seed inspection through
+The read SHALL use one shared finite native work and storage budget from seed inspection through
 graph and term traversal, selected row/index joins, native Exact and nominal
-projection, and output identity/value material. It SHALL charge every
+projection, admitted equality decision reads, and output identity/value material. It SHALL charge every
 inspected node, directed edge, row/index entry, member, payload position and
 identity/value byte before using or copying it. A nested bounded read SHALL
-receive only the remaining allowance and return its spent work to the same
-meter; a separate reset meter or unreported successful work SHALL NOT enlarge
-the allowance. Exhaustion SHALL identify the first uncharged native locus and
+receive the same budget and charge against its remaining allowance; a separate
+reset meter or unreported successful charge SHALL NOT enlarge the allowance.
+Exhaustion SHALL identify the first uncharged native locus, attempted charge and
 the work already charged. Equal admitted inputs, same-emission rows and limit
 SHALL yield equal complete results or equal first stops, including after a
 package clone. The read SHALL expose no partial view on refusal.
@@ -312,10 +312,10 @@ result alone SHALL NOT authorize either construction.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-357-AC-1 | PLANNED/UNRUN (IR-721 complete closure). One bounded read of an admitted `CheckedMonitorPlanRef` seeds State, Inputs, Scope, Results and all four ordered entry signatures and bodies, then returns exactly the reachable complete type/declaration closure. Source records, tuples, structural collections, sealed unions, source/model enum cases, model objects/fields and units/dimensions/conversions retain original identities, QSL-issued opaque Exact identities, producer order, presence, shape and member/payload types sufficient for the canonical `TypeEnvironment`; shared references yield one declaration. An IR-owned strict fixture proves the traversal separately from AC-11's real QSL producer handoff. | Test |
-| FR-357-AC-2 | PLANNED/UNRUN (IR-721 complete closure). A missing, foreign, duplicate, conflicting or stale producer row; changed member/payload type node; unresolved reached declaration; cross-package reference without an admitted resolution rule; unrepresentable reached type; or native nominal/Exact refusal returns its typed cause and first node/edge/row/occurrence locus, with charged work, no partial view and no invented identity. An unrelated unsupported graph node or absent row outside the reached closure does not refuse; a selected row search can still exhaust at an inspected unrelated row position. | Test |
-| FR-357-AC-3 | PLANNED/UNRUN (IR-721 complete closure). A large selected closure amid unrelated graph nodes visits only reached graph, typed-term, semantic-type and declaration edges using iterative worklists and visited node/edge sets. A deep term does not grow the host stack. One shared meter charges every inspected node/edge, row/index, member/payload position and identity/value byte, including nested Exact/nominal reads and output; the exact allowance succeeds and one less names the first uncharged locus. Equal inputs and allowances, including a package clone, give equal complete results or first stops. | Test |
-| FR-357-AC-4 | PLANNED/UNRUN (IR-721 complete closure). Static API and dependency analysis finds one bounded `CheckedMonitorPlanRef` projection over admitted package facts and IR-owned selected producer rows, with no IR-owned `TypeEnvironment`, second plan/evaluator, QSL or RT dependency, source reparse or witness fabrication. The planned root exports remain excluded from FR-019's exact implemented inventory until code lands. | Analysis |
+| FR-357-AC-1 | Implemented (IR-1354; TC-470). One bounded read of an admitted `CheckedMonitorPlanRef` seeds State, Inputs, Scope, Results and all four ordered entry signatures and bodies, then returns exactly the reachable complete type/declaration and admitted equality closure. Source records, tuples, structural collections, sealed unions, source/model enum cases, model objects/fields and units/dimensions/conversions retain original identities, QSL-issued opaque Exact identities, producer order, presence, shape and member/payload types sufficient for the canonical `TypeEnvironment`; shared references yield one declaration. An IR-owned strict fixture proves the traversal separately from AC-11's real QSL producer handoff. | Test |
+| FR-357-AC-2 | Implemented (IR-1354; TC-470). A missing, foreign, duplicate, conflicting or stale producer row; changed member/payload type node; unresolved reached declaration; cross-package reference without an admitted resolution rule; unrepresentable reached type; or native nominal, Exact or equality refusal returns its typed cause and first node/edge/row/occurrence locus, with charged work, no partial view and no invented identity. An unrelated unsupported graph node or absent row outside the reached closure does not refuse; a selected row search can still exhaust at an inspected unrelated row position. | Test |
+| FR-357-AC-3 | Implemented (IR-1354; TC-470). A large selected closure amid unrelated graph nodes visits only reached graph, typed-term, semantic-type and declaration edges using iterative worklists and visited node/edge sets. A deep term does not grow the host stack. One shared native work and storage budget charges every inspected node/edge, row/index, member/payload position and identity/value byte, including nested Exact, nominal and equality reads and output; the exact allowance succeeds and one less names the first uncharged locus. Equal inputs and allowances, including a package clone, give equal complete results or first stops. | Test |
+| FR-357-AC-4 | Implemented (IR-1354; TC-470 and FR-019 exact inventory). Static API and dependency analysis finds one bounded `CheckedMonitorPlanRef` projection over admitted package facts and IR-owned selected producer rows, with no IR-owned `TypeEnvironment`, second plan/evaluator, QSL or RT dependency, source reparse or witness fabrication. The root exports appear in FR-019's exact implemented inventory. | Analysis |
 | FR-357-AC-5 | Implemented (IR-721 selected facts; IR-owned fixture). Given an admitted package, explicit IDs for one selected model declaration, its selected record field and one equality application/occurrence, and matching IR-owned same-emission rows, the public bounded read returns exactly those complete facts. It preserves selected document, final structural node, original identities, field order/presence/type, exact equality occurrence and opaque FR-353 decision. No monitor-entry traversal or generated-source closure is claimed. | Test |
 | FR-357-AC-6 | Implemented (IR-721 selected facts). A missing, foreign, duplicate, conflicting or pre-rewrite selected declaration, field, equality application or fact row; wrong document, form, owner, role, occurrence or source-map correspondence; selected unsupported form or unrepresentable type; and native FR-353 refusal each produce a named typed outcome with first native locus and no partial view or invented identity. An unrelated unsupported graph form or absent witness outside the explicit selection leaves the same successful result. Duplicate selected IDs produce one item. | Test |
 | FR-357-AC-7 | Implemented (IR-721 selected facts). The bounded read inspects the explicitly selected admitted facts without traversing monitor entries or scanning unrelated graph nodes. Locating selected witnesses in full-emission row slices charges every inspected row and index entry, including unrelated rows; adding unrelated rows either raises required work or causes a charged first-row-locus stop at the former allowance. The exact allowance succeeds and one less refuses with attempted work and first uncharged locus. Equal inputs and allowance, including a package clone, yield equal results or first stops. | Test |
@@ -359,9 +359,10 @@ result alone SHALL NOT authorize either construction.
   main. No source `MemberId` is retained by QSL's checking stage or invented
   by IR. IR PR #906 implements
   selective monitor-entry callable reads; PR #907 extends ordinary source
-  function bodies to direct admitted Values. Neither completes monitor closure. AC-1 through AC-4 remain planned
-  until complete closure and its real producer handoff are implemented and
-  exercised. The first selected-fact read does not satisfy those criteria.
+  function bodies to direct admitted Values. IR-1354 implements AC-1 through
+  AC-4 using an IR-owned strict fixture and one native budget, including
+  admitted equality. AC-11 retains the real same-emission producer handoff;
+  the first selected-fact read alone does not satisfy AC-1 through AC-4.
   `quire-integration` owns
   AC-9's merged, executed real-emission QSL-to-IR integration test using the
   available IR selected-fact API; IR owns AC-5's explicitly selected fixture.

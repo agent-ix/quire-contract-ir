@@ -834,9 +834,11 @@ mod tests {
     };
     use ix_trace_rs::trace;
     use quire_exact::{
-        CollectionKind, CollectionType, EffectiveId, MemberId, MemberOwner, NodeKey,
-        OriginalDeclarationKey, PathSegment, Presence, UnionMember, UnitId, ValueType,
+        CollectionKind, CollectionType, EffectiveId, Location, MemberId, MemberOwner, NodeKey,
+        Origin, OriginalDeclarationKey, PathSegment, Presence, Role, UnionMember, UnitId,
+        ValueType,
     };
+    use quire_semantic_value::declaration::{EqualityOperator, EqualitySchedule};
 
     fn admitted_monitor() -> CheckedPackageV2 {
         admitted_monitor_with_variant(false)
@@ -849,6 +851,52 @@ mod tests {
     fn admitted_monitor_for_closure_with_status(status: &str) -> CheckedPackageV2 {
         let (mut wire, document) =
             monitor_plan_fixtures::model_fact_monitor_with_status(false, status);
+        let boolean = monitor_plan_fixtures::find(&wire, "boolean");
+        let equality = monitor_plan_fixtures::append(
+            &mut wire,
+            "expression",
+            "binary",
+            Some(&boolean),
+            serde_json::json!({"term":"application","operator":"binary",
+                "operation":{"identity":"quire.op.boolean.eq","laws":[],"leaves":[],
+                    "member":null,"mode":null},"result_type":boolean,
+                "arguments":[
+                    {"term":"literal","type":boolean,"value_kind":"boolean","value":true},
+                    {"term":"literal","type":boolean,"value_kind":"boolean","value":true}]}),
+            "monitor_equality",
+        );
+        let equality_position = monitor_plan_fixtures::position(&wire, &equality);
+        wire["semantic_graph"]["nodes"][equality_position]["occurrences"] =
+            serde_json::json!([{"role":"expression","ordinal":0}]);
+        let conditional_position = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|node| {
+                node["semantic_form"] == "conditional" && node["node_id"]["path"][2] == "on_gap"
+            })
+            .expect("on_gap conditional");
+        wire["semantic_graph"]["nodes"][conditional_position]["body"]["arguments"][0] =
+            monitor_plan_fixtures::reference(&equality);
+        wire["semantic_graph"]["nodes"][conditional_position]["dependencies"]
+            .as_array_mut()
+            .unwrap()
+            .push(equality.clone());
+        monitor_plan_fixtures::rekey(&mut wire, conditional_position);
+        if wire["checked_term_data"].is_null() {
+            wire["checked_term_data"] = serde_json::json!({
+                "equality_decisions":[],"protocol_locations":[],
+                "dispatch_tables":[],"probabilistic_claims":[]});
+        }
+        wire["checked_term_data"]["equality_decisions"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"application":equality,
+                "occurrence":{"role":"expression","ordinal":0},"term_path":[],
+                "operator":"equal","schedule":"plan",
+                "left":{"operand":0,"source_type":boolean,"conversion_target":null},
+                "right":{"operand":1,"source_type":boolean,"conversion_target":null},
+                "units":[],"enum_members":[]}));
         let source = wire["lock"]["sources"][0].clone();
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
             if node["node_tag"] != "composite_type"
@@ -879,6 +927,40 @@ mod tests {
                 });
         }
         admit_wire(&wire, &document)
+    }
+
+    fn equality_rows(package: &CheckedPackageV2) -> Vec<crate::SelectedEqualityApplicationRow> {
+        let application = package.graph().nodes.iter().find(|node| {
+            matches!(node.node_id.path.get(2),
+                Some(crate::CheckedNodePathSegment::Name(name)) if name.as_ref() == "monitor_equality")
+        }).expect("reached monitor equality").node_id.clone();
+        let occurrence = crate::CheckedOccurrence {
+            role: crate::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let source_map_entry = package
+            .source_map()
+            .iter()
+            .find(|row| {
+                row.node_id == application
+                    && row.role == occurrence.role
+                    && row.ordinal == occurrence.ordinal
+            })
+            .expect("equality source occurrence")
+            .clone();
+        let key = NodeKey::new(
+            package.name(),
+            vec![PathSegment::Text("monitor-equality".into())],
+            0,
+        )
+        .unwrap();
+        vec![crate::SelectedEqualityApplicationRow::new(
+            application,
+            occurrence,
+            source_map_entry,
+            key.clone(),
+            Location::new(key, Origin::new(Role::from("expression"), 0)),
+        )]
     }
 
     #[trace("TC-470", "FR-357-AC-1")]
@@ -1271,6 +1353,7 @@ mod tests {
     #[test]
     fn selected_monitor_closure_reuses_one_meter_for_reached_model_facts() {
         let package = admitted_monitor_for_closure();
+        let equality_apps = equality_rows(&package);
         let (declarations, fields, source_units) = producer_rows(&package);
         let (source_records, source_tuples, source_unions, source_collections) =
             source_rows(&package);
@@ -1287,6 +1370,8 @@ mod tests {
             source_unions: &source_unions,
             source_enums: &[],
             source_collections: &source_collections,
+            equality_applications: &equality_apps,
+            equality_facts: &[],
         };
         let plan = package.monitor_plans().next().unwrap();
         let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
@@ -1305,6 +1390,15 @@ mod tests {
         assert_eq!(closure.plan().on_gap().parameter_types().len(), 2);
         assert!(!closure.clocks().is_empty());
         assert_eq!(closure.clocks()[0].clause(), plan.clause());
+        assert_eq!(closure.equalities().len(), 1);
+        let equality = &closure.equalities()[0];
+        assert_eq!(equality.id.application, equality_apps[0].application);
+        assert_eq!(equality.id.occurrence, equality_apps[0].occurrence);
+        assert_eq!(equality.decision.application(), &equality_apps[0].node_key);
+        assert_eq!(equality.decision.operator(), EqualityOperator::Equal);
+        assert_eq!(equality.decision.schedule(), EqualitySchedule::Plan);
+        assert_eq!(equality.decision.left().source(), &ValueType::Boolean);
+        assert_eq!(equality.decision.right().source(), &ValueType::Boolean);
         let union = closure
             .identities()
             .source_union_rows()
@@ -1354,10 +1448,23 @@ mod tests {
         SelectedExactIdentities::empty()
             .with_source_record_rows(&package, source_records.clone(), &mut source_budget)
             .expect("individually affordable source join");
+        let mut equality_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let native_equality = package
+            .admitted_equality(
+                &equality_apps[0].application,
+                &equality_apps[0].occurrence,
+                &equality_apps,
+                &[],
+                &source_units,
+                &mut equality_budget,
+            )
+            .expect("individually affordable equality read");
+        assert_eq!(native_equality, equality.decision);
         let combined_short = model_budget
             .consumed()
             .work
-            .max(source_budget.consumed().work);
+            .max(source_budget.consumed().work)
+            .max(equality_budget.consumed().work);
         assert!(combined_short < used.work);
         let mut combined_budget = NativeJoinBudget::new(combined_short, used.storage);
         assert_eq!(
@@ -1412,6 +1519,7 @@ mod tests {
         assert_eq!(cloned_closure.model_types(), closure.model_types());
         assert_eq!(cloned_closure.identities(), closure.identities());
         assert_eq!(cloned_closure.exact_types(), closure.exact_types());
+        assert_eq!(cloned_closure.equalities(), closure.equalities());
     }
 
     #[trace("TC-470", "FR-357-AC-2", "FR-357-AC-3")]
@@ -1421,6 +1529,7 @@ mod tests {
             SelectedMonitorClosureRows, SelectedMonitorTypeClosureErrorCode as Code,
         };
         let package = admitted_monitor_for_closure();
+        let equality_apps = equality_rows(&package);
         let (declarations, fields, source_units) = producer_rows(&package);
         let (source_records, source_tuples, source_unions, source_collections) =
             source_rows(&package);
@@ -1439,11 +1548,69 @@ mod tests {
                 source_unions: &source_unions,
                 source_enums: &[],
                 source_collections: &source_collections,
+                equality_applications: &equality_apps,
+                equality_facts: &[],
             };
             plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
                 .map(|closure| (closure.work(), closure.identities().clone()))
         };
         let (baseline_work, baseline) = read(&source_records).expect("complete fixture");
+        let read_equalities = |applications: &[crate::SelectedEqualityApplicationRow]| {
+            let rows = SelectedMonitorClosureRows {
+                declarations: &declarations,
+                fields: &fields,
+                model_tuples: &[],
+                source_units: &source_units,
+                model_enum_declarations: &[],
+                model_enum_members: &[],
+                model_enum_shapes: &[],
+                source_records: &source_records,
+                source_tuples: &source_tuples,
+                source_unions: &source_unions,
+                source_enums: &[],
+                source_collections: &source_collections,
+                equality_applications: applications,
+                equality_facts: &[],
+            };
+            plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
+                .map(|closure| (closure.work(), closure.equalities().to_vec()))
+        };
+        let (equality_work, equality_values) =
+            read_equalities(&equality_apps).expect("reached equality");
+        assert_eq!(equality_values.len(), 1);
+        let missing_equality = read_equalities(&[]).expect_err("reached equality requires row");
+        assert_eq!(
+            missing_equality.code,
+            Code::Equality(crate::AdmittedEqualityReadErrorCode::UnavailableEqualityWitness)
+        );
+        assert_eq!(
+            missing_equality.at.as_deref(),
+            Some(&equality_apps[0].application)
+        );
+        assert_eq!(
+            missing_equality.occurrence,
+            Some(equality_apps[0].occurrence.clone())
+        );
+        let mut stale_equality = equality_apps.clone();
+        stale_equality[0].node_key = NodeKey::new(
+            package.name(),
+            vec![PathSegment::Text("stale-equality".into())],
+            0,
+        )
+        .unwrap();
+        let stale_error = read_equalities(&stale_equality).expect_err("stale equality row");
+        assert_eq!(
+            stale_error.code,
+            Code::Equality(crate::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness)
+        );
+        let mut with_unreached_equality = equality_apps.clone();
+        let mut irrelevant_equality = equality_apps[0].clone();
+        irrelevant_equality.application.package = "foreign/package".into();
+        with_unreached_equality.push(irrelevant_equality);
+        let (extra_work, same_equalities) = read_equalities(&with_unreached_equality)
+            .expect("unreached unsupported equality row ignored");
+        assert_eq!(same_equalities, equality_values);
+        assert!(extra_work > equality_work);
         let mut missing = source_records.clone();
         missing.retain(|row| {
             row.qualified_declaration
@@ -1469,6 +1636,8 @@ mod tests {
             source_unions: &source_unions,
             source_enums: &[],
             source_collections: &source_collections,
+            equality_applications: &equality_apps,
+            equality_facts: &[],
         };
         let mut diagnostic_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let semantic = plan
@@ -1520,6 +1689,7 @@ mod tests {
             "unreached row lookup still charges inspection"
         );
         let unrepresentable = admitted_monitor_for_closure_with_status("text");
+        let unrepresentable_equalities = equality_rows(&unrepresentable);
         let (unrepresentable_declarations, unrepresentable_fields, unrepresentable_units) =
             producer_rows(&unrepresentable);
         let (
@@ -1546,6 +1716,8 @@ mod tests {
                     source_unions: &unrepresentable_unions,
                     source_enums: &[],
                     source_collections: &unrepresentable_collections,
+                    equality_applications: &unrepresentable_equalities,
+                    equality_facts: &[],
                 },
                 &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
             )

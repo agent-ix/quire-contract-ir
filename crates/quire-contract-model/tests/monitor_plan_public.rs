@@ -3,6 +3,7 @@
 
 //! FR-019-AC-23: default-feature external consumer of the borrowed monitor API.
 
+use ix_trace_rs::trace;
 use quire_contract_model::{
     ApplicationOperator, CheckedCallableIdentity, CheckedCallableReadErrorCode,
     CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef, CheckedNodeId,
@@ -58,6 +59,8 @@ fn plan<'a>(plan: CheckedMonitorPlanRef<'a>) {
         source_unions: &[],
         source_enums: &[],
         source_collections: &[],
+        equality_applications: &[],
+        equality_facts: &[],
     };
     let result: Result<SelectedMonitorTypeClosure<'a>, SelectedMonitorTypeClosureError> =
         plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(0, 0));
@@ -134,9 +137,9 @@ fn evidence(wire: &Value) -> CheckedPackageEvidence {
     "FR-038-AC-426",
     "FR-354-AC-7",
     "FR-038-AC-433",
-    "FR-038-AC-434",
-    "FR-357-AC-4"
+    "FR-038-AC-434"
 )]
+#[trace("TC-470", "FR-357-AC-4")]
 #[test]
 fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
     let vectors = monitor_plan_fixtures::recipes();
