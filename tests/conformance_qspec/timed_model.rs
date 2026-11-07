@@ -225,7 +225,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
         let clause_id = id_at(&wire, clause_position);
         let anchor_id = id_at(&wire, anchor_position);
         assert!(package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .any(|node| node.node_id == clause_id));

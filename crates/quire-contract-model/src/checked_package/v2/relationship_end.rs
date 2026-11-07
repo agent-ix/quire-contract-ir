@@ -369,7 +369,7 @@ pub(super) mod tests {
             "contract_version": "quire.checked-package/v2", "name": "relationship-end",
             "lock": {"sources": [source], "edition": edition, "profile_selections": [],
                 "definition_selections": [], "required_features": [], "dependency_selections": []},
-            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes, "operand_rows": vec![Vec::<u64>::new(); nodes.len()]},
+            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
             "source_map": source_map, "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"},
                 "entries": []},

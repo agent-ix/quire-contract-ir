@@ -89,7 +89,7 @@ fn timed_clock_no_row_vectors_join_model_and_refuse_extra_row() {
     let wire = timed_model_clause();
     assert!(wire.get("temporal_bindings").is_none(), "TN-01 has no row");
     let package = admitted(&wire);
-    let clause = &package.graph().nodes[8];
+    let clause = &package.resolved_graph().nodes[8];
     let binding = package
         .model_time_for_clause(&clause.node_id, 100)
         .expect("bounded model-time read")

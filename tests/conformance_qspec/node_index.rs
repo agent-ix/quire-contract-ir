@@ -1147,7 +1147,7 @@ fn graph_reindexing_preserves_structural_dependency_order() {
         let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
             panic!("structurally ordered dependency graph must admit: {result:?}");
         };
-        for (position, node) in admitted.graph().nodes.iter().enumerate() {
+        for (position, node) in admitted.resolved_graph().nodes.iter().enumerate() {
             let resolved = node
                 .dependencies
                 .iter()

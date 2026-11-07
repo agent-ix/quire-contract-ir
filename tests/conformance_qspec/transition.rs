@@ -295,7 +295,7 @@ fn two_source_claims_share_one_transition_identity_and_retain_regions() {
         panic!("two checked source declarations must admit");
     };
     let transition = read
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| serde_json::to_value(&node.node_id).expect("node id") == node_id)
