@@ -33,9 +33,17 @@ Edges are correct; FND-001 must be fixed before coding, FND-002 is a nit.
 | --- | --- | --- | --- |
 | FND-003 | medium | The cross-owner seam fixes PlanRoot::admit_authority(self, PlanAuthoritySelection, Option<progress::View>, &mut NativeJoinBudget) and requires the time source kind and period 'on AdmittedPlanAuthority', but the QSL implementation of this seam (quire-spec-language#2489 head 01145fe, monitor_root/progress.rs:357-411) takes two more parameters (validation: PlanAuthorityValidationCaps, locus: NativeJoinLocus) and exposes no time-source accessor (only root()). Its admission_binding() doc also makes the caller account for the cloned handle, while driver FR-019 P5 charges no storage. Either cite QSL as owner of the signature or match it. | spec/checked_package/functional/FR-361-bind-monitor-authority-and-runtime-layout-context.md:78-92 |
 
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | AD-010 P5 says the driver's authority-row phase charges no storage, but driver #129 c7caa55 FR-019 P5 charges one handle storage unit for the cloned admission_binding() before cloning it, as QSL #2489's admission_binding() doc requires. The architecture's phase table disagrees with the phase owner. | spec/assurance/AD-010-tick-monitor-admission-lowering-and-execution.md:136 |
+
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | still-open | IR's own charges now use MonitorSeed(k) with forms selected_authority / selected_layout_context / selected_clock_binding, but k is 'the selected occurrence's index in clocks()'. The first step-3 charges (ForeignEmission, ClauseMismatch, OccurrenceMismatch inspections) happen before the occurrence is resolved, and an OccurrenceMismatch has no index at all, so the locus FR-361-AC-4 asserts for those charges is still undefined (FR-361.md Charging). |
 | FND-002 | fixed | - |
+| FND-001 | fixed | - |
+| FND-003 | still-open | The two missing parameters were added, but in the wrong order. FR-361.md:79-81 states admit_authority(self, PlanAuthoritySelection, Option<progress::View>, &mut NativeJoinBudget, PlanAuthorityValidationCaps, NativeJoinLocus); QSL #2489 head 01145fe (progress.rs:404-411) is (self, selection, progress, validation: PlanAuthorityValidationCaps, budget: &mut NativeJoinBudget, locus). The text calls the signature QSL-owned yet restates it differently (driver #129 c7caa55 FR-019:89 copies the same wrong order). Swap the two arguments or cite the signature without restating it. checked_time_source() does not exist in #2489 either, but 'QSL fixes the final names' covers that. |

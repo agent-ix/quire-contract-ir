@@ -75,21 +75,22 @@ QSL compares them against the checked time source.
 
 ### Cross-owner seam: QSL `AdmittedPlanAuthority`
 
-QSL owns the single admission stage and its signature:
-`PlanRoot::admit_authority(self, PlanAuthoritySelection,
-Option<progress::View>, &mut NativeJoinBudget, PlanAuthorityValidationCaps,
-NativeJoinLocus) -> Result<AdmittedPlanAuthority, PlanAuthorityRefusal>`.
-This requirement depends on QSL providing, on `AdmittedPlanAuthority`:
+QSL owns the single admission stage `PlanRoot::admit_authority` and its
+signature. It consumes the `PlanRoot` and takes, by role: the authority
+selection, the optional observation progress view, QSL's structural
+validation caps, the caller's `&mut NativeJoinBudget` and the caller's
+`NativeJoinLocus`; it returns `AdmittedPlanAuthority` or a typed
+`PlanAuthorityRefusal`. This requirement depends on QSL providing, on
+`AdmittedPlanAuthority`:
 
 - `admitted_package() -> &CheckedPackageV2`, the package of its own one strict
   read of the plan root's final emission, and `admission_binding() ->
   AdmissionBinding` issued by that same package;
 - `admitted_order()` and `progress_context()` borrowed for the authority's
   lifetime;
-- `checked_time_source() -> &ModelTimeSource`, borrowed, giving the checked
-  time source's kind, and a retained borrowed IR `CheckedRational` period
-  getter for a tick source, from which the row's `time_source` is built
-  (QSL fixes the final names);
+- a borrowed read of the checked time source giving its kind, and a retained
+  borrowed IR `CheckedRational` period for a tick source, from which the
+  row's `time_source` is built (QSL names these reads);
 - charging of every QSL selection, strict-read and canonical-value allocation
   to the caller's `NativeJoinBudget` before it is made.
 

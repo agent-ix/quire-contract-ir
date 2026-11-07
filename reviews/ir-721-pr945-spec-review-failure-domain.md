@@ -37,9 +37,12 @@ the exclusion of names/indices/equal contents are otherwise sound.
 | FND-003 | medium | Clock-binding `model` has two sources: the member table reads it from 'the timed-model root's model reference', while the prose says kind, model, operation and period are read from the time-source node's bindings 'and for tick its model, operation and period bindings'. A tick source node carries its own `model` binding (timed_model.rs:352), so two implementers can pick different nodes and emit different bytes RT compares exactly. | spec/checked_package/functional/FR-361-bind-monitor-authority-and-runtime-layout-context.md:130,136-139 |
 | FND-004 | low | ForeignEmission's second clause ('the plan's root, four entry and clause node IDs do not resolve to the same structural keys in that admitted package') cannot fail once retains() passes, because a retaining package shares the plan's Arcs; no AC-2 case exercises it. State it as an invariant or drop it. | spec/checked_package/functional/FR-361-bind-monitor-authority-and-runtime-layout-context.md:170-173 |
 
+
 ## Dispositions
 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | - |
 | FND-002 | fixed | - |
+| FND-003 | fixed | - |
+| FND-004 | fixed | - |

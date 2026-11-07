@@ -133,7 +133,7 @@ limits:
 | P2 selection | driver | final-subject comparisons, partial selection, clock admission |
 | P3 identity rows | QSL `identity_rows` | the native join and each owned record, member and union allocation |
 | P4 row adapters | QSL adapters | equality witness rows, source enum rows, model enum shape rows, collection rows |
-| P5 authority row | driver | inspecting the handoff components; the row borrows the order and association bytes, so no storage is charged |
+| P5 authority row | driver | inspecting the handoff components, and, at locus `AuthorityRow`, one handle storage unit before cloning the `admission_binding()` handle; the row borrows the order and association bytes, so no storage is charged for them |
 | P6 closure | IR | every inspection, join, projection, receipt and context allocation |
 | P7 lowering | driver | every arena, environment, layout and diagnostic allocation |
 
