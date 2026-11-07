@@ -478,7 +478,7 @@ fn assert_tk36_resolved(
         "TK-36 variant payload retains exact Rational bounds"
     );
     let (range, kind) = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .zip(admitted.node_kinds())
@@ -515,6 +515,8 @@ fn assert_tk36_resolved(
 /// Apply one published RFC 6902 operation. The vector's patch is the source of
 /// both the mutation and its expected package identity.
 pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
+    // Published patches address the wire: operand rows and operand slots.
+    super::fixture_support::wire_operands(package);
     let path = patch["path"].as_str().expect("published patch path");
     let (parent, member) = path.rsplit_once('/').expect("patch member");
     let target = package.pointer_mut(parent).expect("published patch parent");

@@ -6,8 +6,8 @@
 use crate::support::checked_package::{
     boolean_key, bounds_body, canonical, evidence_for, evidence_with_document, integer_key,
     node_id, nominal_fixture_members, nominal_package, reassign_node_id, refresh_identity,
-    refresh_identity_projection, resolved_fixture_id, select_model, settle, v2_all_families,
-    v2_nominal,
+    refresh_identity_projection, resolve_operands, resolved_fixture_id, select_model, settle,
+    v2_all_families, v2_nominal,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -750,6 +750,8 @@ fn read_with_selected_model(
 }
 
 fn retarget_qspec_application_argument(package: &mut Value, operation: &str, target: &Value) {
+    // The published package holds the wire; this edit works on index segments.
+    crate::support::checked_package::resolve_operands(package);
     let nodes = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("QSpec nodes");
@@ -1623,6 +1625,9 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
         if let Some(owner) = owner {
             population_node["owner"] = owner;
         }
+        // The published package holds the wire; the edits below add nodes by
+        // index segment and the harness writes the rows back.
+        resolve_operands(&mut package);
         package["semantic_graph"]["nodes"]
             .as_array_mut()
             .unwrap()

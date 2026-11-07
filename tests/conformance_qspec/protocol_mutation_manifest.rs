@@ -49,9 +49,19 @@ fn assert_manifest_refusal(id: &str, expected_locus: &str, node_index: usize) {
     assert_eq!(row["expect"]["cause"], "operator-ineligible", "{id}");
     assert_eq!(row["expect"]["locus"], expected_locus, "{id}");
 
-    let mut mutated = base.clone();
+    // The published edits address the wire: operand slots and operand rows.
+    let mut mutated = fixture_support::wire_form(&base);
     let edits = row["edit"].as_array().expect("manifest edits");
-    assert_eq!(edits.len(), 2, "{id}: exact two-edit mutation");
+    let published_edits = match id {
+        "V13" => 2,
+        "V14" => 7,
+        other => panic!("{other}: unexpected manifest row"),
+    };
+    assert_eq!(
+        edits.len(),
+        published_edits,
+        "{id}: exact published mutation"
+    );
     for edit in edits {
         assert_eq!(edit["op"], "replace", "{id}: mutation operation");
         let path = edit["path"].as_str().expect("mutation pointer");
@@ -89,11 +99,13 @@ fn assert_manifest_refusal(id: &str, expected_locus: &str, node_index: usize) {
         expected_locus,
         "{id}"
     );
+    let mut resolved = mutated.clone();
+    fixture_support::resolve_operands(&mut resolved);
     assert_eq!(
         refusal.locus,
         Some(
             serde_json::from_value(
-                mutated["semantic_graph"]["nodes"][node_index]["node_id"].clone()
+                resolved["semantic_graph"]["nodes"][node_index]["node_id"].clone()
             )
             .expect("published protocol node identity")
         ),
@@ -763,7 +775,8 @@ fn qspec_event_package() -> (Value, std::path::PathBuf, Value) {
         .expect("fence template");
     // The template is a node in wire form with its operand row beside it.
     let mut event = template["edit"][0]["value"].clone();
-    fixture_support::resolve_node_row(&mut event, &template["edit"][1]["value"]);
+    let edits = template["edit"].as_array().expect("template edits");
+    fixture_support::resolve_node_row(&mut event, &edits[edits.len() - 1]["value"]);
     event["body"]["operation"]["member"]["operator"] = Value::from("event");
     event["body"]["arguments"] = published_bindings(
         &fixtures,

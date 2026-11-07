@@ -1368,6 +1368,12 @@ impl CheckedPackageV2 {
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
+        // Every later stage compares operands by graph index, so each node-held
+        // slot is read through its row once here; `slot_ids` keeps the nodes'
+        // own IDs as written for the operand checks.
+        let slot_ids = node_index::slot_ids(&wire);
+        node_index::resolve_slots(&mut wire);
+        validate_owner_schema(&wire)?;
         let ValidatedPackage {
             kinds,
             schedulability_claim_index,
@@ -1377,7 +1383,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(&mut wire, bytes, limits, evidence)?;
+        } = validate(&wire, &slot_ids, bytes, limits, evidence)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1708,7 +1714,8 @@ struct ValidatedGraph {
 }
 
 fn validate(
-    wire: &mut RawCheckedPackageWireV2,
+    wire: &RawCheckedPackageWireV2,
+    slot_ids: &[CheckedNodeId],
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
@@ -1717,11 +1724,7 @@ fn validate(
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
     let flat_kinds = flat_wire::check(wire)?;
-    let structural_keys = node_index::check(bytes, wire, evidence)?;
-    // Every check below compares operands by graph index.
-    node_index::resolve_slots(wire);
-    let wire = &*wire;
-    validate_owner_schema(wire)?;
+    let structural_keys = node_index::check(bytes, wire, slot_ids, evidence)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds)?;
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {

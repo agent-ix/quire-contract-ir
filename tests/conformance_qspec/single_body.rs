@@ -86,7 +86,11 @@ fn published_single_body_packages_round_trip_through_the_writer() {
         );
         assert_eq!(
             bytes,
-            quire_canonical::to_vec(&package, Limits::new(1 << 24)).unwrap()
+            quire_canonical::to_vec(
+                &crate::fixture_support::wire_form(&package),
+                Limits::new(1 << 24)
+            )
+            .unwrap()
         );
         assert_eq!(
             admitted_positive(name, &encoded, &proposal, &documents).name(),

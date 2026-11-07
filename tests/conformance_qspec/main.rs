@@ -735,7 +735,7 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
             .as_array()
             .expect("published nodes");
         assert_eq!(wire_nodes.len(), admitted.graph().nodes.len());
-        for (wire_node, node) in wire_nodes.iter().zip(&admitted.graph().nodes) {
+        for (wire_node, node) in wire_nodes.iter().zip(&admitted.resolved_graph().nodes) {
             assert_qspec_term_record(&node.body, &wire_node["body"], &catalog);
         }
         let mut pending: Vec<&CheckedTerm> = admitted
@@ -1146,7 +1146,7 @@ fn qspec_admitted_values_members_and_catalog_constraints_are_exact() {
         .as_array()
         .expect("wire nodes")
         .iter()
-        .zip(&admitted.graph().nodes)
+        .zip(&admitted.resolved_graph().nodes)
     {
         if let Some(literal) = node.body.literal_read() {
             assert_eq!(literal.type_id, &node.semantic_type);
@@ -1220,7 +1220,7 @@ fn qspec_indexed_operation_member_follows_projected_graph_positions() {
     ));
     let (_, admitted) = read_positive(&dir, "positive-operation-identities.json", &document)
         .expect("published indexed operation admits");
-    let source_node = admitted.graph().nodes.iter().find(|node| matches!(&node.body,
+    let source_node = admitted.resolved_graph().nodes.iter().find(|node| matches!(&node.body,
         CheckedTerm::Application { operation, .. } if operation.identity() == Some("quire.op.record.project")))
         .expect("published record projection");
     let source_member = match &source_node.body {

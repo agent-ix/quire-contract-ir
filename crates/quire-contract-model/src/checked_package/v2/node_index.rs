@@ -770,6 +770,7 @@ fn collect_sites(
 pub(super) fn check(
     bytes: &[u8],
     wire: &RawCheckedPackageWireV2,
+    slot_ids: &[super::CheckedNodeId],
     evidence: &CheckedPackageEvidence,
 ) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
     let node_count = wire.semantic_graph.nodes.len();
@@ -839,7 +840,29 @@ pub(super) fn check(
         }
     }
     // 5. Cycle, then the keys themselves.
-    rebuild_graph_keys(&wire.semantic_graph.nodes, Some(rows), malformed)
+    rebuild_keys(
+        &slot_ids.iter().collect::<Vec<_>>(),
+        Some(rows),
+        |position, slot| {
+            graph_at()
+                .key("nodes")
+                .index(position)
+                .key("node_id")
+                .key("path")
+                .index(slot)
+                .key("operand")
+        },
+        malformed,
+    )
+}
+
+/// Each node's own ID as written, before its slots are resolved.
+pub(super) fn slot_ids(wire: &RawCheckedPackageWireV2) -> Vec<super::CheckedNodeId> {
+    wire.semantic_graph
+        .nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect()
 }
 
 /// Rewrite every node-held operand slot of the checked nodes to the document

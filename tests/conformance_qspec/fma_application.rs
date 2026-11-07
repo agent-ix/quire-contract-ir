@@ -159,7 +159,7 @@ fn tc_048_fma_applications_follow_published_qspec_cases() {
                 let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
                     panic!("{id}: expected admission, got {result:?}");
                 };
-                let node = &admitted.graph().nodes[position];
+                let node = &admitted.resolved_graph().nodes[position];
                 let CheckedTerm::Application {
                     operator,
                     operation,

@@ -28,7 +28,7 @@ fn corrected_qspec_grouped_fixtures_admit_with_declared_paths() {
         let nodes = wire["semantic_graph"]["nodes"]
             .as_array()
             .expect("published graph nodes");
-        assert_eq!(admitted.graph().nodes.len(), nodes.len(), "{name}");
+        assert_eq!(admitted.resolved_graph().nodes.len(), nodes.len(), "{name}");
         let mut grouped = 0;
         for (index, published) in nodes.iter().enumerate() {
             if published.get("recursion_group").is_none_or(Value::is_null) {
@@ -120,8 +120,18 @@ fn authoritative_owner_declaration_and_group_forms_are_retained_and_fail_closed(
         let published = wire_form["semantic_graph"]["nodes"]
             .as_array()
             .expect("published nodes");
-        assert_eq!(admitted.graph().nodes.len(), published.len(), "{name}");
-        for (position, (node, golden)) in admitted.graph().nodes.iter().zip(published).enumerate() {
+        assert_eq!(
+            admitted.resolved_graph().nodes.len(),
+            published.len(),
+            "{name}"
+        );
+        for (position, (node, golden)) in admitted
+            .resolved_graph()
+            .nodes
+            .iter()
+            .zip(published)
+            .enumerate()
+        {
             assert_eq!(
                 serde_json::to_value(&node.node_id).expect("id"),
                 golden["node_id"],
@@ -283,7 +293,7 @@ fn grouped_member_and_outside_application_references_retain_exact_targets() {
         panic!("group projection and finite outside value must admit: {outcome:?}");
     };
     for (position, body) in group_bodies {
-        let node = &admitted.graph().nodes[position];
+        let node = &admitted.resolved_graph().nodes[position];
         assert_eq!(serde_json::to_value(&node.body).expect("body"), body);
         assert_eq!(node.recursion_group.as_deref(), Some("List"));
         assert_eq!(
@@ -302,7 +312,7 @@ fn grouped_member_and_outside_application_references_retain_exact_targets() {
             .clone()
     );
     assert_eq!(
-        admitted.graph().nodes[outside_position].recursion_group,
+        admitted.resolved_graph().nodes[outside_position].recursion_group,
         None
     );
     let application_id = &admitted
@@ -351,7 +361,7 @@ fn grouped_member_and_outside_application_references_retain_exact_targets() {
             .clone()
     );
     assert_eq!(
-        admitted.graph().nodes[outside_position].semantic_type,
+        admitted.resolved_graph().nodes[outside_position].semantic_type,
         admitted
             .document_held_id(record)
             .expect("graph node")

@@ -40,7 +40,7 @@ fn qspec_hybrid_family_in_published_package_admits() {
     };
     assert_eq!(
         admitted
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .filter(|node| node.node_tag.as_ref() == "hybrid")
@@ -496,7 +496,7 @@ fn qspec_hybrid_restored_model_and_claims_admit_from_published_nodes() {
         panic!("{read:?}")
     };
     let fair = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {
@@ -518,7 +518,7 @@ fn qspec_hybrid_restored_model_and_claims_admit_from_published_nodes() {
     assert_eq!(name.as_ref(), "Stopped");
     assert_eq!(operation.member_declaration().unwrap(), Some(declaration));
     assert!(admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .any(|node| &node.node_id == declaration
@@ -545,7 +545,7 @@ fn qspec_admitted_hybrid_fairness_maps_whole_nested_member_id() {
         panic!("published restored hybrid package must admit: {read:?}");
     };
     let mut term = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {

@@ -775,6 +775,7 @@ pub fn identity_input(package: &Value) -> Value {
 
 /// Rebuilds the identity projection, clock rows, and clause names after graph edits.
 pub fn refresh_identity(package: &mut Value) {
+    resolve_operands(package);
     refresh_identity_projection(package);
     refresh_temporal_bindings(package);
 }
@@ -2407,6 +2408,8 @@ fn fixture_application_key(node: &Value, nodes: &Value) -> String {
 /// referenced, then the source map and the package identity. A node keyed by
 /// something other than its application preimage keeps its key.
 pub fn settle(package: &mut Value) {
+    // A package patched in wire form is edited by index segment from here.
+    resolve_operands(package);
     join_application_dependencies(package);
     rebuild_source_map(package);
     refresh_identity(package);
