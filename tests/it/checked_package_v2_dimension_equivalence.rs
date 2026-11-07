@@ -429,3 +429,38 @@ fn dependency_type_and_owner_joins_refuse_at_their_own_seam() {
         "/semantic_graph/nodes/3/node_id",
     );
 }
+
+/// A root scale beyond 128 bits is parsed, inverted and multiplied by the
+/// exact-number library on the caller's budget, each limb block charged at
+/// the equivalence node before it is requested (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn wide_root_scale_arithmetic_is_charged_to_the_read_budget() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    use quire_contract_model::{NativeJoinBudget, PackageReadStage};
+    let mut wide = package();
+    wide["semantic_graph"]["nodes"][3]["body"]["root_scale"] =
+        json!({"numerator":"100000000000000000000000000000000000000000","denominator":"1"});
+    let bytes = canonical(&wide);
+    let evidence = evidence_for(&wide);
+    let read = |budget: &mut NativeJoinBudget| {
+        CheckedPackageV2::read_with_budget(
+            &bytes,
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+            budget,
+        )
+    };
+    let requests = stage_requests(&read, PackageReadStage::Graph);
+    let exact: Vec<_> = requests
+        .iter()
+        .filter(|request| request.index == 3 && request.form == "exact_number")
+        .collect();
+    assert!(
+        exact.len() >= 3,
+        "parse, inverse and product are charged at the node: {exact:?}"
+    );
+    assert_exact_and_one_short(&read, &requests);
+}

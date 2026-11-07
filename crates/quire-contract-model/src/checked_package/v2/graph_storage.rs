@@ -273,6 +273,59 @@ impl<'b> WorkMeter<'b> {
         Ok((divisor == quire_exact::Integer::one()).then_some((numerator, denominator)))
     }
 
+    /// `left + right`, its limb block charged first.
+    pub(super) fn exact_add(
+        &mut self,
+        left: &quire_exact::Integer,
+        right: &quire_exact::Integer,
+    ) -> Result<quire_exact::Integer, ValidationFailure> {
+        let mut reservation = self.exact_reservation();
+        left.add_reserved(right, &mut reservation)
+            .map_err(|error| reservation.failure(error))
+    }
+
+    /// The greatest common divisor, its work blocks charged first.
+    pub(super) fn exact_gcd(
+        &mut self,
+        left: &quire_exact::Integer,
+        right: &quire_exact::Integer,
+    ) -> Result<quire_exact::Integer, ValidationFailure> {
+        let mut reservation = self.exact_reservation();
+        left.gcd_reserved(right, &mut reservation)
+            .map_err(|error| reservation.failure(error))
+    }
+
+    /// The quotient toward zero, or `None` for a zero divisor; its blocks are
+    /// charged first.
+    pub(super) fn exact_div(
+        &mut self,
+        dividend: &quire_exact::Integer,
+        divisor: &quire_exact::Integer,
+    ) -> Result<Option<quire_exact::Integer>, ValidationFailure> {
+        let Ok(divisor) = quire_exact::NonZeroInteger::try_from(divisor) else {
+            return Ok(None);
+        };
+        let mut reservation = self.exact_reservation();
+        dividend
+            .exact_div_reserved(divisor, &mut reservation)
+            .map(Some)
+            .map_err(|error| reservation.failure(error))
+    }
+
+    /// A copy of `value`, the storage it holds charged first.
+    pub(super) fn exact_clone(
+        &mut self,
+        value: &quire_exact::Integer,
+    ) -> Result<quire_exact::Integer, ValidationFailure> {
+        let bytes = value.copy_footprint().bytes;
+        if bytes != 0 {
+            let mut reservation = self.exact_reservation();
+            quire_exact::Reservation::reserve(&mut reservation, bytes)
+                .map_err(|_| reservation.failure(quire_exact::IntegerReserveError::Denied))?;
+        }
+        Ok(value.clone())
+    }
+
     /// `left * right`, its limb blocks charged first.
     pub(super) fn exact_mul(
         &mut self,

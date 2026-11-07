@@ -5,8 +5,8 @@
 #[path = "nominal_reads.rs"]
 pub mod nominal_reads;
 
-use super::graph_storage::GraphIndex;
 use super::dependency_references::SuppliedDependencies;
+use super::graph_storage::GraphIndex;
 use super::model_members::DomainModel;
 use super::natural::coprime;
 use super::{
@@ -21,9 +21,7 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, JsonPointer, RefusalFields,
 };
-use num_bigint::{BigInt, BigUint};
-use num_integer::Integer;
-use num_traits::{One, Zero};
+use quire_exact::Integer;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1310,6 +1308,7 @@ pub(super) fn validate_nominal_nodes(
         let node = &nodes[position];
         let kind = kinds[position];
         let site = Site { node, position };
+        meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
         let required = NominalKind::required_by(kind);
         let record = match (required, records[position].as_ref()) {
             (None, None) => continue,
@@ -1500,26 +1499,32 @@ fn validate_dimension_equivalence(
     Ok(())
 }
 
-/// A positive exact ratio. Every operation charges the work meter before
-/// allocating or multiplying integers from the untrusted package.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// An exact ratio. Every operation charges the work meter, and every limb
+/// block it needs the read-storage budget, before allocating or multiplying
+/// integers from the untrusted package.
+#[derive(Debug, Eq, PartialEq)]
 struct ExactRatio {
-    numerator: BigInt,
-    denominator: BigInt,
+    numerator: Integer,
+    denominator: Integer,
+}
+
+/// The bytes a big-endian rendering of `value` takes, at least one.
+fn byte_length(value: &Integer) -> u64 {
+    value.magnitude_bits().div_ceil(8).max(1)
 }
 
 impl ExactRatio {
     fn zero() -> Self {
         Self {
-            numerator: BigInt::zero(),
-            denominator: BigInt::one(),
+            numerator: Integer::zero(),
+            denominator: Integer::one(),
         }
     }
 
     fn one() -> Self {
         Self {
-            numerator: BigInt::one(),
-            denominator: BigInt::one(),
+            numerator: Integer::one(),
+            denominator: Integer::one(),
         }
     }
 
@@ -1538,9 +1543,11 @@ impl ExactRatio {
             .unwrap_or(u64::MAX),
             at,
         )?;
-        let numerator = BigInt::parse_bytes(value.numerator.as_bytes(), 10)
+        let numerator = meter
+            .exact_integer(&value.numerator)?
             .ok_or_else(|| invalid(at().key("numerator")))?;
-        let denominator = BigInt::parse_bytes(value.denominator.as_bytes(), 10)
+        let denominator = meter
+            .exact_integer(&value.denominator)?
             .ok_or_else(|| invalid(at().key("denominator")))?;
         if denominator.is_zero() {
             return Err(invalid(at().key("denominator")));
@@ -1551,11 +1558,38 @@ impl ExactRatio {
         })
     }
 
-    fn inverse(&self) -> Self {
-        Self {
-            numerator: self.denominator.clone(),
-            denominator: self.numerator.clone(),
-        }
+    fn duplicate(&self, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+        Ok(Self {
+            numerator: meter.exact_clone(&self.numerator)?,
+            denominator: meter.exact_clone(&self.denominator)?,
+        })
+    }
+
+    fn inverse(&self, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+        Ok(Self {
+            numerator: meter.exact_clone(&self.denominator)?,
+            denominator: meter.exact_clone(&self.numerator)?,
+        })
+    }
+
+    /// `numerator / denominator` divided through by their gcd.
+    fn reduced(
+        numerator: Integer,
+        denominator: Integer,
+        meter: &mut WorkMeter,
+        at: &dyn Fn() -> JsonPointer,
+    ) -> Result<Self, ValidationFailure> {
+        let common = meter.exact_gcd(&numerator, &denominator)?;
+        let (Some(numerator), Some(denominator)) = (
+            meter.exact_div(&numerator, &common)?,
+            meter.exact_div(&denominator, &common)?,
+        ) else {
+            return Err(invalid(at()));
+        };
+        Ok(Self {
+            numerator,
+            denominator,
+        })
     }
 
     fn multiply(
@@ -1564,20 +1598,14 @@ impl ExactRatio {
         meter: &mut WorkMeter,
         at: &dyn Fn() -> JsonPointer,
     ) -> Result<Self, ValidationFailure> {
-        let digits =
-            |value: &BigInt| u64::try_from(value.to_bytes_be().1.len()).unwrap_or(u64::MAX);
-        let size = digits(&self.numerator)
-            .saturating_add(digits(&self.denominator))
-            .saturating_add(digits(&other.numerator))
-            .saturating_add(digits(&other.denominator));
+        let size = byte_length(&self.numerator)
+            .saturating_add(byte_length(&self.denominator))
+            .saturating_add(byte_length(&other.numerator))
+            .saturating_add(byte_length(&other.denominator));
         meter.charge(size.saturating_mul(size).saturating_mul(size).max(1), at)?;
-        let numerator = &self.numerator * &other.numerator;
-        let denominator = &self.denominator * &other.denominator;
-        let common = numerator.gcd(&denominator);
-        Ok(Self {
-            numerator: numerator / &common,
-            denominator: denominator / common,
-        })
+        let numerator = meter.exact_mul(&self.numerator, &other.numerator)?;
+        let denominator = meter.exact_mul(&self.denominator, &other.denominator)?;
+        Self::reduced(numerator, denominator, meter, at)
     }
 
     fn add(
@@ -1586,23 +1614,16 @@ impl ExactRatio {
         meter: &mut WorkMeter,
         at: &dyn Fn() -> JsonPointer,
     ) -> Result<Self, ValidationFailure> {
-        let size = self
-            .numerator
-            .to_bytes_be()
-            .1
-            .len()
-            .saturating_add(self.denominator.to_bytes_be().1.len())
-            .saturating_add(other.numerator.to_bytes_be().1.len())
-            .saturating_add(other.denominator.to_bytes_be().1.len());
-        let size = u64::try_from(size).unwrap_or(u64::MAX);
+        let size = byte_length(&self.numerator)
+            .saturating_add(byte_length(&self.denominator))
+            .saturating_add(byte_length(&other.numerator))
+            .saturating_add(byte_length(&other.denominator));
         meter.charge(size.saturating_mul(size).saturating_mul(size).max(1), at)?;
-        let numerator = &self.numerator * &other.denominator + &other.numerator * &self.denominator;
-        let denominator = &self.denominator * &other.denominator;
-        let common = numerator.gcd(&denominator);
-        Ok(Self {
-            numerator: numerator / &common,
-            denominator: denominator / common,
-        })
+        let left = meter.exact_mul(&self.numerator, &other.denominator)?;
+        let right = meter.exact_mul(&other.numerator, &self.denominator)?;
+        let numerator = meter.exact_add(&left, &right)?;
+        let denominator = meter.exact_mul(&self.denominator, &other.denominator)?;
+        Self::reduced(numerator, denominator, meter, at)
     }
 
     fn divide(
@@ -1611,7 +1632,8 @@ impl ExactRatio {
         meter: &mut WorkMeter,
         at: &dyn Fn() -> JsonPointer,
     ) -> Result<Self, ValidationFailure> {
-        self.multiply(&other.inverse(), meter, at)
+        let inverse = other.inverse(meter)?;
+        self.multiply(&inverse, meter, at)
     }
 
     fn power(
@@ -1625,26 +1647,29 @@ impl ExactRatio {
             None => (false, exponent),
         };
         meter.charge(u64::try_from(magnitude.len()).unwrap_or(u64::MAX), at)?;
-        let mut exponent =
-            BigUint::parse_bytes(magnitude.as_bytes(), 10).ok_or_else(|| invalid(at()))?;
-        let mut power = self.clone();
+        let mut exponent = meter
+            .exact_integer(magnitude)?
+            .ok_or_else(|| invalid(at()))?;
+        let two = Integer::from(2_u64);
+        let mut power = self.duplicate(meter)?;
         let mut result = Self::one();
         while !exponent.is_zero() {
-            meter.charge(
-                u64::try_from(exponent.to_bytes_be().len())
-                    .unwrap_or(u64::MAX)
-                    .max(1),
-                at,
-            )?;
-            if exponent.bit(0) {
+            meter.charge(byte_length(&exponent), at)?;
+            if !exponent.is_even() {
                 result = result.multiply(&power, meter, at)?;
             }
-            exponent >>= 1;
+            exponent = meter
+                .exact_div(&exponent, &two)?
+                .ok_or_else(|| invalid(at()))?;
             if !exponent.is_zero() {
                 power = power.multiply(&power, meter, at)?;
             }
         }
-        Ok(if negative { result.inverse() } else { result })
+        if negative {
+            result.inverse(meter)
+        } else {
+            Ok(result)
+        }
     }
 }
 
@@ -1697,6 +1722,7 @@ pub(super) fn duration_unit_key(
         return Ok(None);
     }
     let at = || node_pointer(position);
+    meter.at_node(position, "scalar_type");
     meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
     let Some(dimension) = nodes
         .iter()
@@ -1876,12 +1902,13 @@ fn equivalence_potentials(
             continue;
         }
         let at = || node_pointer(*position);
+        meter.at_node(*position, "scalar_type");
         let ratio = ExactRatio::parse(&edge.root_scale, meter, &at)?;
-        adjacency.entry(ids[0].clone()).or_default().push((
-            ids[1].clone(),
-            ratio.inverse(),
-            *position,
-        ));
+        let inverse = ratio.inverse(meter)?;
+        adjacency
+            .entry(ids[0].clone())
+            .or_default()
+            .push((ids[1].clone(), inverse, *position));
         adjacency
             .entry(ids[1].clone())
             .or_default()
@@ -1897,11 +1924,13 @@ fn equivalence_potentials(
         let mut pending = VecDeque::from([id.clone()]);
         potentials.insert(id.clone(), (id.clone(), ExactRatio::one()));
         while let Some(current) = pending.pop_front() {
-            let Some((component, current_ratio)) = potentials.get(&current).cloned() else {
+            let Some((component, current_ratio)) = potentials.get(&current) else {
                 continue;
             };
+            let (component, current_ratio) = (component.clone(), current_ratio.duplicate(meter)?);
             for (neighbor, multiplier, position) in adjacency.get(&current).into_iter().flatten() {
                 let at = || node_pointer(*position);
+                meter.at_node(*position, "scalar_type");
                 let candidate = current_ratio.multiply(multiplier, meter, &at)?;
                 match potentials.get(neighbor) {
                     Some((known_component, known_ratio)) => {
@@ -1927,7 +1956,7 @@ fn normalized_dimension(
     bases: &BTreeMap<CheckedNodeId, BasePotential>,
     meter: &mut WorkMeter,
     at: &dyn Fn() -> JsonPointer,
-) -> Result<(BTreeMap<CheckedNodeId, BigInt>, ExactRatio), ValidationFailure> {
+) -> Result<(BTreeMap<CheckedNodeId, Integer>, ExactRatio), ValidationFailure> {
     let Some(NominalRecord::Dimension(dimension)) = graph.nominal(id) else {
         return Err(invalid(at()));
     };
@@ -1936,19 +1965,25 @@ fn normalized_dimension(
             return Err(invalid(at()));
         };
         return Ok((
-            BTreeMap::from([(component.clone(), BigInt::one())]),
-            scale.clone(),
+            BTreeMap::from([(component.clone(), Integer::one())]),
+            scale.duplicate(meter)?,
         ));
     }
-    let mut map: BTreeMap<CheckedNodeId, BigInt> = BTreeMap::new();
+    let mut map: BTreeMap<CheckedNodeId, Integer> = BTreeMap::new();
     let mut scale = ExactRatio::one();
     for term in &dimension.terms {
         meter.charge(u64::try_from(term.exponent.len()).unwrap_or(u64::MAX), at)?;
-        let exponent = term.exponent.parse::<BigInt>().map_err(|_| invalid(at()))?;
+        let exponent = meter
+            .exact_integer(&term.exponent)?
+            .ok_or_else(|| invalid(at()))?;
         let Some((component, base_scale)) = bases.get(&term.dimension_node_id) else {
             return Err(invalid(at()));
         };
-        *map.entry(component.clone()).or_default() += exponent;
+        let sum = match map.get(component) {
+            Some(held) => meter.exact_add(held, &exponent)?,
+            None => exponent,
+        };
+        map.insert(component.clone(), sum);
         scale = scale.multiply(&base_scale.power(&term.exponent, meter, at)?, meter, at)?;
     }
     map.retain(|_, exponent| !exponent.is_zero());
@@ -1973,6 +2008,7 @@ fn validate_equivalence_graph(
             continue;
         }
         let at = || node_pointer(*position);
+        meter.at_node(*position, "scalar_type");
         let (left_map, left_scale) = normalized_dimension(&ids[0], graph, &bases, meter, &at)?;
         let (right_map, right_scale) = normalized_dimension(&ids[1], graph, &bases, meter, &at)?;
         require(left_map == right_map, at)?;
