@@ -43,9 +43,9 @@ key node, and charges every external and native step to one budget.
 6. Reach a map collection from an entry body; join it with a correct row,
    then with an absent, wrong and misplaced `key_node`; add an unreached map
    row; measure and repeat at exact limits and one below each (FR-357-AC-16).
-7. Charge denied external charges with `AdapterRow(i)`, `AuthorityRow` and
-   `PreparationOutput(k)`, then admitted ones followed by a native read
-   (FR-358-AC-10).
+7. Charge denied external charges with `AdapterRow(i)`, `AuthorityRow`,
+   `PreparationOutput(k)` and `PreparationSelection(k)`, then admitted ones
+   followed by a native read (FR-358-AC-10).
 
 Tag the tests `#[trace("TC-471", "<criterion id>")]`. FR-361-AC-6 runs in
 `quire-integration` against a genuine QSL plan root.
