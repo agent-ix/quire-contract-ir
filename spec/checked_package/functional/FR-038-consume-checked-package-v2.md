@@ -161,6 +161,14 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-spec-language/FR-357
     type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-389
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-390
+    type: references
+  - target: ix://agent-ix/quire-specification/FR-322-AC-391
+    type: references
+  - target: ix://agent-ix/quire-specification/TC-187
+    type: references
 ---
 # FR-038: Consume the CheckedPackage V2 contract and refuse every other version
 
@@ -5520,6 +5528,33 @@ NOT substitute for that selection. Reads SHALL expose the selected package's
 actual keys and referenced values, without merging equal-named plans or
 copying QSL execution semantics into IR.
 
+### Carried-quantity sum admission (IR-1398)
+
+When reading `quire.op.collection.sum.carried_quantity`, the strict V2 reader
+SHALL apply QSpec FR-322 "Carried-quantity sum" (AC-389 through AC-391)
+using the production operation catalog. The separate IR-1396 catalog work owns
+`carried_member`; this requirement consumes that constraint without defining
+another catalog or accepting a substitute catalog in conformance tests.
+
+The application has operator `collection`, exactly a collection operand and a
+binder, `type_argument` Q, `result_type` Q, no laws or leaves, and a rounding
+mode equal to Q's admitted rounding. Q is a `scalar_type`/`carried_quantity`;
+the binder's bound resolves to that same node. The `bound_is_member` constraint
+compares resolved type identity, including the unit, carrier kind, carrier
+bounds and rounding represented by Q; matching the quantity family alone is
+insufficient. This constraint retains its catalog meaning for other operations
+that declare it.
+
+For otherwise valid applications, the reader SHALL apply the operation-stage
+checks in this order: laws, required mode, type-pinned mode, carried member,
+binder-bound equality, and member-result equality. Type-pinned mode reads the
+binder bound and result type, never `type_argument`: a carried node pins its
+rounding and a unit node pins `exact`. Every refusal specified here has the
+application graph-node locus and primary pointer
+`/semantic_graph/nodes/{application-index}`, including a result-type mismatch;
+no partial admitted package is returned. This admission contract does not
+execute a sum or add evaluation results to the wire.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -6007,6 +6042,13 @@ copying QSL execution semantics into IR.
 
 | FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
 | FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |
+
+| FR-038-AC-515 | PLANNED/UNRUN (IR-1398). For QSpec TC-187 CS-01, the strict reader SHALL admit each Integer, Decimal and Rational carried-sum application and retain the exact operation identity, ordered collection and binder operands, binder bound, type_argument, result_type, rounding mode, empty laws and empty leaves. The bound, member and result each resolve to the same carried node Q: Integer[-5,5] with exact, Decimal[-500,500;2,2] with nearest-even, and Rational[-3,7;1,12] with exact respectively. | Test |
+| FR-038-AC-516 | PLANNED/UNRUN (IR-1398). For every CS-02 variant, the reader SHALL refuse invalid_package/operation-mode-type-mismatch at the application: wrong mode for the Integer or Decimal positive; binder alone or result alone changed to Qn (nearest-even); and a unit-node binder beside the non-exact Decimal result. Mode pinning precedes binder/member and result/member equality and reads no type_argument. | Test |
+| FR-038-AC-517 | PLANNED/UNRUN (IR-1398). For CS-03, the reader SHALL refuse a null mode as invalid_package/operation-mode-mismatch and a laws entry as invalid_package/operation-law-mismatch at the application. In combined-defect controls laws win over null mode and type mismatch, and null mode wins over a binder/member mismatch. | Test |
+| FR-038-AC-518 | PLANNED/UNRUN (IR-1398). With pinned mode agreeing, the reader SHALL refuse every CS-04 binder/member mismatch as ill_typed/operator-ineligible at the application: a different carrier bound Q4, unit Qc, carrier kind Qk, or unit-node Um; and binder and result both Qn under nearest-even while type_argument remains Q. The bound_is_member constraint compares the resolved bound against the member, not against the result alone. | Test |
+| FR-038-AC-519 | PLANNED/UNRUN (IR-1398). With pinned mode agreeing, the reader SHALL refuse every CS-05 result/member mismatch as ill_typed/operator-ineligible at the application, for result Q4 and result Um. The primary pointer names the application node, never its body/result_type member. | Test |
+| FR-038-AC-520 | PLANNED/UNRUN (IR-1398). For every CS-06 variant, the reader SHALL refuse ill_typed/operator-ineligible at the application: member, binder and result all Um, all compound-unit Cm, or all bounded-quantity Bm under exact mode; and sum.quantity over the otherwise valid carried member Q. Carried-sum membership consumes IR-1396 carried_member enforcement; ordinary sum.quantity cannot accept a carried type_argument even when operand and result checks otherwise pass. | Test |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
