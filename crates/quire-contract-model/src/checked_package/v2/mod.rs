@@ -1475,6 +1475,18 @@ impl CheckedPackageV2 {
         &self.wire.lock
     }
 
+    /// Selected domain package identities in ascending identity order.
+    ///
+    /// These are the admitted model-root selections. The checked package does
+    /// not carry source model aliases; an empty iterator means no model was
+    /// selected. A refused or incomplete read yields no package to query.
+    pub fn selected_model_packages(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.models
+            .selected_models()
+            .iter()
+            .map(|model| model.identity.as_ref())
+    }
+
     /// The admitted direct dependency packages in lock selection order.
     /// Dependencies selected by a child are available from that child's accessor.
     pub fn direct_dependencies(&self) -> impl ExactSizeIterator<Item = &CheckedPackageV2> {

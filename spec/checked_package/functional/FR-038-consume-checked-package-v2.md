@@ -234,6 +234,11 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   member identity alongside the alias-normalized FR-150 structural effective
   type identity, or returns a typed unresolved condition for the whole call;
   see FR-038-AC-474 through FR-038-AC-477.
+- A borrowed `selected_model_packages` read of the admitted model-root package
+  identities in ascending identity order. It returns an empty sequence when
+  there is no selected model. The checked-package/v2 wire has no source model
+  alias field, so this read neither supplies nor derives aliases; see
+  FR-038-AC-494.
 - A borrowed typed read of the optional `operation_effects` carrier. Absence
   remains distinguishable from an admitted row whose four effect arrays are
   empty; a row carries its selected document, declaring node, original
@@ -6001,6 +6006,7 @@ copying QSL execution semantics into IR.
 
 | FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
 | FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |
+| FR-038-AC-494 | An admitted `CheckedPackageV2` shall expose its selected model package identities as a borrowed sequence in ascending identity order through `selected_model_packages`. A package with no selected model returns an empty sequence; a refused or incomplete read exposes no package. The read neither invents source aliases nor accepts caller-authored model selections. | Test (TC-233) |
 
 FR-038-AC-66 is retired and its ID is not reused (ADR-0056). It required that every
 application of operator class `case`, `temporal_formula` or `temporal_fairness` be
