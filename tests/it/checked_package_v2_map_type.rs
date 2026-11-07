@@ -1061,17 +1061,21 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
 }
 
 fn append_refusal_map(wire: &mut Value, text: &Value, value: &Value) -> (usize, Value) {
-    let id = json!({"package":wire["name"], "path":["composite_type","map",text,value], "ordinal":0});
+    let id =
+        json!({"package":wire["name"], "path":["composite_type","map",text,value], "ordinal":0});
     let position = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
-    wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
-        "schema_version":"quire.checked-semantic-graph/v2", "node_id":id,
-        "node_tag":"composite_type", "semantic_form":"map", "semantic_type":id,
-        "dependencies":[text,value], "occurrences":[{"role":"type","ordinal":0}],
-        "body":{"term":"aggregate","members":[
-            {"term":"binding","name":"key","value":{"term":"reference","target":text}},
-            {"term":"binding","name":"value","value":{"term":"reference","target":value}}
-        ]}
-    }));
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "schema_version":"quire.checked-semantic-graph/v2", "node_id":id,
+            "node_tag":"composite_type", "semantic_form":"map", "semantic_type":id,
+            "dependencies":[text,value], "occurrences":[{"role":"type","ordinal":0}],
+            "body":{"term":"aggregate","members":[
+                {"term":"binding","name":"key","value":{"term":"reference","target":text}},
+                {"term":"binding","name":"value","value":{"term":"reference","target":value}}
+            ]}
+        }));
     (position, id)
 }
 
@@ -1341,14 +1345,23 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
     let mut wire = checked_package_v2_parameters::parameters_package();
     let exponent = "170141183460469231731687303715884105728";
     let graph = wire["semantic_graph"]["nodes"].as_array().unwrap();
-    let compound_position = graph.iter().position(|node| node["semantic_form"] == "compound_unit").unwrap();
+    let compound_position = graph
+        .iter()
+        .position(|node| node["semantic_form"] == "compound_unit")
+        .unwrap();
     let old = graph[compound_position]["node_id"].clone();
     let mut fresh = old.clone();
     *fresh["path"].as_array_mut().unwrap().last_mut().unwrap() = json!(exponent);
     reassign_node_id(&mut wire, &old, &fresh);
-    wire["semantic_graph"]["nodes"][compound_position]["body"]["members"][0]["members"][1]["value"]["value"] = json!(exponent);
-    let text = wire["semantic_graph"]["nodes"].as_array().unwrap().iter()
-        .find(|node| node["semantic_form"] == "text").unwrap()["node_id"].clone();
+    wire["semantic_graph"]["nodes"][compound_position]["body"]["members"][0]["members"][1]
+        ["value"]["value"] = json!(exponent);
+    let text = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["semantic_form"] == "text")
+        .unwrap()["node_id"]
+        .clone();
     let (inner_position, inner_wire) = append_refusal_map(&mut wire, &text, &fresh);
     let (outer_position, _) = append_refusal_map(&mut wire, &text, &inner_wire);
     settle(&mut wire);
@@ -1362,30 +1375,59 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
     };
     let outer = package.graph().nodes[outer_position].node_id.clone();
     let inner = package.graph().nodes[inner_position].node_id.clone();
-    let compound = package.graph().nodes.iter().find(|node| node.semantic_form.as_ref() == "compound_unit")
-        .unwrap().node_id.clone();
+    let compound = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "compound_unit")
+        .unwrap()
+        .node_id
+        .clone();
     let mut native_budget = NativeJoinBudget::new(1_000_000, 1_000_000);
-    let native = package.project_exact_type(&compound, &SelectedExactIdentities::empty(), &mut native_budget)
+    let native = package
+        .project_exact_type(
+            &compound,
+            &SelectedExactIdentities::empty(),
+            &mut native_budget,
+        )
         .expect_err("compound-unit projection remains unsupported");
-    assert_eq!(native.code, ExactTypeProjectionErrorCode::UnsupportedExactType);
+    assert_eq!(
+        native.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
     assert_eq!(native.at.as_deref(), Some(&compound));
     let root = NodeKey::new(package.name(), vec![PathSegment::Text("Metre".into())], 0).unwrap();
     let leaf = |cold: bool| {
         let parsed: Integer = exponent.parse().unwrap();
-        let exponent = if cold { parsed.try_clone().unwrap() } else { parsed };
+        let exponent = if cold {
+            parsed.try_clone().unwrap()
+        } else {
+            parsed
+        };
         ValueType::Quantity(UnitId::compound(vec![(root.clone(), exponent)]))
     };
     let acquire = |cold: bool| {
         let left = leaf(cold);
         let right = leaf(cold);
-        let (ValueType::Quantity(UnitId::Compound(left_terms)), ValueType::Quantity(UnitId::Compound(right_terms))) =
-            (&left, &right) else { panic!("independently owned compound payloads") };
+        let (
+            ValueType::Quantity(UnitId::Compound(left_terms)),
+            ValueType::Quantity(UnitId::Compound(right_terms)),
+        ) = (&left, &right)
+        else {
+            panic!("independently owned compound payloads")
+        };
         assert_ne!(left_terms.as_ptr(), right_terms.as_ptr());
         assert!(left_terms[0].1.copy_footprint().bytes > 0);
-        SelectedExactIdentities::empty().with_source_collection_rows(&package, [
-            source_map_row(&package, &inner, left),
-            source_map_row(&package, &outer, ValueType::map(MapType::new(right, None))),
-        ], &mut NativeJoinBudget::new(1_000_000, 1_000_000)).unwrap()
+        SelectedExactIdentities::empty()
+            .with_source_collection_rows(
+                &package,
+                [
+                    source_map_row(&package, &inner, left),
+                    source_map_row(&package, &outer, ValueType::map(MapType::new(right, None))),
+                ],
+                &mut NativeJoinBudget::new(1_000_000, 1_000_000),
+            )
+            .unwrap()
     };
     let cold = acquire(true);
     let ordinary = acquire(false);
@@ -1398,14 +1440,21 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
     let ordinary_allocations = allocation_counter::measure(|| {
         ordinary_result = Some(package.project_exact_type(&outer, &ordinary, &mut ordinary_budget));
     });
-    let error = cold_result.unwrap().expect_err("unsupported compound quantity leaf");
+    let error = cold_result
+        .unwrap()
+        .expect_err("unsupported compound quantity leaf");
     let control = ordinary_result.unwrap().expect_err("same unsupported leaf");
     assert_eq!(error.code, native.code);
     assert_eq!(control.code, error.code);
     assert_eq!(cold_budget.consumed(), ordinary_budget.consumed());
-    assert_eq!(cold_allocations.count_total, ordinary_allocations.count_total,
-        "the unsupported compound path must not materialize cold exponent caches");
-    assert_eq!(cold_allocations.bytes_total, ordinary_allocations.bytes_total);
+    assert_eq!(
+        cold_allocations.count_total, ordinary_allocations.count_total,
+        "the unsupported compound path must not materialize cold exponent caches"
+    );
+    assert_eq!(
+        cold_allocations.bytes_total,
+        ordinary_allocations.bytes_total
+    );
     for limit in [0, cold_budget.consumed().storage.saturating_sub(1)] {
         let cold = acquire(true);
         let ordinary = acquire(false);
@@ -1420,14 +1469,26 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
         });
         let error = result.unwrap().expect_err("bounded refusal");
         assert_eq!(error.code, control.unwrap().unwrap_err().code);
-        assert_eq!(cold_allocations.count_total, ordinary_allocations.count_total);
-        assert_eq!(cold_allocations.bytes_total, ordinary_allocations.bytes_total);
+        assert_eq!(
+            cold_allocations.count_total,
+            ordinary_allocations.count_total
+        );
+        assert_eq!(
+            cold_allocations.bytes_total,
+            ordinary_allocations.bytes_total
+        );
         assert_eq!(short.first_unpaid(), ordinary_budget.first_unpaid());
-        assert_eq!(short.first_unpaid_locus(), ordinary_budget.first_unpaid_locus());
+        assert_eq!(
+            short.first_unpaid_locus(),
+            ordinary_budget.first_unpaid_locus()
+        );
         if let Some(denied) = short.first_unpaid() {
             assert_eq!(error.denied, Some(denied));
             assert_eq!(error.configured_bound, Some(limit));
-            assert_eq!(short.first_unpaid_locus().unwrap().source, NativeJoinLocusSource::GraphNode(outer_position));
+            assert_eq!(
+                short.first_unpaid_locus().unwrap().source,
+                NativeJoinLocusSource::GraphNode(outer_position)
+            );
         }
         assert_eq!(short.storage_limit(), limit);
         assert_eq!(short.last_success_delta(), None);
@@ -1438,10 +1499,18 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
     let mut malformed = fixture.units[0].clone();
     let node = malformed.structural_node.clone();
     let key = malformed.unit_id.declared_key().unwrap().clone();
-    malformed.unit_id = UnitId::compound(vec![(key, exponent.parse::<Integer>().unwrap().try_clone().unwrap())]);
+    malformed.unit_id = UnitId::compound(vec![(
+        key,
+        exponent.parse::<Integer>().unwrap().try_clone().unwrap(),
+    )]);
     let mut budget = NativeJoinBudget::new(1_000_000, 1_000_000);
-    let error = fixture.identities.with_admitted_type_rows(&fixture.package, &[], &[malformed], &mut budget)
+    let error = fixture
+        .identities
+        .with_admitted_type_rows(&fixture.package, &[], &[malformed], &mut budget)
         .expect_err("a declared-unit claim cannot carry a compound identity");
-    assert_eq!(error.code, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+    );
     assert_eq!(error.at.as_deref(), Some(&node));
 }
