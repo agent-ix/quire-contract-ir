@@ -352,3 +352,37 @@ fn non_text_scalar_key_admits_but_has_no_exact_projection() {
         ExactTypeProjectionErrorCode::UnsupportedExactType
     );
 }
+
+/// Trace: FR-357-AC-19.
+#[trace("TC-470", "FR-357-AC-19")]
+#[test]
+fn source_map_row_joins_and_projects_its_complete_value() {
+    let (wire, position) = map_package();
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+        panic!("strict admitted map fixture");
+    };
+    let id: CheckedNodeId = serde_json::from_value(
+        wire["semantic_graph"]["nodes"][position]["node_id"].clone(),
+    ).unwrap();
+    let CheckedTerm::Aggregate { members } = package.term(&id).unwrap() else {
+        panic!("map operands");
+    };
+    let CheckedTerm::Binding { value, .. } = &members[1] else { panic!("value binding") };
+    let CheckedTerm::Reference { target } = value.as_ref() else { panic!("value target") };
+    let row = quire_contract_model::SelectedSourceCollectionRow {
+        structural_node: id.clone(),
+        base_node: id.clone(),
+        element_node: target.clone(),
+        value_type: quire_exact::ValueType::map(quire_exact::MapType::new(
+            quire_exact::ValueType::Integer, None,
+        )),
+    };
+    let mut budget = quire_contract_model::NativeJoinBudget::new(1_000_000, 1_000_000);
+    let joined = SelectedExactIdentities::empty()
+        .with_source_collection_rows(&package, [row.clone()], &mut budget)
+        .expect("authentic map row joins");
+    let projected = package.project_exact_type(&id, &joined, &mut budget)
+        .expect("joined map projects");
+    assert_eq!(projected.value_type(), &row.value_type);
+    assert_eq!(joined.source_collection_rows().next(), Some(&row));
+}
