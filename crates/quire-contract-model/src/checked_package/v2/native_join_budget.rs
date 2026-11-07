@@ -63,7 +63,7 @@ pub struct NativeJoinLocus {
 /// Admitted charges are cumulative, including charges made before a refused
 /// operation. A denied charge is recorded but does not increment consumption.
 /// Implements: FR-358.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct NativeJoinBudget {
     work_limit: u64,
     storage_limit: u64,
@@ -151,7 +151,9 @@ impl NativeJoinBudget {
         if admitted {
             Ok(())
         } else {
-            Err(self.first_unpaid.expect("denied charge records first unpaid"))
+            Err(self
+                .first_unpaid
+                .expect("denied charge records first unpaid"))
         }
     }
 

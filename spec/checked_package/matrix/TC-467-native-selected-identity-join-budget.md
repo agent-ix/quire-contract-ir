@@ -42,6 +42,13 @@ their shared allowance. Check the original bound on work and storage refusals,
 zero-limit compact refusals, and a work refusal whose owned diagnostic cannot
 fit the remaining storage. Check that a semantic refusal has no resource bound.
 
+From public consumer code, debit selection work at one call site and adapter
+work and storage at another through `accounted_charge`. Resume the same budget
+without restoring its counters, then pass it to the native stage and projection
+reads. Exercise the exact combined allowance, one-below work and zero-storage
+external charge. Inspect first unpaid kind, amount and non-owning locus and
+the unchanged configured limits.
+
 ## Expected Results
 
 Every exact-limit call yields the same selected identity value. Every
@@ -65,6 +72,10 @@ independently of consumption or denial. Full and compact native resource
 refusals retain the bound for the original denied kind; later diagnostic
 storage exhaustion cannot substitute its storage bound for a work bound.
 Zero is a present bound, while a non-resource refusal has no configured bound.
+Public caller charges add to native read consumption. A denied caller charge
+does not allocate or consume allowance; later denials in that phase preserve
+its first unpaid metadata. `resume` preserves spent counters and original
+limits, and the budget cannot be cloned or publicly reset.
 
 ## Complete-witness acquisition and rebinding
 

@@ -1,10 +1,118 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Shared exact-limit assertion for the six admitted native join families.
 
+use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, ExactTypeProjectionError, ExactTypeProjectionErrorCode, NativeJoinBudget,
-    NativeJoinCharge, NativeJoinChargeKind, SelectedExactIdentities,
+    NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge, NativeJoinLocus,
+    NativeJoinLocusSource, SelectedExactIdentities,
 };
+
+fn charge_selection(budget: &mut NativeJoinBudget) -> Result<(), NativeJoinDeniedCharge> {
+    budget.accounted_charge(
+        NativeJoinChargeKind::Work,
+        3,
+        NativeJoinLocus {
+            source: NativeJoinLocusSource::Package,
+            form: "driver selection",
+        },
+    )
+}
+
+fn charge_adapter(budget: &mut NativeJoinBudget) -> Result<(), NativeJoinDeniedCharge> {
+    budget.accounted_charge(
+        NativeJoinChargeKind::Work,
+        5,
+        NativeJoinLocus {
+            source: NativeJoinLocusSource::TupleRow(2),
+            form: "adapter row",
+        },
+    )
+}
+
+/// Trace: FR-358-AC-9, FR-357-AC-15.
+#[trace("TC-467", "FR-358-AC-9", "FR-357-AC-15")]
+#[test]
+fn public_call_sites_share_finite_accounting_and_first_denial() {
+    let mut exact = NativeJoinBudget::new(8, 0);
+    exact.resume();
+    assert_eq!(charge_selection(&mut exact), Ok(()));
+    assert_eq!(charge_adapter(&mut exact), Ok(()));
+    assert_eq!(
+        exact.consumed(),
+        NativeJoinCharge {
+            work: 8,
+            storage: 0
+        }
+    );
+    assert_eq!((exact.work_limit(), exact.storage_limit()), (8, 0));
+    exact.resume();
+    assert_eq!(exact.consumed().work, 8);
+    assert_eq!(
+        charge_selection(&mut exact),
+        Err(NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Work,
+            amount: 3,
+        })
+    );
+    assert_eq!(exact.consumed().work, 8);
+    assert_eq!(
+        exact.first_unpaid_locus(),
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::Package,
+            form: "driver selection",
+        })
+    );
+
+    let mut one_below = NativeJoinBudget::new(7, 0);
+    one_below.resume();
+    assert_eq!(charge_selection(&mut one_below), Ok(()));
+    assert_eq!(
+        charge_adapter(&mut one_below),
+        Err(NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Work,
+            amount: 5,
+        })
+    );
+    assert_eq!(
+        one_below.consumed(),
+        NativeJoinCharge {
+            work: 3,
+            storage: 0
+        }
+    );
+    assert_eq!(
+        one_below.first_unpaid_locus(),
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::TupleRow(2),
+            form: "adapter row",
+        })
+    );
+    assert_eq!(one_below.last_success_delta(), None);
+    assert_eq!((one_below.work_limit(), one_below.storage_limit()), (7, 0));
+    assert_eq!(
+        one_below.accounted_charge(
+            NativeJoinChargeKind::Storage,
+            1,
+            NativeJoinLocus {
+                source: NativeJoinLocusSource::Package,
+                form: "adapter allocation",
+            }
+        ),
+        Err(NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Work,
+            amount: 5
+        })
+    );
+    assert_eq!(one_below.consumed().storage, 0);
+    assert_eq!(
+        one_below.first_unpaid_locus(),
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::TupleRow(2),
+            form: "adapter row",
+        })
+    );
+}
 
 pub(crate) fn assert_exact_join(
     locus: &CheckedNodeId,

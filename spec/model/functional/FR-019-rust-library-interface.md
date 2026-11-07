@@ -272,6 +272,11 @@ request coordinate without owning a copied node identity. Known positions
 resolve directly against the original caller context; unresolved declaration
 coordinates do not initiate an identity search after refusal.
 
+`NativeJoinBudget` exports `resume` and `accounted_charge` for external driver
+selection and adapter charges before allocation. These methods reuse its
+existing finite counters and first-unpaid metadata; they add no second budget
+type or public counter-reset surface.
+
 | Module | Public items | Owning requirement |
 | --- | --- | --- |
 | `identity` | types `AnchorName`, `Clause`, `ClauseId`, `ClauseKind`, `ClauseRef`, `ContractPackage`, `DefinednessObligationKind`, `DependencyIdentity`, `DependencyKind`, `DependencyName`, `Diagnostic`, `DiagnosticCode`, `ExecutionPoint`, `ExecutionPointName`, `PackageId`, `ReferenceBody`, `Requirement`, `RequirementId`, `RequirementRef`, `RequirementRevision`, `SchemaVersion`, `SemanticIdentity`, `Severity`, `SourceDocumentId`, `SourceIdentity`, `SourceLocation`, `SourceRevision`, `SourceSpan`, `StateObservation`; trait `DependencySource` | FR-011, FR-012, STD-001 |
