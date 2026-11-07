@@ -1,5 +1,6 @@
 //! Closed FR-375 refinement body vocabulary and reader checks.
 
+use super::graph_storage::GraphIndex;
 use super::protocol_body::ChannelDelivery;
 use super::CheckedTerm;
 use crate::checked_package::common::{
@@ -1495,7 +1496,7 @@ pub(super) struct RefinementGraph<'a, 'e> {
     nodes: &'a [super::RawSemanticNodeV2],
     kinds: &'a [super::CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
     dependencies: &'a super::SuppliedDependencies<'e>,
     package_name: &'a str,
@@ -1506,7 +1507,7 @@ impl<'a, 'e> RefinementGraph<'a, 'e> {
         nodes: &'a [super::RawSemanticNodeV2],
         kinds: &'a [super::CheckedNodeKind],
         terms: &'a [Option<CheckedTerm>],
-        index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+        index: &'a GraphIndex<'a>,
         structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
         dependencies: &'a super::SuppliedDependencies<'e>,
         package_name: &'a str,
@@ -3847,7 +3848,7 @@ pub(super) fn validate_dependencies(
     nodes: &[super::RawSemanticNodeV2],
     kinds: &[super::CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
 ) -> Result<(), ValidationFailure> {
     for (position, ((node, kind), term)) in nodes.iter().zip(kinds).zip(terms).enumerate() {

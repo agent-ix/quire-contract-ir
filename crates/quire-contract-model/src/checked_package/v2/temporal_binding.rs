@@ -3,6 +3,7 @@
 
 //! Typed clock configuration rows for temporal and compensation declarations.
 
+use super::graph_storage::GraphIndex;
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedOccurrenceRole, CheckedPackageLockV2,
     CheckedSelectionRole, LawRole, ProtocolForm, RawSemanticNodeV2, TemporalForm, TemporalProfile,
@@ -261,7 +262,7 @@ pub(super) fn validate(
     rows: Option<&[TemporalBinding]>,
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,

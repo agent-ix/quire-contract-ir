@@ -1,5 +1,6 @@
 //! FR-348 extension form body and declaration joins.
 
+use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{Budget, DeclarationForm, ModelOwners};
 use super::{
@@ -151,7 +152,7 @@ pub(super) fn validate(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     evidence: &CheckedPackageEvidence,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
@@ -341,7 +342,7 @@ fn type_matches(
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     target_position: usize,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
@@ -408,7 +409,7 @@ fn actual_type(
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     target_position: usize,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> String {
     if matches!(kind, CheckedNodeKind::Extension(_)) {
         return match terms.get(target_position).and_then(Option::as_ref) {

@@ -3,6 +3,7 @@
 
 //! FR-351: closed step-relation claim body and its V2 body step.
 
+use super::graph_storage::GraphIndex;
 use super::frame::StepGraph;
 use super::model_members::ModelOwners;
 use super::structural::{typed_anchor_body, typed_clause_body, typed_parameter_binding};
@@ -344,7 +345,7 @@ pub(super) fn validate_step_relations(
     nodes: &[CheckedSemanticNodeV2<serde_json::Value>],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {

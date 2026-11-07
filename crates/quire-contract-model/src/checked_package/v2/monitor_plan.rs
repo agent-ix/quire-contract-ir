@@ -3,6 +3,7 @@
 
 //! Closed tick-monitor admission and package-borrowed reads (FR-038-AC-421..429).
 
+use super::graph_storage::GraphIndex;
 use super::model_members::DomainModel;
 use super::native_join_storage as storage;
 use super::{
@@ -736,7 +737,7 @@ struct Graph<'a> {
     nodes: &'a [RawSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     keys: &'a [Arc<CheckedNodeId>],
 }
 impl Graph<'_> {
@@ -985,7 +986,7 @@ pub(super) fn validate(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     keys: &[Arc<CheckedNodeId>],
     models: &[DomainModel],
     meter: &mut WorkMeter,
@@ -1256,7 +1257,7 @@ pub(super) fn validate_dependencies(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     references: &[Vec<super::BodyReference>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     keys: &[Arc<CheckedNodeId>],
 ) -> Result<(), ValidationFailure> {
     for (position, node) in nodes.iter().enumerate() {

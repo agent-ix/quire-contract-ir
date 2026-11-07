@@ -3420,16 +3420,20 @@ impl ContractPackageWireV1 {
                 }
             }
         }
+        let graph_index = super::graph_storage::GraphIndex::build(
+            self.semantic_graph.nodes.iter().map(|node| &node.node_id),
+            &mut *meter,
+        )?;
         super::structural::validate_structural_nodes(
             &self.semantic_graph.nodes,
             &kinds,
             &terms,
-            &positions,
+            &graph_index,
         )?;
         super::identity::validate_nominal_nodes(
             &self.semantic_graph.nodes,
             &kinds,
-            &positions,
+            &graph_index,
             &self.package.source.lock,
             &[],
             &supplied,

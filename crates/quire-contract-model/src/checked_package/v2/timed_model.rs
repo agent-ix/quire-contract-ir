@@ -3,6 +3,7 @@
 
 //! Closed timed-model node wire shapes checked before identity validation.
 
+use super::graph_storage::GraphIndex;
 use super::model_members::{
     Budget, CollectionKind, DomainModel, FieldDecl, MemberKind, ModelFailure, ModelOwners,
     Resolved, SelectedTypeRef,
@@ -1006,7 +1007,7 @@ struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
 }
 
 struct PlaceBindings {
@@ -2115,7 +2116,7 @@ pub(super) fn validate_models<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     source_map: &[CheckedSourceMapEntry],
     owners: &ModelOwners<'_>,
     models: &[DomainModel],

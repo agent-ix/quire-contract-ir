@@ -29,6 +29,7 @@
 //! (`structural`); a body that no longer parses here refuses as that stage
 //! would.
 
+use super::graph_storage::GraphIndex;
 use super::frame::{join, read_frame_body, DeletesScopedEntry, ModifiesEntry, StepGraph};
 use super::model_members::{
     MemberKind, MemberType, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved,
@@ -57,7 +58,7 @@ pub(super) fn validate_state(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,

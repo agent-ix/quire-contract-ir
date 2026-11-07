@@ -2,6 +2,7 @@
 //!
 //! The protocol step runs after refinement and timed models, before operations.
 
+use super::graph_storage::GraphIndex;
 use super::model_members::{Budget, ModelOwners};
 use super::{
     ApplicationOperator, CheckedFairnessTarget, CheckedNodeKind, CheckedPackageLockV2,
@@ -1254,7 +1255,7 @@ fn body_defect(
 fn validate_protocol_declaration_names(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Result<(), ValidationFailure> {
     let mut holders: BTreeMap<&[Box<str>], bool> = BTreeMap::new();
     for &position in index.values() {
@@ -1377,7 +1378,7 @@ struct MemberCheck<'a> {
     nodes: &'a [RawSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     profile: &'a CheckedArtifactRef,
 }
 
@@ -2794,7 +2795,7 @@ fn validate_protocol_declaration_paths(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     validated: &[Option<(&str, &[CheckedTerm])>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Result<(), ValidationFailure> {
     let mut expected = BTreeMap::new();
     let mut pending = Vec::new();
@@ -2964,7 +2965,7 @@ fn collect_protocol_membership(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     validated: &[Option<(&str, &[CheckedTerm])>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(Vec<Option<usize>>, Vec<bool>), ValidationFailure> {
     let mut owners = vec![None; nodes.len()];
@@ -3133,7 +3134,7 @@ fn validate_protocol_membership(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     validated: &[Option<(&str, &[CheckedTerm])>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let (owners, mut repeated) =
@@ -3204,7 +3205,7 @@ struct ProtocolFairnessContext<'a> {
     nodes: &'a [RawSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     validated: &'a [Option<(&'a str, &'a [CheckedTerm])>],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     owners: &'a [Option<usize>],
 }
 
@@ -3460,7 +3461,7 @@ fn commit_is_taken(
     root: usize,
     commit: usize,
     validated: &[Option<(&str, &[CheckedTerm])>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
     let mut taken = BTreeMap::new();
@@ -5696,7 +5697,7 @@ fn uses_temporal_protocol_operator(body: &CheckedTerm) -> bool {
 pub(super) fn has_missing_temporal_selection(
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     lock: &CheckedPackageLockV2,
 ) -> bool {
     if lock
@@ -5734,7 +5735,7 @@ pub(super) fn validate_protocol_nodes(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     pass: ProtocolPass<'_>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,

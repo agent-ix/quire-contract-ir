@@ -5,6 +5,7 @@
 #[path = "nominal_reads.rs"]
 pub mod nominal_reads;
 
+use super::graph_storage::GraphIndex;
 use super::dependency_references::SuppliedDependencies;
 use super::model_members::DomainModel;
 use super::natural::coprime;
@@ -1260,7 +1261,7 @@ fn model_record_from_node(
 pub(super) fn validate_nominal_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     lock: &CheckedPackageLockV2,
     models: &[DomainModel],
     dependencies: &SuppliedDependencies<'_>,
@@ -2064,7 +2065,7 @@ pub(super) fn validate_equivalence_occurrences(
 struct NominalGraph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     records: &'a [Option<NominalRecord>],
     selected_models: BTreeMap<&'a str, &'a DomainModel>,
     imported: BTreeMap<CheckedNodeId, NominalRecord>,

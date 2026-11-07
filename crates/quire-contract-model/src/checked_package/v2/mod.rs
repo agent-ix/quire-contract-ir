@@ -35,6 +35,7 @@ mod execution_point_accessor;
 mod extension;
 mod flat_wire;
 mod frame;
+mod graph_storage;
 mod hybrid;
 mod identity;
 mod intake;
@@ -201,6 +202,7 @@ pub use temporal_clause_names::TemporalClauseName;
 pub use typed_terms::*;
 pub use vocabulary::*;
 
+use graph_storage::GraphIndex;
 use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
@@ -1104,6 +1106,8 @@ fn retained_source_index(
 #[derive(Debug)]
 pub(super) struct WorkMeter<'b> {
     source: WorkSource<'b>,
+    /// Where the graph stage's heap requests are charged.
+    site: Option<graph_storage::ReadSite>,
 }
 
 #[derive(Debug)]
@@ -1116,6 +1120,7 @@ impl<'b> WorkMeter<'b> {
     pub(super) const fn new(limit: u64) -> Self {
         Self {
             source: WorkSource::Own { consumed: 0, limit },
+            site: None,
         }
     }
 
@@ -1123,6 +1128,7 @@ impl<'b> WorkMeter<'b> {
     pub(super) fn over(budget: &'b mut NativeJoinBudget) -> Self {
         Self {
             source: WorkSource::Budget(budget),
+            site: None,
         }
     }
 
@@ -2807,7 +2813,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
 fn validate_declaration_names(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Result<(), ValidationFailure> {
     let name_pointer = |position: usize| {
         node_pointer(position)
@@ -3045,7 +3051,7 @@ fn imported_node_matches(
 
 pub(super) fn structural_key<'a>(
     id: &'a CheckedNodeId,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
 ) -> &'a CheckedNodeId {
     index
@@ -3084,17 +3090,29 @@ fn validate_graph(
             )),
         ));
     }
-    let mut index = BTreeMap::new();
-    let mut kinds = Vec::with_capacity(graph.nodes.len());
-    let mut references: Vec<Vec<BodyReference>> = Vec::with_capacity(graph.nodes.len());
-    let mut body_terms = Vec::with_capacity(graph.nodes.len());
-    let mut terms = Vec::with_capacity(graph.nodes.len());
+    meter.at_node(0, graph_storage::node_form(&graph.nodes[0].node_tag));
+    let index = GraphIndex::build(graph.nodes.iter().map(|node| &node.node_id), meter)?;
+    let repeated_id = index.first_repeat();
+    let mut kinds = meter.vec(graph.nodes.len())?;
+    let mut references: Vec<Vec<BodyReference>> = meter.vec(graph.nodes.len())?;
+    let mut body_terms = meter.vec(graph.nodes.len())?;
+    let mut terms = meter.vec(graph.nodes.len())?;
     // Each frame node's typed body, read once here and joined by the frame step.
-    let mut frames = Vec::new();
+    let frame_nodes = graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            CheckedNodeTag::from_wire(&node.node_tag)
+                .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+                == Some(CheckedNodeKind::State(StateForm::Frame))
+        })
+        .count();
+    let mut frames = meter.vec(frame_nodes)?;
     let mut edges = 0_u64;
     let mut import_index = None;
     for (position, node) in graph.nodes.iter().enumerate() {
         let at = |member: &str| node_pointer(position).key(member);
+        meter.at_node(position, graph_storage::node_form(&node.node_tag));
         validate_node_id(&node.node_id, || at("node_id"))?;
         let expected_package = match node.owner.as_ref() {
             Some(
@@ -3141,7 +3159,7 @@ fn validate_graph(
         // Charge the graph-node visit before checking identity uniqueness so
         // a denied visit cannot proceed to the duplicate-id refusal.
         meter.charge(1, || at("node_id"))?;
-        if index.insert(&node.node_id, position).is_some() {
+        if repeated_id == Some(position) {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 at("node_id"),
@@ -3259,18 +3277,13 @@ fn validate_graph(
         meter.charge(work, || at("body"))?;
         body_terms.push(work);
         references.push(targets);
-        let mut occurrences = BTreeSet::new();
         if node.occurrences.is_empty() {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSourceMap,
                 at("occurrences"),
             ));
         }
-        if let Some(repeat) = node
-            .occurrences
-            .iter()
-            .position(|occurrence| !occurrences.insert(occurrence))
-        {
+        if let Some(repeat) = graph_storage::first_repeat(&node.occurrences, meter)? {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSourceMap,
                 at("occurrences").index(repeat),
@@ -3815,7 +3828,7 @@ fn validate_graph(
 fn validate_protocol_references(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Result<(), ValidationFailure> {
     for (&carrier_id, &position) in index {
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference))

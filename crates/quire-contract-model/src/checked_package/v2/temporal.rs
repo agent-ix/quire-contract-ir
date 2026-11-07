@@ -26,6 +26,7 @@
 //! walk read, and the timed form's lowest-terms graph check
 //! ([`validate_timed_bounds_reduced`]), which runs before the frame step.
 
+use super::graph_storage::GraphIndex;
 use super::frame::StepGraph;
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
@@ -391,7 +392,7 @@ pub(super) fn timed_upper_is_null(operation: &Value) -> bool {
 /// work limit at the node's body.
 pub(super) fn validate_timed_bounds_reduced(
     nodes: &[CheckedSemanticNodeV2],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for &position in index.values() {
@@ -514,7 +515,7 @@ pub(super) fn validate_temporal(
     terms: &[Option<CheckedTerm>],
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &ModelOwners<'_>,
     context: TemporalContext<'_>,
     meter: &mut WorkMeter,

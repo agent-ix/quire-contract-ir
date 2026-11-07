@@ -59,6 +59,7 @@
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
+use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{DomainModel, MemberType, ValueBounds};
 use super::{
@@ -122,7 +123,7 @@ impl Defect {
 struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     models: Option<&'a [super::model_members::DomainModel]>,
 }
 
@@ -349,7 +350,7 @@ pub(super) fn validate_structural_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Result<(), ValidationFailure> {
     validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[], None)
 }
@@ -385,7 +386,7 @@ struct DependencyKeyOrder {
 impl DependencyKeyOrder {
     fn new<'a>(
         dependencies: impl IntoIterator<Item = &'a [CheckedNodeId]>,
-        index: &BTreeMap<&CheckedNodeId, usize>,
+        index: &GraphIndex<'_>,
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
     ) -> Self {
         let mut order = Self {
@@ -426,7 +427,7 @@ impl DependencyKeyOrder {
         &mut self,
         actual: &[CheckedNodeId],
         expected: BTreeSet<&CheckedNodeId>,
-        index: &BTreeMap<&CheckedNodeId, usize>,
+        index: &GraphIndex<'_>,
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
     ) -> bool {
         let expected = expected.into_iter().collect::<Vec<_>>();
@@ -492,7 +493,7 @@ impl DependencyKeyOrder {
     fn ordered(
         &self,
         actual: &[CheckedNodeId],
-        index: &BTreeMap<&CheckedNodeId, usize>,
+        index: &GraphIndex<'_>,
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
     ) -> bool {
         if structural_keys.is_empty() {
@@ -519,7 +520,7 @@ pub(super) fn validate_structural_nodes_with_keys(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     models: Option<&[super::model_members::DomainModel]>,
 ) -> Result<(), ValidationFailure> {
@@ -774,7 +775,7 @@ pub(super) fn validate_derived_type_shapes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     models: &[super::model_members::DomainModel],
 ) -> Result<(), ValidationFailure> {

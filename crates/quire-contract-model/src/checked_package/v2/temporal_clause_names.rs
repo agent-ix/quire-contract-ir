@@ -3,6 +3,7 @@
 
 //! Declared names of temporal-clause source occurrences.
 
+use super::graph_storage::GraphIndex;
 use super::{
     identity::is_identifier, CheckedNodeId, CheckedNodeKind, CheckedOccurrenceRole,
     RawSemanticNodeV2, TemporalForm, WorkMeter,
@@ -49,7 +50,7 @@ pub(super) fn validate(
     rows: Option<&[TemporalClauseName]>,
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {

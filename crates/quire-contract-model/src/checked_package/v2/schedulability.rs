@@ -3,6 +3,7 @@
 
 //! Authenticated schedulability claim carrier and FR-482 body admission.
 
+use super::graph_storage::GraphIndex;
 use super::{
     CheckedLiteralRead, CheckedLiteralValue, CheckedNodeId, CheckedNodeKind, CheckedPackageV2,
     CheckedTerm, ClaimForm, LiteralKind, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
@@ -284,7 +285,7 @@ pub(super) fn validate_carrier(
     rows: Option<&[CheckedSchedulabilityClaimRow]>,
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
 ) -> Result<Vec<(usize, usize)>, ValidationFailure> {
@@ -435,7 +436,7 @@ pub(super) fn validate_bodies(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     models: &[super::model_members::DomainModel],
     meter: &mut WorkMeter,
@@ -647,7 +648,7 @@ pub(super) fn validate_graph(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for &p in index.values() {

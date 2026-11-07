@@ -8,6 +8,7 @@
 //! shape, owner, and reference validation. Node IDs are structural labels; this
 //! module does not derive an identity from an application body.
 
+use super::graph_storage::GraphIndex;
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
 use super::model_members::{
     units, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind, MemberType,
@@ -250,7 +251,7 @@ struct OperationLeafWire {
 /// against the upstream description.
 pub(super) struct OperationNodeOrder<'a> {
     pub(super) catalog: &'a OperationCatalog,
-    pub(super) wire_index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    pub(super) wire_index: &'a GraphIndex<'a>,
     pub(super) structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
 }
 
@@ -419,7 +420,7 @@ impl Hash for FlatNodeKey<'_> {
 }
 
 impl<'a> FlatWireIndex<'a> {
-    fn new(index: &BTreeMap<&'a CheckedNodeId, usize>) -> Self {
+    fn new(index: &GraphIndex<'a>) -> Self {
         let mut flat = HashMap::with_capacity(index.len());
         let mut has_nested = false;
         for (&id, &position) in index {
@@ -432,7 +433,7 @@ impl<'a> FlatWireIndex<'a> {
         Self { flat, has_nested }
     }
 
-    fn get(&self, id: &CheckedNodeId, ordered: &BTreeMap<&CheckedNodeId, usize>) -> Option<usize> {
+    fn get(&self, id: &CheckedNodeId, ordered: &GraphIndex<'_>) -> Option<usize> {
         if let Some(key) = FlatNodeKey::new(id) {
             self.flat.get(&key).copied()
         } else if self.has_nested {
@@ -445,7 +446,7 @@ impl<'a> FlatWireIndex<'a> {
 
 fn operand_position(
     id: &CheckedNodeId,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     fast: Option<&FlatWireIndex<'_>>,
 ) -> Option<usize> {
     fast.map_or_else(|| index.get(id).copied(), |fast| fast.get(id, index))
@@ -668,7 +669,7 @@ fn canonical_uuid(value: &str) -> bool {
 struct Graph<'g> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
-    index: &'g BTreeMap<&'g CheckedNodeId, usize>,
+    index: &'g GraphIndex<'g>,
     structural_keys: &'g [std::sync::Arc<CheckedNodeId>],
     terms: &'g [Option<CheckedTerm>],
 }
@@ -1550,7 +1551,7 @@ fn argument_family(
     argument: &CheckedTerm,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     fast_index: Option<&FlatWireIndex<'_>>,
     catalog: &OperationCatalog,
     owners: Option<&ModelOwners<'_>>,
@@ -1934,7 +1935,7 @@ pub(super) fn resolve_family(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Option<&'static str> {
     resolve_family_with_lookup(type_id, nodes, kinds, index, None)
 }
@@ -1943,7 +1944,7 @@ fn resolve_family_with_lookup(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     fast_index: Option<&FlatWireIndex<'_>>,
 ) -> Option<&'static str> {
     let result = resolve_family_with(type_id, |visit| {
@@ -1974,7 +1975,7 @@ fn resolve_family_from_selected(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &ModelOwners<'_>,
 ) -> Option<&'static str> {
     resolve_family_from_selected_with_lookup(type_id, nodes, kinds, index, None, owners)
@@ -1984,7 +1985,7 @@ fn resolve_family_from_selected_with_lookup(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     fast_index: Option<&FlatWireIndex<'_>>,
     owners: &ModelOwners<'_>,
 ) -> Option<&'static str> {
@@ -3989,7 +3990,7 @@ fn referenced_operand_type(
     target: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Option<CheckedNodeId> {
     let position = *index.get(&target)?;
     let target_node = &nodes[position];
@@ -4005,7 +4006,7 @@ fn operand_type_node_typed(
     argument: &CheckedTerm,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Option<CheckedNodeId> {
     operand_type_node_typed_with_lookup(argument, nodes, kinds, index, None)
 }
@@ -4014,7 +4015,7 @@ fn operand_type_node_typed_with_lookup(
     argument: &CheckedTerm,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     fast_index: Option<&FlatWireIndex<'_>>,
 ) -> Option<CheckedNodeId> {
     let target = match argument {
@@ -4045,7 +4046,7 @@ fn type_pin(
     type_id: &CheckedNodeId,
     kind: OperationModeKind,
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Option<Box<str>> {
     let CheckedTerm::Aggregate { members } = terms.get(*index.get(type_id)?)?.as_ref()? else {
         return None;
@@ -4430,7 +4431,7 @@ fn path_is(leaf: &OperationLeafWire, prefix: &[Box<str>], last: Option<&str>) ->
 struct LeafWalk<'g, 'm, 'b> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
-    index: &'g BTreeMap<&'g CheckedNodeId, usize>,
+    index: &'g GraphIndex<'g>,
     terms: &'g [Option<CheckedTerm>],
     meter: &'m mut WorkMeter<'b>,
     structural: &'m mut StructuralTypes,

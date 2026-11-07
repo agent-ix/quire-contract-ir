@@ -3,6 +3,7 @@
 //! These are separate body steps. Shape and form fit are checked before target
 //! meaning, and all terminal nodes are checked before uniqueness by model.
 
+use super::graph_storage::GraphIndex;
 use super::frame::StepGraph;
 use super::structural::{reference_type_target, typed_parameter_binding};
 use super::{
@@ -203,7 +204,7 @@ fn claim_occurrences(
 fn graph_nodes<'a, 'm>(
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     owners: &'a super::model_members::ModelOwners<'m>,
 ) -> StepGraph<'a, 'm> {
     StepGraph {
@@ -219,7 +220,7 @@ pub(super) fn validate_state_graph(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &super::model_members::ModelOwners<'_>,
 ) -> Result<(), ValidationFailure> {
     let graph = graph_nodes(nodes, kinds, index, owners);
@@ -321,7 +322,7 @@ pub(super) fn validate_terminal(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &super::model_members::ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
