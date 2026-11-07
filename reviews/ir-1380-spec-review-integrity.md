@@ -33,3 +33,9 @@ Ticket: IR-1380. Reviewed PR #940 frozen head 88eb1e140, scoped to the changed A
 ## Verdict
 
 **CONDITIONAL** — One actionable finding is recorded above.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-350 now names AC-10 in the bridge-owned cross-repository contract range. |

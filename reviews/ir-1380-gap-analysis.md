@@ -35,3 +35,9 @@ Plan completion: not assessed. Scoped AC-to-test check; the integration bridge i
 ## Verdict
 
 **CONDITIONAL** — One actionable finding is recorded above.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The owner-only test now tags only FR-038-AC-494. FR-350-AC-10 remains assigned to bridge TC-461 in IR-1005. |
