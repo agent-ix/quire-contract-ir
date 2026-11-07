@@ -145,6 +145,7 @@ impl ContractPackageV1 {
             .ok_or(ContractScalarOperandErrorV1::InvalidOccurrence)?;
 
         let arguments = scalar_arguments(
+            &self.catalog,
             &self.wire.semantic_graph.nodes,
             &self.node_index,
             &self.node_kinds,

@@ -221,6 +221,7 @@ pub(super) struct OperationCatalog {
 }
 
 impl OperationCatalog {
+    #[cfg(test)]
     pub(super) fn known(&self, identity: &str) -> Option<super::KnownOperation> {
         self.entry(identity).and_then(|entry| entry.known)
     }
@@ -268,36 +269,52 @@ impl OperationCatalog {
 
 static CATALOG: OnceLock<Result<OperationCatalog, CatalogReadError>> = OnceLock::new();
 
-/// A catalog that catalogues nothing. [`operation_catalog`] returns it only
-/// when the production bytes are unreadable, which `CheckedPackageV2::read`
-/// reports as [`CatalogReadError`] before it checks any node, so no read
-/// consults it.
-static EMPTY_CATALOG: OperationCatalog = OperationCatalog {
-    operations: BTreeMap::new(),
-    groups: BTreeMap::new(),
-    law_roles: BTreeMap::new(),
-    modes: BTreeMap::new(),
-    type_pinned_modes: BTreeMap::new(),
-};
-
 /// The result of reading the production catalog bytes, read once.
 pub(super) fn production_catalog() -> &'static Result<OperationCatalog, CatalogReadError> {
     CATALOG.get_or_init(|| read_catalog(CATALOG_BYTES))
 }
 
-/// The unreadable-catalog error a package read reports before it checks any
-/// node, if `read` failed.
-pub(super) fn catalog_unavailable(
-    read: &Result<OperationCatalog, CatalogReadError>,
-) -> Option<CatalogReadError> {
-    read.as_ref().err().cloned()
+/// The catalog a read result stands for, or why it is unavailable. Every
+/// reader entry point obtains its catalog here and passes the reference down,
+/// so no check can run without a readable catalog.
+pub(super) fn available(
+    read: &'static Result<OperationCatalog, CatalogReadError>,
+) -> Result<&'static OperationCatalog, CatalogReadError> {
+    read.as_ref().map_err(Clone::clone)
 }
 
-/// The parsed, cached production catalog. Package reads gate on
-/// [`catalog_unavailable`] first, so a read never reaches the empty catalog
-/// this returns for unreadable bytes.
+/// The catalog an admitted package was read against, kept so the package's
+/// own queries use it. Packages compare equal by content, not by catalog.
+#[derive(Clone, Copy)]
+pub(super) struct CatalogRef(pub(super) &'static OperationCatalog);
+
+impl std::ops::Deref for CatalogRef {
+    type Target = OperationCatalog;
+    fn deref(&self) -> &OperationCatalog {
+        self.0
+    }
+}
+
+impl std::fmt::Debug for CatalogRef {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("CatalogRef")
+    }
+}
+
+impl PartialEq for CatalogRef {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for CatalogRef {}
+
+/// The production catalog, for tests that read an operation's entry.
+#[cfg(test)]
 pub(super) fn operation_catalog() -> &'static OperationCatalog {
-    production_catalog().as_ref().unwrap_or(&EMPTY_CATALOG)
+    production_catalog()
+        .as_ref()
+        .expect("the production catalog reads")
 }
 
 /// The production operation catalog could not be read: the member the bytes
@@ -587,14 +604,15 @@ mod tests {
             .position(|entry| entry["identity"] == "quire.op.collection.sum.carried_quantity")
             .expect("the carried-quantity sum is catalogued");
         edited["operations"][index]["constraints"][1]["kind"] = serde_json::json!("not_carried");
-        let unreadable = read_catalog(&edited.to_string());
+        let unreadable: &'static Result<OperationCatalog, CatalogReadError> =
+            Box::leak(Box::new(read_catalog(&edited.to_string())));
         let expected = unreadable
             .as_ref()
             .err()
             .cloned()
             .expect("unreadable bytes");
         let result = CheckedPackageV2::read_against(
-            &unreadable,
+            unreadable,
             b"not even a package",
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::default(),
@@ -608,6 +626,41 @@ mod tests {
             format!("operations[{index}].constraints[1].kind")
         );
         assert!(error.message().contains("not_carried"), "{error}");
+    }
+
+    /// FR-035-AC-36, FR-038-AC-495: the FR-330 contract-package read gates on
+    /// the same catalog result, returning `CatalogUnavailable` with the
+    /// offending path before it judges any byte, never a refusal.
+    #[trace("TC-048", "FR-035-AC-36")]
+    #[test]
+    fn tc_048_unreadable_production_catalog_bytes_make_the_contract_package_read_catalog_unavailable(
+    ) {
+        use super::super::contract_package::{ContractPackageReadResult, ContractPackageWireV1};
+        use super::super::{CheckedPackageReadLimits, ContractDependencies};
+        let mut edited: serde_json::Value =
+            serde_json::from_str(CATALOG_BYTES).expect("the production catalog is JSON");
+        let index = edited["operations"]
+            .as_array()
+            .expect("operations")
+            .iter()
+            .position(|entry| entry["identity"] == "quire.op.collection.sum.carried_quantity")
+            .expect("the carried-quantity sum is catalogued");
+        edited["operations"][index]["constraints"][1]["kind"] = serde_json::json!("not_carried");
+        let unreadable: &'static Result<OperationCatalog, CatalogReadError> =
+            Box::leak(Box::new(read_catalog(&edited.to_string())));
+        let result = ContractPackageWireV1::read_against(
+            unreadable,
+            b"not even a package",
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::default(),
+        );
+        let ContractPackageReadResult::CatalogUnavailable(error) = result else {
+            panic!("an unreadable catalog must be CatalogUnavailable, got {result:?}");
+        };
+        assert_eq!(
+            error.path(),
+            format!("operations[{index}].constraints[1].kind")
+        );
     }
 
     /// FR-038-AC-58: the catalog read over supplied bytes whose `law_roles`

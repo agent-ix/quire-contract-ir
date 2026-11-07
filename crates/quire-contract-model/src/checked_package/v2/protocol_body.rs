@@ -1372,6 +1372,7 @@ fn declaration_defect(position: usize, node: &RawSemanticNodeV2) -> ValidationFa
 }
 
 struct MemberCheck<'a> {
+    catalog: &'a super::operation_catalog::OperationCatalog,
     position: usize,
     nodes: &'a [RawSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
@@ -4195,7 +4196,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         let entry = operation
                             .get("identity")
                             .and_then(Value::as_str)
-                            .and_then(|id| super::operation_catalog::operation_catalog().entry(id))
+                            .and_then(|id| self.check.catalog.entry(id))
                             .filter(|entry| entry.operator == *operator);
                         if entry.is_some() && *operator == ApplicationOperator::Let {
                             if let [CheckedTerm::Binding { name, value }, body] =
@@ -5721,16 +5722,28 @@ pub(super) fn has_missing_temporal_selection(
 }
 
 /// Validate protocol placement, local members, membership and clause layout.
+/// What the protocol step reads beside the graph: the operation catalog, the
+/// package lock and the byte ceiling.
+pub(super) struct ProtocolPass<'a> {
+    pub(super) catalog: &'a super::operation_catalog::OperationCatalog,
+    pub(super) lock: &'a CheckedPackageLockV2,
+    pub(super) bytes: u64,
+}
+
 pub(super) fn validate_protocol_nodes(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &BTreeMap<&CheckedNodeId, usize>,
-    lock: &CheckedPackageLockV2,
+    pass: ProtocolPass<'_>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
-    bytes: u64,
 ) -> Result<(), ValidationFailure> {
+    let ProtocolPass {
+        catalog,
+        lock,
+        bytes,
+    } = pass;
     let selected_profile = lock
         .profile_selections
         .iter()
@@ -5858,6 +5871,7 @@ pub(super) fn validate_protocol_nodes(
             validate_related_order(form, operator, arguments, bytes)
                 .map_err(|defect| body_defect(position, &nodes[position], defect))?;
             let check = MemberCheck {
+                catalog,
                 position,
                 nodes,
                 kinds,
@@ -5924,6 +5938,7 @@ pub(super) fn validate_protocol_nodes(
         validate_layout(ProtocolForm::ProtocolClause, operator, arguments)
             .map_err(|defect| body_defect(position, &nodes[position], defect))?;
         let check = MemberCheck {
+            catalog,
             position,
             nodes,
             kinds,

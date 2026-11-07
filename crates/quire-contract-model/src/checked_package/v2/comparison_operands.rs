@@ -4,7 +4,6 @@
 //! Typed, clause-context operands of admitted direct integer comparisons.
 
 use super::model_fields::OperationTypes;
-use super::operation_catalog::operation_catalog;
 use super::structural::{
     reference_type_target_typed, typed_anchor_body, typed_clause_body, typed_reference,
 };
@@ -375,7 +374,7 @@ impl CheckedPackageV2 {
                     Some(condition.clone()),
                 )
             })?;
-        if operation_catalog().entry(identity).is_none() {
+        if self.catalog.entry(identity).is_none() {
             return Err(context.error(
                 Refusal::UnknownOperator,
                 Path::Comparison,
@@ -796,6 +795,7 @@ mod tests {
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
             admission_binding: Default::default(),
         }
         .retain_original_admission();

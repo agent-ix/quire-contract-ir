@@ -770,6 +770,7 @@ fn text_bounds_shape(term: Option<&CheckedTerm>, graph: &Graph<'_>) -> bool {
 /// FR-038-AC-124/125: validate the closed bodies of the ten derived type
 /// forms independently of their producer-assigned structural node IDs.
 pub(super) fn validate_derived_type_shapes(
+    catalog: &super::operation_catalog::OperationCatalog,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
@@ -960,7 +961,7 @@ pub(super) fn validate_derived_type_shapes(
                     })
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::CarriedQuantity) => {
-                carried_quantity_shape(node, term, &graph, terms, structural_keys)
+                carried_quantity_shape(catalog, node, term, &graph, terms, structural_keys)
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity) => {
                 bounded_quantity_shape(node, term, &graph, structural_keys)
@@ -1002,10 +1003,11 @@ enum CheckedRoundingMode {
 
 impl CheckedRoundingMode {
     #[ix_trace_rs::string_edge]
-    fn from_literal(value: &str) -> Option<Self> {
-        if !super::operation_catalog::operation_catalog()
-            .mode_value_admitted(super::OperationModeKind::Rounding, value)
-        {
+    fn from_literal(
+        catalog: &super::operation_catalog::OperationCatalog,
+        value: &str,
+    ) -> Option<Self> {
+        if !catalog.mode_value_admitted(super::OperationModeKind::Rounding, value) {
             return None;
         }
         Some(if value == "exact" {
@@ -1017,6 +1019,7 @@ impl CheckedRoundingMode {
 }
 
 fn carried_quantity_shape(
+    catalog: &super::operation_catalog::OperationCatalog,
     node: &CheckedSemanticNodeV2,
     term: Option<&CheckedTerm>,
     graph: &Graph<'_>,
@@ -1046,7 +1049,7 @@ fn carried_quantity_shape(
     let Some(rounding) = value.as_str() else {
         return false;
     };
-    let Some(rounding_mode) = CheckedRoundingMode::from_literal(rounding) else {
+    let Some(rounding_mode) = CheckedRoundingMode::from_literal(catalog, rounding) else {
         return false;
     };
     let Some(carrier_kind) = graph.kind(carrier) else {
@@ -1610,7 +1613,7 @@ pub(super) struct TransitionBody {
 /// Whether a raw term is the catalogued state-transition application.
 pub(super) fn is_state_transition_application(term: &Value) -> bool {
     matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
-        if operation.get("identity").and_then(Value::as_str).and_then(|identity| super::operation_catalog::operation_catalog().known(identity)) == Some(super::KnownOperation::StateTransition))
+        if operation.get("identity").and_then(Value::as_str).and_then(super::KnownOperation::from_wire) == Some(super::KnownOperation::StateTransition))
 }
 
 /// Decode the closed transition argument shape without doing its semantic joins.
@@ -1624,7 +1627,7 @@ pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<Transit
     else {
         return None;
     };
-    if super::operation_catalog::operation_catalog().known(operation.get("identity")?.as_str()?)
+    if super::KnownOperation::from_wire(operation.get("identity")?.as_str()?)
         != Some(super::KnownOperation::StateTransition)
     {
         return None;
@@ -1664,7 +1667,7 @@ pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<Transit
 // Reads an application's operation identity.
 pub(super) fn is_state_clause_application(term: &Value) -> bool {
     matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
-        if operation.get("identity").and_then(Value::as_str).and_then(|identity| super::operation_catalog::operation_catalog().known(identity)) == Some(super::KnownOperation::StateClause))
+        if operation.get("identity").and_then(Value::as_str).and_then(super::KnownOperation::from_wire) == Some(super::KnownOperation::StateClause))
 }
 
 /// The admitted state clause body, or `None` for any other shape: an
@@ -1683,7 +1686,7 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
     else {
         return None;
     };
-    if super::operation_catalog::operation_catalog().known(operation.get("identity")?.as_str()?)
+    if super::KnownOperation::from_wire(operation.get("identity")?.as_str()?)
         != Some(super::KnownOperation::StateClause)
     {
         return None;
@@ -1842,7 +1845,7 @@ pub(super) fn application_dependencies(
                     .and_then(Value::as_str)
                     .is_some_and(|identity| {
                         matches!(
-                            super::operation_catalog::operation_catalog().known(identity),
+                            super::KnownOperation::from_wire(identity),
                             Some(
                                 super::KnownOperation::ModelReaches
                                     | super::KnownOperation::ModelNavigate
