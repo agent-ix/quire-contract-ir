@@ -139,6 +139,43 @@ impl<'b> WorkMeter<'b> {
         Ok(Vec::with_capacity(capacity))
     }
 
+    /// Appends `item`, growing a full vector to double its capacity (at
+    /// least four) after charging that whole new block.
+    pub(super) fn push<T>(&mut self, items: &mut Vec<T>, item: T) -> Result<(), ValidationFailure> {
+        self.room(items, 1)?;
+        items.push(item);
+        Ok(())
+    }
+
+    /// Makes room in `items` for `additional` more, growing to the larger of
+    /// the needed length and double the capacity (at least four), charging
+    /// the whole new block before it is requested.
+    pub(super) fn room<T>(
+        &mut self,
+        items: &mut Vec<T>,
+        additional: usize,
+    ) -> Result<(), ValidationFailure> {
+        let needed = items.len().saturating_add(additional);
+        if needed <= items.capacity() {
+            return Ok(());
+        }
+        let target = needed.max(items.capacity().saturating_mul(2)).max(4);
+        self.reserve_items::<T>(target)?;
+        items.reserve_exact(target - items.len());
+        Ok(())
+    }
+
+    /// A vector of `count` copies of `value`, charged first.
+    pub(super) fn filled<T: Clone>(
+        &mut self,
+        count: usize,
+        value: T,
+    ) -> Result<Vec<T>, ValidationFailure> {
+        let mut items = self.vec(count)?;
+        items.resize(count, value);
+        Ok(items)
+    }
+
     /// A string with room for exactly `capacity` bytes, charged first.
     pub(super) fn string(&mut self, capacity: usize) -> Result<String, ValidationFailure> {
         self.reserve(capacity)?;
@@ -314,6 +351,17 @@ impl<'g> GraphIndex<'g> {
             .filter(|pair| pair[0].0 == pair[1].0)
             .map(|pair| pair[1].1)
             .min()
+    }
+}
+
+#[cfg(test)]
+impl<'g> FromIterator<(&'g CheckedNodeId, usize)> for GraphIndex<'g> {
+    fn from_iter<I: IntoIterator<Item = (&'g CheckedNodeId, usize)>>(entries: I) -> Self {
+        let mut entries: Vec<_> = entries.into_iter().collect();
+        entries.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
+        Self {
+            entries: entries.into_boxed_slice(),
+        }
     }
 }
 

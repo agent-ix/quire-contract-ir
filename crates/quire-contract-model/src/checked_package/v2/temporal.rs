@@ -1791,7 +1791,7 @@ mod tests {
                 CheckedNodeKind::decode(tag, &node.semantic_form).expect("test node form")
             })
             .collect();
-        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+        let index: GraphIndex<'_> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))

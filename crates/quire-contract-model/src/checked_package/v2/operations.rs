@@ -5297,6 +5297,7 @@ mod tests {
         ValidationFailure::refused_at(code, pointer(path), cause, locus)
     }
     use serde_json::{json, Value};
+    use super::super::graph_storage::GraphIndex;
     use std::collections::BTreeMap;
 
     fn relationship_member_outcome(
@@ -5489,7 +5490,7 @@ mod tests {
             *node = serde_json::from_value(value).expect("flat fixture node");
         }
         flatten_fixture_ids(&mut operation, &mut fixture_ids);
-        let index: BTreeMap<_, _> = nodes
+        let index: GraphIndex<'_> = nodes
             .iter()
             .enumerate()
             .map(|(at, node)| (&node.node_id, at))
@@ -5950,12 +5951,14 @@ mod tests {
             path: vec![Segment::Node(std::sync::Arc::new(named.clone()))],
             ordinal: 0,
         };
-        let index = BTreeMap::from([(&named, 0), (&indexed, 1), (&nested, 2)]);
+        let index: GraphIndex<'_> = [(&named, 0), (&indexed, 1), (&nested, 2)]
+            .into_iter()
+            .collect();
         let fast = FlatWireIndex::new(&index);
         for id in [&named, &indexed, &nested, &node_id('z')] {
             assert_eq!(fast.get(id, &index), index.get(id).copied());
         }
-        let flat_index = BTreeMap::from([(&named, 0), (&indexed, 1)]);
+        let flat_index: GraphIndex<'_> = [(&named, 0), (&indexed, 1)].into_iter().collect();
         let flat = FlatWireIndex::new(&flat_index);
         assert_eq!(flat.get(&nested, &flat_index), None);
     }
@@ -5972,7 +5975,7 @@ mod tests {
                 ordinal: 0,
             })
             .collect();
-        let index: BTreeMap<_, _> = ids.iter().enumerate().map(|(at, id)| (id, at)).collect();
+        let index: GraphIndex<'_> = ids.iter().enumerate().map(|(at, id)| (id, at)).collect();
         let fast = FlatWireIndex::new(&index);
         let deep = CheckedNodeId {
             package: "checked".into(),
@@ -6181,8 +6184,7 @@ mod tests {
         node: &CheckedSemanticNodeV2,
     ) -> Result<Option<ValidationFailure>, ValidationFailure> {
         let nodes = std::slice::from_ref(node);
-        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
-        index.insert(&node.node_id, 0);
+        let index: GraphIndex<'_> = [(&node.node_id, 0)].into_iter().collect();
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
         let kinds = kinds_of(nodes);
@@ -6222,7 +6224,7 @@ mod tests {
         node.body["operation"]["identity"] = json!(UNCATALOGUED_IDENTITY);
         let nodes = std::slice::from_ref(&node);
         let kinds = kinds_of(nodes);
-        let index = BTreeMap::from([(&node.node_id, 0)]);
+        let index: GraphIndex<'_> = [(&node.node_id, 0)].into_iter().collect();
         let terms = [Some(retained)];
         let actual = operation_defect(
             Application {
@@ -6307,10 +6309,11 @@ mod tests {
         lock: &CheckedPackageLockV2,
         limit: u64,
     ) -> (Result<Option<ValidationFailure>, ValidationFailure>, u64) {
-        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
-        for (position, node) in nodes.iter().enumerate() {
-            index.insert(&node.node_id, position);
-        }
+        let index: GraphIndex<'_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
         let mut meter = WorkMeter::new(limit);
         let kinds = kinds_of(&nodes);
         let terms = decoded_terms(&nodes);
@@ -6416,7 +6419,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
-            .collect::<BTreeMap<_, _>>();
+            .collect::<GraphIndex<'_>>();
         let family = |position: usize| {
             let at: CheckedNodeId = serde_json::from_value(id(position)).expect("id");
             super::resolve_family(&at, &nodes, &kinds, &index)
@@ -8121,7 +8124,7 @@ mod tests {
     fn structural_forwarding_is_paid_once_across_both_leaf_passes() {
         let (nodes, leaves) = structural_shared_chain();
         let kinds = kinds_of(&nodes);
-        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+        let index: GraphIndex<'_> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -8187,7 +8190,7 @@ mod tests {
     fn text_profile_pin_retains_its_independent_exact_boundary() {
         let (nodes, _) = structural_shared_chain();
         let kinds = kinds_of(&nodes);
-        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+        let index: GraphIndex<'_> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -8636,7 +8639,7 @@ mod tests {
             scalar_type_node('d', "integer"),
         ];
         let kinds = kinds_of(&nodes);
-        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+        let index: GraphIndex<'_> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -8697,7 +8700,7 @@ mod tests {
                 last,
             ];
             let kinds = kinds_of(&nodes);
-            let index: BTreeMap<&CheckedNodeId, usize> = nodes
+            let index: GraphIndex<'_> = nodes
                 .iter()
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
@@ -8761,7 +8764,7 @@ mod tests {
             scalar_type_node('i', "integer"),
         ];
         let kinds = kinds_of(&nodes);
-        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+        let index: GraphIndex<'_> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -8860,7 +8863,7 @@ mod tests {
         binder.semantic_type = indexed.clone();
         let nodes = [source, type_node, binder];
         let kinds = kinds_of(&nodes);
-        let index: BTreeMap<_, _> = nodes
+        let index: GraphIndex<'_> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -10068,10 +10071,11 @@ mod tests {
         );
         let mut nodes = vec![application];
         nodes.append(&mut types);
-        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
-        for (position, node) in nodes.iter().enumerate() {
-            index.insert(&node.node_id, position);
-        }
+        let index: GraphIndex<'_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
         let mut meter = WorkMeter::new(1_000_000);
         let kinds = kinds_of(&nodes);
         let terms = decoded_terms(&nodes);
@@ -10685,7 +10689,7 @@ mod tests {
             };
             let nodes = vec![high.clone(), low.clone()];
             let kinds = kinds_of(&nodes);
-            let index: BTreeMap<&CheckedNodeId, usize> = nodes
+            let index: GraphIndex<'_> = nodes
                 .iter()
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
@@ -10866,7 +10870,7 @@ mod tests {
         // `any_value` one.
         let nodes = clause_nodes(good(), None);
         let kinds = kinds_of(&nodes);
-        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+        let index: GraphIndex<'_> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -11023,7 +11027,7 @@ mod tests {
             }
             let kinds = kinds_of(&nodes);
             let terms = decoded_terms(&nodes);
-            let index: BTreeMap<_, _> = nodes
+            let index: GraphIndex<'_> = nodes
                 .iter()
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))

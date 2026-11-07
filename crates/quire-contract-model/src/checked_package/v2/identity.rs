@@ -2585,7 +2585,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
-            .collect::<BTreeMap<_, _>>();
+            .collect::<GraphIndex<'_>>();
         assert!(matches!(
             super::super::validate_declaration_names(&declarations, &kinds, &index),
             Err(ValidationFailure::Refused(refusal))
