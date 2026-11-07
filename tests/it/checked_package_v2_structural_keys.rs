@@ -704,7 +704,7 @@ fn structural_identity_is_retained_without_body_derivation() {
     assert_ne!(first_read.graph().nodes[0], changed_read.graph().nodes[0]);
     assert_eq!(
         serde_json::to_value(
-            &changed_read
+            changed_read
                 .document_held_id(0)
                 .expect("graph node")
                 .clone()
@@ -1393,7 +1393,7 @@ fn structural_group_members_retain_exact_paths_and_references() {
     for (position, expected_id) in [(option, &option_id), (record, &record_id)] {
         assert_eq!(
             serde_json::to_value(
-                &original
+                original
                     .document_held_id(position)
                     .expect("graph node")
                     .clone()

@@ -1991,7 +1991,7 @@ fn tm9_removing_terminal_retains_declared_clause_id() {
     };
     assert_eq!(
         serde_json::to_value(
-            &admitted
+            admitted
                 .document_held_id(clause)
                 .expect("graph node")
                 .clone()
@@ -4170,7 +4170,7 @@ fn tc_946_mixed_protocol_carrier_and_function_cycle_admits() {
     for &at in &positions {
         let id = &nodes[at]["node_id"];
         assert_eq!(
-            serde_json::to_value(&admitted.document_held_id(at).expect("graph node").clone())
+            serde_json::to_value(admitted.document_held_id(at).expect("graph node").clone())
                 .expect("typed group id"),
             *id
         );

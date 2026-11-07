@@ -128,7 +128,7 @@ fn derived_reference_target_joins_eligible_declaration_kinds() {
             serde_json::from_value(reference.clone()).expect("reference identity");
         assert_eq!(
             serde_json::to_value(
-                &admitted
+                admitted
                     .document_held_id(position)
                     .expect("graph node")
                     .clone()

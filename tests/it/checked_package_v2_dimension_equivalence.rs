@@ -247,7 +247,7 @@ fn foreign_operand_wrong_kind_and_self_minted_local_refuse_at_operand() {
     let (wire, name, dependency) = mixed_package();
     let mut wrong_kind = wire.clone();
     wrong_kind["semantic_graph"]["nodes"][3]["body"]["dimension_node_ids"][0]["node"] =
-        serde_json::to_value(&dependency.document_held_id(0).expect("graph node").clone())
+        serde_json::to_value(dependency.document_held_id(0).expect("graph node").clone())
             .expect("non-dimension id");
     let CheckedPackageV2ReadResult::Refused(refusal) =
         read_with_dependencies(&wrong_kind, &[(name.as_str(), &dependency)])
