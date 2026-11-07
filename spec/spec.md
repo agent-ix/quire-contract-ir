@@ -237,6 +237,7 @@ coverage target is specified before it is measured and reviewed.
 - [IR to codegen seam: what codegen consumes](assurance/AD-006-codegen-consumption-seam.md).
 - [Cross-repo dependency graph](assurance/AD-007-cross-repo-dependency-graph.md).
 - [Proof coverage accounting](assurance/AD-008-proof-coverage-accounting.md).
+- [Tick-monitor admission, lowering and execution pipeline](assurance/AD-010-tick-monitor-admission-lowering-and-execution.md).
 
 ## Developer Gate Adoption
 
