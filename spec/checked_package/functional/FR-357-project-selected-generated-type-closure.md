@@ -252,9 +252,9 @@ SHALL debit the same caller-owned `NativeJoinBudget` under
 [FR-358](./FR-358-compose-native-identity-join-budget.md). Every map key,
 value, node identity, Exact value and row/container allocation or clone SHALL
 be precharged before it occurs. Reached row selection SHALL retain the
-original `ReachedRow` index and collection channel form; external adapter
-charges SHALL retain their `AdapterRow` index. A denied key or value charge
-SHALL preserve its first native kind, full amount, locus and original bound,
+original `ReachedRow` index and collection channel form; preceding public
+caller charges SHALL retain their supplied non-owning locus. A denied key or
+value charge SHALL preserve its first native kind, full amount, locus and original bound,
 spent prefix and empty success delta. No new budget, reset or partial map
 view SHALL replace a denial. Zero-storage refusal SHALL return the existing
 compact typed outcome without allocating an owned node, form, row, map or
@@ -384,7 +384,7 @@ result alone SHALL NOT authorize either construction.
 | FR-357-AC-17 | The closure read requires the same-emission authority row of FR-361 and returns either a complete closure carrying the receipt and layout context or one typed first refusal; no read exists without that row, and no partial closure escapes an authority refusal. | Test, Inspection |
 | FR-357-AC-18 | The closure read seeds the plan's `tick_unit` premise with its unit and dimension facts and exposes `SelectedMonitorTypeClosure::tick_unit_dimension() -> &CheckedNodeId`, the admitted dimension node of that unit. For a source tick unit and for a model tick unit, it returns that unit's own admitted dimension; a tick unit whose admitted dimension is not the base Time dimension refuses at strict admission before any closure exists; the seeded facts are charged and succeed at the exact allowance and refuse one unit below at the first unpaid seed charge. | Test |
 | FR-357-AC-19 | The public `SelectedSourceCollectionRow` carries `key_node: Option<CheckedNodeId>`. With one strictly admitted reached map whose key is scalar and whose value is a record, the collection row join and Exact projection return its complete producer `ValueType::Map`, preserving structural/base/key/value nodes and key-then-value order. The monitor closure retains that map row and follows both type dependencies; an unrelated map row is not selected. Existing sequence, set, bag and ordered-set rows retain `key_node: None` and their existing complete values. A row with a non-collection/non-map Exact value keeps the existing `MismatchedIdentityWitness` refusal rather than being admitted as a map. | Test, Inspection |
-| FR-357-AC-20 | Map row selection, acquisition and projection compose on one caller-owned `NativeJoinBudget`. Their measured exact combined work and storage allowances return the same complete map facts as ample limits; one unit below either refuses before its first unpaid operation with the original bound, native kind, full amount, row/key/value locus, consumed prefix and no partial output or success delta. Zero storage refuses before any owned allocation, including diagnostic material. A selected row after an unrelated earlier row retains its original `ReachedRow` index; external adapter work retains its `AdapterRow` index. Existing non-map typed refusals and non-map collection values are unchanged. | Test |
+| FR-357-AC-20 | Map row selection, acquisition and projection compose on one caller-owned `NativeJoinBudget`. Their measured exact combined work and storage allowances return the same complete map facts as ample limits; one unit below either refuses before its first unpaid operation with the original bound, native kind, full amount, row/key/value locus, consumed prefix and no partial output or success delta. Zero storage refuses before any owned allocation, including diagnostic material. A selected row after an unrelated earlier row retains its original `ReachedRow` index; preceding caller charges retain their supplied native locus. Existing non-map typed refusals and non-map collection values are unchanged. | Test |
 
 ## Dependencies
 

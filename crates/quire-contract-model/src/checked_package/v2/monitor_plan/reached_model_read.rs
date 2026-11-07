@@ -2625,7 +2625,7 @@ mod tests {
             }
         }
 
-        #[trace("TC-470", "FR-357-AC-19", "FR-357-AC-20")]
+        #[trace("TC-473", "FR-357-AC-19", "FR-357-AC-20")]
         #[test]
         fn selected_closure_retains_only_reached_map_and_composes_exact_budget() {
             let package = admitted_monitor_for_closure_with_maps("integer", true);
@@ -2669,7 +2669,7 @@ mod tests {
             }
         }
 
-        #[trace("TC-470", "FR-357-AC-19")]
+        #[trace("TC-473", "FR-357-AC-19")]
         #[test]
         fn selected_map_key_refusal_is_typed_and_unreached_bad_key_is_ignored() {
             let package = admitted_monitor_for_closure_with_maps("integer", true);
@@ -2703,6 +2703,66 @@ mod tests {
             assert_eq!(error.code, SelectedMonitorTypeClosureErrorCode::CollectionKey);
             assert_eq!(error.at.as_deref(), Some(&node));
         }
+        #[trace("TC-473", "FR-357-AC-20")]
+        #[test]
+        fn selected_map_row_keeps_original_index_and_precharges_its_actual_copy() {
+            let package = admitted_monitor_for_closure_with_maps("integer", true);
+            let plan = package.monitor_plans().next().expect("plan");
+            let rows = Rows::new(&package);
+            let index = rows.collections.iter().position(|row|
+                row.structural_node == rows.reached_map().structural_node).unwrap();
+            assert!(index > 0, "an unrelated earlier row precedes this selected map");
+            let mut malformed = Rows::new(&package);
+            malformed.collections[index].key_node = None;
+            let mut diagnostic = NativeJoinBudget::new(u64::MAX, u64::MAX);
+            let error = plan.project_selected_type_closure(malformed.view(), &mut diagnostic).unwrap_err();
+            assert_eq!(error.code, SelectedMonitorTypeClosureErrorCode::CollectionKey);
+            let mut diagnostic_short = NativeJoinBudget::new(u64::MAX, diagnostic.consumed().storage - 1);
+            plan.project_selected_type_closure(malformed.view(), &mut diagnostic_short).unwrap_err();
+            let prefix = diagnostic_short.consumed().storage;
+            let mut at_copy = NativeJoinBudget::new(u64::MAX, prefix);
+            plan.project_selected_type_closure(rows.view(), &mut at_copy).unwrap_err();
+            let copy_charge = at_copy.first_unpaid().expect("map row retention charge");
+            assert_eq!(copy_charge.kind, NativeJoinChargeKind::Storage);
+            assert_eq!(at_copy.first_unpaid_locus(), Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::ReachedRow(index), form: "source_collection_selection",
+            }));
+            let exact_copy = prefix + u64::try_from(copy_charge.amount).unwrap();
+            let mut short = NativeJoinBudget::new(u64::MAX, exact_copy - 1);
+            let mut result = None;
+            let unpaid = allocation_counter::measure(|| {
+                result = Some(plan.project_selected_type_closure(rows.view(), &mut short));
+            });
+            let error = result.unwrap().expect_err("one below selected map copy");
+            assert_eq!(error.denied, Some(copy_charge));
+            assert_eq!(error.denied_locus, Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::ReachedRow(index), form: "source_collection_selection",
+            }));
+            assert_eq!(short.consumed().storage, prefix);
+            assert_eq!(short.storage_limit(), exact_copy - 1);
+            assert_eq!(short.last_success_delta(), None);
+            let mut paid = NativeJoinBudget::new(u64::MAX, exact_copy);
+            let mut paid_result = None;
+            let admitted = allocation_counter::measure(|| {
+                paid_result = Some(plan.project_selected_type_closure(rows.view(), &mut paid));
+            });
+            paid_result.unwrap().expect_err("later join remains unpaid");
+            assert!(admitted.count_total > unpaid.count_total,
+                "the selected map row is actually cloned only after its storage admission");
+            assert!(unpaid.count_total > 0, "earlier paid work allocated");
+            assert_eq!(paid.consumed().storage, exact_copy);
+            let mut zero = NativeJoinBudget::new(u64::MAX, 0);
+            let mut zero_result = None;
+            let zero_allocations = allocation_counter::measure(|| {
+                zero_result = Some(plan.project_selected_type_closure(rows.view(), &mut zero));
+            });
+            let error = zero_result.unwrap().expect_err("zero storage");
+            assert_eq!(zero_allocations.count_total, 0);
+            assert_eq!(error.code, SelectedMonitorTypeClosureErrorCode::StorageLimit);
+            assert_eq!(error.at, None);
+            assert_eq!(zero.consumed().storage, 0);
+        }
+
     }
 
 }

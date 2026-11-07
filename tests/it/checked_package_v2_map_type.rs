@@ -388,7 +388,7 @@ fn source_map_row(
 }
 
 /// Trace: FR-357-AC-19.
-#[trace("TC-470", "FR-357-AC-19")]
+#[trace("TC-473", "FR-357-AC-19")]
 #[test]
 fn source_map_row_joins_and_projects_its_complete_value() {
     let (package, row) = source_map_fixture();
@@ -403,7 +403,7 @@ fn source_map_row_joins_and_projects_its_complete_value() {
 }
 
 /// Trace: FR-357-AC-19.
-#[trace("TC-470", "FR-357-AC-19")]
+#[trace("TC-473", "FR-357-AC-19")]
 #[test]
 fn source_map_rows_preserve_key_and_non_collection_refusals() {
     use quire_contract_model::NativeJoinBudget;
@@ -435,7 +435,7 @@ fn source_map_rows_preserve_key_and_non_collection_refusals() {
 }
 
 /// Trace: FR-357-AC-20.
-#[trace("TC-470", "FR-357-AC-20")]
+#[trace("TC-473", "FR-357-AC-20")]
 #[test]
 fn source_map_rows_compose_at_exact_budget_and_preserve_first_denial() {
     use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind};
@@ -480,7 +480,7 @@ fn source_map_rows_compose_at_exact_budget_and_preserve_first_denial() {
 }
 
 /// Trace: FR-357-AC-20.
-#[trace("TC-470", "FR-357-AC-20")]
+#[trace("TC-473", "FR-357-AC-20")]
 #[test]
 fn source_map_zero_storage_refuses_without_allocating_rows_or_diagnostics() {
     use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind};
@@ -505,7 +505,7 @@ fn source_map_zero_storage_refuses_without_allocating_rows_or_diagnostics() {
 }
 
 /// Trace: FR-357-AC-19.
-#[trace("TC-470", "FR-357-AC-19")]
+#[trace("TC-473", "FR-357-AC-19")]
 #[test]
 fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
     use quire_contract_model::{NativeJoinBudget, SelectedSourceCollectionRow};
@@ -565,7 +565,7 @@ fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
 }
 
 /// Trace: FR-357-AC-20.
-#[trace("TC-470", "FR-357-AC-20")]
+#[trace("TC-473", "FR-357-AC-20")]
 #[test]
 fn source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix() {
     use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocusSource};

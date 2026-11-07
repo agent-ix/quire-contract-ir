@@ -42,10 +42,10 @@ that value at the measured exact combined allowances. Repeat with each
 allowance one unit lower, retaining a genuine paid prefix before the failed
 map charge. Independently identify the expected original row index and key or
 value structural node; do not derive the expected locus from the refusal
-being asserted. Observe that row selection uses `ReachedRow` and that an
-external adapter's preceding public charge uses `AdapterRow` without changing
-the following native read's allowance. With all fixture inputs constructed
-before measurement, count allocations during a zero-storage denial.
+being asserted. Observe that row selection uses its original `ReachedRow`
+index and that a preceding public caller charge retains its supplied native
+locus without changing the following native read's allowance. With all fixture
+inputs constructed before measurement, count allocations during a zero-storage denial.
 
 ## Expected Results
 
