@@ -451,7 +451,7 @@ The reader SHALL validate every `CheckedNodeId` as the closed structural value
 imported node retains the package name it came from. `path` is a non-empty
 array: a declared node's declaration path is its `declaration.qualified_name`;
 an ungrouped derived node's path is `[node_tag, semantic_form, ...operands]`,
-where an operand is a string or the closed index segment `{"node": i}` naming an operand in this document's `semantic_graph.nodes`. A path never contains a nested node id. A group member with a declaration keeps its own declaration path, so
+where an operand is a string or an operand segment: the closed operand slot `{"operand": k}` in a node-held id, naming entry `k` of the holding node's row of `semantic_graph.operand_rows`, or the closed index segment `{"node": i}` in a document-held id, naming `semantic_graph.nodes[i]` (QSpec FR-322 "Operand index segments"). A path never contains a nested node id. A group member with a declaration keeps its own declaration path, so
 several declared members in one group can have distinct paths. An anonymous
 derived member uses the sole declared member's path when there is exactly one;
 with zero or multiple declared members, the producer chooses its path and the
@@ -463,8 +463,8 @@ it from the body or graph position or require sibling ordering. A recursion grou
 `recursion_group` string label. References between its members name exact
 structural node IDs, as outside references do. The wire carries no separate
 group position or group-reference ordinal, and the reader derives none. A
-valid graph permutation rewrites every index segment to its target's new graph
-position while retaining each resolved structural key and exact reference.
+valid graph permutation rewrites every `operand_rows` entry and document-held index segment to its target's new graph
+position, leaves every node's bytes unchanged and retains each resolved structural key and exact reference.
 The structural `node_id.ordinal` is an integer
 from zero through 9007199254740991. A malformed structural ordinal refuses
 `malformed_wire` at its own pointer. Two equal node ids refuse
@@ -473,23 +473,33 @@ of the same identity refuses at its later `owner`. A declared path that differs
 from its `qualified_name` refuses at its `node_id`. The reader SHALL not
 recompute, hash, rekey or seal a node id.
 
-The reader SHALL accept only string or closed `{"node": i}` path segments,
-where `i` is an I-JSON integer from zero through 9007199254740991. It SHALL
-reject a nested node id, a malformed index segment or an index in a
-`dependency_reference.node` declaration path as `malformed_wire` at the
-offending segment. After closed-schema validation and before every
-`semantic_graph` check, it SHALL reject an index at or beyond the number of
-nodes as `malformed_wire` without cause at the segment's `/node` pointer,
-choosing the first such index in canonical byte order. It SHALL then reject
-a self or longer cycle through node-own-path index segments at the first
-segment ordered by holding node's graph index and path position. Forward
-indexes without a cycle are admitted. Graph order stays producer chosen;
-reordering nodes requires each index segment to be updated to its target's
-new graph position and never changes an ordinal by itself.
+The reader SHALL accept only string, closed operand slot `{"operand": k}` or
+closed index segment `{"node": i}` path segments, where `k` and `i` are I-JSON
+integers from zero through 9007199254740991; `semantic_graph.operand_rows` is
+required, and the reader reads no other form of a node-held operand. It SHALL
+reject a nested node id, a malformed operand slot or index segment or any
+segment in a `dependency_reference.node` declaration path as `malformed_wire`
+at the offending segment. After closed-schema validation and before every
+`semantic_graph` check, it SHALL run the QSpec FR-322 reader checks in their
+order and refuse at the first defect of the first step that has one, as
+`malformed_wire` without cause: rows (an `operand_rows` whose length differs
+from the node count, at `/semantic_graph/operand_rows`); placement (an index
+segment in a node-held id, or an operand slot in a document-held id, at its
+member, first in canonical byte order); range (an operand slot not below its
+holding node's row length, an index segment or row entry not below the node
+count); numbering (a row not numbered by first occurrence); and cycle (a self
+or longer cycle through node-own-path operand slots, at the first slot ordered
+by holding node's graph index and path position). A foreign `{package, node}`
+key takes part in neither placement nor range. Forward references without a
+cycle are admitted. Graph order stays producer chosen; reordering nodes
+rewrites row entries and document-held index segments and never changes a
+node's bytes or an ordinal by itself.
 
-Every index segment SHALL resolve against the graph of the checked-package
-document that holds its node id, even when the id's `package` names an
-imported node's owner. A `dependency_reference.node` is a declared node id
+Every operand slot SHALL resolve through the holding node's operand row against
+the graph of the checked-package document that holds the node, and every index
+segment against the graph of the document that holds its id, even when the id's
+`package` names an imported node's owner. The reader SHALL NOT read an index
+segment in a node-held id; there is one reader and no second form. A `dependency_reference.node` is a declared node id
 with an all-string path. A node id in an external request or report resolves
 against the graph of the package the document concerns; an FR-375 external
 `{package, node}` key resolves its node against the selected dependency named
@@ -6003,6 +6013,10 @@ copying QSL execution semantics into IR.
 | FR-038-AC-489 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). The map's structural path is exactly `["composite_type", "map", K's node_id, V's node_id]`. Equal operand identities, including aliases that resolve to them, identify one map node (MT-02); changing only the value to Boolean identifies a distinct node (MT-03), and changing only the key also identifies a distinct node. Declaration multiplicity bounds, if present, remain a separate `bounded_domain`/`collection_bounds` node and do not enter the map body's two bindings or path. | Test (TC-048; QSpec FR-322-AC-385, MT-01..MT-03) |
 | FR-038-AC-490 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). A non-scalar map key refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}` (MT-04); omitting the `value` binding refuses `malformed_wire` with no cause at `/semantic_graph/nodes/{n}/body` during closed-schema admission (MT-05); and a body key reference that disagrees with the structural path refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}` (MT-06). No case yields an admitted or partial typed map view. A map carrying a Clock place follows QSpec FR-415's separate clock-place admission, without inventing a Clock value node (MT-07). | Test (TC-048; QSpec FR-322-AC-385, MT-04..MT-07) |
 | FR-038-AC-491 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). TC-048 reads QSpec main's `proposals/checked-package-v2/map-type-vectors.json` through `QUIRE_SPECIFICATION_DIR`, applies MT-01 through MT-07 to complete otherwise valid packages, and compares each published admission or refusal, code, cause and primary RFC 6901 pointer. Positive reads also assert typed key/value references and structural identity; the collection-bounds control keeps bounds in its separate node. A missing upstream vector or a changed expected outcome fails the control; no QSpec fixture, vector or schema is copied into IR. | Test (TC-048; QSpec FR-322-AC-385, TC-233) |
+| FR-038-AC-495 | The strict reader requires `semantic_graph.operand_rows` and admits a node-held operand as the slot `{"operand": k}` resolved through the holding node's row, and a document-held operand as the index segment `{"node": i}`. Over QSpec `positive-dependency-call.json` (rows `[[], [], [0], [0]]`) every rebuilt structural key equals the key built by resolving each slot through its row, and the published fixtures of FR-038-AC-107 admit. A package whose node-held id holds an index segment, or whose `operand_rows` is absent, is not read. | Test (TC-048) |
+| FR-038-AC-496 | The reader refuses `malformed_wire` with no cause at the pointer QSpec FR-322 names, in the FR-322 check order, for each of QSpec NI-08 through NI-12 and NI-15 through NI-21: rows length, placement of an index segment in a node-held id and of a slot in a document-held id, slot and row-entry range, first-occurrence numbering (out-of-order slot, repeated entry, unnamed entry) and a cycle through own-path slots. Two defects of different steps report the earlier step's. | Test (TC-048) |
+| FR-038-AC-497 | With an unrelated node inserted before and another appended (QSpec NI-24) every original node keeps its bytes and its rebuilt structural key and the package is admitted; reordering the graph with rewritten rows and indexes keeps every node's bytes and key. Equal node bytes in two nodes with different rows rebuild different structural keys. | Test (TC-048) |
+| FR-038-AC-498 | `CheckedNodePathSegment::Operand(u64)` serializes as `{"operand": k}` and `Index(u64)` as `{"node": i}`; `CheckedSemanticGraphV2` carries `operand_rows`, one `Vec<u64>` per node. `replace_node_id` and `reachable_ids` on a node treat the node's ids as slot-form, so a replacement id's operand keys are written as slots numbered by first occurrence with the row extended, and the reader and the node rows stay consistent. | Test (TC-048) |
 | FR-038-AC-494 | An admitted `CheckedPackageV2` exposes its selected model package identities as a borrowed sequence in ascending identity order through `selected_model_packages`. A package with no selected model returns an empty sequence; a refused or incomplete read exposes no package. The read neither invents source aliases nor accepts caller-authored model selections. | Test (TC-233) |
 
 | FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
