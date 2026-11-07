@@ -503,3 +503,63 @@ fn source_map_zero_storage_refuses_without_allocating_rows_or_diagnostics() {
     assert_eq!(budget.consumed().storage, 0);
     assert_eq!(budget.last_success_delta(), None);
 }
+
+/// Trace: FR-357-AC-19.
+#[trace("TC-470", "FR-357-AC-19")]
+#[test]
+fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
+    use quire_contract_model::{NativeJoinBudget, SelectedSourceCollectionRow};
+    use quire_exact::{CardinalityBound, MapType, ValueType};
+    let (mut wire, inner_position) = map_package();
+    let inner = wire["semantic_graph"]["nodes"][inner_position]["node_id"].clone();
+    let text = wire["semantic_graph"]["nodes"][inner_position - 2]["node_id"].clone();
+    let outer = json!({"package":wire["name"], "path":["composite_type","map",text,inner],"ordinal":0});
+    let outer_position = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
+    wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+        "schema_version":"quire.checked-semantic-graph/v2", "node_id":outer,
+        "node_tag":"composite_type", "semantic_form":"map", "semantic_type":outer,
+        "dependencies":[text,inner], "occurrences":[{"role":"type","ordinal":0}],
+        "body":{"term":"aggregate", "members":[
+            {"term":"binding","name":"key","value":{"term":"reference","target":text}},
+            {"term":"binding","name":"value","value":{"term":"reference","target":inner}}
+        ]}}));
+    let integer = node_id(&integer_key());
+    let bounded = json!({"package":wire["name"], "path":["bounded_domain","collection_bounds",
+        "min",integer,"1","max",integer,"3",outer], "ordinal":0});
+    let bounded_position = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
+    wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+        "schema_version":"quire.checked-semantic-graph/v2", "node_id":bounded,
+        "node_tag":"bounded_domain", "semantic_form":"collection_bounds", "semantic_type":outer,
+        "dependencies":[outer], "occurrences":[{"role":"type","ordinal":0}], "body":bounds_body("1","3")
+    }));
+    settle(&mut wire);
+    index_fixture_node_ids(&mut wire);
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+        panic!("nested bounded map strictly admits");
+    };
+    let id = |position: usize| serde_json::from_value::<CheckedNodeId>(
+        wire["semantic_graph"]["nodes"][position]["node_id"].clone()).unwrap();
+    let inner = source_map_row(&package, &id(inner_position), ValueType::Integer);
+    let outer = source_map_row(&package, &id(outer_position), inner.value_type.clone());
+    let bounded = SelectedSourceCollectionRow {
+        structural_node: id(bounded_position),
+        value_type: ValueType::map(MapType::new(inner.value_type.clone(), Some(
+            CardinalityBound::new(1,3).unwrap()))),
+        ..outer.clone()
+    };
+    let mut budget = NativeJoinBudget::new(1_000_000, 1_000_000);
+    let joined = SelectedExactIdentities::empty().with_source_collection_rows(&package,
+        [inner.clone(), outer.clone(), bounded.clone()], &mut budget).expect("nested rows join");
+    for row in [&inner, &outer, &bounded] {
+        let projection = package.project_exact_type(&row.structural_node, &joined, &mut budget)
+            .expect("nested map projection");
+        assert_eq!(projection.value_type(), &row.value_type);
+        assert_eq!(projection.type_node(), &row.base_node);
+    }
+    let missing_inner = SelectedExactIdentities::empty().with_source_collection_rows(&package,
+        [outer.clone()], &mut NativeJoinBudget::new(1_000_000, 1_000_000)).unwrap();
+    let error = package.project_exact_type(&outer.structural_node, &missing_inner,
+        &mut NativeJoinBudget::new(1_000_000, 1_000_000)).expect_err("nested map row is required");
+    assert_eq!(error.code, ExactTypeProjectionErrorCode::UnavailableIdentityWitness);
+    assert_eq!(error.at.as_deref(), Some(&inner.structural_node));
+}

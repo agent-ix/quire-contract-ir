@@ -2273,6 +2273,7 @@ impl SelectedExactIdentities {
         self.with_indexed_source_collection_rows(package, rows.into_iter().enumerate(), budget)
     }
 
+    /// Join retained rows without replacing their original producer indices.
     pub(super) fn with_indexed_source_collection_rows(
         &self,
         package: &CheckedPackageV2,
@@ -3712,7 +3713,12 @@ impl CheckedPackageV2 {
                 }
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Map) => {
-                if let Some(row) = identities.source_collections.get(type_id) {
+                let wrapper = (self.node_kind(requested)
+                    == Some(CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds)))
+                    .then_some(requested);
+                let row = wrapper.and_then(|id| identities.source_collections.get(id))
+                    .or_else(|| identities.source_collections.get(type_id));
+                if let Some(row) = row {
                     project_source_collection(self, identities, row, requested, work, work_limit)?
                 } else {
                 let [key, value] = self
