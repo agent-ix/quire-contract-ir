@@ -563,3 +563,53 @@ fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
     assert_eq!(error.code, ExactTypeProjectionErrorCode::UnavailableIdentityWitness);
     assert_eq!(error.at.as_deref(), Some(&inner.structural_node));
 }
+
+/// Trace: FR-357-AC-20.
+#[trace("TC-470", "FR-357-AC-20")]
+#[test]
+fn source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix() {
+    use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocusSource};
+    let (package, row) = source_map_fixture();
+    let joined = SelectedExactIdentities::empty().with_source_collection_rows(&package,
+        [row.clone()], &mut NativeJoinBudget::new(1_000_000, 1_000_000)).unwrap();
+    let project = |budget: &mut NativeJoinBudget| package.project_exact_type(
+        &row.structural_node, &joined, budget);
+    let mut ample = NativeJoinBudget::new(1_000_000, 1_000_000);
+    project(&mut ample).expect("complete projection");
+    // Locate the boundary through the public refusal metadata, without assuming
+    // the size of any earlier native allocation or the retained map footprint.
+    let copy_boundary = (0..ample.consumed().storage).filter(|limit| {
+        let mut budget = NativeJoinBudget::new(1_000_000, *limit);
+        project(&mut budget).is_err() && budget.first_unpaid_locus().is_some_and(
+            |locus| locus.form == "source_collection_copy")
+    }).next_back().expect("map copy has an observable storage boundary");
+    let mut short = NativeJoinBudget::new(1_000_000, copy_boundary);
+    let mut refusal = None;
+    let unpaid_allocations = allocation_counter::measure(|| {
+        refusal = Some(project(&mut short));
+    });
+    let refusal = refusal.unwrap().expect_err("one below map copy allocation");
+    let denied = short.first_unpaid().expect("copy charge");
+    assert_eq!(denied.kind, NativeJoinChargeKind::Storage);
+    assert_eq!(refusal.denied, Some(denied));
+    assert_eq!(refusal.configured_bound, Some(copy_boundary));
+    let locus = short.first_unpaid_locus().expect("copy locus");
+    assert_eq!(locus.form, "source_collection_copy");
+    assert_eq!(locus.source, NativeJoinLocusSource::ReachedRow(0));
+    assert!(short.consumed().storage > 0, "admitted traversal storage remains spent");
+    assert!(unpaid_allocations.count_total > 0, "earlier admitted traversal really allocates");
+    let mut paid = NativeJoinBudget::new(1_000_000, copy_boundary + 1);
+    let mut paid_result = None;
+    let paid_allocations = allocation_counter::measure(|| {
+        paid_result = Some(project(&mut paid));
+    });
+    let paid_error = paid_result.unwrap().expect_err("later owned result remains unpaid");
+    assert_eq!(paid.first_unpaid_locus().unwrap().form, "exact_projection_result");
+    assert_eq!(paid_error.denied, paid.first_unpaid());
+    assert_eq!(paid.consumed().storage - short.consumed().storage,
+        u64::try_from(denied.amount).expect("map copy charge fits"));
+    assert!(paid_allocations.count_total > unpaid_allocations.count_total,
+        "the map's actual owned copy allocates only after its charge is admitted");
+    assert_eq!(short.last_success_delta(), None);
+    assert_eq!(paid.last_success_delta(), None);
+}
