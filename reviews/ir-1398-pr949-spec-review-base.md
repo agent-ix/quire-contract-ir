@@ -98,3 +98,15 @@ Own production changes: application refusal pointer mapping, binder/result mode 
 
 Reviewer execution: cargo test --workspace --test conformance_qspec carried_sum_cs passed six groups (21 published variants and three precedence controls); log /tmp/ir1398-review/reviewer-cs.log. Existing coder logs for fmt, workspace Clippy, string-edge, two independent regressions, fixture-domain controls and four owner controls were inspected. Root owns the later full gate; no make ci, Kani or ignored backend proof was run. The old-reader log records CS-01 already passing and five adverse groups failing; this is group-level rather than per-variant red evidence.
 
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1 at fa34ff6c: verified the actual fix and its checked behavioral evidence. |
+
+## Disposition round 1 verification
+
+**PASS** for the reviewed feature at frozen fa34ff6cca08b273e842084ff38bbe4b3c0b03c1. All original findings for this lens are fixed; the fix delta adds no new review finding. Original findings and initial verdict are preserved above. No production source changed in this round. The source-text gate and its TC instruction are gone; CS-01 now checks admitted unit identity, carried kind/rounding, carrier range kind, and resolved member/binder/result identity. The actual static matrix now contains 1100 criteria: tagged 981, untagged 93, method-without-symbol 25, ignored-only 1. All six new ACs are recognized and tagged, with six primary and three supplemental test binders; the other existing gaps remain outside this feature.
+
+Read fix-round logs: six CS groups and both independent regressions pass; Clippy, formatting and changed-spec validation pass. The one grammar warning remains at unchanged line 5946. No Cargo command was run in the disposition pass. Qualification remains on the unmerged IR-1396 stack; merged-main composition and the root final gate remain pending.
