@@ -69,6 +69,9 @@ fn assert_manifest_refusal(id: &str, expected_locus: &str, node_index: usize) {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             panic!("{id}: reader incomplete ({incomplete:?}); QSpec FR-464 requires refusal")
         }
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            panic!("{id}: production operation catalog unavailable: {error:?}")
+        }
     };
     assert_eq!(
         serde_json::to_value(refusal.code).unwrap(),

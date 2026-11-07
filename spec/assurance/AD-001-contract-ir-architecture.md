@@ -60,7 +60,6 @@ integrations, which need other owners' crates (FR-039), and it re-exports no
 | Module | Owns | Requirement |
 | --- | --- | --- |
 | `kani` | the `kani-bounded/1` profile, finite input ABI, dispatch index and typed outcome | FR-029 through FR-031 |
-| `temporal` (planned) | Native-to-TL formula and valuation projection, strict owner-reader validation, correspondence identity and native/TL result joining | FR-350 |
 
 The conformance runner (`src/bin/`) and its fixtures stay in the root
 package.
@@ -70,7 +69,7 @@ package.
 | Owner | Holds | Contract IR's relation |
 | --- | --- | --- |
 | QSpec (`quire-specification`) | the normative language, the `quire.checked-package/v2` wire contract (FR-322, FR-340 through FR-342), the FR-331 backend-provider envelope, AD-016 | Contract IR reads QSpec's contracts and cites them; it copies none of QSpec's files |
-| QSL (`quire-spec-language`) | the compiler that produces checked packages, QSL FR-045's `mapping_support_v2` classification, FR-050's strict `/2` package and FR-043's native temporal evaluator/report; also the `qsl-replay` crate and replay facade | QSL depends on `quire-contract-model`; the root crate's planned `temporal` module consumes QSL's public temporal APIs and defines no replay types |
+| QSL (`quire-spec-language`) | the compiler that produces checked packages, QSL FR-527's `mapping_support` classification, FR-050's strict `/2` package and FR-043/FR-052's native temporal evaluator and report; also the `qsl-replay` crate and replay facade | QSL depends on `quire-contract-model`; Contract IR defines no replay types and implements no temporal bridge; the FR-350 native temporal to TL bridge is in `agent-ix/quire-integration` (AD-009) |
 | codegen (`quire-contract-codegen`) | provider generation, bounded Kani harness emission, the active collection and finite-reference-graph lowerings in its backend adapter (checked arithmetic retired under CG FR-015-AC-109, CG AD-004:327), the Kani transcript parser in that adapter, and the replay adapter that builds QSL's request and currently calls `qsl_replay::replay`; QSL ADR-011 E9 assigns the call to the orchestrating driver (IR-492 residual) | codegen depends on the root crate for the `kani` profile, input ABI, dispatch index and outcomes, and on `quire-contract-model` for model types |
 | runtime (`quire-contract-runtime`) | the `no_std` support library generated oracles link | no dependency in either direction |
 

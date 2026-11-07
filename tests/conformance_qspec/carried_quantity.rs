@@ -1335,3 +1335,409 @@ fn conversion_into_a_carried_quantity_requires_a_unit_or_carried_source() {
         Some(format!("/semantic_graph/nodes/{at}"))
     );
 }
+
+// TC-187 publishes CS-01..CS-06 as wire rows in its Markdown table. Reuse
+// QSpec's scalar wire constructors and change their explicit bound values to
+// the CS table's domains; these are complete reader fixtures, not evaluations.
+fn sum_nodes() -> Value {
+    fn replace(value: &mut Value, from: &str, to: &str) {
+        match value {
+            Value::String(text) if text == from => *text = to.into(),
+            Value::Array(items) => items.iter_mut().for_each(|item| replace(item, from, to)),
+            Value::Object(fields) => fields.values_mut().for_each(|item| replace(item, from, to)),
+            _ => {}
+        }
+    }
+    let mut all = vectors()["nodes"].clone();
+    for (name, template, replacements) in [
+        ("int5", "int_pm2", vec![("-2", "-5"), ("2", "5")]),
+        ("int4", "int_pm2", vec![("-2", "-4"), ("2", "4")]),
+        (
+            "dec500",
+            "dec_cents_ne",
+            vec![("-100", "-500"), ("100", "500")],
+        ),
+        ("dec5", "dec_pm2", vec![("-2", "-5"), ("2", "5")]),
+        ("Q", "q_int", vec![("int_pm2", "int5")]),
+        ("Qn", "q_int_ne", vec![("int_pm2", "int5")]),
+        ("Q4", "q_int", vec![("int_pm2", "int4")]),
+        (
+            "Qc",
+            "q_int",
+            vec![("int_pm2", "int5"), ("unit_m", "unit_cm")],
+        ),
+        ("Qd", "q_dec_ne", vec![("dec_cents_ne", "dec500")]),
+        ("Qk", "q_pm2", vec![("dec_pm2", "dec5")]),
+    ] {
+        let mut row = all[template].clone();
+        for (from, to) in replacements {
+            replace(&mut row, from, to);
+        }
+        all[name] = row;
+    }
+    all
+}
+
+fn sum_package(
+    base: &str,
+    bound: &str,
+    member: &str,
+    result: &str,
+    mode: Option<&str>,
+) -> (Package, usize) {
+    let all = sum_nodes();
+    let mut package = Package::new();
+    for name in [
+        "Q", "Qn", "Q4", "Qc", "Qk", "Qd", "q_rat", "text", "integer", "rational",
+    ] {
+        package.add(name, &all);
+    }
+    package.bounded("Bm", "unit_m", "-5", "5");
+    let unit = package.ids["unit_m"].clone();
+    let integer = package.ids["integer"].clone();
+    let compound = json!({"package":package.wire["name"],
+        "path":["scalar_type","compound_unit",unit,"1"],"ordinal":0});
+    package.wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id":compound,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"scalar_type","semantic_form":"compound_unit","semantic_type":compound,
+            "dependencies":[unit],"occurrences":[{"role":"type","ordinal":0}],
+            "body":{"term":"aggregate","members":[{"term":"aggregate","members":[
+                {"term":"binding","name":"unit","value":{"term":"reference","target":unit}},
+                {"term":"binding","name":"exponent","value":{"term":"literal","type":integer,
+                    "value_kind":"integer","value":"1"}}
+            ]}]}
+        }));
+    package.ids.insert("Cm".into(), compound);
+    let inner = package.ids[base].clone();
+    let sequence = json!({"package":package.wire["name"],
+        "path":["composite_type","sequence",inner],"ordinal":0});
+    let bounded = json!({"package":package.wire["name"],
+        "path":["bounded_domain","collection_bounds","min",integer,"0","max","3",sequence],"ordinal":0});
+    package.wire["semantic_graph"]["nodes"].as_array_mut().expect("nodes").extend([
+        json!({"node_id":sequence,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"composite_type","semantic_form":"sequence","semantic_type":sequence,
+            "dependencies":[inner],"occurrences":[{"role":"type","ordinal":0}],
+            "body":{"term":"aggregate","members":[{"term":"reference","target":inner}]}}),
+        json!({"node_id":bounded,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"bounded_domain","semantic_form":"collection_bounds","semantic_type":sequence,
+            "dependencies":[sequence],"occurrences":[{"role":"type","ordinal":0}],
+            "body":{"term":"aggregate","members":[
+                {"term":"binding","name":"min","value":{"term":"literal","type":integer,"value_kind":"integer","value":"0"}},
+                {"term":"binding","name":"max","value":{"term":"literal","type":integer,"value_kind":"integer","value":"3"}}
+            ]}}),
+    ]);
+    package.ids.insert("sequence".into(), bounded);
+    package.parameter("q", "sequence");
+    package.parameter("x", bound);
+    let at = package.wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    package.wire["semantic_graph"]["nodes"].as_array_mut().expect("nodes").push(json!({
+        "node_id":node_id("quantity/carried-sum"),"schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"expression","semantic_form":"collection","semantic_type":package.ids[result],
+        "dependencies":[],"occurrences":[{"role":"expression","ordinal":0}],
+        "body":{"term":"application","operator":"collection","operation":{
+            "identity":"quire.op.collection.sum.carried_quantity","laws":[],
+            "mode":mode.map(|value| json!({"kind":"rounding","value":value})),
+            "member":{"kind":"type_argument","declaration":package.ids[member]},"leaves":[]},
+            "result_type":package.ids[result],"arguments":[
+                {"term":"reference","target":package.ids["q"]},
+                {"term":"binding","name":"x","value":{"term":"reference","target":package.ids["x"]}}
+            ]}
+    }));
+    (package, at)
+}
+
+fn assert_sum_refusal(mut package: Package, at: usize, code: &str, cause: &str) {
+    settle(&mut package.wire);
+    index_fixture_node_ids(&mut package.wire);
+    let locus: CheckedNodeId =
+        serde_json::from_value(package.wire["semantic_graph"]["nodes"][at]["node_id"].clone())
+            .expect("application ID");
+    let result = package.read();
+    let CheckedPackageV2ReadResult::Refused(refusal) = result else {
+        panic!("expected {code}/{cause} at sum, got {result:?}");
+    };
+    assert_eq!(serde_json::to_value(refusal.code).expect("code"), code);
+    assert_eq!(serde_json::to_value(refusal.cause).expect("cause"), cause);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(ToString::to_string),
+        Some(format!("/semantic_graph/nodes/{at}"))
+    );
+    assert_eq!(refusal.locus.as_ref(), Some(&locus));
+}
+
+#[trace("TC-048", "FR-038-AC-515")]
+#[test]
+fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
+    for (base, mode, carrier_form, bounds) in [
+        (
+            "Q",
+            "exact",
+            BoundedDomainForm::IntegerRange,
+            vec!["-5", "5"],
+        ),
+        (
+            "Qd",
+            "nearest-even",
+            BoundedDomainForm::DecimalRange,
+            vec!["-500", "500", "2", "2", "nearest-even"],
+        ),
+        (
+            "q_rat",
+            "exact",
+            BoundedDomainForm::RationalRange,
+            vec!["-3", "7", "1", "12"],
+        ),
+    ] {
+        let (mut package, at) = sum_package(base, base, base, base, Some(mode));
+        let unit_position = package.wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"] == package.ids["unit_m"])
+            .expect("metre unit fixture");
+        settle(&mut package.wire);
+        index_fixture_node_ids(&mut package.wire);
+        let expected: CheckedTerm =
+            serde_json::from_value(package.wire["semantic_graph"]["nodes"][at]["body"].clone())
+                .expect("typed expected sum");
+        let result = package.read();
+        let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+            panic!("{base}: {result:?}");
+        };
+        let body = &admitted.graph().nodes[at].body;
+        assert_eq!(body, &expected);
+        let CheckedTerm::Application {
+            result_type,
+            arguments,
+            operation,
+            ..
+        } = body
+        else {
+            panic!("sum application");
+        };
+        let carried = admitted
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| &node.node_id == result_type)
+            .expect("carried node");
+        assert_eq!(
+            admitted.node_kind(&carried.node_id),
+            Some(CheckedNodeKind::ScalarType(ScalarTypeForm::CarriedQuantity))
+        );
+        let member = operation
+            .member_declaration()
+            .expect("admitted member view")
+            .expect("type argument");
+        assert_eq!(member, &carried.node_id);
+        assert_eq!(member, result_type);
+        let CheckedTerm::Aggregate { members } = &carried.body else {
+            panic!("carried bindings");
+        };
+        let CheckedTerm::Binding { name, value } = &members[0] else {
+            panic!("unit binding");
+        };
+        assert_eq!(name.as_ref(), "unit");
+        let CheckedTerm::Reference { target: unit } = value.as_ref() else {
+            panic!("unit reference");
+        };
+        let metre = &admitted.graph().nodes[unit_position];
+        assert_eq!(unit, &metre.node_id);
+        assert_eq!(
+            admitted.node_kind(unit),
+            Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+        );
+        let CheckedTerm::Binding { name, value } = &members[2] else {
+            panic!("carried rounding binding");
+        };
+        assert_eq!(name.as_ref(), "rounding");
+        let CheckedTerm::Literal {
+            value_kind, value, ..
+        } = value.as_ref()
+        else {
+            panic!("carried rounding literal");
+        };
+        assert_eq!(*value_kind, LiteralKind::Text);
+        assert_eq!(value.as_str(), Some(mode));
+        let CheckedTerm::Binding { value, .. } = &members[1] else {
+            panic!("carrier binding");
+        };
+        let CheckedTerm::Reference { target } = value.as_ref() else {
+            panic!("carrier reference");
+        };
+        let carrier = admitted
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| &node.node_id == target)
+            .expect("carrier node");
+        assert_eq!(
+            admitted.node_kind(&carrier.node_id),
+            Some(CheckedNodeKind::BoundedDomain(carrier_form))
+        );
+        let CheckedTerm::Aggregate { members } = &carrier.body else {
+            panic!("carrier bounds");
+        };
+        let actual = members
+            .iter()
+            .map(|binding| {
+                let CheckedTerm::Binding { value, .. } = binding else {
+                    panic!("bound binding");
+                };
+                let CheckedTerm::Literal { value, .. } = value.as_ref() else {
+                    panic!("bound literal");
+                };
+                value.as_str().expect("bound value")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual, bounds, "{base}");
+        let CheckedTerm::Binding { value, .. } = &arguments[1] else {
+            panic!("binder");
+        };
+        let CheckedTerm::Reference { target } = value.as_ref() else {
+            panic!("binder reference");
+        };
+        let binder = admitted
+            .graph()
+            .nodes
+            .iter()
+            .find(|node| &node.node_id == target)
+            .expect("binder parameter");
+        assert_eq!(&binder.semantic_type, result_type);
+        assert_eq!(&binder.semantic_type, member);
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-516")]
+#[test]
+fn carried_sum_cs02_mode_pins_precede_member_equality() {
+    for (base, bound, result, mode) in [
+        ("Q", "Q", "Q", "nearest-even"),
+        ("Qd", "Qd", "Qd", "exact"),
+        ("Q", "Qn", "Q", "exact"),
+        ("Q", "Q", "Qn", "exact"),
+        ("Qd", "unit_m", "Qd", "nearest-even"),
+    ] {
+        let (package, at) = sum_package(base, bound, base, result, Some(mode));
+        assert_sum_refusal(
+            package,
+            at,
+            "invalid_package",
+            "operation-mode-type-mismatch",
+        );
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-517")]
+#[test]
+fn carried_sum_cs03_laws_then_required_mode_precede_types() {
+    for (law, mode, bound) in [
+        (false, None, "Q"),
+        (true, Some("exact"), "Q"),
+        (true, None, "Qn"),
+        (true, Some("nearest-even"), "Q"),
+        (false, None, "Q4"),
+    ] {
+        let (mut package, at) = sum_package("Q", bound, "Q", "Q", mode);
+        if law {
+            package.wire["semantic_graph"]["nodes"][at]["body"]["operation"]["laws"] = json!([
+                {"role":"integer_division","definition":{"authority":"quire.math.integer/v1","identity":"euclidean"}}
+            ]);
+        }
+        assert_sum_refusal(
+            package,
+            at,
+            "invalid_package",
+            if law {
+                "operation-law-mismatch"
+            } else {
+                "operation-mode-mismatch"
+            },
+        );
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-518")]
+#[test]
+fn carried_sum_cs04_bound_is_member_compares_exact_nodes() {
+    for bound in ["Q4", "Qc", "Qk", "unit_m", "Qn"] {
+        let (result, mode) = if bound == "Qn" {
+            ("Qn", "nearest-even")
+        } else {
+            ("Q", "exact")
+        };
+        let (package, at) = sum_package("Q", bound, "Q", result, Some(mode));
+        assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-519")]
+#[test]
+fn carried_sum_cs05_result_mismatch_is_located_at_application() {
+    for result in ["Q4", "unit_m"] {
+        let (package, at) = sum_package("Q", "Q", "Q", result, Some("exact"));
+        assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-520")]
+#[test]
+fn carried_sum_cs06_requires_carried_member_and_unique_identity() {
+    for member in ["unit_m", "Cm", "Bm", "Q"] {
+        let (mut package, at) = sum_package("Q", member, member, member, Some("exact"));
+        if member == "Q" {
+            package.wire["semantic_graph"]["nodes"][at]["body"]["operation"]["identity"] =
+                json!("quire.op.collection.sum.quantity");
+        }
+        assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-520")]
+#[test]
+fn ordinary_quantity_sum_refuses_a_carried_type_argument() {
+    let (mut package, at) = sum_package("Q", "Q", "Q", "Q", Some("exact"));
+    package.wire["semantic_graph"]["nodes"][at]["body"]["operation"]["identity"] =
+        json!("quire.op.collection.sum.quantity");
+    assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
+}
+
+#[trace("TC-048", "FR-038-AC-518")]
+#[test]
+fn quantity_sum_bound_constraint_compares_the_binder_parameter_type() {
+    let (mut package, at) = sum_package("Q", "unit_cm", "unit_m", "unit_m", Some("exact"));
+    package.wire["semantic_graph"]["nodes"][at]["body"]["operation"]["identity"] =
+        json!("quire.op.collection.sum.quantity");
+    assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
+}
+
+#[trace("TC-048", "FR-038-AC-515")]
+#[test]
+fn carried_sum_fixture_parameters_and_domains_admit_without_an_operation() {
+    for base in ["Q", "Qd", "q_rat"] {
+        let (mut package, at) = sum_package(base, base, base, base, Some("exact"));
+        package.wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .remove(at);
+        let result = package.read();
+        let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+            panic!("{base} fixture: {result:?}");
+        };
+        assert_eq!(
+            admitted
+                .graph()
+                .nodes
+                .iter()
+                .filter(|node| node.semantic_form.as_ref() == "parameter")
+                .count(),
+            2
+        );
+    }
+}
