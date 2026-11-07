@@ -1079,7 +1079,7 @@ fn append_refusal_map(wire: &mut Value, text: &Value, value: &Value) -> (usize, 
     (position, id)
 }
 
-fn nested_bounded_quantity_wire() -> (Value, usize, usize, usize) {
+pub fn nested_bounded_quantity_wire() -> (Value, usize, usize, usize) {
     use crate::support::checked_package::{nominal_fixture_members, nominal_package};
     let members = nominal_fixture_members();
     let unit = node_id(

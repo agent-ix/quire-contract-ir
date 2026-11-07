@@ -171,3 +171,88 @@ fn the_graph_index_state_tables_and_walks_are_charged_at_graph_loci() {
         .iter()
         .all(|request| request.stage == PackageReadStage::Graph));
 }
+
+/// The canonical key of an id: bytes whose lexicographic order is the id
+/// order. A string is its bytes with `0x00` written `0x00 0xFF` and ended
+/// by `0x00 0x01`; a segment is a kind tag (name 1, index 2, operand 3,
+/// node 4) and its value, a nested node being its own whole key; a path
+/// ends with tag 0; the ordinal comes last.
+fn canonical_key(id: &quire_contract_model::CheckedNodeId, out: &mut Vec<u8>) {
+    use quire_contract_model::CheckedNodePathSegment as Segment;
+    fn text(value: &str, out: &mut Vec<u8>) {
+        for byte in value.bytes() {
+            out.push(byte);
+            if byte == 0 {
+                out.push(0xFF);
+            }
+        }
+        out.extend([0, 1]);
+    }
+    text(&id.package, out);
+    for segment in &id.path {
+        match segment {
+            Segment::Name(name) => {
+                out.push(1);
+                text(name, out);
+            }
+            Segment::Index(index) => {
+                out.push(2);
+                out.extend(index.to_be_bytes());
+            }
+            Segment::Operand(slot) => {
+                out.push(3);
+                out.extend(slot.to_be_bytes());
+            }
+            Segment::Node(node) => {
+                out.push(4);
+                canonical_key(node, out);
+            }
+        }
+    }
+    out.push(0);
+    out.extend(id.ordinal.to_be_bytes());
+}
+
+/// On the structural keys of every node of real packages, the id order is
+/// the order of the canonical key's bytes (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn node_id_order_equals_canonical_key_byte_order_on_real_packages() {
+    use quire_contract_model::CheckedPackageV2ReadResult;
+    let mut ids = Vec::new();
+    let wires = [
+        v2_all_families(),
+        crate::checked_package_v2_map_type::nested_bounded_quantity_wire().0,
+    ];
+    for value in &wires {
+        let result = CheckedPackageV2::read(
+            &canonical(value),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(value),
+        );
+        let CheckedPackageV2ReadResult::Admitted(package) = result else {
+            panic!("fixture admits");
+        };
+        for at in 0..package.graph().nodes.len() {
+            ids.push(package.structural_key_at(at).expect("key").clone());
+        }
+    }
+    assert!(ids.len() > 10, "{} ids", ids.len());
+    let keys: Vec<Vec<u8>> = ids
+        .iter()
+        .map(|id| {
+            let mut key = Vec::new();
+            canonical_key(id, &mut key);
+            key
+        })
+        .collect();
+    for (left, left_key) in ids.iter().zip(&keys) {
+        for (right, right_key) in ids.iter().zip(&keys) {
+            assert_eq!(
+                left.cmp(right),
+                left_key.cmp(right_key),
+                "{left:?} {right:?}"
+            );
+        }
+    }
+}
