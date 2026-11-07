@@ -138,13 +138,17 @@ impl NativeJoinBudget {
     /// The charge shares this budget's finite counters with subsequent native
     /// reads. On denial, the first unpaid kind, attempted amount, and supplied
     /// non-owning locus remain inspectable until the next `resume` or native
-    /// operation begins. A denied charge does not consume allowance.
+    /// operation begins. A denied charge does not consume allowance; later
+    /// caller charges in the same phase return the first denial without work.
     pub fn accounted_charge(
         &mut self,
         kind: NativeJoinChargeKind,
         amount: u128,
         locus: NativeJoinLocus,
     ) -> Result<(), NativeJoinDeniedCharge> {
+        if let Some(first_unpaid) = self.first_unpaid {
+            return Err(first_unpaid);
+        }
         let previous_locus = self.active_locus.replace(locus);
         let admitted = self.charge(kind, amount);
         self.active_locus = previous_locus;

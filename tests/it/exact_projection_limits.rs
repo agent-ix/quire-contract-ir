@@ -228,7 +228,7 @@ fn external_charges_compose_with_native_stage_and_projection() {
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
     assert_eq!(refusal.denied, storage_short.first_unpaid());
     assert_eq!(refusal.configured_bound, Some(storage_limit - 1));
-    assert!(storage_short.consumed().storage <= storage_limit - 1);
+    assert!(storage_short.consumed().storage < storage_limit);
 }
 
 #[trace("TC-467", "FR-358-AC-8")]

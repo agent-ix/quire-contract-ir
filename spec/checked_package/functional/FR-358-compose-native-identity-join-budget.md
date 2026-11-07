@@ -57,8 +57,8 @@ use the same finite counters as the subsequent native read. `resume` clears
 the previous operation's delta and denial metadata but leaves admitted charges
 and original limits unchanged. A denied external charge records the first
 unpaid kind, full attempted amount and caller-supplied non-owning locus without
-incrementing consumption. Later denied charges in that phase do not replace
-the first refusal. No public method restores spent allowance.
+incrementing consumption. Later external charges in that phase return the
+first refusal without performing work. No public method restores spent allowance.
 
 The budget SHALL expose its original configured work and storage limits through
 `work_limit` and `storage_limit`; successful charges, denied charges and later

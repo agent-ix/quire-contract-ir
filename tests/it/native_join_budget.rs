@@ -106,6 +106,21 @@ fn public_call_sites_share_finite_accounting_and_first_denial() {
     );
     assert_eq!(one_below.consumed().storage, 0);
     assert_eq!(
+        one_below.accounted_charge(
+            NativeJoinChargeKind::Work,
+            1,
+            NativeJoinLocus {
+                source: NativeJoinLocusSource::Package,
+                form: "later selection",
+            },
+        ),
+        Err(NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Work,
+            amount: 5,
+        })
+    );
+    assert_eq!(one_below.consumed().work, 3);
+    assert_eq!(
         one_below.first_unpaid_locus(),
         Some(NativeJoinLocus {
             source: NativeJoinLocusSource::TupleRow(2),
