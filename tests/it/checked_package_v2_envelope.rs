@@ -11,10 +11,10 @@ use ix_trace_rs::trace;
 use quire_canonical::{Error, Limits};
 use quire_contract_model::{
     encode_checked_package_v2, AdmissionBinding, CheckedCapability, CheckedDiagnosticsV2,
-    CheckedNodeProjectionV2, CheckedPackageLockV2, CheckedPackageReadLimits,
-    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion, CheckedSemanticGraphV2,
-    CheckedSourceMapEntry, CHECKED_PACKAGE_V2,
+    CheckedJson, CheckedJsonError, CheckedNodeProjectionV2, CheckedPackageLockV2,
+    CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
+    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion,
+    CheckedSemanticGraphV2, CheckedSourceMapEntry, CHECKED_PACKAGE_V2,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -206,10 +206,20 @@ fn typed_envelope_has_exact_members_and_canonical_boundaries() {
         "stage": "package_read", "code": "invalid_package", "cause_tag": "invalid-value",
         "details": [9_007_199_254_740_993_u64], "loci": []
     }]);
+    // A detail is held as a handle into a canonical document, so the encoder's
+    // refusal of an integer past 2^53 is the refusal to hold it, at
+    // construction rather than at encode (FR-038 "The `CheckedJson` payload
+    // type"); the wire never carries such an integer (it reads as
+    // `noncanonical_wire`).
     assert!(matches!(
-        encode(&invalid, Limits::new(u64::MAX)),
-        Err(Error::IntegerMagnitudeAboveMaximum(9_007_199_254_740_993))
+        CheckedJson::from_value(&json!(9_007_199_254_740_993_u64)),
+        Err(CheckedJsonError::Encode(
+            Error::IntegerMagnitudeAboveMaximum(9_007_199_254_740_993)
+        ))
     ));
+    assert!(
+        serde_json::from_value::<CheckedDiagnosticsV2>(invalid["diagnostics"].clone()).is_err()
+    );
 
     let mut empty_name = value;
     empty_name["name"] = json!("");
