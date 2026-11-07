@@ -14,7 +14,7 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// One declared name of a temporal-clause claim occurrence.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

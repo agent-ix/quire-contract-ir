@@ -595,7 +595,7 @@ use super::{
 };
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 fn typed_members(term: &CheckedTerm) -> &[CheckedTerm] {
     match term {
@@ -3078,6 +3078,7 @@ mod tests {
     use crate::NativeJoinBudget;
     use ix_trace_rs::trace;
     use serde_json::json;
+    use std::collections::BTreeSet;
     use std::path::Path;
 
     /// Trace: FR-038-AC-323, TC-367.

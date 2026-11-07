@@ -15,7 +15,7 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// An exact number in a fixed-sample clock configuration.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]

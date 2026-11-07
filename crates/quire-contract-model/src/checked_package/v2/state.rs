@@ -50,7 +50,6 @@ use crate::checked_package::shared::{
 };
 use crate::checked_package::terms::{subterms, At, Cursor};
 use quire_walk::{Children, Walk};
-use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 
 /// The state step. See the module documentation for the order.

@@ -81,7 +81,7 @@ use crate::checked_package::shared::{
 use quire_exact::TextProfile;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// The member of one node a structural defect is about.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

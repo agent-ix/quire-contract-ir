@@ -51,7 +51,7 @@ use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 
 /// The three temporal operator classes whose applications stand only at the

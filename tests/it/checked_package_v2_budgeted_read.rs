@@ -4,6 +4,7 @@
 //! The budget-charged strict V2 read: entries, deltas, the read-storage
 //! counter's API and the envelope stages' exact charging (TC-472).
 
+use crate::checked_package_v2_graph_read_storage::{assert_exact_and_one_short, stage_requests};
 use crate::support::checked_package::{
     all_families_read_work, canonical, evidence_for, v2_all_families,
 };
@@ -118,13 +119,23 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
         .expect("a denial is recorded");
     assert!(asked > 0);
     assert_eq!(short.first_unpaid(), None);
+    // Later stages charge their own storage, so the last request is the
+    // last stage's; the canonical comparison's reservations are exact in
+    // their own right.
+    let Some(NativeJoinLocus {
+        source: NativeJoinLocusSource::PackageRead(last, _),
+        ..
+    }) = short.first_unpaid_locus()
+    else {
+        panic!("a read denial is at a package read locus");
+    };
+    assert!(last >= PackageReadStage::Canonical);
+    let canonical_requests = stage_requests(&read_with, PackageReadStage::Canonical);
     assert_eq!(
-        short.first_unpaid_locus(),
-        Some(envelope_locus(
-            PackageReadStage::Canonical,
-            "canonical_bytes"
-        ))
+        canonical_requests.first().map(|request| request.form),
+        Some("canonical_bytes")
     );
+    assert_exact_and_one_short(&read_with, &canonical_requests);
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
     let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {

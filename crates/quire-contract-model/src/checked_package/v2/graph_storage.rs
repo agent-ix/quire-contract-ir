@@ -74,11 +74,13 @@ impl<'b> WorkMeter<'b> {
     }
 
     /// The site now charged.
+    #[allow(dead_code)] // part of the charging toolkit the other read groups fold in
     pub(super) fn site(&self) -> Option<ReadSite> {
         self.site
     }
 
     /// Restores a site returned by [`Self::site`].
+    #[allow(dead_code)] // part of the charging toolkit the other read groups fold in
     pub(super) fn restore_site(&mut self, site: Option<ReadSite>) {
         self.site = site;
     }
@@ -210,6 +212,7 @@ impl<'b> WorkMeter<'b> {
     }
 
     /// An owned copy of `text` at its exact length, charged first.
+    #[allow(dead_code)] // part of the charging toolkit the other read groups fold in
     pub(super) fn boxed_str(&mut self, text: &str) -> Result<Box<str>, ValidationFailure> {
         self.reserve(text.len())?;
         Ok(Box::from(text))
@@ -237,6 +240,7 @@ impl<'b> WorkMeter<'b> {
     }
 
     /// A copy of `items` at its exact length, charged first.
+    #[allow(dead_code)] // part of the charging toolkit the other read groups fold in
     pub(super) fn copy_slice<T: Clone>(
         &mut self,
         items: &[T],
@@ -464,6 +468,7 @@ pub(super) struct GraphIndex<'g> {
     walk: std::cell::Cell<u32>,
 }
 
+#[allow(dead_code)] // map-shaped accessors the other read groups fold in
 impl<'g> GraphIndex<'g> {
     /// Builds the table of `ids` (in position order), charging its exact
     /// block first.
@@ -608,6 +613,7 @@ pub(super) struct SortedTable<K, V> {
     entries: Box<[(K, V)]>,
 }
 
+#[allow(dead_code)] // map-shaped accessors the other read groups fold in
 impl<K: Ord, V> SortedTable<K, V> {
     /// Builds the table from `entries` held in an exact-capacity vector the
     /// caller charged. Of entries with one key, the one `tie` orders first
@@ -751,5 +757,40 @@ mod chain_walk_tests {
         index.walk.set(u32::MAX);
         index.begin_walk();
         assert!(index.first_visit(&b) && !index.first_visit(&b));
+    }
+
+    /// A sorted set that grows under the meter refuses a block it cannot
+    /// pay for before allocating it, and reports a repeated item (the
+    /// replacement for the ordered sets the validators held).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn sorted_inserts_are_charged_before_the_block_grows() {
+        use super::super::WorkMeter;
+        use crate::NativeJoinBudget;
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            let mut items: Vec<u64> = Vec::new();
+            let mut outcome = Vec::new();
+            for item in [5_u64, 1, 9, 5, 3, 1, 7] {
+                match meter.insert_sorted(&mut items, item) {
+                    Ok(first) => outcome.push(first),
+                    Err(_) => return (None, items, budget.read_storage_consumed()),
+                }
+            }
+            drop(meter);
+            (Some(outcome), items, budget.read_storage_consumed())
+        };
+        let (outcome, items, spent) = run(u64::MAX);
+        assert_eq!(
+            outcome.unwrap(),
+            [true, true, true, false, true, false, true]
+        );
+        assert_eq!(items, [1, 3, 5, 7, 9]);
+        assert!(spent > 0);
+        assert!(run(spent).0.is_some());
+        let (refused, partial, _) = run(spent - 1);
+        assert!(refused.is_none());
+        assert!(partial.len() < 5, "the short run did not complete");
     }
 }

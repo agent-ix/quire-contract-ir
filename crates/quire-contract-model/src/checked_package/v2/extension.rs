@@ -16,7 +16,7 @@ use crate::checked_package::shared::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

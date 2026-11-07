@@ -3049,7 +3049,7 @@ fn imported_node_matches(
         )
 }
 
-pub(super) fn structural_key<'a>(
+fn structural_key<'a>(
     id: &'a CheckedNodeId,
     index: &GraphIndex<'_>,
     structural_keys: &'a [std::sync::Arc<CheckedNodeId>],

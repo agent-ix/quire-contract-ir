@@ -62,7 +62,7 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// One `{name, rust_*}` binding: a `fields` entry (`rust_field`) or a
 /// `parameters` entry (`rust_parameter`).

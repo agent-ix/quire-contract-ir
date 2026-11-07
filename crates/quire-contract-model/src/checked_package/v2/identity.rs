@@ -1844,7 +1844,7 @@ pub(super) fn model_duration_unit_key(
     let mut scale = ExactRatio::one();
     let mut offset = ExactRatio::zero();
     let mut current = unit;
-    let mut seen = BTreeSet::new();
+    let mut seen: Vec<&str> = Vec::new();
     loop {
         meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
         let ratio = |text: &str| {
@@ -1863,7 +1863,7 @@ pub(super) fn model_duration_unit_key(
         let Some(target) = current.target.as_deref() else {
             break;
         };
-        if !seen.insert(target) || node_for(target).is_none() {
+        if !meter.insert_sorted(&mut seen, target)? || node_for(target).is_none() {
             return Ok(None);
         }
         let Some(next) = model.units.get(target) else {
@@ -2277,13 +2277,11 @@ fn validate_enum_declaration(
         site.nominal_member(&["members"])
     })?;
     let member_at = |index: usize| site.nominal_member(&["members"]).index(index);
-    let mut seen = BTreeSet::new();
+    let mut seen: Vec<&str> = meter.vec(declaration.members.len())?;
     for (index, member) in declaration.members.iter().enumerate() {
         meter.charge(1, || member_at(index))?;
-        require(
-            is_identifier(member) && seen.insert(member.as_ref()),
-            || member_at(index),
-        )?;
+        let first = is_identifier(member) && meter.insert_sorted(&mut seen, member.as_ref())?;
+        require(first, || member_at(index))?;
     }
     if !declaration.ordered {
         // Identifiers are escape-free ASCII, so JCS key order is byte order.
@@ -2366,14 +2364,15 @@ fn validate_dimension(
         site.member("semantic_type")
     })?;
     let term_at = |index: usize| site.nominal_member(&["terms"]).index(index);
-    let mut bases = BTreeSet::new();
+    let mut bases: Vec<&CheckedNodeId> = meter.vec(dimension.terms.len())?;
     for (index, term) in dimension.terms.iter().enumerate() {
         meter.charge(1, || term_at(index))?;
         let exponent_at = || term_at(index).key("exponent");
         let magnitude = integer_magnitude(&term.exponent).ok_or_else(|| invalid(exponent_at()))?;
         require(!magnitude.zero, exponent_at)?;
         let base_at = || term_at(index).key("dimension_node_id");
-        require(bases.insert(&term.dimension_node_id), base_at)?;
+        let first = meter.insert_sorted(&mut bases, &term.dimension_node_id)?;
+        require(first, base_at)?;
         let Some(NominalRecord::Dimension(base)) = graph.nominal(&term.dimension_node_id) else {
             return Err(invalid(base_at()));
         };
@@ -2463,12 +2462,14 @@ fn validate_unit_path(
             .key("body")
             .key("target_unit_node_id")
     };
-    let mut visited = BTreeSet::from([&site.node.node_id]);
+    let mut visited: Vec<&CheckedNodeId> = meter.vec(1)?;
+    visited.push(&site.node.node_id);
     let mut from = site.position;
     let mut next = unit.target_unit_node_id.as_ref();
     while let Some(target) = next {
         meter.charge(1, || link_at(from))?;
-        require(visited.insert(target), || link_at(from))?;
+        let first = meter.insert_sorted(&mut visited, target)?;
+        require(first, || link_at(from))?;
         let Some(NominalRecord::Unit(target_unit)) = graph.nominal(target) else {
             return Err(invalid(link_at(from)));
         };
