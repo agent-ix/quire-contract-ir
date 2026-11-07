@@ -3464,7 +3464,8 @@ fn compare_source_numeric(
     charge_native_work(budget, requested, at, "source_collection_numeric_compare",
         limbs.saturating_mul(2))?;
     // NativeJoinBudget has no cancellation handle to borrow. The owner's
-    // bounded comparison needs one; its single Arc allocation is paid first.
+    // bounded comparison needs one. FR-358 counts a shared Arc handle as one
+    // logical storage unit, admitted before acquiring that handle.
     charge_native_storage(budget, requested, at, "source_collection_comparison_handle", 1)?;
     let cancel = quire_exact::Cancel::new();
     compare(bits, &cancel).map_err(|_| source_collection_error(
