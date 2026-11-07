@@ -1012,11 +1012,8 @@ fn selected_rational_minimum_reaches_public_tuple_member_type() {
         "the public selected-model member type keeps i64::MIN"
     );
     assert!(
-        admitted
-            .graph()
-            .nodes
-            .iter()
-            .any(|node| node.node_id == range_id),
+        (0..admitted.graph().nodes.len())
+            .any(|position| admitted.document_held_id(position) == Some(&range_id)),
         "the exact range has an admitted structural node"
     );
 }

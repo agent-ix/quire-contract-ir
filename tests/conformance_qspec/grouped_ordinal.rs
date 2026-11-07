@@ -116,7 +116,8 @@ fn authoritative_owner_declaration_and_group_forms_are_retained_and_fail_closed(
         let document = proposal.join(super::positive_document(name, &documents));
         let (wire, admitted) =
             read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{name}: {why}"));
-        let published = wire["semantic_graph"]["nodes"]
+        let wire_form = crate::fixture_support::wire_form(&wire);
+        let published = wire_form["semantic_graph"]["nodes"]
             .as_array()
             .expect("published nodes");
         assert_eq!(admitted.graph().nodes.len(), published.len(), "{name}");

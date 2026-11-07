@@ -800,8 +800,11 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
         .expect("QSpec admitted package encodes");
         assert_eq!(
             encoded,
-            quire_canonical::to_vec(&wire, quire_canonical::Limits::new(1 << 24))
-                .expect("QSpec canonical bytes"),
+            quire_canonical::to_vec(
+                &fixture_support::wire_form(&wire),
+                quire_canonical::Limits::new(1 << 24)
+            )
+            .expect("QSpec canonical bytes"),
             "{name}: exact published bytes"
         );
     }

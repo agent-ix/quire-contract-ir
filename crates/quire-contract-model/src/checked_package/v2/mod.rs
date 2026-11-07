@@ -888,6 +888,14 @@ pub enum CheckedPackageV2ReadResult {
     Incomplete(CheckedPackageIncomplete),
 }
 
+/// The graph in its wire form and the positions of the nodes whose own ID
+/// holds an operand slot, by those bytes.
+struct SlotView {
+    graph: CheckedSemanticGraphV2,
+    /// `None` when several nodes have the same bytes.
+    positions: BTreeMap<CheckedNodeId, Option<usize>>,
+}
+
 /// Immutable, admitted `quire.checked-package/v2` data.
 ///
 /// The closed body grammar and flat ownership of complete selected documents
@@ -909,7 +917,7 @@ pub struct CheckedPackageV2 {
     structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
     /// The graph in its wire form, node-held operands as operand slots,
     /// built on first use from the resolved graph in `wire`.
-    slot_graph: Arc<std::sync::OnceLock<CheckedSemanticGraphV2>>,
+    slot_graph: Arc<std::sync::OnceLock<SlotView>>,
     /// Admission-derived position of each exact source occurrence.
     pub(in crate::checked_package) source_index:
         Arc<BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>>,
@@ -1296,7 +1304,7 @@ impl CheckedPackageV2 {
         &self,
         id: &CheckedNodeId,
     ) -> Option<(usize, &CheckedSemanticNodeV2)> {
-        let position = *self.node_index.get(id)?;
+        let position = self.position_of(id)?;
         self.wire
             .semantic_graph
             .nodes
@@ -1305,7 +1313,7 @@ impl CheckedPackageV2 {
                 #[cfg(test)]
                 model_fields::probe::node_visited();
             })
-            .filter(|candidate| &candidate.node_id == id)
+            .filter(|candidate| node_index::holds_slot(id) || &candidate.node_id == id)
             .map(|node| (position, node))
     }
 
@@ -1506,8 +1514,34 @@ impl CheckedPackageV2 {
     /// node-held operand is an operand slot read through the node's row of
     /// `operand_rows`, each document-held one an index segment.
     pub fn graph(&self) -> &CheckedSemanticGraphV2 {
-        self.slot_graph
-            .get_or_init(|| node_index::slot_graph(&self.wire.semantic_graph))
+        &self.slot_view().graph
+    }
+
+    fn slot_view(&self) -> &SlotView {
+        self.slot_graph.get_or_init(|| {
+            let graph = node_index::slot_graph(&self.wire.semantic_graph);
+            let mut positions = BTreeMap::new();
+            for (position, node) in graph.nodes.iter().enumerate() {
+                if node_index::holds_slot(&node.node_id) {
+                    positions
+                        .entry(node.node_id.clone())
+                        .and_modify(|first| *first = None)
+                        .or_insert(Some(position));
+                }
+            }
+            SlotView { graph, positions }
+        })
+    }
+
+    /// The graph position of `id`: a resolved index-form ID by the retained
+    /// index, or a node ID as `graph()` shows it, operand slots included, when
+    /// exactly one node has those bytes. Equal bytes name different nodes
+    /// when their rows differ, so such an ID names none.
+    fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
+        if node_index::holds_slot(id) {
+            return self.slot_view().positions.get(id).copied().flatten();
+        }
+        self.node_index.get(id).copied()
     }
 
     /// The graph with every operand resolved to a document index segment,
@@ -1564,7 +1598,7 @@ impl CheckedPackageV2 {
     /// Resolve an ID written by this package against this package's graph.
     /// The ID's `package` names its owner and does not select the graph.
     pub fn structural_key(&self, id: &CheckedNodeId) -> Option<&CheckedNodeId> {
-        self.structural_key_at(*self.node_index.get(id)?)
+        self.structural_key_at(self.position_of(id)?)
     }
 
     /// Each graph node's decoded family and form, in graph order.
@@ -1575,12 +1609,12 @@ impl CheckedPackageV2 {
     /// The retained admitted family and form of one graph node by its ID.
     /// Returns `None` for an ID absent from this package.
     pub fn node_kind(&self, id: &CheckedNodeId) -> Option<CheckedNodeKind> {
-        self.kinds.get(*self.node_index.get(id)?).copied()
+        self.kinds.get(self.position_of(id)?).copied()
     }
 
     /// The typed body of an admitted node.
     pub fn term(&self, id: &CheckedNodeId) -> Option<&CheckedTerm> {
-        self.terms.get(*self.node_index.get(id)?)
+        self.terms.get(self.position_of(id)?)
     }
 
     /// The exact source map.

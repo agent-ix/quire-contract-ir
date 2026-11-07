@@ -904,6 +904,13 @@ fn resolve_value_slots(body: &mut serde_json::Value, row: &[u64]) {
     }
 }
 
+/// Whether `id` names an operand by slot.
+pub(super) fn holds_slot(id: &super::CheckedNodeId) -> bool {
+    id.path
+        .iter()
+        .any(|segment| matches!(segment, CheckedNodePathSegment::Operand(_)))
+}
+
 /// The wire form of a resolved graph: each node-held id written with the
 /// operand slots its node's row names its operands by.
 pub(super) fn slot_graph(graph: &super::CheckedSemanticGraphV2) -> super::CheckedSemanticGraphV2 {

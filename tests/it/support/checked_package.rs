@@ -223,7 +223,7 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
     const ROWS: &str = "\u{1}rows";
     let boolean = family_key("aaaa");
     let mut previous = family_key("eeee");
-    let mut package = v2_all_families();
+    let package = v2_all_families();
     let base = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -443,6 +443,11 @@ pub fn resolve_vector_rows(value: &mut Value) {
 /// inverse of [`wire_operands`]: each operand slot becomes the index segment
 /// its node's row names and `operand_rows` is dropped.
 pub fn resolve_operands(package: &mut Value) {
+    if package["contract_version"] != "quire.checked-package/v2"
+        || !package["semantic_graph"]["nodes"].is_array()
+    {
+        return;
+    }
     let Some(rows) = package["semantic_graph"]
         .as_object_mut()
         .and_then(|graph| graph.remove("operand_rows"))

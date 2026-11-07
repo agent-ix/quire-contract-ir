@@ -38,6 +38,15 @@ pub(super) enum ValidationFailure {
 impl ValidationFailure {
     /// A refusal about the value at `path`.
     pub(super) fn refused(code: CheckedPackageRefusalCode, path: JsonPointer) -> Self {
+        if std::env::var_os("IR1405_TRACE").is_some() {
+            // TEMPORARY-DEBUG
+            eprintln!(
+                "REFUSED {:?} {}\n{}",
+                code,
+                path.as_str(),
+                std::backtrace::Backtrace::force_capture()
+            ); // TEMPORARY-DEBUG
+        } // TEMPORARY-DEBUG
         Self::Refused(Box::new(CheckedPackageRefusal::new(RefusalFields {
             code,
             path: Some(path),
