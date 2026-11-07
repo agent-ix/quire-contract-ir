@@ -1368,7 +1368,6 @@ impl CheckedPackageV2 {
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
-        validate_owner_schema(&wire)?;
         let ValidatedPackage {
             kinds,
             schedulability_claim_index,
@@ -1721,6 +1720,7 @@ fn validate(
     // Every check below compares operands by graph index.
     node_index::resolve_slots(wire);
     let wire = &*wire;
+    validate_owner_schema(wire)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds)?;
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
@@ -4095,6 +4095,63 @@ mod test_support {
     use super::{CheckedNodeId, CheckedPackageWireV2, CheckedTerm};
     use serde_json::{json, Value};
 
+    /// Bytes of a package a test authored in resolved index form, written as
+    /// the V2 wire: each node-held index segment becomes an operand slot,
+    /// numbered by first occurrence in the node's canonical order, beside
+    /// the node's operand row. A package that already has rows is left alone.
+    pub(super) fn canonical(package: &Value) -> Vec<u8> {
+        fn walk(value: &mut Value, row: &mut Vec<u64>) {
+            match value {
+                Value::Array(items) => items.iter_mut().for_each(|item| walk(item, row)),
+                Value::Object(object) => {
+                    if object.len() == 2 && object.contains_key("package") {
+                        return;
+                    }
+                    if object.len() == 3 && object.contains_key("path") {
+                        if let Some(Value::Array(path)) = object.get_mut("path") {
+                            for segment in path {
+                                let index = segment
+                                    .as_object()
+                                    .filter(|member| member.len() == 1)
+                                    .and_then(|member| member.get("node"))
+                                    .and_then(Value::as_u64);
+                                if let Some(index) = index {
+                                    let slot = row
+                                        .iter()
+                                        .position(|entry| *entry == index)
+                                        .unwrap_or_else(|| {
+                                            row.push(index);
+                                            row.len() - 1
+                                        });
+                                    *segment = json!({ "operand": slot });
+                                }
+                            }
+                        }
+                    }
+                    object.values_mut().for_each(|member| walk(member, row));
+                }
+                _ => {}
+            }
+        }
+        let mut wire = package.clone();
+        if wire["semantic_graph"]["nodes"].is_array()
+            && wire["semantic_graph"].get("operand_rows").is_none()
+        {
+            let rows = wire["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("graph nodes")
+                .iter_mut()
+                .map(|node| {
+                    let mut row = Vec::new();
+                    walk(node, &mut row);
+                    json!(row)
+                })
+                .collect::<Vec<_>>();
+            wire["semantic_graph"]["operand_rows"] = Value::Array(rows);
+        }
+        serde_json::to_vec(&wire).expect("canonical test JSON")
+    }
+
     /// The JSON of a distinct structural node identity.
     pub(super) fn id(digit: char) -> Value {
         json!({"package": "test", "path": [digit.to_string()], "ordinal": 0})
@@ -4460,7 +4517,7 @@ mod tests {
                 "definition_selections": [],
                 "required_features": [], "dependency_selections": []
             },
-            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": []},
+            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": [], "operand_rows": []},
             "source_map": [], "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []}
         }))

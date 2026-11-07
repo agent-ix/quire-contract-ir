@@ -304,9 +304,8 @@ impl CheckedPackageV2 {
             ));
         }
         let body = self
-            .node_index
-            .get(clause)
-            .and_then(|&position| self.terms.get(position))
+            .position_of(clause)
+            .and_then(|position| self.terms.get(position))
             .and_then(typed_clause_body)
             .ok_or_else(|| {
                 context.error(Refusal::NotStateClause, Path::Clause, Some(clause.clone()))

@@ -45,7 +45,7 @@ impl CheckedPackageV2 {
         use CheckedParameterDeclarationError as Error;
 
         let kind_of = |id: &CheckedNodeId| {
-            let position = *self.node_index.get(id)?;
+            let position = self.position_of(id)?;
             self.kinds.get(position).copied()
         };
         let found = self.node(node).ok_or(Error::UnknownNode)?;

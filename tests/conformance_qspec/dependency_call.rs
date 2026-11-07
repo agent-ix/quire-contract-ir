@@ -45,7 +45,7 @@ fn without_dependency(package: &Value) -> CheckedPackageV2ReadResult {
         evidence.support_feature(feature.as_str().expect("feature"));
     }
     CheckedPackageV2::read(
-        &serde_json::to_vec(package).expect("published package"),
+        &crate::fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )

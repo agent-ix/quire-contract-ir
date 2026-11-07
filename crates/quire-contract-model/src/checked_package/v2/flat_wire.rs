@@ -846,7 +846,7 @@ mod tests {
                 "profile_selections": [], "definition_selections": [],
                 "required_features": [], "dependency_selections": [],
             },
-            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
+            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes, "operand_rows": vec![Vec::<u64>::new(); nodes.len()]},
             "source_map": [], "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
         })).expect("private flat-wire input")

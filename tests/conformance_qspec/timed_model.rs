@@ -407,7 +407,8 @@ fn timed_clause_published_vectors_match_reader() {
                 let encoded: Value = serde_json::from_slice(&encode_package(&package))
                     .expect("admitted clause writer JSON");
                 assert_eq!(
-                    encoded, candidate,
+                    encoded,
+                    crate::fixture_support::wire_form(&candidate),
                     "{id}: clause body and identity retention"
                 );
                 if matches!(id, "CL-57" | "CL-59") {
@@ -1356,7 +1357,8 @@ fn timed_model_published_tick_retains_typed_operation_anchor() {
     let bytes = encode_package(&package);
     let encoded: Value = serde_json::from_slice(&bytes).expect("writer JSON");
     assert_eq!(
-        encoded, wire,
+        encoded,
+        crate::fixture_support::wire_form(&wire),
         "typed writer preserves the published tick package"
     );
     assert!(encoded.get("identity_preimage").is_none());

@@ -1310,12 +1310,12 @@ fn tc_048_qspec_union_values_admit_under_their_application_keys() {
         assert_eq!(node["node_tag"], "value");
         assert_eq!(node["semantic_form"], "union_value");
         assert_eq!(
-            retained.node_id,
-            serde_json::from_value(node["node_id"].clone()).expect("node id")
+            admitted.document_held_id(position).expect("graph node"),
+            &serde_json::from_value(node["node_id"].clone()).expect("node id")
         );
         assert_eq!(
             serde_json::to_value(&retained.body).expect("retained body"),
-            node["body"]
+            fixture_support::wire_form(&wire)["semantic_graph"]["nodes"][position]["body"]
         );
         assert_eq!(node["body"]["term"], "aggregate");
         assert_eq!(node["body"]["members"][0]["name"], member);
@@ -1573,8 +1573,11 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
     .expect("published package encodes");
     assert_eq!(
         encoded,
-        quire_canonical::to_vec(&wire, quire_canonical::Limits::new(1 << 24))
-            .expect("published canonical bytes")
+        quire_canonical::to_vec(
+            &fixture_support::wire_form(&wire),
+            quire_canonical::Limits::new(1 << 24)
+        )
+        .expect("published canonical bytes")
     );
     let encoded_wire: Value = serde_json::from_slice(&encoded).expect("encoded JSON");
     let reread = match read_package_with_document(&encoded_wire, name, &document)

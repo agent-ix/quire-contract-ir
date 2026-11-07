@@ -410,7 +410,10 @@ pub fn resolve_vector_rows(value: &mut Value) {
                 ("nodes", "operand_rows"),
                 ("restored_nodes", "restored_operand_rows"),
             ] {
-                if let Some(rows) = object.remove(rows_key) {
+                let paired = object.get(rows_key).is_some_and(Value::is_array)
+                    && object.get(nodes_key).is_some_and(Value::is_array);
+                if paired {
+                    let rows = object.remove(rows_key).expect("rows present");
                     let rows = rows.as_array().expect("operand rows").clone();
                     let nodes = object
                         .get_mut(nodes_key)
@@ -422,8 +425,9 @@ pub fn resolve_vector_rows(value: &mut Value) {
                 }
             }
             let single = object
-                .keys()
-                .filter(|key| key.ends_with("_operand_row"))
+                .iter()
+                .filter(|(key, row)| key.ends_with("_operand_row") && row.is_array())
+                .map(|(key, _)| key)
                 .cloned()
                 .collect::<Vec<_>>();
             for key in single {

@@ -35,7 +35,7 @@ fn read_with_retention_definition(
         )
         .expect("extension evidence");
     CheckedPackageV2::read(
-        &serde_json::to_vec(package).expect("package bytes"),
+        &crate::fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )
@@ -377,7 +377,7 @@ fn tc_459_extension_evidence_conflict_retains_first_definition() {
         CheckedPackageEvidenceInsertionError::ExtensionDefinitionConflict { .. }
     ));
     let (package, _) = extension_fixture();
-    let bytes = serde_json::to_vec(&package).expect("package bytes");
+    let bytes = crate::fixture_support::canonical(&package);
     for feature in package["lock"]["required_features"]
         .as_array()
         .expect("features")

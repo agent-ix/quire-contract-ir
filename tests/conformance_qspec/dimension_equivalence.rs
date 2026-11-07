@@ -170,7 +170,7 @@ fn read(wire: &Value, imports: &[(&str, Arc<CheckedPackageV2>)]) -> CheckedPacka
             .expect("distinct dependency names");
     }
     CheckedPackageV2::read(
-        &serde_json::to_vec(wire).expect("test wire"),
+        &crate::fixture_support::canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )

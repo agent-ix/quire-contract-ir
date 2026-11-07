@@ -125,7 +125,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
             "required_features": [],
             "dependency_selections": [],
         },
-        "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
+        "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes, "operand_rows": vec![Vec::<u64>::new(); nodes.as_array().map_or(0, Vec::len)]},
         "source_map": [],
         "capability_report": [],
         "diagnostics": {"catalog": artifact("diagnostics"), "entries": []},
