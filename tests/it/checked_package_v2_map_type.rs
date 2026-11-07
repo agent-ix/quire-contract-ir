@@ -792,14 +792,13 @@ fn source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix() {
     // Locate the boundary through the public refusal metadata, without assuming
     // the size of any earlier native allocation or the retained map footprint.
     let copy_boundary = (0..ample.consumed().storage)
-        .filter(|limit| {
+        .rfind(|limit| {
             let mut budget = NativeJoinBudget::new(1_000_000, *limit);
             project(&mut budget).is_err()
                 && budget
                     .first_unpaid_locus()
                     .is_some_and(|locus| locus.form == "source_collection_row")
         })
-        .next_back()
         .expect("map copy has an observable storage boundary");
     let mut short = NativeJoinBudget::new(1_000_000, copy_boundary);
     let mut refusal = None;
@@ -906,7 +905,7 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
         &ValueType::map(MapType::new(ValueType::Int(interval.clone()), None))
     );
     let boundary = (0..join_storage)
-        .filter(|limit| {
+        .rfind(|limit| {
             let mut budget = NativeJoinBudget::new(1_000_000, *limit);
             initial
                 .with_source_collection_rows(&package, [row()], &mut budget)
@@ -915,7 +914,6 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
                     .first_unpaid_locus()
                     .is_some_and(|locus| locus.form == "source_collection_row")
         })
-        .next_back()
         .expect("native row retention boundary");
     for limit in [0, boundary] {
         let cold_row = row();
