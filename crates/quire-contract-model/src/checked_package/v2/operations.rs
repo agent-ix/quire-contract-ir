@@ -1347,6 +1347,9 @@ fn operation_defect(
                 );
             }
         }
+        if let Some(failure) = check_carried_member(application, entry, &operation, graph) {
+            return Ok(Some(failure));
+        }
     }
     if operation.identity.as_ref() == "quire.op.collection.sum.quantity"
         && member_declaration(&operation)
@@ -1474,8 +1477,10 @@ fn operation_defect(
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_carried_member(application, entry, &operation, graph) {
-        return Ok(Some(failure));
+    if operation.identity.as_ref() != "quire.op.collection.sum.carried_quantity" {
+        if let Some(failure) = check_carried_member(application, entry, &operation, graph) {
+            return Ok(Some(failure));
+        }
     }
     let leaf_defect = check_leaf_count(
         application,
