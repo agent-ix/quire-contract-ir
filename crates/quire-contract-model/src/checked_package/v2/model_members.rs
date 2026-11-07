@@ -85,7 +85,10 @@ mod document;
 mod intake_origin;
 mod option_types;
 mod view;
-pub(super) use charged::{arc_bytes, arc_str_bytes, field_decl_bytes, SortedMap, SortedSet};
+pub(super) use charged::{
+    arc_bytes, arc_str_bytes, checked_member_type_bytes, field_decl_bytes, node_id_bytes,
+    relationship_decl_bytes, SortedMap, SortedSet,
+};
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
 use view::{List, View};
 
@@ -2186,17 +2189,25 @@ pub(super) struct ModelOperationClass {
     pub(super) binder_types: Option<Vec<CheckedNodeId>>,
 }
 
-/// Selected package, declaration, and form to the authored structural node.
-type DeclarationOwners =
-    BTreeMap<Box<str>, BTreeMap<Box<str>, BTreeMap<DeclarationForm, CheckedNodeId>>>;
+/// The authored structural node of one selected declaration, and who owns it.
+#[derive(Debug)]
+struct DeclaredRow<'m> {
+    key: CheckedNodeId,
+    owner: Owner<'m>,
+    /// The graph position of the authored node.
+    position: usize,
+}
 
-/// Every selected declaration's model declaration node key.
+/// Every selected declaration's model declaration node key: the rows once,
+/// and two sorted tables of row numbers, one by key and one by the selected
+/// package, declaration and form.
 #[derive(Debug, Default)]
 pub(super) struct ModelOwners<'m> {
-    by_key: BTreeMap<CheckedNodeId, Owner<'m>>,
-    by_declaration: DeclarationOwners,
-    /// The identity of every selected domain package.
-    identities: BTreeSet<&'m str>,
+    rows: Vec<DeclaredRow<'m>>,
+    by_key: Vec<usize>,
+    by_declaration: Vec<usize>,
+    /// The identity of every selected domain package, sorted.
+    identities: Vec<&'m str>,
 }
 
 impl<'m> ModelOwners<'m> {
@@ -2216,11 +2227,22 @@ impl<'m> ModelOwners<'m> {
 
     /// Whether a domain package of `identity` is selected.
     pub(super) fn selects(&self, identity: &str) -> bool {
-        self.identities.contains(identity)
+        self.identities.binary_search(&identity).is_ok()
+    }
+
+    /// The row whose key is `key`.
+    fn row_by_key(&self, key: &CheckedNodeId) -> Option<&DeclaredRow<'m>> {
+        let after = self.by_key.partition_point(|&at| {
+            self.rows
+                .get(at)
+                .is_some_and(|row| row.key.cmp(key) != std::cmp::Ordering::Greater)
+        });
+        let row = self.rows.get(*self.by_key.get(after.checked_sub(1)?)?)?;
+        (row.key.cmp(key) == std::cmp::Ordering::Equal).then_some(row)
     }
 
     pub(super) fn owner_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
-        self.by_key.get(key).copied()
+        self.row_by_key(key).map(|row| row.owner)
     }
 
     /// The exact admitted node for a selected model declaration.
@@ -2230,7 +2252,23 @@ impl<'m> ModelOwners<'m> {
         node: &str,
         form: DeclarationForm,
     ) -> Option<&CheckedNodeId> {
-        self.by_declaration.get(identity)?.get(node)?.get(&form)
+        let order = |row: &DeclaredRow<'_>| {
+            (
+                row.owner.package.identity.as_ref(),
+                row.owner.node,
+                row.owner.form,
+            )
+                .cmp(&(identity, node, form))
+        };
+        let after = self.by_declaration.partition_point(|&at| {
+            self.rows
+                .get(at)
+                .is_some_and(|row| order(row) != std::cmp::Ordering::Greater)
+        });
+        let row = self
+            .rows
+            .get(*self.by_declaration.get(after.checked_sub(1)?)?)?;
+        (order(row) == std::cmp::Ordering::Equal).then_some(&row.key)
     }
 
     /// Effective operation names, declaration nodes and checked binder records
@@ -2241,7 +2279,8 @@ impl<'m> ModelOwners<'m> {
         meter: &mut super::WorkMeter,
     ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
         let mut classes = Vec::new();
-        for (id, owner) in &self.by_key {
+        for row in self.by_key.iter().filter_map(|&at| self.rows.get(at)) {
+            let (id, owner) = (&row.key, &row.owner);
             if owner.package.identity.as_ref() != identity
                 || !matches!(
                     owner.form,
@@ -2276,33 +2315,67 @@ impl<'m> ModelOwners<'m> {
         &self,
         key: &crate::checked_package::shared::CheckedNodeId,
     ) -> Option<BTreeSet<Box<str>>> {
-        let owner = self.by_key.get(key)?;
+        let owner = &self.row_by_key(key)?.owner;
         if owner.form != DeclarationForm::ObjectType {
             return None;
         }
         owner.package.fields.exposed_names(owner.node)
     }
+    #[cfg(test)]
     /// Recomputes the key of every selected model declaration
-    /// of each admitted document; `charge` is called once per key.
+    /// of each admitted document; `charge` is called once per key. Nothing
+    /// is charged to a read-storage budget.
     pub(super) fn new<Body>(
         models: &'m [DomainModel],
         nodes: &[CheckedSemanticNodeV2<Body>],
         mut charge: impl FnMut(usize) -> Result<(), ValidationFailure>,
     ) -> Result<Self, ValidationFailure> {
-        let mut by_key = BTreeMap::new();
-        let mut by_declaration = DeclarationOwners::new();
-        let mut identities = BTreeSet::new();
-        let mut authored = BTreeMap::<(&str, &str), Vec<&CheckedSemanticNodeV2<Body>>>::new();
-        for candidate in nodes {
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut budget = Budget::node(&mut meter, 0);
+        Self::build(models, nodes, &mut budget, |_, root| charge(root))
+    }
+
+    /// [`Self::new`], with every allocation requested of `budget` at
+    /// `PackageRead(Graph, node)` before it is made: the tables at the
+    /// first node, each owned key at the node it names. `visit` is called
+    /// once per key with the selected package's root.
+    pub(super) fn build<Body>(
+        models: &'m [DomainModel],
+        nodes: &[CheckedSemanticNodeV2<Body>],
+        budget: &mut Budget<'_, '_>,
+        mut visit: impl FnMut(&mut Budget<'_, '_>, usize) -> Result<(), ValidationFailure>,
+    ) -> Result<Self, ValidationFailure> {
+        const F: &str = "model";
+        let owned = |candidate: &CheckedSemanticNodeV2<Body>| {
+            matches!(candidate.owner, Some(CheckedNodeOwner::Model { .. }))
+        };
+        budget.set_index(0);
+        // The authored nodes by (package, declaration) and graph position.
+        let mut authored: Vec<(&str, &str, usize)> =
+            budget.vec(nodes.iter().filter(|candidate| owned(candidate)).count(), F)?;
+        for (position, candidate) in nodes.iter().enumerate() {
             if let Some(CheckedNodeOwner::Model { identity, node }) = &candidate.owner {
-                authored
-                    .entry((identity.as_ref(), node.as_ref()))
-                    .or_default()
-                    .push(candidate);
+                authored.push((identity.as_ref(), node.as_ref(), position));
             }
         }
+        authored.sort_unstable();
+        let declared: usize = models
+            .iter()
+            .map(|package| {
+                package.object_types.len()
+                    + package.relationships.len()
+                    + package.relation_nodes.len()
+                    + package.record_types.len()
+                    + package.tuple_types.len()
+                    + package.variant_types.len()
+                    + package.populations.len()
+                    + package.persistence_interfaces.len()
+            })
+            .sum();
+        let mut identities: Vec<&str> = budget.vec(models.len(), F)?;
+        let mut rows: Vec<DeclaredRow<'m>> = budget.vec(declared, F)?;
         for (index, package) in models.iter().enumerate() {
-            identities.insert(package.identity.as_ref());
+            identities.push(package.identity.as_ref());
             let objects = package.object_types.iter().map(|(node, declared)| {
                 let form = if package.state_machines.contains(node.as_ref()) {
                     DeclarationForm::StateMachine
@@ -2348,34 +2421,76 @@ impl<'m> ModelOwners<'m> {
                 .chain(populations)
                 .chain(persistence_interfaces)
             {
-                charge(package.root)?;
-                if let Some(candidates) = authored.get(&(package.identity.as_ref(), node.as_ref()))
+                budget.set_index(package.root);
+                visit(budget, package.root)?;
+                let key = (package.identity.as_ref(), node.as_ref());
+                let first = authored.partition_point(|row| (row.0, row.1) < key);
+                for &(_, _, position) in authored
+                    .get(first..)
+                    .unwrap_or_default()
+                    .iter()
+                    .take_while(|row| (row.0, row.1) == key)
                 {
-                    for candidate in candidates {
-                        if candidate.node_tag.as_ref() == form.tag()
-                            && candidate.semantic_form.as_ref() == form.form()
-                        {
-                            by_declaration
-                                .entry(package.identity.clone())
-                                .or_default()
-                                .entry(node.clone())
-                                .or_default()
-                                .insert(form, candidate.node_id.clone());
-                            by_key.insert(
-                                candidate.node_id.clone(),
-                                Owner {
-                                    package,
-                                    form,
-                                    node,
-                                    selection: index,
-                                },
-                            );
-                        }
+                    let Some(candidate) = nodes.get(position) else {
+                        continue;
+                    };
+                    if candidate.node_tag.as_ref() == form.tag()
+                        && candidate.semantic_form.as_ref() == form.form()
+                    {
+                        budget.set_index(position);
+                        budget.request(node_id_bytes(&candidate.node_id), form.tag())?;
+                        rows.push(DeclaredRow {
+                            key: candidate.node_id.clone(),
+                            owner: Owner {
+                                package,
+                                form,
+                                node,
+                                selection: index,
+                            },
+                            position,
+                        });
                     }
                 }
             }
         }
+        budget.set_index(0);
+        identities.sort_unstable();
+        identities.dedup();
+        let mut by_key: Vec<usize> = budget.vec(rows.len(), F)?;
+        by_key.extend(0..rows.len());
+        by_key.sort_unstable_by(|&a, &b| match (rows.get(a), rows.get(b)) {
+            (Some(a_row), Some(b_row)) => a_row.key.cmp(&b_row.key).then(a.cmp(&b)),
+            _ => a.cmp(&b),
+        });
+        // A key held twice names its last row.
+        let mut kept = 0;
+        for at in 0..by_key.len() {
+            let repeated = by_key
+                .get(at + 1)
+                .zip(by_key.get(at))
+                .and_then(|(&next, &this)| Some(rows.get(next)?.key == rows.get(this)?.key))
+                .unwrap_or(false);
+            if !repeated {
+                by_key.swap(kept, at);
+                kept += 1;
+            }
+        }
+        by_key.truncate(kept);
+        let mut by_declaration: Vec<usize> = budget.vec(rows.len(), F)?;
+        by_declaration.extend(0..rows.len());
+        let declaration = |at: usize| {
+            rows.get(at).map(|row| {
+                (
+                    row.owner.package.identity.as_ref(),
+                    row.owner.node,
+                    row.owner.form,
+                )
+            })
+        };
+        by_declaration
+            .sort_unstable_by(|&a, &b| declaration(a).cmp(&declaration(b)).then(a.cmp(&b)));
         Ok(Self {
+            rows,
             by_key,
             by_declaration,
             identities,
@@ -2391,7 +2506,7 @@ impl<'m> ModelOwners<'m> {
         tag: CheckedNodeTag,
     ) -> bool {
         matches!(tag, CheckedNodeTag::Model | CheckedNodeTag::Relation)
-            && (node.declaration.is_none() || self.by_key.contains_key(&node.node_id))
+            && (node.declaration.is_none() || self.row_by_key(&node.node_id).is_some())
     }
 
     /// FR-322 step 2 over one wire node.
@@ -2400,9 +2515,7 @@ impl<'m> ModelOwners<'m> {
         node: &CheckedSemanticNodeV2<Body>,
     ) -> Result<Owner<'m>, ModelRefusal> {
         let owner = self
-            .by_key
-            .get(&node.node_id)
-            .copied()
+            .owner_by_key(&node.node_id)
             .ok_or_else(ModelRefusal::unselected)?;
         check_declaration_node(owner.form, node, node.body.is_empty_aggregate())?;
         Ok(owner)
@@ -2411,30 +2524,47 @@ impl<'m> ModelOwners<'m> {
     /// Implements: FR-347. the record value type whose model declaration node key is
     /// `key`, `None` when `key` names no selected record.
     pub(super) fn record_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
-        self.by_key
-            .get(key)
-            .copied()
+        self.owner_by_key(key)
             .filter(|owner| owner.form == DeclarationForm::RecordValueType)
     }
 
+    #[cfg(test)]
     /// An owned copy of the key index, which an admitted package retains
-    /// after the documents it borrows are gone.
+    /// after the documents it borrows are gone. Nothing is charged to a
+    /// read-storage budget.
     pub(super) fn index(&self) -> DeclarationIndex {
-        DeclarationIndex(
-            self.by_key
-                .iter()
-                .map(|(key, owner)| {
-                    (
-                        key.clone(),
-                        DeclaredNode {
-                            form: owner.form,
-                            selection: owner.selection,
-                            node: owner.node.into(),
-                        },
-                    )
-                })
-                .collect(),
-        )
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut budget = Budget::node(&mut meter, 0);
+        self.index_charged(&mut budget)
+            .unwrap_or_else(|_| unreachable!("an unmetered budget admits every request"))
+    }
+
+    /// [`Self::index`], each owned key and node text requested at
+    /// `PackageRead(Graph, node)` before it is made.
+    pub(super) fn index_charged(
+        &self,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<DeclarationIndex, ValidationFailure> {
+        const F: &str = "model";
+        budget.set_index(0);
+        let mut entries = budget.vec(self.by_key.len(), F)?;
+        for row in self.by_key.iter().filter_map(|&at| self.rows.get(at)) {
+            budget.set_index(row.position);
+            let form = row.owner.form.tag();
+            budget.request(
+                node_id_bytes(&row.key).saturating_add(row.owner.node.len()),
+                form,
+            )?;
+            entries.push((
+                row.key.clone(),
+                DeclaredNode {
+                    form: row.owner.form,
+                    selection: row.owner.selection,
+                    node: row.owner.node.into(),
+                },
+            ));
+        }
+        Ok(DeclarationIndex(SortedMap::from_sorted(entries)))
     }
 }
 

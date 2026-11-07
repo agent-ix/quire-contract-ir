@@ -19,14 +19,14 @@
 //! it, a member of a cycle being among its own ancestors.
 
 use super::model_members::{
-    arc_bytes, arc_str_bytes, check_declaration_node, field_decl_bytes, member_name, units, Budget,
-    CollectionKind, DeclarationForm, DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType,
-    ModelOperationClass, NativeTypeRef, Owner, RelationshipDecl, SelectedTypeRef,
-    SelectedVariantCase, SortedMap, SortedSet,
+    arc_bytes, arc_str_bytes, check_declaration_node, checked_member_type_bytes, field_decl_bytes,
+    member_name, relationship_decl_bytes, units, Budget, CollectionKind, DeclarationForm,
+    DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, NativeTypeRef,
+    Owner, RelationshipDecl, SelectedTypeRef, SelectedVariantCase, SortedMap, SortedSet,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, PackageReadStage, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -825,7 +825,7 @@ pub(super) struct DeclaredNode {
 /// An owned index from each selected declaration's model declaration node key
 /// to its selection row, form and node identity.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNode>);
+pub(super) struct DeclarationIndex(pub(super) SortedMap<CheckedNodeId, DeclaredNode>);
 
 /// What an admitted [`CheckedPackageV2`] retains of its selected documents:
 /// the declaration index, each document's field tables, the selected
@@ -836,14 +836,29 @@ pub(super) struct DeclarationIndex(pub(super) BTreeMap<CheckedNodeId, DeclaredNo
 #[derive(Clone, Debug, Default)]
 pub(super) struct RetainedModels {
     index: DeclarationIndex,
-    original_declarations: BTreeMap<(usize, Box<str>), Option<CheckedNodeId>>,
-    by_identity: BTreeMap<Box<str>, usize>,
-    object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>>,
+    /// The declarations by selection and original identity, sorted.
+    original_declarations: Vec<OriginalRow>,
+    /// The selected documents' numbers, sorted by identity.
+    by_identity: Vec<usize>,
+    /// The object declarations by selection and original identity, sorted.
+    object_declarations: Vec<OriginalRow>,
     /// Admitted selected documents, including their field tables, for
     /// catalog binder resolution only when a refinement requests it.
     models: Vec<DomainModel>,
-    operation_types: BTreeMap<(usize, Box<str>, Box<str>), OperationTypes>,
-    relationships: BTreeMap<(usize, Box<str>), RetainedRelationship>,
+    operation_types: SortedMap<OperationKey, OperationTypes>,
+    relationships: SortedMap<(usize, Box<str>), RetainedRelationship>,
+}
+
+/// A selection, an object and an operation name.
+type OperationKey = (usize, Box<str>, Box<str>);
+
+/// A selection's declaration of one original identity: the entry of the
+/// declaration index that holds it, or that several do.
+#[derive(Clone, Copy, Debug)]
+struct OriginalRow {
+    selection: usize,
+    entry: usize,
+    ambiguous: bool,
 }
 
 /// The selected document's complete retained body for one admitted variant declaration.
@@ -962,8 +977,8 @@ fn native_type_reference(native: &NativeTypeRef) -> &'static str {
 
 /// A selected owner has either one genuine declaration node or several.
 #[derive(Clone, Debug)]
-enum DeclaringNode {
-    One(CheckedNodeId),
+pub(super) enum DeclaringNode<'a> {
+    One(&'a CheckedNodeId),
     Ambiguous,
 }
 
@@ -978,8 +993,59 @@ pub(super) struct RetainedRelationship {
 /// The selected model signature already checked against a clause by FR-341.
 #[derive(Clone, Debug)]
 pub(super) struct OperationTypes {
+    /// The order the operation was declared in, which settles a repeat.
+    seq: usize,
     pub(super) has_result: bool,
     pub(super) parameters: Vec<Option<CheckedMemberType>>,
+}
+
+/// The rows of the declarations of `entries` that `keep` admits, one for each
+/// selection and original identity, sorted by it; a pair several entries hold
+/// is marked ambiguous and names the first.
+fn original_rows(
+    entries: &[(CheckedNodeId, DeclaredNode)],
+    keep: impl Fn(&DeclaredNode) -> bool,
+    budget: &mut Budget<'_, '_>,
+) -> Result<Vec<OriginalRow>, ValidationFailure> {
+    budget.set_index(0);
+    let mut rows: Vec<OriginalRow> = budget.vec(entries.len(), "declarations")?;
+    for (entry, (_, declared)) in entries.iter().enumerate() {
+        if keep(declared) {
+            rows.push(OriginalRow {
+                selection: declared.selection,
+                entry,
+                ambiguous: false,
+            });
+        }
+    }
+    let node = |row: &OriginalRow| {
+        (
+            row.selection,
+            entries
+                .get(row.entry)
+                .map_or("", |entry| entry.1.node.as_ref()),
+            row.entry,
+        )
+    };
+    rows.sort_unstable_by_key(node);
+    let mut kept = 0;
+    let mut at = 0;
+    while let Some(first) = rows.get(at).copied() {
+        let same =
+            |row: &OriginalRow| node(row).0 == node(&first).0 && node(row).1 == node(&first).1;
+        let mut end = at + 1;
+        while rows.get(end).is_some_and(same) {
+            end += 1;
+        }
+        rows.swap(kept, at);
+        if let Some(row) = rows.get_mut(kept) {
+            row.ambiguous = end - at > 1;
+        }
+        kept += 1;
+        at = end;
+    }
+    rows.truncate(kept);
+    Ok(rows)
 }
 
 impl RetainedModels {
@@ -1012,9 +1078,47 @@ impl RetainedModels {
         selection: usize,
         original: &str,
     ) -> Option<&CheckedNodeId> {
-        self.original_declarations
-            .get(&(selection, Box::from(original)))?
-            .as_ref()
+        let row = self.original_row(&self.original_declarations, selection, original)?;
+        if row.ambiguous {
+            return None;
+        }
+        self.index.0.as_slice().get(row.entry).map(|entry| &entry.0)
+    }
+
+    /// The row of `rows` for this selection and original identity.
+    fn original_row<'r>(
+        &self,
+        rows: &'r [OriginalRow],
+        selection: usize,
+        original: &str,
+    ) -> Option<&'r OriginalRow> {
+        let entries = self.index.0.as_slice();
+        let at = rows
+            .binary_search_by(|row| {
+                let node = entries
+                    .get(row.entry)
+                    .map_or("", |entry| entry.1.node.as_ref());
+                (row.selection, node).cmp(&(selection, original))
+            })
+            .ok()?;
+        rows.get(at)
+    }
+
+    /// The object declaration of this selection and original identity.
+    pub(super) fn object_declaration(
+        &self,
+        selection: usize,
+        original: &str,
+    ) -> Option<DeclaringNode<'_>> {
+        let row = self.original_row(&self.object_declarations, selection, original)?;
+        if row.ambiguous {
+            return Some(DeclaringNode::Ambiguous);
+        }
+        self.index
+            .0
+            .as_slice()
+            .get(row.entry)
+            .map(|entry| DeclaringNode::One(&entry.0))
     }
 
     /// The complete effective record fields in selected declaration order.
@@ -1091,7 +1195,15 @@ impl RetainedModels {
 
     /// Look up one admitted selected document without visiting other selections.
     pub(super) fn selected_model(&self, identity: &str) -> Option<&DomainModel> {
-        self.models.get(*self.by_identity.get(identity)?)
+        let after = self.by_identity.partition_point(|&at| {
+            self.models
+                .get(at)
+                .is_some_and(|model| model.identity.as_ref() <= identity)
+        });
+        let model = self
+            .models
+            .get(*self.by_identity.get(after.checked_sub(1)?)?)?;
+        (model.identity.as_ref() == identity).then_some(model)
     }
 
     /// Effective operation classes of the selected model document named by its identity.
@@ -1101,7 +1213,7 @@ impl RetainedModels {
         meter: &mut WorkMeter,
     ) -> Result<Vec<ModelOperationClass>, ValidationFailure> {
         let mut classes = Vec::new();
-        for (id, declared) in &self.index.0 {
+        for (id, declared) in self.index.0.iter() {
             let Some(model) = self.models.get(declared.selection) else {
                 continue;
             };
@@ -1230,73 +1342,116 @@ impl RetainedModels {
             .fields
             .exposed_names(&declared.node)
     }
+    #[cfg(test)]
+    /// The retained tables of `models` with nothing charged to a read-storage
+    /// budget.
     pub(super) fn new(index: DeclarationIndex, models: Vec<DomainModel>) -> Self {
-        let by_identity = models
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut budget = Budget::node(&mut meter, 0);
+        Self::build(index, models, &mut budget)
+            .unwrap_or_else(|_| unreachable!("an unmetered budget admits every request"))
+    }
+
+    /// [`Self::new`], each table and each owned key, name and type requested
+    /// of `budget` at `PackageRead(Graph, selection)` before it is made.
+    pub(super) fn build(
+        index: DeclarationIndex,
+        models: Vec<DomainModel>,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Self, ValidationFailure> {
+        const F: &str = "declarations";
+        budget.set_index(0);
+        let mut by_identity: Vec<usize> = budget.vec(models.len(), F)?;
+        by_identity.extend(0..models.len());
+        by_identity.sort_unstable_by(|&a, &b| {
+            let identity = |at: usize| models.get(at).map(|model| model.identity.as_ref());
+            identity(a).cmp(&identity(b)).then(a.cmp(&b))
+        });
+        let entries = index.0.as_slice();
+        let original_declarations = original_rows(entries, |_| true, budget)?;
+        let object_declarations = original_rows(
+            entries,
+            |declared| declared.form == DeclarationForm::ObjectType,
+            budget,
+        )?;
+        let operations: usize = models
             .iter()
-            .enumerate()
-            .map(|(selection, model)| (model.identity.clone(), selection))
-            .collect();
-        let mut object_declarations: BTreeMap<usize, BTreeMap<Box<str>, DeclaringNode>> =
-            BTreeMap::new();
-        let mut original_declarations = BTreeMap::new();
-        for (key, declared) in &index.0 {
-            original_declarations
-                .entry((declared.selection, declared.node.clone()))
-                .and_modify(|entry| *entry = None)
-                .or_insert_with(|| Some(key.clone()));
-            if declared.form == DeclarationForm::ObjectType {
-                object_declarations
-                    .entry(declared.selection)
-                    .or_default()
-                    .entry(declared.node.clone())
-                    .and_modify(|entry| *entry = DeclaringNode::Ambiguous)
-                    .or_insert_with(|| DeclaringNode::One(key.clone()));
-            }
-        }
-        let mut operation_types = BTreeMap::new();
+            .flat_map(|model| model.object_types.values())
+            .map(|declared| declared.operations.len())
+            .sum();
+        let mut operation_rows: Vec<(OperationKey, OperationTypes)> = budget.vec(operations, F)?;
         for (selection, model) in models.iter().enumerate() {
-            for (object, declared) in &model.object_types {
+            budget.set_index(selection);
+            for (object, declared) in model.object_types.iter() {
                 for operation in &declared.operations {
-                    operation_types.insert(
-                        (
-                            selection,
-                            object.clone(),
-                            Box::from(member_name(&operation.identity)),
-                        ),
+                    let name = member_name(&operation.identity);
+                    budget.request(object.len() + name.len(), F)?;
+                    let key = (selection, object.clone(), Box::from(name));
+                    budget.request(
+                        operation
+                            .parameters
+                            .len()
+                            .saturating_mul(std::mem::size_of::<Option<CheckedMemberType>>()),
+                        F,
+                    )?;
+                    let mut parameters = Vec::with_capacity(operation.parameters.len());
+                    for slot in &operation.parameters {
+                        let member = model.slot_type_charged(slot, false, budget, F)?;
+                        if let Some(member) = &member {
+                            budget.request(checked_member_type_bytes(member), F)?;
+                        }
+                        parameters.push(member.as_ref().map(CheckedMemberType::from));
+                    }
+                    let seq = operation_rows.len();
+                    operation_rows.push((
+                        key,
                         OperationTypes {
+                            seq,
                             has_result: operation.result.is_some(),
-                            parameters: operation
-                                .parameters
-                                .iter()
-                                .map(|slot| {
-                                    model.slot_type(slot).as_ref().map(CheckedMemberType::from)
-                                })
-                                .collect(),
+                            parameters,
                         },
-                    );
+                    ));
                 }
             }
         }
-        let mut relationships = BTreeMap::new();
+        // A repeated operation keeps its last declaration.
+        operation_rows.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.1.seq.cmp(&b.1.seq)));
+        let mut kept = 0;
+        for at in 0..operation_rows.len() {
+            let repeated = operation_rows
+                .get(at)
+                .zip(operation_rows.get(at + 1))
+                .is_some_and(|(this, next)| this.0 == next.0);
+            if !repeated {
+                operation_rows.swap(kept, at);
+                kept += 1;
+            }
+        }
+        operation_rows.truncate(kept);
+        let operation_types = SortedMap::from_sorted(operation_rows);
+        let total: usize = models.iter().map(|model| model.relationships.len()).sum();
+        let mut relationship_rows = budget.vec(total, F)?;
         for (selection, model) in models.iter().enumerate() {
-            for (node, declaration) in &model.relationships {
-                relationships.insert(
+            budget.set_index(selection);
+            for (node, declaration) in model.relationships.iter() {
+                budget.request(node.len() + relationship_decl_bytes(declaration), F)?;
+                relationship_rows.push((
                     (selection, node.clone()),
                     RetainedRelationship {
                         declaration: declaration.clone(),
                     },
-                );
+                ));
             }
         }
-        Self {
+        Ok(Self {
             index,
             original_declarations,
             by_identity,
             object_declarations,
             models,
             operation_types,
-            relationships,
-        }
+            relationships: SortedMap::from_sorted(relationship_rows),
+        })
     }
 
     pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<RecordBinderTypes> {
@@ -1890,9 +2045,7 @@ impl CheckedPackageV2 {
                 let entry = &slot.entry;
                 let declaring_node_id = match self
                     .models
-                    .object_declarations
-                    .get(&selection)
-                    .and_then(|owners| owners.get(entry.declaring_owner.as_ref()))
+                    .object_declaration(selection, entry.declaring_owner.as_ref())
                 {
                     Some(DeclaringNode::One(id)) => id.clone(),
                     Some(DeclaringNode::Ambiguous) => {

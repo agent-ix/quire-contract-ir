@@ -357,8 +357,8 @@ pub(in crate::checked_package::v2) fn document(types: Vec<Value>) -> Value {
     })
 }
 
-const WIDGET: &str = "ix://acme/orders/Widget";
-const GADGET: &str = "ix://acme/orders/Gadget";
+pub(in crate::checked_package::v2) const WIDGET: &str = "ix://acme/orders/Widget";
+pub(in crate::checked_package::v2) const GADGET: &str = "ix://acme/orders/Gadget";
 const LINK: &str = "ix://acme/orders/relationship/Widget-links-Gadget";
 
 /// IR-1059 slice 1: local tuple order and variant payload retention.

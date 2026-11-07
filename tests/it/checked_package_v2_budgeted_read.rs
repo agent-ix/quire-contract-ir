@@ -93,8 +93,8 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
 }
 
 /// The read's reservations are exact: the measured requirement admits, one
-/// byte below is denied at the last request, at its locus (the term walk of
-/// the graph's last `value` node, the last stage to request heap), with the
+/// byte below is denied at the last request, at its locus (the retained
+/// tables built over the declaration index, the last stage to request heap), with the
 /// bytes asked.
 #[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
@@ -122,13 +122,13 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
     assert_eq!(
         short.first_unpaid_locus(),
         Some(NativeJoinLocus {
-            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 24),
-            form: "value",
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 0),
+            form: "declarations",
         })
     );
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
-    // The denied request belongs to the term walk of a node, so the stop is
+    // The denied request belongs to a graph node's stage, so the stop is
     // incomplete at the node's body, which the budget can still name.
     let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {
         panic!("a denial at a node is incomplete at its body: {result:?}");
@@ -138,7 +138,7 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
     assert_eq!(incomplete.limit, required - 1);
     assert_eq!(
         incomplete.path.as_ref().map(ToString::to_string).as_deref(),
-        Some("/semantic_graph/nodes/24/body")
+        Some("/semantic_graph/nodes/0/body")
     );
     assert!(short.read_storage_consumed() < required);
 }

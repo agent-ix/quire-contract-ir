@@ -1813,7 +1813,7 @@ fn validate(
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
     validate_diagnostics(wire, limits, &mut meter)?;
-    let models = RetainedModels::new(declarations, models);
+    let models = RetainedModels::build(declarations, models, &mut Budget::node(&mut meter, 0))?;
     operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
     if let Some(data) = wire.checked_term_data.as_ref() {
         dispatch_projection::validate_checked_term_data(
@@ -3426,11 +3426,14 @@ fn validate_graph(
     validate_protocol_references(&graph.nodes, &kinds, &index)?;
     // FR-322 step 2: each selected declaration's model declaration node key,
     // one validation visit apiece, charged at the selection it belongs to.
-    let owners = ModelOwners::new(models, &graph.nodes, |root| {
-        meter.charge(1, || node_pointer(root).key("owner"))
-    })?;
+    let owners = ModelOwners::build(
+        models,
+        &graph.nodes,
+        &mut Budget::node(meter, 0),
+        |budget, root| budget.charge_at(1, "model", || node_pointer(root).key("owner")),
+    )?;
     extension::validate(wire, &kinds, &terms, &index, evidence, &owners, meter)?;
-    let declarations = owners.index();
+    let declarations = owners.index_charged(&mut Budget::node(meter, 0))?;
     frame::validate_frame_semantics(frames, &graph.nodes, &kinds, &index, &owners, meter)?;
     state::validate_state(
         &graph.nodes,

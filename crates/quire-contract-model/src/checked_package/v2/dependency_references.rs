@@ -819,7 +819,7 @@ mod tests {
     /// before they are made.
     #[trace("TC-472", "FR-038-AC-502")]
     #[test]
-    #[ignore = "blocked: CheckedNodeId::cmp and eq allocate a task stack per comparison (shared.rs), uncharged"]
+    #[ignore = "waits on CheckedNodeId::cmp non-allocating (group D shared.rs)"]
     fn tc_472_dependency_admission_allocates_exactly_what_it_requests() {
         let dependency = package();
         let name = dependency.name().to_owned();
@@ -863,7 +863,7 @@ mod tests {
     /// referring node, whichever node's closure is walked.
     #[trace("TC-472", "FR-038-AC-502")]
     #[test]
-    #[ignore = "blocked: CheckedNodeId::cmp and eq allocate a task stack per comparison (shared.rs), uncharged"]
+    #[ignore = "waits on CheckedNodeId::cmp non-allocating (group D shared.rs)"]
     fn tc_472_signature_closure_allocates_exactly_what_it_requests() {
         let dependency = package();
         let mut evidence = CheckedPackageEvidence::new();

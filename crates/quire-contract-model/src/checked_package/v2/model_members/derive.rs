@@ -9,7 +9,7 @@
 use super::charged::{declaration_id_bytes, node_id_bytes};
 use super::{
     declaration_id, Budget, CollectionKind, DeclarationForm, DomainModel, FieldDecl, MemberType,
-    NativeTypeRef, RationalBounds, SelectedTypeDefinition, SelectedTypeRef, TextBounds,
+    NativeTypeRef, RationalBounds, SelectedTypeDefinition, SelectedTypeRef, TextBounds, TypedSlot,
     ValueBounds, DURATION_RESOLVED_PREFIX,
 };
 use crate::checked_package::shared::CheckedNodeId;
@@ -175,7 +175,19 @@ impl DomainModel {
         budget: &mut Budget<'_, '_>,
         form: &'static str,
     ) -> Result<Option<MemberType>, ValidationFailure> {
-        let Some(type_ref) = field.slot.type_ref.as_ref() else {
+        self.slot_type_charged(&field.slot, field.optional, budget, form)
+    }
+
+    /// A slot's type as [`Self::slot_type`] derives it (`optional` false) or,
+    /// with `optional`, as [`Self::field_type`] wraps it.
+    pub(in crate::checked_package::v2) fn slot_type_charged(
+        &self,
+        slot: &TypedSlot,
+        optional: bool,
+        budget: &mut Budget<'_, '_>,
+        form: &'static str,
+    ) -> Result<Option<MemberType>, ValidationFailure> {
+        let Some(type_ref) = slot.type_ref.as_ref() else {
             return Ok(None);
         };
         let Some((bottom, layers)) = self.bottom(type_ref) else {
@@ -184,7 +196,7 @@ impl DomainModel {
         let Some(leaf) = self.leaf(bottom, budget, form)? else {
             return Ok(None);
         };
-        let multiplicity = field.slot.multiplicity;
+        let multiplicity = slot.multiplicity;
         let collection = if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
             None
         } else {
@@ -200,7 +212,7 @@ impl DomainModel {
         };
         let clock = matches!(type_ref, SelectedTypeRef::Native(NativeTypeRef::Clock));
         let mut wraps = [None; 2];
-        match (field.optional, collection) {
+        match (optional, collection) {
             (false, collection) => wraps[0] = collection,
             (true, None) => wraps[0] = Some(Wrap::Option),
             (true, Some(collection)) if clock => wraps = [Some(collection), Some(Wrap::Option)],

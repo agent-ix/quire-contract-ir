@@ -57,6 +57,16 @@ impl<K, V> SortedMap<K, V> {
         })
     }
 
+    /// A map over entries already in ascending key order with no repeat.
+    pub(in crate::checked_package::v2) fn from_sorted(entries: Vec<(K, V)>) -> Self {
+        Self { entries }
+    }
+
+    /// The entries in key order.
+    pub(in crate::checked_package::v2) fn as_slice(&self) -> &[(K, V)] {
+        &self.entries
+    }
+
     pub(in crate::checked_package::v2) fn len(&self) -> usize {
         self.entries.len()
     }
@@ -209,6 +219,10 @@ impl<K> SortedSet<K> {
         &self.items
     }
 
+    pub(in crate::checked_package::v2) fn len(&self) -> usize {
+        self.items.len()
+    }
+
     /// An empty set with room for `capacity` items, requested first.
     pub(in crate::checked_package::v2) fn with_capacity(
         budget: &mut Budget<'_, '_>,
@@ -334,4 +348,45 @@ pub(in crate::checked_package::v2) fn field_decl_bytes(field: &super::FieldDecl)
         + field.slot.name.as_deref().map_or(0, str::len)
         + field.slot.type_ref.as_ref().map_or(0, type_ref_bytes)
         + field.redefines.as_deref().map_or(0, str::len)
+}
+
+/// The bytes cloning a relationship declaration requests.
+pub(in crate::checked_package::v2) fn relationship_decl_bytes(
+    declaration: &super::RelationshipDecl,
+) -> usize {
+    let end =
+        |end: &super::RelationshipEnd| end.role.as_deref().map_or(0, str::len) + end.type_ref.len();
+    end(&declaration.source) + end(&declaration.target)
+}
+
+/// The bytes converting `member` to its public form requests: a box for each
+/// wrapper and for a carried rational's carrier, and each owned id and text.
+pub(in crate::checked_package::v2) fn checked_member_type_bytes(
+    member: &super::MemberType,
+) -> usize {
+    let boxed = std::mem::size_of::<crate::checked_package::v2::CheckedMemberType>();
+    let mut total = 0_usize;
+    let mut cursor = member;
+    loop {
+        match cursor {
+            super::MemberType::Option(inner) => {
+                total += boxed;
+                cursor = inner;
+            }
+            super::MemberType::Collection { element, .. } => {
+                total += boxed;
+                cursor = element;
+            }
+            super::MemberType::CarriedRational(_, unit) => {
+                return total + boxed + node_id_bytes(unit)
+            }
+            super::MemberType::TextBounds(bounds) => return total + bounds.profile.len(),
+            super::MemberType::Reference(id)
+            | super::MemberType::Record(id)
+            | super::MemberType::Tuple(id)
+            | super::MemberType::Variant(id)
+            | super::MemberType::Quantity(id) => return total + node_id_bytes(id),
+            _ => return total,
+        }
+    }
 }

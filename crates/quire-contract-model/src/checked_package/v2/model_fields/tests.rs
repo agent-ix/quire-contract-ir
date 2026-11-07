@@ -15,6 +15,7 @@ use quire_exact::{
     EffectiveId, MemberId, MemberOwner, NodeKey, OriginalDeclarationKey, PathSegment,
 };
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 /// Trace: FR-038-AC-475.
 #[trace("FR-038-AC-475")]
@@ -1785,4 +1786,196 @@ fn tc_472_field_tables_allocate_exactly_what_they_request() {
             allowance += 53;
         }
     }
+}
+
+/// What one run did under `allowance` bytes of read storage.
+struct Run {
+    ok: bool,
+    consumed: u64,
+    allocated: u64,
+    locus: Option<crate::NativeJoinLocus>,
+}
+
+fn run_under<T>(
+    allowance: u64,
+    input: T,
+    body: impl FnOnce(T, &mut WorkMeter) -> Result<(), ValidationFailure>,
+) -> Run {
+    let mut budget =
+        crate::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(allowance);
+    let mut ok = false;
+    let measured = allocation_counter::measure(|| {
+        let mut meter = WorkMeter::over(&mut budget);
+        ok = body(input, &mut meter).is_ok();
+    });
+    Run {
+        ok,
+        consumed: budget.read_storage_consumed(),
+        allocated: measured.bytes_total,
+        locus: budget.first_unpaid_locus(),
+    }
+}
+
+/// Every byte `body` allocates is a byte it requested, the exact allowance
+/// admits it, and one byte short refuses in the Graph stage without any
+/// shorter allowance allocating past what it was granted.
+fn assert_graph_exact<T>(
+    prepare: impl Fn() -> T,
+    body: impl Fn(T, &mut WorkMeter) -> Result<(), ValidationFailure>,
+) {
+    use crate::checked_package::v2::PackageReadStage;
+    use crate::NativeJoinLocusSource;
+    let unlimited = run_under(u64::MAX, prepare(), &body);
+    assert!(unlimited.ok, "the run succeeds without a limit");
+    assert!(unlimited.consumed > 0, "the run requests storage");
+    assert_eq!(
+        unlimited.allocated, unlimited.consumed,
+        "every byte allocated is a byte requested"
+    );
+    assert!(run_under(unlimited.consumed, prepare(), &body).ok);
+    let short = run_under(unlimited.consumed - 1, prepare(), &body);
+    assert!(!short.ok, "one byte short refuses");
+    assert!(matches!(
+        short.locus.map(|locus| locus.source),
+        Some(NativeJoinLocusSource::PackageRead(
+            PackageReadStage::Graph,
+            _
+        ))
+    ));
+    let denial = allocation_counter::measure(|| {
+        drop(crate::checked_package::common::node_pointer(99_999).key("body"));
+    })
+    .bytes_total;
+    for allowance in (0..unlimited.consumed).step_by(5) {
+        let refused = run_under(allowance, prepare(), &body);
+        assert!(!refused.ok, "allowance {allowance} is short");
+        assert!(
+            refused.allocated <= allowance + denial,
+            "allowance {allowance}: allocated {}",
+            refused.allocated
+        );
+    }
+}
+
+/// The declaration index of the selected models and the retained tables
+/// built over it allocate exactly what they request, at `PackageRead(Graph, i)`.
+fn assert_declaration_tables_exact(fixture: &Fixture) {
+    let nodes = &fixture.package.wire.semantic_graph.nodes;
+    let models = fixture.package.models.selected_models();
+    assert_graph_exact(
+        || (),
+        |(), meter| {
+            ModelOwners::build(
+                models,
+                nodes,
+                &mut Budget::node(meter, 0),
+                |budget, root| {
+                    budget.charge_at(1, "model", || {
+                        crate::checked_package::common::node_pointer(root)
+                    })
+                },
+            )
+            .map(drop)
+        },
+    );
+    let owners = ModelOwners::new(models, nodes, |_| Ok(())).expect("owners");
+    assert_graph_exact(
+        || (),
+        |(), meter| owners.index_charged(&mut Budget::node(meter, 0)).map(drop),
+    );
+    let index = owners.index();
+    assert_graph_exact(
+        || (index.clone(), models.to_vec()),
+        |(index, models), meter| {
+            RetainedModels::build(index, models, &mut Budget::node(meter, 0)).map(drop)
+        },
+    );
+    assert_eq!(
+        owners
+            .index()
+            .0
+            .iter()
+            .map(|(key, declared)| (key.clone(), declared.clone()))
+            .collect::<Vec<_>>(),
+        index
+            .0
+            .iter()
+            .map(|(key, declared)| (key.clone(), declared.clone()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// With one declaration no node ids are compared, so the owners, the index
+/// and the retained tables are exact as they stand.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+fn tc_472_declaration_tables_of_one_declaration_allocate_exactly_what_they_request() {
+    let solo = document(vec![object_type(&format!("{ORDERS}Solo"), &[], vec![])]);
+    let fixture = build_fixture(&solo, &[("Solo", DeclarationForm::ObjectType)]);
+    assert_declaration_tables_exact(&fixture);
+}
+
+/// With several declarations the tables are sorted by node id, whose
+/// comparison allocates until group D makes it not.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+#[ignore = "waits on CheckedNodeId::cmp non-allocating (group D shared.rs)"]
+fn tc_472_declaration_tables_allocate_exactly_what_they_request() {
+    let names: Vec<String> = (0..9).map(|i| format!("R{i}")).collect();
+    let types = names
+        .iter()
+        .map(|name| object_type(&format!("{ORDERS}{name}"), &[], vec![]))
+        .collect();
+    let declarations: Vec<_> = names
+        .iter()
+        .map(|name| (name.as_str(), DeclarationForm::ObjectType))
+        .collect();
+    let fixture = build_fixture(&document(types), &declarations);
+    assert_declaration_tables_exact(&fixture);
+}
+
+/// The operation parameter types and relationships a selected document
+/// retains are converted and cloned with each box, id and text requested
+/// first, and equal what the unmetered conversion yields. The index is
+/// empty, so no node id is compared.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+fn tc_472_retained_operations_and_relationships_allocate_exactly_what_they_request() {
+    use crate::checked_package::v2::model_members::tests::{relationship, GADGET, WIDGET};
+    let parameter = |name: &str, type_ref: &str, lower: u64, upper: Option<u64>| {
+        json!({"identity": format!("{WIDGET}/act/{name}"), "name": name,
+            "typeRef": type_ref, "multiplicity": multiplicity(lower, upper)})
+    };
+    let mut widget = object_type(WIDGET, &[], vec![]);
+    widget["operations"] = json!([
+        {"identity": format!("{WIDGET}/act"), "params": [
+            parameter("one", "ix://quire/native/Integer", 1, Some(1)),
+            parameter("many", "ix://quire/native/String", 0, None),
+            parameter("few", "ix://quire/native/Boolean", 1, Some(4)),
+            parameter("other", "ix://acme/orders/Gadget", 1, Some(1)),
+        ]},
+        {"identity": format!("{WIDGET}/rest"), "params": []},
+    ]);
+    widget["relationships"] = json!([relationship()]);
+    let model = read(&document(vec![widget, object_type(GADGET, &[], vec![])])).expect("reads");
+    let models = [model];
+    assert_graph_exact(
+        || (DeclarationIndex::default(), models.to_vec()),
+        |(index, models), meter| {
+            RetainedModels::build(index, models, &mut Budget::node(meter, 0)).map(drop)
+        },
+    );
+    let retained = RetainedModels::new(DeclarationIndex::default(), models.to_vec());
+    assert_eq!(retained.operation_types.len(), 2);
+    assert_eq!(retained.relationships.len(), 1);
+    let [model] = &models;
+    let parameters = &model.object_types[WIDGET].operations[0].parameters;
+    let expected: Vec<_> = parameters
+        .iter()
+        .map(|slot| model.slot_type(slot).as_ref().map(CheckedMemberType::from))
+        .collect();
+    assert_eq!(
+        retained.operation_types[&(0, Box::from(WIDGET), Box::from("act"))].parameters,
+        expected
+    );
 }
