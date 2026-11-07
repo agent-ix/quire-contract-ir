@@ -592,3 +592,218 @@ PASS in reviewed PR scope at 37824fbe44fb6bf8a31f608e078cfd16017cb445. Zero open
 Plan completion: not assessed
 
 PR-scoped assurance only; no whole-repository or program-completion claim.
+
+## Existing Acceptance Logical Storage Regression
+
+The completed candidate922ff8e9 gate exposes introduced FR-358 logical-storage undercharging: an existing carried-quantity control observes5 instead of7. Code-review FND-008 records the implementation and new physical-versus-logical oracle defect. The existing7/11 controls remain authoritative; this adds no scope or new requirement. Overall clearance is HOLD pending restoration of the logical rule with the already available allocation-free owner API and actual focused evidence. Prior PASS/fixed/failed gate history remains intact.
+
+## Final Review After Logical-Storage Restoration
+
+Reviewed clean pushed head 69b21715600ff598ddda592c7a4c16b907bca529. All latest FND-002 through FND-008 outcomes are fixed; zero open findings.
+
+The one-file production adjustment restores the original FR-358 logical integer rule1+ceil(magnitude_bits/8) through locked Exact's allocation-free retained-limb method. Legacy carried carrier source, expected7/7/11 values and one-under assertions are unchanged. The corrected cold proof independently checks logical16+19 bytes,128/150 magnitude bits and physical16+20 reservation bytes, retaining zero-allocation inspection and actual owned-copy evidence without equating allocator bytes with logical units.
+
+Actual /tmp/ir1409-logical-summary.log reports all nine exits0. Inspected receipts: native budget3/3, cold1/1, reached maps3/3, projection8/8, map15/15, both-harness/public compilation, required strict Clippy, authoritative scanner and fmt. Only the unchanged monitor_plan_public import warning remains. All prior typed context, genuine cold BQ/compound guards, declared-unit behavior, meaningful shared fixture controls, native original-row/graph loci and zero/late allocation assertions remain intact. No new finding; no new seam, API, ticket, copied fixture, cache warming, suppression or weakened existing expectation.
+
+The actual computed matrix retains six AC-19 and twelve AC-20 binders, including the renamed logical cold proof. The two existing FR-358 AC-2/3 carried-control bindings explicitly examined for this regression are included below. Both failed960b35e2 and922ff8e9 aggregate histories and every prior finding/disposition remain preserved. This latest scoped PASS supersedes the logical-storage HOLD, not its historical evidence.
+
+### Logical-Fix Final Scope
+
+```yaml
+{
+  "scope": [
+    {
+      "id": "FR-357-AC-19",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "examined",
+      "excerpt": "The public `SelectedSourceCollectionRow` carries `key_node: Option<CheckedNodeId>`. With one strictly admitted reached map whose key is scalar and whose value is a record, the collection row join and Exact projection return its complete producer `ValueType::Map`, preserving structural/base/key/value nodes and key-then-value order. The monitor closure retains that map row and follows both type dependencies; an unrelated map row is not selected. Existing sequence, set, bag and ordered-set rows retain `key_node: None` and their existing complete values. A row with a non-collection/non-map Exact v"
+    },
+    {
+      "id": "FR-357-AC-20",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "examined",
+      "excerpt": "Map row selection, acquisition and projection compose on one caller-owned `NativeJoinBudget`. Their measured exact combined work and storage allowances return the same complete map facts as ample limits; one unit below either refuses before its first unpaid operation with the original bound, native kind, full amount, row/key/value locus, consumed prefix and no partial output or success delta. Zero storage refuses before any owned allocation, including diagnostic material. A selected row after an unrelated earlier row retains its original `ReachedRow` index; preceding caller charges retain thei"
+    },
+    {
+      "id": "FR-357-AC-16",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "context_only",
+      "excerpt": "A reached admitted `composite_type`/`map` with a scalar key and a record value joins a collection row carrying its key node and value node in key-then-value order, and the closure retains the map's complete Exact `ValueType::Map`. A row whose `key_node` is absent, names another node, or is present on a non-map collection refuses `SelectedMonitorTypeClosureErrorCode::CollectionKey` at the collection node, with charged work and no partial closure; an unreached map row does not refuse. The closure with the map succeeds at its exact measured work and storage allowance, and one unit below either re"
+    },
+    {
+      "id": "FR-357-AC-17",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "context_only",
+      "excerpt": "The closure read requires the same-emission authority row of FR-361 and returns either a complete closure carrying the receipt and layout context or one typed first refusal; no read exists without that row, and no partial closure escapes an authority refusal."
+    },
+    {
+      "id": "FR-357-AC-18",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "context_only",
+      "excerpt": "The closure read seeds the plan's `tick_unit` premise with its unit and dimension facts and exposes `SelectedMonitorTypeClosure::tick_unit_dimension() -> &CheckedNodeId`, the admitted dimension node of that unit. For a source tick unit and for a model tick unit, it returns that unit's own admitted dimension; a tick unit whose admitted dimension is not the base Time dimension refuses at strict admission before any closure exists; the seeded facts are charged and succeed at the exact allowance and refuse one unit below at the first unpaid seed charge."
+    },
+    {
+      "id": "TC-473",
+      "path": "spec/checked_package/matrix/TC-473-reached-map-row-projection.md",
+      "role": "examined",
+      "excerpt": "Verify that reached map rows expose and retain the admitted key and value\nstructural nodes and complete producer Exact map value, and charge selection,\nrow materialization and nested projection to one native budget."
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "role": "examined",
+      "excerpt": "Map keys and values are separately joined before row retention; native comparison/storage charges and fresh projection loci precede their operations."
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/monitor_plan/selected_type_closure.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/monitor_plan/selected_type_closure.rs",
+      "role": "examined",
+      "excerpt": "Selected map rows retain original ReachedRow indices; after successful footprint preflight the selection form is restored before storage admission."
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/native_join_storage.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/native_join_storage.rs",
+      "role": "examined",
+      "excerpt": "Cold Integer copy footprints use the allocation-free owner inspector before storage admission."
+    },
+    {
+      "id": "tests/it/checked_package_v2_map_type.rs",
+      "path": "tests/it/checked_package_v2_map_type.rs",
+      "role": "examined",
+      "excerpt": "The real strict reader exercises complete map values, malformed rows, nested and bounded maps, exact/one-under shared budgets, independent key/value/graph loci and zero or paid-prefix allocation scopes."
+    },
+    {
+      "id": "tests/conformance_qspec/main.rs",
+      "path": "tests/conformance_qspec/main.rs",
+      "role": "examined",
+      "excerpt": "#[path = \"../it/complete_identity_witness.rs\"]\nmod complete_identity_witness;"
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "role": "examined",
+      "excerpt": "enum ProjectionLocusMode {\n    InitializeRequestedNode,\n    PreserveCaller,\n}"
+    },
+    {
+      "id": "FR-358-AC-2",
+      "path": "spec/checked_package/functional/FR-358-compose-native-identity-join-budget.md",
+      "role": "examined",
+      "excerpt": "For each of stage-row, union, record, tuple, enum and collection acquisition, a real admitted fixture at both exact work and exact storage limits yields the complete same selected value as an ample allowance. One unit below either measured requirement refuses with the typed exhausted kind and attempted charge, without a partially authoritative result. When the diagnostic floor is affordable, the refusal carries the first native locus; otherwise it carries no owned locus or form and preserves the budget's first unpaid charge."
+    },
+    {
+      "id": "FR-358-AC-3",
+      "path": "spec/checked_package/functional/FR-358-compose-native-identity-join-budget.md",
+      "role": "examined",
+      "excerpt": "Every IR-owned row, key, handle, container and map/set entry retained or cloned by the budgeted path, and each byte of copied dynamic payload, is charged by the defined logical-storage rule before the corresponding reserve, clone or insert. On a budget denial the complete owned diagnostic floor is charged before any owned diagnostic allocation; at zero storage the refusal allocates no owned diagnostic. The tests make a prior nonempty map require an `Arc::make_mut` copy and show that a limit one below that copy's charge refuses before the new row appears. A borrowed inspection incurs no storage"
+    }
+  ],
+  "bindings": [
+    {
+      "test_id": "tests::reached_map_rows::selected_closure_retains_only_reached_map_and_composes_exact_budget",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::reached_map_rows::selected_map_key_refusal_is_typed_and_unreached_bad_key_is_ignored",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_row_joins_and_projects_its_complete_value",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_rows_preserve_key_and_non_collection_refusals",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::projection_locus_ownership_is_independent_of_diagnostic_form",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::numeric_map_comparison_handle_is_charged_before_its_single_allocation",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::reached_map_rows::selected_closure_retains_only_reached_map_and_composes_exact_budget",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::reached_map_rows::selected_map_row_keeps_original_index_and_precharges_its_actual_copy",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "map_copy_tests::cold_map_integer_logical_inspection_allocates_nothing_and_distinguishes_owned_copy",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_rows_compose_at_exact_budget_and_preserve_first_denial",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_zero_storage_refuses_without_allocating_rows_or_diagnostics",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponents",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::carried_quantity_storage_charges_unit_and_each_carrier",
+      "ac_id": "FR-358-AC-2",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::carried_quantity_storage_charges_unit_and_each_carrier",
+      "ac_id": "FR-358-AC-3",
+      "trace": "correct"
+    }
+  ]
+}
+```
+
+### Logical-Fix Final Verdict
+
+PASS in reviewed PR scope at 69b21715600ff598ddda592c7a4c16b907bca529. The lead's corrected final complete combined gate is pending; no aggregate or merge PASS is claimed here. No reviewer source edits or Cargo execution.
+
+Plan completion: not assessed
