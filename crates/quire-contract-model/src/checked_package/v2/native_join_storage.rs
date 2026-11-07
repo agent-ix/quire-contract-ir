@@ -78,7 +78,9 @@ pub(super) fn preflight_enum_shape(
 }
 
 fn integer(value: &quire_exact::Integer) -> u128 {
-    add(1, length(value.copy_footprint().bytes))
+    // FR-358 counts logical magnitude bytes, independently of inline storage
+    // or physical limb reservation. Exact inspects even cold digits in place.
+    add(1, u128::from(value.magnitude_bits()).div_ceil(8))
 }
 
 fn interval(value: &quire_exact::IntegerInterval) -> u128 {
@@ -531,7 +533,7 @@ mod map_copy_tests {
 
     #[trace("TC-473", "FR-357-AC-20")]
     #[test]
-    fn cold_map_integer_footprint_inspection_allocates_nothing_and_matches_owned_copy() {
+    fn cold_map_integer_logical_inspection_allocates_nothing_and_distinguishes_owned_copy() {
         for lower in [
             "170141183460469231731687303715884105728",
             "-170141183460469231731687303715884105729",
@@ -566,9 +568,12 @@ mod map_copy_tests {
             assert_eq!(allocations.bytes_total, u64::try_from(payload).unwrap());
             assert_eq!(
                 units,
-                6 + payload as u128,
-                "map, interval and endpoint slots plus actual reserved limbs"
+                6 + 16 + 19,
+                "map, interval and endpoint slots plus logical magnitude bytes"
             );
+            assert_eq!(interval.lower().magnitude_bits(), 128);
+            assert_eq!(interval.upper().magnitude_bits(), 150);
+            assert_eq!(payload, 16 + 20, "owned copies reserve whole limbs");
             assert_eq!(copied.unwrap(), *interval);
         }
     }
