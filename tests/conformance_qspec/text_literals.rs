@@ -58,7 +58,8 @@ fn bounded_literal(min: u64, max: u64, profile: &str, value: Value) -> (Value, u
     let mut literal = package["semantic_graph"]["nodes"][original].clone();
     literal["node_id"] = fixture_support::node_id("text-literal-membership");
     literal["semantic_type"] = bounds_id.clone();
-    literal["dependencies"] = json!([bounds_id.clone()]);
+    // A literal node carries its type by `semantic_type` and has no dependencies.
+    literal["dependencies"] = json!([]);
     literal["body"] = json!({
         "term": "literal", "type": bounds_id, "value_kind": "text", "value": value
     });
