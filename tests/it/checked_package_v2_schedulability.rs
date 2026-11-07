@@ -266,7 +266,10 @@ fn authenticated_views_preserve_exact_premises_and_shared_occurrences() {
             encoded["schedulability_claims"],
             wire["schedulability_claims"]
         );
-        assert_eq!(encoded["semantic_graph"], wire["semantic_graph"]);
+        assert_eq!(
+            encoded["semantic_graph"],
+            crate::support::checked_package::wire_form(&wire)["semantic_graph"]
+        );
         let again = admitted(&encoded);
         assert_eq!(encode(&again), bytes);
         assert_eq!(again.schedulability_claims().len(), 2);
@@ -282,7 +285,11 @@ fn absent_index_stays_absent_and_raw_rows_do_not_authenticate_claims() {
     assert_eq!(read.schedulability_claims().len(), 0);
     let encoded: Value = serde_json::from_slice(&encode(&read)).unwrap();
     assert!(encoded.get("schedulability_claims").is_none());
-    assert_eq!(encoded, wire, "absent-index complete package is lossless");
+    assert_eq!(
+        encoded,
+        crate::support::checked_package::wire_form(&wire),
+        "absent-index complete package is lossless"
+    );
     let mut missing = package("fixed-priority", false, false, 1);
     let row: CheckedSchedulabilityClaimRow =
         serde_json::from_value(missing["schedulability_claims"][0].clone())
@@ -685,7 +692,7 @@ fn sparse_high_occurrence_ordinals_resolve_independently_of_array_position() {
     assert!(std::ptr::eq(claims[0].body(), claims[1].body()));
     assert_eq!(
         serde_json::from_slice::<Value>(&encode(&read)).unwrap(),
-        wire
+        crate::support::checked_package::wire_form(&wire)
     );
 }
 

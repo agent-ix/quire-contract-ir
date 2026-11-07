@@ -662,7 +662,7 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
     let indexed_binder = &indexed["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]
         ["abstract"][0]["binder_types"][0];
     assert!(
-        indexed_binder["path"][2]["node"].as_u64().is_some(),
+        indexed_binder["path"][2]["operand"].as_u64().is_some(),
         "derived catalog binder uses a graph-local operand"
     );
     let mut wrong_binder = base.clone();
@@ -761,7 +761,7 @@ fn canonical_indexed(package: &Value) -> Vec<u8> {
 fn indexed_package(package: &Value) -> Value {
     let mut indexed = package.clone();
     index_fixture_node_ids(&mut indexed);
-    crate::support::checked_package::wire_form(&indexed)
+    indexed
 }
 
 fn invalid_value_at(result: CheckedPackageV2ReadResult, pointer: &str) {
@@ -780,7 +780,7 @@ fn invalid_value_at(result: CheckedPackageV2ReadResult, pointer: &str) {
 }
 
 fn writer_bytes(package: &Value) -> Vec<u8> {
-    let indexed = indexed_package(package);
+    let indexed = crate::support::checked_package::wire_form(&indexed_package(package));
     let package = &indexed;
     let name = package["name"].as_str().expect("package name");
     let lock: CheckedPackageLockV2 = serde_json::from_value(package["lock"].clone()).expect("lock");
@@ -6805,7 +6805,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     };
     assert_eq!(
         serde_json::to_value(round_trip.graph()).expect("round-trip graph"),
-        package["semantic_graph"]
+        crate::support::checked_package::wire_form(&package)["semantic_graph"]
     );
     let round_trip_clause = round_trip
         .graph()
