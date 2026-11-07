@@ -105,7 +105,8 @@ outcome, which the join compares.
 | `cover` | checked (step 3): SHALL be `ClockCover::Exact` |
 | `correspondence` | checked (step 4) and recorded (`native.correspondence`) |
 | `trigger`, `trigger_evidence`, `trigger_scope`, `anchor`, `deliveries`, `origins`, `ledger`, `evicted` | checked (step 5); `trigger`, `trigger_scope` and `anchor` recorded |
-| `positions` (each `observation` reference, `position` stamp and `order_key`) | checked (steps 6, 7) and recorded (`positions`) |
+| `positions` (each `observation` reference and `position` stamp) | checked (steps 6, 7) and recorded (`positions`) |
+| `positions` `order_key` | recorded (`positions[].orderKey`) |
 | `positions` valuation and aggregate maps | excluded: the native owner replaces them with `ValuationEvidence` before evaluation |
 | `decision_progress`, `decision_closure`, `surrounding_progress`, `surrounding_closure`, `completeness` | checked (step 8) and recorded (`native`) |
 | `authoritative_origin` | checked (history premise) and recorded |

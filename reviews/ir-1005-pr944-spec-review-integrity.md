@@ -41,3 +41,17 @@ Ticket: IR-1005. Reviewer-only spec-review/integrity pass over `git diff origin/
 - AD-009 (examined): The bridge takes one admitted checked-package temporal occurrence that QSL classifies as supported, builds the equivalent TL formula, proposition map, trace or position history and request from the native owner inputs, records their correspondence, and later joins the native QSL report with the TL mapped result under that record. It lives in `agent-ix/quire-integration`, the one repository allowed to depend on QSL, Quire Observation and the TL crates together. Contract IR holds the normative contract (FR-350) and the model types the bridge reads; neither Contract IR package depends on QSL or T
 - AD-001 (examined): | QSL (`quire-spec-language`) | the compiler that produces checked packages, QSL FR-527's `mapping_support` classification, FR-050's strict `/2` package and FR-043/FR-052's native temporal evaluator and report; also the `qsl-replay` crate and replay facade | QSL depends on `quire-contract-model`; Contract IR defines no replay types and implements no temporal bridge; the FR-350 native temporal to TL bridge is in `agent-ix/quire-integration` (AD-009) |
 - spec/temporal/matrix/tests.md (examined):  | Functional Req | Acceptance Criteria | Test Cases | Status | |---|---|---|---|
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | The new EvidenceRequest disposition table marks each position's `order_key` as 'checked (steps 6, 7)', but neither step checks `order_key`; it is only recorded (`positions[].orderKey`, line 432). Two coders would differ on whether a present order key on an event-position or fixed-sample clock refuses. Fix: mark it 'recorded' only, or state the check (for example, it must be absent outside timestamped clocks, with its code and premise). | spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md:108 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |
+| FND-002 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |
+| FND-003 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |

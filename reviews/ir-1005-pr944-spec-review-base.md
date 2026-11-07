@@ -42,3 +42,12 @@ Ticket: IR-1005. Reviewer-only spec-review/base pass over `git diff origin/main.
 - AD-009 (examined): The bridge takes one admitted checked-package temporal occurrence that QSL classifies as supported, builds the equivalent TL formula, proposition map, trace or position history and request from the native owner inputs, records their correspondence, and later joins the native QSL report with the TL mapped result under that record. It lives in `agent-ix/quire-integration`, the one repository allowed to depend on QSL, Quire Observation and the TL crates together. Contract IR holds the normative contract (FR-350) and the model types the bridge reads; neither Contract IR package depends on QSL or T
 - AD-001 (examined): | QSL (`quire-spec-language`) | the compiler that produces checked packages, QSL FR-527's `mapping_support` classification, FR-050's strict `/2` package and FR-043/FR-052's native temporal evaluator and report; also the `qsl-replay` crate and replay facade | QSL depends on `quire-contract-model`; Contract IR defines no replay types and implements no temporal bridge; the FR-350 native temporal to TL bridge is in `agent-ix/quire-integration` (AD-009) |
 - spec/temporal/matrix/tests.md (examined):  | Functional Req | Acceptance Criteria | Test Cases | Status | |---|---|---|---|
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |
+| FND-002 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |
+| FND-003 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |
+| FND-004 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |
