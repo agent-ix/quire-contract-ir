@@ -58,7 +58,12 @@ root or entry IDs SHALL NOT replace those admitted handles. The row input
 SHALL retain the distinct source record/member, source union/member and
 payload, tuple, source enum declaration/member, structural source collection,
 model declaration/field and enum, source-unit, dimension/conversion and
-equality fact channels required by reachable types. Each row SHALL preserve
+equality fact channels required by reachable types, and the required
+same-emission authority row of
+[FR-361](./FR-361-bind-monitor-authority-and-runtime-layout-context.md).
+A structural source collection row SHALL carry `key_node: Option<CheckedNodeId>`:
+the emitted key type node of a map, which the base references before the value,
+and `None` for every other collection. Each row SHALL preserve
 its final emitted structural node, selected owner or source and original
 declaration/member identity where those exist, and QSL-issued opaque Exact
 identity and value where that channel defines one. An anonymous structural
@@ -136,7 +141,8 @@ the result.
 For every reached type, the closure SHALL retain complete producer-ordered
 source record members with original field identity, name, presence, final
 type node and opaque Exact value type; tuple elements; structural collection
-kind, element and bounds; sealed union members with settled-key ownership,
+kind, element and bounds, and for a map its key and value type nodes and its
+complete Exact `ValueType::Map`; sealed union members with settled-key ownership,
 ordered final payload node IDs and opaque payload value types; source and
 model enum declarations and cases; selected model records, objects, fields,
 operations and ancestry; and source units, dimensions and admitted conversion
@@ -331,6 +337,8 @@ result alone SHALL NOT authorize either construction.
 | FR-357-AC-13 | Implemented (IR-1353 reached-model prerequisite; TC-469). From an admitted selected monitor root whose walk reaches a selected model record and object, the package-private bounded read retains only those declarations and their followed model type dependencies. It retains complete ordered effective fields, original identities, presence, QSL-issued Exact identities, object ancestry and own operations with ordered parameters, result, effect and provenance; shared declarations appear once. A reached source unit and a reached model unit retain their distinct admitted owners, original identities, QSL-issued declared `UnitId`s, dimensions and exact conversion closures. An unrelated selected model declaration, variant or unit does not enter the facts, cause a refusal or change the exact reached-only allowance. This result does not certify a complete monitor closure. | Test |
 | FR-357-AC-14 | Implemented (IR-1353 reached-model prerequisite; TC-469). A missing, foreign, duplicate or stale selected model/field/unit row, changed selected owner or original identity, unresolved field/operation/ancestry/unit dependency, unrepresentable member, or a reached model variant without its QSL-issued shape and variants refuses at the first native node, member or row with its typed cause and no partial facts. The read visits only reached nodes and followed dependencies without a package-wide discovery scan, while charging inspected reached members and selected row/index entries; it uses iterative visited sets, charges one shared allowance including nested reads and output, succeeds at the exact allowance and refuses one below at the first uncharged locus. Equal package clones agree. The internal helper creates no public closure API or environment. | Test |
 | FR-357-AC-15 | Implemented (IR-1387 public budget API; TC-467). A driver can debit selection and adapter work and storage before allocation through one exported finite budget, then pass that same budget to a native read. The combined exact limit succeeds and one below refuses without resetting prior consumption or changing original limits. Driver charges retain their first unpaid kind, attempted amount and locus. | Test |
+| FR-357-AC-16 | A reached admitted `composite_type`/`map` with a scalar key and a record value joins a collection row carrying its key node and value node in key-then-value order, and the closure retains the map's complete Exact `ValueType::Map`. A row whose `key_node` is absent, names another node, or is present on a non-map collection refuses at the collection node with a typed cause, charged work and no partial closure; an unreached map row does not refuse. | Test |
+| FR-357-AC-17 | The closure read requires the same-emission authority row of FR-361 and returns either a complete closure carrying the receipt and layout context or one typed first refusal; no read exists without that row, and no partial closure escapes an authority refusal. | Test, Inspection |
 
 ## Dependencies
 

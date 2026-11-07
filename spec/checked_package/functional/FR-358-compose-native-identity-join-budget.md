@@ -60,6 +60,17 @@ unpaid kind, full attempted amount and caller-supplied non-owning locus without
 incrementing consumption. Later external charges in that phase return the
 first refusal without performing work. No public method restores spent allowance.
 
+`NativeJoinLocusSource` SHALL include `AdapterRow(usize)` for a producer
+row being converted into an IR-owned row by an external adapter,
+`AuthorityRow` for the same-emission authority row of
+[FR-361](./FR-361-bind-monitor-authority-and-runtime-layout-context.md), and
+`PreparationOutput(usize)` for an owned output item an external preparer
+allocates after a native read. The index is the position in the adapter's
+input or the preparer's output sequence, and the locus `form` names the row
+channel or output kind. These variants let every external charge in one
+preparation report a non-owning first-unpaid locus without allocating; they
+do not change any native read's own loci.
+
 The budget SHALL expose its original configured work and storage limits through
 `work_limit` and `storage_limit`; successful charges, denied charges and later
 operations SHALL NOT change these values. A native resource refusal carried by
@@ -159,6 +170,7 @@ limit or compatibility entry point is permitted.
 | FR-358-AC-7 | The admitted equality read requires the same caller-owned `NativeJoinBudget` and charges selected decisions, owned identities, row material, QSV work and typed refusal storage before the corresponding inspection or allocation. A complete admitted decision at exact work and storage allowances equals the ample value; one unit below either allowance refuses with the exhausted kind and first unpaid amount. Two individually affordable equality reads composed on a shared budget refuse at the first unpaid step of the second, retain cumulative consumption and clear the success delta. A nonzero allowance below a variable-size QSV cause's full diagnostic charge returns a compact typed code and original locus without the owned cause; its exact full charge retains the original cause. At zero storage a refusal owns no node, form or materialization payload. | Test, Inspection |
 | FR-358-AC-8 | The public work and storage getters return the caller's original, distinct configured limits before acquisition, after successful stage and type projection operations, and after a later shared-budget denial; neither getter reports the remaining allowance. Each full or compact `ExactTypeProjectionError` resource refusal carries the original bound of its denied resource, including zero and the first work denial when diagnostic storage is also denied. A non-resource refusal has no configured bound. | Test |
 | FR-358-AC-9 | Two external call sites use public `resume` and `accounted_charge` on one `NativeJoinBudget` before passing it to a native stage and projection read. Exact combined work and storage limits succeed; one below refuses with typed first unpaid charge, original bound and first locus. An external zero-storage denial occurs before allocation and does not consume storage. Resuming preserves all spent counters and configured limits; the budget offers no public counter reset or clone. | Test, Inspection |
+| FR-358-AC-10 | An external adapter charging row `i` of a channel with `NativeJoinLocusSource::AdapterRow(i)`, a charge with `AuthorityRow`, and a preparer charging output item `k` with `PreparationOutput(k)` each, when denied, leave exactly that source, form, kind and attempted amount as the first unpaid locus without allocating; an admitted charge with these sources is cumulative with the following native read. | Test |
 
 ## Dependencies
 
