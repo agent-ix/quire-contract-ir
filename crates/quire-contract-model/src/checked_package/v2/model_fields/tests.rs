@@ -1979,3 +1979,61 @@ fn tc_472_retained_operations_and_relationships_allocate_exactly_what_they_reque
         expected
     );
 }
+
+/// The operation resolution of a model type, its candidate and effective
+/// names and the family walk each allocate exactly what they request, at
+/// `PackageRead(Graph, root)`.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+fn tc_472_operation_resolution_allocates_exactly_what_it_requests() {
+    use crate::checked_package::v2::model_members::{MemberKind, Resolved};
+    let (base, derived, third) = (
+        format!("{ORDERS}Base"),
+        format!("{ORDERS}Derived"),
+        format!("{ORDERS}Third"),
+    );
+    let operation = |identity: String, redefines: Option<String>| {
+        let mut operation = json!({"identity": identity, "params": []});
+        if let Some(target) = redefines {
+            operation["redefines"] = json!(target);
+        }
+        operation
+    };
+    let mut base_type = object_type(&base, &[], vec![]);
+    base_type["operations"] = json!([
+        operation(format!("{base}/act"), None),
+        operation(format!("{base}/keep"), None)
+    ]);
+    let mut derived_type = object_type(&derived, &[&base], vec![]);
+    derived_type["operations"] = json!([
+        operation(format!("{derived}/act"), Some(format!("{base}/act"))),
+        operation(format!("{derived}/own"), None)
+    ]);
+    let mut third_type = object_type(&third, &[&derived], vec![]);
+    third_type["operations"] = json!([operation(
+        format!("{third}/act"),
+        Some(format!("{derived}/act"))
+    )]);
+    let model = unbuilt(&document(vec![base_type, derived_type, third_type]));
+    let run = |meter: &mut WorkMeter| {
+        let mut budget = Budget::node(meter, 7);
+        let names = model.effective_operation_names(&third, &mut budget)?;
+        let family = model.operation_in_family(&third, &base, "keep", &mut budget)?;
+        let conforms = model.conforms(&base, &third, &mut budget)?;
+        let found = match model.resolve(&third, MemberKind::Operation, "act", &mut budget) {
+            Ok(Resolved::Operation(found)) => Some(found.identity.as_ref()),
+            Err(ModelFailure::Limit(failure)) => return Err(failure),
+            _ => None,
+        };
+        Ok::<_, ValidationFailure>((names, family, conforms, found))
+    };
+    let mut meter = WorkMeter::new(u64::MAX);
+    let (names, family, conforms, found) = run(&mut meter).expect("no limit");
+    assert_eq!(
+        names.iter().map(AsRef::as_ref).collect::<Vec<_>>(),
+        ["act", "keep", "own"]
+    );
+    assert!(family && conforms);
+    assert_eq!(found, Some(format!("{third}/act").as_str()));
+    assert_graph_exact(|| (), |(), meter| run(meter).map(drop));
+}

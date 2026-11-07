@@ -74,6 +74,10 @@ impl EmptyAggregateBody for CheckedTerm {
     }
 }
 use std::collections::{BTreeMap, BTreeSet};
+
+/// The form of the graph-stage requests of the model checks: the tag of the
+/// selected package's `model_root` node.
+const MODEL: &str = "model";
 use std::sync::Arc;
 
 pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, CheckedNodeId>>;
@@ -1138,15 +1142,15 @@ fn runtime_declaration_storage(identity: &str, form: DeclarationForm, node: &str
 }
 
 impl<'w, 'b> Budget<'w, 'b> {
-    /// A budget for the selected model at `index` (ascending identity order):
-    /// the model-document stage.
+    /// A budget for the selected package whose `model_root` is the graph node
+    /// `root`: the graph stage at that node, until [`Budget::at`] says otherwise.
     pub(super) fn new(meter: &'w mut WorkMeter<'b>, root: usize, bytes: u64) -> Self {
         Self {
             meter,
             root,
             bytes,
-            stage: PackageReadStage::ModelDocument,
-            index: 0,
+            stage: PackageReadStage::Graph,
+            index: root,
             place: Place::Owner,
         }
     }
@@ -1452,19 +1456,25 @@ impl DomainModel {
         &self,
         node: &str,
         budget: &mut Budget<'_, '_>,
-    ) -> Result<BTreeSet<&str>, ValidationFailure> {
+    ) -> Result<SortedSet<&str>, ValidationFailure> {
         #[cfg(test)]
         probe::walked();
-        let mut reached = BTreeSet::new();
-        let mut pending: Vec<&str> = self
-            .field_owner(node)
-            .map(|declared| declared.supertypes.iter().map(AsRef::as_ref).collect())
-            .unwrap_or_default();
+        let mut reached = SortedSet::new();
+        let mut pending: Vec<&str> = match self.field_owner(node) {
+            Some(declared) => {
+                let mut pending = budget.vec(declared.supertypes.len(), MODEL)?;
+                pending.extend(declared.supertypes.iter().map(AsRef::as_ref));
+                pending
+            }
+            None => Vec::new(),
+        };
         while let Some(supertype) = pending.pop() {
             budget.charge(1)?;
-            if reached.insert(supertype) {
+            if reached.insert(budget, supertype, MODEL)? {
                 if let Some(declared) = self.field_owner(supertype) {
-                    pending.extend(declared.supertypes.iter().map(AsRef::as_ref));
+                    for next in &declared.supertypes {
+                        budget.push(&mut pending, next.as_ref(), MODEL)?;
+                    }
                 }
             }
         }
@@ -1525,23 +1535,40 @@ impl DomainModel {
             Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => return Ok(false),
             Err(ModelFailure::Limit(failure)) => return Err(failure),
         };
-        let mut operations = BTreeMap::new();
+        // Every operation by identity; a repeated identity names its last.
+        let total: usize = self
+            .object_types
+            .values()
+            .map(|declared| declared.operations.len())
+            .sum();
+        let mut operations: Vec<(&str, usize, &str, &OperationDecl)> = budget.vec(total, MODEL)?;
         for (owner, declared) in &self.object_types {
             budget.charge(1)?;
             for operation in &declared.operations {
                 budget.charge(1)?;
-                operations.insert(operation.identity.as_ref(), (owner.as_ref(), operation));
+                operations.push((
+                    operation.identity.as_ref(),
+                    operations.len(),
+                    owner.as_ref(),
+                    operation,
+                ));
             }
         }
+        operations.sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
+        let find = |identity: &str| {
+            let after = operations.partition_point(|row| row.0 <= identity);
+            let row = operations.get(after.checked_sub(1)?)?;
+            (row.0 == identity).then_some((row.2, row.3))
+        };
         let mut current = effective.identity.as_ref();
-        let mut seen = BTreeSet::new();
+        let mut seen: SortedSet<&str> = SortedSet::new();
         let mut reaches_anchor = false;
         loop {
             budget.charge(1)?;
-            if !seen.insert(current) {
+            if !seen.insert(budget, current, MODEL)? {
                 return Ok(false);
             }
-            let Some(&(owner, operation)) = operations.get(current) else {
+            let Some((owner, operation)) = find(current) else {
                 return Ok(false);
             };
             reaches_anchor |= operation.identity == anchor.identity;
@@ -1549,7 +1576,7 @@ impl DomainModel {
                 return Ok(reaches_anchor);
             };
             budget.charge(1)?;
-            let Some(&(target_owner, _)) = operations.get(target) else {
+            let Some((target_owner, _)) = find(target) else {
                 return Ok(false);
             };
             if owner == target_owner || !self.conforms_to(owner, target_owner, budget)? {
@@ -1598,10 +1625,10 @@ impl DomainModel {
                 .iter()
                 .filter_map(|ancestor| Some((*ancestor, self.field_owner(ancestor)?))),
         );
-        let mut members: BTreeMap<&str, Resolved<'_>> = BTreeMap::new();
-        let mut hidden: BTreeSet<&str> = BTreeSet::new();
-        // redefined target -> (redefining member, redefining owner)
-        let mut redefiners: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
+        let mut members: SortedMap<&str, Resolved<'_>> = SortedMap::new();
+        let mut hidden: SortedSet<&str> = SortedSet::new();
+        // (redefined target, order met, redefining member, redefining owner)
+        let mut redefiners: Vec<(&str, usize, &str, &str)> = Vec::new();
         for (owner, declared) in owners {
             budget.charge(units(
                 declared
@@ -1626,40 +1653,50 @@ impl DomainModel {
             for (member, redefines, member_kind) in fields.chain(operations) {
                 let identity = member.identity();
                 if let Some(target) = redefines {
-                    hidden.insert(target);
-                    redefiners
-                        .entry(target)
-                        .or_default()
-                        .push((identity, owner));
+                    hidden.insert(budget, target, MODEL)?;
+                    let met = redefiners.len();
+                    budget.push(&mut redefiners, (target, met, identity, owner), MODEL)?;
                 }
                 if member_kind == kind {
-                    members.insert(identity, member);
+                    members.insert(budget, identity, member, MODEL)?;
                 }
             }
         }
         // The most-derived-redefiner rule: a redefiner of a target that a
         // redefiner in a more derived owner also redefines is hidden.
-        let mut ancestry: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-        for group in redefiners.values() {
-            for (identity, owner) in group {
-                for (_, other_owner) in group {
+        redefiners.sort_unstable();
+        let mut ancestry: SortedMap<&str, SortedSet<&str>> = SortedMap::new();
+        let mut start = 0;
+        while let Some(&(target, ..)) = redefiners.get(start) {
+            let end = start
+                + redefiners
+                    .get(start..)
+                    .unwrap_or_default()
+                    .iter()
+                    .take_while(|row| row.0 == target)
+                    .count();
+            let group = redefiners.get(start..end).unwrap_or_default();
+            for (_, _, identity, owner) in group {
+                for (_, _, _, other_owner) in group {
                     budget.charge(1)?;
                     if !ancestry.contains_key(other_owner) {
-                        ancestry.insert(other_owner, self.ancestors(other_owner, budget)?);
+                        let of_other = self.ancestors(other_owner, budget)?;
+                        ancestry.insert(budget, other_owner, of_other, MODEL)?;
                     }
                     if ancestry
                         .get(other_owner)
                         .is_some_and(|of_other| of_other.contains(owner))
                     {
-                        hidden.insert(identity);
+                        hidden.insert(budget, identity, MODEL)?;
                     }
                 }
             }
+            start = end;
         }
         let mut matches = members
-            .into_iter()
-            .filter(|(identity, _)| !hidden.contains(identity) && member_name(identity) == name)
-            .map(|(_, member)| member);
+            .iter()
+            .filter(|(identity, _)| !hidden.contains(**identity) && member_name(identity) == name)
+            .map(|(_, member)| *member);
         match (matches.next(), matches.next()) {
             (Some(member), None) => Ok(member),
             (Some(_), Some(_)) => Err(ModelRefusal::ambiguous().into()),
@@ -2123,26 +2160,41 @@ impl DomainModel {
         Ok(Some(types))
     }
 
-    /// Candidate names, including ambiguous names, before effective-member resolution.
+    /// Candidate names, including ambiguous names, before effective-member
+    /// resolution, in ascending order without repeats.
     pub(super) fn operation_candidate_names(
         &self,
         object: &str,
         budget: &mut Budget<'_, '_>,
-    ) -> Result<BTreeSet<Box<str>>, ValidationFailure> {
-        let mut candidates = BTreeSet::new();
+    ) -> Result<Vec<Box<str>>, ValidationFailure> {
         let ancestors = self.ancestors(object, budget)?;
+        let declared_by = |node: &str| self.object_types.get(node);
+        let total: usize = std::iter::once(object)
+            .chain(ancestors.iter().copied())
+            .filter_map(declared_by)
+            .map(|declared| declared.operations.len())
+            .sum();
+        // The names are borrowed from the declarations until the owned list
+        // is made at the exact size the distinct ones need.
+        let mut names: Vec<&str> = budget.vec(total, MODEL)?;
         for node in std::iter::once(object).chain(ancestors.iter().copied()) {
-            if let Some(declared) = self.object_types.get(node) {
+            if let Some(declared) = declared_by(node) {
                 budget.charge(units(declared.operations.len()))?;
-                candidates.extend(
+                names.extend(
                     declared
                         .operations
                         .iter()
-                        .map(|operation| Box::from(member_name(&operation.identity))),
+                        .map(|operation| member_name(&operation.identity)),
                 );
             }
         }
-        Ok(candidates)
+        names.sort_unstable();
+        names.dedup();
+        let mut owned = budget.vec(names.len(), MODEL)?;
+        for name in names {
+            owned.push(budget.text(name, MODEL)?);
+        }
+        Ok(owned)
     }
 
     /// Names of the effective operations reachable from one model type.
@@ -2150,18 +2202,23 @@ impl DomainModel {
         &self,
         object: &str,
         budget: &mut Budget<'_, '_>,
-    ) -> Result<BTreeSet<Box<str>>, ValidationFailure> {
-        let candidates = self.operation_candidate_names(object, budget)?;
-        let mut names = BTreeSet::new();
-        for name in candidates {
-            match self.resolve(object, MemberKind::Operation, &name, budget) {
+    ) -> Result<Vec<Box<str>>, ValidationFailure> {
+        let mut names = self.operation_candidate_names(object, budget)?;
+        let mut kept = 0;
+        for at in 0..names.len() {
+            let Some(name) = names.get(at) else {
+                break;
+            };
+            match self.resolve(object, MemberKind::Operation, name, budget) {
                 Ok(Resolved::Operation(_)) => {
-                    names.insert(name);
+                    names.swap(kept, at);
+                    kept += 1;
                 }
                 Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => {}
                 Err(ModelFailure::Limit(failure)) => return Err(failure),
             }
         }
+        names.truncate(kept);
         Ok(names)
     }
 
