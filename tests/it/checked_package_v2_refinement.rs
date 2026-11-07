@@ -1466,8 +1466,9 @@ fn catalog_free_process_and_machine_frames_admit_declared_fields_and_scoped_para
         };
         assert_eq!(first.graph(), second.graph(), "{form}");
         assert_eq!(
-            serde_json::to_value(&first.graph().nodes[frame].body).expect("frame body"),
-            serde_json::to_value(&second.graph().nodes[frame].body).expect("roundtrip frame"),
+            serde_json::to_value(&first.resolved_graph().nodes[frame].body).expect("frame body"),
+            serde_json::to_value(&second.resolved_graph().nodes[frame].body)
+                .expect("roundtrip frame"),
             "{form}"
         );
     }
@@ -1655,8 +1656,9 @@ fn catalog_free_operation_step_joins_selected_object_type() {
             "{form} inherited={inherited}"
         );
         assert_eq!(
-            serde_json::to_value(&first.graph().nodes[position].body).expect("row body"),
-            serde_json::to_value(&second.graph().nodes[position].body).expect("roundtrip body"),
+            serde_json::to_value(&first.resolved_graph().nodes[position].body).expect("row body"),
+            serde_json::to_value(&second.resolved_graph().nodes[position].body)
+                .expect("roundtrip body"),
             "{form}"
         );
         if inherited {
@@ -1935,7 +1937,7 @@ fn assert_refinement_dependency_matrix(
     };
     let indexed = indexed_package(package);
     assert_eq!(
-        serde_json::to_value(&admitted.graph().nodes[position].dependencies)
+        serde_json::to_value(&admitted.resolved_graph().nodes[position].dependencies)
             .expect("typed dependencies"),
         indexed["semantic_graph"]["nodes"][position]["dependencies"]
     );
@@ -2072,7 +2074,7 @@ fn refinement_history_reference_dependencies_exclude_type_annotations() {
         panic!("concrete root annotation must not create a local dependency");
     };
     assert_eq!(
-        admitted.graph().nodes[position].dependencies.len(),
+        admitted.resolved_graph().nodes[position].dependencies.len(),
         1,
         "only the abstract header is a dependency of a row-empty body"
     );
@@ -3140,8 +3142,8 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
         panic!("literal initial refused: {:?}", read(&package, &evidence));
     };
     assert_eq!(
-        serde_json::to_value(&first.graph().nodes[position].body).expect("typed body")["histories"]
-            [0]["initial"],
+        serde_json::to_value(&first.resolved_graph().nodes[position].body).expect("typed body")
+            ["histories"][0]["initial"],
         initial
     );
     let literal_bytes = writer_bytes(&package);
@@ -3154,7 +3156,7 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
     };
     assert_eq!(first.graph(), literal_reread.graph());
     assert_eq!(
-        serde_json::to_value(&literal_reread.graph().nodes[position].body)
+        serde_json::to_value(&literal_reread.resolved_graph().nodes[position].body)
             .expect("reread literal body")["histories"][0]["initial"],
         initial
     );
@@ -3191,7 +3193,7 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
     };
     assert_eq!(first.graph(), second.graph());
     assert_eq!(
-        serde_json::to_value(&second.graph().nodes[position].body).expect("reread body")
+        serde_json::to_value(&second.resolved_graph().nodes[position].body).expect("reread body")
             ["histories"][0]["initial"],
         json!({"term":"reference","target":literal_id})
     );
@@ -5795,7 +5797,7 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
                 package["semantic_graph"]["nodes"][position]["body"]["steps"]
             );
         };
-        let owner = &admitted.graph().nodes[position];
+        let owner = &admitted.resolved_graph().nodes[position];
         assert_eq!(
             admitted.graph().nodes.len(),
             package["semantic_graph"]["nodes"]
@@ -5874,7 +5876,10 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
             read(&any, &any_evidence)
         );
     };
-    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+    assert_eq!(
+        admitted.resolved_graph().nodes[position].occurrences.len(),
+        1
+    );
     let mut extra_generated = any.clone();
     let source = extra_generated["lock"]["sources"][0].clone();
     extra_generated["source_map"]
@@ -5914,7 +5919,10 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
             read(&hidden, &hidden_evidence)
         );
     };
-    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+    assert_eq!(
+        admitted.resolved_graph().nodes[position].occurrences.len(),
+        1
+    );
 
     let (mut history, history_evidence, position) = catalog_free_operation_package("object_type");
     let nodes = history["semantic_graph"]["nodes"]
@@ -5955,7 +5963,10 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
             read(&history, &history_evidence)
         );
     };
-    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+    assert_eq!(
+        admitted.resolved_graph().nodes[position].occurrences.len(),
+        1
+    );
 }
 
 #[trace("TC-062", "FR-061-AC-8")]
