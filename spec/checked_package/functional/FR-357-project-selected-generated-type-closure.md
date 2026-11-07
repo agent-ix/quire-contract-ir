@@ -126,7 +126,7 @@ or generated-source declaration closure is complete.
 ### Complete selected monitor closure read
 
 The one bounded read on `CheckedMonitorPlanRef` SHALL seed a fixed traversal
-from State, Inputs, Scope, Results and the four entry signatures and bodies in
+from State, Inputs, Scope, Results, the `tick_unit` premise and the four entry signatures and bodies in
 `init`, `on_event`, `on_watermark`, `on_gap` order. It SHALL use an iterative
 worklist and visited sets for full admitted structural node IDs and directed
 edge roles. For each reached node it SHALL inspect only selected graph
@@ -341,6 +341,7 @@ result alone SHALL NOT authorize either construction.
 | FR-357-AC-15 | Implemented (IR-1387 public budget API; TC-467). A driver can debit selection and adapter work and storage before allocation through one exported finite budget, then pass that same budget to a native read. The combined exact limit succeeds and one below refuses without resetting prior consumption or changing original limits. Driver charges retain their first unpaid kind, attempted amount and locus. | Test |
 | FR-357-AC-16 | A reached admitted `composite_type`/`map` with a scalar key and a record value joins a collection row carrying its key node and value node in key-then-value order, and the closure retains the map's complete Exact `ValueType::Map`. A row whose `key_node` is absent, names another node, or is present on a non-map collection refuses `SelectedMonitorTypeClosureErrorCode::CollectionKey` at the collection node, with charged work and no partial closure; an unreached map row does not refuse. The closure with the map succeeds at its exact measured work and storage allowance, and one unit below either refuses at the first unpaid key-join charge with its kind, amount and locus. | Test |
 | FR-357-AC-17 | The closure read requires the same-emission authority row of FR-361 and returns either a complete closure carrying the receipt and layout context or one typed first refusal; no read exists without that row, and no partial closure escapes an authority refusal. | Test, Inspection |
+| FR-357-AC-18 | The closure read seeds the plan's `tick_unit` premise with its unit and dimension facts and exposes `SelectedMonitorTypeClosure::tick_unit_dimension() -> &CheckedNodeId`, the admitted dimension node of that unit. For a source tick unit and for a model tick unit, it returns that unit's own admitted dimension; a tick unit whose admitted dimension is not the base Time dimension refuses at strict admission before any closure exists; the seeded facts are charged and succeed at the exact allowance and refuse one unit below at the first unpaid seed charge. | Test |
 
 ## Dependencies
 

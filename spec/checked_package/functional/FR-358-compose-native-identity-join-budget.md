@@ -60,18 +60,21 @@ unpaid kind, full attempted amount and caller-supplied non-owning locus without
 incrementing consumption. Later external charges in that phase return the
 first refusal without performing work. No public method restores spent allowance.
 
-`NativeJoinLocusSource` SHALL include `AdapterRow(usize)` for a producer
+`NativeJoinLocusSource` SHALL include the unindexed native source
+`MonitorAuthority` for Contract IR's own authority-row inspections made before
+the selected occurrence is resolved, `AdapterRow(usize)` for a producer
 row being converted into an IR-owned row by an external adapter,
-`AuthorityRow` for the same-emission authority row of
-[FR-361](./FR-361-bind-monitor-authority-and-runtime-layout-context.md), and
+`AuthorityRow` for an external preparer's charges while building the
+same-emission authority row of
+[FR-361](./FR-361-bind-monitor-authority-and-runtime-layout-context.md),
 `PreparationOutput(usize)` for an owned output item an external preparer
 allocates after a native read, and `PreparationSelection(usize)` for an
 external preparer's selection comparison, indexed by its position in that
 preparer's comparison order. The index is the position in the adapter's
 input or the preparer's output sequence, and the locus `form` names the row
-channel or output kind. These variants let every external charge in one
-preparation report a non-owning first-unpaid locus without allocating; they
-do not change any native read's own loci.
+channel or output kind. The external variants let every external charge in
+one preparation report a non-owning first-unpaid locus without allocating;
+they do not change any native read's own loci.
 
 The budget SHALL expose its original configured work and storage limits through
 `work_limit` and `storage_limit`; successful charges, denied charges and later

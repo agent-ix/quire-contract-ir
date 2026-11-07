@@ -28,3 +28,13 @@ make exact-limit tests disagree across repositories.
 ## Verdict
 
 Not mergeable until FND-001..004 are fixed; FND-005 is a nit.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |
+| FND-003 | fixed | - |
+| FND-004 | fixed | - |
+| FND-005 | fixed | - |

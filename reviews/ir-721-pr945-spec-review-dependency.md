@@ -26,3 +26,16 @@ dependency. Two consumed-fact sources are not named.
 ## Verdict
 
 Edges are correct; FND-001 must be fixed before coding, FND-002 is a nit.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | medium | The cross-owner seam fixes PlanRoot::admit_authority(self, PlanAuthoritySelection, Option<progress::View>, &mut NativeJoinBudget) and requires the time source kind and period 'on AdmittedPlanAuthority', but the QSL implementation of this seam (quire-spec-language#2489 head 01145fe, monitor_root/progress.rs:357-411) takes two more parameters (validation: PlanAuthorityValidationCaps, locus: NativeJoinLocus) and exposes no time-source accessor (only root()). Its admission_binding() doc also makes the caller account for the cloned handle, while driver FR-019 P5 charges no storage. Either cite QSL as owner of the signature or match it. | spec/checked_package/functional/FR-361-bind-monitor-authority-and-runtime-layout-context.md:78-92 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | still-open | IR's own charges now use MonitorSeed(k) with forms selected_authority / selected_layout_context / selected_clock_binding, but k is 'the selected occurrence's index in clocks()'. The first step-3 charges (ForeignEmission, ClauseMismatch, OccurrenceMismatch inspections) happen before the occurrence is resolved, and an OccurrenceMismatch has no index at all, so the locus FR-361-AC-4 asserts for those charges is still undefined (FR-361.md Charging). |
+| FND-002 | fixed | - |

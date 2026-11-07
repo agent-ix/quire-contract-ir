@@ -37,7 +37,9 @@ key node, and charges every external and native step to one budget.
    expected RFC 8785 values for each source; change model, tick operation,
    unit, period, kind and profile (FR-361-AC-3).
 4. Measure the read's work and storage; repeat at exact limits and one below
-   each; repeat on a package clone (FR-361-AC-4).
+   the cumulative charge before each authority, layout-context and
+   clock-binding charge, including an `OccurrenceMismatch` input; repeat on a
+   package clone (FR-361-AC-4).
 5. Inspect the public API and the model crate's dependency graph
    (FR-361-AC-5).
 6. Reach a map collection from an entry body; join it with a correct row,
@@ -46,6 +48,8 @@ key node, and charges every external and native step to one budget.
 7. Charge denied external charges with `AdapterRow(i)`, `AuthorityRow`,
    `PreparationOutput(k)` and `PreparationSelection(k)`, then admitted ones
    followed by a native read (FR-358-AC-10).
+8. Read `tick_unit_dimension()` for a source and a model tick unit; repeat at
+   the exact allowance and one below the first seed charge (FR-357-AC-18).
 
 Tag the tests `#[trace("TC-471", "<criterion id>")]`. FR-361-AC-6 runs in
 `quire-integration` against a genuine QSL plan root.
@@ -58,8 +62,11 @@ Tag the tests `#[trace("TC-471", "<criterion id>")]`. FR-361-AC-6 runs in
   authority defect, which wins over equality and source-row defects;
   `try_new` returns components `Occurrence`, `OrderValue`, `ProgressAssociation`.
 - Step 3 values are byte-equal; each change changes the clock-binding value.
-- Step 4 succeeds exactly and refuses one below at the first unpaid charge;
-  clones agree.
+- Step 4 succeeds exactly and refuses one below at each charge with locus
+  `MonitorAuthority` before resolution and `MonitorSeed(k)` with its form
+  after; clones agree.
+- Step 8 returns each unit's own admitted dimension; one below refuses at the
+  first unpaid seed charge.
 - Step 5 finds a required field, private row fields, no QSL, observation or
   runtime edge, and no decode, digest or second identity.
 - Step 6 retains the map's key, value and `ValueType::Map`; each defective row

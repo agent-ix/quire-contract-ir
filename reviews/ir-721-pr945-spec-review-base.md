@@ -32,3 +32,12 @@ sibling AC, one history-narration line and one underspecified error type.
 
 Not mergeable: FND-001 is high. ID formats, matrix rows, TC-471 coverage and
 link targets are otherwise correct.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |
+| FND-003 | fixed | - |
+| FND-004 | fixed | - |
