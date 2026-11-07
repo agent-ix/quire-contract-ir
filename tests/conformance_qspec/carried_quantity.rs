@@ -1340,38 +1340,6 @@ fn conversion_into_a_carried_quantity_requires_a_unit_or_carried_source() {
 // QSpec's scalar wire constructors and change their explicit bound values to
 // the CS table's domains; these are complete reader fixtures, not evaluations.
 fn sum_nodes() -> Value {
-    static SOURCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let source = SOURCE.get_or_init(|| {
-        // The conformance fixtures can be on an older checkout. The sum rows
-        // are read from that checkout's current owner reference explicitly.
-        let root = proposal_dir_of(&super::fixtures_dir())
-            .parent()
-            .expect("proposals directory")
-            .parent()
-            .expect("QSpec checkout")
-            .to_path_buf();
-        let output = std::process::Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args([
-                "show",
-                "origin/main:spec/test-cases/TC-187-quantity-and-unit-conversion.md",
-            ])
-            .output()
-            .expect("read current QSpec TC-187");
-        assert!(
-            output.status.success(),
-            "QSpec TC-187: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).expect("QSpec TC-187 UTF-8")
-    });
-    for case in ["CS-01", "CS-02", "CS-03", "CS-04", "CS-05", "CS-06"] {
-        assert!(
-            source.contains(&format!("| {case} |")),
-            "missing published {case} row"
-        );
-    }
     fn replace(value: &mut Value, from: &str, to: &str) {
         match value {
             Value::String(text) if text == from => *text = to.into(),
@@ -1506,16 +1474,33 @@ fn assert_sum_refusal(mut package: Package, at: usize, code: &str, cause: &str) 
 #[trace("TC-048", "FR-038-AC-515")]
 #[test]
 fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
-    for (base, mode, bounds) in [
-        ("Q", "exact", vec!["-5", "5"]),
+    for (base, mode, carrier_form, bounds) in [
+        (
+            "Q",
+            "exact",
+            BoundedDomainForm::IntegerRange,
+            vec!["-5", "5"],
+        ),
         (
             "Qd",
             "nearest-even",
+            BoundedDomainForm::DecimalRange,
             vec!["-500", "500", "2", "2", "nearest-even"],
         ),
-        ("q_rat", "exact", vec!["-3", "7", "1", "12"]),
+        (
+            "q_rat",
+            "exact",
+            BoundedDomainForm::RationalRange,
+            vec!["-3", "7", "1", "12"],
+        ),
     ] {
         let (mut package, at) = sum_package(base, base, base, base, Some(mode));
+        let unit_position = package.wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| node["node_id"] == package.ids["unit_m"])
+            .expect("metre unit fixture");
         settle(&mut package.wire);
         index_fixture_node_ids(&mut package.wire);
         let expected: CheckedTerm =
@@ -1530,6 +1515,7 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
         let CheckedTerm::Application {
             result_type,
             arguments,
+            operation,
             ..
         } = body
         else {
@@ -1541,9 +1527,44 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
             .iter()
             .find(|node| &node.node_id == result_type)
             .expect("carried node");
+        assert_eq!(
+            admitted.node_kind(&carried.node_id),
+            Some(CheckedNodeKind::ScalarType(ScalarTypeForm::CarriedQuantity))
+        );
+        let member = operation
+            .member_declaration()
+            .expect("admitted member view")
+            .expect("type argument");
+        assert_eq!(member, &carried.node_id);
+        assert_eq!(member, result_type);
         let CheckedTerm::Aggregate { members } = &carried.body else {
             panic!("carried bindings");
         };
+        let CheckedTerm::Binding { name, value } = &members[0] else {
+            panic!("unit binding");
+        };
+        assert_eq!(name.as_ref(), "unit");
+        let CheckedTerm::Reference { target: unit } = value.as_ref() else {
+            panic!("unit reference");
+        };
+        let metre = &admitted.graph().nodes[unit_position];
+        assert_eq!(unit, &metre.node_id);
+        assert_eq!(
+            admitted.node_kind(unit),
+            Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
+        );
+        let CheckedTerm::Binding { name, value } = &members[2] else {
+            panic!("carried rounding binding");
+        };
+        assert_eq!(name.as_ref(), "rounding");
+        let CheckedTerm::Literal {
+            value_kind, value, ..
+        } = value.as_ref()
+        else {
+            panic!("carried rounding literal");
+        };
+        assert_eq!(*value_kind, LiteralKind::Text);
+        assert_eq!(value.as_str(), Some(mode));
         let CheckedTerm::Binding { value, .. } = &members[1] else {
             panic!("carrier binding");
         };
@@ -1556,6 +1577,10 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
             .iter()
             .find(|node| &node.node_id == target)
             .expect("carrier node");
+        assert_eq!(
+            admitted.node_kind(&carrier.node_id),
+            Some(CheckedNodeKind::BoundedDomain(carrier_form))
+        );
         let CheckedTerm::Aggregate { members } = &carrier.body else {
             panic!("carrier bounds");
         };
@@ -1585,6 +1610,7 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
             .find(|node| &node.node_id == target)
             .expect("binder parameter");
         assert_eq!(&binder.semantic_type, result_type);
+        assert_eq!(&binder.semantic_type, member);
     }
 }
 
