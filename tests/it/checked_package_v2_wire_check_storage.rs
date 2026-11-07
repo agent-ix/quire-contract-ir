@@ -12,6 +12,27 @@ use quire_contract_model::{
     NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
 };
 
+/// Where a request falls in the read's runtime order, by the stage and form
+/// of its locus. The stage enum is not that order: the interval-bound checks
+/// of `WireChecks` run after the node-index stage.
+fn phase(stage: PackageReadStage, form: &str) -> u8 {
+    match (stage, form) {
+        (PackageReadStage::Envelope, _) => 0,
+        (PackageReadStage::Canonical, _) => 1,
+        (PackageReadStage::WireDecode, _) => 2,
+        (PackageReadStage::WireChecks, "owner_schema") => 3,
+        (PackageReadStage::WireChecks, "interval_bounds") => 6,
+        (PackageReadStage::WireChecks, _) => 4,
+        (PackageReadStage::NodeIndex, _) => 5,
+        _ => 7,
+    }
+}
+
+const OWNER_SCHEMA: u8 = 3;
+const FLAT_WIRE: u8 = 4;
+const NODE_INDEX: u8 = 5;
+const DECODE: u8 = 2;
+
 /// What one read under a read-storage limit ended at.
 struct Outcome {
     /// The read admitted the package.
@@ -44,10 +65,11 @@ fn stage_of(locus: NativeJoinLocus) -> Option<PackageReadStage> {
     }
 }
 
-/// The least read-storage limit at which `past` holds of the read: it is
-/// admitted, or `past` holds of the stage and form of its first unpaid
-/// request. The stages run in order, so the answer is found by bisection.
-fn limit_where(past: impl Fn(PackageReadStage, &str) -> bool) -> u64 {
+/// The least read-storage limit at which the read is past runtime phase
+/// `done`: it is admitted, or the stage and form of its first unpaid request
+/// fall in a later phase. Phases run in order, so bisection finds it.
+fn limit_past(done: u8) -> u64 {
+    let past = |stage: PackageReadStage, form: &str| phase(stage, form) > done;
     let reached = |limit: u64| {
         let outcome = read_under(limit);
         outcome.admitted
@@ -77,11 +99,6 @@ fn limit_where(past: impl Fn(PackageReadStage, &str) -> bool) -> u64 {
     low
 }
 
-/// The least limit at which the read gets past `stage`.
-fn limit_past(stage: PackageReadStage) -> u64 {
-    limit_where(|denied, _| denied > stage)
-}
-
 fn graph_node_count() -> usize {
     v2_all_families()["semantic_graph"]["nodes"]
         .as_array()
@@ -101,7 +118,7 @@ fn denial_after(limit: u64) -> (NativeJoinLocus, u128) {
 #[trace("TC-472", "FR-038-AC-499")]
 #[test]
 fn the_wire_checks_open_with_the_owner_schema_then_the_kind_table() {
-    let before = limit_past(PackageReadStage::WireDecode);
+    let before = limit_past(DECODE);
     let (opening, _) = denial_after(before);
     assert_eq!(
         opening,
@@ -110,10 +127,7 @@ fn the_wire_checks_open_with_the_owner_schema_then_the_kind_table() {
             form: "owner_schema",
         }
     );
-    let owner_paid = limit_where(|stage, form| {
-        stage > PackageReadStage::WireChecks
-            || (stage == PackageReadStage::WireChecks && form != "owner_schema")
-    });
+    let owner_paid = limit_past(OWNER_SCHEMA);
     let (locus, asked) = denial_after(owner_paid);
     assert_eq!(
         locus,
@@ -138,12 +152,12 @@ fn the_wire_checks_open_with_the_owner_schema_then_the_kind_table() {
 #[trace("TC-472", "FR-038-AC-500", "FR-038-AC-501")]
 #[test]
 fn the_node_index_stage_is_charged_to_the_byte_and_ends_with_the_key_table() {
-    let before = limit_past(PackageReadStage::WireChecks);
+    let before = limit_past(FLAT_WIRE);
     let (first, _) = denial_after(before);
     assert_eq!(stage_of(first), Some(PackageReadStage::NodeIndex));
     assert_eq!(first.form, "node_index");
 
-    let end = limit_past(PackageReadStage::NodeIndex);
+    let end = limit_past(NODE_INDEX);
     let (last, asked) = denial_after(end - 1);
     assert_eq!(
         last,
@@ -161,7 +175,7 @@ fn the_node_index_stage_is_charged_to_the_byte_and_ends_with_the_key_table() {
         past.admitted
             || past
                 .denial
-                .and_then(|(locus, _)| stage_of(locus))
-                .is_some_and(|stage| stage > PackageReadStage::NodeIndex)
+                .and_then(|(locus, _)| stage_of(locus).map(|stage| phase(stage, locus.form)))
+                .is_some_and(|denied| denied > NODE_INDEX)
     );
 }

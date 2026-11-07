@@ -67,6 +67,27 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
+/// Where a request falls in the read's runtime order, by the stage and form
+/// of its locus. The stage enum is not that order: the interval-bound checks
+/// of `WireChecks` run after the node-index stage.
+fn phase(stage: PackageReadStage, form: &str) -> u8 {
+    match (stage, form) {
+        (PackageReadStage::Envelope, _) => 0,
+        (PackageReadStage::Canonical, _) => 1,
+        (PackageReadStage::WireDecode, _) => 2,
+        (PackageReadStage::WireChecks, "owner_schema") => 3,
+        (PackageReadStage::WireChecks, "interval_bounds") => 6,
+        (PackageReadStage::WireChecks, _) => 4,
+        (PackageReadStage::NodeIndex, _) => 5,
+        _ => 7,
+    }
+}
+
+const OWNER_SCHEMA: u8 = 3;
+const FLAT_WIRE: u8 = 4;
+const NODE_INDEX: u8 = 5;
+const DECODE: u8 = 2;
+
 /// The bytes one read requested and the bytes it charged, under `limit`, and
 /// the stage of its first unpaid request.
 fn read_under(limit: u64) -> (u64, u64, Option<(PackageReadStage, &'static str)>) {
@@ -94,9 +115,10 @@ fn read_under(limit: u64) -> (u64, u64, Option<(PackageReadStage, &'static str)>
     (requested, budget.read_storage_consumed(), stage)
 }
 
-/// The least limit at which `past` holds of the stage and form of the read's
-/// first unpaid request, or the read is admitted.
-fn limit_where(past: impl Fn(PackageReadStage, &str) -> bool) -> u64 {
+/// The least limit at which the read is admitted or its first unpaid request
+/// falls in a runtime phase after `done`.
+fn limit_past(done: u8) -> u64 {
+    let past = |stage: PackageReadStage, form: &str| phase(stage, form) > done;
     let (_, whole, _) = read_under(u64::MAX);
     let (mut low, mut high) = (0, whole);
     while low < high {
@@ -111,20 +133,14 @@ fn limit_where(past: impl Fn(PackageReadStage, &str) -> bool) -> u64 {
     low
 }
 
-/// The least limit at which the read's first unpaid request is of a stage
-/// after `stage`, or it is admitted.
-fn limit_past(stage: PackageReadStage) -> u64 {
-    limit_where(|denied, _| denied > stage)
-}
-
 /// Every heap request of the node-index stage is charged: between a read that
 /// stops at the stage's first request and one that stops at its last, the
 /// bytes requested equal the bytes charged.
 #[trace("TC-472", "FR-038-AC-500", "FR-038-AC-511")]
 #[test]
 fn node_index_requests_exactly_what_it_charges() {
-    let start = limit_past(PackageReadStage::WireChecks);
-    let end = limit_past(PackageReadStage::NodeIndex) - 1;
+    let start = limit_past(FLAT_WIRE);
+    let end = limit_past(NODE_INDEX) - 1;
     let (first_requested, first_charged, first_stage) = read_under(start);
     let (last_requested, last_charged, last_stage) = read_under(end);
     assert_eq!(
@@ -148,11 +164,8 @@ fn node_index_requests_exactly_what_it_charges() {
 #[trace("TC-472", "FR-038-AC-499", "FR-038-AC-511")]
 #[test]
 fn owner_schema_requests_exactly_what_it_charges() {
-    let start = limit_past(PackageReadStage::WireDecode);
-    let end = limit_where(|stage, form| {
-        stage > PackageReadStage::WireChecks
-            || (stage == PackageReadStage::WireChecks && form != "owner_schema")
-    }) - 1;
+    let start = limit_past(DECODE);
+    let end = limit_past(OWNER_SCHEMA) - 1;
     let (first_requested, first_charged, first_stage) = read_under(start);
     let (last_requested, last_charged, last_stage) = read_under(end);
     assert_eq!(
