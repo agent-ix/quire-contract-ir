@@ -33,3 +33,9 @@ Ticket: IR-1354. Rust code review with rust-review lane. The equality applicatio
 ## Coverage
 
 Plan completion: not assessed. Review scope is PR #941 diff, FR-357 AC1-4, TC-470 and FR-019.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 2d1cfb9cf, preflight_equality_application charges both producer keys before select_rows clones the reached row. |

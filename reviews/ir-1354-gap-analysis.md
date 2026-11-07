@@ -33,3 +33,9 @@ Ticket: IR-1354. Plan completion: not assessed. Targeted trace and assertion rev
 ## Coverage
 
 Plan completion: not assessed. Review scope is PR #941 diff, FR-357 AC1-4, TC-470 and FR-019.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | At 2d1cfb9cf, TC-470 covers long equality keys, storage growth, exact allowance and first denied row locus. |
