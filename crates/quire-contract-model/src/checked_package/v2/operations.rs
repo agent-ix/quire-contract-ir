@@ -974,7 +974,11 @@ fn check_type_argument_member_result(
     let refuse = || {
         application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            application.body(&["result_type"]),
+            if operation.identity.as_ref() == "quire.op.collection.sum.carried_quantity" {
+                node_pointer(application.position)
+            } else {
+                application.body(&["result_type"])
+            },
             CheckedPackageRefusalCause::OperatorIneligible,
         )
     };
@@ -1076,6 +1080,11 @@ fn operation_defect(
     )?;
     let mut structural = StructuralTypes::default();
     let refuse = |path: JsonPointer, cause| {
+        let path = if operation.identity.as_ref() == "quire.op.collection.sum.carried_quantity" {
+            node_pointer(application.position)
+        } else {
+            path
+        };
         Ok(Some(application.refuse(
             CheckedPackageRefusalCode::InvalidPackage,
             path,
@@ -1308,6 +1317,46 @@ fn operation_defect(
         )));
     }
 
+    // Carried sums pin their mode from the summand bound and result before
+    // comparing either with the type argument (FR-322, carried-quantity sum).
+    if operation.identity.as_ref() == "quire.op.collection.sum.carried_quantity" {
+        let result = match term {
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
+            _ => None,
+        };
+        let bound = admitted_arguments(application, graph)
+            .and_then(|arguments| arguments.get(1))
+            .and_then(|binder| binder_bound(binder, graph));
+        for type_id in result.into_iter().chain(bound.as_ref()) {
+            let pin = carried_unit_and_mode(type_id, graph)
+                .map(|(_, mode)| mode)
+                .or_else(|| {
+                    (resolve_selected_family(type_id, graph, owners) == Some("quantity"))
+                        .then_some("exact")
+                });
+            if pin.is_some_and(|pin| {
+                operation
+                    .mode
+                    .as_ref()
+                    .is_some_and(|mode| mode.value.as_ref() != pin)
+            }) {
+                return refuse(
+                    node_pointer(application.position),
+                    CheckedPackageRefusalCause::OperationModeTypeMismatch,
+                );
+            }
+        }
+    }
+    if operation.identity.as_ref() == "quire.op.collection.sum.quantity"
+        && member_declaration(&operation)
+            .is_some_and(|member| carried_unit_and_mode(&member, graph).is_some())
+    {
+        return Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )));
+    }
     let place_presence = check_place_presence(application, &operation, graph, owners, meter)?;
     if !place_presence {
         if let Some(failure) = check_operands(
@@ -2266,6 +2315,25 @@ fn check_operands(
                     }
                 }
             }
+            OperationConstraintKind::BoundIsMember => {
+                let member = member_declaration(operation);
+                let held = member.as_ref().is_some_and(|member| {
+                    indices.iter().all(|position| {
+                        typed_arguments
+                            .get(*position)
+                            .and_then(|binder| binder_bound(binder, graph))
+                            .as_ref()
+                            == Some(member)
+                    })
+                });
+                if !held {
+                    return Ok(Some(application.refuse(
+                        CheckedPackageRefusalCode::IllTyped,
+                        node_pointer(application.position),
+                        CheckedPackageRefusalCause::OperatorIneligible,
+                    )));
+                }
+            }
             // The catalog declares these, and this reader enforces none of
             // them (see the module documentation); each is named so a member
             // added to the vocabulary is a compile error here.
@@ -2274,7 +2342,6 @@ fn check_operands(
             | OperationConstraintKind::MemberOf
             | OperationConstraintKind::MemberFamily
             | OperationConstraintKind::BoundFamily
-            | OperationConstraintKind::BoundIsMember
             | OperationConstraintKind::ExactConversion
             | OperationConstraintKind::RangeNarrowing
             | OperationConstraintKind::RationalNarrowing
@@ -2323,6 +2390,14 @@ fn check_operands(
         }
     }
     Ok(None)
+}
+
+/// A binder's value names its summand; the summand's declared type is the bound.
+fn binder_bound(binder: &CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
+    let CheckedTerm::Binding { value, .. } = binder else {
+        return None;
+    };
+    operand_type_node_typed(value, graph.nodes, graph.kinds, graph.index)
 }
 
 /// The IEEE FMA catalog entries require their result to have the same fixed
