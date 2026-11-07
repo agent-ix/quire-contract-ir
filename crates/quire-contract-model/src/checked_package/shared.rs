@@ -906,12 +906,43 @@ impl PartialOrd for CheckedNodeId {
 impl Ord for CheckedNodeId {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
+        #[derive(Clone, Copy)]
         enum Task<'a> {
             Node(&'a CheckedNodeId, &'a CheckedNodeId),
             Path(&'a [CheckedNodePathSegment], &'a [CheckedNodePathSegment]),
             Ordinal(u64, u64),
         }
-        let mut tasks = vec![Task::Node(self, other)];
+        /// Pending comparisons. Identities nest a handful of levels at most,
+        /// so the stack lives on the call stack; only a deeper identity
+        /// spills to the heap, which stays empty (and unallocated) otherwise.
+        struct Pending<'a> {
+            inline: [Task<'a>; 16],
+            used: usize,
+            spill: Vec<Task<'a>>,
+        }
+        impl<'a> Pending<'a> {
+            fn push(&mut self, task: Task<'a>) {
+                if let Some(slot) = self.inline.get_mut(self.used) {
+                    *slot = task;
+                    self.used += 1;
+                } else {
+                    self.spill.push(task);
+                }
+            }
+            fn pop(&mut self) -> Option<Task<'a>> {
+                if let Some(task) = self.spill.pop() {
+                    return Some(task);
+                }
+                self.used = self.used.checked_sub(1)?;
+                self.inline.get(self.used).copied()
+            }
+        }
+        let mut tasks = Pending {
+            inline: [Task::Ordinal(0, 0); 16],
+            used: 0,
+            spill: Vec::new(),
+        };
+        tasks.push(Task::Node(self, other));
         while let Some(task) = tasks.pop() {
             match task {
                 Task::Node(left, right) => {
@@ -1729,4 +1760,86 @@ pub struct CheckedCapability {
     pub feature: Box<str>,
     /// Producer/model disposition.
     pub disposition: super::v2::CheckedCapabilityDisposition,
+}
+
+#[cfg(test)]
+mod node_order_tests {
+    use super::{CheckedNodeId, CheckedNodePathSegment as Segment};
+    use ix_trace_rs::trace;
+    use std::cmp::Ordering;
+    use std::sync::Arc;
+
+    fn rank(segment: &Segment) -> u8 {
+        match segment {
+            Segment::Name(_) => 0,
+            Segment::Index(_) => 1,
+            Segment::Operand(_) => 2,
+            Segment::Node(_) => 3,
+        }
+    }
+
+    /// The order stated by recursion: package, then the path segment by
+    /// segment (kind, then value, a nested node by this same order), then
+    /// the ordinal.
+    fn reference(left: &CheckedNodeId, right: &CheckedNodeId) -> Ordering {
+        left.package
+            .cmp(&right.package)
+            .then_with(|| {
+                for (a, b) in left.path.iter().zip(&right.path) {
+                    let order = rank(a).cmp(&rank(b)).then_with(|| match (a, b) {
+                        (Segment::Name(a), Segment::Name(b)) => a.cmp(b),
+                        (Segment::Index(a), Segment::Index(b))
+                        | (Segment::Operand(a), Segment::Operand(b)) => a.cmp(b),
+                        (Segment::Node(a), Segment::Node(b)) => reference(a, b),
+                        _ => Ordering::Equal,
+                    });
+                    if order != Ordering::Equal {
+                        return order;
+                    }
+                }
+                left.path.len().cmp(&right.path.len())
+            })
+            .then_with(|| left.ordinal.cmp(&right.ordinal))
+    }
+
+    fn nested(depth: usize, leaf: Segment, ordinal: u64) -> CheckedNodeId {
+        let mut id = CheckedNodeId {
+            package: "p".into(),
+            path: vec![leaf],
+            ordinal,
+        };
+        for level in 0..depth {
+            id = CheckedNodeId {
+                package: "p".into(),
+                path: vec![Segment::Name("w".into()), Segment::Node(Arc::new(id))],
+                ordinal: u64::try_from(level % 2).unwrap_or(0),
+            };
+        }
+        id
+    }
+
+    /// The comparison keeps its order whether its pending work fits the call
+    /// stack or spills past it (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn node_id_order_matches_recursion_shallow_and_beyond_the_inline_stack() {
+        let leaves = [
+            Segment::Name("a".into()),
+            Segment::Name("b".into()),
+            Segment::Index(1),
+            Segment::Index(2),
+            Segment::Operand(1),
+        ];
+        let mut ids = Vec::new();
+        for depth in [0, 1, 2, 7, 15, 16, 17, 40] {
+            for (at, leaf) in leaves.iter().enumerate() {
+                ids.push(nested(depth, leaf.clone(), u64::try_from(at % 2).unwrap_or(0)));
+            }
+        }
+        for left in &ids {
+            for right in &ids {
+                assert_eq!(left.cmp(right), reference(left, right));
+            }
+        }
+    }
 }
