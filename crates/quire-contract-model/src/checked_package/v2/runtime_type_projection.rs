@@ -332,8 +332,8 @@ pub struct SelectedTypeDeclarationsError {
 
 impl SelectedTypeDeclarationsError {
     /// Resolve a denied node using the package and row slices supplied to projection.
-    /// Package allocations and unresolved declaration request coordinates have no
-    /// resolved node. Their fixed input coordinate remains in `denied_locus`;
+    /// Package allocations, unresolved declaration request coordinates and the
+    /// external adapter, preparer and authority sources have no resolved node. Their fixed input coordinate remains in `denied_locus`;
     /// this resolver never searches for an identity after a denied charge.
     pub fn denied_node<'a>(
         &self,
@@ -344,7 +344,12 @@ impl SelectedTypeDeclarationsError {
         match self.denied_locus?.source {
             NativeJoinLocusSource::Package
             | NativeJoinLocusSource::MonitorSeed(_)
-            | NativeJoinLocusSource::ReachedRow(_) => None,
+            | NativeJoinLocusSource::ReachedRow(_)
+            | NativeJoinLocusSource::AdapterRow(_)
+            | NativeJoinLocusSource::AuthorityRow
+            | NativeJoinLocusSource::PreparationSelection(_)
+            | NativeJoinLocusSource::PreparationOutput(_)
+            | NativeJoinLocusSource::MonitorAuthority => None,
             NativeJoinLocusSource::GraphNode(index) => {
                 package.graph().nodes.get(index).map(|node| &node.node_id)
             }

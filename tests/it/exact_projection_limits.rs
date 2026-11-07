@@ -135,6 +135,70 @@ fn original_limits_survive_stage_projection_and_later_shared_exhaustion() {
     }
 }
 
+/// Trace: TC-471, FR-358-AC-10.
+#[trace("TC-471", "FR-358-AC-10")]
+#[test]
+fn external_locus_charges_accumulate_with_the_following_native_read() {
+    let wire = package(vec![node(
+        "integer",
+        "scalar_type",
+        "integer",
+        "integer",
+        &[],
+        json!({"term":"aggregate","members":[]}),
+    )]);
+    let package = admitted(&wire);
+    let integer: CheckedNodeId = serde_json::from_value(node_id("integer")).unwrap();
+    let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let selected =
+        SelectedExactIdentities::from_stage_rows(&package, [], [], &mut measured).unwrap();
+    let expected = package
+        .project_exact_type(&integer, &selected, &mut measured)
+        .unwrap();
+    let native_work = measured.consumed().work;
+
+    for source in [
+        NativeJoinLocusSource::AdapterRow(1),
+        NativeJoinLocusSource::AuthorityRow,
+        NativeJoinLocusSource::PreparationSelection(2),
+        NativeJoinLocusSource::PreparationOutput(3),
+        NativeJoinLocusSource::MonitorAuthority,
+    ] {
+        let locus = NativeJoinLocus {
+            source,
+            form: "external form",
+        };
+        let mut exact = NativeJoinBudget::new(native_work + 4, u64::MAX);
+        exact.resume();
+        assert_eq!(
+            exact.accounted_charge(NativeJoinChargeKind::Work, 4, locus),
+            Ok(())
+        );
+        let joined =
+            SelectedExactIdentities::from_stage_rows(&package, [], [], &mut exact).unwrap();
+        assert_eq!(
+            package.project_exact_type(&integer, &joined, &mut exact),
+            Ok(expected.clone())
+        );
+        assert_eq!(exact.consumed().work, native_work + 4);
+
+        let mut short = NativeJoinBudget::new(native_work + 3, u64::MAX);
+        short.resume();
+        assert_eq!(
+            short.accounted_charge(NativeJoinChargeKind::Work, 4, locus),
+            Ok(())
+        );
+        let joined =
+            SelectedExactIdentities::from_stage_rows(&package, [], [], &mut short).unwrap();
+        let refusal = package
+            .project_exact_type(&integer, &joined, &mut short)
+            .unwrap_err();
+        assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+        assert_eq!(refusal.denied, short.first_unpaid());
+        assert_ne!(short.first_unpaid_locus(), Some(locus));
+    }
+}
+
 /// Trace: FR-358-AC-9, FR-357-AC-15.
 #[trace("TC-467", "FR-358-AC-9", "FR-357-AC-15")]
 #[test]
