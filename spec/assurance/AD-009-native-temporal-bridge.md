@@ -1,0 +1,123 @@
+---
+id: AD-009
+title: "Native temporal to TL correspondence bridge architecture"
+type: ArchitectureDescription
+status: accepted
+owner: kreneskyp
+system: native temporal to TL correspondence bridge (quire.native-temporal-correspondence/v1)
+relationships:
+  - target: ix://agent-ix/quire-contract-ir/FR-350
+    type: realizes
+  - target: ix://agent-ix/quire-specification/FR-095
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/AD-001
+    type: references
+  - target: ix://agent-ix/quire-contract-ir/AD-007
+    type: references
+---
+# Native temporal to TL correspondence bridge architecture
+
+## System Boundary
+
+The bridge takes one admitted checked-package temporal occurrence that QSL
+classifies as supported, builds the equivalent TL formula, proposition map,
+trace or position history and request from the native owner inputs, records
+their correspondence, and later joins the native QSL report with the TL mapped
+result under that record. It lives in `agent-ix/quire-integration`, the one
+repository allowed to depend on QSL, Quire Observation and the TL crates
+together. Contract IR holds the normative contract (FR-350) and the model types
+the bridge reads; neither Contract IR package depends on QSL or TL.
+
+The bridge evaluates nothing. Native reports are produced by QSL's evaluator
+and TL results by quire-mltl's evaluator, both outside the bridge; the bridge
+admits them through their owners' non-evaluating readers. It computes no hash
+or derived identity: it retains owner values and compares them.
+
+## Components
+
+| Component | Repository | Owns | Public seam the bridge uses |
+| --- | --- | --- | --- |
+| Checked package model | `quire-contract-ir` (`quire-contract-model`) | `CheckedPackageV2`, source map, graph, `selected_model_packages()`, `CheckedNodeId`, `ClockConfiguration`, `NativeJoinBudget` (FR-358) | read-only accessors and serde forms |
+| Checked views and classification | `quire-spec-language` (`qsl-package`) | `temporal_subject`, `TemporalSubjectView`, `mapping_support`, `Classification`, `ClauseOccurrence`, `Closure`, `belongs_to` | FR-515, FR-527 |
+| Native evidence request | `quire-spec-language` (`qsl-eval`) | `EvidenceRequest`, `TraceBinding::authenticate`, `ActivationInput::contradiction`, ledger | FR-516 |
+| Native valuation and report | `quire-spec-language` (root crate `temporal`) | `ValuationEvidence`, `ValuationInstance`, `ObservationRef`, `CheckedSubject`, `evaluate_v2`, `Report::{from_owner_bytes, to_owner_bytes_bounded, validate_predecessor}`, `ReportPredecessorLimits` | FR-043, FR-052 |
+| Observation authority | `quire-observation` | observation bundle, clock, progress, closure, completeness and availability views | FR-004 |
+| Observation revision admission | `quire-integration` | `AdmittedObservationRevision` | IT-021 |
+| TL syntax | `tl-syntax` | formula document, proposition map, strict readers | FR-011 to FR-014 |
+| TL trace and history | `tl-mltl` | `ValidatedTrace`, `ValidatedPositionHistory`, `OwnerLimits` | FR-018 |
+| TL request, result and mapping | `quire-mltl` | `RequestInput`, `request::{derive, read}`, `report::{evaluate, read}`, `ValidatedTemporalResult::{direct_predecessor_bytes, validate_supplied_predecessor}`, `contract_ir::{map, read}`, `ValidatedMappedResult` | FR-001, FR-003, FR-004 |
+| Bridge definition | `quire-integration` | `definitions/native-temporal-correspondence-v1.json`, `read_tl_bridge_definition` | IT-022 |
+| Bridge projection | `quire-integration` (`temporal::projection`) | admission and support checks, native input binding, TL construction through the owners, correspondence record, `project_tl`, `read_tl_projection` | FR-350 |
+| Bridge join | `quire-integration` (`temporal::join`) | native and TL strict re-read, side classification, decision rows, corrections, join record, `join_tl`, `read_tl_join` | FR-350 |
+
+## Views
+
+```text
+QSL source --QSL emitter--> checked-package/v2 bytes --IR reader--> CheckedPackageV2
+CheckedPackageV2 --temporal_subject--> TemporalSubjectView --mapping_support--> Classification
+caller: EvidenceRequest + ValuationEvidence + ClauseOccurrence + ValuationInstance + ObservationRef
+caller: AdmittedObservationRevision + clock::View + ObservationInputs + bridge definition
+
+project_tl
+  1 admission/support    belongs_to x2, reclassify, Supported target
+  2 native binding       occurrence, TraceBinding, anchor/instance/captures, observation,
+                         positions, progress/closure/completeness, valuation rows
+  3 source-map entry
+  4 TL construction      tl-syntax formula + proposition map, tl-mltl trace/history
+  5 TL request           quire-mltl derive + read (subject name, profile name)
+  6 record               RFC 8785 correspondence record holding the request bytes
+  -> ValidatedTlProjection
+
+outside the bridge:  evaluate_v2 -> native Report
+                     quire-mltl report::evaluate/read + contract_ir::map/read -> ValidatedMappedResult
+
+join_tl(projection, Report, ValidatedMappedResult, previous join, NativeJoinBudget)
+  native: to_owner_bytes_bounded -> from_owner_bytes [+ with_predecessor, validate_predecessor]
+  TL:     contract_ir::read [+ validate_supplied_predecessor]
+  classify sides -> rows R1..R8 -> join record
+  -> ValidatedTlJoin -> integration and assurance consumers
+```
+
+Construction is acyclic: the request carries the native subject name and the
+constant profile name, and the record carries the request bytes, never the
+reverse.
+
+## Decisions
+
+- The bridge belongs to `quire-integration`; Contract IR keeps the contract and
+  model types and gains no QSL or TL dependency.
+- The valuation source is `ValuationEvidence`, the same six-bound relation the
+  native evaluator uses; request valuation maps are not read.
+- TL results enter the join only as `ValidatedMappedResult` values, which only
+  quire-mltl's readers construct; the bridge re-reads them with the
+  non-evaluating mapping reader and never reads TL result bytes itself.
+- Corrections are checked against complete predecessor bytes on both sides:
+  QSL's full-predecessor validation and quire-mltl's
+  `validate_supplied_predecessor`. Identities alone never match.
+- Correspondence and join records are RFC 8785 canonical JSON with complete
+  owner bytes in hexadecimal; strict readers rebuild the expected record from
+  independent inputs and compare bytes.
+- Bridge limits are seven caller counters charged before work; owner work stays
+  under the owners' limits, with byte ceilings lowered to `max_bytes`.
+
+## Build Order
+
+| Order | Part | Repository | Work item |
+| --- | --- | --- | --- |
+| 1 | FR-350, TC-461 and this description | `quire-contract-ir` | IR-1005 specification |
+| 2 | IT-022 integration scenarios and their TC | `quire-integration` | IR-1005 specification (integration) |
+| 3 | `RequestInput` on the branch=main TL/QObs cohort | `quire-mltl` | IR-1377 |
+| 4 | public direct-predecessor bytes and `validate_supplied_predecessor` | `quire-mltl` | IR-1379 |
+| 5 | TL owner ruling that `ValidatedMappedResult` values are the TL result input | TL planning | TL-301 |
+| 6 | bridge definition, projection, join, readers and TC-461 tests | `quire-integration` | IR-1378 and IR-1005, one PR |
+| 7 | strict-coverage rows for FR-350 | `quire-contract-ir` | IR-1003 |
+
+## Risks
+
+- A valuation source other than `ValuationEvidence` could let TL and native
+  evaluate different cells; FR-350 names one source and TC-461 step 4 supplies
+  contradicting request maps.
+- A TL result constructed outside quire-mltl would bypass owner admission; the
+  bridge accepts only the constructor-private owner value.
+- Owner clock units the TL or observation owner cannot represent stop the
+  projection with the owner's typed refusal rather than a converted value.
