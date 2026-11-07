@@ -3,7 +3,7 @@
 
 //! Closed timed-model node wire shapes checked before identity validation.
 
-use super::graph_storage::GraphIndex;
+use super::graph_storage::{first_positions, GraphIndex, SortedTable};
 use super::model_members::{
     Budget, CollectionKind, DomainModel, FieldDecl, MemberKind, ModelFailure, ModelOwners,
     Resolved, SelectedTypeRef,
@@ -24,12 +24,29 @@ fn malformed(at: JsonPointer) -> ValidationFailure {
     ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
 }
 
+/// The selected model of a package identity.
+pub(super) trait ModelLookup {
+    fn model(&self, identity: &str) -> Option<&DomainModel>;
+}
+
+impl ModelLookup for BTreeMap<&str, &DomainModel> {
+    fn model(&self, identity: &str) -> Option<&DomainModel> {
+        self.get(identity).copied()
+    }
+}
+
+impl ModelLookup for SortedTable<&str, &DomainModel> {
+    fn model(&self, identity: &str) -> Option<&DomainModel> {
+        self.get(&identity).copied()
+    }
+}
+
 /// A source Time has a declared nominal body; a selected model Time is
 /// identified by its FCD declaration and has no declaration or body terms.
 #[ix_trace_rs::string_edge]
 pub(super) fn is_base_time_dimension(
     node: &CheckedSemanticNodeV2,
-    models: &BTreeMap<&str, &DomainModel>,
+    models: &impl ModelLookup,
 ) -> bool {
     match node.owner.as_ref() {
         Some(CheckedNodeOwner::Model {
@@ -38,7 +55,7 @@ pub(super) fn is_base_time_dimension(
         }) => {
             node.declaration.is_none()
                 && models
-                    .get(identity.as_ref())
+                    .model(identity.as_ref())
                     .and_then(|model| model.dimensions.get(fcd_id))
                     .is_some_and(|dimension| dimension.name.as_ref() == "Time" && dimension.base)
         }
@@ -620,19 +637,68 @@ fn integer_value(term: &CheckedTerm) -> Option<u64> {
     }
 }
 
-fn scalar_text(term: &CheckedTerm) -> Option<String> {
+/// Whether the integer or text literal `term` spells `text`; a term that
+/// is neither (or an integer past `u64`) spells nothing.
+fn scalar_matches(term: Option<&CheckedTerm>, text: Option<&str>) -> bool {
     match term {
-        CheckedTerm::Literal {
+        Some(CheckedTerm::Literal {
             value_kind: LiteralKind::Integer,
             value,
             ..
-        } => Some(value.as_u64()?.to_string()),
-        CheckedTerm::Literal {
+        }) => match value.as_u64() {
+            Some(number) => text.is_some_and(|text| decimal_is(text, number)),
+            None => text.is_none(),
+        },
+        Some(CheckedTerm::Literal {
             value_kind: LiteralKind::Text,
             value,
             ..
-        } => value.as_str().map(str::to_owned),
-        _ => None,
+        }) => value.as_str() == text,
+        _ => text.is_none(),
+    }
+}
+
+/// Whether `text` is `number` in decimal, compared without rendering it.
+fn decimal_is(text: &str, number: u64) -> bool {
+    let mut digits = [0_u8; 20];
+    let mut at = digits.len();
+    let mut rest = number;
+    loop {
+        at -= 1;
+        digits[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    text.as_bytes() == &digits[at..]
+}
+
+/// Whether `text` is the concatenation of `parts`, compared without
+/// building it.
+fn concat_is(text: &str, parts: &[&str]) -> bool {
+    let mut rest = text;
+    for part in parts {
+        match rest.strip_prefix(part) {
+            Some(after) => rest = after,
+            None => return false,
+        }
+    }
+    rest.is_empty()
+}
+
+/// A qualified name written with `/` between its parts.
+struct Slashed<'a>(&'a [Box<str>]);
+
+impl std::fmt::Display for Slashed<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (at, part) in self.0.iter().enumerate() {
+            if at > 0 {
+                formatter.write_str("/")?;
+            }
+            formatter.write_str(part)?;
+        }
+        Ok(())
     }
 }
 
@@ -735,11 +801,17 @@ impl<'a> RenderedCollectionType<'a> {
     }
 }
 
+/// The rendered type of a declared field. The element's own rendering comes
+/// from `render`; each wrapper around it is written into a block charged
+/// first.
 fn declared_field_type(
     field: &FieldDecl,
     render: impl FnOnce(&SelectedTypeRef) -> Option<String>,
-) -> Option<String> {
-    let element = render(field.slot.type_ref.as_ref()?)?;
+    meter: &mut WorkMeter,
+) -> Result<Option<String>, ValidationFailure> {
+    let Some(element) = field.slot.type_ref.as_ref().and_then(render) else {
+        return Ok(None);
+    };
     let multiplicity = field.slot.multiplicity;
     let optional_clock_element = field.optional
         && matches!(
@@ -750,7 +822,9 @@ fn declared_field_type(
         )
         && (multiplicity.lower, multiplicity.upper) != (1, Some(1));
     let element = if optional_clock_element {
-        format!("Option<{element}>")
+        meter
+            .formatted(format_args!("Option<{element}>"))?
+            .into_string()
     } else {
         element
     };
@@ -763,13 +837,17 @@ fn declared_field_type(
             CollectionKind::Sequence => "Sequence",
             CollectionKind::OrderedSet => "OrderedSet",
         };
-        format!("{kind}<{element}>")
+        meter
+            .formatted(format_args!("{kind}<{element}>"))?
+            .into_string()
     };
-    Some(if field.optional && !optional_clock_element {
-        format!("Option<{value}>")
+    Ok(Some(if field.optional && !optional_clock_element {
+        meter
+            .formatted(format_args!("Option<{value}>"))?
+            .into_string()
     } else {
         value
-    })
+    }))
 }
 
 #[ix_trace_rs::string_edge]
@@ -827,37 +905,30 @@ fn check_resolved_path(
         return Err(fail(rows_at.key("members")));
     }
     let model_node = &graph.nodes[root_model];
-    let model_name = model_node
-        .declaration
-        .as_ref()
-        .map(|declaration| {
-            declaration
-                .qualified_name
-                .iter()
-                .map(|part| part.as_ref())
-                .collect::<Vec<_>>()
-                .join("/")
-        })
-        .or_else(|| match model_node.owner.as_ref() {
-            Some(CheckedNodeOwner::Model { node, .. }) => Some(node.to_string()),
+    let model_name: Option<Word<'_>> = match model_node.declaration.as_ref() {
+        Some(declaration) => Some(match declaration.qualified_name.as_slice() {
+            [only] => Word::Borrowed(only),
+            parts => Word::Owned(meter.formatted(format_args!("{}", Slashed(parts)))?),
+        }),
+        None => match model_node.owner.as_ref() {
+            Some(CheckedNodeOwner::Model { node, .. }) => Some(Word::Borrowed(node)),
             _ => None,
-        });
+        },
+    };
     let mut expected_declaring = model_name;
     for (index, (step, row)) in steps.iter().zip(rows).enumerate() {
         let at = rows_at.clone().key("members").index(index);
         meter.charge(1, || at.clone())?;
         let step_kind = path_step_kind(step);
-        let parent_type = expected_declaring.clone();
+        let parent_type = expected_declaring.as_ref().map(Word::as_str);
         let declaring_expected = if step_kind == Some(PathStepKind::Slot) {
-            parent_type
-                .as_deref()
-                .and_then(|ty| match RenderedCollectionType::from_wire(ty) {
-                    RenderedCollectionType::Map(_) => Some(ty.to_owned()),
-                    RenderedCollectionType::OtherCollection(inner, _) => Some(inner.to_owned()),
-                    RenderedCollectionType::Other => None,
-                })
+            parent_type.and_then(|ty| match RenderedCollectionType::from_wire(ty) {
+                RenderedCollectionType::Map(_) => Some(ty),
+                RenderedCollectionType::OtherCollection(inner, _) => Some(inner),
+                RenderedCollectionType::Other => None,
+            })
         } else {
-            parent_type.clone()
+            parent_type
         };
         let step_index = bound(row, 0).and_then(integer_value);
         let declaring = text_member(row, 1);
@@ -867,7 +938,7 @@ fn check_resolved_path(
         let minimum = text_member(row, 5);
         let maximum = text_member(row, 6);
         if step_index != Some(index as u64)
-            || declaring != declaring_expected.as_deref()
+            || declaring != declaring_expected
             || identity.is_none()
             || member_type.is_none()
             || collection.is_none()
@@ -876,23 +947,26 @@ fn check_resolved_path(
         {
             return Err(fail(at));
         }
-        let expected_identity = match step_kind {
+        let declared = declaring.unwrap_or_default();
+        let identity_matches = identity.is_some_and(|identity| match step_kind {
             Some(PathStepKind::Field) => {
-                text_member(step, 1).map(|name| format!("{}/{name}", declaring.unwrap_or_default()))
+                text_member(step, 1).is_some_and(|name| concat_is(identity, &[declared, "/", name]))
             }
             Some(PathStepKind::Tuple) => text_member(step, 1)
-                .map(|slot| format!("{}/tuple/{slot}", declaring.unwrap_or_default())),
+                .is_some_and(|slot| concat_is(identity, &[declared, "/tuple/", slot])),
             Some(PathStepKind::Union) => text_member(step, 1)
-                .map(|case| format!("{}/union/{case}", declaring.unwrap_or_default())),
-            Some(PathStepKind::Slot) => parent_type.as_ref().map(|name| format!("{name}[slot]")),
-            _ => None,
-        };
+                .is_some_and(|case| concat_is(identity, &[declared, "/union/", case])),
+            Some(PathStepKind::Slot) => {
+                parent_type.is_some_and(|name| concat_is(identity, &[name, "[slot]"]))
+            }
+            _ => false,
+        });
         if step_kind == Some(PathStepKind::Field) {
             let path_at = binding_at(position, 1).key("members").index(index);
             let model_owner = owners
                 .recover(model_node)
                 .map_err(|_| fail(path_at.clone()))?;
-            let declaration = expected_declaring.as_deref().unwrap_or_default();
+            let declaration = parent_type.unwrap_or_default();
             let mut budget =
                 Budget::new(meter, model_owner.package.root, model_owner.package.bytes);
             let resolved = model_owner
@@ -911,9 +985,11 @@ fn check_resolved_path(
                 return Err(fail(at));
             };
             let actual_declaring = field.identity.rsplit_once('/').map(|(owner, _)| owner);
-            let actual_type = declared_field_type(field, |reference| {
-                model_owner.package.clock_type_name(reference)
-            })
+            let actual_type = declared_field_type(
+                field,
+                |reference| model_owner.package.clock_type_name(reference),
+                meter,
+            )?
             .ok_or_else(|| fail(at.clone()))?;
             if actual_declaring != declaring
                 || Some(field.identity.as_ref()) != identity
@@ -927,35 +1003,30 @@ fn check_resolved_path(
                     .strip_prefix("Option<")
                     .and_then(|inner| inner.strip_suffix('>'))
                     .unwrap_or(&actual_type);
+                let exact_one = (multiplicity.lower, multiplicity.upper) == (1, Some(1));
+                // The collection form and the bounds the slot must spell.
                 let expected = match RenderedCollectionType::from_wire(unwrapped) {
-                    RenderedCollectionType::Map(_)
-                        if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) =>
-                    {
-                        Some(("map", "0".to_owned(), "unbounded".to_owned()))
-                    }
-                    _ if (multiplicity.lower, multiplicity.upper) != (1, Some(1)) => {
-                        let kind =
-                            CollectionKind::of(multiplicity.ordered, multiplicity.unique).form();
-                        Some((
-                            kind,
-                            multiplicity.lower.to_string(),
-                            multiplicity
-                                .upper
-                                .map_or_else(|| "unbounded".to_owned(), |upper| upper.to_string()),
-                        ))
-                    }
+                    RenderedCollectionType::Map(_) if exact_one => Some(("map", 0, None)),
+                    _ if !exact_one => Some((
+                        CollectionKind::of(multiplicity.ordered, multiplicity.unique).form(),
+                        multiplicity.lower,
+                        multiplicity.upper,
+                    )),
                     _ => None,
                 };
-                if expected.as_ref().is_none_or(|(kind, lower, upper)| {
-                    collection != Some(*kind)
-                        || minimum != Some(lower.as_str())
-                        || maximum != Some(upper.as_str())
+                if expected.is_none_or(|(kind, lower, upper)| {
+                    collection != Some(kind)
+                        || !minimum.is_some_and(|text| decimal_is(text, lower))
+                        || !match upper {
+                            None => maximum == Some("unbounded"),
+                            Some(upper) => maximum.is_some_and(|text| decimal_is(text, upper)),
+                        }
                 }) {
                     return Err(fail(at));
                 }
             }
         }
-        if expected_identity.as_deref() != identity {
+        if !identity_matches {
             return Err(fail(at));
         }
         if step_kind == Some(PathStepKind::Slot) {
@@ -965,7 +1036,7 @@ fn check_resolved_path(
                 .and_then(|target| graph.index.get(target).copied())
                 .and_then(|position| graph.kinds.get(position).copied());
             if !selector_fits(
-                parent_type.as_deref().unwrap_or_default(),
+                parent_type.unwrap_or_default(),
                 text_member(step, 1).unwrap_or_default(),
                 member_type.unwrap_or_default(),
                 selector_kind,
@@ -977,18 +1048,16 @@ fn check_resolved_path(
         if next_kind == Some(PathStepKind::Slot) {
             let next = &steps[index + 1];
             let expected_collection = text_member(next, 1);
-            let expected_minimum = bound(next, 3).and_then(scalar_text);
-            let expected_maximum = bound(next, 4).and_then(scalar_text);
             if collection != expected_collection
-                || minimum.map(str::to_owned) != expected_minimum
-                || maximum.map(str::to_owned) != expected_maximum
+                || !scalar_matches(bound(next, 3), minimum)
+                || !scalar_matches(bound(next, 4), maximum)
             {
                 return Err(fail(at));
             }
         } else if collection != Some("none") || minimum != Some("") || maximum != Some("") {
             return Err(fail(at));
         }
-        expected_declaring = member_type.map(str::to_owned);
+        expected_declaring = member_type.map(Word::Borrowed);
     }
     if !rows
         .last()
@@ -1212,21 +1281,23 @@ impl Graph<'_> {
         let slots = bound(body, slots_binding)
             .map(typed_members)
             .unwrap_or_default();
-        let selectors = bound(place_body, 1)
-            .map(typed_members)
-            .unwrap_or_default()
-            .iter()
-            .filter(|step| path_step_kind(step) == Some(PathStepKind::Slot))
-            .filter_map(|step| bound(step, 2).and_then(typed_target))
-            .collect::<Vec<_>>();
-        if slots.len() != selectors.len() {
+        // Walked twice (count, then pair) instead of collected.
+        let selectors = || {
+            bound(place_body, 1)
+                .map(typed_members)
+                .unwrap_or_default()
+                .iter()
+                .filter(|step| path_step_kind(step) == Some(PathStepKind::Slot))
+                .filter_map(|step| bound(step, 2).and_then(typed_target))
+        };
+        if slots.len() != selectors().count() {
             return Err(self.type_issue(
                 position,
                 Cause::OperatorIneligible,
                 binding_at(position, slots_binding),
             ));
         }
-        for (index, (slot, selector)) in slots.iter().zip(selectors).enumerate() {
+        for (index, (slot, selector)) in slots.iter().zip(selectors()).enumerate() {
             let at = binding_at(position, slots_binding)
                 .key("members")
                 .index(index);
@@ -1340,7 +1411,8 @@ fn same_place_path(
     meter: &mut WorkMeter,
     at: &JsonPointer,
 ) -> Result<bool, ValidationFailure> {
-    let mut pending = vec![(left, right)];
+    let mut pending = meter.vec(1)?;
+    pending.push((left, right));
     while let Some((left, right)) = pending.pop() {
         meter.charge(1, || at.clone())?;
         match (left, right) {
@@ -1351,6 +1423,7 @@ fn same_place_path(
                 if left.len() != right.len() {
                     return Ok(false);
                 }
+                meter.room(&mut pending, left.len())?;
                 pending.extend(left.iter().zip(right));
             }
             (
@@ -1366,7 +1439,7 @@ fn same_place_path(
                 if left_name != right_name {
                     return Ok(false);
                 }
-                pending.push((left, right));
+                meter.push(&mut pending, (&**left, &**right))?;
             }
             _ if left != right => return Ok(false),
             _ => {}
@@ -1389,16 +1462,21 @@ fn is_quantified_binders(term: Option<&CheckedTerm>) -> bool {
 }
 
 #[ix_trace_rs::string_edge]
-fn extend_place_slots<'a>(slots: &mut Vec<&'a CheckedNodeId>, constraint: &'a CheckedTerm) {
+fn extend_place_slots<'a>(
+    slots: &mut Vec<&'a CheckedNodeId>,
+    constraint: &'a CheckedTerm,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
     if bound(constraint, 0).and_then(spelling) == Some("place") {
-        slots.extend(
-            bound(constraint, 3)
-                .map(typed_members)
-                .unwrap_or_default()
-                .iter()
-                .filter_map(typed_target),
-        );
+        let more = bound(constraint, 3)
+            .map(typed_members)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(typed_target);
+        meter.room(slots, more.clone().count())?;
+        slots.extend(more);
     }
+    Ok(())
 }
 
 fn check_quantified_binders(
@@ -1412,11 +1490,10 @@ fn check_quantified_binders(
     let Some(binders) = binders else {
         return Ok(());
     };
-    let mut slot_positions = BTreeMap::new();
-    for (index, slot) in slots.iter().enumerate() {
-        meter.charge(1, || at.clone())?;
-        slot_positions.entry(*slot).or_insert(index);
-    }
+    meter.charge(u64::try_from(slots.len()).unwrap_or(u64::MAX), || {
+        at.clone()
+    })?;
+    let slot_positions = first_positions(slots.iter().copied(), meter)?;
     let mut previous_slot = None;
     for (index, binder) in typed_members(binders).iter().enumerate() {
         let binder_at = at.clone().key("members").index(index).key("target");
@@ -1424,7 +1501,7 @@ fn check_quantified_binders(
         let target = graph.target(position, Some(binder), binder_at.clone(), |kind| {
             kind == CheckedNodeKind::Value(ValueForm::Parameter)
         })?;
-        let Some(&slot_index) = slot_positions.get(&graph.nodes[target].node_id) else {
+        let Some(&slot_index) = slot_positions.get(&&graph.nodes[target].node_id) else {
             return Err(graph.issue(
                 position,
                 CheckedPackageRefusalCause::TimedNodeReference,
@@ -2290,42 +2367,66 @@ pub(super) fn validate_models<'a>(
     };
     // Index selected FCD packages once; looking one up for each timed root
     // must not rescan every selected document.
-    let models_by_identity: BTreeMap<&str, &DomainModel> = models
-        .iter()
-        .map(|model| (model.identity.as_ref(), model))
-        .collect();
-    let mut roots = Vec::new();
-    let mut represented = BTreeSet::new();
-    let mut root_of = BTreeMap::new();
+    // Of two models with one identity the later one is kept, as a map built
+    // by insertion would hold; the slice address orders them.
+    let mut identified = meter.vec::<(&str, &DomainModel)>(models.len())?;
+    identified.extend(models.iter().map(|model| (model.identity.as_ref(), model)));
+    let models_by_identity = SortedTable::from_vec(identified, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    });
+    let root_count = index
+        .values()
+        .filter(|&&position| kinds.get(position) == Some(&CheckedNodeKind::TimedModel(Form::Model)))
+        .count();
+    let mut roots: Vec<usize> = meter.vec(root_count)?;
+    // Each root names itself and every member node of its bindings.
+    let mut named = root_count;
+    for &position in index.values() {
+        if kinds.get(position) != Some(&CheckedNodeKind::TimedModel(Form::Model)) {
+            continue;
+        }
+        for member in typed_members(graph.body(position)?).iter().skip(2) {
+            if let CheckedTerm::Binding { value, .. } = member {
+                named = named
+                    .saturating_add(usize::from(typed_target(value).is_some()))
+                    .saturating_add(typed_members(value).iter().filter_map(typed_target).count());
+            }
+        }
+    }
+    let mut represented = meter.vec::<&CheckedNodeId>(named)?;
+    // The root a node belongs to, by position; `usize::MAX` for none.
+    let mut root_of = meter.filled(nodes.len(), usize::MAX)?;
     for &position in index.values() {
         if kinds.get(position) != Some(&CheckedNodeKind::TimedModel(Form::Model)) {
             continue;
         }
         let body = graph.body(position)?;
         roots.push(position);
-        represented.insert(&nodes[position].node_id);
-        root_of.insert(position, position);
+        represented.push(&nodes[position].node_id);
+        root_of[position] = position;
         for (member_index, member) in typed_members(body).iter().enumerate().skip(2) {
             meter.charge(1, || binding_at(position, member_index))?;
             let CheckedTerm::Binding { value, .. } = member else {
                 continue;
             };
             if let Some(key) = typed_target(value) {
-                represented.insert(key);
+                represented.push(key);
                 if let Some(&child) = index.get(key) {
-                    root_of.insert(child, position);
+                    root_of[child] = position;
                 }
             }
             for child in typed_members(value) {
                 if let Some(key) = typed_target(child) {
-                    represented.insert(key);
+                    represented.push(key);
                     if let Some(&child) = index.get(key) {
-                        root_of.insert(child, position);
+                        root_of[child] = position;
                     }
                 }
             }
         }
     }
+    represented.sort_unstable();
+    represented.dedup();
     if !roots.is_empty() {
         check_timed_reference_order(&graph, source_map, meter)?;
     }
@@ -2340,7 +2441,10 @@ pub(super) fn validate_models<'a>(
                 JsonPointer::root().key("semantic_graph").key("nodes"),
             ));
         }
-        if !represented.contains(&nodes[position].node_id) {
+        if represented
+            .binary_search(&&nodes[position].node_id)
+            .is_err()
+        {
             return Err(graph.issue(
                 position,
                 Cause::TimedNodeReference,
@@ -2354,7 +2458,10 @@ pub(super) fn validate_models<'a>(
         };
         meter.charge(1, || node_pointer(position))?;
         let body = graph.body(position)?;
-        let root = root_of.get(&position).copied().unwrap_or(position);
+        let root = match root_of[position] {
+            usize::MAX => position,
+            root => root,
+        };
         let root_body = graph.body(root)?;
         let root_model = graph.target(
             root,
@@ -2441,7 +2548,8 @@ pub(super) fn validate_models<'a>(
                     let children = bound(body, member_index)
                         .map(typed_members)
                         .unwrap_or_default();
-                    let mut seen_places: Vec<(&CheckedNodeId, &CheckedTerm)> = Vec::new();
+                    let mut seen_places: Vec<(&CheckedNodeId, &CheckedTerm)> =
+                        meter.vec(children.len())?;
                     for (child_index, child) in children.iter().enumerate() {
                         let at = binding_at(position, member_index)
                             .key("members")
@@ -2719,6 +2827,7 @@ pub(super) fn validate_models<'a>(
                         1
                     };
                     let mut slots = Vec::new();
+
                     for (constraint_index, constraint) in typed_members(part)
                         .iter()
                         .enumerate()
@@ -2734,7 +2843,7 @@ pub(super) fn validate_models<'a>(
                                 kind == CheckedNodeKind::TimedModel(Form::Constraint)
                             })?;
                         let constraint_body = graph.body(target)?;
-                        extend_place_slots(&mut slots, constraint_body);
+                        extend_place_slots(&mut slots, constraint_body, meter)?;
                         if bound(constraint_body, 0).and_then(spelling) == Some("parameter")
                             && bound(constraint_body, 1).and_then(typed_target)
                                 != Some(&nodes[anchor].node_id)
@@ -2766,6 +2875,7 @@ pub(super) fn validate_models<'a>(
                     1
                 };
                 let mut slots = Vec::new();
+
                 for (bound_index, constraint) in bound(body, bounds_index)
                     .map(typed_members)
                     .unwrap_or_default()
@@ -2780,7 +2890,7 @@ pub(super) fn validate_models<'a>(
                         kind == CheckedNodeKind::TimedModel(Form::Constraint)
                     })?;
                     let constraint_body = graph.body(target)?;
-                    extend_place_slots(&mut slots, constraint_body);
+                    extend_place_slots(&mut slots, constraint_body, meter)?;
                     if bound(constraint_body, 0).and_then(spelling) != Some("place")
                         || !matches!(
                             bound(constraint_body, 4).and_then(spelling),
@@ -2814,21 +2924,22 @@ pub(super) fn validate_models<'a>(
     }
     for &root in &roots {
         let body = graph.body(root)?;
-        let mut anchors = BTreeSet::new();
-        let mut used_constraints = BTreeSet::new();
-        let listed_constraints: BTreeSet<_> = bound(body, 8)
-            .map(typed_members)
-            .unwrap_or_default()
-            .iter()
-            .filter_map(typed_target)
-            .collect();
+        let guards = bound(body, 5).map(typed_members).unwrap_or_default();
+        let mut anchors: Vec<&CheckedNodeId> = meter.vec(guards.len())?;
+        let mut used_constraints: Vec<&CheckedNodeId> = Vec::new();
+        let listed = bound(body, 8).map(typed_members).unwrap_or_default();
+        let mut listed_constraints: Vec<&CheckedNodeId> =
+            meter.vec(listed.iter().filter_map(typed_target).count())?;
+        listed_constraints.extend(listed.iter().filter_map(typed_target));
+        listed_constraints.sort_unstable();
+        listed_constraints.dedup();
         for guard in bound(body, 5).map(typed_members).unwrap_or_default() {
             let Some(&guard) = typed_target(guard).and_then(|id| index.get(id)) else {
                 continue;
             };
             let guard_body = graph.body(guard)?;
             if let Some(anchor) = bound(guard_body, 0).and_then(typed_target) {
-                if !anchors.insert(anchor) {
+                if !meter.insert_sorted(&mut anchors, anchor)? {
                     return Err(graph.issue(
                         guard,
                         Cause::TimedNodeReference,
@@ -2853,7 +2964,7 @@ pub(super) fn validate_models<'a>(
                     .skip(first_constraint)
                 {
                     if let Some(target) = typed_target(member) {
-                        if !listed_constraints.contains(target) {
+                        if listed_constraints.binary_search(&target).is_err() {
                             return Err(graph.issue(
                                 guard,
                                 Cause::TimedNodeReference,
@@ -2865,7 +2976,7 @@ pub(super) fn validate_models<'a>(
                                     .key("target"),
                             ));
                         }
-                        used_constraints.insert(target);
+                        meter.insert_sorted(&mut used_constraints, target)?;
                     }
                 }
             }
@@ -2887,7 +2998,7 @@ pub(super) fn validate_models<'a>(
                 .enumerate()
             {
                 if let Some(target) = typed_target(member) {
-                    if !listed_constraints.contains(target) {
+                    if listed_constraints.binary_search(&target).is_err() {
                         return Err(graph.issue(
                             invariant,
                             Cause::TimedNodeReference,
@@ -2897,7 +3008,7 @@ pub(super) fn validate_models<'a>(
                                 .key("target"),
                         ));
                     }
-                    used_constraints.insert(target);
+                    meter.insert_sorted(&mut used_constraints, target)?;
                 }
             }
         }
@@ -2907,7 +3018,9 @@ pub(super) fn validate_models<'a>(
             .iter()
             .enumerate()
         {
-            if typed_target(constraint).is_some_and(|target| !used_constraints.contains(target)) {
+            if typed_target(constraint)
+                .is_some_and(|target| used_constraints.binary_search(&target).is_err())
+            {
                 return Err(graph.issue(
                     root,
                     Cause::TimedNodeReference,
@@ -3117,12 +3230,17 @@ mod tests {
             redefines: None,
         };
         assert_eq!(
-            declared_field_type(&field, |reference| match reference {
-                SelectedTypeRef::Native(NativeTypeRef::Clock) => {
-                    Some("ix://quire/native/Clock".to_owned())
-                }
-                _ => None,
-            })
+            declared_field_type(
+                &field,
+                |reference| match reference {
+                    SelectedTypeRef::Native(NativeTypeRef::Clock) => {
+                        Some("ix://quire/native/Clock".to_owned())
+                    }
+                    _ => None,
+                },
+                &mut WorkMeter::new(u64::MAX)
+            )
+            .unwrap()
             .as_deref(),
             Some("Option<ix://quire/native/Clock>")
         );
@@ -3134,12 +3252,17 @@ mod tests {
             unique: false,
         };
         assert_eq!(
-            declared_field_type(&field, |reference| match reference {
-                SelectedTypeRef::Native(NativeTypeRef::Clock) => {
-                    Some("ix://quire/native/Clock".to_owned())
-                }
-                _ => None,
-            })
+            declared_field_type(
+                &field,
+                |reference| match reference {
+                    SelectedTypeRef::Native(NativeTypeRef::Clock) => {
+                        Some("ix://quire/native/Clock".to_owned())
+                    }
+                    _ => None,
+                },
+                &mut WorkMeter::new(u64::MAX)
+            )
+            .unwrap()
             .as_deref(),
             Some("Sequence<ix://quire/native/Clock>")
         );
@@ -3283,5 +3406,75 @@ mod tests {
         assert!(compare_under(spent, true).0.is_ok());
         let (denied, _) = compare_under(spent - 1, true);
         assert!(matches!(denied, Err(ValidationFailure::Budget(_))));
+    }
+
+    /// The wrappers of a declared field's type are written into blocks
+    /// charged first: denied one byte short, admitted at exactly what the
+    /// run consumed (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn declared_field_type_wrappers_are_charged_before_they_are_written() {
+        use super::super::model_members::{Multiplicity, NativeTypeRef, TypedSlot};
+        let field = FieldDecl {
+            identity: "ix://acme/orders/Order/v".into(),
+            slot: TypedSlot {
+                name: Some("v".into()),
+                type_ref: Some(SelectedTypeRef::Native(NativeTypeRef::Clock)),
+                multiplicity: Multiplicity {
+                    lower: 0,
+                    upper: Some(3),
+                    ordered: true,
+                    unique: false,
+                },
+            },
+            optional: true,
+            redefines: None,
+        };
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            let rendered = declared_field_type(
+                &field,
+                |_| Some("ix://quire/native/Clock".to_owned()),
+                &mut meter,
+            );
+            drop(meter);
+            (rendered, budget.read_storage_consumed())
+        };
+        let (rendered, spent) = run(u64::MAX);
+        assert_eq!(
+            rendered.unwrap().as_deref(),
+            Some("Sequence<Option<ix://quire/native/Clock>>")
+        );
+        assert!(spent > 0);
+        assert!(run(spent).0.is_ok());
+        assert!(matches!(
+            run(spent - 1).0,
+            Err(ValidationFailure::Budget(_))
+        ));
+    }
+
+    /// The comparisons that replaced rendering a string to compare with
+    /// agree with the rendering they replaced.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn unrendered_comparisons_agree_with_the_rendering_they_replace() {
+        for number in [0_u64, 7, 10, 99, 100, 12345, u64::MAX] {
+            assert!(decimal_is(&number.to_string(), number));
+            assert!(!decimal_is(&(number / 2 + 1).to_string(), number) || number / 2 + 1 == number);
+        }
+        assert!(!decimal_is("", 0) && !decimal_is("00", 0) && !decimal_is("-1", 1));
+        assert!(concat_is("a/b/c", &["a", "/", "b/c"]) && concat_is("", &[]));
+        assert!(!concat_is("a/b", &["a", "/"]) && !concat_is("a", &["a", "b"]));
+        let integer = |value| CheckedTerm::Literal {
+            type_id: node("t"),
+            value_kind: LiteralKind::Integer,
+            value,
+        };
+        assert!(scalar_matches(Some(&integer(json!(12))), Some("12")));
+        assert!(!scalar_matches(Some(&integer(json!(12))), Some("012")));
+        assert!(!scalar_matches(Some(&integer(json!(12))), None));
+        assert!(scalar_matches(Some(&integer(json!("x"))), None));
+        assert!(scalar_matches(None, None) && !scalar_matches(None, Some("")));
     }
 }

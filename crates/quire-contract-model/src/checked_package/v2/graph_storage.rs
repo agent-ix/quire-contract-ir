@@ -165,6 +165,23 @@ impl<'b> WorkMeter<'b> {
         Ok(())
     }
 
+    /// Puts `item` into the sorted `items`, growing a full vector under the
+    /// meter; `false` when an equal item was already there.
+    pub(super) fn insert_sorted<T: Ord>(
+        &mut self,
+        items: &mut Vec<T>,
+        item: T,
+    ) -> Result<bool, ValidationFailure> {
+        match items.binary_search(&item) {
+            Ok(_) => Ok(false),
+            Err(at) => {
+                self.room(items, 1)?;
+                items.insert(at, item);
+                Ok(true)
+            }
+        }
+    }
+
     /// The order of two node ids. A comparison nested past the inline stack
     /// asks for its spill here, so the block is charged before it is made.
     pub(super) fn compare_ids(
@@ -593,11 +610,12 @@ pub(super) struct SortedTable<K, V> {
 
 impl<K: Ord, V> SortedTable<K, V> {
     /// Builds the table from `entries` held in an exact-capacity vector the
-    /// caller charged; a repeated key keeps its first entry in `entries`
-    /// order.
-    pub(super) fn from_vec(mut entries: Vec<(K, V)>) -> Self {
-        // A stable sort keeps the first of equal keys first.
-        entries.sort_by(|left, right| left.0.cmp(&right.0));
+    /// caller charged. Of entries with one key, the one `tie` orders first
+    /// is kept. The sort is in place (never a stable sort's scratch block).
+    pub(super) fn from_vec(mut entries: Vec<(K, V)>, tie: impl Fn(&V, &V) -> Ordering) -> Self {
+        entries.sort_unstable_by(|left, right| {
+            left.0.cmp(&right.0).then_with(|| tie(&left.1, &right.1))
+        });
         entries.dedup_by(|later, earlier| later.0 == earlier.0);
         Self {
             entries: entries.into_boxed_slice(),
@@ -627,6 +645,19 @@ impl<K: Ord, V> SortedTable<K, V> {
     pub(super) fn iter(&self) -> impl Iterator<Item = &(K, V)> + '_ {
         self.entries.iter()
     }
+}
+
+/// The position of the first of each distinct key of `keys`, as a sorted
+/// exact-capacity table (charged first).
+pub(super) fn first_positions<K: Ord>(
+    keys: impl ExactSizeIterator<Item = K>,
+    meter: &mut WorkMeter,
+) -> Result<SortedTable<K, usize>, ValidationFailure> {
+    let mut entries = meter.vec::<(K, usize)>(keys.len())?;
+    entries.extend(keys.enumerate().map(|(position, key)| (key, position)));
+    Ok(SortedTable::from_vec(entries, |left, right| {
+        left.cmp(right)
+    }))
 }
 
 /// The index of the first key of `keys` equal to an earlier one, found by

@@ -441,7 +441,7 @@ pub(super) fn validate_bodies(
     models: &[super::model_members::DomainModel],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let models = models
+    let models: std::collections::BTreeMap<&str, &super::model_members::DomainModel> = models
         .iter()
         .map(|model| (model.identity.as_ref(), model))
         .collect();
