@@ -19,7 +19,6 @@ use crate::checked_package::shared::{
 };
 use ix_trace_rs::string_edge;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
 
 /// The activation selected by an admitted protocol clause.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -536,33 +535,73 @@ fn reference_set_is_ordered(term: &CheckedTerm) -> bool {
     })
 }
 
-fn related_records_are_ordered(term: &CheckedTerm, bytes: u64) -> bool {
-    let Some(records) = members(term) else {
-        return false;
+/// The canonical bytes of `term` within `bytes`, in a block of exactly their
+/// length charged before it is requested; `None` when the term has no
+/// canonical encoding within the bound. The length is counted by encoding
+/// into nothing first.
+fn canonical_term_bytes(
+    term: &CheckedTerm,
+    bytes: u64,
+    meter: &mut WorkMeter,
+) -> Result<Option<Vec<u8>>, ValidationFailure> {
+    struct Count(u64);
+    impl quire_canonical::Sink for Count {
+        fn write_bytes(&mut self, bytes: &[u8]) -> Result<(), quire_canonical::Error> {
+            self.0 = self.0.saturating_add(bytes.len() as u64);
+            Ok(())
+        }
+    }
+    let limits = quire_canonical::Limits::new(bytes);
+    let mut count = Count(0);
+    if quire_canonical::encode(&mut count, term, limits).is_err() {
+        return Ok(None);
+    }
+    let Ok(length) = usize::try_from(count.0) else {
+        return Ok(None);
     };
-    let mut previous: Option<(CheckedNodeId, Vec<u8>, Vec<u8>)> = None;
+    meter.reserve(length)?;
+    let mut encoded = Vec::with_capacity(length);
+    Ok(quire_canonical::encode(&mut encoded, term, limits)
+        .is_ok()
+        .then_some(encoded))
+}
+
+fn related_records_are_ordered(
+    term: &CheckedTerm,
+    bytes: u64,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let Some(records) = members(term) else {
+        return Ok(false);
+    };
+    let mut previous: Option<(&CheckedNodeId, Vec<u8>, Vec<u8>)> = None;
     for record in records {
         let Some([relationship, from, to]) = named_fields(record, &["relationship", "from", "to"])
             .and_then(|fields| <[_; 3]>::try_from(fields).ok())
         else {
-            return false;
+            return Ok(false);
         };
         let Some(relationship) = reference_target(relationship) else {
-            return false;
+            return Ok(false);
         };
-        let Ok(from) = quire_canonical::to_vec(from, quire_canonical::Limits::new(bytes)) else {
-            return false;
+        let Some(from) = canonical_term_bytes(from, bytes, meter)? else {
+            return Ok(false);
         };
-        let Ok(to) = quire_canonical::to_vec(to, quire_canonical::Limits::new(bytes)) else {
-            return false;
+        let Some(to) = canonical_term_bytes(to, bytes, meter)? else {
+            return Ok(false);
         };
-        let key = (relationship.clone(), from, to);
-        if previous.as_ref().is_some_and(|previous| previous >= &key) {
-            return false;
+        if let Some((held, held_from, held_to)) = &previous {
+            let order = meter
+                .compare_ids(held, relationship)?
+                .then_with(|| held_from.cmp(&from))
+                .then_with(|| held_to.cmp(&to));
+            if order.is_ge() {
+                return Ok(false);
+            }
         }
-        previous = Some(key);
+        previous = Some((relationship, from, to));
     }
-    true
+    Ok(true)
 }
 
 fn argument(arguments: &[CheckedTerm], position: usize) -> Option<&CheckedTerm> {
@@ -970,20 +1009,22 @@ fn validate_related_order(
     operator: &str,
     arguments: &[CheckedTerm],
     bytes: u64,
-) -> Result<(), ProtocolBodyDefect> {
+    meter: &mut WorkMeter,
+) -> Result<Option<ProtocolBodyDefect>, ValidationFailure> {
     let related = match (form, operator) {
         (ProtocolForm::Control, "send" | "effect") => Some(2),
         (ProtocolForm::Control, "receive" | "event") => Some(3),
         (ProtocolForm::Control, "attempt") => Some(5),
         _ => None,
     };
-    if related.is_some_and(|ordinal| {
-        argument(arguments, ordinal)
-            .is_none_or(|records| !related_records_are_ordered(records, bytes))
-    }) {
-        return Err(ProtocolBodyDefect::NoncanonicalSet);
-    }
-    Ok(())
+    let Some(ordinal) = related else {
+        return Ok(None);
+    };
+    let ordered = match argument(arguments, ordinal) {
+        Some(records) => related_records_are_ordered(records, bytes, meter)?,
+        None => false,
+    };
+    Ok((!ordered).then_some(ProtocolBodyDefect::NoncanonicalSet))
 }
 
 /// Strict-wire subset: known operators' fixed shapes, before any graph step.
@@ -1190,7 +1231,13 @@ pub(super) fn validate_protocol_body(
 ) -> Result<(), ProtocolBodyDefect> {
     let (operator, arguments) = validate_envelope(form, body, semantic_type, selected_profile)?;
     validate_layout(form, operator, arguments)?;
-    validate_related_order(form, operator, arguments, bytes)
+    // This view is not on the read path: its own unmetered meter.
+    let mut meter = WorkMeter::new(u64::MAX);
+    match validate_related_order(form, operator, arguments, bytes, &mut meter) {
+        Ok(None) => Ok(()),
+        Ok(Some(defect)) => Err(defect),
+        Err(_) => Err(ProtocolBodyDefect::NoncanonicalSet),
+    }
 }
 
 fn body_defect(
@@ -1255,8 +1302,16 @@ fn validate_protocol_declaration_names(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut holders: BTreeMap<&[Box<str>], bool> = BTreeMap::new();
+    // Declared names in order, each with whether a protocol holds it.
+    meter.at_node(0, "protocol");
+    let mut holders: Vec<(&[Box<str>], bool)> = meter.vec(
+        nodes
+            .iter()
+            .filter(|node| node.declaration.is_some())
+            .count(),
+    )?;
     for &position in index.values() {
         if matches!(
             kinds.get(position),
@@ -1271,7 +1326,9 @@ fn validate_protocol_declaration_names(
         };
         let name = declaration.qualified_name.as_slice();
         let protocol = matches!(kinds.get(position), Some(CheckedNodeKind::Protocol(_)));
-        if let Some(&previous_protocol) = holders.get(name) {
+        let held = holders.binary_search_by(|(held, _)| (*held).cmp(name));
+        if let Ok(previous) = held {
+            let previous_protocol = holders[previous].1;
             if protocol || previous_protocol {
                 return Err(ValidationFailure::refused_at(
                     Code::AmbiguousDeclaration,
@@ -1282,8 +1339,8 @@ fn validate_protocol_declaration_names(
                     nodes[position].node_id.clone(),
                 ));
             }
-        } else {
-            holders.insert(name, protocol);
+        } else if let Err(at) = held {
+            holders.insert(at, (name, protocol));
         }
     }
     Ok(())
@@ -1317,12 +1374,15 @@ fn listed_targets(term: &CheckedTerm) -> impl Iterator<Item = &CheckedNodeId> {
 }
 
 #[string_edge]
-fn control_children<'a>(operator: &str, arguments: &'a [CheckedTerm]) -> Vec<&'a CheckedNodeId> {
-    let mut children = Vec::new();
+fn visit_control_children<'a>(
+    operator: &str,
+    arguments: &'a [CheckedTerm],
+    children: &mut impl FnMut(&'a CheckedNodeId),
+) {
     match operator {
         "sequence" => {
             if let Some(value) = binding_value(arguments, "children") {
-                children.extend(listed_targets(value));
+                listed_targets(value).for_each(&mut *children);
             }
         }
         "choice" | "parallel" => {
@@ -1337,29 +1397,50 @@ fn control_children<'a>(operator: &str, arguments: &'a [CheckedTerm]) -> Vec<&'a
                         .and_then(|fields| binding_value(fields, "body"))
                         .and_then(reference_target)
                     {
-                        children.push(target);
+                        children(target);
                     }
                 }
             }
         }
         "repeat" => {
             if let Some(target) = binding_value(arguments, "body").and_then(reference_target) {
-                children.push(target);
+                children(target);
             }
             if let Some(value) = binding_value(arguments, "exhausted") {
-                children.extend(listed_targets(value));
+                listed_targets(value).for_each(&mut *children);
             }
         }
         "await" => {
             for field in ["event", "then", "timeout"] {
                 if let Some(target) = binding_value(arguments, field).and_then(reference_target) {
-                    children.push(target);
+                    children(target);
                 }
             }
         }
         _ => {}
     }
-    children
+}
+
+/// The child control nodes of one control node as graph positions, in
+/// operand order, in a block sized by counting them first and charged before
+/// it is requested; a child outside the index is left out.
+fn control_positions(
+    operator: &str,
+    arguments: &[CheckedTerm],
+    index: &GraphIndex<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Vec<usize>, ValidationFailure> {
+    let mut count = 0_usize;
+    visit_control_children(operator, arguments, &mut |child| {
+        count += usize::from(index.get(child).is_some());
+    });
+    let mut children = meter.vec(count)?;
+    visit_control_children(operator, arguments, &mut |child| {
+        if let Some(&position) = index.get(child) {
+            children.push(position);
+        }
+    });
+    Ok(children)
 }
 
 fn declaration_defect(position: usize, node: &RawSemanticNodeV2) -> ValidationFailure {
@@ -1546,14 +1627,20 @@ impl MemberCheck<'_> {
         }
     }
 
-    fn equality_stable(&self, type_id: &CheckedNodeId) -> bool {
-        let mut pending = vec![type_id];
-        let mut visited = BTreeSet::new();
+    fn equality_stable(
+        &self,
+        type_id: &CheckedNodeId,
+        meter: &mut WorkMeter,
+    ) -> Result<bool, ValidationFailure> {
+        let mut pending = meter.vec(1)?;
+        pending.push(type_id);
+        let mut visited: Vec<usize> = Vec::new();
         while let Some(type_id) = pending.pop() {
+            meter.charge(1, || node_pointer(self.position))?;
             let Some(&position) = self.index.get(type_id) else {
-                return false;
+                return Ok(false);
             };
-            if !visited.insert(position) {
+            if !meter.insert_sorted(&mut visited, position)? {
                 continue;
             }
             match self.kinds[position] {
@@ -1571,16 +1658,16 @@ impl MemberCheck<'_> {
                 CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {}
                 CheckedNodeKind::CompositeType(_) => {
                     let Some(term) = self.terms[position].as_ref() else {
-                        return false;
+                        return Ok(false);
                     };
-                    if !collect_type_children(term, &mut pending) {
-                        return false;
+                    if !collect_type_children(term, &mut pending, meter)? {
+                        return Ok(false);
                     }
                 }
-                _ => return false,
+                _ => return Ok(false),
             }
         }
-        true
+        Ok(true)
     }
 
     fn same_clause(
@@ -1865,18 +1952,27 @@ impl std::fmt::Display for Numeral<'_> {
     }
 }
 
-fn collect_type_children<'a>(term: &'a CheckedTerm, pending: &mut Vec<&'a CheckedNodeId>) -> bool {
+fn collect_type_children<'a>(
+    term: &'a CheckedTerm,
+    pending: &mut Vec<&'a CheckedNodeId>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
     match term {
         CheckedTerm::Reference { target } => {
-            pending.push(target);
-            true
+            meter.push(pending, target)?;
+            Ok(true)
         }
-        CheckedTerm::Aggregate { members } => members
-            .iter()
-            .all(|member| collect_type_children(member, pending)),
-        CheckedTerm::Binding { value, .. } => collect_type_children(value, pending),
-        CheckedTerm::Literal { .. } => true,
-        _ => false,
+        CheckedTerm::Aggregate { members } => {
+            for member in members {
+                if !collect_type_children(member, pending, meter)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        CheckedTerm::Binding { value, .. } => collect_type_children(value, pending, meter),
+        CheckedTerm::Literal { .. } => Ok(true),
+        _ => Ok(false),
     }
 }
 
@@ -2175,12 +2271,9 @@ fn check_control_prefix(
             let operation = check.target_at(arguments, 1, |position| {
                 check.is(position, CheckedNodeKind::State(StateForm::OperationAnchor))
             })?;
-            let mut contracts = Vec::new();
-            for (ordinal, contract) in members(check.at(arguments, 3))
-                .expect("validated contracts")
-                .iter()
-                .enumerate()
-            {
+            let listed_contracts = members(check.at(arguments, 3)).expect("validated contracts");
+            let mut contracts = meter.vec(listed_contracts.len())?;
+            for (ordinal, contract) in listed_contracts.iter().enumerate() {
                 let path = check.argument_path(3).key("members").index(ordinal);
                 let clause = check.check_target(contract, path.clone(), |position| {
                     check.is(position, CheckedNodeKind::State(StateForm::StateClause))
@@ -2312,10 +2405,10 @@ fn check_control_prefix(
                 }
             }
             let mut previous: Option<&str> = None;
-            let mut labels = BTreeSet::new();
+            let mut labels: Vec<&str> = meter.vec(records.len())?;
             for record in records {
                 let label = argument_text(record, 0).expect("validated label");
-                if !labels.insert(label) {
+                if !meter.insert_sorted(&mut labels, label)? {
                     return Err(check.refuse(
                         Code::AmbiguousDeclaration,
                         Some(Cause::AmbiguousName),
@@ -2351,7 +2444,7 @@ fn check_control_prefix(
                 let mut prior: Option<&str> = None;
                 for (position, item) in joined.iter().enumerate() {
                     let label = text_value(item).expect("validated joined label");
-                    if !labels.contains(label) {
+                    if labels.binary_search(&label).is_err() {
                         return Err(check.refuse(
                             Code::MissingDeclaration,
                             Some(Cause::MissingName),
@@ -2472,7 +2565,7 @@ fn check_control_prefix(
                     CheckedProtocolRefusalDetail::Interval {
                         member: "within".into(),
                         expected: "closed interval with lower <= upper".into(),
-                        actual: format!("[{lower}, {upper}]").into(),
+                        actual: meter.formatted(format_args!("[{lower}, {upper}]"))?,
                     },
                 ));
             }
@@ -2547,7 +2640,7 @@ fn check_compensation(
         },
     )?;
     let retry = check.at(arguments, 10);
-    let mut retry_binders = Vec::with_capacity(2);
+    let mut retry_binders = [0_usize; 2];
     for (position, name) in ["earlier", "later"].into_iter().enumerate() {
         let binder = check.check_target(
             group_value(retry, name).expect("validated retry binder"),
@@ -2558,7 +2651,7 @@ fn check_compensation(
                 .key("value"),
             parameter,
         )?;
-        retry_binders.push(binder);
+        retry_binders[position] = binder;
     }
     if let Some(commit) = members(check.at(arguments, 11)).and_then(|items| items.first()) {
         check.check_target(
@@ -2670,7 +2763,7 @@ fn check_compensation(
             CheckedProtocolRefusalDetail::Interval {
                 member: "within".into(),
                 expected: "closed interval with lower <= upper".into(),
-                actual: format!("[{lower}, {upper}]").into(),
+                actual: meter.formatted(format_args!("[{lower}, {upper}]"))?,
             },
         ));
     }
@@ -2689,7 +2782,7 @@ fn check_compensation(
             CheckedProtocolRefusalDetail::Interval {
                 member: "attempts".into(),
                 expected: "count of at least one".into(),
-                actual: maximum.to_string().into(),
+                actual: meter.formatted(format_args!("{maximum}"))?,
             },
         ));
     }
@@ -2877,7 +2970,11 @@ fn check_member(
                 check.same_type(position, &check.nodes[carries].node_id)?;
                 let key = group_value(ordering, "key").expect("validated fifo");
                 let key_type = check.term_type(key);
-                if !key_type.is_some_and(|type_id| check.equality_stable(type_id)) {
+                let stable = match key_type {
+                    Some(type_id) => check.equality_stable(type_id, meter)?,
+                    None => false,
+                };
+                if !stable {
                     return Err(check.refuse(
                         Code::IllTyped,
                         Some(Cause::OperatorIneligible),
@@ -2925,14 +3022,14 @@ enum PathHolder {
 }
 
 fn record_declared_path(
-    expected: &mut BTreeMap<usize, (PathHolder, bool)>,
+    expected: &mut [Option<(PathHolder, bool)>],
     position: usize,
     holder: PathHolder,
 ) {
-    if let Some((_, repeated)) = expected.get_mut(&position) {
+    if let Some((_, repeated)) = &mut expected[position] {
         *repeated = true;
     } else {
-        expected.insert(position, (holder, false));
+        expected[position] = Some((holder, false));
     }
 }
 
@@ -2942,8 +3039,10 @@ fn validate_protocol_declaration_paths(
     kinds: &[CheckedNodeKind],
     validated: &[Option<(&str, &[CheckedTerm])>],
     index: &GraphIndex<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut expected = BTreeMap::new();
+    meter.at_node(0, "protocol");
+    let mut expected = meter.filled(nodes.len(), None)?;
     let mut pending = Vec::new();
     for &clause in index.values() {
         if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
@@ -3010,24 +3109,27 @@ fn validate_protocol_declaration_paths(
             .and_then(|key| index.get(key))
         {
             if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
-                pending.push((
-                    position,
-                    PathHolder::ClauseMember {
-                        clause,
-                        member: "run",
-                        own: true,
-                    },
-                ));
+                meter.push(
+                    &mut pending,
+                    (
+                        position,
+                        PathHolder::ClauseMember {
+                            clause,
+                            member: "run",
+                            own: true,
+                        },
+                    ),
+                )?;
             }
         }
     }
 
     // The visited set bounds malformed containment cycles. Membership and
     // repeated holders are checked in the later graph pass.
-    let mut visited = BTreeSet::new();
+    let mut visited = meter.filled(nodes.len(), false)?;
     while let Some((position, holder)) = pending.pop() {
         record_declared_path(&mut expected, position, holder);
-        if !visited.insert(position) {
+        if std::mem::replace(&mut visited[position], true) {
             continue;
         }
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
@@ -3036,11 +3138,12 @@ fn validate_protocol_declaration_paths(
         let Some((operator, args)) = validated[position] else {
             continue;
         };
-        for target in control_children(operator, args) {
-            if let Some(&child) = index.get(target) {
-                if kinds.get(child) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
-                    pending.push((child, PathHolder::Control { holder: position }));
-                }
+        for child in control_positions(operator, args, index, meter)? {
+            if kinds.get(child) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+                meter.push(
+                    &mut pending,
+                    (child, PathHolder::Control { holder: position }),
+                )?;
             }
         }
     }
@@ -3053,7 +3156,7 @@ fn validate_protocol_declaration_paths(
             continue;
         }
         let node = &nodes[position];
-        if let Some((holder, false)) = expected.get(&position) {
+        if let Some((holder, false)) = &expected[position] {
             let Some(path) = node
                 .declaration
                 .as_ref()
@@ -3162,27 +3265,25 @@ fn collect_protocol_membership(
             .and_then(|target| index.get(target))
         {
             if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
-                pending.push((position, clause));
+                meter.push(&mut pending, (position, clause))?;
             }
         }
     }
 
-    let mut visited = BTreeSet::new();
+    let mut visited = meter.filled(nodes.len(), false)?;
     while let Some((position, clause)) = pending.pop() {
         meter.charge(1, || node_pointer(position))?;
         record_member_owner(&mut owners, &mut repeated, position, clause);
-        if !visited.insert(position) {
+        if std::mem::replace(&mut visited[position], true) {
             continue;
         }
         let Some((operator, arguments)) = validated[position] else {
             continue;
         };
-        for target in control_children(operator, arguments) {
+        for child in control_positions(operator, arguments, index, meter)? {
             meter.charge(1, || node_pointer(position))?;
-            if let Some(&child) = index.get(target) {
-                if kinds.get(child) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
-                    pending.push((child, clause));
-                }
+            if kinds.get(child) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
+                meter.push(&mut pending, (child, clause))?;
             }
         }
     }
@@ -3371,7 +3472,8 @@ fn validate_protocol_fairness(
         index,
         ..
     } = context;
-    let mut checked = BTreeSet::new();
+    meter.at_node(0, "protocol");
+    let mut checked = meter.filled(nodes.len(), false)?;
     for &clause in index.values() {
         if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             continue;
@@ -3409,7 +3511,7 @@ fn validate_protocol_fairness(
                 ) {
                     continue;
                 }
-                checked.insert(fair);
+                checked[fair] = true;
                 validate_protocol_fairness_target(context, &target, fair, clause, meter)?;
             }
         }
@@ -3419,7 +3521,7 @@ fn validate_protocol_fairness(
         let Some(target) = fairness_target(terms[fair].as_ref()) else {
             continue;
         };
-        if checked.contains(&fair)
+        if checked[fair]
             || matches!(
                 target,
                 CheckedFairnessTarget::Operation { .. }
@@ -3434,7 +3536,7 @@ fn validate_protocol_fairness(
             }
             if external_references
                 .as_ref()
-                .is_some_and(|references| references.contains(&fair))
+                .is_some_and(|references| references[fair])
             {
                 continue;
             }
@@ -3467,8 +3569,9 @@ fn external_compensation_owner_clause(
 fn external_temporal_fairness_references(
     context: &ProtocolFairnessContext<'_>,
     meter: &mut WorkMeter,
-) -> Result<BTreeSet<usize>, ValidationFailure> {
-    let mut references = BTreeSet::new();
+) -> Result<Vec<bool>, ValidationFailure> {
+    meter.at_node(0, "protocol");
+    let mut references = meter.filled(context.nodes.len(), false)?;
     for &clause in context.index.values() {
         if context.kinds.get(clause)
             != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
@@ -3487,7 +3590,7 @@ fn external_temporal_fairness_references(
         for key in listed_targets(fairness) {
             meter.charge(1, || node_pointer(clause))?;
             if let Some(&fair) = context.index.get(key) {
-                references.insert(fair);
+                references[fair] = true;
             }
         }
     }
@@ -3605,65 +3708,84 @@ fn validate_protocol_fairness_target(
     Ok(())
 }
 
+/// Generation-stamped scratch for the commit search: one block per check,
+/// reused by every search of it, so a search costs only what it visits.
+struct CommitScratch {
+    generation: u32,
+    seen: Vec<u32>,
+    /// The generation a verdict was recorded in, and the verdict.
+    taken: Vec<(u32, bool)>,
+}
+
+impl CommitScratch {
+    fn new(nodes: usize, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+        Ok(Self {
+            generation: 0,
+            seen: meter.filled(nodes, 0)?,
+            taken: meter.filled(nodes, (0, false))?,
+        })
+    }
+
+    fn is_taken(&self, position: usize) -> bool {
+        self.taken[position] == (self.generation, true)
+    }
+}
+
 #[string_edge]
 fn commit_is_taken(
     root: usize,
     commit: usize,
     validated: &[Option<(&str, &[CheckedTerm])>],
     index: &GraphIndex<'_>,
+    scratch: &mut CommitScratch,
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
-    let mut taken = BTreeMap::new();
-    let mut pending = vec![(root, false)];
-    let mut seen = BTreeSet::new();
+    scratch.generation += 1;
+    let generation = scratch.generation;
+    let mut pending = meter.vec(1)?;
+    pending.push((root, false));
     while let Some((position, expanded)) = pending.pop() {
         meter.charge(1, || node_pointer(position))?;
-        if !expanded && !seen.insert(position) {
+        if !expanded && std::mem::replace(&mut scratch.seen[position], generation) == generation {
             continue;
         }
         let Some((operator, arguments)) = validated[position] else {
             continue;
         };
         if !expanded && !matches!(operator, "repeat" | "commit") {
-            pending.push((position, true));
-            for target in control_children(operator, arguments) {
-                if let Some(&child) = index.get(target) {
-                    pending.push((child, false));
-                }
+            meter.push(&mut pending, (position, true))?;
+            for child in control_positions(operator, arguments, index, meter)? {
+                meter.push(&mut pending, (child, false))?;
             }
             continue;
         }
-        let children = control_children(operator, arguments)
-            .into_iter()
-            .filter_map(|target| index.get(target).copied())
-            .collect::<Vec<_>>();
+        let children = control_positions(operator, arguments, index, meter)?;
         let holds = match operator {
             "commit" => position == commit,
             "repeat" => false,
-            "sequence" => children.iter().any(|child| taken.get(child) == Some(&true)),
+            "sequence" => children.iter().any(|&child| scratch.is_taken(child)),
             "parallel"
                 if binding_value(arguments, "join")
                     .is_some_and(|join| argument_text(join, 0) == Some("all")) =>
             {
-                children.iter().any(|child| taken.get(child) == Some(&true))
+                children.iter().any(|&child| scratch.is_taken(child))
             }
             "parallel" | "choice" => {
-                !children.is_empty() && children.iter().all(|child| taken.get(child) == Some(&true))
+                !children.is_empty() && children.iter().all(|&child| scratch.is_taken(child))
             }
             "await" => ["then", "timeout"].into_iter().all(|field| {
                 binding_value(arguments, field)
                     .and_then(reference_target)
                     .and_then(|target| index.get(target))
-                    .is_some_and(|child| taken.get(child) == Some(&true))
+                    .is_some_and(|&child| scratch.is_taken(child))
             }),
             _ => false,
         };
-        taken.insert(position, holds);
+        scratch.taken[position] = (generation, holds);
     }
-    Ok(taken.get(&root) == Some(&true))
+    Ok(scratch.is_taken(root))
 }
 
-#[string_edge]
 fn validate_compensation_commit_position(
     check: &MemberCheck<'_>,
     arguments: &[CheckedTerm],
@@ -3684,7 +3806,8 @@ fn validate_compensation_commit_position(
     else {
         return Ok(());
     };
-    let mut parents = BTreeMap::new();
+    meter.at_node(0, "protocol");
+    let mut parents: Vec<Option<usize>> = meter.filled(check.nodes.len(), None)?;
     for &position in check.index.values() {
         if check.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::Control) {
             continue;
@@ -3693,17 +3816,16 @@ fn validate_compensation_commit_position(
         let Some((operator, arguments)) = validated[position] else {
             continue;
         };
-        for target in control_children(operator, arguments) {
+        for child in control_positions(operator, arguments, check.index, meter)? {
             meter.charge(1, || node_pointer(position))?;
-            if let Some(&child) = check.index.get(target) {
-                parents.insert(child, position);
-            }
+            parents[child] = Some(position);
         }
     }
     let mut child = effect;
-    let mut seen = BTreeSet::new();
-    while let Some(&parent) = parents.get(&child) {
-        if !seen.insert(parent) {
+    let mut seen = meter.filled(check.nodes.len(), false)?;
+    let mut scratch = CommitScratch::new(check.nodes.len(), meter)?;
+    while let Some(parent) = parents[child] {
+        if std::mem::replace(&mut seen[parent], true) {
             break;
         }
         meter.charge(1, || node_pointer(parent))?;
@@ -3721,7 +3843,7 @@ fn validate_compensation_commit_position(
             if earlier == child {
                 break;
             }
-            if commit_is_taken(earlier, commit, validated, check.index, meter)? {
+            if commit_is_taken(earlier, commit, validated, check.index, &mut scratch, meter)? {
                 let mut failure = ValidationFailure::refused_at(
                     Code::UnsupportedConstruct,
                     node_pointer(commit),
@@ -3768,7 +3890,7 @@ fn check_clause(
         None
     };
     let captures = members(check.at(arguments, 2)).expect("validated captures");
-    let mut capture_positions = Vec::with_capacity(captures.len());
+    let mut capture_positions = meter.vec(captures.len())?;
     for (entry, record) in captures.iter().enumerate() {
         meter.charge(1, || node_pointer(check.position))?;
         let binder = group_value(record, "binder").expect("validated capture binder");
@@ -3786,8 +3908,9 @@ fn check_clause(
             )?,
         );
     }
-    let mut readable_names = BTreeSet::<Box<str>>::new();
-    let mut introduce = |position: usize, expected: usize| {
+    // Binders introduced: the subject, the trigger when present, each capture.
+    let mut readable_names: Vec<&str> = meter.vec(2 + captures.len())?;
+    let mut introduce = |position: usize, expected: usize, meter: &mut WorkMeter| {
         let actual = check.terms[position]
             .as_ref()
             .and_then(|body| group_value(body, "level"))
@@ -3812,7 +3935,7 @@ fn check_clause(
                 check.nodes[position].node_id.clone(),
             ));
         };
-        if !readable_names.insert(name.into()) {
+        if !meter.insert_sorted(&mut readable_names, name)? {
             return Err(ValidationFailure::refused_at(
                 Code::AmbiguousDeclaration,
                 node_pointer(position),
@@ -3878,14 +4001,14 @@ fn check_clause(
         })?;
     }
 
-    introduce(over, 0)?;
+    introduce(over, 0, meter)?;
     if let Some(trigger_position) = trigger_position {
-        introduce(trigger_position, 1)?;
+        introduce(trigger_position, 1, meter)?;
     }
 
     for (entry, &binder_position) in capture_positions.iter().enumerate() {
         meter.charge(1, || node_pointer(check.position))?;
-        introduce(binder_position, 1 + usize::from(each) + entry)?;
+        introduce(binder_position, 1 + usize::from(each) + entry, meter)?;
     }
     Ok(())
 }
@@ -3902,10 +4025,11 @@ fn check_clause_slots(
     if let Some(guard) = group_value(activation, "guard") {
         let path = check.argument_path(1).key("members").index(2).key("value");
         check_member_targets(check, guard, path.clone())?;
-        let mut allowed = BTreeSet::new();
-        if let Some(trigger) = scope.activation {
-            allowed.insert(trigger);
-        }
+        let triggers: &[usize] = match &scope.activation {
+            Some(trigger) => std::slice::from_ref(trigger),
+            None => &[],
+        };
+        let allowed = PositionSet::of(&[triggers], meter)?;
         scope.slot(
             check.position,
             guard,
@@ -3929,11 +4053,13 @@ fn check_clause_slots(
             .index(1)
             .key("value");
         check_member_targets(check, initializer, path)?;
-        let mut allowed = scope.c0[..1 + usize::from(scope.activation.is_some())]
-            .iter()
-            .copied()
-            .collect::<BTreeSet<_>>();
-        allowed.extend(scope.captures[..entry].iter().copied());
+        let allowed = PositionSet::of(
+            &[
+                &scope.c0[..1 + usize::from(scope.activation.is_some())],
+                &scope.captures[..entry],
+            ],
+            meter,
+        )?;
         scope.slot(
             check.position,
             initializer,
@@ -3970,8 +4096,9 @@ struct ProtocolScope<'a, 'b> {
     c0: Vec<usize>,
     activation: Option<usize>,
     captures: Vec<usize>,
-    known: BTreeMap<usize, Vec<ProtocolBinderOrigin>>,
-    fact_roles: BTreeMap<usize, usize>,
+    /// Where each node was introduced as a binder, by node position.
+    known: Vec<Vec<ProtocolBinderOrigin>>,
+    fact_roles: Vec<Option<usize>>,
 }
 
 impl<'a, 'b> ProtocolScope<'a, 'b> {
@@ -3996,22 +4123,22 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         let activation = group_value(check.at(arguments, 1), "trigger")
             .and_then(reference_target)
             .and_then(|id| check.index.get(id).copied());
-        let captures = members(check.at(arguments, 2))
-            .expect("validated captures")
-            .iter()
-            .map(|record| {
-                group_value(record, "binder")
-                    .and_then(reference_target)
-                    .and_then(|id| check.index.get(id).copied())
-                    .expect("validated capture binder")
-            })
-            .collect::<Vec<_>>();
-        let mut c0 = vec![over];
+        let capture_records = members(check.at(arguments, 2)).expect("validated captures");
+        let mut captures = meter.vec(capture_records.len())?;
+        captures.extend(capture_records.iter().map(|record| {
+            group_value(record, "binder")
+                .and_then(reference_target)
+                .and_then(|id| check.index.get(id).copied())
+                .expect("validated capture binder")
+        }));
+        let mut c0 = meter.vec(2 + captures.len())?;
+        c0.push(over);
         if let Some(trigger) = activation {
             c0.push(trigger);
         }
         c0.extend(captures.iter().copied());
-        let mut known: BTreeMap<usize, Vec<ProtocolBinderOrigin>> = BTreeMap::new();
+        let mut known: Vec<Vec<ProtocolBinderOrigin>> =
+            meter.filled(check.nodes.len(), Vec::new())?;
         for (index, &position) in c0.iter().enumerate() {
             meter.charge(1, || node_pointer(check.position))?;
             let capture = if index > usize::from(activation.is_some()) {
@@ -4022,13 +4149,13 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             } else {
                 None
             };
-            known
-                .entry(position)
-                .or_default()
-                .push(ProtocolBinderOrigin {
+            meter.push(
+                &mut known[position],
+                ProtocolBinderOrigin {
                     owner: check.position,
                     capture,
-                });
+                },
+            )?;
         }
         let mut scope = Self {
             check,
@@ -4038,7 +4165,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             activation,
             captures,
             known,
-            fact_roles: BTreeMap::new(),
+            fact_roles: meter.filled(check.nodes.len(), None)?,
         };
         for field in ["roles", "channels", "compensations"] {
             for target in listed_targets(binding_value(arguments, field).expect("validated list")) {
@@ -4051,14 +4178,13 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             group_value(argument(args, 1).expect("role replication"), "binder")
                         {
                             let binder = scope.target(binder);
-                            scope
-                                .known
-                                .entry(binder)
-                                .or_default()
-                                .push(ProtocolBinderOrigin {
+                            meter.push(
+                                &mut scope.known[binder],
+                                ProtocolBinderOrigin {
                                     owner: check.position,
                                     capture: None,
-                                });
+                                },
+                            )?;
                         }
                     }
                     "channels" => {
@@ -4066,14 +4192,13 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             group_value(argument(args, 3).expect("channel ordering"), "binder")
                         {
                             let binder = scope.target(binder);
-                            scope
-                                .known
-                                .entry(binder)
-                                .or_default()
-                                .push(ProtocolBinderOrigin {
+                            meter.push(
+                                &mut scope.known[binder],
+                                ProtocolBinderOrigin {
                                     owner: check.position,
                                     capture: None,
-                                });
+                                },
+                            )?;
                         }
                     }
                     "compensations" => {
@@ -4085,7 +4210,8 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             members(argument(args, 7).expect("activation captures"))
                                 .expect("activation captures")
                                 .len();
-                        for (ordinal, binder) in compensation_binders(args).into_iter().enumerate()
+                        for (ordinal, binder) in
+                            compensation_binders(args, meter)?.into_iter().enumerate()
                         {
                             meter.charge(1, || node_pointer(position))?;
                             let capture = if ordinal > 0 && ordinal <= registration_count {
@@ -4098,14 +4224,13 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                 None
                             };
                             let binder = scope.target(binder);
-                            scope
-                                .known
-                                .entry(binder)
-                                .or_default()
-                                .push(ProtocolBinderOrigin {
+                            meter.push(
+                                &mut scope.known[binder],
+                                ProtocolBinderOrigin {
                                     owner: position,
                                     capture,
-                                });
+                                },
+                            )?;
                         }
                     }
                     _ => unreachable!("fixed protocol lists"),
@@ -4121,35 +4246,40 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 continue;
             }
             let (_, args) = scope.node_arguments(position);
-            for binder in compensation_binders(args) {
+            for binder in compensation_binders(args, meter)? {
                 meter.charge(1, || node_pointer(position))?;
                 let binder = scope.target(binder);
-                let origins = scope.known.entry(binder).or_default();
-                if !origins.iter().any(|origin| origin.owner == position) {
-                    origins.push(ProtocolBinderOrigin {
-                        owner: position,
-                        capture: None,
-                    });
+                if !scope.known[binder]
+                    .iter()
+                    .any(|origin| origin.owner == position)
+                {
+                    meter.push(
+                        &mut scope.known[binder],
+                        ProtocolBinderOrigin {
+                            owner: position,
+                            capture: None,
+                        },
+                    )?;
                 }
             }
         }
         let finish = scope.target(binding_value(arguments, "finish").expect("validated finish"));
         let (_, args) = scope.node_arguments(finish);
         let finish_binder = scope.target(argument(args, 0).expect("validated finish binder"));
-        scope
-            .known
-            .entry(finish_binder)
-            .or_default()
-            .push(ProtocolBinderOrigin {
+        meter.push(
+            &mut scope.known[finish_binder],
+            ProtocolBinderOrigin {
                 owner: check.position,
                 capture: None,
-            });
+            },
+        )?;
         let root = scope.target(binding_value(arguments, "run").expect("validated root"));
-        let mut pending = vec![root];
-        let mut visited = BTreeSet::new();
+        let mut pending = meter.vec(1)?;
+        pending.push(root);
+        let mut visited = meter.filled(check.nodes.len(), false)?;
         while let Some(position) = pending.pop() {
             meter.charge(1, || node_pointer(position))?;
-            if !visited.insert(position) {
+            if std::mem::replace(&mut visited[position], true) {
                 continue;
             }
             let (operator, args) = scope.node_arguments(position);
@@ -4167,20 +4297,19 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                     _ => None,
                 };
                 if let Some(role) = fact_role {
-                    scope.fact_roles.insert(binder, role);
+                    scope.fact_roles[binder] = Some(role);
                 }
-                scope
-                    .known
-                    .entry(binder)
-                    .or_default()
-                    .push(ProtocolBinderOrigin {
+                meter.push(
+                    &mut scope.known[binder],
+                    ProtocolBinderOrigin {
                         owner: check.position,
                         capture: None,
-                    });
+                    },
+                )?;
             }
-            for child in control_children(operator, args) {
+            for child in control_positions(operator, args, check.index, meter)? {
                 meter.charge(1, || node_pointer(position))?;
-                pending.push(*check.index.get(child).expect("validated child"));
+                meter.push(&mut pending, child)?;
             }
         }
         Ok(scope)
@@ -4191,23 +4320,25 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         &self,
         owner: usize,
         term: &CheckedTerm,
-        allowed: &BTreeSet<usize>,
+        allowed: &PositionSet,
         stage: &'static str,
         barred_slot: Option<&'static str>,
         capture: Option<usize>,
         meter: &mut WorkMeter,
     ) -> Result<(), ValidationFailure> {
-        let mut pending = vec![SlotWalk::Term(term, None)];
-        let mut visited = BTreeSet::new();
+        let mut pending = meter.vec(1)?;
+        pending.push(SlotWalk::Term(term, None));
+        // Nodes entered, with the local scope each was entered in.
+        let mut visited: Vec<(usize, Option<usize>)> = Vec::new();
         let mut locals = SlotLocals::default();
-        let mut arm_binders = BTreeSet::new();
-        let mut reads = BTreeSet::new();
+        let mut arm_binders: Vec<usize> = Vec::new();
+        let mut reads: Vec<usize> = Vec::new();
         let mut state_read = None;
         while let Some(item) = pending.pop() {
             meter.charge(1, || node_pointer(owner))?;
             match item {
                 SlotWalk::Node(position, scope) => {
-                    if !visited.insert((position, scope)) {
+                    if !meter.insert_sorted(&mut visited, (position, scope))? {
                         continue;
                     }
                     if self
@@ -4221,7 +4352,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             .expect("validated parameter name");
                         // A same-name lexical binding cannot launder an actual
                         // protocol-stage parameter into a local one.
-                        if self.known.contains_key(&position)
+                        if !self.known[position].is_empty()
                             || !locals.contains(
                                 scope,
                                 position,
@@ -4231,7 +4362,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                 owner,
                             )?
                         {
-                            reads.insert(position);
+                            meter.insert_sorted(&mut reads, position)?;
                         }
                         continue;
                     }
@@ -4264,7 +4395,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                 == Some("quire.op.control.case")
                             {
                                 if let Some((scrutinee, arms)) = arguments.split_first() {
-                                    let mut scoped_arms = Vec::new();
+                                    let mut scoped_arms = meter.vec(arms.len())?;
                                     let mut valid = true;
                                     'arms: for (ordinal, arm) in arms.iter().enumerate() {
                                         meter.charge(1, || node_pointer(owner))?;
@@ -4283,7 +4414,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                             valid = false;
                                             break;
                                         };
-                                        let mut binder_positions = Vec::new();
+                                        let mut binder_positions = meter.vec(binders.len())?;
                                         for binder in binders {
                                             meter.charge(1, || node_pointer(owner))?;
                                             let CheckedTerm::Reference { target } = binder else {
@@ -4303,15 +4434,20 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                             scoped_arms.into_iter().rev()
                                         {
                                             let mut arm_scope =
-                                                Some(locals.arm(scope, position, ordinal));
+                                                Some(locals.arm(scope, position, ordinal, meter)?);
                                             for binder in binders {
-                                                arm_binders.insert(binder);
-                                                arm_scope =
-                                                    Some(locals.bind_node(arm_scope, binder));
+                                                meter.insert_sorted(&mut arm_binders, binder)?;
+                                                arm_scope = Some(
+                                                    locals.bind_node(arm_scope, binder, meter)?,
+                                                );
                                             }
-                                            pending.push(SlotWalk::Term(body, arm_scope));
+                                            meter.push(
+                                                &mut pending,
+                                                SlotWalk::Term(body, arm_scope),
+                                            )?;
                                         }
-                                        pending.push(SlotWalk::Term(scrutinee, scope));
+                                        meter
+                                            .push(&mut pending, SlotWalk::Term(scrutinee, scope))?;
                                         continue;
                                     }
                                 }
@@ -4319,22 +4455,24 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         }
                     }
                     if let Some(body) = &self.check.terms[position] {
-                        pending.push(SlotWalk::Term(body, scope));
+                        meter.push(&mut pending, SlotWalk::Term(body, scope))?;
                     }
                 }
                 SlotWalk::Bind(CheckedTerm::Binding { name, value }, scope) => {
-                    let scope = Some(locals.bind(scope, name.as_ref()));
+                    let scope = Some(locals.bind(scope, name.as_ref(), meter)?);
                     if matches!(value.as_ref(), CheckedTerm::Binding { .. }) {
-                        pending.push(SlotWalk::Bind(value, scope));
+                        meter.push(&mut pending, SlotWalk::Bind(value, scope))?;
                     } else {
-                        pending.push(SlotWalk::Term(value, scope));
+                        meter.push(&mut pending, SlotWalk::Term(value, scope))?;
                     }
                 }
-                SlotWalk::Bind(term, scope) => pending.push(SlotWalk::Term(term, scope)),
+                SlotWalk::Bind(term, scope) => {
+                    meter.push(&mut pending, SlotWalk::Term(term, scope))?
+                }
                 SlotWalk::Term(term, scope) => match term {
                     CheckedTerm::Reference { target } => {
                         if let Some(&position) = self.check.index.get(target) {
-                            pending.push(SlotWalk::Node(position, scope));
+                            meter.push(&mut pending, SlotWalk::Node(position, scope))?;
                         }
                     }
                     CheckedTerm::Application {
@@ -4352,12 +4490,13 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             if let [CheckedTerm::Binding { name, value }, body] =
                                 arguments.as_slice()
                             {
-                                let inner = Some(locals.bind(scope, name.as_ref()));
-                                pending.push(SlotWalk::Term(body, inner));
-                                pending.push(SlotWalk::Term(value, scope));
+                                let inner = Some(locals.bind(scope, name.as_ref(), meter)?);
+                                meter.push(&mut pending, SlotWalk::Term(body, inner))?;
+                                meter.push(&mut pending, SlotWalk::Term(value, scope))?;
                                 continue;
                             }
                         }
+                        meter.room(&mut pending, arguments.len())?;
                         for (ordinal, argument) in arguments.iter().enumerate().rev() {
                             if entry
                                 .and_then(|entry| entry.operands.get(ordinal))
@@ -4370,10 +4509,11 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         }
                     }
                     CheckedTerm::Aggregate { members } => {
+                        meter.room(&mut pending, members.len())?;
                         pending.extend(members.iter().rev().map(|term| SlotWalk::Term(term, scope)))
                     }
                     CheckedTerm::Binding { value, .. } => {
-                        pending.push(SlotWalk::Term(value, scope))
+                        meter.push(&mut pending, SlotWalk::Term(value, scope))?
                     }
                     CheckedTerm::Literal { .. }
                     | CheckedTerm::DependencyReference { .. }
@@ -4388,9 +4528,9 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         }
         if let Some(slot) = barred_slot {
             let barred = reads
-                .iter()
-                .copied()
-                .find(|&position| position == self.c0[0])
+                .binary_search(&self.c0[0])
+                .ok()
+                .map(|_| self.c0[0])
                 .or(state_read);
             if let Some(position) = barred {
                 let mut failure = ValidationFailure::refused_at(
@@ -4408,11 +4548,11 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 return Err(failure);
             }
         }
-        for position in reads {
-            if allowed.contains(&position) {
+        for position in reads.iter().copied() {
+            if allowed.contains(position) {
                 continue;
             }
-            let origins = self.known.get(&position).map(Vec::as_slice).unwrap_or(&[]);
+            let origins = self.known[position].as_slice();
             let name = self.check.terms[position]
                 .as_ref()
                 .and_then(|body| group_value(body, "name"))
@@ -4472,7 +4612,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         &self,
         term: &CheckedTerm,
         owner: usize,
-        listed: &BTreeSet<usize>,
+        listed: &PositionSet,
         use_at: DecisionFactUse,
         meter: &mut WorkMeter,
     ) -> Result<(), ValidationFailure> {
@@ -4482,12 +4622,13 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         let Some(&root) = self.check.index.get(target) else {
             return Ok(());
         };
-        let mut pending = vec![root];
-        let mut visited = BTreeSet::new();
+        let mut pending = meter.vec(1)?;
+        pending.push(root);
+        let mut visited: Vec<usize> = Vec::new();
         while let Some(position) = pending.pop() {
             meter.charge(1, || node_pointer(owner))?;
-            if !visited.insert(position)
-                || (matches!(use_at, DecisionFactUse::Guard) && listed.contains(&position))
+            if !meter.insert_sorted(&mut visited, position)?
+                || (matches!(use_at, DecisionFactUse::Guard) && listed.contains(position))
             {
                 continue;
             }
@@ -4514,11 +4655,11 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                 .is(binder, CheckedNodeKind::Value(ValueForm::Parameter))
                             {
                                 if !self.captures.contains(&binder) {
-                                    let reason = match self.fact_roles.get(&binder) {
-                                        Some(&role) if role != owner => Some("other-role"),
+                                    let reason = match self.fact_roles[binder] {
+                                        Some(role) if role != owner => Some("other-role"),
                                         Some(_)
                                             if matches!(use_at, DecisionFactUse::Guard)
-                                                && !listed.contains(&position) =>
+                                                && !listed.contains(position) =>
                                         {
                                             Some("unlisted")
                                         }
@@ -4561,7 +4702,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             for target in self.check.nodes[position].dependencies.iter().rev() {
                 meter.charge(1, || node_pointer(owner))?;
                 if let Some(&next) = self.check.index.get(target) {
-                    pending.push(next);
+                    meter.push(&mut pending, next)?;
                 }
             }
         }
@@ -4573,7 +4714,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         &self,
         term: &CheckedTerm,
         owner: usize,
-        listed: &BTreeSet<usize>,
+        listed: &PositionSet,
         use_at: DecisionFactUse,
         slot: &'static str,
         meter: &mut WorkMeter,
@@ -4584,12 +4725,13 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         let Some(&root) = self.check.index.get(target) else {
             return Ok(());
         };
-        let mut pending = vec![root];
-        let mut visited = BTreeSet::new();
+        let mut pending = meter.vec(1)?;
+        pending.push(root);
+        let mut visited: Vec<usize> = Vec::new();
         while let Some(position) = pending.pop() {
             meter.charge(1, || node_pointer(owner))?;
-            if !visited.insert(position)
-                || (matches!(use_at, DecisionFactUse::Guard) && listed.contains(&position))
+            if !meter.insert_sorted(&mut visited, position)?
+                || (matches!(use_at, DecisionFactUse::Guard) && listed.contains(position))
                 || matches!(self.check.kinds[position], CheckedNodeKind::Function(_))
             {
                 continue;
@@ -4637,7 +4779,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             for target in self.check.nodes[position].dependencies.iter().rev() {
                 meter.charge(1, || node_pointer(owner))?;
                 if let Some(&next) = self.check.index.get(target) {
-                    pending.push(next);
+                    meter.push(&mut pending, next)?;
                 }
             }
         }
@@ -4663,9 +4805,9 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
     fn introduce(
         &self,
         position: usize,
-        input: &BTreeSet<usize>,
+        input: &PositionSet,
         meter: &mut WorkMeter,
-    ) -> Result<BTreeSet<usize>, ValidationFailure> {
+    ) -> Result<PositionSet, ValidationFailure> {
         meter.charge(1, || node_pointer(position))?;
         let actual = self.check.terms[position]
             .as_ref()
@@ -4684,7 +4826,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             .and_then(|body| group_value(body, "name"))
             .and_then(text_value)
             .expect("validated binder name");
-        for &other in input {
+        for other in input.iter() {
             meter.charge(1, || node_pointer(position))?;
             let other_name = self.check.terms[other]
                 .as_ref()
@@ -4700,13 +4842,11 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 ));
             }
         }
-        let mut output = input.clone();
-        output.insert(position);
-        Ok(output)
+        input.with(&[position], meter)
     }
 
     fn check_declaration_slots(&self, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
-        let base = self.c0.iter().copied().collect::<BTreeSet<_>>();
+        let base = PositionSet::of(&[&self.c0], meter)?;
         for target in listed_targets(binding_value(self.arguments, "roles").expect("roles")) {
             meter.charge(1, || node_pointer(self.check.position))?;
             let role = *self.check.index.get(target).expect("validated role");
@@ -4735,7 +4875,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             if let Some(binder) = group_value(ordering, "binder") {
                 self.introduce(self.target(binder), &base, meter)?;
                 if let Some(key) = group_value(ordering, "key") {
-                    let allowed = BTreeSet::from([self.target(binder)]);
+                    let allowed = PositionSet::of(&[&[self.target(binder)]], meter)?;
                     self.slot(
                         channel,
                         key,
@@ -4755,27 +4895,26 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
     fn control_entry(
         &self,
         position: usize,
-        input: BTreeSet<usize>,
+        input: PositionSet,
         meter: &mut WorkMeter,
     ) -> Result<ControlScopeFrame, ValidationFailure> {
         meter.charge(1, || node_pointer(position))?;
         let (operator, args) = self.node_arguments(position);
-        for _ in &input {
+        for _ in input.iter() {
             meter.charge(1, || node_pointer(position))?;
         }
         let output = if let Some(binder) = control_binder(operator, args) {
             self.introduce(self.target(binder), &input, meter)?
         } else {
-            input.clone()
+            input.duplicate(meter)?
         };
         match operator {
             "choice" | "repeat" => {
                 let visible = argument(args, 1).expect("visible");
-                let listed = members(visible)
-                    .expect("visible entries")
-                    .iter()
-                    .map(|entry| self.target(entry))
-                    .collect::<BTreeSet<_>>();
+                let entries = members(visible).expect("visible entries");
+                let mut targets = meter.vec(entries.len())?;
+                targets.extend(entries.iter().map(|entry| self.target(entry)));
+                let listed = PositionSet::of(&[&targets], meter)?;
                 let owner = self.target(argument(args, 0).expect("decision owner"));
                 for entry in members(visible).expect("visible entries") {
                     self.slot(position, entry, &input, "run", Some("visible"), None, meter)?;
@@ -4899,10 +5038,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             }
             _ => {}
         }
-        let children = control_children(operator, args)
-            .into_iter()
-            .map(|target| *self.check.index.get(target).expect("validated child"))
-            .collect();
+        let children = control_positions(operator, args, self.check.index, meter)?;
         Ok(ControlScopeFrame {
             position,
             input,
@@ -4915,19 +5051,21 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
     #[string_edge]
     fn check_control_slots(&self, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
         let root = self.target(binding_value(self.arguments, "run").expect("run"));
-        let base = self.c0.iter().copied().collect::<BTreeSet<_>>();
-        let mut frames = vec![self.control_entry(root, base, meter)?];
+        let base = PositionSet::of(&[&self.c0], meter)?;
+        let mut frames = meter.vec(1)?;
+        frames.push(self.control_entry(root, base, meter)?);
         while let Some(frame) = frames.last_mut() {
             let (operator, args) = self.node_arguments(frame.position);
             if let Some(&child) = frame.children.get(frame.next) {
                 let child_number = frame.next;
                 frame.next += 1;
                 let child_input = match operator {
-                    "sequence" => frame.output.clone(),
-                    "await" if child_number == 1 => frame.output.clone(),
-                    _ => frame.input.clone(),
+                    "sequence" => frame.output.duplicate(meter)?,
+                    "await" if child_number == 1 => frame.output.duplicate(meter)?,
+                    _ => frame.input.duplicate(meter)?,
                 };
-                frames.push(self.control_entry(child, child_input, meter)?);
+                let entered = self.control_entry(child, child_input, meter)?;
+                meter.push(&mut frames, entered)?;
                 continue;
             }
             let all_join = operator == "parallel"
@@ -4935,11 +5073,11 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                     .and_then(text_value)
                     == Some("all");
             let out = if operator == "sequence" || all_join {
-                frame.output.clone()
+                frame.output.duplicate(meter)?
             } else if matches!(operator, "choice" | "repeat" | "parallel" | "await") {
-                frame.input.clone()
+                frame.input.duplicate(meter)?
             } else {
-                frame.output.clone()
+                frame.output.duplicate(meter)?
             };
             frames.pop();
             if let Some(parent) = frames.last_mut() {
@@ -4955,15 +5093,16 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         continue;
                     }
                     for binder in out.difference(&parent.input) {
+                        let binder = &binder;
                         let name = self.check.terms[*binder]
                             .as_ref()
                             .and_then(|body| group_value(body, "name"))
                             .and_then(text_value)
                             .expect("validated binder name");
-                        let mut duplicate = parent.output.contains(binder);
+                        let mut duplicate = parent.output.contains(*binder);
                         for previous in parent.output.difference(&parent.input) {
                             meter.charge(1, || node_pointer(*binder))?;
-                            let previous_name = self.check.terms[*previous]
+                            let previous_name = self.check.terms[previous]
                                 .as_ref()
                                 .and_then(|body| group_value(body, "name"))
                                 .and_then(text_value)
@@ -4978,7 +5117,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                 self.check.nodes[*binder].node_id.clone(),
                             ));
                         }
-                        parent.output.insert(*binder);
+                        parent.output.insert(*binder, meter)?;
                     }
                 }
             } else {
@@ -4990,7 +5129,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
 
     fn check_finish_slot(
         &self,
-        input: &BTreeSet<usize>,
+        input: &PositionSet,
         meter: &mut WorkMeter,
     ) -> Result<(), ValidationFailure> {
         let finish = self.target(binding_value(self.arguments, "finish").expect("finish"));
@@ -5022,16 +5161,22 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         else {
             return Ok(());
         };
-        let mut allowed = BTreeSet::new();
-        allowed.insert(self.c0[0]);
-        if self.activation.is_none() {
-            allowed.extend(self.captures.iter().copied());
-        }
+        let allowed = PositionSet::of(
+            &[
+                &self.c0[..1],
+                if self.activation.is_none() {
+                    &self.captures
+                } else {
+                    &[]
+                },
+            ],
+            meter,
+        )?;
         self.slot(terminal, condition, &allowed, "terminal", None, None, meter)
     }
 
     fn check_compensation_slots(&self, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
-        let base = self.c0.iter().copied().collect::<BTreeSet<_>>();
+        let base = PositionSet::of(&[&self.c0], meter)?;
         for target in
             listed_targets(binding_value(self.arguments, "compensations").expect("compensations"))
         {
@@ -5040,12 +5185,10 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             let (_, args) = self.node_arguments(template);
             let forward = self.target(argument(args, 1).expect("forward binder"));
             let mut level_set = self.introduce(forward, &base, meter)?;
-            let mut registration = Vec::new();
-            for (ordinal, capture) in members(argument(args, 5).expect("registration captures"))
-                .expect("registration captures")
-                .iter()
-                .enumerate()
-            {
+            let registration_captures = members(argument(args, 5).expect("registration captures"))
+                .expect("registration captures");
+            let mut registration = meter.vec(registration_captures.len())?;
+            for (ordinal, capture) in registration_captures.iter().enumerate() {
                 let initializer = group_value(capture, "initializer").expect("initializer");
                 self.slot(
                     template,
@@ -5064,9 +5207,8 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             let trigger_binder =
                 self.target(group_value(trigger, "binder").expect("trigger binder"));
             level_set = self.introduce(trigger_binder, &level_set, meter)?;
-            let mut guard_allowed = self.captures.iter().copied().collect::<BTreeSet<_>>();
-            guard_allowed.extend(registration.iter().copied());
-            guard_allowed.insert(trigger_binder);
+            let guard_allowed =
+                PositionSet::of(&[&self.captures, &registration, &[trigger_binder]], meter)?;
             self.slot(
                 template,
                 group_value(trigger, "guard").expect("trigger guard"),
@@ -5076,16 +5218,13 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 None,
                 meter,
             )?;
-            let mut activation = Vec::new();
-            for (ordinal, capture) in members(argument(args, 7).expect("activation captures"))
-                .expect("activation captures")
-                .iter()
-                .enumerate()
-            {
+            let activation_captures = members(argument(args, 7).expect("activation captures"))
+                .expect("activation captures");
+            let mut activation = meter.vec(activation_captures.len())?;
+            for (ordinal, capture) in activation_captures.iter().enumerate() {
                 let initializer = group_value(capture, "initializer").expect("initializer");
-                let mut allowed = guard_allowed.clone();
-                allowed.insert(self.c0[0]);
-                allowed.extend(activation.iter().copied());
+                let allowed =
+                    PositionSet::of(&[&guard_allowed.0, &self.c0[..1], &activation], meter)?;
                 self.slot(
                     template,
                     initializer,
@@ -5104,11 +5243,9 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             level_set = self.introduce(earlier, &level_set, meter)?;
             let later = self.target(group_value(retry, "later").expect("later"));
             level_set = self.introduce(later, &level_set, meter)?;
-            let mut captured = self.captures.iter().copied().collect::<BTreeSet<_>>();
-            captured.extend(registration.iter().copied());
-            captured.extend(activation.iter().copied());
-            let mut retry_allowed = captured.clone();
-            retry_allowed.extend([earlier, later]);
+            let mut captured =
+                PositionSet::of(&[&self.captures, &registration, &activation], meter)?;
+            let retry_allowed = captured.with(&[earlier, later], meter)?;
             self.slot(
                 template,
                 group_value(retry, "relation").expect("retry relation"),
@@ -5122,7 +5259,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             let recovery_binder =
                 self.target(group_value(recovery, "binder").expect("recovery binder"));
             self.introduce(recovery_binder, &level_set, meter)?;
-            captured.insert(recovery_binder);
+            captured.insert(recovery_binder, meter)?;
             self.slot(
                 template,
                 group_value(recovery, "predicate").expect("recovery predicate"),
@@ -5143,12 +5280,72 @@ enum SlotWalk<'a> {
     Bind(&'a CheckedTerm, Option<usize>),
 }
 
+/// A set of node positions as one sorted, duplicate-free block of exactly
+/// the requested capacity, charged before it is requested. Positions are
+/// dense node indices, so the order is the numeric order a position map
+/// would iterate in.
+#[derive(Default)]
+struct PositionSet(Vec<usize>);
+
+impl PositionSet {
+    /// The union of `parts`, in a block sized for their total length.
+    fn of(parts: &[&[usize]], meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+        let total = parts.iter().map(|part| part.len()).sum();
+        let mut items = meter.vec(total)?;
+        for part in parts {
+            items.extend_from_slice(part);
+        }
+        items.sort_unstable();
+        items.dedup();
+        Ok(Self(items))
+    }
+
+    /// This set with `extra` added, in a new block.
+    fn with(&self, extra: &[usize], meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+        Self::of(&[&self.0, extra], meter)
+    }
+
+    fn duplicate(&self, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+        Ok(Self(meter.copy_slice(&self.0)?))
+    }
+
+    fn insert(&mut self, position: usize, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
+        meter.insert_sorted(&mut self.0, position).map(drop)
+    }
+
+    fn contains(&self, position: usize) -> bool {
+        self.0.binary_search(&position).is_ok()
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = usize> + '_ {
+        self.0.iter().copied()
+    }
+
+    /// Members of this set that `other` lacks, in order.
+    fn difference<'s>(&'s self, other: &'s Self) -> impl Iterator<Item = usize> + 's {
+        self.iter().filter(|position| !other.contains(*position))
+    }
+}
+
+/// How one local scope is entered from its parent.
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+enum SlotKey<'a> {
+    Name(Option<usize>, &'a str),
+    Arm(Option<usize>, usize, usize),
+    Binder(Option<usize>, usize),
+}
+
+/// Local scopes of one slot walk. Entering the same scope from the same
+/// parent gives the same id, so a revisited term is recognised; the lookup
+/// is one sorted exact block grown only after the growth is charged.
 #[derive(Default)]
 struct SlotLocals<'a> {
     nodes: Vec<(Option<usize>, SlotLocal<'a>)>,
-    index: BTreeMap<(Option<usize>, &'a str), usize>,
-    arms: BTreeMap<(Option<usize>, usize, usize), usize>,
-    binders: BTreeMap<(Option<usize>, usize), usize>,
+    entered: Vec<(SlotKey<'a>, usize)>,
 }
 
 enum SlotLocal<'a> {
@@ -5158,34 +5355,66 @@ enum SlotLocal<'a> {
 }
 
 impl<'a> SlotLocals<'a> {
-    fn bind(&mut self, parent: Option<usize>, name: &'a str) -> usize {
-        if let Some(&id) = self.index.get(&(parent, name)) {
-            return id;
+    fn enter(
+        &mut self,
+        parent: Option<usize>,
+        key: SlotKey<'a>,
+        local: SlotLocal<'a>,
+        meter: &mut WorkMeter,
+    ) -> Result<usize, ValidationFailure> {
+        match self.entered.binary_search_by(|(held, _)| held.cmp(&key)) {
+            Ok(at) => Ok(self.entered[at].1),
+            Err(at) => {
+                let id = self.nodes.len();
+                meter.push(&mut self.nodes, (parent, local))?;
+                meter.room(&mut self.entered, 1)?;
+                self.entered.insert(at, (key, id));
+                Ok(id)
+            }
         }
-        let id = self.nodes.len();
-        self.nodes.push((parent, SlotLocal::Name(name)));
-        self.index.insert((parent, name), id);
-        id
     }
 
-    fn arm(&mut self, parent: Option<usize>, case: usize, ordinal: usize) -> usize {
-        if let Some(&id) = self.arms.get(&(parent, case, ordinal)) {
-            return id;
-        }
-        let id = self.nodes.len();
-        self.nodes.push((parent, SlotLocal::Arm));
-        self.arms.insert((parent, case, ordinal), id);
-        id
+    fn bind(
+        &mut self,
+        parent: Option<usize>,
+        name: &'a str,
+        meter: &mut WorkMeter,
+    ) -> Result<usize, ValidationFailure> {
+        self.enter(
+            parent,
+            SlotKey::Name(parent, name),
+            SlotLocal::Name(name),
+            meter,
+        )
     }
 
-    fn bind_node(&mut self, parent: Option<usize>, binder: usize) -> usize {
-        if let Some(&id) = self.binders.get(&(parent, binder)) {
-            return id;
-        }
-        let id = self.nodes.len();
-        self.nodes.push((parent, SlotLocal::Binder(binder)));
-        self.binders.insert((parent, binder), id);
-        id
+    fn arm(
+        &mut self,
+        parent: Option<usize>,
+        case: usize,
+        ordinal: usize,
+        meter: &mut WorkMeter,
+    ) -> Result<usize, ValidationFailure> {
+        self.enter(
+            parent,
+            SlotKey::Arm(parent, case, ordinal),
+            SlotLocal::Arm,
+            meter,
+        )
+    }
+
+    fn bind_node(
+        &mut self,
+        parent: Option<usize>,
+        binder: usize,
+        meter: &mut WorkMeter,
+    ) -> Result<usize, ValidationFailure> {
+        self.enter(
+            parent,
+            SlotKey::Binder(parent, binder),
+            SlotLocal::Binder(binder),
+            meter,
+        )
     }
 
     fn contains(
@@ -5193,7 +5422,7 @@ impl<'a> SlotLocals<'a> {
         mut scope: Option<usize>,
         position: usize,
         name: &str,
-        arm_binders: &BTreeSet<usize>,
+        arm_binders: &[usize],
         meter: &mut WorkMeter,
         owner: usize,
     ) -> Result<bool, ValidationFailure> {
@@ -5201,7 +5430,9 @@ impl<'a> SlotLocals<'a> {
             meter.charge(1, || node_pointer(owner))?;
             let (parent, local) = &self.nodes[id];
             let found = match local {
-                SlotLocal::Name(local) => !arm_binders.contains(&position) && *local == name,
+                SlotLocal::Name(local) => {
+                    arm_binders.binary_search(&position).is_err() && *local == name
+                }
                 SlotLocal::Binder(local) => *local == position,
                 SlotLocal::Arm => false,
             };
@@ -5216,8 +5447,8 @@ impl<'a> SlotLocals<'a> {
 
 struct ControlScopeFrame {
     position: usize,
-    input: BTreeSet<usize>,
-    output: BTreeSet<usize>,
+    input: PositionSet,
+    output: PositionSet,
     children: Vec<usize>,
     next: usize,
 }
@@ -5250,15 +5481,24 @@ fn control_binder<'a>(operator: &str, args: &'a [CheckedTerm]) -> Option<&'a Che
     argument(args, ordinal)
 }
 
-fn compensation_binders(args: &[CheckedTerm]) -> Vec<&CheckedTerm> {
-    let mut binders = vec![argument(args, 1).expect("forward binder")];
-    for capture in members(argument(args, 5).expect("registration captures")).expect("capture list")
-    {
+/// The binders a compensation template declares, in declaration order, in
+/// a block sized for them and charged first.
+fn compensation_binders<'a>(
+    args: &'a [CheckedTerm],
+    meter: &mut WorkMeter,
+) -> Result<Vec<&'a CheckedTerm>, ValidationFailure> {
+    let registration =
+        members(argument(args, 5).expect("registration captures")).expect("capture list");
+    let activation =
+        members(argument(args, 7).expect("activation captures")).expect("capture list");
+    let mut binders = meter.vec(6 + registration.len() + activation.len())?;
+    binders.push(argument(args, 1).expect("forward binder"));
+    for capture in registration {
         binders.push(group_value(capture, "binder").expect("capture binder"));
     }
     binders
         .push(group_value(argument(args, 6).expect("trigger"), "binder").expect("trigger binder"));
-    for capture in members(argument(args, 7).expect("activation captures")).expect("capture list") {
+    for capture in activation {
         binders.push(group_value(capture, "binder").expect("capture binder"));
     }
     let retry = argument(args, 10).expect("retry");
@@ -5268,7 +5508,7 @@ fn compensation_binders(args: &[CheckedTerm]) -> Vec<&CheckedTerm> {
     binders.push(
         group_value(argument(args, 12).expect("recovery"), "binder").expect("recovery binder"),
     );
-    binders
+    Ok(binders)
 }
 
 fn causal_edge(
@@ -5279,8 +5519,7 @@ fn causal_edge(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     meter.charge(1, || node_pointer(position))?;
-    edges[from].push(to);
-    Ok(())
+    meter.push(&mut edges[from], to)
 }
 
 #[derive(Clone, Copy)]
@@ -5322,14 +5561,14 @@ fn guard_never_exits(
     position: usize,
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
-    let mut atoms: Vec<GuardAtom<'_>> =
-        listed_targets(binding_value(args, "visible").expect("validated visible"))
-            .map(GuardAtom::Node)
-            .collect();
+    let visible = binding_value(args, "visible").expect("validated visible");
+    let mut atoms: Vec<GuardAtom<'_>> = meter.vec(listed_targets(visible).count())?;
+    atoms.extend(listed_targets(visible).map(GuardAtom::Node));
     let mut program = Vec::new();
     let mut compiled = Vec::new();
     let guard = binding_value(args, "guard").expect("validated guard");
-    let mut pending = vec![(guard, None, false)];
+    let mut pending = meter.vec(1)?;
+    pending.push((guard, None, false));
     while let Some((term, key, complete)) = pending.pop() {
         if complete {
             let CheckedTerm::Application {
@@ -5340,22 +5579,23 @@ fn guard_never_exits(
             else {
                 unreachable!("only connective applications complete")
             };
-            program.push(
+            meter.push(
+                &mut program,
                 guard_connective(operation.identity(), arguments.len())
                     .expect("validated connective arity"),
-            );
+            )?;
             if let Some(id) = key {
                 let index = compiled
                     .iter()
                     .position(|candidate| candidate == &id)
                     .expect("registered connective");
-                program.push(GuardOp::Store(index));
+                meter.push(&mut program, GuardOp::Store(index))?;
             }
             continue;
         }
         if let Some(id) = key {
             if let Some(index) = atoms.iter().position(|candidate| candidate.same_node(id)) {
-                program.push(GuardOp::Atom(index));
+                meter.push(&mut program, GuardOp::Atom(index))?;
                 continue;
             }
         }
@@ -5365,11 +5605,11 @@ fn guard_never_exits(
                     .iter()
                     .position(|candidate| candidate.same_node(target))
                 {
-                    program.push(GuardOp::Atom(index));
+                    meter.push(&mut program, GuardOp::Atom(index))?;
                     continue;
                 }
                 if let Some(index) = compiled.iter().position(|candidate| *candidate == target) {
-                    program.push(GuardOp::Load(index));
+                    meter.push(&mut program, GuardOp::Load(index))?;
                     continue;
                 }
                 let target_position = *check.index.get(target).expect("validated guard reference");
@@ -5378,14 +5618,14 @@ fn guard_never_exits(
                     CheckedNodeKind::Value(ValueForm::Literal) | CheckedNodeKind::Expression(_)
                 ) {
                     let index = atoms.len();
-                    atoms.push(GuardAtom::Node(target));
-                    program.push(GuardOp::Atom(index));
+                    meter.push(&mut atoms, GuardAtom::Node(target))?;
+                    meter.push(&mut program, GuardOp::Atom(index))?;
                     continue;
                 }
                 let Some(referenced) = check.terms[target_position].as_ref() else {
                     let index = atoms.len();
-                    atoms.push(GuardAtom::Node(target));
-                    program.push(GuardOp::Atom(index));
+                    meter.push(&mut atoms, GuardAtom::Node(target))?;
+                    meter.push(&mut program, GuardOp::Atom(index))?;
                     continue;
                 };
                 (referenced, Some(target))
@@ -5398,9 +5638,10 @@ fn guard_never_exits(
                 value,
                 ..
             } => {
-                program.push(GuardOp::Constant(
-                    value.as_bool().expect("validated Boolean literal"),
-                ));
+                meter.push(
+                    &mut program,
+                    GuardOp::Constant(value.as_bool().expect("validated Boolean literal")),
+                )?;
             }
             CheckedTerm::Application {
                 operation,
@@ -5408,30 +5649,30 @@ fn guard_never_exits(
                 ..
             } if guard_connective(operation.identity(), arguments.len()).is_some() => {
                 if let Some(id) = key {
-                    compiled.push(id);
+                    meter.push(&mut compiled, id)?;
                 }
-                pending.push((term, key, true));
+                meter.push(&mut pending, (term, key, true))?;
+                meter.room(&mut pending, arguments.len())?;
                 for argument in arguments {
                     pending.push((argument, None, false));
                 }
             }
             _ => {
-                let index = if let Some(id) = key {
-                    let index = atoms.len();
-                    atoms.push(GuardAtom::Node(id));
-                    index
-                } else {
-                    let index = atoms.len();
-                    atoms.push(GuardAtom::Inline);
-                    index
-                };
-                program.push(GuardOp::Atom(index));
+                let index = atoms.len();
+                meter.push(
+                    &mut atoms,
+                    match key {
+                        Some(id) => GuardAtom::Node(id),
+                        None => GuardAtom::Inline,
+                    },
+                )?;
+                meter.push(&mut program, GuardOp::Atom(index))?;
             }
         }
     }
-    let mut valuation = vec![false; atoms.len()];
-    let mut values = Vec::with_capacity(program.len());
-    let mut cache = vec![false; compiled.len()];
+    let mut valuation = meter.filled(atoms.len(), false)?;
+    let mut values = meter.vec(program.len())?;
+    let mut cache = meter.filled(compiled.len(), false)?;
     loop {
         meter.charge(1, || node_pointer(position))?;
         values.clear();
@@ -5481,9 +5722,11 @@ fn check_clause_causality(
         .and_then(reference_target)
         .and_then(|target| check.index.get(target).copied())
         .expect("validated clause root");
-    let mut preorder = Vec::new();
-    let mut order = vec![None; check.nodes.len()];
-    let mut pending = vec![root];
+    meter.at_node(root, "protocol");
+    let mut preorder = meter.vec(check.nodes.len())?;
+    let mut order: Vec<Option<usize>> = meter.filled(check.nodes.len(), None)?;
+    let mut pending = meter.vec(1)?;
+    pending.push(root);
     while let Some(position) = pending.pop() {
         meter.charge(1, || node_pointer(position))?;
         if order[position].is_some() {
@@ -5492,13 +5735,14 @@ fn check_clause_causality(
         order[position] = Some(preorder.len());
         preorder.push(position);
         let (operator, args) = validated[position].expect("validated control");
-        for target in control_children(operator, args).into_iter().rev() {
-            if let Some(&child) = check.index.get(target) {
-                pending.push(child);
-            }
+        for child in control_positions(operator, args, check.index, meter)?
+            .into_iter()
+            .rev()
+        {
+            meter.push(&mut pending, child)?;
         }
     }
-    let mut edges = vec![Vec::new(); preorder.len() * 2];
+    let mut edges: Vec<Vec<usize>> = meter.filled(preorder.len() * 2, Vec::new())?;
     let port =
         |position: usize, exit: bool| order[position].map(|index| index * 2 + usize::from(exit));
     let cross_port = |target: usize, exit: bool, owner: usize, path: JsonPointer| {
@@ -5516,10 +5760,7 @@ fn check_clause_causality(
         let (operator, args) = validated[position].expect("validated control");
         let enter = port(position, false).expect("tree member");
         let exit = enter + 1;
-        let children: Vec<usize> = control_children(operator, args)
-            .into_iter()
-            .filter_map(|target| check.index.get(target).copied())
-            .collect();
+        let children = control_positions(operator, args, check.index, meter)?;
         match operator {
             "sequence" => {
                 let mut previous = enter;
@@ -5557,11 +5798,15 @@ fn check_clause_causality(
                 let branches = binding_value(args, "branches")
                     .and_then(members)
                     .expect("validated branches");
-                let joined: BTreeSet<&str> = binding_value(args, "joined")
-                    .into_iter()
-                    .flat_map(|term| members(term).into_iter().flatten())
-                    .filter_map(text_value)
-                    .collect();
+                let joined_labels = || {
+                    binding_value(args, "joined")
+                        .into_iter()
+                        .flat_map(|term| members(term).into_iter().flatten())
+                        .filter_map(text_value)
+                };
+                let mut joined: Vec<&str> = meter.vec(joined_labels().count())?;
+                joined.extend(joined_labels());
+                joined.sort_unstable();
                 for (branch, &child) in branches.iter().zip(&children) {
                     causal_edge(
                         &mut edges,
@@ -5573,7 +5818,7 @@ fn check_clause_causality(
                     let label = group_value(branch, "label")
                         .and_then(text_value)
                         .expect("validated label");
-                    if joined.contains(label) {
+                    if joined.binary_search(&label).is_ok() {
                         causal_edge(
                             &mut edges,
                             port(child, true).expect("tree child"),
@@ -5697,13 +5942,14 @@ fn check_clause_causality(
         }
     }
 
-    let mut colors = vec![0_u8; edges.len()];
+    let mut colors = meter.filled(edges.len(), 0_u8)?;
+    let mut stack: Vec<(usize, usize)> = Vec::new();
     for start in 0..edges.len() {
         if colors[start] != 0 {
             continue;
         }
         colors[start] = 1;
-        let mut stack = vec![(start, 0_usize)];
+        meter.push(&mut stack, (start, 0_usize))?;
         while let Some((vertex, next)) = stack.last_mut() {
             meter.charge(1, || node_pointer(preorder[*vertex / 2]))?;
             if let Some(&successor) = edges[*vertex].get(*next) {
@@ -5713,10 +5959,11 @@ fn check_clause_causality(
                         .iter()
                         .position(|(node, _)| *node == successor)
                         .expect("gray node in stack");
-                    let controls = stack[first..]
-                        .iter()
-                        .map(|(node, _)| *node / 2)
-                        .collect::<BTreeSet<_>>()
+                    let mut ordinals = meter.vec(stack.len() - first)?;
+                    ordinals.extend(stack[first..].iter().map(|(node, _)| *node / 2));
+                    ordinals.sort_unstable();
+                    ordinals.dedup();
+                    let controls = ordinals
                         .into_iter()
                         .map(|ordinal| check.nodes[preorder[ordinal]].node_id.clone())
                         .collect();
@@ -5737,7 +5984,7 @@ fn check_clause_causality(
                 }
                 if colors[successor] == 0 {
                     colors[successor] = 1;
-                    stack.push((successor, 0));
+                    meter.push(&mut stack, (successor, 0))?;
                 }
             } else {
                 colors[*vertex] = 2;
@@ -5746,22 +5993,25 @@ fn check_clause_causality(
         }
     }
 
-    let mut nested = vec![false; check.nodes.len()];
-    let mut pending = vec![(root, false, false)];
+    let mut nested = meter.filled(check.nodes.len(), false)?;
+    let mut pending = meter.vec(1)?;
+    pending.push((root, false, false));
     while let Some((position, inside_body, in_exhausted)) = pending.pop() {
         nested[position] = inside_body && !in_exhausted;
         let (operator, args) = validated[position].expect("validated control");
-        let children = control_children(operator, args);
-        for (ordinal, target) in children.into_iter().enumerate().rev() {
-            let child = *check.index.get(target).expect("validated control child");
-            pending.push((
-                child,
-                inside_body || (operator == "repeat" && ordinal == 0),
-                in_exhausted || (operator == "repeat" && ordinal == 1),
-            ));
+        let children = control_positions(operator, args, check.index, meter)?;
+        for (ordinal, child) in children.into_iter().enumerate().rev() {
+            meter.push(
+                &mut pending,
+                (
+                    child,
+                    inside_body || (operator == "repeat" && ordinal == 0),
+                    in_exhausted || (operator == "repeat" && ordinal == 1),
+                ),
+            )?;
         }
     }
-    let mut guard_never_exits_by_control = vec![false; check.nodes.len()];
+    let mut guard_never_exits_by_control = meter.filled(check.nodes.len(), false)?;
     for &position in &preorder {
         let Some(("repeat", args)) = validated[position] else {
             continue;
@@ -5771,14 +6021,11 @@ fn check_clause_causality(
                 guard_never_exits(check, args, position, meter)?;
         }
     }
-    let mut steps = vec![false; check.nodes.len()];
+    let mut steps = meter.filled(check.nodes.len(), false)?;
     for &position in preorder.iter().rev() {
         meter.charge(1, || node_pointer(position))?;
         let (operator, args) = validated[position].expect("validated control");
-        let children = control_children(operator, args)
-            .into_iter()
-            .filter_map(|id| check.index.get(id).copied())
-            .collect::<Vec<_>>();
+        let children = control_positions(operator, args, check.index, meter)?;
         steps[position] = match operator {
             "send" | "receive" | "attempt" | "effect" | "event" | "commit" | "fence" | "await"
             | "parallel" => true,
@@ -6000,8 +6247,8 @@ pub(super) fn validate_protocol_nodes(
         }
         validated[position] = Some((operator, arguments));
     }
-    validate_protocol_declaration_names(nodes, kinds, index)?;
-    validate_protocol_declaration_paths(nodes, kinds, &validated, index)?;
+    validate_protocol_declaration_names(nodes, kinds, index, meter)?;
+    validate_protocol_declaration_paths(nodes, kinds, &validated, index, meter)?;
     // Local member shapes precede membership, which precedes clause checks.
     for form in [
         ProtocolForm::Role,
@@ -6024,8 +6271,13 @@ pub(super) fn validate_protocol_nodes(
             };
             validate_layout(form, operator, arguments)
                 .map_err(|defect| body_defect(position, &nodes[position], defect))?;
-            validate_related_order(form, operator, arguments, bytes)
-                .map_err(|defect| body_defect(position, &nodes[position], defect))?;
+            meter.at_node(
+                position,
+                super::graph_storage::node_form(&nodes[position].node_tag),
+            );
+            if let Some(defect) = validate_related_order(form, operator, arguments, bytes, meter)? {
+                return Err(body_defect(position, &nodes[position], defect));
+            }
             let check = MemberCheck {
                 catalog,
                 position,
@@ -6116,6 +6368,61 @@ mod tests {
     use crate::checked_package::v2::CheckedTerm;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    /// The position set agrees with the ordered set it replaces on every
+    /// operation the binder scopes use, and each block is charged first
+    /// (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn position_sets_agree_with_ordered_sets_and_charge_each_block() {
+        use crate::NativeJoinBudget;
+        use std::collections::BTreeSet;
+        let run = |limit: u64| -> Option<u64> {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            let base_parts: [&[usize]; 3] = [&[9, 2, 7], &[2, 11], &[]];
+            let mut reference: BTreeSet<usize> = base_parts
+                .iter()
+                .flat_map(|part| part.iter().copied())
+                .collect();
+            let mut set = PositionSet::of(&base_parts, &mut meter).ok()?;
+            let check = |set: &PositionSet, reference: &BTreeSet<usize>| {
+                assert_eq!(
+                    set.iter().collect::<Vec<_>>(),
+                    reference.iter().copied().collect::<Vec<_>>()
+                );
+                assert_eq!(set.len(), reference.len());
+                for probe in 0..14 {
+                    assert_eq!(set.contains(probe), reference.contains(&probe), "{probe}");
+                }
+            };
+            check(&set, &reference);
+            let wider = set.with(&[4, 7, 13], &mut meter).ok()?;
+            let wider_reference: BTreeSet<usize> =
+                reference.iter().copied().chain([4, 7, 13]).collect();
+            check(&wider, &wider_reference);
+            let copy = set.duplicate(&mut meter).ok()?;
+            check(&copy, &reference);
+            for position in [5, 9, 0] {
+                set.insert(position, &mut meter).ok()?;
+                reference.insert(position);
+                check(&set, &reference);
+            }
+            assert_eq!(
+                wider.difference(&set).collect::<Vec<_>>(),
+                wider_reference
+                    .difference(&reference)
+                    .copied()
+                    .collect::<Vec<_>>()
+            );
+            drop(meter);
+            Some(budget.read_storage_consumed())
+        };
+        let spent = run(u64::MAX).expect("unbounded run completes");
+        assert!(spent > 0, "the blocks are charged");
+        assert_eq!(run(spent), Some(spent));
+        assert_eq!(run(spent - 1), None, "one byte short is denied");
+    }
 
     /// Protocol integers order exactly beyond any machine width, and read in
     /// place: no request is made for them (FR-038-AC-504).
