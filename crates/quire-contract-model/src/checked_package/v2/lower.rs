@@ -842,6 +842,13 @@ impl CheckedPackageV2 {
                         incomplete: incomplete.clone(),
                     };
                 }
+                Err(ValidationFailure::Budget(stop)) => {
+                    return CompleteLoweringRecordV2::BodyIncomplete {
+                        node_id: request.clone(),
+                        body_node_id: node.node_id.clone(),
+                        incomplete: stop.clone().without_budget(),
+                    };
+                }
             };
             let edges = u64::try_from(fact.successors.len()).unwrap_or(u64::MAX);
             work = work.saturating_add(terms).saturating_add(edges);

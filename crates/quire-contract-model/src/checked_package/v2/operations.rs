@@ -906,8 +906,8 @@ struct StructuralTypes {
 }
 
 /// Shared accounting state while one application checks operands and leaves.
-struct OperationWork<'a> {
-    meter: &'a mut WorkMeter,
+struct OperationWork<'a, 'b> {
+    meter: &'a mut WorkMeter<'b>,
     structural: &'a mut StructuralTypes,
 }
 
@@ -2147,7 +2147,7 @@ fn check_operands(
     owners: &ModelOwners<'_>,
     catalog: &OperationCatalog,
     fast_index: Option<&FlatWireIndex<'_>>,
-    work: &mut OperationWork<'_>,
+    work: &mut OperationWork<'_, '_>,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
         nodes,
@@ -4194,7 +4194,7 @@ enum LeafWalkEnd {
 /// alias chain named by many fields costs its length once, not once per field.
 fn text_profile_pin(
     type_id: &CheckedNodeId,
-    walk: &mut LeafWalk<'_, '_>,
+    walk: &mut LeafWalk<'_, '_, '_>,
 ) -> Result<Option<Box<str>>, LeafWalkEnd> {
     let (nodes, kinds, index) = (walk.nodes, walk.kinds, walk.index);
     let Some(mut position) = index.get(type_id).copied() else {
@@ -4427,12 +4427,12 @@ fn path_is(leaf: &OperationLeafWire, prefix: &[Box<str>], last: Option<&str>) ->
 /// the width of a node's fields (a sibling holding no text is entered and
 /// skipped) for a type that reaches no open composite, and by the work
 /// budget for one that does.
-struct LeafWalk<'g, 'm> {
+struct LeafWalk<'g, 'm, 'b> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
     index: &'g BTreeMap<&'g CheckedNodeId, usize>,
     terms: &'g [Option<CheckedTerm>],
-    meter: &'m mut WorkMeter,
+    meter: &'m mut WorkMeter<'b>,
     structural: &'m mut StructuralTypes,
     at: JsonPointer,
     operation_at: JsonPointer,
@@ -4464,14 +4464,14 @@ struct ComponentVisit {
     next: usize,
 }
 
-impl<'g, 'm> LeafWalk<'g, 'm> {
+impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
     fn new(
         graph: Graph<'g>,
-        meter: &'m mut WorkMeter,
+        meter: &'m mut WorkMeter<'b>,
         structural: &'m mut StructuralTypes,
         at: JsonPointer,
         operation_at: JsonPointer,
-    ) -> LeafWalk<'g, 'm> {
+    ) -> LeafWalk<'g, 'm, 'b> {
         LeafWalk {
             nodes: graph.nodes,
             kinds: graph.kinds,
@@ -5055,7 +5055,7 @@ fn check_leaf_count(
     graph: &Graph<'_>,
     lock: &CheckedPackageLockV2,
     catalog: &OperationCatalog,
-    work: &mut OperationWork<'_>,
+    work: &mut OperationWork<'_, '_>,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     let Graph {
         nodes,

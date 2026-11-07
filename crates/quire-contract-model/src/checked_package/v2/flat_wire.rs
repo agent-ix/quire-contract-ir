@@ -1089,7 +1089,8 @@ mod tests {
                         .path
                         .clone()
                         .map_or_else(|| "<none>".to_owned(), |path| path.as_str().to_owned()),
-                    crate::checked_package::common::ValidationFailure::Incomplete(_) => {
+                    crate::checked_package::common::ValidationFailure::Incomplete(_)
+                    | crate::checked_package::common::ValidationFailure::Budget(_) => {
                         "incomplete".to_owned()
                     }
                 })

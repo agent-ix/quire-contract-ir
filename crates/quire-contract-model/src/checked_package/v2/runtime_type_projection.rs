@@ -349,7 +349,8 @@ impl SelectedTypeDeclarationsError {
             | NativeJoinLocusSource::AuthorityRow
             | NativeJoinLocusSource::PreparationSelection(_)
             | NativeJoinLocusSource::PreparationOutput(_)
-            | NativeJoinLocusSource::MonitorAuthority => None,
+            | NativeJoinLocusSource::MonitorAuthority
+            | NativeJoinLocusSource::PackageRead(..) => None,
             NativeJoinLocusSource::GraphNode(index) => package
                 .resolved_graph()
                 .nodes
