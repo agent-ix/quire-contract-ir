@@ -201,7 +201,7 @@ validation and the cross-owner join. Neither `quire-contract-model` nor the
   reinterpretation is refused even where formula bytes are equal.
 - Every generated formula, trace or position history, request and mapped-result artifact SHALL pass its owner's public reader before use. The bridge SHALL retain each exact admitted typed owner value, its public name and version where one exists, and the selected definition references. It SHALL compute no content hash or derived identity.
 - Construction SHALL be acyclic. The bridge SHALL first take the native subject name from the admitted declaration and the correspondence profile name `quire.native-temporal-correspondence/v1`. It SHALL supply those names to quire-mltl `RequestInput`, owner-read the generated request, and construct the correspondence record with that exact admitted request value. The request SHALL NOT contain the record or a record-derived reference. A wrong subject/profile name or a request unequal to the value retained in the record SHALL refuse before projection admission.
-- The correspondence record SHALL retain the package name, declaration and clause names, selected source `{authority, identity}` and span, model/type/predicate bindings, anchor, captures, clock and observation binding, every interval, closure/history premises, the exact owner-admitted TL formula, request, trace/history and valuation values, their public versions and the bridge definition `{authority, identity}`. A change to any preserved axis SHALL change the corresponding exposed typed member. No record reference, digest or hash is produced.
+- The correspondence record SHALL retain the package name, declaration and clause names, selected source `{authority, identity}` and span, selected model package identities from `CheckedPackageV2::selected_model_packages` in its admitted identity order, model/type/predicate bindings, anchor, captures, clock and observation binding, every interval, closure/history premises, the exact owner-admitted TL formula, request, trace/history and valuation values, their public versions and the bridge definition `{authority, identity}`. A change to any preserved axis SHALL change the corresponding exposed typed member. The checked package carries no source model aliases; the bridge SHALL NOT derive or accept a caller-authored alias map. No record reference, digest or hash is produced.
 
 ### Join and strict reading
 
@@ -268,7 +268,7 @@ The bridge-owned correspondence record SHALL retain exactly the following typed 
 | `package` | the admitted checked-package/v2 `name` and selected clause structural identity |
 | `source` | the selected `{authority, identity}` reference and exact clause span |
 | `declaration` | declaration index and declared clause name |
-| `models` | each selected model alias and package name in alias order |
+| `models` | each owner-admitted selected model package identity in ascending identity order, as returned by `CheckedPackageV2::selected_model_packages`; no alias member |
 | `bindings` | each leaf handle, predicate name, structural predicate node id and TL proposition id |
 | `anchor`, `captures`, `clock`, `observation` | the exact admitted activation, capture values, clock parameters and observation value |
 | `intervals`, `closure`, `history` | ordered interval pairs and separate surrounding/history facts |
@@ -329,7 +329,7 @@ an exact and one-over boundary without constructing a default-sized artifact.
 ## Dependencies
 
 - `agent-ix/quire-integration` (IR-1005) owns the QSL-typed `project_tl` bridge,
-  strict projection and join readers, correspondence value, and executable
+  strict projection and join readers, correspondence value, and future
   TC-461 evidence. This Contract IR requirement remains the cross-repository
   contract for FR-350-AC-1 through FR-350-AC-6 and FR-350-AC-8 through
   FR-350-AC-9; AC-7 remains

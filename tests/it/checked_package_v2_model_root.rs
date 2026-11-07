@@ -22,6 +22,38 @@ fn selected_package() -> Value {
     package
 }
 
+/// Trace: FR-038-AC-494
+#[trace("TC-233", "FR-038-AC-494")]
+#[test]
+fn selected_model_package_names_follow_admitted_identity_order() {
+    let mut package = selected_package();
+    select_model(&mut package, "aa/first");
+    refresh_identity(&mut package);
+    let selected = admitted(&package);
+    let graph_order: Vec<_> = selected
+        .graph()
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.owner {
+            Some(CheckedNodeOwner::ModelRoot { identity }) => Some(identity.as_ref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(graph_order, ["test/families", "zz/model-root", "aa/first"]);
+    assert_eq!(
+        selected.selected_model_packages().collect::<Vec<_>>(),
+        ["aa/first", "test/families", "zz/model-root"]
+    );
+    let cloned = selected.clone();
+    assert_eq!(
+        cloned.selected_model_packages().collect::<Vec<_>>(),
+        ["aa/first", "test/families", "zz/model-root"]
+    );
+
+    let empty = admitted(&v2_nominal());
+    assert_eq!(empty.selected_model_packages().count(), 0);
+}
+
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
     CheckedPackageV2::read(
         &canonical(package),

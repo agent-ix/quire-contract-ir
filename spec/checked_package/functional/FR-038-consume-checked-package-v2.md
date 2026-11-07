@@ -234,6 +234,11 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
   member identity alongside the alias-normalized FR-150 structural effective
   type identity, or returns a typed unresolved condition for the whole call;
   see FR-038-AC-474 through FR-038-AC-477.
+- A borrowed `selected_model_packages` read of the admitted model-root package
+  identities in ascending identity order. It returns an empty sequence when
+  there is no selected model. The checked-package/v2 wire has no source model
+  alias field, so this read neither supplies nor derives aliases; see
+  FR-038-AC-494.
 - A borrowed typed read of the optional `operation_effects` carrier. Absence
   remains distinguishable from an admitted row whose four effect arrays are
   empty; a row carries its selected document, declaring node, original
@@ -5998,6 +6003,7 @@ copying QSL execution semantics into IR.
 | FR-038-AC-489 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). The map's structural path is exactly `["composite_type", "map", K's node_id, V's node_id]`. Equal operand identities, including aliases that resolve to them, identify one map node (MT-02); changing only the value to Boolean identifies a distinct node (MT-03), and changing only the key also identifies a distinct node. Declaration multiplicity bounds, if present, remain a separate `bounded_domain`/`collection_bounds` node and do not enter the map body's two bindings or path. | Test (TC-048; QSpec FR-322-AC-385, MT-01..MT-03) |
 | FR-038-AC-490 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). A non-scalar map key refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}` (MT-04); omitting the `value` binding refuses `malformed_wire` with no cause at `/semantic_graph/nodes/{n}/body` during closed-schema admission (MT-05); and a body key reference that disagrees with the structural path refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}` (MT-06). No case yields an admitted or partial typed map view. A map carrying a Clock place follows QSpec FR-415's separate clock-place admission, without inventing a Clock value node (MT-07). | Test (TC-048; QSpec FR-322-AC-385, MT-04..MT-07) |
 | FR-038-AC-491 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). TC-048 reads QSpec main's `proposals/checked-package-v2/map-type-vectors.json` through `QUIRE_SPECIFICATION_DIR`, applies MT-01 through MT-07 to complete otherwise valid packages, and compares each published admission or refusal, code, cause and primary RFC 6901 pointer. Positive reads also assert typed key/value references and structural identity; the collection-bounds control keeps bounds in its separate node. A missing upstream vector or a changed expected outcome fails the control; no QSpec fixture, vector or schema is copied into IR. | Test (TC-048; QSpec FR-322-AC-385, TC-233) |
+| FR-038-AC-494 | An admitted `CheckedPackageV2` exposes its selected model package identities as a borrowed sequence in ascending identity order through `selected_model_packages`. A package with no selected model returns an empty sequence; a refused or incomplete read exposes no package. The read neither invents source aliases nor accepts caller-authored model selections. | Test (TC-233) |
 
 | FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
 | FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |
