@@ -6684,21 +6684,31 @@ mod tests {
             ],
         );
         application.body["result_type"] = json!(node_id('4'));
-        let parameter = |id, name, type_id| graph_node(
-            id, "value", "parameter", &node_id(type_id),
-            json!({"term":"aggregate","members":[
-                {"term":"binding","name":"name","value":{"term":"literal",
-                    "type":node_id('8'),"value_kind":"text","value":name}},
-                {"term":"binding","name":"level","value":{"term":"literal",
-                    "type":node_id('9'),"value_kind":"integer","value":"0"}},
-            ]}),
-        );
+        let parameter = |id, name, type_id| {
+            graph_node(
+                id,
+                "value",
+                "parameter",
+                &node_id(type_id),
+                json!({"term":"aggregate","members":[
+                    {"term":"binding","name":"name","value":{"term":"literal",
+                        "type":node_id('8'),"value_kind":"text","value":name}},
+                    {"term":"binding","name":"level","value":{"term":"literal",
+                        "type":node_id('9'),"value_kind":"integer","value":"0"}},
+                ]}),
+            )
+        };
         let result = defect_for_graph(vec![
             application.clone(),
             scalar_type_node('4', member_form),
             parameter('5', "q", '6'),
-            graph_node('6', "composite_type", "sequence", &node_id('6'),
-                json!({"term":"aggregate","members":[{"term":"reference","target":node_id('4')}]})),
+            graph_node(
+                '6',
+                "composite_type",
+                "sequence",
+                &node_id('6'),
+                json!({"term":"aggregate","members":[{"term":"reference","target":node_id('4')}]}),
+            ),
             parameter('7', "x", '4'),
             unpinned_text_node('8'),
             scalar_type_node('9', "integer"),
