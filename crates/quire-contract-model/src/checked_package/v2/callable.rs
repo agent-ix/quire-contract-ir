@@ -330,7 +330,7 @@ impl CheckedPackageV2 {
         let mut model_bodies = BTreeMap::<(&str, &str), usize>::new();
         let mut admitted_operations = BTreeSet::<(&str, &str)>::new();
         for model in self.models.selected_models() {
-            let Some(root) = self.graph().nodes.get(model.root) else {
+            let Some(root) = self.resolved_graph().nodes.get(model.root) else {
                 continue;
             };
             budget.charge(&root.node_id)?;
@@ -342,7 +342,7 @@ impl CheckedPackageV2 {
                 }
             }
         }
-        for (position, node) in self.graph().nodes.iter().enumerate() {
+        for (position, node) in self.resolved_graph().nodes.iter().enumerate() {
             budget.charge(&node.node_id)?;
             if !matches!(
                 self.kinds.get(position),
@@ -405,7 +405,7 @@ impl CheckedPackageV2 {
                 frame: None,
             });
         }
-        for (position, node) in self.graph().nodes.iter().enumerate() {
+        for (position, node) in self.resolved_graph().nodes.iter().enumerate() {
             budget.charge(&node.node_id)?;
             if self.kinds.get(position) != Some(&CheckedNodeKind::State(StateForm::OperationAnchor))
             {
@@ -617,6 +617,7 @@ mod tests {
             timed_model_roots: Vec::new(),
             node_index: std::sync::Arc::new(retained_node_index(&wire)),
             structural_keys: Vec::new(),
+            slot_graph: Default::default(),
             source_index: std::sync::Arc::new(retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),

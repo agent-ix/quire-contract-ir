@@ -561,6 +561,9 @@ pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     pub graph_version: Box<str>,
     /// Complete closed graph.
     pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
+    /// One operand row per node, in graph order: slot `k` of node `i` names
+    /// `nodes[operand_rows[i][k]]`. Required on read.
+    pub operand_rows: Vec<Vec<u64>>,
 }
 
 type RawSemanticGraphV2 = CheckedSemanticGraphV2<Value>;
@@ -904,6 +907,9 @@ pub struct CheckedPackageV2 {
     node_index: Arc<BTreeMap<CheckedNodeId, usize>>,
     /// Graph-local wire IDs rebuilt as shared, document-independent keys.
     structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
+    /// The graph in its wire form, node-held operands as operand slots,
+    /// built on first use from the resolved graph in `wire`.
+    slot_graph: Arc<std::sync::OnceLock<CheckedSemanticGraphV2>>,
     /// Admission-derived position of each exact source occurrence.
     pub(in crate::checked_package) source_index:
         Arc<BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>>,
@@ -1350,7 +1356,7 @@ impl CheckedPackageV2 {
                 member_pointer(&["name"]),
             ));
         }
-        let wire = intake::decode_borrowed_wire(bytes)
+        let mut wire = intake::decode_borrowed_wire(bytes)
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
@@ -1364,7 +1370,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(&wire, bytes, limits, evidence)?;
+        } = validate(&mut wire, bytes, limits, evidence)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1413,6 +1419,7 @@ impl CheckedPackageV2 {
                 .zip(terms.iter().cloned())
                 .map(|(node, term)| node.into_typed(term))
                 .collect(),
+            operand_rows: semantic_graph.operand_rows,
         };
         let wire = CheckedPackageEnvelope {
             contract_version,
@@ -1455,6 +1462,7 @@ impl CheckedPackageV2 {
             terms,
             node_index,
             structural_keys,
+            slot_graph: Arc::default(),
             source_index,
             lowering_facts,
             bytes: limits.bytes,
@@ -1494,8 +1502,17 @@ impl CheckedPackageV2 {
         self.direct_dependencies.iter().map(std::sync::Arc::as_ref)
     }
 
-    /// The complete closed checked graph.
+    /// The complete closed checked graph as the wire holds it: each
+    /// node-held operand is an operand slot read through the node's row of
+    /// `operand_rows`, each document-held one an index segment.
     pub fn graph(&self) -> &CheckedSemanticGraphV2 {
+        self.slot_graph
+            .get_or_init(|| node_index::slot_graph(&self.wire.semantic_graph))
+    }
+
+    /// The graph with every operand resolved to a document index segment,
+    /// the form the reader checks and lowers.
+    pub(crate) fn resolved_graph(&self) -> &CheckedSemanticGraphV2 {
         &self.wire.semantic_graph
     }
 
@@ -1618,7 +1635,7 @@ struct ValidatedGraph {
 }
 
 fn validate(
-    wire: &RawCheckedPackageWireV2,
+    wire: &mut RawCheckedPackageWireV2,
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
@@ -1628,6 +1645,9 @@ fn validate(
     // here, before any identity is recomputed (FR-038-AC-116).
     let flat_kinds = flat_wire::check(wire)?;
     let structural_keys = node_index::check(bytes, wire, evidence)?;
+    // Every check below compares operands by graph index.
+    node_index::resolve_slots(wire);
+    let wire = &*wire;
     flat_wire::check_interval_bounds(wire, &flat_kinds)?;
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
@@ -2983,7 +3003,7 @@ fn validate_graph(
                     .is_some_and(|(selected_position, selected_package)| {
                         imported_node_matches(
                             node,
-                            &selected_package.graph().nodes[selected_position].to_raw(),
+                            &selected_package.resolved_graph().nodes[selected_position].to_raw(),
                             structural_keys,
                             &selected_package.structural_keys,
                         )
@@ -4401,6 +4421,7 @@ mod tests {
                     timed_model_roots: Vec::new(),
                     node_index: std::sync::Arc::new(Default::default()),
                     structural_keys: keys,
+                    slot_graph: Default::default(),
                     source_index: std::sync::Arc::new(Default::default()),
                     lowering_facts: Vec::new(),
                     wire: std::sync::Arc::new(wire),

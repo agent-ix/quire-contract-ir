@@ -152,7 +152,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
     .retain_original_admission();
     retain_graph_indices(&mut package);
     let index = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .enumerate()
@@ -213,7 +213,7 @@ fn shared_closure_package(roots: usize, shared: usize) -> (CheckedPackageV2, Vec
     retain_graph_indices(&mut package);
     BODY_WALKS.with(|walks| walks.set(0));
     let index = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .enumerate()
@@ -380,7 +380,7 @@ fn grouped_recursive_shared_closure_keeps_independent_records() {
         .nodes[1]
         .recursion_group = Some("shared".into());
     let index = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .enumerate()

@@ -2804,7 +2804,7 @@ pub(super) fn validate_catalog_graph(
                         .selected_package(&model.package)
                         .and_then(|selected| {
                             selected
-                                .graph()
+                                .resolved_graph()
                                 .nodes
                                 .iter()
                                 .find(|node| node.node_id == model.node)
@@ -2975,7 +2975,7 @@ fn local_protocol_nodes<'a>(graph: &'a RefinementGraph<'_, '_>) -> Vec<ProtocolC
 
 fn dependency_protocol_nodes(package: &super::CheckedPackageV2) -> Vec<ProtocolCatalogNode<'_>> {
     package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .zip(package.node_kinds())

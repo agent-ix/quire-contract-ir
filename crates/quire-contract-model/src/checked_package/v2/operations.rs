@@ -380,7 +380,8 @@ impl PartialEq for FlatNodeKey<'_> {
                     (CheckedNodePathSegment::Name(left), CheckedNodePathSegment::Name(right)) => {
                         left == right
                     }
-                    (CheckedNodePathSegment::Index(left), CheckedNodePathSegment::Index(right)) => {
+                    (CheckedNodePathSegment::Index(left), CheckedNodePathSegment::Index(right))
+                    | (CheckedNodePathSegment::Operand(left), CheckedNodePathSegment::Operand(right)) => {
                         left == right
                     }
                     _ => false,
@@ -404,6 +405,10 @@ impl Hash for FlatNodeKey<'_> {
                 CheckedNodePathSegment::Index(index) => {
                     1_u8.hash(state);
                     index.hash(state);
+                }
+                CheckedNodePathSegment::Operand(slot) => {
+                    2_u8.hash(state);
+                    slot.hash(state);
                 }
                 CheckedNodePathSegment::Node(_) => unreachable!("flat node key"),
             }

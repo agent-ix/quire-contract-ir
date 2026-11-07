@@ -1295,7 +1295,7 @@ impl SelectedExactIdentities {
         budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
         let before = budget.begin();
-        if let Some(first) = package.graph().nodes.first().map(|node| &node.node_id) {
+        if let Some(first) = package.resolved_graph().nodes.first().map(|node| &node.node_id) {
             self.check_binding(package, budget, first)?;
             charge_native_storage(
                 budget,
@@ -1332,7 +1332,7 @@ impl SelectedExactIdentities {
             .peek()
             .map(|row| &row.structural_node)
             .or_else(|| fields.peek().map(|row| &row.record_node))
-            .or_else(|| package.graph().nodes.first().map(|node| &node.node_id));
+            .or_else(|| package.resolved_graph().nodes.first().map(|node| &node.node_id));
         if let Some(first) = first {
             complete_witness::check_package_binding(None, package, budget, first)?;
             charge_native_storage(
