@@ -127,6 +127,34 @@ fn public_call_sites_share_finite_accounting_and_first_denial() {
             form: "adapter row",
         })
     );
+
+    let mut zero_storage = NativeJoinBudget::new(8, 0);
+    zero_storage.resume();
+    let allocation_locus = NativeJoinLocus {
+        source: NativeJoinLocusSource::TupleRow(2),
+        form: "adapter allocation",
+    };
+    let mut allocation_ran = false;
+    let allocation = zero_storage
+        .accounted_charge(NativeJoinChargeKind::Storage, 1, allocation_locus)
+        .map(|()| {
+            allocation_ran = true;
+            vec![42_u8]
+        });
+    assert_eq!(
+        allocation,
+        Err(NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Storage,
+            amount: 1,
+        })
+    );
+    assert!(!allocation_ran, "allocation must follow an admitted charge");
+    assert_eq!(zero_storage.consumed(), NativeJoinCharge::default());
+    assert_eq!(zero_storage.first_unpaid_locus(), Some(allocation_locus));
+    assert_eq!(
+        (zero_storage.work_limit(), zero_storage.storage_limit()),
+        (8, 0)
+    );
 }
 
 pub(crate) fn assert_exact_join(
