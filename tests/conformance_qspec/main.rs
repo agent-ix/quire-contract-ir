@@ -64,6 +64,10 @@ mod checked_package_v2_model_fields;
 mod checked_package_v2_owners;
 #[path = "../it/checked_package_v2_parameters.rs"]
 mod checked_package_v2_parameters;
+// Exercise the complete witness fixture's acquisition and retention contract
+// alongside the map controls that consume its admitted unit identities.
+#[path = "../it/complete_identity_witness.rs"]
+mod complete_identity_witness;
 #[path = "../it/checked_package_v2_map_type.rs"]
 mod map_type;
 mod model_root;
