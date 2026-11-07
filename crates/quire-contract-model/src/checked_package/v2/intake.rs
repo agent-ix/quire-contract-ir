@@ -101,6 +101,7 @@ struct BorrowedGraph<'a> {
     graph_version: Box<str>,
     #[serde(borrow)]
     nodes: Vec<BorrowedNode<'a>>,
+    operand_rows: Vec<Vec<u64>>,
 }
 
 // Keep native wire errors at the logical ID boundary. The refinement below
@@ -290,6 +291,7 @@ pub(super) fn decode_borrowed_wire(
         semantic_graph: RawSemanticGraphV2 {
             graph_version: graph.graph_version,
             nodes,
+            operand_rows: graph.operand_rows,
         },
         source_map: wire.source_map,
         refinement_step_rows: wire.refinement_step_rows,

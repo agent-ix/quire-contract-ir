@@ -220,9 +220,10 @@ pub fn v2_nominal() -> Value {
 pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
     const NODES: &str = "\u{1}nodes";
     const SOURCE_MAP: &str = "\u{1}source_map";
+    const ROWS: &str = "\u{1}rows";
     let boolean = family_key("aaaa");
     let mut previous = family_key("eeee");
-    let mut package = v2_all_families();
+    let package = v2_all_families();
     let base = package["semantic_graph"]["nodes"]
         .as_array()
         .expect("nodes")
@@ -258,7 +259,10 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
             .expect("an array")
             .push(json!(text));
     };
+    // The chain's nodes name operands by string, so each has an empty row.
+    let mut package = wire_form(&package);
     marker(&mut package, "/semantic_graph/nodes", NODES);
+    marker(&mut package, "/semantic_graph/operand_rows", ROWS);
     marker(&mut package, "/source_map", SOURCE_MAP);
     let splice = |text: String, marker: &str, entries: &[String]| {
         let quoted = serde_json::to_string(marker).expect("marker");
@@ -266,6 +270,7 @@ pub fn v2_reference_chain(length: usize) -> (Vec<u8>, String) {
     };
     let text = String::from_utf8(canonical(&package)).expect("utf-8");
     let text = splice(text, NODES, &nodes);
+    let text = splice(text, ROWS, &vec!["[]".to_owned(); length]);
     let text = splice(text, SOURCE_MAP, &source_map);
     (text.into_bytes(), previous)
 }
@@ -281,7 +286,190 @@ pub fn positive_operation_identities() -> Value {
 
 /// RFC 8785 bytes for the ASCII, integer-only fixtures (sorted members).
 pub fn canonical(value: &Value) -> Vec<u8> {
+    if value["contract_version"] == "quire.checked-package/v2" {
+        let mut wire = value.clone();
+        wire_operands(&mut wire);
+        return serde_json::to_vec(&wire).expect("canonical test JSON");
+    }
     serde_json::to_vec(value).expect("canonical test JSON")
+}
+
+/// `package` written as the V2 wire: see [`wire_operands`].
+pub fn wire_form(package: &Value) -> Value {
+    let mut wire = package.clone();
+    wire_operands(&mut wire);
+    wire
+}
+
+/// Whether `object` is a closed `{package, path, ordinal}` node id.
+fn is_id_object(object: &serde_json::Map<String, Value>) -> bool {
+    object.len() == 3
+        && object.contains_key("package")
+        && object.contains_key("path")
+        && object.contains_key("ordinal")
+}
+
+/// Applies `rewrite` to every operand segment of every node id under `value`,
+/// in the order of the value's canonical serialization. The `node` of a foreign
+/// `{package, node}` key names a dependency's graph and is left alone.
+fn for_each_segment(value: &mut Value, rewrite: &mut impl FnMut(&mut Value)) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                for_each_segment(item, rewrite);
+            }
+        }
+        Value::Object(object) => {
+            if object.len() == 2
+                && object.contains_key("package")
+                && object.get("node").is_some_and(Value::is_object)
+            {
+                return;
+            }
+            if is_id_object(object) {
+                if let Some(Value::Array(path)) = object.get_mut("path") {
+                    for segment in path {
+                        let is_operand = segment.as_object().is_some_and(|member| {
+                            member.len() == 1
+                                && (member.contains_key("node") || member.contains_key("operand"))
+                        });
+                        if is_operand {
+                            rewrite(segment);
+                        }
+                    }
+                }
+            }
+            for member in object.values_mut() {
+                for_each_segment(member, rewrite);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Writes a package held in resolved index form (every operand a graph index,
+/// no `operand_rows`), the form fixture helpers author and mutate, as the V2
+/// wire: each node-held operand becomes an operand slot numbered by first
+/// occurrence with the node's operand row. A package that already has rows is
+/// left as it is.
+pub fn wire_operands(package: &mut Value) {
+    if package["contract_version"] != "quire.checked-package/v2" {
+        return;
+    }
+    if !package["semantic_graph"]["nodes"].is_array() {
+        return;
+    }
+    if package["semantic_graph"].get("operand_rows").is_some() {
+        return;
+    }
+    let mut rows = Vec::new();
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("semantic graph nodes")
+    {
+        let mut row: Vec<u64> = Vec::new();
+        for_each_segment(node, &mut |segment| {
+            let Some(index) = segment.get("node").and_then(Value::as_u64) else {
+                return;
+            };
+            let slot = row
+                .iter()
+                .position(|entry| *entry == index)
+                .unwrap_or_else(|| {
+                    row.push(index);
+                    row.len() - 1
+                });
+            *segment = json!({"operand": slot});
+        });
+        rows.push(json!(row));
+    }
+    package["semantic_graph"]["operand_rows"] = Value::Array(rows);
+}
+
+/// Resolves one published node held beside its operand row: each operand slot
+/// becomes the index segment the row names.
+pub fn resolve_node_row(node: &mut Value, row: &Value) {
+    let row: Vec<u64> = serde_json::from_value(row.clone()).expect("operand row");
+    for_each_segment(node, &mut |segment| {
+        if let Some(slot) = segment.get("operand").and_then(Value::as_u64) {
+            let slot = usize::try_from(slot).expect("slot fits usize");
+            *segment = json!({"node": row[slot]});
+        }
+    });
+}
+
+/// Reads published vector nodes into resolved index form. A vector keeps a
+/// list of nodes beside `operand_rows` (or `restored_nodes` beside
+/// `restored_operand_rows`) and a single node `X` beside `X_operand_row`; the
+/// rows are dropped once each node is resolved.
+pub fn resolve_vector_rows(value: &mut Value) {
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(resolve_vector_rows),
+        Value::Object(object) => {
+            for (nodes_key, rows_key) in [
+                ("nodes", "operand_rows"),
+                ("restored_nodes", "restored_operand_rows"),
+            ] {
+                let paired = object.get(rows_key).is_some_and(Value::is_array)
+                    && object.get(nodes_key).is_some_and(Value::is_array);
+                if paired {
+                    let rows = object.remove(rows_key).expect("rows present");
+                    let rows = rows.as_array().expect("operand rows").clone();
+                    let nodes = object
+                        .get_mut(nodes_key)
+                        .and_then(Value::as_array_mut)
+                        .expect("nodes beside their rows");
+                    for (node, row) in nodes.iter_mut().zip(&rows) {
+                        resolve_node_row(node, row);
+                    }
+                }
+            }
+            let single = object
+                .iter()
+                .filter(|(key, row)| key.ends_with("_operand_row") && row.is_array())
+                .map(|(key, _)| key)
+                .cloned()
+                .collect::<Vec<_>>();
+            for key in single {
+                let row = object.remove(&key).expect("operand row");
+                let name = key.trim_end_matches("_operand_row");
+                if let Some(node) = object.get_mut(name) {
+                    resolve_node_row(node, &row);
+                }
+            }
+            object.values_mut().for_each(resolve_vector_rows);
+        }
+        _ => {}
+    }
+}
+
+/// Reads a package published in wire form into resolved index form, the
+/// inverse of [`wire_operands`]: each operand slot becomes the index segment
+/// its node's row names and `operand_rows` is dropped.
+pub fn resolve_operands(package: &mut Value) {
+    if package["contract_version"] != "quire.checked-package/v2"
+        || !package["semantic_graph"]["nodes"].is_array()
+    {
+        return;
+    }
+    let Some(rows) = package["semantic_graph"]
+        .as_object_mut()
+        .and_then(|graph| graph.remove("operand_rows"))
+    else {
+        return;
+    };
+    let rows: Vec<Vec<u64>> = serde_json::from_value(rows).expect("operand rows");
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("semantic graph nodes");
+    for (node, row) in nodes.iter_mut().zip(&rows) {
+        for_each_segment(node, &mut |segment| {
+            if let Some(slot) = segment.get("operand").and_then(Value::as_u64) {
+                let slot = usize::try_from(slot).expect("slot fits usize");
+                *segment = json!({"node": row[slot]});
+            }
+        });
+    }
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -366,7 +554,9 @@ pub fn index_fixture_node_ids(package: &mut Value) {
             for segment in path {
                 if segment.is_object() {
                     if segment.as_object().is_some_and(|object| {
-                        object.len() == 1 && object.get("node").and_then(Value::as_u64).is_some()
+                        object.len() == 1
+                            && (object.get("node").and_then(Value::as_u64).is_some()
+                                || object.get("operand").and_then(Value::as_u64).is_some())
                     }) {
                         continue;
                     }
@@ -587,6 +777,7 @@ pub fn identity_input(package: &Value) -> Value {
 
 /// Rebuilds the identity projection, clock rows, and clause names after graph edits.
 pub fn refresh_identity(package: &mut Value) {
+    resolve_operands(package);
     refresh_identity_projection(package);
     refresh_temporal_bindings(package);
 }
@@ -2219,6 +2410,8 @@ fn fixture_application_key(node: &Value, nodes: &Value) -> String {
 /// referenced, then the source map and the package identity. A node keyed by
 /// something other than its application preimage keeps its key.
 pub fn settle(package: &mut Value) {
+    // A package patched in wire form is edited by index segment from here.
+    resolve_operands(package);
     join_application_dependencies(package);
     rebuild_source_map(package);
     refresh_identity(package);

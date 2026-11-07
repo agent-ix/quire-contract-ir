@@ -163,7 +163,8 @@ fn published_model_field_read_forms_survive_admission_and_round_trip() {
                 .expect("encode admitted package");
                 let encoded: Value = serde_json::from_slice(&encoded).expect("encoded JSON");
                 assert_eq!(
-                    encoded["semantic_graph"]["nodes"], wire["semantic_graph"]["nodes"],
+                    encoded["semantic_graph"]["nodes"],
+                    crate::fixture_support::wire_form(&wire)["semantic_graph"]["nodes"],
                     "{name}: graph round trip"
                 );
                 let CheckedPackageV2ReadResult::Admitted(read_back) =

@@ -170,7 +170,7 @@ fn read(wire: &Value, imports: &[(&str, Arc<CheckedPackageV2>)]) -> CheckedPacka
             .expect("distinct dependency names");
     }
     CheckedPackageV2::read(
-        &serde_json::to_vec(wire).expect("test wire"),
+        &crate::fixture_support::canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )
@@ -238,7 +238,8 @@ fn xp_01_three_independent_equivalences_admit_as_one_class() {
         let wire = package(&name, &graph, &imports);
         let read = admitted(&wire, &dimension_imports);
         assert_eq!(
-            serde_json::to_value(&read.graph().nodes[0].node_id).expect("authored node id"),
+            serde_json::to_value(&read.document_held_id(0).expect("graph node").clone())
+                .expect("authored node id"),
             graph[0]["node_id"],
             "XP-01 authored package {index}"
         );

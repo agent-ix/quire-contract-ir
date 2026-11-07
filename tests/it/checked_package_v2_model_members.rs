@@ -389,8 +389,11 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
         panic!("baseline package must admit");
     };
     assert!(without_sidecar.checked_term_data().is_none());
-    let absent_call = without_sidecar.graph().nodes[CALL].node_id.clone();
-    let absent_occurrence = without_sidecar.graph().nodes[CALL].occurrences[0].clone();
+    let absent_call = without_sidecar
+        .document_held_id(CALL)
+        .expect("graph node")
+        .clone();
+    let absent_occurrence = without_sidecar.resolved_graph().nodes[CALL].occurrences[0].clone();
     assert_eq!(
         without_sidecar.dispatch_candidates(&absent_call, &absent_occurrence, 1),
         Err(quire_contract_model::CheckedDispatchReadError::Unavailable)
@@ -412,8 +415,8 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
         panic!("empty producer candidate set must admit");
     };
     assert!(admitted.checked_term_data().is_some());
-    let call = admitted.graph().nodes[CALL].node_id.clone();
-    let occurrence = admitted.graph().nodes[CALL].occurrences[0].clone();
+    let call = admitted.document_held_id(CALL).expect("graph node").clone();
+    let occurrence = admitted.resolved_graph().nodes[CALL].occurrences[0].clone();
     assert!(admitted
         .dispatch_candidates(&call, &occurrence, 1)
         .unwrap()
@@ -496,8 +499,8 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
         panic!("valid nonempty producer candidate table must admit");
     };
-    let call = admitted.graph().nodes[CALL].node_id.clone();
-    let occurrence = admitted.graph().nodes[CALL].occurrences[0].clone();
+    let call = admitted.document_held_id(CALL).expect("graph node").clone();
+    let occurrence = admitted.resolved_graph().nodes[CALL].occurrences[0].clone();
     let view = admitted
         .dispatch_candidates(&call, &occurrence, 3)
         .expect("bounded nonempty dispatch read");
@@ -878,24 +881,36 @@ fn selected_native_parameters_and_results_keep_their_type_nodes() {
             );
         };
         assert_eq!(
-            serde_json::to_value(&admitted.graph().nodes[5].semantic_type).expect("node id"),
+            serde_json::to_value(&admitted.resolved_graph().nodes[5].semantic_type)
+                .expect("node id"),
             node_id(&key)
         );
         assert_eq!(
-            serde_json::to_value(&admitted.graph().nodes[CALL].semantic_type).expect("node id"),
+            serde_json::to_value(&admitted.resolved_graph().nodes[CALL].semantic_type)
+                .expect("node id"),
             node_id(&key)
         );
         assert_eq!(
-            serde_json::to_value(&admitted.graph().nodes[CALL].body).expect("typed body")
+            serde_json::to_value(&admitted.resolved_graph().nodes[CALL].body).expect("typed body")
                 ["result_type"],
             node_id(&key)
         );
         assert_eq!(
-            admitted.graph().nodes.last().expect("scalar").semantic_type,
-            admitted.graph().nodes.last().expect("scalar").node_id
+            admitted
+                .resolved_graph()
+                .nodes
+                .last()
+                .expect("scalar")
+                .semantic_type,
+            admitted
+                .resolved_graph()
+                .nodes
+                .last()
+                .expect("scalar")
+                .node_id
         );
-        for position in [5, CALL, admitted.graph().nodes.len() - 1] {
-            let node = &admitted.graph().nodes[position];
+        for position in [5, CALL, admitted.resolved_graph().nodes.len() - 1] {
+            let node = &admitted.resolved_graph().nodes[position];
             assert!(admitted
                 .source_map()
                 .iter()
@@ -1412,7 +1427,7 @@ fn selected_variant_types_field_parameter_and_result() {
     for form in ["option", "sequence", "collection_bounds"] {
         assert!(
             admitted
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .any(|node| node.semantic_form.as_ref() == form),
@@ -2016,7 +2031,13 @@ fn tc_048_model_relationship_identity_survives_reader_admission() {
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
         panic!("model relationship package must admit");
     };
-    assert_eq!(admitted.graph().nodes[position].node_id, authored);
+    assert_eq!(
+        admitted
+            .document_held_id(position)
+            .expect("graph node")
+            .clone(),
+        authored
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-170")]
@@ -2169,7 +2190,7 @@ fn admitted_reaches(
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(package, evidence) else {
         panic!("expected an admitted reaches package");
     };
-    let nodes = &admitted.graph().nodes;
+    let nodes = &admitted.resolved_graph().nodes;
     let call = nodes
         .iter()
         .find(|node| {
@@ -2633,9 +2654,12 @@ fn selected_flow_process_go_resolves_its_operation_and_reference_receiver() {
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
         panic!("selected Flow.go and Reference<Flow> must admit");
     };
-    assert_eq!(admitted.graph().nodes[CALL].semantic_form.as_ref(), "call");
     assert_eq!(
-        admitted.graph().nodes[3].semantic_form.as_ref(),
+        admitted.resolved_graph().nodes[CALL].semantic_form.as_ref(),
+        "call"
+    );
+    assert_eq!(
+        admitted.resolved_graph().nodes[3].semantic_form.as_ref(),
         "reference"
     );
 }
@@ -3897,7 +3921,7 @@ fn typed_id(key: &str) -> CheckedNodeId {
 /// The node of the first application of `operation` in the admitted graph.
 fn application_of(package: &CheckedPackageV2, operation: &str) -> CheckedNodeId {
     package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {
@@ -4087,7 +4111,7 @@ fn tc_048_relationship_end_returns_the_declared_bounds_role_and_derived_type() {
     let package = admitted(&missing, &evidence);
     assert!(
         !package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .any(|node| node.node_id == order),
@@ -4136,7 +4160,7 @@ fn tc_048_relationship_end_refuses_every_node_that_is_not_a_reaches_application(
     let add = application_of(&package, "quire.op.integer.add");
     assert_eq!(package.relationship_end(&add), refusal, "integer.add");
     let literal = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_tag.as_ref() == "value" && node.semantic_form.as_ref() == "literal")

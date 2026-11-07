@@ -478,7 +478,7 @@ fn assert_tk36_resolved(
         "TK-36 variant payload retains exact Rational bounds"
     );
     let (range, kind) = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .zip(admitted.node_kinds())
@@ -515,6 +515,8 @@ fn assert_tk36_resolved(
 /// Apply one published RFC 6902 operation. The vector's patch is the source of
 /// both the mutation and its expected package identity.
 pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
+    // Published patches address the wire: operand rows and operand slots.
+    super::fixture_support::wire_operands(package);
     let path = patch["path"].as_str().expect("published patch path");
     let (parent, member) = path.rsplit_once('/').expect("patch member");
     let target = package.pointer_mut(parent).expect("published patch parent");
@@ -1012,11 +1014,8 @@ fn selected_rational_minimum_reaches_public_tuple_member_type() {
         "the public selected-model member type keeps i64::MIN"
     );
     assert!(
-        admitted
-            .graph()
-            .nodes
-            .iter()
-            .any(|node| node.node_id == range_id),
+        (0..admitted.graph().nodes.len())
+            .any(|position| admitted.document_held_id(position) == Some(&range_id)),
         "the exact range has an admitted structural node"
     );
 }
@@ -1518,7 +1517,10 @@ fn published_tuples_retain_named_identity_and_ordered_selected_positions() {
     }
     let same_shape_admitted = read_selected_variant_package(&package, &same_shape);
     assert_eq!(
-        same_shape_admitted.graph().nodes[tuple_node(&package, swap).0].node_id,
+        same_shape_admitted
+            .document_held_id(tuple_node(&package, swap).0)
+            .expect("graph node")
+            .clone(),
         swap_id
     );
     assert_ne!(
@@ -1565,9 +1567,22 @@ fn published_tuples_retain_named_identity_and_ordered_selected_positions() {
     aliased_document["types"][swap_index]["positions"][0]["typeRef"] = json!(alias);
     let aliased = read_selected_variant_package(&package, &aliased_document);
     let (swap_node_index, _) = tuple_node(&package, swap);
-    assert_eq!(aliased.graph().nodes[swap_node_index].node_id, swap_id);
     assert_eq!(
-        serde_json::to_value(&aliased.graph().nodes[swap_node_index].node_id.path).expect("path"),
+        aliased
+            .document_held_id(swap_node_index)
+            .expect("graph node")
+            .clone(),
+        swap_id
+    );
+    assert_eq!(
+        serde_json::to_value(
+            &aliased
+                .document_held_id(swap_node_index)
+                .expect("graph node")
+                .clone()
+                .path
+        )
+        .expect("path"),
         json!(["model", "tuple_value_type", swap]),
         "alias must not replace the declared qualified name"
     );

@@ -662,7 +662,7 @@ fn selected_non_object_clause_owners_reach_the_clause_edge_refusal() {
     let indexed_binder = &indexed["semantic_graph"]["nodes"][refinement]["body"]["class_catalog"]
         ["abstract"][0]["binder_types"][0];
     assert!(
-        indexed_binder["path"][2]["node"].as_u64().is_some(),
+        indexed_binder["path"][2]["operand"].as_u64().is_some(),
         "derived catalog binder uses a graph-local operand"
     );
     let mut wrong_binder = base.clone();
@@ -780,7 +780,7 @@ fn invalid_value_at(result: CheckedPackageV2ReadResult, pointer: &str) {
 }
 
 fn writer_bytes(package: &Value) -> Vec<u8> {
-    let indexed = indexed_package(package);
+    let indexed = crate::support::checked_package::wire_form(&indexed_package(package));
     let package = &indexed;
     let name = package["name"].as_str().expect("package name");
     let lock: CheckedPackageLockV2 = serde_json::from_value(package["lock"].clone()).expect("lock");
@@ -1466,8 +1466,9 @@ fn catalog_free_process_and_machine_frames_admit_declared_fields_and_scoped_para
         };
         assert_eq!(first.graph(), second.graph(), "{form}");
         assert_eq!(
-            serde_json::to_value(&first.graph().nodes[frame].body).expect("frame body"),
-            serde_json::to_value(&second.graph().nodes[frame].body).expect("roundtrip frame"),
+            serde_json::to_value(&first.resolved_graph().nodes[frame].body).expect("frame body"),
+            serde_json::to_value(&second.resolved_graph().nodes[frame].body)
+                .expect("roundtrip frame"),
             "{form}"
         );
     }
@@ -1655,8 +1656,9 @@ fn catalog_free_operation_step_joins_selected_object_type() {
             "{form} inherited={inherited}"
         );
         assert_eq!(
-            serde_json::to_value(&first.graph().nodes[position].body).expect("row body"),
-            serde_json::to_value(&second.graph().nodes[position].body).expect("roundtrip body"),
+            serde_json::to_value(&first.resolved_graph().nodes[position].body).expect("row body"),
+            serde_json::to_value(&second.resolved_graph().nodes[position].body)
+                .expect("roundtrip body"),
             "{form}"
         );
         if inherited {
@@ -1935,7 +1937,7 @@ fn assert_refinement_dependency_matrix(
     };
     let indexed = indexed_package(package);
     assert_eq!(
-        serde_json::to_value(&admitted.graph().nodes[position].dependencies)
+        serde_json::to_value(&admitted.resolved_graph().nodes[position].dependencies)
             .expect("typed dependencies"),
         indexed["semantic_graph"]["nodes"][position]["dependencies"]
     );
@@ -2072,7 +2074,7 @@ fn refinement_history_reference_dependencies_exclude_type_annotations() {
         panic!("concrete root annotation must not create a local dependency");
     };
     assert_eq!(
-        admitted.graph().nodes[position].dependencies.len(),
+        admitted.resolved_graph().nodes[position].dependencies.len(),
         1,
         "only the abstract header is a dependency of a row-empty body"
     );
@@ -2510,7 +2512,7 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
     let written: Value = serde_json::from_slice(&bytes).expect("writer JSON");
     assert_eq!(
         written["semantic_graph"]["nodes"][position],
-        *indexed_expected
+        crate::support::checked_package::wire_form(&indexed)["semantic_graph"]["nodes"][position]
     );
     let CheckedPackageV2ReadResult::Admitted(second) =
         CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
@@ -2590,8 +2592,8 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
         let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
         assert_eq!(
             written["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"],
-            indexed_package(&package)["semantic_graph"]["nodes"][position]["body"]["steps"][0]
-                ["target"]
+            crate::support::checked_package::wire_form(&indexed_package(&package))
+                ["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"]
         );
         let CheckedPackageV2ReadResult::Admitted(reread) =
             CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
@@ -3140,8 +3142,8 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
         panic!("literal initial refused: {:?}", read(&package, &evidence));
     };
     assert_eq!(
-        serde_json::to_value(&first.graph().nodes[position].body).expect("typed body")["histories"]
-            [0]["initial"],
+        serde_json::to_value(&first.resolved_graph().nodes[position].body).expect("typed body")
+            ["histories"][0]["initial"],
         initial
     );
     let literal_bytes = writer_bytes(&package);
@@ -3154,7 +3156,7 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
     };
     assert_eq!(first.graph(), literal_reread.graph());
     assert_eq!(
-        serde_json::to_value(&literal_reread.graph().nodes[position].body)
+        serde_json::to_value(&literal_reread.resolved_graph().nodes[position].body)
             .expect("reread literal body")["histories"][0]["initial"],
         initial
     );
@@ -3191,7 +3193,7 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
     };
     assert_eq!(first.graph(), second.graph());
     assert_eq!(
-        serde_json::to_value(&second.graph().nodes[position].body).expect("reread body")
+        serde_json::to_value(&second.resolved_graph().nodes[position].body).expect("reread body")
             ["histories"][0]["initial"],
         json!({"term":"reference","target":literal_id})
     );
@@ -5795,7 +5797,7 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
                 package["semantic_graph"]["nodes"][position]["body"]["steps"]
             );
         };
-        let owner = &admitted.graph().nodes[position];
+        let owner = &admitted.resolved_graph().nodes[position];
         assert_eq!(
             admitted.graph().nodes.len(),
             package["semantic_graph"]["nodes"]
@@ -5874,7 +5876,10 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
             read(&any, &any_evidence)
         );
     };
-    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+    assert_eq!(
+        admitted.resolved_graph().nodes[position].occurrences.len(),
+        1
+    );
     let mut extra_generated = any.clone();
     let source = extra_generated["lock"]["sources"][0].clone();
     extra_generated["source_map"]
@@ -5897,7 +5902,11 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
         admitted
             .source_map()
             .iter()
-            .filter(|entry| entry.node_id == admitted.graph().nodes[position].node_id)
+            .filter(|entry| entry.node_id
+                == admitted
+                    .document_held_id(position)
+                    .expect("graph node")
+                    .clone())
             .count(),
         1
     );
@@ -5910,7 +5919,10 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
             read(&hidden, &hidden_evidence)
         );
     };
-    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+    assert_eq!(
+        admitted.resolved_graph().nodes[position].occurrences.len(),
+        1
+    );
 
     let (mut history, history_evidence, position) = catalog_free_operation_package("object_type");
     let nodes = history["semantic_graph"]["nodes"]
@@ -5951,7 +5963,10 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
             read(&history, &history_evidence)
         );
     };
-    assert_eq!(admitted.graph().nodes[position].occurrences.len(), 1);
+    assert_eq!(
+        admitted.resolved_graph().nodes[position].occurrences.len(),
+        1
+    );
 }
 
 #[trace("TC-062", "FR-061-AC-8")]
@@ -6801,7 +6816,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     };
     assert_eq!(
         serde_json::to_value(round_trip.graph()).expect("round-trip graph"),
-        package["semantic_graph"]
+        crate::support::checked_package::wire_form(&package)["semantic_graph"]
     );
     let round_trip_clause = round_trip
         .graph()

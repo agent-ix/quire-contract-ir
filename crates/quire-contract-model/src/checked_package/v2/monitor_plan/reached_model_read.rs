@@ -1078,7 +1078,7 @@ mod tests {
     }
 
     fn equality_rows(package: &CheckedPackageV2) -> Vec<crate::SelectedEqualityApplicationRow> {
-        let application = package.graph().nodes.iter().find(|node| {
+        let application = package.resolved_graph().nodes.iter().find(|node| {
             matches!(node.node_id.path.get(2),
                 Some(crate::CheckedNodePathSegment::Name(name)) if name.as_ref() == "monitor_equality")
         }).expect("reached monitor equality").node_id.clone();
@@ -1327,7 +1327,7 @@ mod tests {
 
     fn selected_node(package: &CheckedPackageV2, original: &str) -> CheckedNodeId {
         package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| {
@@ -1341,7 +1341,7 @@ mod tests {
 
     fn source_unit(package: &CheckedPackageV2, name: &str) -> SelectedSourceUnitRow {
         let node = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| {
@@ -1459,7 +1459,7 @@ mod tests {
         let mut tuples = Vec::new();
         let mut unions = Vec::new();
         let mut collections = Vec::new();
-        for node in &package.graph().nodes {
+        for node in &package.resolved_graph().nodes {
             let Some(CheckedTerm::Aggregate { members }) = package.term(&node.node_id) else {
                 continue;
             };
@@ -2635,7 +2635,7 @@ mod tests {
         let original = "ix://test/families/Tier";
         let enum_node = selected_node(&package, original);
         let member_node = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| {

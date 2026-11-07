@@ -3,7 +3,9 @@
 
 //! QSpec dependency-call vectors through the public checked-package reader.
 
-use super::{cause_word, code_word, fixtures_dir, proposal_dir_of, read_json, read_package};
+use super::{
+    cause_word, code_word, fixtures_dir, proposal_dir_of, read_json, read_json_wire, read_package,
+};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageReadLimits,
@@ -43,7 +45,7 @@ fn without_dependency(package: &Value) -> CheckedPackageV2ReadResult {
         evidence.support_feature(feature.as_str().expect("feature"));
     }
     CheckedPackageV2::read(
-        &serde_json::to_vec(package).expect("published package"),
+        &crate::fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )
@@ -66,7 +68,7 @@ fn published_dependency_call_vectors_bind_every_reader_outcome_and_locus() {
         vectors["library"]["package"],
         "fixtures/positive-dependency-library.json"
     );
-    let base = read_json(&fixtures.join("positive-dependency-call.json"))
+    let base = read_json_wire(&fixtures.join("positive-dependency-call.json"))
         .expect("published positive dependency call");
     let positive = read_package(&base).expect("published dependency evidence");
     assert!(

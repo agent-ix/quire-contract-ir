@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! QSpec NI-01..NI-12 indexed node-path vectors through the production V2 reader.
+//! QSpec NI-01..NI-24 operand-row and operand-slot vectors through the production V2 reader.
 
+use super::fixture_support;
 use super::{
-    cause_word, code_word, fixtures_dir, proposal_dir_of, read_json, read_package,
+    cause_word, code_word, fixtures_dir, proposal_dir_of, read_json, read_json_wire, read_package,
     read_package_with_document_and_extensions_at_limit, DOMAIN_DOCUMENT,
 };
 use ix_trace_rs::trace;
@@ -28,6 +29,11 @@ fn apply_patch(package: &mut Value, patch: &Value) {
             let index: usize = member.parse().expect("published array index");
             *items.get_mut(index).expect("published replacement target") = patch["value"].clone();
         }
+        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
+        ("remove", Value::Array(items)) => {
+            let index: usize = member.parse().expect("published array index");
+            items.remove(index);
+        }
         ("add", Value::Array(items)) => {
             let index: usize = member.parse().expect("published array index");
             assert!(index <= items.len(), "{path}: published insertion target");
@@ -37,18 +43,28 @@ fn apply_patch(package: &mut Value, patch: &Value) {
     }
 }
 
-/// Trace: FR-038-AC-377, FR-038-AC-378
-#[trace("TC-048", "FR-038-AC-377", "FR-038-AC-378")]
+/// Trace: FR-038-AC-377, FR-038-AC-378, FR-038-AC-495, FR-038-AC-496
+#[trace(
+    "TC-048",
+    "FR-038-AC-377",
+    "FR-038-AC-378",
+    "FR-038-AC-495",
+    "FR-038-AC-496"
+)]
 #[test]
-fn published_index_segment_refusals_precede_semantic_checks() {
+fn published_operand_vectors_refuse_in_the_fr322_check_order() {
     let fixtures = fixtures_dir();
     let vectors = read_json(&proposal_dir_of(&fixtures).join("node-index-vectors.json"))
-        .expect("QSpec indexed node-path vectors");
+        .expect("QSpec operand vectors");
     assert_eq!(vectors["version"], "quire.checked-node-index-vectors/v1");
     assert_eq!(vectors["base"], "fixtures/positive-dependency-call.json");
     let rows = vectors["cases"].as_array().expect("published cases");
-    assert_eq!(rows.len(), 12, "NI-01..NI-12 are a closed published set");
-    let base = read_json(&fixtures.join("positive-dependency-call.json"))
+    assert_eq!(
+        rows.len(),
+        22,
+        "NI-01..NI-12 and NI-15..NI-24 are a closed published set"
+    );
+    let base = read_json_wire(&fixtures.join("positive-dependency-call.json"))
         .expect("published dependency-call fixture");
     let mut seen = BTreeSet::new();
     for row in rows {
@@ -59,10 +75,33 @@ fn published_index_segment_refusals_precede_semantic_checks() {
             apply_patch(&mut package, patch);
         }
         let actual = read_package(&package).expect("production read");
+        let expected = row["expected"].as_str().expect("vector expectation");
+        if expected.starts_with("passes_") {
+            // The operand checks (and, for NI-22, the duplicate check) pass:
+            // a later semantic refusal is allowed, an operand or duplicate-id
+            // refusal is not.
+            if let CheckedPackageV2ReadResult::Refused(refusal) = &actual {
+                assert_ne!(
+                    code_word(refusal.code),
+                    "malformed_wire",
+                    "{id}: operand check"
+                );
+                assert!(
+                    refusal
+                        .loci
+                        .iter()
+                        .all(|locus| locus.path.as_ref().is_none_or(
+                            |path| path.to_string() != "/semantic_graph/nodes/4/node_id"
+                        )),
+                    "{id}: duplicate-id check: {refusal:?}"
+                );
+            }
+            continue;
+        }
         let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
             panic!("{id}: expected a refusal, got {actual:?}");
         };
-        assert_eq!(code_word(refusal.code), row["expected"], "{id}: code");
+        assert_eq!(code_word(refusal.code), expected, "{id}: code");
         assert!(
             refusal.cause.is_none(),
             "{id}: unexpected cause: {:?}",
@@ -79,11 +118,171 @@ fn published_index_segment_refusals_precede_semantic_checks() {
             "{id}: locus"
         );
     }
-    for index in 1..=12 {
+    for index in (1..=12).chain(15..=24) {
         assert!(
             seen.contains(format!("NI-{index:02}").as_str()),
             "missing NI-{index:02}"
         );
+    }
+}
+
+fn vector_case<'a>(vectors: &'a Value, id: &str) -> &'a Value {
+    vectors["cases"]
+        .as_array()
+        .expect("published cases")
+        .iter()
+        .find(|row| row["id"] == id)
+        .unwrap_or_else(|| panic!("published {id}"))
+}
+
+fn admitted_wire(wire: &Value) -> Box<quire_contract_model::CheckedPackageV2> {
+    match read_package(wire).expect("production read") {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("package must admit: {other:?}"),
+    }
+}
+
+fn node_id_of(value: &Value) -> CheckedNodeId {
+    serde_json::from_value(value.clone()).expect("published node id")
+}
+
+/// Trace: FR-038-AC-495, FR-038-AC-498
+#[trace("TC-048", "FR-038-AC-495", "FR-038-AC-498")]
+#[test]
+fn operand_slots_rebuild_structural_keys_through_the_rows() {
+    let fixtures = fixtures_dir();
+    let wire = read_json_wire(&fixtures.join("positive-dependency-call.json"))
+        .expect("published dependency-call fixture");
+    let package = admitted_wire(&wire);
+    assert_eq!(
+        package.graph().operand_rows,
+        vec![vec![], vec![], vec![0], vec![0]]
+    );
+    let integer = package.structural_key_at(0).expect("Integer key");
+    let bounded = package.structural_key_at(2).expect("Int[0, 9] key");
+    let CheckedNodePathSegment::Node(operand) = &bounded.path[3] else {
+        panic!(
+            "operand slot 0 rebuilds as the Integer key: {:?}",
+            bounded.path
+        );
+    };
+    assert_eq!(operand.as_ref(), integer);
+    assert_eq!(
+        package.graph().nodes[2].node_id.path[3],
+        CheckedNodePathSegment::Operand(0),
+        "the graph keeps the slot the wire holds"
+    );
+    assert_eq!(
+        package.document_held_id(2).map(|id| id.path[3].clone()),
+        Some(CheckedNodePathSegment::Index(0)),
+        "a request names the operand by its graph index"
+    );
+    // Node 3 names the same bounded domain through its own row.
+    let body = serde_json::to_value(&package.graph().nodes[3].body).expect("body");
+    let type_id = node_id_of(&body["arguments"][1]["type"]);
+    assert_eq!(type_id.path[3], CheckedNodePathSegment::Operand(0));
+    assert_eq!(
+        package.resolve_node_held(3, &type_id).as_ref(),
+        Some(bounded)
+    );
+    // The graph written again is the published graph.
+    assert_eq!(
+        serde_json::to_value(package.graph()).expect("graph"),
+        wire["semantic_graph"]
+    );
+    // A published package is its resolved form and back.
+    let mut resolved = wire.clone();
+    fixture_support::resolve_operands(&mut resolved);
+    assert!(resolved["semantic_graph"].get("operand_rows").is_none());
+    assert_eq!(
+        resolved["semantic_graph"]["nodes"][2]["node_id"]["path"][3],
+        json!({"node":0})
+    );
+    fixture_support::wire_operands(&mut resolved);
+    assert_eq!(resolved, wire);
+}
+
+/// Trace: FR-038-AC-498
+#[trace("TC-048", "FR-038-AC-498")]
+#[test]
+fn replace_node_id_replaces_slot_form_ids_as_written() {
+    let fixtures = fixtures_dir();
+    let wire = read_json_wire(&fixtures.join("positive-dependency-call.json"))
+        .expect("published dependency-call fixture");
+    let package = admitted_wire(&wire);
+    let mut node = package.graph().nodes[3].clone();
+    let body = serde_json::to_value(&node.body).expect("body");
+    let old = node_id_of(&body["arguments"][1]["type"]);
+    let mut new = old.clone();
+    new.ordinal = 5;
+    node.replace_node_id(&old, &new);
+    let body = serde_json::to_value(&node.body).expect("body");
+    assert_eq!(body["arguments"][1]["type"]["ordinal"], 5);
+    assert_eq!(
+        body["arguments"][1]["type"]["path"][3],
+        json!({"operand": 0})
+    );
+    assert_eq!(
+        serde_json::to_value(&package.graph().nodes[3].body).expect("body")["arguments"][1]["type"]
+            ["ordinal"],
+        0,
+        "the admitted package is not changed"
+    );
+}
+
+/// Trace: FR-038-AC-497
+#[trace("TC-048", "FR-038-AC-497")]
+#[test]
+fn unrelated_nodes_leave_other_nodes_bytes_and_keys_unchanged() {
+    let fixtures = fixtures_dir();
+    let vectors = read_json(&proposal_dir_of(&fixtures).join("node-index-vectors.json"))
+        .expect("QSpec operand vectors");
+    let base = read_json_wire(&fixtures.join("positive-dependency-call.json"))
+        .expect("published dependency-call fixture");
+    let original = admitted_wire(&base);
+
+    // A graph reversed with its rows and indexes rewritten: unrelated order.
+    let mut reversed = read_json(&fixtures.join("positive-dependency-call.json"))
+        .expect("published dependency-call fixture");
+    reversed["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("published graph")
+        .reverse();
+    assert!(reverse_graph_indexes(&mut reversed, 4) > 0);
+    let after = admitted_wire(&reversed);
+    assert_eq!(
+        after.graph().operand_rows,
+        vec![vec![3], vec![3], vec![], vec![]]
+    );
+    for position in 0..4 {
+        assert_eq!(
+            serde_json::to_value(&original.graph().nodes[position]).expect("node"),
+            serde_json::to_value(&after.graph().nodes[3 - position]).expect("node"),
+            "node {position} keeps its bytes"
+        );
+        assert_eq!(
+            original.structural_key_at(position),
+            after.structural_key_at(3 - position),
+            "node {position} keeps its key"
+        );
+    }
+
+    // NI-22: equal bytes over a different operand are a different key.
+    let mut copied = base;
+    for patch in vector_case(&vectors, "NI-22")["patch"]
+        .as_array()
+        .expect("patches")
+    {
+        apply_patch(&mut copied, patch);
+    }
+    if let CheckedPackageV2ReadResult::Admitted(package) = read_package(&copied).expect("read") {
+        assert_eq!(
+            serde_json::to_value(&package.document_held_id(4).expect("graph node").clone())
+                .expect("id"),
+            serde_json::to_value(&package.document_held_id(2).expect("graph node").clone())
+                .expect("id"),
+        );
+        assert_ne!(package.structural_key_at(4), package.structural_key_at(2));
     }
 }
 
@@ -159,22 +358,57 @@ pub(super) fn fixture_structural_key_for_id(
                     )))
                 }
                 CheckedNodePathSegment::Node(node) => CheckedNodePathSegment::Node(node.clone()),
+                CheckedNodePathSegment::Operand(_) => {
+                    panic!("resolve an operand slot through its row first")
+                }
             })
             .collect(),
         ordinal: id.ordinal,
     }
 }
 
+/// Every node's id, in resolved index form: a wire graph's operand slots are
+/// read through the node's row.
 pub(super) fn fixture_graph_ids(wire: &Value) -> Vec<CheckedNodeId> {
+    let rows = wire["semantic_graph"]["operand_rows"].as_array();
     wire["semantic_graph"]["nodes"]
         .as_array()
         .expect("fixture graph nodes")
         .iter()
-        .map(|node| {
-            serde_json::from_value::<CheckedNodeId>(node["node_id"].clone())
-                .expect("fixture node id")
+        .enumerate()
+        .map(|(position, node)| {
+            let id = serde_json::from_value::<CheckedNodeId>(node["node_id"].clone())
+                .expect("fixture node id");
+            let Some(rows) = rows else {
+                return id;
+            };
+            let row = rows[position]
+                .as_array()
+                .expect("fixture operand row")
+                .iter()
+                .map(|entry| entry.as_u64().expect("fixture row entry"))
+                .collect::<Vec<_>>();
+            resolve_slots(&id, &row)
         })
         .collect()
+}
+
+/// An id with each operand slot replaced by the index segment its row names.
+pub(super) fn resolve_slots(id: &CheckedNodeId, row: &[u64]) -> CheckedNodeId {
+    CheckedNodeId {
+        package: id.package.clone(),
+        path: id
+            .path
+            .iter()
+            .map(|segment| match segment {
+                CheckedNodePathSegment::Operand(slot) => CheckedNodePathSegment::Index(
+                    row[usize::try_from(*slot).expect("slot fits usize")],
+                ),
+                other => other.clone(),
+            })
+            .collect(),
+        ordinal: id.ordinal,
+    }
 }
 
 pub(super) fn sort_fixture_node_refs(wire: &Value, references: &mut [Value]) {
@@ -191,6 +425,21 @@ pub(super) fn sort_fixture_node_refs_with_ids(ids: &[CheckedNodeId], references:
 }
 
 pub(super) fn fixture_structural_key<Body>(
+    nodes: &[CheckedSemanticNodeV2<Body>],
+    operand_rows: &[Vec<u64>],
+    position: usize,
+) -> CheckedNodeId {
+    let ids = nodes
+        .iter()
+        .zip(operand_rows)
+        .map(|(node, row)| resolve_slots(&node.node_id, row))
+        .collect::<Vec<_>>();
+    fixture_structural_key_from_ids(&ids, position)
+}
+
+/// The structural key of a graph whose ids already hold index segments, as a
+/// ContractPackage output graph does.
+fn fixture_indexed_structural_key<Body>(
     nodes: &[CheckedSemanticNodeV2<Body>],
     position: usize,
 ) -> CheckedNodeId {
@@ -235,7 +484,12 @@ fn contract_source_and_output_index_tables_permute_independently() {
     let CheckedPackageV2ReadResult::Admitted(source) = outcome else {
         panic!("published source admits: {outcome:?}");
     };
-    let requests = [25, 26].map(|position| source.graph().nodes[position].node_id.clone());
+    let requests = [25, 26].map(|position| {
+        source
+            .document_held_id(position)
+            .expect("graph node")
+            .clone()
+    });
     let mut absent = requests[0].clone();
     absent.path[0] = CheckedNodePathSegment::Name("absent".into());
     let profile = CompleteLoweringProfileV2 {
@@ -511,9 +765,17 @@ fn v1_indexed_frame_joins_use_resolved_node_keys() {
     let CheckedPackageV2ReadResult::Admitted(source) = outcome else {
         panic!("published source admits: {outcome:?}");
     };
-    assert!(source.graph().nodes[25].node_id < source.graph().nodes[26].node_id);
+    assert!(
+        source.document_held_id(25).expect("graph node").clone()
+            < source.document_held_id(26).expect("graph node").clone()
+    );
     assert!(source.structural_key_at(26) < source.structural_key_at(25));
-    let requests = [25, 26].map(|position| source.graph().nodes[position].node_id.clone());
+    let requests = [25, 26].map(|position| {
+        source
+            .document_held_id(position)
+            .expect("graph node")
+            .clone()
+    });
     let profile = CompleteLoweringProfileV2 {
         reference: LoweringProfileRef {
             authority: "quire".into(),
@@ -535,7 +797,7 @@ fn v1_indexed_frame_joins_use_resolved_node_keys() {
     );
     let produced = lowered.package.wire().expect("lowered wire").wire();
     let output_keys = (0..produced.semantic_graph.nodes.len())
-        .map(|position| fixture_structural_key(&produced.semantic_graph.nodes, position))
+        .map(|position| fixture_indexed_structural_key(&produced.semantic_graph.nodes, position))
         .collect::<Vec<_>>();
     let earlier = output_keys
         .iter()
@@ -632,7 +894,7 @@ fn v1_absent_indexed_request_retains_invalid_input_and_exact_key() {
     let CheckedPackageV2ReadResult::Admitted(source) = source_outcome else {
         panic!("published source admits: {source_outcome:?}");
     };
-    let mut absent = source.graph().nodes[25].node_id.clone();
+    let mut absent = source.document_held_id(25).expect("graph node").clone();
     absent.path[0] = CheckedNodePathSegment::Name("absent".into());
     assert_eq!(absent.path[2], CheckedNodePathSegment::Index(34));
     assert_eq!(absent.path[7], CheckedNodePathSegment::Index(21));
@@ -803,8 +1065,8 @@ fn v1_indexed_unsupported_request_authenticates_its_source_kind() {
     let CheckedPackageV2ReadResult::Admitted(source) = source_outcome else {
         panic!("published source admits: {source_outcome:?}");
     };
-    let unsupported = source.graph().nodes[25].node_id.clone();
-    let supported = source.graph().nodes[34].node_id.clone();
+    let unsupported = source.document_held_id(25).expect("graph node").clone();
+    let supported = source.document_held_id(34).expect("graph node").clone();
     let profile = CompleteLoweringProfileV2 {
         reference: LoweringProfileRef {
             authority: "quire".into(),
@@ -843,7 +1105,7 @@ fn v1_indexed_unsupported_request_authenticates_its_source_kind() {
             .wire()
             .feature_accounting[0]
             .node_id(),
-        &source.graph().nodes[25].node_id,
+        &source.document_held_id(25).expect("graph node").clone(),
         "unsupported key is genuinely reindexed in the V1 projection"
     );
     let handoff = ContractPackageWireV1::read_with_source(
@@ -885,11 +1147,15 @@ fn graph_reindexing_preserves_structural_dependency_order() {
         let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
             panic!("structurally ordered dependency graph must admit: {result:?}");
         };
-        for (position, node) in admitted.graph().nodes.iter().enumerate() {
+        for (position, node) in admitted.resolved_graph().nodes.iter().enumerate() {
             let resolved = node
                 .dependencies
                 .iter()
-                .map(|id| admitted.structural_key(id).expect("local dependency key"))
+                .map(|id| {
+                    admitted
+                        .resolve_node_held(position, id)
+                        .expect("local dependency key")
+                })
                 .collect::<Vec<_>>();
             assert!(
                 resolved.windows(2).all(|pair| pair[0] < pair[1]),
@@ -961,7 +1227,11 @@ fn published_extension_and_hybrid_dependencies_follow_resolved_key_order() {
         let dependencies = &admitted.graph().nodes[position].dependencies;
         let resolved = dependencies
             .iter()
-            .map(|id| admitted.structural_key(id).expect("local dependency key"))
+            .map(|id| {
+                admitted
+                    .resolve_node_held(position, id)
+                    .expect("local dependency key")
+            })
             .collect::<Vec<_>>();
         assert!(
             resolved.windows(2).all(|pair| pair[0] < pair[1]),
@@ -1326,7 +1596,7 @@ fn long_index_chain_admits_on_a_small_stack_with_shared_keys() {
     }
     package["semantic_graph"]["nodes"] = Value::Array(chain);
     package["source_map"] = Value::Array(source_map);
-    let bytes = serde_json::to_vec(&package).expect("fixed-depth package");
+    let bytes = fixture_support::canonical(&package);
     let limits = CheckedPackageReadLimits {
         bytes: u64::try_from(bytes.len()).expect("package byte count") + 1024,
         nodes: u64::try_from(APPLICATIONS + 1).expect("node count"),
@@ -1412,9 +1682,9 @@ fn long_index_chain_admits_on_a_small_stack_with_shared_keys() {
             assert_eq!(
                 refusal.loci[0].path.as_ref().map(ToString::to_string),
                 Some(format!(
-                    "/semantic_graph/nodes/{DEEP_BAD_POSITION}/node_id/path/2/node"
+                    "/semantic_graph/operand_rows/{DEEP_BAD_POSITION}/1"
                 )),
-                "deep malformed index points to its own segment"
+                "deep malformed operand points to its own row entry"
             );
         })
         .expect("small-stack reader thread")

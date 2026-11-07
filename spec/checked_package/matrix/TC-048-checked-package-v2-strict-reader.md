@@ -9,6 +9,14 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-409
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-495
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-496
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-497
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-498
+    type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-410
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-411
@@ -2889,3 +2897,21 @@ not assert that every existing positive or already-correct mode control was
 red. The IR-1396 production catalog dependency must be available before this
 suite can establish reader behavior; a missing-entry panic or catalog decode
 failure is a dependency failure, not a passing negative admission assertion.
+
+## Operand rows and operand slots (FR-038-AC-495 through FR-038-AC-498)
+
+Read QSpec's `positive-dependency-call.json` (supplied with
+`positive-dependency-library.json`) and `node-index-vectors.json` through
+`QUIRE_SPECIFICATION_DIR`; no QSpec fixture or vector is copied. Admit the
+fixture and assert the rebuilt structural keys: node `2` (`Int[0, 9]`, row `[0]`)
+holds the Integer node's key as its path element after `"min"`, and nodes `2` and
+`3` hold the same Integer key through the same slot `0`. Apply each of NI-01
+through NI-12, NI-15 through NI-21 and NI-23 as published and assert the
+refusal code, the absence of a cause and the exact pointer. Apply NI-22 and
+NI-24 and assert the package is not refused, and for NI-24 each original node's serialized bytes and key are unchanged. Reverse the
+graph with rows and indexes rewritten and assert the same. Construct two nodes
+with equal bytes and different rows and assert unequal keys.
+
+Assert the segment serde shapes, replace a node id through `replace_node_id`
+and assert the written slots, and that a graph read back from `graph()` and
+written again is admitted.

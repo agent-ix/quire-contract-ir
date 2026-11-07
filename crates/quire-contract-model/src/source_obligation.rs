@@ -818,7 +818,7 @@ impl SourceInventoryEnumerator for IrV2InventoryEnumerator {
             }
         };
         loop {
-            let Some(node) = package.graph().nodes.get(self.node_index) else {
+            let Some(node) = package.resolved_graph().nodes.get(self.node_index) else {
                 return Ok(None);
             };
             let identity = match self.next_occurrence {

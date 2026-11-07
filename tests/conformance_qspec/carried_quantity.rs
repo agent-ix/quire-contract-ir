@@ -61,14 +61,14 @@ fn assert_carried_bindings(
     ids: &BTreeMap<String, Value>,
 ) {
     let nodes = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .map(|node| json!({ "node_id": node.node_id }))
         .collect::<Vec<_>>();
     let expected_type = resolved_fixture_id(&ids[name], &nodes);
     let (carried, kind) = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .zip(admitted.node_kinds())
@@ -107,14 +107,14 @@ fn assert_rational_carrier_bounds(
     ids: &BTreeMap<String, Value>,
 ) {
     let nodes = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .map(|node| json!({ "node_id": node.node_id }))
         .collect::<Vec<_>>();
     let expected_id = resolved_fixture_id(&ids["rat_r"], &nodes);
     let (carrier, kind) = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .zip(admitted.node_kinds())
@@ -544,7 +544,7 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
                 panic!("{id} must admit");
             };
             let bounded = model
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .zip(model.node_kinds())
@@ -571,7 +571,7 @@ fn published_bounded_quantity_shape_and_bounds_policy() {
                 work_limit: 100_000,
             };
             let graph_ids = model
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .map(|node| json!({"node_id": node.node_id}))
@@ -680,7 +680,7 @@ fn admitted_bounded_quantity_is_a_map_scalar_key() {
         panic!("Map<BoundedQuantity,Integer> must admit");
     };
     let (map, _) = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .zip(admitted.node_kinds())
@@ -750,7 +750,7 @@ fn published_bounded_quantity_unit_and_alias_identity() {
         panic!("BQ-01 through BQ-03 must admit");
     };
     let graph_ids = model
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .map(|node| json!({"node_id":node.node_id}))
@@ -761,13 +761,13 @@ fn published_bounded_quantity_unit_and_alias_identity() {
     let direct_id = resolved_fixture_id(&ids["direct"], &graph_ids);
     let alias_id = resolved_fixture_id(&ids["through_alias"], &graph_ids);
     let direct = model
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_id == direct_id)
         .expect("direct parameter");
     let through_alias = model
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_id == alias_id)
@@ -781,7 +781,7 @@ fn published_bounded_quantity_unit_and_alias_identity() {
         "BQ-03 forwards to one node"
     );
     let bounded_nodes = model
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .zip(model.node_kinds())
@@ -979,7 +979,7 @@ fn published_carried_quantity_positions_lower_without_covering_a_bare_unit() {
         panic!("published carried quantity forms must admit through the public reader");
     };
     let graph_ids = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .map(|node| json!({"node_id":node.node_id}))
@@ -990,7 +990,7 @@ fn published_carried_quantity_positions_lower_without_covering_a_bare_unit() {
         resolved_fixture_id(&wire, &graph_ids) == resolved(name)
     };
     let source_parameter = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| same_id(&node.node_id, "source_parameter"))
@@ -1047,7 +1047,7 @@ fn published_carried_quantity_positions_lower_without_covering_a_bare_unit() {
             "{carried} carrier identity"
         );
         let carrier_kind = admitted
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .zip(admitted.node_kinds())
@@ -1173,7 +1173,7 @@ fn published_carried_quantity_vectors_read_as_wire() {
                 panic!("{id}: {result:?}");
             };
             if case["expected"] == "distinct" {
-                let nodes = &admitted.graph().nodes;
+                let nodes = &admitted.resolved_graph().nodes;
                 let carried = nodes
                     .iter()
                     .filter(|node| node.semantic_form.as_ref() == "carried_quantity")

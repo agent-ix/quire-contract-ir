@@ -573,7 +573,7 @@ impl CheckedPackageV2 {
         #[cfg(test)]
         LOWERING_GRAPH_INDEX_BUILDS.with(|builds| builds.set(builds.get() + 1));
         let index = self
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .enumerate()
@@ -648,7 +648,7 @@ impl CheckedPackageV2 {
             .flat_map(|node| node.dependencies.iter())
             .filter(|key| !lowered.contains_key(*key))
             .collect::<BTreeSet<_>>();
-        let nodes = &self.graph().nodes;
+        let nodes = &self.resolved_graph().nodes;
         let kinds = self.node_kinds();
         let dependencies = reached
             .into_iter()
@@ -693,7 +693,7 @@ impl CheckedPackageV2 {
         index: &BTreeMap<&CheckedNodeId, usize>,
     ) -> Vec<LoweringNodeFacts> {
         let mut facts: Vec<_> = self
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .zip(self.node_kinds())
@@ -800,7 +800,7 @@ impl CheckedPackageV2 {
                 };
             }
         }
-        let nodes = &self.graph().nodes;
+        let nodes = &self.resolved_graph().nodes;
         let kinds = self.node_kinds();
         let mut visited = BTreeSet::from([start]);
         // Implements: FR-038. The types a value or expression is typed at. A node joins

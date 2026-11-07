@@ -273,8 +273,13 @@ fn tc_233_qspec_unbounded_population_rows_read_with_exact_sources() {
                     panic!("{id}: expected admission, got {result:?}");
                 };
                 assert_eq!(
-                    serde_json::to_value(&admitted.graph().nodes[position].node_id)
-                        .expect("retained node id"),
+                    serde_json::to_value(
+                        &admitted
+                            .document_held_id(position)
+                            .expect("graph node")
+                            .clone()
+                    )
+                    .expect("retained node id"),
                     population_id,
                     "{id}: retained structural identity"
                 );
