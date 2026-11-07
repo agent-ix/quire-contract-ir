@@ -1617,9 +1617,172 @@ fn tc_227_the_component_search_needs_no_call_stack() {
     let model = unbuilt(&chain_document(20_000));
     let found = std::thread::Builder::new()
         .stack_size(256 * 1024)
-        .spawn(move || components(&model).len())
+        .spawn(move || {
+            let mut meter = WorkMeter::new(u64::MAX);
+            let mut budget = Budget::new(&mut meter, 0, BYTES);
+            components(&model, &mut budget).map(|found| found.len())
+        })
         .expect("a thread")
         .join()
-        .expect("the search finishes on a small stack");
+        .expect("the search finishes on a small stack")
+        .expect("the search is within its budget");
     assert_eq!(found, 20_000);
+}
+
+/// A document whose fields reach collections, optional members and a value
+/// type, so the member types are derived through wrappers.
+fn typed_document() -> Value {
+    let owner = format!("{ORDERS}Holder");
+    let mut many = field(&owner, "many", "ix://quire/native/Integer");
+    many["multiplicity"] = crate::checked_package::v2::model_members::tests::multiplicity(0, None);
+    let mut bounded = field(&owner, "bounded", "ix://quire/native/String");
+    bounded["multiplicity"] =
+        crate::checked_package::v2::model_members::tests::multiplicity(1, Some(4));
+    let mut optional = field(&owner, "maybe", "ix://quire/native/Boolean");
+    optional["presence"] = json!("optional");
+    document(vec![object_type(
+        &owner,
+        &[],
+        vec![
+            field(&owner, "one", "ix://quire/native/Integer"),
+            many,
+            bounded,
+            optional,
+        ],
+    )])
+}
+
+/// What one build of the field tables of `models` did under `allowance`
+/// bytes of read storage.
+struct Tables {
+    built: bool,
+    consumed: u64,
+    allocated: u64,
+    locus: Option<crate::NativeJoinLocus>,
+}
+
+fn build_under(models: &[DomainModel], allowance: u64) -> Tables {
+    let mut models = models.to_vec();
+    let mut budget =
+        crate::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(allowance);
+    let mut built = false;
+    let measured = allocation_counter::measure(|| {
+        let mut meter = WorkMeter::over(&mut budget);
+        built = build_field_tables(&mut models, &mut meter).is_ok();
+    });
+    Tables {
+        built,
+        consumed: budget.read_storage_consumed(),
+        allocated: measured.bytes_total,
+        locus: budget.first_unpaid_locus(),
+    }
+}
+
+/// The bytes the refusal's own pointer takes to build, which the budgeted
+/// outcome charges as the diagnostic.
+fn denial_pointer_bytes() -> u64 {
+    allocation_counter::measure(|| {
+        drop(crate::checked_package::common::node_pointer(0).key("owner"));
+    })
+    .bytes_total
+}
+
+/// The field tables allocate exactly what they request: an exact allowance
+/// builds them, one byte short refuses at `PackageRead(Lock, i)` with the
+/// `field_tables` form, and no allowance is overdrawn.
+#[trace("TC-472", "FR-038-AC-502")]
+#[test]
+fn tc_472_field_tables_allocate_exactly_what_they_request() {
+    use crate::checked_package::v2::PackageReadStage;
+    use crate::NativeJoinLocusSource;
+    let diamond = {
+        let (top, left, right, bottom) = (
+            format!("{ORDERS}Top"),
+            format!("{ORDERS}Left"),
+            format!("{ORDERS}Right"),
+            format!("{ORDERS}Bottom"),
+        );
+        let mut replacement = field(&left, "t", "ix://quire/native/Integer");
+        replacement["redefines"] = json!(format!("{top}/t"));
+        record_document(vec![
+            record_type(
+                "Top",
+                &[],
+                vec![field(&top, "t", "ix://quire/native/Boolean")],
+            ),
+            record_type(
+                "Left",
+                &[&top],
+                vec![replacement, field(&left, "l", "ix://quire/native/Boolean")],
+            ),
+            record_type(
+                "Right",
+                &[&top],
+                vec![field(&right, "r", "ix://quire/native/Integer")],
+            ),
+            record_type(
+                "Bottom",
+                &[&left, &right],
+                vec![field(&bottom, "z", "ix://quire/native/Boolean")],
+            ),
+        ])
+    };
+    for document in [
+        diamond,
+        typed_document(),
+        document_of("self_cycle_redefinition"),
+        document_of("redefining_chain"),
+        chain_document(12),
+        ledger(),
+    ] {
+        let model = unbuilt(&document);
+        let mut meter = WorkMeter::new(u64::MAX);
+        let mut derive = Budget::new(&mut meter, 0, BYTES);
+        for declared in model
+            .object_types
+            .values()
+            .chain(model.record_types.values())
+        {
+            for field in &declared.fields {
+                assert_eq!(
+                    model
+                        .field_type_charged(field, &mut derive, "field_tables")
+                        .expect("no limit"),
+                    model.field_type(field),
+                    "{}",
+                    field.identity
+                );
+            }
+        }
+        let models = [model.clone(), model];
+        let unlimited = build_under(&models, u64::MAX);
+        assert!(unlimited.built, "the tables build");
+        assert_eq!(
+            unlimited.allocated, unlimited.consumed,
+            "every byte the build allocates is a byte it requested"
+        );
+        let exact = build_under(&models, unlimited.consumed);
+        assert!(exact.built, "the exact allowance builds them");
+        assert_eq!(exact.consumed, unlimited.consumed);
+        let short = build_under(&models, unlimited.consumed - 1);
+        assert!(!short.built, "one byte short refuses");
+        let locus = short.locus.expect("the denial is recorded");
+        assert_eq!(locus.form, "field_tables");
+        assert!(matches!(
+            locus.source,
+            NativeJoinLocusSource::PackageRead(PackageReadStage::Lock, 0 | 1)
+        ));
+        let pointer = denial_pointer_bytes();
+        let mut allowance = 0;
+        while allowance < unlimited.consumed {
+            let outcome = build_under(&models, allowance);
+            assert!(!outcome.built, "allowance {allowance} is short");
+            assert!(
+                outcome.allocated <= allowance + pointer,
+                "allowance {allowance}: allocated {}",
+                outcome.allocated
+            );
+            allowance += 53;
+        }
+    }
 }

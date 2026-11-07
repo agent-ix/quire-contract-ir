@@ -80,11 +80,12 @@ pub(super) type UnitRefs = Arc<BTreeMap<Box<str>, CheckedNodeId>>;
 pub(super) const DURATION_RESOLVED_PREFIX: &str = "ix://quire/resolved-duration/";
 
 mod charged;
+mod derive;
 mod document;
 mod intake_origin;
 mod option_types;
 mod view;
-pub(super) use charged::{SortedMap, SortedSet};
+pub(super) use charged::{arc_bytes, arc_str_bytes, field_decl_bytes, SortedMap, SortedSet};
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
 use view::{List, View};
 

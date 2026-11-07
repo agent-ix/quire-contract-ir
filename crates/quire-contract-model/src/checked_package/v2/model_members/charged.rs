@@ -10,12 +10,13 @@
 //! charged at the full new capacity) only if the builder under-counted.
 
 use super::Budget;
+use crate::checked_package::shared::{CheckedNodeId, CheckedNodePathSegment};
 use crate::checked_package::v2::ValidationFailure;
 use std::borrow::Borrow;
 
 /// The bytes `Arc::new` requests for a `T`: two counters and the value, in
 /// the layout `ArcInner` has (`repr(C)`).
-pub(super) const fn arc_bytes<T>() -> usize {
+pub(in crate::checked_package::v2) const fn arc_bytes<T>() -> usize {
     let align = if std::mem::align_of::<T>() > std::mem::align_of::<usize>() {
         std::mem::align_of::<T>()
     } else {
@@ -46,7 +47,7 @@ impl<K, V> SortedMap<K, V> {
     }
 
     /// An empty map with room for `capacity` entries, requested first.
-    pub(super) fn with_capacity(
+    pub(in crate::checked_package::v2) fn with_capacity(
         budget: &mut Budget<'_, '_>,
         capacity: usize,
         form: &'static str,
@@ -112,6 +113,15 @@ impl<K: Ord, V> SortedMap<K, V> {
         self.entries.get(at).map(|(key, value)| (key, value))
     }
 
+    pub(in crate::checked_package::v2) fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
+    where
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
+    {
+        let at = self.search(key).ok()?;
+        self.entries.get_mut(at).map(|(_, value)| value)
+    }
+
     pub(in crate::checked_package::v2) fn contains_key<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
@@ -122,7 +132,7 @@ impl<K: Ord, V> SortedMap<K, V> {
 
     /// Sets `key` to `value` in key order and returns the value it replaced.
     /// A full table grows first, with the whole new capacity requested.
-    pub(super) fn insert(
+    pub(in crate::checked_package::v2) fn insert(
         &mut self,
         budget: &mut Budget<'_, '_>,
         key: K,
@@ -190,8 +200,17 @@ impl<K> SortedSet<K> {
         Self { items: Vec::new() }
     }
 
+    /// A set over items the caller has already sorted, without repeats.
+    pub(in crate::checked_package::v2) fn from_sorted(items: Vec<K>) -> Self {
+        Self { items }
+    }
+
+    pub(in crate::checked_package::v2) fn as_slice(&self) -> &[K] {
+        &self.items
+    }
+
     /// An empty set with room for `capacity` items, requested first.
-    pub(super) fn with_capacity(
+    pub(in crate::checked_package::v2) fn with_capacity(
         budget: &mut Budget<'_, '_>,
         capacity: usize,
         form: &'static str,
@@ -219,7 +238,7 @@ impl<K: Ord> SortedSet<K> {
 
     /// Adds `item` in order; `false` when it was already there. A full set
     /// grows first, with the whole new capacity requested.
-    pub(super) fn insert(
+    pub(in crate::checked_package::v2) fn insert(
         &mut self,
         budget: &mut Budget<'_, '_>,
         item: K,
@@ -267,4 +286,52 @@ fn grow<T>(
         list.reserve_exact(target - list.len());
     }
     Ok(())
+}
+
+/// The bytes `Arc::<str>::from` requests for `len` bytes of text: two counters
+/// and the text, rounded to the counters' alignment.
+pub(in crate::checked_package::v2) const fn arc_str_bytes(len: usize) -> usize {
+    (2 * std::mem::size_of::<usize>() + len).next_multiple_of(std::mem::align_of::<usize>())
+}
+
+/// The bytes cloning `id` requests: its package text, its path vector at the
+/// exact length and each path name. A shared operand node is not copied.
+pub(in crate::checked_package::v2) fn node_id_bytes(id: &CheckedNodeId) -> usize {
+    id.path.iter().fold(
+        id.package.len() + id.path.len() * std::mem::size_of::<CheckedNodePathSegment>(),
+        |total, segment| match segment {
+            CheckedNodePathSegment::Name(name) => total + name.len(),
+            _ => total,
+        },
+    )
+}
+
+/// The bytes [`super::declaration_id`] requests for the node `node`.
+pub(in crate::checked_package::v2) fn declaration_id_bytes(
+    identity: &str,
+    form: super::DeclarationForm,
+    node: &str,
+) -> usize {
+    identity.len()
+        + 3 * std::mem::size_of::<CheckedNodePathSegment>()
+        + form.tag().len()
+        + form.form().len()
+        + node.len()
+}
+
+/// The bytes cloning a selected type reference requests.
+pub(in crate::checked_package::v2) fn type_ref_bytes(type_ref: &super::SelectedTypeRef) -> usize {
+    match type_ref {
+        super::SelectedTypeRef::Native(_) => 0,
+        super::SelectedTypeRef::Unit(name) | super::SelectedTypeRef::Declared(name) => name.len(),
+        super::SelectedTypeRef::Map(key, value) => key.len() + value.len(),
+    }
+}
+
+/// The bytes cloning a field declaration requests.
+pub(in crate::checked_package::v2) fn field_decl_bytes(field: &super::FieldDecl) -> usize {
+    field.identity.len()
+        + field.slot.name.as_deref().map_or(0, str::len)
+        + field.slot.type_ref.as_ref().map_or(0, type_ref_bytes)
+        + field.redefines.as_deref().map_or(0, str::len)
 }
