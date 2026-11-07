@@ -1195,6 +1195,70 @@ impl DomainModel {
         Ok(sub == sup || self.ancestors(sub, budget)?.contains(sup))
     }
 
+    /// Whether the context's unique effective operation reaches the exact
+    /// declared family anchor through retained, ancestry-valid operation links.
+    pub(super) fn operation_in_family(
+        &self,
+        context: &str,
+        declaring: &str,
+        name: &str,
+        budget: &mut Budget<'_>,
+    ) -> Result<bool, ValidationFailure> {
+        if !self.conforms_to(context, declaring, budget)? {
+            return Ok(false);
+        }
+        let Some(declared) = self.object_types.get(declaring) else {
+            return Ok(false);
+        };
+        let mut anchor = None;
+        for operation in &declared.operations {
+            budget.charge(1)?;
+            if member_name(&operation.identity) == name && anchor.replace(operation).is_some() {
+                return Ok(false);
+            }
+        }
+        let Some(anchor) = anchor else {
+            return Ok(false);
+        };
+        let effective = match self.resolve(context, MemberKind::Operation, name, budget) {
+            Ok(Resolved::Operation(operation)) => operation,
+            Ok(Resolved::Field(_)) | Err(ModelFailure::Refused(_)) => return Ok(false),
+            Err(ModelFailure::Limit(failure)) => return Err(failure),
+        };
+        let mut operations = BTreeMap::new();
+        for (owner, declared) in &self.object_types {
+            budget.charge(1)?;
+            for operation in &declared.operations {
+                budget.charge(1)?;
+                operations.insert(operation.identity.as_ref(), (owner.as_ref(), operation));
+            }
+        }
+        let mut current = effective.identity.as_ref();
+        let mut seen = BTreeSet::new();
+        let mut reaches_anchor = false;
+        loop {
+            budget.charge(1)?;
+            if !seen.insert(current) {
+                return Ok(false);
+            }
+            let Some(&(owner, operation)) = operations.get(current) else {
+                return Ok(false);
+            };
+            reaches_anchor |= operation.identity == anchor.identity;
+            let Some(target) = operation.redefines.as_deref() else {
+                return Ok(reaches_anchor);
+            };
+            budget.charge(1)?;
+            let Some(&(target_owner, _)) = operations.get(target) else {
+                return Ok(false);
+            };
+            if owner == target_owner || !self.conforms_to(owner, target_owner, budget)? {
+                return Ok(false);
+            }
+            current = target;
+        }
+    }
+
     /// FR-322 step 3: the member of `kind` named `name` among the exposed
     /// effective members of the object or record type `node`. A field is selected from
     /// the field table built at admission, one work unit per exposed or hidden

@@ -30,6 +30,7 @@ use quire_exact::{EnumShape, NodeKey, PathSegment, VariantId};
 use serde_json::{json, Value};
 use std::sync::LazyLock;
 
+mod inherited_dispatch;
 mod reaches_population;
 
 const IDENTITY: &str = "acme/orders";
