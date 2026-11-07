@@ -1184,7 +1184,11 @@ impl Encode for CheckedNodeId {
             Segment(&'a CheckedNodePathSegment),
             EndNode(u64),
         }
-        let mut pending = vec![Event::Node(self)];
+        // Every stack allocation and growth is asked of the writer's
+        // reservation first, so a metered writer charges and refuses it.
+        let mut pending = Vec::new();
+        writer.reserve_list(&mut pending, 1)?;
+        pending.push(Event::Node(self));
         while let Some(event) = pending.pop() {
             match event {
                 Event::Node(node) => {
@@ -1193,6 +1197,7 @@ impl Encode for CheckedNodeId {
                     writer.string(&node.package)?;
                     writer.name("path")?;
                     writer.begin_array()?;
+                    writer.reserve_list(&mut pending, node.path.len().saturating_add(1))?;
                     pending.push(Event::EndNode(node.ordinal));
                     pending.extend(node.path.iter().rev().map(Event::Segment));
                 }
@@ -1204,6 +1209,7 @@ impl Encode for CheckedNodeId {
                     writer.end_object()?;
                 }
                 Event::Segment(CheckedNodePathSegment::Node(node)) => {
+                    writer.reserve_list(&mut pending, 1)?;
                     pending.push(Event::Node(node));
                 }
                 Event::EndNode(ordinal) => {
@@ -1310,6 +1316,75 @@ mod structural_node_identity_tests {
                 CheckedNodeId::from_value(&malformed).is_none(),
                 "{malformed}"
             );
+        }
+    }
+
+    /// A reservation that admits growth while the total stays within `limit`.
+    struct Provision {
+        limit: usize,
+        charged: usize,
+    }
+
+    impl quire_canonical::Reservation for Provision {
+        fn reserve(&mut self, bytes: usize) -> Result<(), quire_canonical::ReservationDenied> {
+            match self.charged.checked_add(bytes) {
+                Some(total) if total <= self.limit => {
+                    self.charged = total;
+                    Ok(())
+                }
+                _ => Err(quire_canonical::ReservationDenied),
+            }
+        }
+    }
+
+    /// Trace: IR-1404.
+    #[test]
+    fn checked_node_id_encoding_is_charged_through_the_writer_reservation() {
+        let inner = CheckedNodeId {
+            package: "q".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("type".into()),
+                CheckedNodePathSegment::Index(1),
+            ],
+            ordinal: 2,
+        };
+        let id = CheckedNodeId {
+            package: "p".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("owner".into()),
+                CheckedNodePathSegment::Index(0),
+                CheckedNodePathSegment::Node(std::sync::Arc::new(inner)),
+            ],
+            ordinal: 1,
+        };
+        let limits = quire_canonical::Limits::new(1 << 20);
+        let unmetered = quire_canonical::to_vec(&id, limits).expect("unmetered encode");
+
+        let encode = |limit: usize| {
+            let mut bytes = Vec::new();
+            let mut provision = Provision { limit, charged: 0 };
+            let outcome =
+                quire_canonical::encode_with_reservation(&mut bytes, &id, limits, &mut provision);
+            (outcome, bytes, provision.charged)
+        };
+        let (outcome, bytes, needed) = encode(usize::MAX);
+        outcome.expect("ample provision");
+        assert_eq!(bytes, unmetered);
+        assert!(needed > 0, "the pending stack must be charged");
+
+        let (outcome, bytes, _) = encode(needed);
+        outcome.expect("exact provision admits");
+        assert_eq!(bytes, unmetered);
+        for limit in 0..needed {
+            let (outcome, bytes, _) = encode(limit);
+            assert!(
+                matches!(
+                    outcome,
+                    Err(quire_canonical::Error::ReservationDenied { .. })
+                ),
+                "limit {limit}: {outcome:?}"
+            );
+            assert!(bytes.is_empty(), "limit {limit} left partial output");
         }
     }
 
