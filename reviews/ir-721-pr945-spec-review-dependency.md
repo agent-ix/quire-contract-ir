@@ -47,3 +47,5 @@ Edges are correct; FND-001 must be fixed before coding, FND-002 is a nit.
 | FND-002 | fixed | - |
 | FND-001 | fixed | - |
 | FND-003 | still-open | The two missing parameters were added, but in the wrong order. FR-361.md:79-81 states admit_authority(self, PlanAuthoritySelection, Option<progress::View>, &mut NativeJoinBudget, PlanAuthorityValidationCaps, NativeJoinLocus); QSL #2489 head 01145fe (progress.rs:404-411) is (self, selection, progress, validation: PlanAuthorityValidationCaps, budget: &mut NativeJoinBudget, locus). The text calls the signature QSL-owned yet restates it differently (driver #129 c7caa55 FR-019:89 copies the same wrong order). Swap the two arguments or cite the signature without restating it. checked_time_source() does not exist in #2489 either, but 'QSL fixes the final names' covers that. |
+| FND-003 | fixed | - |
+| FND-004 | fixed | - |
