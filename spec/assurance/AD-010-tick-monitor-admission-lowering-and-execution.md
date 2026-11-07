@@ -1,5 +1,5 @@
 ---
-id: AD-009
+id: AD-010
 title: "Tick-monitor admission, lowering and execution pipeline"
 type: ArchitectureDescription
 status: proposed
@@ -50,7 +50,7 @@ of readings. Each is consumed by reference.
 
 The views give the owning component of each stage, the data flow between
 them, the public seams, plan identity, the one preparation budget and the
-build order.
+component dependencies.
 
 ### Components and owners
 
@@ -140,24 +140,21 @@ RT construction then uses its own scratch bound, and `build` and every step
 use the caller's `StepBudget`. Plan capacities are semantic premises, not
 operating budgets, and are never changed by either budget.
 
-### Build order
+### Component dependencies
 
-Each part consumes the public seam of the parts above it.
+Each component consumes only the public seams named here.
 
-| Order | Work item | Repository | Builds |
-| --- | --- | --- | --- |
-| 1 | IR-1390 | `quire-observation` | Structural node and typed claim identities in association rows. |
-| 2 | IR-1383 | `quire-spec-language` | Read-only `PlanRoot` and the same-emission authority handoff. |
-| 3 | IR-1384 | `quire-contract-ir` | FR-358-AC-10 locus sources; FR-357-AC-16 map key row; FR-361 authority row and receipt. |
-| 4 | IR-1388 | `quire-spec-language` | Budgeted equality, source enum, model enum shape and collection adapters returning IR rows. |
-| 5 | IR-1389 | `quire-spec-language` | Charged `identity_rows` materialization. |
-| 6 | IR-721 | `quire-contract-ir`, `quire-driver` | FR-361 layout context; driver FR-019 preparation; real producer-to-construction qualification. |
-| 7 | IR-722 | `quire-contract-runtime` | Bounded state, the construction boundary and the complete TC-200 qualification. |
+| Component | Consumes |
+| --- | --- |
+| Observation owner | Nothing in this pipeline. |
+| Plan producer (QSL) | The observation owner's association value and its structural identities; IR's `NativeJoinBudget`, `NativeJoinLocusSource` and IR-owned row types for its budgeted adapters. |
+| Contract IR | The emission bytes it strictly reads; the IR-owned rows and authority row supplied to the closure read. It consumes no QSL, observation or runtime type. |
+| Driver | QSL's `PlanRoot` accessors, adapters and authority handoff; IR's strict reader, closure read, receipt, layout context and budget; RT's `ProgramParts` and `Program::try_new`. |
+| Runtime | `ProgramParts` and the caller's `StepBudget`. It consumes no IR, QSL or driver type. |
 
-Step 3's IR-owned criteria need no producer, so it may proceed beside steps 1
-and 2; only its integration criterion FR-361-AC-6 waits for step 2. Steps 4
-and 5 use the locus sources and row shapes of step 3. Step 6 needs steps 2
-through 5, and step 7 needs step 6 for its genuine-producer qualification.
+A component's IR-owned criteria that use only fixtures need nothing from
+another component; each genuine producer-to-runtime criterion needs every seam
+it crosses.
 
 ## Decisions
 

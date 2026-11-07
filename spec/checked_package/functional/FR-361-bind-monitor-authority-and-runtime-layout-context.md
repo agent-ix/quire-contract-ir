@@ -11,7 +11,7 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-038
     type: depends_on
-  - target: ix://agent-ix/quire-contract-ir/AD-009
+  - target: ix://agent-ix/quire-contract-ir/AD-010
     type: references
   - target: ix://agent-ix/quire-spec-language/FR-251
     type: depends_on
@@ -39,8 +39,8 @@ re-encode, authenticate or derive the order value or the progress association
 value; QSL and the observation owner own those values and their admission.
 IR SHALL NOT depend on QSL, the observation owner or the runtime.
 
-The architecture and the order in which this requirement is built are stated
-in [AD-009](../../assurance/AD-009-tick-monitor-admission-lowering-and-execution.md).
+The architecture this requirement belongs to is stated
+in [AD-010](../../assurance/AD-010-tick-monitor-admission-lowering-and-execution.md).
 
 ## Inputs
 
