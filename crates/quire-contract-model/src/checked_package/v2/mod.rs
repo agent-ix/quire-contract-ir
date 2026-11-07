@@ -1522,6 +1522,45 @@ impl CheckedPackageV2 {
         self.structural_keys.get(index).map(std::sync::Arc::as_ref)
     }
 
+    /// The ID of the graph node at `position` as a document-held ID, the form
+    /// a request, report or sidecar row names a node by: each operand is the
+    /// index segment of the node it names rather than a slot of the node's row.
+    pub fn document_held_id(&self, position: usize) -> Option<&CheckedNodeId> {
+        self.wire
+            .semantic_graph
+            .nodes
+            .get(position)
+            .map(|node| &node.node_id)
+    }
+
+    /// The structural key of a node-held ID written in the node at graph
+    /// `holder`, as `graph()` shows it: each operand slot is read through the
+    /// holder's operand row, each index segment against the graph. `None` when
+    /// a slot or index names no node.
+    pub fn resolve_node_held(&self, holder: usize, id: &CheckedNodeId) -> Option<CheckedNodeId> {
+        let row = self.wire.semantic_graph.operand_rows.get(holder)?;
+        let mut path = Vec::with_capacity(id.path.len());
+        for segment in &id.path {
+            path.push(match segment {
+                CheckedNodePathSegment::Operand(slot) => {
+                    let entry = row.get(usize::try_from(*slot).ok()?)?;
+                    CheckedNodePathSegment::Node(Arc::clone(
+                        self.structural_keys.get(usize::try_from(*entry).ok()?)?,
+                    ))
+                }
+                CheckedNodePathSegment::Index(index) => CheckedNodePathSegment::Node(Arc::clone(
+                    self.structural_keys.get(usize::try_from(*index).ok()?)?,
+                )),
+                other => other.clone(),
+            });
+        }
+        Some(CheckedNodeId {
+            package: id.package.clone(),
+            path,
+            ordinal: id.ordinal,
+        })
+    }
+
     /// Resolve an ID written by this package against this package's graph.
     /// The ID's `package` names its owner and does not select the graph.
     pub fn structural_key(&self, id: &CheckedNodeId) -> Option<&CheckedNodeId> {
@@ -4037,6 +4076,12 @@ mod test_support {
     /// deserializer cannot decode nested structural node IDs from a buffered
     /// JSON value.
     pub(super) fn private_wire(mut value: Value) -> CheckedPackageWireV2 {
+        // Test graphs name operands by graph index, so their rows are empty.
+        let count = value["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("test nodes")
+            .len();
+        value["semantic_graph"]["operand_rows"] = json!(vec![Vec::<u64>::new(); count]);
         let nodes = value["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("test nodes");

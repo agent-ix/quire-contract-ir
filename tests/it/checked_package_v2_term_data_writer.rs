@@ -18,6 +18,7 @@ fn encode(
     term_data: Option<&CheckedTermDataV2>,
     limits: Limits,
 ) -> Result<Vec<u8>, Error> {
+    let package = &crate::support::checked_package::wire_form(package);
     let lock: CheckedPackageLockV2 =
         serde_json::from_value(package["lock"].clone()).expect("typed lock");
     let graph: CheckedSemanticGraphV2<Value> =

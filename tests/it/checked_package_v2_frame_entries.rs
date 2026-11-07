@@ -4110,7 +4110,10 @@ fn tc_462_public_accessor_returns_exact_admitted_points_without_source_bytes() {
             CheckedPackageV2ReadResult::Admitted(package) => package,
             other => panic!("pointed package refused: {other:?}"),
         };
-        let clause = admitted.graph().nodes[position].node_id.clone();
+        let clause = admitted
+            .document_held_id(position)
+            .expect("graph node")
+            .clone();
         let claim = admitted.graph().nodes[position].occurrences[0].clone();
         let unchanged = admitted.clone();
         let identity = admitted.name().to_owned();
@@ -4144,9 +4147,18 @@ fn tc_462_public_accessor_refuses_in_closed_precedence_order() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("pointed package refused: {other:?}"),
     };
-    let clause = admitted.graph().nodes[pointed].node_id.clone();
-    let unpointed = admitted.graph().nodes[unpointed].node_id.clone();
-    let anchor = admitted.graph().nodes[anchor].node_id.clone();
+    let clause = admitted
+        .document_held_id(pointed)
+        .expect("graph node")
+        .clone();
+    let unpointed = admitted
+        .document_held_id(unpointed)
+        .expect("graph node")
+        .clone();
+    let anchor = admitted
+        .document_held_id(anchor)
+        .expect("graph node")
+        .clone();
     let claim = admitted.graph().nodes[pointed].occurrences[0].clone();
     let other_claim = admitted
         .graph()
@@ -5250,7 +5262,10 @@ fn selected_operation_member_rows_join_only_admitted_model_anchors() {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("expected selected model admission, got {other:?}"),
     };
-    let anchor = admitted.graph().nodes[anchor_position].node_id.clone();
+    let anchor = admitted
+        .document_held_id(anchor_position)
+        .expect("graph node")
+        .clone();
     let row = SelectedOperationMemberRow {
         anchor: anchor.clone(),
         selected_document: ORDERS.into(),

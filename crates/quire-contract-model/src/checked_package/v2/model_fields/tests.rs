@@ -1121,7 +1121,11 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             "required_features": [],
             "dependency_selections": [],
         },
-        "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
+        "semantic_graph": {
+            "graph_version": "quire.checked-semantic-graph/v2",
+            "nodes": nodes,
+            "operand_rows": vec![Vec::<u64>::new(); nodes.len()],
+        },
         "source_map": [],
         "capability_report": [],
         "diagnostics": {"catalog": artifact("diagnostics"), "entries": []},
@@ -1140,6 +1144,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
                 node.into_typed(body)
             })
             .collect(),
+        operand_rows: raw.semantic_graph.operand_rows,
     };
     let wire = super::super::CheckedPackageWireV2 {
         temporal_bindings: None,
@@ -1174,6 +1179,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             timed_model_roots: Vec::new(),
             node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
             structural_keys: Vec::new(),
+            slot_graph: Default::default(),
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),

@@ -2941,7 +2941,7 @@ fn selected_tuple_positions_require_matching_unique_stage_rows() {
     );
     assert_eq!(
         zero.denied_node(&admitted, &[], &[]),
-        Some(&admitted.graph().nodes[0].node_id)
+        Some(&admitted.document_held_id(0).expect("graph node").clone())
     );
     // Runtime context must not leak into the caller's ordinary native joins.
     let _ = identities.with_admitted_type_rows(

@@ -381,9 +381,10 @@ impl PartialEq for FlatNodeKey<'_> {
                         left == right
                     }
                     (CheckedNodePathSegment::Index(left), CheckedNodePathSegment::Index(right))
-                    | (CheckedNodePathSegment::Operand(left), CheckedNodePathSegment::Operand(right)) => {
-                        left == right
-                    }
+                    | (
+                        CheckedNodePathSegment::Operand(left),
+                        CheckedNodePathSegment::Operand(right),
+                    ) => left == right,
                     _ => false,
                 })
     }

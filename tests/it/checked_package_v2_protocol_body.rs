@@ -1990,7 +1990,13 @@ fn tm9_removing_terminal_retains_declared_clause_id() {
         );
     };
     assert_eq!(
-        serde_json::to_value(&admitted.graph().nodes[clause].node_id).expect("retained id"),
+        serde_json::to_value(
+            &admitted
+                .document_held_id(clause)
+                .expect("graph node")
+                .clone()
+        )
+        .expect("retained id"),
         original_id
     );
 }
@@ -4164,7 +4170,8 @@ fn tc_946_mixed_protocol_carrier_and_function_cycle_admits() {
     for &at in &positions {
         let id = &nodes[at]["node_id"];
         assert_eq!(
-            serde_json::to_value(&admitted.graph().nodes[at].node_id).expect("typed group id"),
+            serde_json::to_value(&admitted.document_held_id(at).expect("graph node").clone())
+                .expect("typed group id"),
             *id
         );
         if nodes[at]["declaration"]["qualified_name"].is_array() {
@@ -5266,7 +5273,11 @@ fn declared_role_source_occurrences_leave_structural_identity_stable() {
         admitted
             .source_map()
             .iter()
-            .filter(|row| row.node_id == admitted.graph().nodes[position].node_id)
+            .filter(|row| row.node_id
+                == admitted
+                    .document_held_id(position)
+                    .expect("graph node")
+                    .clone())
             .count(),
         2
     );
@@ -5365,11 +5376,17 @@ fn reordered_role_declaration_sources_preserve_set_backed_identities() {
         other => panic!("source-reordered role declarations must admit: {other:?}"),
     };
     assert_eq!(
-        admitted.graph().nodes[first].node_id,
+        admitted
+            .document_held_id(first)
+            .expect("graph node")
+            .clone(),
         admitted.source_map()[first_row].node_id
     );
     assert_eq!(
-        admitted.graph().nodes[second].node_id,
+        admitted
+            .document_held_id(second)
+            .expect("graph node")
+            .clone(),
         admitted.source_map()[second_row].node_id
     );
     assert_eq!(

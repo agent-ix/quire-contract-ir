@@ -773,9 +773,10 @@ pub(super) fn check(
     }
     let (sites, row_sites) = collect_sites(bytes, node_count, evidence)?;
     // 2. Placement. A foreign key's segments name its dependency's graph.
-    if let Some(site) = sites.iter().find(|site| {
-        site.foreign_graph.is_none() && site.slot != site.holder.is_some()
-    }) {
+    if let Some(site) = sites
+        .iter()
+        .find(|site| site.foreign_graph.is_none() && site.slot != site.holder.is_some())
+    {
         return Err(malformed(site.at.clone()));
     }
     // 3. Range.

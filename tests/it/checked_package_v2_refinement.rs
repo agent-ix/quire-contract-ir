@@ -761,7 +761,7 @@ fn canonical_indexed(package: &Value) -> Vec<u8> {
 fn indexed_package(package: &Value) -> Value {
     let mut indexed = package.clone();
     index_fixture_node_ids(&mut indexed);
-    indexed
+    crate::support::checked_package::wire_form(&indexed)
 }
 
 fn invalid_value_at(result: CheckedPackageV2ReadResult, pointer: &str) {
@@ -5897,7 +5897,11 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
         admitted
             .source_map()
             .iter()
-            .filter(|entry| entry.node_id == admitted.graph().nodes[position].node_id)
+            .filter(|entry| entry.node_id
+                == admitted
+                    .document_held_id(position)
+                    .expect("graph node")
+                    .clone())
             .count(),
         1
     );

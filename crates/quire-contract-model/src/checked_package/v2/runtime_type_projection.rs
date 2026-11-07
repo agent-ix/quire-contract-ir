@@ -345,9 +345,11 @@ impl SelectedTypeDeclarationsError {
             NativeJoinLocusSource::Package
             | NativeJoinLocusSource::MonitorSeed(_)
             | NativeJoinLocusSource::ReachedRow(_) => None,
-            NativeJoinLocusSource::GraphNode(index) => {
-                package.resolved_graph().nodes.get(index).map(|node| &node.node_id)
-            }
+            NativeJoinLocusSource::GraphNode(index) => package
+                .resolved_graph()
+                .nodes
+                .get(index)
+                .map(|node| &node.node_id),
             NativeJoinLocusSource::SelectedDeclaration(_)
             | NativeJoinLocusSource::IdentityDeclaration(_) => None,
             NativeJoinLocusSource::TupleRow(index) => {

@@ -24,6 +24,7 @@ fn typed<T: DeserializeOwned>(value: &Value) -> T {
 }
 
 fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
+    let value = &crate::support::checked_package::wire_form(value);
     let name = value["name"].as_str().expect("package name");
     let lock: CheckedPackageLockV2 = typed(&value["lock"]);
     let graph: CheckedSemanticGraphV2<Value> = typed(&value["semantic_graph"]);

@@ -756,8 +756,9 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
             type Value = Segment;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter
-                    .write_str("a path string or an object containing only a node index or operand slot")
+                formatter.write_str(
+                    "a path string or an object containing only a node index or operand slot",
+                )
             }
 
             fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Segment, E> {
@@ -945,18 +946,22 @@ impl Ord for CheckedNodeId {
                             }
                             (
                                 CheckedNodePathSegment::Name(_),
-                                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_),
+                                CheckedNodePathSegment::Index(_)
+                                | CheckedNodePathSegment::Operand(_),
                             ) => return Ordering::Less,
                             (
-                                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_),
+                                CheckedNodePathSegment::Index(_)
+                                | CheckedNodePathSegment::Operand(_),
                                 CheckedNodePathSegment::Name(_),
                             ) => return Ordering::Greater,
-                            (CheckedNodePathSegment::Index(_), CheckedNodePathSegment::Operand(_)) => {
-                                return Ordering::Less
-                            }
-                            (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Index(_)) => {
-                                return Ordering::Greater
-                            }
+                            (
+                                CheckedNodePathSegment::Index(_),
+                                CheckedNodePathSegment::Operand(_),
+                            ) => return Ordering::Less,
+                            (
+                                CheckedNodePathSegment::Operand(_),
+                                CheckedNodePathSegment::Index(_),
+                            ) => return Ordering::Greater,
                             (
                                 CheckedNodePathSegment::Operand(a),
                                 CheckedNodePathSegment::Operand(b),

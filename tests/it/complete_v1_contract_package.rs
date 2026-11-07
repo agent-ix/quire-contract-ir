@@ -802,7 +802,10 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
             })
         })
         .expect("indexed request present");
-    let root = source.graph().nodes[position].node_id.clone();
+    let root = source
+        .document_held_id(position)
+        .expect("graph node")
+        .clone();
     let structural = source
         .structural_key_at(position)
         .expect("admitted structural key");

@@ -388,7 +388,10 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
         panic!("baseline package must admit");
     };
     assert!(without_sidecar.checked_term_data().is_none());
-    let absent_call = without_sidecar.graph().nodes[CALL].node_id.clone();
+    let absent_call = without_sidecar
+        .document_held_id(CALL)
+        .expect("graph node")
+        .clone();
     let absent_occurrence = without_sidecar.graph().nodes[CALL].occurrences[0].clone();
     assert_eq!(
         without_sidecar.dispatch_candidates(&absent_call, &absent_occurrence, 1),
@@ -411,7 +414,7 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
         panic!("empty producer candidate set must admit");
     };
     assert!(admitted.checked_term_data().is_some());
-    let call = admitted.graph().nodes[CALL].node_id.clone();
+    let call = admitted.document_held_id(CALL).expect("graph node").clone();
     let occurrence = admitted.graph().nodes[CALL].occurrences[0].clone();
     assert!(admitted
         .dispatch_candidates(&call, &occurrence, 1)
@@ -495,7 +498,7 @@ fn checked_dispatch_sidecar_retains_empty_and_bounded_candidate_sets() {
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
         panic!("valid nonempty producer candidate table must admit");
     };
-    let call = admitted.graph().nodes[CALL].node_id.clone();
+    let call = admitted.document_held_id(CALL).expect("graph node").clone();
     let occurrence = admitted.graph().nodes[CALL].occurrences[0].clone();
     let view = admitted
         .dispatch_candidates(&call, &occurrence, 3)
@@ -2015,7 +2018,13 @@ fn tc_048_model_relationship_identity_survives_reader_admission() {
     let CheckedPackageV2ReadResult::Admitted(admitted) = read(&package, &evidence) else {
         panic!("model relationship package must admit");
     };
-    assert_eq!(admitted.graph().nodes[position].node_id, authored);
+    assert_eq!(
+        admitted
+            .document_held_id(position)
+            .expect("graph node")
+            .clone(),
+        authored
+    );
 }
 
 #[trace("TC-048", "FR-038-AC-170")]

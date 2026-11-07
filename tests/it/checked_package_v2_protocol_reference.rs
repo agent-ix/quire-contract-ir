@@ -126,7 +126,10 @@ fn protocol_reference_reads_both_protocol_target_forms_and_rekeys_on_retarget() 
     assert_eq!(first.source_map().len(), first.graph().nodes.len());
     assert_eq!(
         first.source_map()[position].node_id,
-        first.graph().nodes[position].node_id
+        first
+            .document_held_id(position)
+            .expect("graph node")
+            .clone()
     );
     assert_eq!(
         first.source_map()[position].role,

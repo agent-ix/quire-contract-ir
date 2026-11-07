@@ -405,7 +405,9 @@ impl<'a> DependencyReferences<'a> {
         let target = supplied
             .index
             .get(node)
-            .and_then(|position| Some((*position, dependency.resolved_graph().nodes.get(*position)?)))
+            .and_then(|position| {
+                Some((*position, dependency.resolved_graph().nodes.get(*position)?))
+            })
             .filter(|(_, target)| target.declaration.is_some());
         let Some((position, _)) = target else {
             return Err(referrer.refuse(

@@ -629,7 +629,8 @@ fn native_literal_payloads_are_canonical_after_type_validation() {
             panic!("native literal refused: {:?}", read(&package));
         };
         assert_eq!(
-            serde_json::to_value(&admitted.graph().nodes[at].node_id).expect("literal id"),
+            serde_json::to_value(&admitted.document_held_id(at).expect("graph node").clone())
+                .expect("literal id"),
             node_id(&key)
         );
         assert_eq!(

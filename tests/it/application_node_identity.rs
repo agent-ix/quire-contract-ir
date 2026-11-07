@@ -53,6 +53,7 @@ fn envelope() -> (
             "occurrences": [{"role": "generated", "ordinal": 0}],
             "body": {"term": "aggregate", "members": []},
         }],
+        "operand_rows": [[]],
     }))
     .expect("typed graph");
     let source_map = serde_json::from_value(json!([{
@@ -118,7 +119,10 @@ fn structural_identity_requires_complete_reader_admission() {
     let CheckedPackageV2ReadResult::Admitted(package) = admitted else {
         panic!("complete structural package must admit: {admitted:?}");
     };
-    assert_eq!(package.graph().nodes[0].node_id, expected);
+    assert_eq!(
+        package.document_held_id(0).expect("graph node").clone(),
+        expected
+    );
 }
 
 /// The public encoder uses the exact complete envelope byte ceiling.

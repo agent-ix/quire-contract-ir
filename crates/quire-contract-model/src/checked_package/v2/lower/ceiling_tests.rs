@@ -41,6 +41,7 @@ fn retain_graph_indices(package: &mut CheckedPackageV2) {
         .collect::<Vec<_>>();
     package.structural_keys = super::super::node_index::rebuild_keys(
         &ids,
+        None,
         |_, _| unreachable!("fixture graph has only valid node IDs"),
         |_| unreachable!("fixture graph has only valid node IDs"),
     )
@@ -137,6 +138,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         timed_model_roots: Vec::new(),
         node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
         structural_keys: Vec::new(),
+        slot_graph: Default::default(),
         source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
         lowering_facts: Vec::new(),
         wire: std::sync::Arc::new(wire),

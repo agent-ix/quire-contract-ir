@@ -238,6 +238,16 @@ fn proposal_dir_of(fixtures: &Path) -> PathBuf {
 
 /// The JSON at `path`, or why it cannot be read.
 fn read_json(path: &Path) -> Result<Value, String> {
+    let mut value = read_json_wire(path)?;
+    // Tests author and mutate packages in resolved index form; `read_package`
+    // writes the wire form back.
+    fixture_support::resolve_operands(&mut value);
+    fixture_support::resolve_vector_rows(&mut value);
+    Ok(value)
+}
+
+/// Read a published JSON file exactly as published, operand rows included.
+fn read_json_wire(path: &Path) -> Result<Value, String> {
     let text = std::fs::read(path)
         .map_err(|error| format!("{} cannot be read: {error}", path.display()))?;
     serde_json::from_slice(&text)
@@ -342,7 +352,7 @@ fn read_package_with_document_override(
     document_override: Option<&[u8]>,
 ) -> Result<CheckedPackageV2ReadResult, String> {
     // The reader takes canonical bytes; the published files are indented.
-    let bytes = serde_json::to_vec(package).map_err(|error| error.to_string())?;
+    let bytes = fixture_support::canonical(package);
     let mut evidence = CheckedPackageEvidence::new();
     if hold_retention
         && package["lock"]["definition_selections"]
@@ -1427,7 +1437,10 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
         let document = proposal.join(positive_document(name, &documents));
         let (wire, admitted) =
             read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{why}"));
-        let nodes = wire["semantic_graph"]["nodes"]
+        // The admitted graph keeps the wire form, operand slots included.
+        let mut wire_form = wire.clone();
+        fixture_support::wire_operands(&mut wire_form);
+        let nodes = wire_form["semantic_graph"]["nodes"]
             .as_array()
             .expect("published graph nodes");
         assert_eq!(
@@ -1496,7 +1509,9 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         declared(&["Example", "Dimensionless"]),
         json!({"package":"example", "path":["scalar_type", "dimension_equivalence", distance, length], "ordinal":0}),
     ];
-    let published = wire["semantic_graph"]["nodes"]
+    let mut wire_form = wire.clone();
+    fixture_support::wire_operands(&mut wire_form);
+    let published = wire_form["semantic_graph"]["nodes"]
         .as_array()
         .expect("published nominal nodes");
     assert_eq!(published.len(), expected.len());
@@ -1515,6 +1530,7 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         assert_eq!(
             serde_json::to_value(node_index::fixture_structural_key(
                 &admitted.graph().nodes,
+                &admitted.graph().operand_rows,
                 position
             ))
             .expect("resolved structural id"),
