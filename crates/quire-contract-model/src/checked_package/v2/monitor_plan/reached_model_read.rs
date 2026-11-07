@@ -2636,7 +2636,8 @@ mod tests {
             }
         }
 
-        #[trace("TC-473", "FR-357-AC-19", "FR-357-AC-20")]
+        #[trace("TC-473", "FR-357-AC-19")]
+        #[trace("TC-473", "FR-357-AC-20")]
         #[test]
         fn selected_closure_retains_only_reached_map_and_composes_exact_budget() {
             let package = admitted_monitor_for_closure_with_maps("integer", true);

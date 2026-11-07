@@ -649,7 +649,8 @@ fn source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix() {
 }
 
 /// Trace: FR-357-AC-19, FR-357-AC-20.
-#[trace("TC-473", "FR-357-AC-19", "FR-357-AC-20")]
+#[trace("TC-473", "FR-357-AC-19")]
+#[trace("TC-473", "FR-357-AC-20")]
 #[test]
 fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() {
     use crate::support::checked_package::{integer_range_key, reassign_node_id};
