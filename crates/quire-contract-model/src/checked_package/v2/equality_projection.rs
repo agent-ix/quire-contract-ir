@@ -472,15 +472,15 @@ pub enum AdmittedEqualityReadErrorCode {
 pub struct AdmittedEqualityReadError {
     /// Stable refusal kind.
     pub code: AdmittedEqualityReadErrorCode,
-    /// Requested equality application.
+    /// Requested equality application when diagnostic storage was affordable.
     pub application: Option<Box<CheckedNodeId>>,
-    /// First structural node whose join failed.
+    /// First structural node whose join failed, when diagnostic storage was affordable.
     pub at: Option<Box<CheckedNodeId>>,
     /// Missing witness kind, when a witness is unavailable.
     pub witness: Option<EqualityWitnessKind>,
-    /// Successfully charged read work.
+    /// Cumulative work admitted by the caller's shared budget.
     pub consumed_work: u64,
-    /// First refused charge; zero for a semantic refusal.
+    /// First refused work charge; storage denial details live in the budget.
     pub attempted_work: u64,
     /// QSV's original typed materialization failure and locus.
     pub materialization: Option<Box<EqualityMaterializationError>>,
@@ -2021,6 +2021,7 @@ impl CheckedPackageV2 {
     /// Types requiring further QSL-stage identities refuse with their missing
     /// structural witness. The read never projects a type from an unrelated
     /// declaration row, reconstructs an Exact key, or selects a schedule.
+    /// All work and logical storage charges use the caller's shared budget.
     pub fn admitted_equality(
         &self,
         application: &CheckedNodeId,

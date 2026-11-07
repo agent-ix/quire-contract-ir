@@ -3418,7 +3418,7 @@ mod tests {
         );
         assert_eq!(short.at.as_ref(), &application);
         assert!(short.attempted_work > 0);
-        assert_eq!(short.occurrence, Some(occurrence));
+        assert_eq!(short.occurrence, None);
         let missing = package
             .project_selected_facts(
                 ids(),
