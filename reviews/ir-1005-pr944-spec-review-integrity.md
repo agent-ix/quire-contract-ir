@@ -55,3 +55,4 @@ Ticket: IR-1005. Reviewer-only spec-review/integrity pass over `git diff origin/
 | FND-001 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |
 | FND-002 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |
 | FND-003 | fixed | Verified in e0477e6bf1c86ab565071b11238a7d9c5c945e9e. |
+| FND-004 | fixed | Verified in 31c76a5880632e519b16150bfcb570a9c817675b: the positions row is split and order_key is recorded only. |
