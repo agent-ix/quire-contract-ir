@@ -258,6 +258,7 @@ fn grouped_member_and_outside_application_references_retain_exact_targets() {
     let mut outside = nodes[application].clone();
     outside.as_object_mut().expect("node").remove("declaration");
     outside["node_id"] = outside_id.clone();
+    outside["node_tag"] = serde_json::json!("value");
     outside["semantic_form"] = serde_json::json!("record_value");
     outside["semantic_type"] = record_id.clone();
     outside["occurrences"] = serde_json::json!([{"role":"expression", "ordinal":0}]);

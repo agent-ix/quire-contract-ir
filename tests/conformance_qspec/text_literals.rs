@@ -58,7 +58,8 @@ fn bounded_literal(min: u64, max: u64, profile: &str, value: Value) -> (Value, u
     let mut literal = package["semantic_graph"]["nodes"][original].clone();
     literal["node_id"] = fixture_support::node_id("text-literal-membership");
     literal["semantic_type"] = bounds_id.clone();
-    literal["dependencies"] = json!([bounds_id.clone()]);
+    // A literal node carries its type by `semantic_type` and has no dependencies.
+    literal["dependencies"] = json!([]);
     literal["body"] = json!({
         "term": "literal", "type": bounds_id, "value_kind": "text", "value": value
     });
@@ -393,7 +394,7 @@ fn scalar_text_stays_unbounded_and_nested_bounds_report_the_literal_pointer() {
     let (mut scalar, position) = bounded_literal(1, 2, "nfc", json!("beyond"));
     let text = fixture_support::node_id(&fixture_support::family_key("a1a1"));
     scalar["semantic_graph"]["nodes"][position]["semantic_type"] = text.clone();
-    scalar["semantic_graph"]["nodes"][position]["dependencies"] = json!([text]);
+    scalar["semantic_graph"]["nodes"][position]["dependencies"] = json!([]);
     scalar["semantic_graph"]["nodes"][position]["body"]["type"] =
         fixture_support::node_id(&fixture_support::family_key("a1a1"));
     fixture_support::settle(&mut scalar);
@@ -405,9 +406,17 @@ fn scalar_text_stays_unbounded_and_nested_bounds_report_the_literal_pointer() {
 
     let (mut nested, literal_position) = bounded_literal(1, 2, "nfc", json!("ab"));
     let bounds_id = nested["semantic_graph"]["nodes"][literal_position - 1]["node_id"].clone();
-    let root_literal = index(&nested, "value", "literal");
+    // A literal node cannot hold an aggregate, so nest inside an aggregate-bodied value node.
+    let root_literal = nested["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .position(|node| node["node_tag"] == "function" && node["body"]["term"] == "aggregate")
+        .expect("aggregate function node");
     let mut nested_node = nested["semantic_graph"]["nodes"][root_literal].clone();
-    nested_node["node_id"] = fixture_support::node_id("nested-text-membership");
+    nested_node["node_id"] =
+        json!({"ordinal": 0, "package": "test/families", "path": ["Example", "Nested"]});
+    nested_node["declaration"] = json!({"qualified_name": ["Example", "Nested"]});
     nested_node["body"] = json!({"term": "aggregate", "members": [{
         "term": "binding", "name": "value", "value": {
             "term": "literal", "type": bounds_id, "value_kind": "text", "value": "abc"
