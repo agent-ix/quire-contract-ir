@@ -1060,20 +1060,33 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
     assert_eq!(short.last_success_delta(), None);
 }
 
-fn nested_bounded_quantity_maps() -> (CheckedPackageV2, CheckedNodeId, CheckedNodeId, CheckedNodeId) {
+fn nested_bounded_quantity_maps() -> (
+    CheckedPackageV2,
+    CheckedNodeId,
+    CheckedNodeId,
+    CheckedNodeId,
+) {
     use crate::support::checked_package::{nominal_fixture_members, nominal_package};
     let members = nominal_fixture_members();
-    let unit = node_id(&members.iter().find(|(body, _)| body["version"] == "quire.unit-node/v1")
-        .expect("existing declared unit").1);
+    let unit = node_id(
+        &members
+            .iter()
+            .find(|(body, _)| body["version"] == "quire.unit-node/v1")
+            .expect("existing declared unit")
+            .1,
+    );
     let mut wire = nominal_package(&members);
     let mut scalar = |form: &str| {
         let id = json!({"package":wire["name"], "path":["scalar_type",form], "ordinal":0});
-        wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
-            "schema_version":"quire.checked-semantic-graph/v2", "node_id":id,
-            "node_tag":"scalar_type", "semantic_form":form, "semantic_type":id,
-            "dependencies":[], "occurrences":[{"role":"type","ordinal":0}],
-            "body":{"term":"aggregate","members":[]}
-        }));
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "schema_version":"quire.checked-semantic-graph/v2", "node_id":id,
+                "node_tag":"scalar_type", "semantic_form":form, "semantic_type":id,
+                "dependencies":[], "occurrences":[{"role":"type","ordinal":0}],
+                "body":{"term":"aggregate","members":[]}
+            }));
         id
     };
     let text = scalar("text");
@@ -1098,15 +1111,18 @@ fn nested_bounded_quantity_maps() -> (CheckedPackageV2, CheckedNodeId, CheckedNo
     let mut append_map = |value: &Value| {
         let id = json!({"package":wire["name"], "path":["composite_type","map",text,value], "ordinal":0});
         let position = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
-        wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
-            "schema_version":"quire.checked-semantic-graph/v2", "node_id":id,
-            "node_tag":"composite_type", "semantic_form":"map", "semantic_type":id,
-            "dependencies":[text,value], "occurrences":[{"role":"type","ordinal":0}],
-            "body":{"term":"aggregate","members":[
-                {"term":"binding","name":"key","value":{"term":"reference","target":text}},
-                {"term":"binding","name":"value","value":{"term":"reference","target":value}}
-            ]}
-        }));
+        wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "schema_version":"quire.checked-semantic-graph/v2", "node_id":id,
+                "node_tag":"composite_type", "semantic_form":"map", "semantic_type":id,
+                "dependencies":[text,value], "occurrences":[{"role":"type","ordinal":0}],
+                "body":{"term":"aggregate","members":[
+                    {"term":"binding","name":"key","value":{"term":"reference","target":text}},
+                    {"term":"binding","name":"value","value":{"term":"reference","target":value}}
+                ]}
+            }));
         (position, id)
     };
     let (inner_position, inner) = append_map(&bounded);
@@ -1114,13 +1130,23 @@ fn nested_bounded_quantity_maps() -> (CheckedPackageV2, CheckedNodeId, CheckedNo
     sort_map_fixture_dependencies(&mut wire);
     settle(&mut wire);
     index_fixture_node_ids(&mut wire);
+    crate::support::checked_package::rebuild_complete_source_map(&mut wire);
     let admitted = read(&wire);
     let CheckedPackageV2ReadResult::Admitted(package) = admitted else {
         panic!("genuine nested bounded quantity maps must strictly admit: {admitted:?}");
     };
-    let id = |position: usize| serde_json::from_value::<CheckedNodeId>(
-        wire["semantic_graph"]["nodes"][position]["node_id"].clone()).unwrap();
-    (*package, id(outer_position), id(inner_position), id(bounded_position))
+    let id = |position: usize| {
+        serde_json::from_value::<CheckedNodeId>(
+            wire["semantic_graph"]["nodes"][position]["node_id"].clone(),
+        )
+        .unwrap()
+    };
+    (
+        *package,
+        id(outer_position),
+        id(inner_position),
+        id(bounded_position),
+    )
 }
 
 /// Trace: FR-357-AC-20.
@@ -1128,42 +1154,100 @@ fn nested_bounded_quantity_maps() -> (CheckedPackageV2, CheckedNodeId, CheckedNo
 #[test]
 fn unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads() {
     use quire_contract_model::{NativeJoinBudget, NativeJoinLocusSource};
-    use quire_exact::{BoundedQuantityType, Integer, MapType, NodeKey, PathSegment,
-        Quantity, Rational, UnitId, ValueType};
+    use quire_exact::{
+        BoundedQuantityType, Integer, MapType, NodeKey, PathSegment, Quantity, Rational, UnitId,
+        ValueType,
+    };
     let (package, outer, inner, bounded) = nested_bounded_quantity_maps();
-    assert_eq!(package.node_kinds()[package.graph().nodes.iter()
-        .position(|node| node.node_id == bounded).unwrap()],
-        CheckedNodeKind::ScalarType(quire_contract_model::ScalarTypeForm::BoundedQuantity));
-    let unit = UnitId::declared(NodeKey::new(package.name(),
-        vec![PathSegment::Text("Example".into()), PathSegment::Text("Metre".into())], 0).unwrap());
+    assert_eq!(
+        package.node_kinds()[package
+            .graph()
+            .nodes
+            .iter()
+            .position(|node| node.node_id == bounded)
+            .unwrap()],
+        CheckedNodeKind::ScalarType(quire_contract_model::ScalarTypeForm::BoundedQuantity)
+    );
+    let unit = UnitId::declared(
+        NodeKey::new(
+            package.name(),
+            vec![
+                PathSegment::Text("Example".into()),
+                PathSegment::Text("Metre".into()),
+            ],
+            0,
+        )
+        .unwrap(),
+    );
     let leaf = |cold: bool| {
         let quantity = |decimal: &str| {
             let parsed: Integer = decimal.parse().unwrap();
-            let magnitude = if cold { parsed.try_clone().unwrap() } else { parsed };
+            let magnitude = if cold {
+                parsed.try_clone().unwrap()
+            } else {
+                parsed
+            };
             Quantity::new(Rational::from_integer(magnitude), unit.clone())
         };
-        ValueType::bounded_quantity(BoundedQuantityType::new(unit.clone(),
-            Some(quantity("170141183460469231731687303715884105728")),
-            Some(quantity("680564733841876926926749214863536422913"))).unwrap())
+        ValueType::bounded_quantity(
+            BoundedQuantityType::new(
+                unit.clone(),
+                Some(quantity("170141183460469231731687303715884105728")),
+                Some(quantity("680564733841876926926749214863536422913")),
+            )
+            .unwrap(),
+        )
     };
     let rows = |cold: bool| {
         let inner_payload = leaf(cold);
         let outer_payload = leaf(cold);
         let (ValueType::BoundedQuantity(left), ValueType::BoundedQuantity(right)) =
-            (&inner_payload, &outer_payload) else { panic!("bounded payloads") };
-        assert!(!std::sync::Arc::ptr_eq(left, right), "the equality operands must be independently owned");
-        assert!(left.min().unwrap().magnitude().numerator().copy_footprint().bytes > 0);
+            (&inner_payload, &outer_payload)
+        else {
+            panic!("bounded payloads")
+        };
+        assert!(
+            !std::sync::Arc::ptr_eq(left, right),
+            "the equality operands must be independently owned"
+        );
+        assert!(
+            left.min()
+                .unwrap()
+                .magnitude()
+                .numerator()
+                .copy_footprint()
+                .bytes
+                > 0
+        );
         let inner_row = source_map_row(&package, &inner, inner_payload);
-        let outer_row = source_map_row(&package, &outer,
-            ValueType::map(MapType::new(outer_payload, None)));
+        let outer_row = source_map_row(
+            &package,
+            &outer,
+            ValueType::map(MapType::new(outer_payload, None)),
+        );
         [inner_row, outer_row]
     };
-    let acquire = |cold: bool| SelectedExactIdentities::empty().with_source_collection_rows(
-        &package, rows(cold), &mut NativeJoinBudget::new(1_000_000, 1_000_000)).unwrap();
+    let acquire = |cold: bool| {
+        SelectedExactIdentities::empty()
+            .with_source_collection_rows(
+                &package,
+                rows(cold),
+                &mut NativeJoinBudget::new(1_000_000, 1_000_000),
+            )
+            .unwrap()
+    };
     let mut leaf_budget = NativeJoinBudget::new(1_000_000, 1_000_000);
-    let leaf_error = package.project_exact_type(&bounded, &SelectedExactIdentities::empty(), &mut leaf_budget)
+    let leaf_error = package
+        .project_exact_type(
+            &bounded,
+            &SelectedExactIdentities::empty(),
+            &mut leaf_budget,
+        )
         .expect_err("bounded quantity Exact leaves remain unsupported");
-    assert_eq!(leaf_error.code, ExactTypeProjectionErrorCode::UnsupportedExactType);
+    assert_eq!(
+        leaf_error.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
     let cold = acquire(true);
     let ordinary = acquire(false);
     let mut cold_budget = NativeJoinBudget::new(1_000_000, 1_000_000);
@@ -1176,13 +1260,23 @@ fn unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads(
         ordinary_result = Some(package.project_exact_type(&outer, &ordinary, &mut ordinary_budget));
     });
     let cold_error = cold_result.unwrap().expect_err("unsupported nested leaf");
-    let ordinary_error = ordinary_result.unwrap().expect_err("unsupported nested leaf");
-    assert_eq!(cold_error.code, ExactTypeProjectionErrorCode::UnsupportedExactType);
+    let ordinary_error = ordinary_result
+        .unwrap()
+        .expect_err("unsupported nested leaf");
+    assert_eq!(
+        cold_error.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
     assert_eq!(ordinary_error.code, cold_error.code);
     assert_eq!(cold_budget.consumed(), ordinary_budget.consumed());
-    assert_eq!(cold_allocations.count_total, ordinary_allocations.count_total,
-        "unsupported leaf refusal must not initialize independently owned cold BQ equality caches");
-    assert_eq!(cold_allocations.bytes_total, ordinary_allocations.bytes_total);
+    assert_eq!(
+        cold_allocations.count_total, ordinary_allocations.count_total,
+        "unsupported leaf refusal must not initialize independently owned cold BQ equality caches"
+    );
+    assert_eq!(
+        cold_allocations.bytes_total,
+        ordinary_allocations.bytes_total
+    );
     assert_eq!(cold_budget.last_success_delta(), None);
     let storage = cold_budget.consumed().storage;
     for limit in [0, storage.saturating_sub(1)] {
@@ -1195,21 +1289,42 @@ fn unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads(
             cold_result = Some(package.project_exact_type(&outer, &cold, &mut cold_budget));
         });
         let ordinary_allocations = allocation_counter::measure(|| {
-            ordinary_result = Some(package.project_exact_type(&outer, &ordinary, &mut ordinary_budget));
+            ordinary_result =
+                Some(package.project_exact_type(&outer, &ordinary, &mut ordinary_budget));
         });
-        let error = cold_result.unwrap().expect_err("resource or unsupported refusal");
+        let error = cold_result
+            .unwrap()
+            .expect_err("resource or unsupported refusal");
         let control = ordinary_result.unwrap().expect_err("same refusal");
         assert_eq!(error.code, control.code);
-        assert_eq!(cold_allocations.count_total, ordinary_allocations.count_total);
-        assert_eq!(cold_allocations.bytes_total, ordinary_allocations.bytes_total);
+        assert_eq!(
+            cold_allocations.count_total,
+            ordinary_allocations.count_total
+        );
+        assert_eq!(
+            cold_allocations.bytes_total,
+            ordinary_allocations.bytes_total
+        );
         assert_eq!(cold_budget.first_unpaid(), ordinary_budget.first_unpaid());
-        assert_eq!(cold_budget.first_unpaid_locus(), ordinary_budget.first_unpaid_locus());
+        assert_eq!(
+            cold_budget.first_unpaid_locus(),
+            ordinary_budget.first_unpaid_locus()
+        );
         if let Some(denied) = cold_budget.first_unpaid() {
             assert_eq!(error.denied, Some(denied));
             assert_eq!(error.configured_bound, Some(limit));
             let locus = cold_budget.first_unpaid_locus().unwrap();
-            assert_eq!(locus.source, NativeJoinLocusSource::GraphNode(package.graph().nodes.iter()
-                .position(|node| node.node_id == outer).unwrap()));
+            assert_eq!(
+                locus.source,
+                NativeJoinLocusSource::GraphNode(
+                    package
+                        .graph()
+                        .nodes
+                        .iter()
+                        .position(|node| node.node_id == outer)
+                        .unwrap()
+                )
+            );
         }
         assert_eq!(cold_budget.storage_limit(), limit);
         assert_eq!(cold_budget.last_success_delta(), None);
