@@ -22,3 +22,12 @@ The native EvidenceRequest and TraceBinding names, authentication call, and reta
 ## Verdict
 
 FAIL: corrections required before merge.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The effective occurrence now selects the keyed role and ordinal or the sole member on None, then requires exact supplied node, role and ordinal equality. |
+| FND-002 | fixed | AC-9 now requires the numeric owner anchor value assertion and named refusal cases for binding, occurrence, trigger instance and observation identity. |
+
+Current verdict after disposition pass 1: PASS; no open findings.
