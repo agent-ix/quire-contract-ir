@@ -6677,14 +6677,31 @@ mod tests {
             "collection",
             operation,
             vec![
-                json!({ "term": "literal", "value": 1 }),
-                json!({ "term": "literal", "value": 2 }),
+                json!({ "term": "reference", "target": node_id('5') }),
+                json!({ "term": "binding", "name": "x", "value": {
+                    "term": "reference", "target": node_id('7'),
+                }}),
             ],
         );
         application.body["result_type"] = json!(node_id('4'));
+        let parameter = |id, name, type_id| graph_node(
+            id, "value", "parameter", &node_id(type_id),
+            json!({"term":"aggregate","members":[
+                {"term":"binding","name":"name","value":{"term":"literal",
+                    "type":node_id('8'),"value_kind":"text","value":name}},
+                {"term":"binding","name":"level","value":{"term":"literal",
+                    "type":node_id('9'),"value_kind":"integer","value":"0"}},
+            ]}),
+        );
         let result = defect_for_graph(vec![
             application.clone(),
             scalar_type_node('4', member_form),
+            parameter('5', "q", '6'),
+            graph_node('6', "composite_type", "sequence", &node_id('6'),
+                json!({"term":"aggregate","members":[{"term":"reference","target":node_id('4')}]})),
+            parameter('7', "x", '4'),
+            unpinned_text_node('8'),
+            scalar_type_node('9', "integer"),
         ]);
         (application, result)
     }
@@ -6736,7 +6753,7 @@ mod tests {
             result,
             Ok(Some(refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                "/semantic_graph/nodes/0/body/operation/mode/value",
+                "/semantic_graph/nodes/0",
                 Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
                 application.node_id.clone(),
             )))
