@@ -3,7 +3,6 @@
 
 //! FR-038: metered, package-authored domains of structural comparison operands.
 
-use super::operation_catalog::operation_catalog;
 use super::structural::{
     is_integer_bound, is_non_negative_integer, typed_aggregate, typed_binding, typed_reference,
 };
@@ -411,7 +410,7 @@ impl CheckedPackageV2 {
         let identity = operation
             .get("identity")
             .and_then(Value::as_str)
-            .filter(|id| operation_catalog().entry(id).is_some())
+            .filter(|id| self.catalog.entry(id).is_some())
             .ok_or_else(|| Error::UnknownOperator {
                 application: application.clone(),
             })?;
@@ -483,9 +482,7 @@ impl CheckedPackageV2 {
                     return Err(type_error(ordinal, Some(type_node)));
                 }
             };
-            if !family
-                .is_some_and(|family| operation_catalog().family_fits(family, "structural_kind"))
-            {
+            if !family.is_some_and(|family| self.catalog.family_fits(family, "structural_kind")) {
                 return Err(unsupported(
                     ordinal,
                     Some(child.semantic_type.clone()),

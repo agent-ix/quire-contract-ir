@@ -988,7 +988,7 @@ that read of the build's own bytes fails, the reader never stops the process
 and never refuses the package: `CheckedPackageV2::read` returns
 `CatalogUnavailable`, carrying the unreadable path and message, before it checks
 any node (FR-038-AC-58). The package is not at fault; the reader and its catalog
-dependency disagree.
+dependency disagree. Every reader that consults the catalog, the V2 read and the FR-330 read of FR-035-AC-36, takes the catalog from that one gate and passes it down; no reader holds a fallback catalog.
 
 ### Selections bind by identity
 

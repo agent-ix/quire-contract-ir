@@ -500,6 +500,8 @@ pub struct ContractPackageV1 {
     source_index: BTreeMap<CheckedNodeId, usize>,
     unsupported_tags: Vec<Option<CheckedNodeTag>>,
     unsupported_source_kinds: Option<Vec<Option<CheckedNodeKind>>>,
+    /// The operation catalog this package was admitted against.
+    catalog: super::operation_catalog::CatalogRef,
 }
 
 /// One admitted structural identity for each raw coordinate in the two
@@ -1060,6 +1062,10 @@ pub enum ContractPackageReadResult {
     Refused(CheckedPackageRefusal),
     /// A caller limit stopped admission.
     Incomplete(CheckedPackageIncomplete),
+    /// The reader's operation catalog is unreadable, so no package can be
+    /// admitted: a skew between the reader and its catalog dependency, not a
+    /// verdict on the input.
+    CatalogUnavailable(super::CatalogReadError),
 }
 
 /// An admitted V1 package does not correspond to the supplied admitted V2 source.
@@ -1582,6 +1588,7 @@ impl ContractPackageWireV1 {
                 node_index,
                 unsupported_tags,
                 unsupported_source_kinds: Some(unsupported_source_kinds),
+                catalog: super::operation_catalog::CatalogRef(source.catalog),
             },
             bytes,
         ))
@@ -1684,7 +1691,30 @@ impl ContractPackageWireV1 {
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
     ) -> ContractPackageReadResult {
-        match Self::admit(bytes, limits, dependencies) {
+        Self::read_against(
+            super::operation_catalog::production_catalog(),
+            bytes,
+            limits,
+            dependencies,
+        )
+    }
+
+    /// [`Self::read`] against the given result of reading the operation
+    /// catalog: an unreadable catalog returns before any byte is judged.
+    pub(super) fn read_against(
+        catalog: &'static Result<
+            super::operation_catalog::OperationCatalog,
+            super::CatalogReadError,
+        >,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        dependencies: &ContractDependencies<'_>,
+    ) -> ContractPackageReadResult {
+        let catalog = match super::operation_catalog::available(catalog) {
+            Ok(catalog) => catalog,
+            Err(error) => return ContractPackageReadResult::CatalogUnavailable(error),
+        };
+        match Self::admit(catalog, bytes, limits, dependencies) {
             Ok(value) => ContractPackageReadResult::Admitted(Box::new(value)),
             Err(ValidationFailure::Refused(refusal)) => {
                 ContractPackageReadResult::Refused(*refusal)
@@ -1786,6 +1816,7 @@ impl ContractPackageWireV1 {
     }
 
     fn admit(
+        catalog: &'static super::operation_catalog::OperationCatalog,
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
@@ -1861,6 +1892,7 @@ impl ContractPackageWireV1 {
             node_index,
             unsupported_tags,
             unsupported_source_kinds: None,
+            catalog: super::operation_catalog::CatalogRef(catalog),
         })
     }
 }

@@ -505,7 +505,8 @@ type argument the mode `nearest-even`: it refuses
 constraint. Read a package against production catalog bytes whose carried-sum
 constraint kind is outside the vocabulary: the read returns `CatalogUnavailable`
 with the path `operations[i].constraints[1].kind` and the word, not a refusal,
-and nothing panics (AC-58).
+and nothing panics (AC-58). Read an FR-330 package the same way: the read returns
+`CatalogUnavailable` with the same path (FR-035-AC-36).
 
 Name `quire.op.control.case` under operator `unary`, and an identity the catalog
 lacks, and read each. Build two defective body-root nodes, one a

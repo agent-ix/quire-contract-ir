@@ -14,8 +14,7 @@ use super::model_members::{
     ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
 };
 use super::operation_catalog::{
-    operation_catalog, CatalogLeafSource, CatalogResult, FamilyClass, OperationCatalog,
-    OperationCatalogEntry,
+    CatalogLeafSource, CatalogResult, FamilyClass, OperationCatalog, OperationCatalogEntry,
 };
 use super::structural::{typed_union_type_body, typed_union_value_body, UnionMember};
 use super::temporal::member_is_well_formed;
@@ -250,6 +249,7 @@ struct OperationLeafWire {
 /// relative order is not pinned by any vector — do not read it as validated
 /// against the upstream description.
 pub(super) struct OperationNodeOrder<'a> {
+    pub(super) catalog: &'a OperationCatalog,
     pub(super) wire_index: &'a BTreeMap<&'a CheckedNodeId, usize>,
     pub(super) structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
 }
@@ -264,6 +264,7 @@ pub(super) fn validate_operations(
     dependencies: &SuppliedDependencies<'_>,
     meter: &mut WorkMeter,
 ) -> Result<Vec<(usize, CheckedOperationViews)>, ValidationFailure> {
+    let catalog = order.catalog;
     let flat_index = FlatWireIndex::new(order.wire_index);
     let graph = Graph {
         nodes,
@@ -317,7 +318,7 @@ pub(super) fn validate_operations(
                 owners,
                 references,
                 OperationResolution {
-                    catalog: operation_catalog(),
+                    catalog,
                     fast_index: Some(&flat_index),
                 },
                 meter,
@@ -3396,8 +3397,8 @@ fn check_relationship_member(
     {
         return ineligible(argument_at(0));
     }
-    let reaches =
-        operation_catalog().known(&operation.identity) == Some(super::KnownOperation::ModelReaches);
+    let reaches = super::KnownOperation::from_wire(&operation.identity)
+        == Some(super::KnownOperation::ModelReaches);
     if reaches {
         let actual_target = match operand_owner(1) {
             Ok(Some(owner)) => owner,
@@ -5240,10 +5241,11 @@ fn check_leaf_count(
 
 #[cfg(test)]
 mod tests {
+    use super::super::operation_catalog::operation_catalog;
     use super::super::CheckedSelectionRole;
     use super::{
-        is_type_shaped, operand_family, operation_catalog, operation_defect, Application,
-        ApplicationOperator, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2,
+        is_type_shaped, operand_family, operation_defect, Application, ApplicationOperator,
+        CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedPackageLockV2,
         CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSemanticNodeV2,
         DependencyReferences, ExpressionForm, Graph, LawRole, ModelOwners, StructuralTypes,
         SuppliedDependencies, TemporalForm, ValidationFailure, WorkMeter,
@@ -10696,6 +10698,7 @@ mod tests {
                 &nodes,
                 &kinds,
                 super::OperationNodeOrder {
+                    catalog: operation_catalog(),
                     wire_index: &index,
                     structural_keys: &structural_keys,
                 },

@@ -1193,6 +1193,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             )]),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
             admission_binding: Default::default(),
         }
         .retain_original_admission(),

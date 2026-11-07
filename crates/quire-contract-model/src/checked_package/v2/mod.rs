@@ -941,6 +941,8 @@ pub struct CheckedPackageV2 {
     direct_dependencies: Vec<std::sync::Arc<CheckedPackageV2>>,
     /// Exact identities reachable through the direct edges, shared with children.
     closure_index: ClosureIndex,
+    /// The operation catalog this package was admitted against.
+    catalog: &'static operation_catalog::OperationCatalog,
 }
 
 /// The original immutable buffers read by native identity validation. No
@@ -1339,15 +1341,16 @@ impl CheckedPackageV2 {
     /// [`Self::read`] against the given result of reading the operation
     /// catalog: an unreadable catalog returns before any node is checked.
     fn read_against(
-        catalog: &Result<operation_catalog::OperationCatalog, CatalogReadError>,
+        catalog: &'static Result<operation_catalog::OperationCatalog, CatalogReadError>,
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageV2ReadResult {
-        if let Some(error) = operation_catalog::catalog_unavailable(catalog) {
-            return CheckedPackageV2ReadResult::CatalogUnavailable(error);
-        }
-        match Self::admit_bytes(bytes, limits, evidence) {
+        let catalog = match operation_catalog::available(catalog) {
+            Ok(catalog) => catalog,
+            Err(error) => return CheckedPackageV2ReadResult::CatalogUnavailable(error),
+        };
+        match Self::admit_bytes(catalog, bytes, limits, evidence) {
             Ok(package) => CheckedPackageV2ReadResult::Admitted(Box::new(package)),
             Err(stop) => stop.into_result(
                 CheckedPackageV2ReadResult::Refused,
@@ -1357,6 +1360,7 @@ impl CheckedPackageV2 {
     }
 
     fn admit_bytes(
+        catalog: &'static operation_catalog::OperationCatalog,
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
@@ -1407,7 +1411,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(&wire, &slot_ids, bytes, limits, evidence)?;
+        } = validate(catalog, &wire, &slot_ids, bytes, limits, evidence)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1507,6 +1511,7 @@ impl CheckedPackageV2 {
             selected_documents,
             direct_dependencies,
             closure_index,
+            catalog,
         }
         .retain_original_admission())
     }
@@ -1738,6 +1743,7 @@ struct ValidatedGraph {
 }
 
 fn validate(
+    catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
     slot_ids: &[CheckedNodeId],
     bytes: &[u8],
@@ -1764,6 +1770,7 @@ fn validate(
         declarations,
         lowering_facts,
     } = validate_graph(
+        catalog,
         wire,
         limits,
         &mut meter,
@@ -3037,6 +3044,7 @@ pub(super) fn structural_key<'a>(
 }
 
 fn validate_graph(
+    catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
@@ -3329,6 +3337,7 @@ fn validate_graph(
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     schedulability::validate_graph(&graph.nodes, &kinds, &terms, &index, meter)?;
     validate_derived_type_shapes(
+        catalog,
         &graph.nodes,
         &kinds,
         &terms,
@@ -3417,6 +3426,7 @@ fn validate_graph(
         &index,
         &owners,
         TemporalContext {
+            catalog,
             lock: &wire.lock,
             diagnostics: &wire.diagnostics.entries,
             bindings: wire.temporal_bindings.as_deref(),
@@ -3440,6 +3450,7 @@ fn validate_graph(
                 &graph.nodes,
                 &kinds,
                 OperationNodeOrder {
+                    catalog,
                     wire_index: &index,
                     structural_keys,
                 },
@@ -3587,10 +3598,13 @@ fn validate_graph(
         &kinds,
         &terms,
         &index,
-        &wire.lock,
+        protocol_body::ProtocolPass {
+            catalog,
+            lock: &wire.lock,
+            bytes: limits.bytes,
+        },
         &owners,
         meter,
-        limits.bytes,
     )?;
     schedulability::validate_bodies(
         &graph.nodes,
@@ -3620,6 +3634,7 @@ fn validate_graph(
             &graph.nodes,
             &kinds,
             OperationNodeOrder {
+                catalog,
                 wire_index: &index,
                 structural_keys,
             },
@@ -4596,6 +4611,7 @@ mod tests {
                     selected_documents: std::sync::Arc::new(Vec::new()),
                     direct_dependencies: Vec::new(),
                     closure_index: Default::default(),
+                    catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
                     admission_binding: Default::default(),
                 }
                 .retain_original_admission();

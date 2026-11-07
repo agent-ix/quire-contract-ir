@@ -45,3 +45,4 @@ CONDITIONAL: AC-495 does not record the owner's refusal order, and its no-panic 
 | --- | --- | --- |
 | FND-001 | fixed | AC-495 now reads "with the pinned mode agreeing ... A pinned rounding mode that disagrees with the types refuses invalid_package/operation-mode-type-mismatch first", and TC-048 adds the nearest-even case. |
 | FND-002 | fixed | The repeated AC-65 sentence is gone. AC-495 now says "a package read never panics on the production catalog bytes (FR-038-AC-58)"; the cause it should report is FND-003. |
+| FND-003 | fixed | FR-038 L968-973 and AC-58 now say `CheckedPackageV2::read` returns `CatalogUnavailable` with path and message before any node is checked, never a panic and never a package refusal. TC-048 is aligned. The FR-330 contract-package reader (FR-035) is not covered; that is a code finding (SR-20261107060894601 FND-005) whose spec line belongs in FR-035. |
