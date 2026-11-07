@@ -4,8 +4,9 @@
 //! Public-reader controls for declared-unit, aggregate and literal families.
 
 use crate::support::checked_package::{
-    add_family_reference_target, canonical, evidence_for, index_fixture_node_ids, node_id, nominal_fixture_members,
-    nominal_package, rebuild_source_map, refresh_identity, settle, v2_all_families,
+    add_family_reference_target, canonical, evidence_for, index_fixture_node_ids, node_id,
+    nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1628,14 +1629,8 @@ pub(crate) fn carried_sum_control() -> (Value, usize) {
         node_id(&text),
         json!("exact"),
     ]);
-    let set = structural(vec![
-        json!("composite_type"),
-        json!("set"),
-        carried.clone(),
-    ]);
-    let literal = |ty: &str, kind: &str, value: &str| {
-        json!({"term": "literal", "type": node_id(ty), "value_kind": kind, "value": value})
-    };
+    let set = structural(vec![json!("composite_type"), json!("set"), carried.clone()]);
+    let literal = |ty: &str, kind: &str, value: &str| json!({"term": "literal", "type": node_id(ty), "value_kind": kind, "value": value});
     let node = |id: &Value,
                 tag: &str,
                 form: &str,
@@ -1715,16 +1710,16 @@ pub(crate) fn carried_sum_control() -> (Value, usize) {
         vec![],
         "expression",
         json!({"term": "application", "operator": "collection",
-            "operation": operation(
-                "quire.op.collection.sum.carried_quantity",
-                json!({"kind": "rounding", "value": "exact"}),
-                json!({"kind": "type_argument", "declaration": carried}),
-            ),
-            "result_type": carried,
-            "arguments": [
-                {"term": "reference", "target": set},
-                {"term": "binding", "name": "item", "value": {"term": "reference", "target": item}},
-            ]}),
+        "operation": operation(
+            "quire.op.collection.sum.carried_quantity",
+            json!({"kind": "rounding", "value": "exact"}),
+            json!({"kind": "type_argument", "declaration": carried}),
+        ),
+        "result_type": carried,
+        "arguments": [
+            {"term": "reference", "target": set},
+            {"term": "binding", "name": "item", "value": {"term": "reference", "target": item}},
+        ]}),
     );
     package["semantic_graph"]["nodes"]
         .as_array_mut()

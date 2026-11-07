@@ -1373,8 +1373,12 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
     let CheckedPackageV2ReadResult::Admitted(package) = admitted else {
         panic!("existing compound-unit fixture with nested maps must strictly admit: {admitted:?}");
     };
-    let outer = package.resolved_graph().nodes[outer_position].node_id.clone();
-    let inner = package.resolved_graph().nodes[inner_position].node_id.clone();
+    let outer = package.resolved_graph().nodes[outer_position]
+        .node_id
+        .clone();
+    let inner = package.resolved_graph().nodes[inner_position]
+        .node_id
+        .clone();
     let compound = package
         .resolved_graph()
         .nodes

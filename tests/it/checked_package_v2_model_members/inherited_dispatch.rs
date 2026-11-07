@@ -400,7 +400,10 @@ fn converted_d10_fixture_resolves_to_the_admitted_index_form_graph() {
     resolve_operands(&mut resolved);
     let mut rewired = resolved.clone();
     wire_operands(&mut rewired);
-    assert_eq!(rewired, wire, "the slot form is the deterministic conversion");
+    assert_eq!(
+        rewired, wire,
+        "the slot form is the deterministic conversion"
+    );
     let document = d10_model_document();
     let evidence = evidence_with_document(&wire, PACKAGE, &document);
     let bytes = include_bytes!("../../fixtures/inherited-dispatch/d10-package.json");
@@ -412,9 +415,7 @@ fn converted_d10_fixture_resolves_to_the_admitted_index_form_graph() {
         .as_array()
         .expect("nodes")
         .iter()
-        .map(|node| {
-            serde_json::from_value(node["node_id"].clone()).expect("index-form node id")
-        })
+        .map(|node| serde_json::from_value(node["node_id"].clone()).expect("index-form node id"))
         .collect();
     let actual: Vec<_> = admitted
         .resolved_graph()
