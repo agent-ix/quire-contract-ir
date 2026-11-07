@@ -31,6 +31,9 @@ fn read(package: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2R
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             CheckedPackageDispatchResult::Incomplete(incomplete.clone())
         }
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            CheckedPackageDispatchResult::CatalogUnavailable(error.clone())
+        }
     };
     assert_eq!(dispatched, expected);
     direct

@@ -744,6 +744,9 @@ pub enum SourceIrV2InventoryError {
     /// The owner's emitted rows were structurally inconsistent or could not be retained.
     #[error(transparent)]
     Outcome(#[from] SourceInventoryOutcomeError),
+    /// The IR V2 reader's operation catalog is unreadable; no inventory was issued.
+    #[error("the IR V2 reader's operation catalog is unreadable: {0}")]
+    CatalogUnavailable(crate::CatalogReadError),
 }
 
 /// Enumerate the complete selected IR V2 graph from the owner's reader result.
@@ -763,6 +766,9 @@ pub fn source_inventory_from_ir_v2(
         }
         CheckedPackageV2ReadResult::Refused(refusal) => {
             return Err(SourceIrV2InventoryError::Refused(Box::new(refusal)))
+        }
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            return Err(SourceIrV2InventoryError::CatalogUnavailable(error))
         }
     };
     SourceInventoryOutcome::from_enumerator(IrV2InventoryEnumerator {

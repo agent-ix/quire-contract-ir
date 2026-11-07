@@ -221,6 +221,7 @@ pub(super) struct OperationCatalog {
 }
 
 impl OperationCatalog {
+    #[cfg(test)]
     pub(super) fn known(&self, identity: &str) -> Option<super::KnownOperation> {
         self.entry(identity).and_then(|entry| entry.known)
     }
@@ -266,24 +267,62 @@ impl OperationCatalog {
     }
 }
 
-static CATALOG: OnceLock<OperationCatalog> = OnceLock::new();
+static CATALOG: OnceLock<Result<OperationCatalog, CatalogReadError>> = OnceLock::new();
 
-/// The parsed, cached production catalog, read once through [`read_catalog`].
-/// Panics on first use if the build's own catalog bytes are unreadable: that
-/// is a build-time defect, never a caller input, so this one read asserts
-/// rather than threading a package refusal for it (FR-038-AC-58).
-pub(super) fn operation_catalog() -> &'static OperationCatalog {
-    CATALOG.get_or_init(|| {
-        read_catalog(CATALOG_BYTES).unwrap_or_else(|error| {
-            panic!("the checked-operation catalog this build depends on is unreadable: {error}")
-        })
-    })
+/// The result of reading the production catalog bytes, read once.
+pub(super) fn production_catalog() -> &'static Result<OperationCatalog, CatalogReadError> {
+    CATALOG.get_or_init(|| read_catalog(CATALOG_BYTES))
 }
 
-/// A catalog read failure: the member the bytes failed at and why. It names
-/// the unreadable entry, for example `law_roles.integer_division[0]`.
-#[derive(Debug)]
-pub(super) struct CatalogReadError {
+/// The catalog a read result stands for, or why it is unavailable. Every
+/// reader entry point obtains its catalog here and passes the reference down,
+/// so no check can run without a readable catalog.
+pub(super) fn available(
+    read: &'static Result<OperationCatalog, CatalogReadError>,
+) -> Result<&'static OperationCatalog, CatalogReadError> {
+    read.as_ref().map_err(Clone::clone)
+}
+
+/// The catalog an admitted package was read against, kept so the package's
+/// own queries use it. Packages compare equal by content, not by catalog.
+#[derive(Clone, Copy)]
+pub(super) struct CatalogRef(pub(super) &'static OperationCatalog);
+
+impl std::ops::Deref for CatalogRef {
+    type Target = OperationCatalog;
+    fn deref(&self) -> &OperationCatalog {
+        self.0
+    }
+}
+
+impl std::fmt::Debug for CatalogRef {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("CatalogRef")
+    }
+}
+
+impl PartialEq for CatalogRef {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for CatalogRef {}
+
+/// The production catalog, for tests that read an operation's entry.
+#[cfg(test)]
+pub(super) fn operation_catalog() -> &'static OperationCatalog {
+    production_catalog()
+        .as_ref()
+        .expect("the production catalog reads")
+}
+
+/// The production operation catalog could not be read: the member the bytes
+/// failed at and why, for example `operations[3].constraints[1].kind`. It is
+/// a skew between this reader and the catalog it depends on, never a defect of
+/// a package, so a package read reports it instead of a refusal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CatalogReadError {
     path: String,
     message: String,
 }
@@ -294,11 +333,17 @@ impl std::fmt::Display for CatalogReadError {
     }
 }
 
+impl std::error::Error for CatalogReadError {}
+
 impl CatalogReadError {
     /// The path of the entry the read failed at.
-    #[cfg(test)]
-    pub(super) fn path(&self) -> &str {
+    pub fn path(&self) -> &str {
         &self.path
+    }
+
+    /// Why the entry could not be read.
+    pub fn message(&self) -> &str {
+        &self.message
     }
 }
 
@@ -484,6 +529,138 @@ mod tests {
             );
             assert!(error.to_string().contains(word), "{error}");
         }
+    }
+
+    /// FR-038-AC-495: the production catalog declares `carried_member`, the
+    /// word decodes to its enum member and back, and the carried-quantity sum
+    /// reads with that constraint, which names no operand and no family.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn tc_048_the_carried_member_constraint_reads_from_the_production_catalog() {
+        assert_eq!(
+            OperationConstraintKind::from_wire("carried_member"),
+            Some(OperationConstraintKind::CarriedMember)
+        );
+        assert_eq!(
+            OperationConstraintKind::CarriedMember.as_wire(),
+            "carried_member"
+        );
+        let catalog = read_catalog(CATALOG_BYTES).expect("the production catalog reads");
+        let entry = catalog
+            .entry("quire.op.collection.sum.carried_quantity")
+            .expect("the carried-quantity sum is catalogued");
+        let carried: Vec<_> = entry
+            .constraints
+            .iter()
+            .filter(|constraint| constraint.kind == OperationConstraintKind::CarriedMember)
+            .collect();
+        assert_eq!(carried.len(), 1);
+        assert!(carried[0].operands.is_empty());
+        assert_eq!(carried[0].family, None);
+    }
+
+    /// FR-038-AC-495: a constraint kind outside the vocabulary on the
+    /// carried-quantity sum returns the typed read error naming its entry and
+    /// word, not a panic.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn tc_048_an_unknown_constraint_kind_on_the_carried_sum_is_a_typed_read_error() {
+        let mut edited: serde_json::Value =
+            serde_json::from_str(CATALOG_BYTES).expect("the production catalog is JSON");
+        let index = edited["operations"]
+            .as_array()
+            .expect("operations")
+            .iter()
+            .position(|entry| entry["identity"] == "quire.op.collection.sum.carried_quantity")
+            .expect("the carried-quantity sum is catalogued");
+        edited["operations"][index]["constraints"][1]["kind"] = serde_json::json!("not_carried");
+        let error = match read_catalog(&edited.to_string()) {
+            Ok(_) => panic!("an unknown constraint kind must not read"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.path(),
+            format!("operations[{index}].constraints[1].kind")
+        );
+        assert!(error.to_string().contains("not_carried"), "{error}");
+    }
+
+    /// FR-038-AC-58, FR-038-AC-495: unreadable production catalog bytes make a
+    /// package read return `CatalogUnavailable` with the offending path and
+    /// message, before any node is checked, and never a package refusal. The
+    /// injected bytes are the production catalog with the carried sum's
+    /// constraint kind replaced, and take the path the production read takes.
+    #[trace("TC-048", "FR-038-AC-58", "FR-038-AC-495")]
+    #[test]
+    fn tc_048_unreadable_production_catalog_bytes_make_the_package_read_catalog_unavailable() {
+        use super::super::CheckedPackageV2ReadResult as Result_;
+        use super::super::{CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2};
+        let mut edited: serde_json::Value =
+            serde_json::from_str(CATALOG_BYTES).expect("the production catalog is JSON");
+        let index = edited["operations"]
+            .as_array()
+            .expect("operations")
+            .iter()
+            .position(|entry| entry["identity"] == "quire.op.collection.sum.carried_quantity")
+            .expect("the carried-quantity sum is catalogued");
+        edited["operations"][index]["constraints"][1]["kind"] = serde_json::json!("not_carried");
+        let unreadable: &'static Result<OperationCatalog, CatalogReadError> =
+            Box::leak(Box::new(read_catalog(&edited.to_string())));
+        let expected = unreadable
+            .as_ref()
+            .err()
+            .cloned()
+            .expect("unreadable bytes");
+        let result = CheckedPackageV2::read_against(
+            unreadable,
+            b"not even a package",
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::default(),
+        );
+        let Result_::CatalogUnavailable(error) = result else {
+            panic!("an unreadable catalog must be CatalogUnavailable, got {result:?}");
+        };
+        assert_eq!(error, expected);
+        assert_eq!(
+            error.path(),
+            format!("operations[{index}].constraints[1].kind")
+        );
+        assert!(error.message().contains("not_carried"), "{error}");
+    }
+
+    /// FR-035-AC-36, FR-038-AC-495: the FR-330 contract-package read gates on
+    /// the same catalog result, returning `CatalogUnavailable` with the
+    /// offending path before it judges any byte, never a refusal.
+    #[trace("TC-048", "FR-035-AC-36")]
+    #[test]
+    fn tc_048_unreadable_production_catalog_bytes_make_the_contract_package_read_catalog_unavailable(
+    ) {
+        use super::super::contract_package::{ContractPackageReadResult, ContractPackageWireV1};
+        use super::super::{CheckedPackageReadLimits, ContractDependencies};
+        let mut edited: serde_json::Value =
+            serde_json::from_str(CATALOG_BYTES).expect("the production catalog is JSON");
+        let index = edited["operations"]
+            .as_array()
+            .expect("operations")
+            .iter()
+            .position(|entry| entry["identity"] == "quire.op.collection.sum.carried_quantity")
+            .expect("the carried-quantity sum is catalogued");
+        edited["operations"][index]["constraints"][1]["kind"] = serde_json::json!("not_carried");
+        let unreadable: &'static Result<OperationCatalog, CatalogReadError> =
+            Box::leak(Box::new(read_catalog(&edited.to_string())));
+        let result = ContractPackageWireV1::read_against(
+            unreadable,
+            b"not even a package",
+            CheckedPackageReadLimits::bounded(),
+            &ContractDependencies::default(),
+        );
+        let ContractPackageReadResult::CatalogUnavailable(error) = result else {
+            panic!("an unreadable catalog must be CatalogUnavailable, got {result:?}");
+        };
+        assert_eq!(
+            error.path(),
+            format!("operations[{index}].constraints[1].kind")
+        );
     }
 
     /// FR-038-AC-58: the catalog read over supplied bytes whose `law_roles`

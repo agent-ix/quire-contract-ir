@@ -476,6 +476,7 @@ closed_vocabulary! {
         MemberFamily => "member_family",
         BoundFamily => "bound_family",
         BoundIsMember => "bound_is_member",
+        CarriedMember => "carried_member",
         ExactConversion => "exact_conversion",
         RangeNarrowing => "range_narrowing",
         RationalNarrowing => "rational_narrowing",

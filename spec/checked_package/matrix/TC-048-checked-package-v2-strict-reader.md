@@ -460,7 +460,7 @@ The catalogue's `result: member` entries with `member: type_argument` are
 
 Read a package whose lock has exactly `sources`, `edition`, `profile_selections`, `definition_selections`, `required_features` and `dependency_selections`, with every direct dependency selection exactly `{identity}`. Supply each dependency under a matching nonempty package `name` and require admission. Extra `package_id`, `version`, `digest`, `identity_preimage` or model-selection members refuse `unknown_member` at the first extra member; missing or empty required names refuse at the closed-wire stage. A missing package refuses `missing_import`/`missing-selection`, and unequal complete packages under one selected name through a diamond refuse `invalid_package`/`conflicting-definition`.
 
-## Catalog words (FR-038-AC-65, FR-038-AC-67 through FR-038-AC-69)
+## Catalog words (FR-038-AC-65, FR-038-AC-67 through FR-038-AC-69, FR-038-AC-495)
 
 Read the production catalog and convert each of `case`, `temporal_formula`,
 `temporal_fairness`, `temporal_interval`, `fairness` and `union_arms` from its
@@ -469,6 +469,22 @@ kind and constraint kind the catalog declares with the enum's member set. Read
 catalog bytes that name an operator class, a member kind and a constraint kind
 outside the vocabulary, one at a time. Put an operator outside the closed
 operator vocabulary on a package application and read the package.
+
+Read the production catalog and check that `carried_member` converts between its
+wire string and enum member and that `quire.op.collection.sum.carried_quantity`
+carries it with no operands and no family (AC-495). Replace that entry's
+constraint kind with a word outside the vocabulary and read the bytes: the read
+error names the entry and the word. Apply the entry with a `type_argument` member
+that is a `carried_quantity` node, then with a `unit`, `compound_unit` and
+`bounded_quantity` scalar node: the first is not refused by `carried_member`, each other
+refuses `ill_typed`/`operator-ineligible` at the application. Give a `unit`
+type argument the mode `nearest-even`: it refuses
+`invalid_package`/`operation-mode-type-mismatch`, the mode before the
+constraint. Read a package against production catalog bytes whose carried-sum
+constraint kind is outside the vocabulary: the read returns `CatalogUnavailable`
+with the path `operations[i].constraints[1].kind` and the word, not a refusal,
+and nothing panics (AC-58). Read an FR-330 package the same way: the read returns
+`CatalogUnavailable` with the same path (FR-035-AC-36).
 
 Name `quire.op.control.case` under operator `unary`, and an identity the catalog
 lacks, and read each. Build two defective body-root nodes, one a
