@@ -1601,6 +1601,91 @@ pub(crate) fn quantity_sum_control() -> (Value, usize) {
     (package, at)
 }
 
+/// A package applying `quire.op.collection.sum.carried_quantity` to a
+/// `Quantity<unit, Int[-2, 2]>` carried node (QSpec `CQ` carrier shapes), with
+/// the carried node as `type_argument` and `result_type`.
+pub(crate) fn carried_quantity_sum_control() -> (Value, usize) {
+    let (mut package, unit, _, integer, left, _) = fixture();
+    let text = "operand/scalar/text".to_owned();
+    let name = package["name"].clone();
+    let derived = |path: Vec<Value>| json!({"package": name, "path": path, "ordinal": 0});
+    let carrier = derived(vec![
+        json!("bounded_domain"),
+        json!("integer_range"),
+        json!("min"),
+        node_id(&integer),
+        json!("-2"),
+        json!("max"),
+        json!("2"),
+    ]);
+    let bound = |name: &str, value: &str| {
+        json!({"term": "binding", "name": name, "value": {"term": "literal",
+            "type": node_id(&integer), "value": value, "value_kind": "integer"}})
+    };
+    let carried = derived(vec![
+        json!("scalar_type"),
+        json!("carried_quantity"),
+        node_id(&unit),
+        carrier.clone(),
+        json!("rounding"),
+        node_id(&text),
+        json!("exact"),
+    ]);
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    nodes.push(json!({
+        "node_id": carrier, "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "bounded_domain", "semantic_form": "integer_range",
+        "semantic_type": node_id(&integer), "dependencies": [],
+        "occurrences": [{"role": "expression", "ordinal": 0}],
+        "body": {"term": "aggregate", "members": [bound("min", "-2"), bound("max", "2")]},
+    }));
+    nodes.push(json!({
+        "node_id": carried, "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "scalar_type", "semantic_form": "carried_quantity",
+        "semantic_type": carried, "dependencies": [node_id(&unit), carrier],
+        "occurrences": [{"role": "expression", "ordinal": 0}],
+        "body": {"term": "aggregate", "members": [
+            {"term": "binding", "name": "unit", "value": reference(&unit)},
+            {"term": "binding", "name": "carrier", "value": {"term": "reference", "target": carrier}},
+            {"term": "binding", "name": "rounding", "value": {"term": "literal",
+                "type": node_id(&text), "value": "exact", "value_kind": "text"}},
+        ]},
+    }));
+    let set_body = json!({"term": "aggregate", "members": [reference(&unit)]});
+    let set = "operand/type/set".to_owned();
+    add_node(&mut package, &set, "composite_type", "set", &set, set_body);
+    let body = json!({"term": "application", "operator": "collection",
+    "operation": operation(
+        "quire.op.collection.sum.carried_quantity",
+        json!({"kind": "rounding", "value": "exact"}),
+        json!({"kind": "type_argument", "declaration": carried}),
+    ),
+    "result_type": carried,
+    "arguments": [
+        reference(&set),
+        {"term": "binding", "name": "item", "value": reference(&left)},
+    ]});
+    let position = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(json!({
+            "node_id": node_id(&format!("operand/application/collection/{position}")),
+            "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "expression", "semantic_form": "collection",
+            "semantic_type": carried, "dependencies": [],
+            "occurrences": [{"role": "expression", "ordinal": 0}],
+            "body": body,
+        }));
+    settle(&mut package);
+    (package, position)
+}
+
 #[trace("TC-048", "FR-038-AC-213")]
 #[test]
 fn quantity_sum_uses_its_result_type_exact_rounding_pin() {

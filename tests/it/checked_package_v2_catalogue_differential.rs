@@ -441,6 +441,9 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
     if identity == "quire.op.collection.sum.quantity" {
         return Some(crate::checked_package_v2_operand_families::quantity_sum_control().0);
     }
+    if identity == "quire.op.collection.sum.carried_quantity" {
+        return Some(crate::checked_package_v2_operand_families::carried_quantity_sum_control().0);
+    }
     if matches!(
         identity,
         "quire.op.ieee.to_float32" | "quire.op.ieee.to_float64" | "quire.op.ieee.to_rational"
