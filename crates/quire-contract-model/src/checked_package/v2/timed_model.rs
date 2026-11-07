@@ -2823,7 +2823,7 @@ mod tests {
         let mut meter = WorkMeter::new(u64::MAX);
         let mut budget = Budget::new(&mut meter, 0, 1 << 20);
         let model = super::super::model_members::read_semantic_ir(
-            &document,
+            super::super::model_members::view_of(&document),
             "example",
             &mut budget,
             &std::sync::Arc::new(BTreeMap::new()),

@@ -1119,6 +1119,16 @@ impl<'b> WorkMeter<'b> {
         }
     }
 
+    /// The caller's budget when this meter charges one (the strict read), so
+    /// the read's heap requests are charged to it as well; `None` for a meter
+    /// with a work limit of its own.
+    pub(super) fn budget_mut(&mut self) -> Option<&mut NativeJoinBudget> {
+        match &mut self.source {
+            WorkSource::Own { .. } => None,
+            WorkSource::Budget(budget) => Some(&mut **budget),
+        }
+    }
+
     /// A meter that charges the caller's budget work counter.
     pub(super) fn over(budget: &'b mut NativeJoinBudget) -> Self {
         Self {
@@ -2136,9 +2146,11 @@ fn validate_domain_packages(
     let at = |root: usize, member: &str| row(root).key(member);
     roots
         .iter()
-        .map(|(identity, root)| {
+        .enumerate()
+        .map(|(position, (identity, root))| {
             let root = *root;
-            let mut budget = Budget::new(meter, root, bytes);
+            let mut budget =
+                Budget::new(meter, root, bytes).at(PackageReadStage::ModelDocument, position);
             admit_selection(identity, checked_package, evidence, &mut budget, unit_refs).map_err(
                 |failure| {
                     match failure {

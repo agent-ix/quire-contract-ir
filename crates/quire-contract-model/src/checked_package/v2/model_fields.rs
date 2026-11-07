@@ -21,7 +21,7 @@
 use super::model_members::{
     check_declaration_node, member_name, units, Budget, CollectionKind, DeclarationForm,
     DomainModel, FieldBearingTypeDecl, FieldDecl, MemberType, ModelOperationClass, NativeTypeRef,
-    Owner, RelationshipDecl, SelectedTypeRef, SelectedVariantCase,
+    Owner, RelationshipDecl, SelectedTypeRef, SelectedVariantCase, SortedMap,
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
@@ -549,7 +549,7 @@ pub(super) struct RetainedModels {
 #[derive(Clone, Copy, Debug)]
 pub struct CheckedModelVariantBody<'a> {
     document: &'a str,
-    cases: &'a BTreeMap<Box<str>, SelectedVariantCase>,
+    cases: &'a SortedMap<Box<str>, SelectedVariantCase>,
 }
 
 impl<'a> CheckedModelVariantBody<'a> {

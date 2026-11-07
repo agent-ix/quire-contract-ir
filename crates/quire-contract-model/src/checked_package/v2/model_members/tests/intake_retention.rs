@@ -515,7 +515,7 @@ fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
         let mut meter = WorkMeter::new(expected);
         let retained = SelectionRefusal::located(
             ModelRefusal::malformed(),
-            &node,
+            Some(view_of(&node)),
             &mut Budget::new(&mut meter, 3, BYTES),
         )
         .expect("exact independent budget");
@@ -524,7 +524,7 @@ fn tc_048_intake_metadata_work_and_original_first_refusal_are_exact() {
         let mut tight = WorkMeter::new(expected - 1);
         let Err(failure) = SelectionRefusal::located(
             ModelRefusal::malformed(),
-            &node,
+            Some(view_of(&node)),
             &mut Budget::new(&mut tight, 3, BYTES),
         ) else {
             panic!("unpayable original retention charge");

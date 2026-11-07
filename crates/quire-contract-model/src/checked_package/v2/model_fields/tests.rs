@@ -3,8 +3,8 @@ use super::super::model_members::tests::{
     read, BYTES, ORDERS, RECORDED,
 };
 use super::super::model_members::{
-    declaration_id, probe, read_semantic_ir, Budget, DeclarationForm, MemberKind, ModelFailure,
-    ModelOwners,
+    declaration_id, probe, read_semantic_ir, view_of, Budget, DeclarationForm, MemberKind,
+    ModelFailure, ModelOwners,
 };
 use super::super::CheckedSemanticNodeV2;
 use super::*;
@@ -29,11 +29,12 @@ fn population_catalog_defensively_refuses_a_retained_unresolved_member() {
     let model = &mut std::sync::Arc::make_mut(&mut fixture.package.models).models[0];
     model
         .populations
-        .insert("ix://acme/orders/population/Unresolved".into());
-    model.population_members.insert(
-        "ix://acme/orders/population/Unresolved".into(),
-        std::collections::BTreeSet::from(["ix://acme/orders/Missing".into()]),
-    );
+        .insert_unmetered("ix://acme/orders/population/Unresolved".into());
+    let mut unresolved = crate::checked_package::v2::model_members::SortedSet::new();
+    unresolved.insert_unmetered("ix://acme/orders/Missing".into());
+    model
+        .population_members
+        .insert_unmetered("ix://acme/orders/population/Unresolved".into(), unresolved);
     let result =
         fixture
             .package
@@ -414,7 +415,7 @@ fn exact_field_rows_require_selected_record_and_original_field() {
 fn unbuilt(document: &Value) -> DomainModel {
     let mut meter = WorkMeter::new(u64::MAX);
     match read_semantic_ir(
-        document,
+        view_of(document),
         "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
         &Arc::new(BTreeMap::new()),

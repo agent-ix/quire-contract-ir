@@ -142,7 +142,7 @@ fn record_wrong_kind_type_refs_retain_field_identity_and_type_ref_path() {
             ]);
         let mut meter = WorkMeter::new(u64::MAX);
         let Err(SelectionFailure::Refused(refusal)) = read_semantic_ir(
-            &selected,
+            view_of(&selected),
             "checked",
             &mut Budget::new(&mut meter, 0, BYTES),
             &Arc::new(BTreeMap::new()),
@@ -157,11 +157,11 @@ fn record_wrong_kind_type_refs_retain_field_identity_and_type_ref_path() {
         );
         assert_eq!(
             refusal.declaration_path,
-            Some(vec![
+            Some(SegPath::from_slice(&[
                 Segment::Name("fields"),
                 Segment::Index(0),
                 Segment::Name("typeRef")
-            ]),
+            ])),
             "{kind}"
         );
     }
@@ -253,7 +253,10 @@ fn tc_056_record_owner_index_uses_selected_row_work_budget() {
     assert!(index(2).is_ok(), "the two owner keys use exactly two units");
     match index(1) {
         Err(ValidationFailure::Incomplete(record)) => {
-            assert_eq!(record.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(
+                record.limit_kind,
+                crate::checked_package::shared::CheckedPackageLimit::Work
+            );
             assert_eq!(
                 record.path.as_ref().map(|path| path.as_str()),
                 Some("/semantic_graph/nodes/0/owner")
@@ -276,7 +279,7 @@ pub(in crate::checked_package::v2) fn read_with_unit_refs(
 ) -> Result<DomainModel, ModelRefusal> {
     let mut meter = WorkMeter::new(u64::MAX);
     match read_semantic_ir(
-        document,
+        view_of(document),
         "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
         unit_refs,
@@ -615,7 +618,7 @@ fn operation_parameter_names_are_validated_at_selection() {
     );
     let mut meter = WorkMeter::new(u64::MAX);
     let Err(SelectionFailure::Refused(refusal)) = read_semantic_ir(
-        &repeated,
+        view_of(&repeated),
         "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
         &Arc::new(BTreeMap::new()),
@@ -628,12 +631,12 @@ fn operation_parameter_names_are_validated_at_selection() {
     );
     assert_eq!(
         refusal.declaration_path,
-        Some(vec![
+        Some(SegPath::from_slice(&[
             Segment::Name("operations"),
             Segment::Index(0),
             Segment::Name("params"),
             Segment::Index(1),
-        ])
+        ]))
     );
     assert_eq!(refusal.declaration_origin, None);
     let mut object = object_type(WIDGET, &[], vec![]);
@@ -658,7 +661,7 @@ fn operation_parameter_name_refusal_retains_the_operation_origin() {
     }]);
     let mut meter = WorkMeter::new(u64::MAX);
     let selection = read_semantic_ir(
-        &document(vec![object]),
+        view_of(&document(vec![object])),
         "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
         &Arc::new(BTreeMap::new()),
@@ -669,13 +672,13 @@ fn operation_parameter_name_refusal_retains_the_operation_origin() {
     assert_eq!(refusal.refusal, ModelRefusal::malformed());
     assert_eq!(
         refusal.declaration_path,
-        Some(vec![
+        Some(SegPath::from_slice(&[
             Segment::Name("operations"),
             Segment::Index(0),
             Segment::Name("params"),
             Segment::Index(0),
             Segment::Name("name"),
-        ])
+        ]))
     );
     assert_eq!(
         refusal.declaration_identity.as_deref(),
@@ -987,7 +990,7 @@ fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
     let read_at = |work| {
         let mut meter = WorkMeter::new(work);
         read_semantic_ir(
-            &document,
+            view_of(&document),
             "checked",
             &mut Budget::new(&mut meter, 0, BYTES),
             &Arc::new(BTreeMap::new()),
@@ -1406,7 +1409,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let document = document(types());
     let mut unlimited = WorkMeter::new(u64::MAX);
     read_semantic_ir(
-        &document,
+        view_of(&document),
         "checked",
         &mut Budget::new(&mut unlimited, 2, BYTES),
         &Arc::new(BTreeMap::new()),
@@ -1416,7 +1419,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     assert!(used > 0, "a read is charged");
     let mut exact = WorkMeter::new(used);
     read_semantic_ir(
-        &document,
+        view_of(&document),
         "checked",
         &mut Budget::new(&mut exact, 2, BYTES),
         &Arc::new(BTreeMap::new()),
@@ -1424,7 +1427,7 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     .expect("exact work admits");
     let mut tight = WorkMeter::new(used - 1);
     let Err(SelectionFailure::Limit(failure)) = read_semantic_ir(
-        &document,
+        view_of(&document),
         "checked",
         &mut Budget::new(&mut tight, 2, BYTES),
         &Arc::new(BTreeMap::new()),
@@ -1657,6 +1660,7 @@ fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {
     assert_eq!(actual, RECORDED);
 }
 
+mod budgeted_charge;
 mod intake_retention;
 
 /// Runtime helper ownership is charged before scalar, unit, alias and wrapper copies.

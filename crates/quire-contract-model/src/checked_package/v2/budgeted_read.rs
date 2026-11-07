@@ -337,7 +337,7 @@ fn budget_denial(
 
 /// The shared reader's and writer's reservation: charges read storage on the
 /// caller's budget at its active locus.
-struct ReadStorageReservation<'b>(&'b mut NativeJoinBudget);
+pub(super) struct ReadStorageReservation<'b>(pub(super) &'b mut NativeJoinBudget);
 
 impl Reservation for ReadStorageReservation<'_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), ReservationDenied> {
