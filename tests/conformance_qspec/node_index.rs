@@ -1084,6 +1084,9 @@ fn permutation_rebuilds_the_same_structural_keys_and_stale_operands_do_not() {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             panic!("stale index is not a resource limit: {incomplete:?}")
         }
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            panic!("operation catalog unavailable: {error}")
+        }
     }
 }
 
