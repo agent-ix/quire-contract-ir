@@ -7027,6 +7027,7 @@ fn source_collection_fixture() -> (
             let row = SelectedSourceCollectionRow {
                 structural_node: structural_node.clone(),
                 base_node,
+                key_node: None,
                 element_node: element_node.clone(),
                 value_type,
             };
