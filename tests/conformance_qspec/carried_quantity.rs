@@ -1510,7 +1510,7 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
         let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
             panic!("{base}: {result:?}");
         };
-        let body = &admitted.graph().nodes[at].body;
+        let body = &admitted.resolved_graph().nodes[at].body;
         assert_eq!(body, &expected);
         let CheckedTerm::Application {
             result_type,
@@ -1522,7 +1522,7 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
             panic!("sum application");
         };
         let carried = admitted
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| &node.node_id == result_type)
@@ -1547,7 +1547,7 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
         let CheckedTerm::Reference { target: unit } = value.as_ref() else {
             panic!("unit reference");
         };
-        let metre = &admitted.graph().nodes[unit_position];
+        let metre = &admitted.resolved_graph().nodes[unit_position];
         assert_eq!(unit, &metre.node_id);
         assert_eq!(
             admitted.node_kind(unit),
@@ -1572,7 +1572,7 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
             panic!("carrier reference");
         };
         let carrier = admitted
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| &node.node_id == target)
@@ -1604,7 +1604,7 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
             panic!("binder reference");
         };
         let binder = admitted
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| &node.node_id == target)
