@@ -1474,6 +1474,9 @@ fn operation_defect(
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
         return Ok(Some(failure));
     }
+    if let Some(failure) = check_carried_member(application, entry, &operation, graph) {
+        return Ok(Some(failure));
+    }
     let leaf_defect = check_leaf_count(
         application,
         entry,
@@ -2091,6 +2094,38 @@ pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
     }
 }
 
+/// QSpec FR-322 `carried_member`: the `type_argument` member must resolve to a
+/// `scalar_type`/`carried_quantity` node. The constraint names no operand, so
+/// it is checked against the member alone, and only once the pinned mode has
+/// agreed (a mode mismatch refuses first).
+fn check_carried_member(
+    application: Application<'_>,
+    entry: &OperationCatalogEntry,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+) -> Option<ValidationFailure> {
+    if !entry
+        .constraints
+        .iter()
+        .any(|constraint| constraint.kind == OperationConstraintKind::CarriedMember)
+    {
+        return None;
+    }
+    let carried = member_declaration(operation)
+        .and_then(|member| graph.index.get(&member).copied())
+        .and_then(|position| graph.kinds.get(position))
+        == Some(&CheckedNodeKind::ScalarType(
+            ScalarTypeForm::CarriedQuantity,
+        ));
+    (!carried).then(|| {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    })
+}
+
 #[ix_trace_rs::string_edge]
 fn check_operands(
     application: Application<'_>,
@@ -2374,6 +2409,8 @@ fn check_operands(
                     )));
                 }
             }
+            // Checked by `check_carried_member`, after the pinned mode.
+            OperationConstraintKind::CarriedMember => {}
             OperationConstraintKind::ReferenceEdge => {
                 if let [first, second] = indices[..] {
                     if let Some(failure) = check_reference_edge(
@@ -6610,6 +6647,93 @@ mod tests {
                 "/semantic_graph/nodes/0/body/operation/member/declaration",
                 Some(CheckedPackageRefusalCause::OperatorIneligible),
                 node_id,
+            )))
+        );
+    }
+
+    /// `quire.op.collection.sum.carried_quantity` with rounding mode `mode`
+    /// and a `type_argument` member declared by the node keyed `declared`,
+    /// beside a node `member_form` keyed `4` that is also the result type.
+    fn carried_sum_defect(
+        member_form: &str,
+        mode: &str,
+        declared: char,
+    ) -> (
+        CheckedSemanticNodeV2,
+        Result<Option<ValidationFailure>, ValidationFailure>,
+    ) {
+        let mut operation = plain_operation("quire.op.collection.sum.carried_quantity");
+        operation["mode"] = json!({ "kind": "rounding", "value": mode });
+        operation["member"] = json!({
+            "kind": "type_argument",
+            "declaration": node_id(declared),
+        });
+        let mut application = custom_application_node(
+            "collection",
+            operation,
+            vec![
+                json!({ "term": "literal", "value": 1 }),
+                json!({ "term": "literal", "value": 2 }),
+            ],
+        );
+        application.body["result_type"] = json!(node_id('4'));
+        let result = defect_for_graph(vec![
+            application.clone(),
+            scalar_type_node('4', member_form),
+        ]);
+        (application, result)
+    }
+
+    /// The `carried_member` constraint of the catalog's carried-quantity sum:
+    /// a `type_argument` that is not a `scalar_type`/`carried_quantity` node
+    /// refuses
+    /// `ill_typed`/`operator-ineligible` at the application.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn carried_member_refuses_a_type_argument_that_is_not_a_carried_quantity() {
+        for (form, declared) in [
+            ("unit", '4'),
+            ("compound_unit", '4'),
+            ("bounded_quantity", '4'),
+        ] {
+            let (application, result) = carried_sum_defect(form, "exact", declared);
+            assert_eq!(
+                result,
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::IllTyped,
+                    "/semantic_graph/nodes/0",
+                    Some(CheckedPackageRefusalCause::OperatorIneligible),
+                    application.node_id.clone(),
+                ))),
+                "a `{form}` type argument declared by `{declared}`"
+            );
+        }
+    }
+
+    /// The same application over a `carried_quantity` type argument satisfies
+    /// `carried_member` and is not refused.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn carried_member_admits_a_carried_quantity_type_argument() {
+        let (_, result) = carried_sum_defect("carried_quantity", "exact", '4');
+        assert_eq!(result, Ok(None));
+    }
+
+    /// The pinned rounding mode is checked before `carried_member`: a unit
+    /// type argument under a mode its type does not pin refuses
+    /// `invalid_package`/`operation-mode-type-mismatch`, not
+    /// `operator-ineligible`.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn carried_member_is_checked_only_once_the_pinned_mode_agrees() {
+        let (application, result) = carried_sum_defect("unit", "nearest-even", '4');
+        assert_eq!(
+            result,
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/semantic_graph/nodes/0/body/operation/mode/value",
+                Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
+                application.node_id.clone(),
             )))
         );
     }

@@ -16,6 +16,8 @@ pub enum CheckedPackageDispatchResult {
     Refused(CheckedPackageRefusal),
     /// The input exceeded a caller limit before a conclusion.
     Incomplete(CheckedPackageIncomplete),
+    /// The reader's operation catalog is unreadable; no input was judged.
+    CatalogUnavailable(super::v2::CatalogReadError),
 }
 
 /// Reads `contract_version` from borrowed source bytes after strict syntax and
@@ -38,6 +40,9 @@ pub fn read_checked_package(
         }
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             CheckedPackageDispatchResult::Incomplete(incomplete)
+        }
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            CheckedPackageDispatchResult::CatalogUnavailable(error)
         }
     }
 }
