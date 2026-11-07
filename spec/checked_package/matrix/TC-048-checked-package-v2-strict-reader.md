@@ -2840,8 +2840,13 @@ under QSpec FR-415; it does not require a Clock value node.
 
 ## Carried-quantity sum admission (FR-038-AC-515 through FR-038-AC-520)
 
-Status: PLANNED/UNRUN (IR-1398). Read the current QSpec checkout through
-`QUIRE_SPECIFICATION_DIR`, specifically FR-322 AC-389 through AC-391 and
+Status: qualified on the unmerged IR-1396 owner stack (IR-1398); merged-main
+qualification is pending. All 21 published variants and three combined-defect
+controls pass. Five adverse-case groups fail for their intended behavior on
+the IR-1396 reader before the carried-sum changes; CS-01 already passes there.
+The tests read TC-187 from the selected QSpec checkout's `origin/main` with
+`git show`, so an older working checkout cannot hide missing current rows.
+Use `QUIRE_SPECIFICATION_DIR`, specifically FR-322 AC-389 through AC-391 and
 `spec/test-cases/TC-187-quantity-and-unit-conversion.md`, "Carried quantity
 sum wire cases". Require CS-01 through CS-06 and every variant within each
 row; these are published Markdown wire cases, not a JSON vector file. Build
