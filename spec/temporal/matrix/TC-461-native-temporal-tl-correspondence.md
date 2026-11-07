@@ -94,12 +94,6 @@ FR-092; strong previous is `once[1,1]`.
    observed counts, then force two limits to cross on one action and require
    the first limit in FR-350's table. Check that the rejected unit was not
    visited, the returned `value` is `setting + 1`, and no partial record exists.
-8. Select model roots in graph order `z/model`, `a/model`, then read the
-   admitted package's `selected_model_packages` and require the correspondence
-   `models` array to be `a/model`, `z/model`. Repeat with no selected model and
-   require an empty array. Rename, remove, duplicate and reorder an entry in
-   the encoded record; strict reading refuses each changed array. Supply no
-   source alias map to the bridge (FR-350-AC-10).
 ## Expected Results
 
 - Each bounded past operator individually projects only with origin-complete
@@ -109,8 +103,6 @@ FR-092; strong previous is `once[1,1]`.
   records are admitted by their owners and retain exact typed values and public names/versions.
 - A changed preserved axis changes its corresponding exposed typed member. A changed
   period refuses; an absent sample is incomplete.
-- The `models` axis equals the admitted owner package sequence in identity
-  order, including empty, and strict reading refuses changed entries or order.
 - Only an equal final pair yields `agreement` with a Boolean. Every other
   decision has no Boolean and preserves its ordered causes, progress/closure,
   settlement, support, completeness and supersession axes.

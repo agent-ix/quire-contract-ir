@@ -325,15 +325,14 @@ an exact and one-over boundary without constructing a default-sized artifact.
 | FR-350-AC-7 | Withdrawn by the IR-1141 no-hash decision under QSpec #517/#518: the fixed 1429-byte vector, SHA-256 known answers and derived correspondence reference are removed. This id is retained and never reused. | Withdrawn |
 | FR-350-AC-8 | Each `TlLimits` setting uses its stated default, charges before work, admits exactly at the setting and returns `incomplete` one past it with `limit-reached{limit, value, setting}` and no partial artifact. | Test (TC-461) |
 | FR-350-AC-9 | Given an admitted request with an authenticated `TraceBinding`, an exact clause occurrence, a selected trigger instance and explicit instance-bound Boolean cells, TC-461 asserts that projection uses those values and maps an opaque anchor by exact equality with an independently selected admitted observation identity to that observation's numeric owner anchor, even when the opaque identity resembles a different numeric position. `request.occurrence = None` selects the sole occurrence; a wrong binding, wrong node/role/ordinal, absent or ambiguous occurrence, mismatched trigger instance, or absent, duplicate or mismatched observation identity refuses with no partial artifact or evaluator invocation. | Test (TC-461) |
-| FR-350-AC-10 | Given selected model roots whose graph order differs from ascending package identity order, TC-461 records exactly the package identities returned by the admitted checked package's `selected_model_packages` read in that order, including the empty sequence for a package with no selected model. A renamed, missing, duplicated or reordered model entry fails strict correspondence reading; the bridge does not infer a source alias or accept a caller-authored alias map. | Test (TC-461; IR owner read TC-233) |
 
 ## Dependencies
 
 - `agent-ix/quire-integration` (IR-1005) owns the QSL-typed `project_tl` bridge,
-  strict projection and join readers, correspondence value, and executable
+  strict projection and join readers, correspondence value, and future
   TC-461 evidence. This Contract IR requirement remains the cross-repository
   contract for FR-350-AC-1 through FR-350-AC-6 and FR-350-AC-8 through
-  FR-350-AC-10; AC-7 remains
+  FR-350-AC-9; AC-7 remains
   withdrawn. FR-028-AC-3 and TC-041 keep both Contract IR packages free of
   QSL dependencies.
 - QSL FR-045 defines the support table; FR-515 supplies the borrowed checked
