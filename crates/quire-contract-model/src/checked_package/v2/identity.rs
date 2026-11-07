@@ -1421,6 +1421,9 @@ fn imported_nominals<'e>(
     dependencies: &SuppliedDependencies<'e>,
     meter: &mut WorkMeter,
 ) -> Result<SortedTable<&'e CheckedNodeId, NominalRecord>, ValidationFailure> {
+    // Requests made here are charged to the imported nominal, by its position
+    // in its own package, and the caller's site returns when the walk ends.
+    let caller_site = meter.site();
     let mut pending = dependencies.packages();
     let mut seen: Vec<&str> = Vec::new();
     let mut records: Vec<(&CheckedNodeId, NominalRecord)> = Vec::new();
@@ -1453,6 +1456,7 @@ fn imported_nominals<'e>(
             let Some(required) = NominalKind::required_by(*kind) else {
                 continue;
             };
+            meter.at_row("imported_nominals", position);
             let raw = node.to_raw();
             let record = record_from_node(
                 &raw,
@@ -1465,6 +1469,7 @@ fn imported_nominals<'e>(
             meter.push(&mut records, (&node.node_id, record))?;
         }
     }
+    meter.restore_site(caller_site);
     // A node id names one node, so each id holds its one record.
     Ok(SortedTable::from_vec(records, |_, _| Ordering::Equal))
 }

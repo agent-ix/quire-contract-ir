@@ -474,3 +474,40 @@ fn wide_root_scale_arithmetic_is_charged_to_the_read_budget() {
         "the equivalence tables are charged at the node: {tables}"
     );
 }
+
+/// A selected dependency's nominal nodes are read into a charged table: each
+/// record's id, names and declaration are requested at the imported node
+/// (`imported_nominals`, by its position in its own package) only after the
+/// caller budget admits them (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn imported_nominal_records_are_charged_at_the_imported_node() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    use quire_contract_model::{NativeJoinBudget, PackageReadStage};
+    let (wire, name, dependency) = mixed_package();
+    let bytes = canonical(&wire);
+    let mut evidence = evidence_for(&wire);
+    evidence
+        .insert_dependency_package(name.as_str(), dependency.clone())
+        .expect("dependency evidence agrees on admitted content");
+    let read = |budget: &mut NativeJoinBudget| {
+        CheckedPackageV2::read_with_budget(
+            &bytes,
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+            budget,
+        )
+    };
+    let requests = stage_requests(&read, PackageReadStage::Graph);
+    let imported = requests
+        .iter()
+        .filter(|request| request.form == "imported_nominals")
+        .count();
+    assert!(
+        imported > 0,
+        "the imported records are charged at their nodes: {requests:?}"
+    );
+    assert_exact_and_one_short(&read, &requests);
+}
