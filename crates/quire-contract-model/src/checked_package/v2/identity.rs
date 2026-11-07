@@ -1985,15 +1985,6 @@ fn validate_equivalence_graph(
     Ok(())
 }
 
-/// Source selected by the lock for an equivalence declaration.
-type EquivalenceSource<'a> = (&'a str, &'a str);
-
-/// Source order, graph position and occurrence ordinal of one anchor.
-type EquivalenceAnchor = (u64, usize, u64);
-
-/// Anchors grouped by their declaring source.
-type SourceEquivalenceAnchors<'a> = BTreeMap<EquivalenceSource<'a>, Vec<EquivalenceAnchor>>;
-
 /// Anchor ordinals count equivalence declarations in source byte order, not
 /// graph order. Source-map admission already established the exact node and
 /// occurrence joins before this check runs.
@@ -2002,24 +1993,57 @@ pub(super) fn validate_equivalence_occurrences(
     kinds: &[CheckedNodeKind],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    if !kinds.contains(&CheckedNodeKind::ScalarType(
-        ScalarTypeForm::DimensionEquivalence,
-    )) {
+    use super::native_join_budget::PackageReadStage;
+    use super::stage_storage::{self, Path, Refusal, Site};
+    let equivalence = CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence);
+    let declarations = kinds.iter().filter(|kind| **kind == equivalence).count();
+    if declarations == 0 {
         return Ok(());
     }
-    meter.charge(
+    let source_map = Path::root().key("source_map");
+    let site = |index: usize, at: Path<'static>| {
+        Site::new(PackageReadStage::Equivalence, index, "equivalence", at)
+    };
+    let invalid = |meter: &mut WorkMeter, position: usize, member: &'static str| {
+        let at = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position)
+            .key(member);
+        stage_storage::refuse(
+            meter,
+            &site(position, at),
+            Refusal::new(CheckedPackageRefusalCode::InvalidSemanticGraph, at),
+        )
+    };
+    stage_storage::work(
+        meter,
+        &site(0, source_map),
         u64::try_from(wire.source_map.len()).unwrap_or(u64::MAX),
-        || JsonPointer::root().key("source_map"),
     )?;
-    let anchors = wire
+    let anchor_count = wire
         .source_map
         .iter()
         .filter(|entry| entry.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor)
-        .map(|entry| (&entry.node_id, entry))
-        .collect::<BTreeMap<_, _>>();
-    let mut by_source: SourceEquivalenceAnchors<'_> = BTreeMap::new();
+        .count();
+    // The anchors, ascending by node then source-map position.
+    let mut anchors: Vec<(&CheckedNodeId, usize)> =
+        stage_storage::vec(meter, &site(0, source_map), anchor_count)?;
+    anchors.extend(
+        wire.source_map
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                entry.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor
+            })
+            .map(|(position, entry)| (&entry.node_id, position)),
+    );
+    anchors.sort_unstable();
+    // Each declaration's source, start, graph position and ordinal.
+    let mut by_source: Vec<(&str, &str, u64, usize, u64)> =
+        stage_storage::vec(meter, &site(0, source_map), declarations)?;
     for (position, (node, kind)) in wire.semantic_graph.nodes.iter().zip(kinds).enumerate() {
-        if *kind != CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence) {
+        if *kind != equivalence {
             continue;
         }
         let Some(super::CheckedNodeOwner::Source {
@@ -2027,11 +2051,23 @@ pub(super) fn validate_equivalence_occurrences(
             identity,
         }) = node.owner.as_ref()
         else {
-            return Err(invalid(node_pointer(position).key("owner")));
+            return Err(invalid(meter, position, "owner"));
         };
-        meter.charge(1, || node_pointer(position).key("occurrences"))?;
-        let Some(entry) = anchors.get(&node.node_id) else {
-            return Err(invalid(node_pointer(position).key("occurrences")));
+        let node_at = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position)
+            .key("occurrences");
+        stage_storage::work(meter, &site(position, node_at), 1)?;
+        // The last anchor of a node stands for it.
+        let after = anchors.partition_point(|(id, _)| (*id).cmp(&node.node_id).is_le());
+        let entry = after
+            .checked_sub(1)
+            .map(|last| anchors[last])
+            .filter(|(id, _)| **id == node.node_id)
+            .map(|(_, entry)| &wire.source_map[entry]);
+        let Some(entry) = entry else {
+            return Err(invalid(meter, position, "occurrences"));
         };
         let Some(start) = entry
             .regions
@@ -2042,21 +2078,22 @@ pub(super) fn validate_equivalence_occurrences(
             .map(|region| region.start)
             .min()
         else {
-            return Err(invalid(node_pointer(position).key("occurrences")));
+            return Err(invalid(meter, position, "occurrences"));
         };
-        by_source
-            .entry((authority, identity))
-            .or_default()
-            .push((start, position, entry.ordinal));
+        by_source.push((&**authority, &**identity, start, position, entry.ordinal));
     }
-    for mut declarations in by_source.into_values() {
-        declarations.sort();
-        for (expected, (_, position, actual)) in declarations.into_iter().enumerate() {
-            require(
-                actual == u64::try_from(expected).unwrap_or(u64::MAX),
-                || node_pointer(position).key("occurrences"),
-            )?;
+    by_source.sort_unstable();
+    let mut expected = 0_u64;
+    let mut group: Option<(&str, &str)> = None;
+    for &(authority, identity, _, position, actual) in &by_source {
+        if group != Some((authority, identity)) {
+            group = Some((authority, identity));
+            expected = 0;
         }
+        if actual != expected {
+            return Err(invalid(meter, position, "occurrences"));
+        }
+        expected += 1;
     }
     Ok(())
 }

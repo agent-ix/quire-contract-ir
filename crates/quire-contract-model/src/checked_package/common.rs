@@ -9,10 +9,9 @@ mod closed_members;
 
 use super::shared::{push_index, push_key};
 use super::shared::{
-    CheckedArtifactRef, CheckedNodeId, CheckedOccurrence, CheckedPackageIncomplete,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSourceMapEntry, CheckedSourceRef,
-    JsonPointer, RefusalFields,
+    CheckedArtifactRef, CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
+    CheckedPackageRefusalCode, CheckedSourceRef, JsonPointer, RefusalFields,
 };
 use super::terms::{subterms_of, At, Cursor};
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind};
@@ -22,7 +21,8 @@ use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
+
 use std::fmt;
 use std::ops::ControlFlow;
 
@@ -708,110 +708,6 @@ pub(super) fn validate_definition_ref(
         )),
         None => Ok(()),
     }
-}
-
-/// Requires the source map to be exactly the graph's occurrence set, with
-/// nonempty, locked, current, non-overlapping half-open regions.
-pub(super) fn validate_source_map_entries<'a>(
-    nodes: impl Iterator<Item = (&'a CheckedNodeId, &'a [CheckedOccurrence])>,
-    source_map: &[CheckedSourceMapEntry],
-    locked_sources: &[CheckedSourceRef],
-    limits: CheckedPackageReadLimits,
-) -> Result<(), ValidationFailure> {
-    let entry_pointer = |entry: usize| JsonPointer::root().key("source_map").index(entry);
-    let region_pointer =
-        |entry: usize, region: usize| entry_pointer(entry).key("regions").index(region);
-    let mut expected = BTreeSet::new();
-    for (node_id, occurrences) in nodes {
-        for occurrence in occurrences {
-            expected.insert((node_id.clone(), occurrence.role.clone(), occurrence.ordinal));
-        }
-    }
-    let mut actual = BTreeSet::new();
-    let locked_sources = locked_sources.iter().collect::<BTreeSet<_>>();
-    let mut count = 0_u64;
-    for (entry_index, entry) in source_map.iter().enumerate() {
-        count = count.saturating_add(1);
-        if exceeds(count, limits.occurrences) {
-            return Err(ValidationFailure::incomplete(
-                CheckedPackageLimit::Occurrences,
-                limits.occurrences,
-                count,
-                Some(entry_pointer(entry_index)),
-            ));
-        }
-        if entry.regions.is_empty() {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSourceMap,
-                entry_pointer(entry_index).key("regions"),
-            ));
-        }
-        if !actual.insert((entry.node_id.clone(), entry.role.clone(), entry.ordinal)) {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSourceMap,
-                entry_pointer(entry_index),
-            ));
-        }
-        let before_regions = count;
-        count = count.saturating_add(u64::try_from(entry.regions.len()).unwrap_or(u64::MAX));
-        if exceeds(count, limits.occurrences) {
-            // `before_regions` was admitted, so the first region whose
-            // charge failed is the one that took the counter one past the
-            // limit.
-            let first_over = limits.occurrences.saturating_sub(before_regions);
-            return Err(ValidationFailure::incomplete(
-                CheckedPackageLimit::Occurrences,
-                limits.occurrences,
-                count,
-                Some(region_pointer(
-                    entry_index,
-                    usize::try_from(first_over).unwrap_or(usize::MAX),
-                )),
-            ));
-        }
-        let mut ranges = BTreeMap::<CheckedSourceRef, Vec<(u64, u64, usize)>>::new();
-        for (region_index, region) in entry.regions.iter().enumerate() {
-            let source_pointer = || region_pointer(entry_index, region_index).key("source");
-            if !locked_sources.contains(&region.source) {
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSourceMap,
-                    source_pointer(),
-                ));
-            }
-            if region.start >= region.end {
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSourceMap,
-                    region_pointer(entry_index, region_index),
-                ));
-            }
-            ranges.entry(region.source.clone()).or_default().push((
-                region.start,
-                region.end,
-                region_index,
-            ));
-        }
-        for ranges in ranges.values_mut() {
-            ranges.sort_unstable();
-            if let Some(pair) = ranges.windows(2).find(|pair| pair[0].1 > pair[1].0) {
-                return Err(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSourceMap,
-                    region_pointer(entry_index, pair[1].2),
-                ));
-            }
-        }
-    }
-    if actual != expected {
-        // An entry naming no graph occurrence is the value at fault; an
-        // occurrence no entry maps is a defect of the array as a whole.
-        let stray = source_map.iter().position(|entry| {
-            !expected.contains(&(entry.node_id.clone(), entry.role.clone(), entry.ordinal))
-        });
-        return Err(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSourceMap,
-            stray.map_or_else(|| JsonPointer::root().key("source_map"), entry_pointer),
-        ));
-    }
-    Ok(())
 }
 
 /// Which member carried a reported reference target.

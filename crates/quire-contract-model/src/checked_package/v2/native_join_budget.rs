@@ -130,6 +130,11 @@ pub struct NativeJoinBudget {
     exact_diagnostics: bool,
     active_locus: Option<NativeJoinLocus>,
     denied_locus: Option<NativeJoinLocus>,
+    /// Whether the diagnostic of the read's first denial was paid for before
+    /// it was built: `Some(true)` when admitted, `Some(false)` when denied.
+    prepaid_diagnostic: Option<bool>,
+    /// The outcome whose owned diagnostic the read's first denial is.
+    pending_outcome: Option<super::CheckedPackagePendingOutcome>,
 }
 
 impl NativeJoinBudget {
@@ -149,6 +154,8 @@ impl NativeJoinBudget {
             exact_diagnostics: false,
             active_locus: None,
             denied_locus: None,
+            prepaid_diagnostic: None,
+            pending_outcome: None,
         }
     }
 
@@ -306,6 +313,8 @@ impl NativeJoinBudget {
         self.first_unpaid = None;
         self.first_unpaid_read_storage = None;
         self.denied_locus = None;
+        self.prepaid_diagnostic = None;
+        self.pending_outcome = None;
         self.consumed
     }
 
@@ -355,6 +364,36 @@ impl NativeJoinBudget {
             }
             false
         }
+    }
+
+    /// Pays, before it is built, for the pointer diagnostic of the first
+    /// denial just recorded, at that denial's locus with form `"diagnostic"`.
+    /// The outcome's own charge then finds it paid.
+    pub(super) fn prepay_diagnostic(&mut self, bytes: u128) -> bool {
+        let previous = self.active_locus;
+        self.active_locus = self.denied_locus.map(|locus| NativeJoinLocus {
+            source: locus.source,
+            form: "diagnostic",
+        });
+        let admitted = self.charge_read_storage(bytes);
+        self.active_locus = previous;
+        self.prepaid_diagnostic = Some(admitted);
+        admitted
+    }
+
+    /// The prepayment of the first denial's diagnostic, taken once.
+    pub(super) fn take_prepaid_diagnostic(&mut self) -> Option<bool> {
+        self.prepaid_diagnostic.take()
+    }
+
+    /// Records the outcome whose diagnostic could not be paid for.
+    pub(super) fn set_pending(&mut self, pending: Option<super::CheckedPackagePendingOutcome>) {
+        self.pending_outcome = pending;
+    }
+
+    /// The outcome recorded by [`Self::set_pending`], taken once.
+    pub(super) fn take_pending(&mut self) -> Option<super::CheckedPackagePendingOutcome> {
+        self.pending_outcome.take()
     }
 
     /// The first unpaid charge of the current read, either resource, with the

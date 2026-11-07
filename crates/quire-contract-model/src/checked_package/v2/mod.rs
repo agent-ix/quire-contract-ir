@@ -68,6 +68,8 @@ mod scalar_operands;
 mod schedulability;
 mod selected_document;
 mod selected_facts;
+mod source_map;
+mod stage_storage;
 mod state;
 mod step_relation;
 mod structural;
@@ -207,13 +209,14 @@ use dependency_references::{admit_dependencies, check_derived_closure, SuppliedD
 use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
+use source_map::validate_source_map_entries;
 use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
 use temporal::{validate_temporal, validate_timed_bounds_reduced, TemporalContext};
 
 use super::common::{
     count, exceeds, is_nonempty, node_pointer, validate_definition_ref, validate_locked_source,
-    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
-    Step, TermGrammar, Trail, ValidationFailure,
+    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
+    ValidationFailure,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -1798,10 +1801,11 @@ fn validate(
         &wire.source_map,
         &wire.lock.sources,
         limits,
+        &mut meter,
     )?;
     identity::validate_equivalence_occurrences(wire, &kinds, &mut meter)?;
-    extension::validate_source_regions(wire, &kinds)?;
-    validate_capabilities(wire, evidence)?;
+    extension::validate_source_regions(wire, &kinds, &mut meter)?;
+    validate_capabilities(wire, evidence, &mut meter)?;
     validate_diagnostics(wire, limits, &mut meter)?;
     let models = RetainedModels::new(declarations, models);
     operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
@@ -3453,6 +3457,7 @@ fn validate_graph(
             &wire.source_map,
             &wire.lock.sources,
             limits,
+            meter,
         )?;
     }
     let early_operation_views =
@@ -3506,6 +3511,7 @@ fn validate_graph(
             &wire.source_map,
             &wire.lock.sources,
             limits,
+            meter,
         );
         if let Err(failure) = source_check {
             if let ValidationFailure::Refused(refusal) = &failure {
@@ -4037,39 +4043,69 @@ fn enter(
 fn validate_capabilities(
     wire: &RawCheckedPackageWireV2,
     evidence: &CheckedPackageEvidence,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let report = || member_pointer(&["capability_report"]);
-    let mut reported = BTreeMap::new();
-    for (index, capability) in wire.capability_report.iter().enumerate() {
-        if !is_nonempty(&capability.feature)
-            || reported
-                .insert(capability.feature.as_ref(), (capability.disposition, index))
-                .is_some()
-        {
-            return Err(refuse(
-                CheckedPackageRefusalCode::UnknownRequiredCapability,
-                report().index(index).key("feature"),
-            ));
-        }
+    use stage_storage::{Path, Refusal, Site};
+    let code = CheckedPackageRefusalCode::UnknownRequiredCapability;
+    let report = Path::root().key("capability_report");
+    let site = |index: usize| {
+        Site::new(
+            PackageReadStage::Capabilities,
+            index,
+            "capability_report",
+            report,
+        )
+    };
+    let entries = &wire.capability_report;
+    // The reported capabilities, ascending by feature then position.
+    let mut reported: Vec<(&str, usize, CheckedCapabilityDisposition)> =
+        stage_storage::vec(meter, &site(0), entries.len())?;
+    reported.extend(
+        entries.iter().enumerate().map(|(index, capability)| {
+            (capability.feature.as_ref(), index, capability.disposition)
+        }),
+    );
+    reported.sort_unstable_by(|left, right| (left.0, left.1).cmp(&(right.0, right.1)));
+    // The first entry whose feature is empty or repeats an earlier one.
+    let first_empty = entries
+        .iter()
+        .position(|capability| !is_nonempty(&capability.feature));
+    let first_repeat = reported
+        .windows(2)
+        .filter(|pair| pair[0].0 == pair[1].0)
+        .map(|pair| pair[1].1)
+        .min();
+    if let Some(index) = first_empty.into_iter().chain(first_repeat).min() {
+        return Err(stage_storage::refuse(
+            meter,
+            &site(index),
+            Refusal::new(code, report.index(index).key("feature")),
+        ));
     }
     for (index, feature) in wire.lock.required_features.iter().enumerate() {
-        let path = match reported.get(feature.as_ref()) {
+        let found = reported
+            .binary_search_by(|entry| entry.0.cmp(feature.as_ref()))
+            .ok()
+            .map(|at| reported[at]);
+        let path = match found {
             // Unreported: the report lacks the capability.
-            None => report(),
-            Some((disposition, reported_at))
-                if *disposition != CheckedCapabilityDisposition::Available =>
+            None => report,
+            Some((_, reported_at, disposition))
+                if disposition != CheckedCapabilityDisposition::Available =>
             {
-                report().index(*reported_at).key("disposition")
+                report.index(reported_at).key("disposition")
             }
             // Reported available, but this reader does not support it.
-            Some(_) if !evidence.supports(feature) => {
-                member_pointer(&["lock", "required_features"]).index(index)
-            }
+            Some(_) if !evidence.supports(feature) => Path::root()
+                .key("lock")
+                .key("required_features")
+                .index(index),
             Some(_) => continue,
         };
-        return Err(refuse(
-            CheckedPackageRefusalCode::UnknownRequiredCapability,
-            path,
+        return Err(stage_storage::refuse(
+            meter,
+            &site(index),
+            Refusal::new(code, path),
         ));
     }
     Ok(())
@@ -4080,24 +4116,43 @@ fn validate_diagnostics(
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let entries = || member_pointer(&["diagnostics", "entries"]);
+    use stage_storage::{Path, Refusal, Site};
+    let entries = Path::root().key("diagnostics").key("entries");
+    let site = |index: usize, at: Path<'static>| {
+        Site::new(
+            PackageReadStage::Diagnostics,
+            index,
+            "diagnostics.entries",
+            at,
+        )
+    };
     let diagnostics = count(wire.diagnostics.entries.len());
     if exceeds(diagnostics, limits.diagnostics) {
         // The first entry past the ceiling is the one whose charge failed.
-        return Err(ValidationFailure::incomplete(
+        let first = usize::try_from(limits.diagnostics).unwrap_or(usize::MAX);
+        return Err(stage_storage::incomplete(
+            meter,
+            &site(first, entries),
             CheckedPackageLimit::Diagnostics,
             limits.diagnostics,
             diagnostics,
-            Some(entries().index(usize::try_from(limits.diagnostics).unwrap_or(usize::MAX))),
+            entries.index(first),
         ));
     }
-    let nodes = wire
-        .semantic_graph
-        .nodes
+    // The graph's node ids, ascending, when any detail names one.
+    let mut nodes: Vec<&CheckedNodeId> = Vec::new();
+    if wire
+        .diagnostics
+        .entries
         .iter()
-        .map(|node| &node.node_id)
-        .collect::<BTreeSet<_>>();
+        .any(|entry| !entry.details.is_empty())
+    {
+        nodes = stage_storage::vec(meter, &site(0, entries), wire.semantic_graph.nodes.len())?;
+        nodes.extend(wire.semantic_graph.nodes.iter().map(|node| &node.node_id));
+        nodes.sort_unstable();
+    }
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
+        let entry_at = entries.index(entry_index);
         for (detail_index, detail) in entry.details.iter().enumerate() {
             let detail_steps = [
                 Step::Key("diagnostics"),
@@ -4114,12 +4169,16 @@ fn validate_diagnostics(
                 false,
                 &detail_at,
                 &mut |target, _site, target_at| {
-                    if unresolved.is_none() && !nodes.contains(target) {
+                    if unresolved.is_none() && nodes.binary_search(&target).is_err() {
                         unresolved = Some(target_at.pointer());
                     }
                 },
             )?;
-            meter.charge(work, || detail_at.pointer())?;
+            stage_storage::work(
+                meter,
+                &site(entry_index, entry_at.key("details").index(detail_index)),
+                work,
+            )?;
             if let Some(path) = unresolved {
                 return Err(refuse(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -4128,15 +4187,23 @@ fn validate_diagnostics(
             }
         }
         for (locus_index, region) in entry.loci.iter().enumerate() {
-            let locus = || entries().index(entry_index).key("loci").index(locus_index);
+            let locus = entry_at.key("loci").index(locus_index);
             if !wire.lock.sources.contains(&region.source) {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::InvalidSourceMap,
-                    locus().key("source"),
+                return Err(stage_storage::refuse(
+                    meter,
+                    &site(entry_index, locus),
+                    Refusal::new(
+                        CheckedPackageRefusalCode::InvalidSourceMap,
+                        locus.key("source"),
+                    ),
                 ));
             }
             if region.start >= region.end {
-                return Err(refuse(CheckedPackageRefusalCode::InvalidSourceMap, locus()));
+                return Err(stage_storage::refuse(
+                    meter,
+                    &site(entry_index, locus),
+                    Refusal::new(CheckedPackageRefusalCode::InvalidSourceMap, locus),
+                ));
             }
         }
     }

@@ -2,6 +2,8 @@
 
 use super::identity::is_identifier;
 use super::model_members::{Budget, DeclarationForm, ModelOwners};
+use super::native_join_budget::PackageReadStage;
+use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedTerm, ModelForm,
     RawCheckedPackageWireV2 as CheckedPackageWireV2, RawSemanticNodeV2 as CheckedSemanticNodeV2,
@@ -15,7 +17,7 @@ use crate::checked_package::shared::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,25 +96,40 @@ pub(super) fn body_work(body: &ExtensionBody) -> u64 {
 pub(super) fn validate_source_regions(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let extensions = wire
-        .semantic_graph
-        .nodes
-        .iter()
-        .zip(kinds)
-        .filter(|(_, kind)| matches!(kind, CheckedNodeKind::Extension(_)))
-        .map(|(node, _)| &node.node_id)
-        .collect::<BTreeSet<_>>();
+    let is_extension = |kind: &CheckedNodeKind| matches!(kind, CheckedNodeKind::Extension(_));
+    let count = kinds.iter().filter(|kind| is_extension(kind)).count();
+    if count == 0 {
+        return Ok(());
+    }
+    let site = |index: usize, at: Path<'static>| {
+        Site::new(PackageReadStage::Extension, index, "extension", at)
+    };
+    let source_map = Path::root().key("source_map");
+    // The extension nodes, ascending by identity, with their graph positions.
+    let mut extensions: Vec<(&CheckedNodeId, usize)> =
+        stage_storage::vec(meter, &site(0, source_map), count)?;
+    extensions.extend(
+        wire.semantic_graph
+            .nodes
+            .iter()
+            .zip(kinds)
+            .enumerate()
+            .filter(|(_, (_, kind))| is_extension(kind))
+            .map(|(position, (node, _))| (&node.node_id, position)),
+    );
+    extensions.sort_unstable();
     for (entry_index, entry) in wire.source_map.iter().enumerate() {
-        if extensions.contains(&entry.node_id) && entry.regions.len() != 1 {
-            return Err(ValidationFailure::refused_at(
-                Code::InvalidSourceMap,
-                JsonPointer::root()
-                    .key("source_map")
-                    .index(entry_index)
-                    .key("regions"),
-                None,
-                entry.node_id.clone(),
+        let Ok(found) = extensions.binary_search_by(|(id, _)| (*id).cmp(&entry.node_id)) else {
+            continue;
+        };
+        if entry.regions.len() != 1 {
+            let regions = source_map.index(entry_index).key("regions");
+            return Err(stage_storage::refuse(
+                meter,
+                &site(extensions[found].1, regions),
+                Refusal::new(Code::InvalidSourceMap, regions).at_node(&entry.node_id),
             ));
         }
     }

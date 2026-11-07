@@ -285,10 +285,17 @@ fn budget_denial(
         }
     };
     let original_locus = budget.first_unpaid_locus();
-    let diagnostic_bytes = stop
-        .path
-        .as_ref()
-        .map_or(0, |path| path.as_str().len() as u128);
+    // A pointer a stage paid for before building it is already charged; a
+    // diagnostic its stage could not pay for makes this outcome `exhausted`.
+    let pending = budget.take_pending();
+    let diagnostic_bytes = match (pending, budget.take_prepaid_diagnostic()) {
+        (Some(_), _) | (None, Some(false)) => u128::MAX,
+        (None, Some(true)) => 0,
+        (None, None) => stop
+            .path
+            .as_ref()
+            .map_or(0, |path| path.as_str().len() as u128),
+    };
     if let Some(locus) = original_locus {
         budget.set_active_locus(Some(NativeJoinLocus {
             source: locus.source,
@@ -316,7 +323,7 @@ fn budget_denial(
                 denied,
                 configured_bound: limit,
                 locus,
-                pending: None,
+                pending,
             })
         }
         // A budget denial always records its locus; with none recorded the
@@ -329,7 +336,7 @@ fn budget_denial(
                     source: NativeJoinLocusSource::Package,
                     form: DIAGNOSTIC_FORM,
                 },
-                pending: None,
+                pending,
             })
         }
     }
