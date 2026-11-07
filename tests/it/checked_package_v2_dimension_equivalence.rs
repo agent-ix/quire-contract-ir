@@ -290,7 +290,7 @@ fn typed_equivalence_retains_complete_structural_node() {
         panic!("well-formed equivalence package must admit");
     };
     let retained = serde_json::to_value(&admitted.graph().nodes[3]).expect("retained node");
-    let expected = &wire["semantic_graph"]["nodes"][3];
+    let expected = &crate::support::checked_package::wire_form(&wire)["semantic_graph"]["nodes"][3];
     assert_eq!(&retained, expected);
     assert_eq!(
         retained["dependencies"],

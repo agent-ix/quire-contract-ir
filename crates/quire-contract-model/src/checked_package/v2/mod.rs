@@ -1543,9 +1543,10 @@ impl CheckedPackageV2 {
         self.node_index.get(id).copied()
     }
 
-    /// The graph with every operand resolved to a document index segment,
-    /// the form the reader checks and lowers.
-    pub(crate) fn resolved_graph(&self) -> &CheckedSemanticGraphV2 {
+    /// The graph with every node-held operand resolved to the index segment of
+    /// the node it names, the form the reader checks and the typed views
+    /// borrow from. Its `operand_rows` are the wire's.
+    pub fn resolved_graph(&self) -> &CheckedSemanticGraphV2 {
         &self.wire.semantic_graph
     }
 

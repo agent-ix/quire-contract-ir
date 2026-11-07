@@ -797,7 +797,7 @@ fn indexed_reached_closure_uses_a_typed_source_structural_key() {
             node.node_id.path.iter().any(|segment| {
                 matches!(
                     segment,
-                    quire_contract_model::CheckedNodePathSegment::Index(_)
+                    quire_contract_model::CheckedNodePathSegment::Operand(_)
                 )
             })
         })
