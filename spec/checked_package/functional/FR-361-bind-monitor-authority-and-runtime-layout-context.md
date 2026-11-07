@@ -45,69 +45,100 @@ in [AD-010](../../assurance/AD-010-tick-monitor-admission-lowering-and-execution
 ## Inputs
 
 `SelectedMonitorClosureRows` SHALL carry one required field
-`authority: &'a SelectedMonitorAuthorityRow`. The row is an IR-owned value
+`authority: &'a SelectedMonitorAuthorityRow<'a>`. The row is an IR-owned value
 with private fields, constructed only through the fallible
-`SelectedMonitorAuthorityRow::try_new` from these components:
+`SelectedMonitorAuthorityRow::try_new` from these components, each taken from
+QSL's `AdmittedPlanAuthority` without changing a value or byte:
 
-| Component | Type | Source |
+| Component | Type | Source in the QSL handoff |
 | --- | --- | --- |
-| `admission` | `AdmissionBinding` | The capability of the admitted package that the consumer strictly read from the same final emission as the QSL handoff (FR-038-AC-492). |
-| `clause` | `CheckedNodeId` | The final emitted temporal clause declaration that QSL joined through the same emission's temporal binding rows. |
-| `occurrence` | `CheckedOccurrence` | The selected claim occurrence: role `Claim` and its ordinal. |
-| `time_source` | `SelectedMonitorTimeSource` | `Dense`, or `Tick { period: CheckedRational }` with the exact checked tick period. |
-| `order_value` | `Box<[u8]>` | QSL's canonical model-step order value bytes, unchanged. |
-| `progress_association` | `Box<[u8]>` | The observation owner's canonical association value bytes, unchanged. |
+| `admission` | `AdmissionBinding` | `AdmittedPlanAuthority::admission_binding()`: the capability of the package QSL strictly read from this plan root's own final emission (FR-038-AC-492). |
+| `clause` | `CheckedNodeId` | The admitted clause of that package's single monitor plan, which QSL joined to the plan subject through the same emission's temporal binding rows. |
+| `occurrence` | `CheckedOccurrence` | Role `Claim` and the plan subject's claim ordinal. |
+| `time_source` | `SelectedMonitorTimeSource` | `Dense`, or `Tick { period: CheckedRational }` with the checked time source's exact period. |
+| `order_value` | `&'a [u8]` | `AdmittedPlanAuthority::admitted_order()`. |
+| `progress_association` | `&'a [u8]` | `AdmittedPlanAuthority::progress_context()`. |
 
-`try_new` SHALL refuse an empty `order_value` or `progress_association`, and
-an `occurrence` whose role is not `Claim`, with
-`SelectedMonitorAuthorityRowError` naming the component; it performs no other
-check and allocates nothing beyond moving its arguments. The consumer SHALL
-translate QSL's admitted handoff into this row without changing any value or
-byte. A missing authority row is not representable: there is no `Option`,
-default row or legacy read without authority.
+The row borrows the two byte values from the handoff; neither IR nor the row
+copies them. `try_new` SHALL return
+`Err(SelectedMonitorAuthorityRowError { component })`, where `component` is the
+closed enum `SelectedMonitorAuthorityComponent { Occurrence, OrderValue,
+ProgressAssociation }`, for a non-`Claim` occurrence role, an empty order value
+or an empty association value, checked in that order. It performs no other
+check and allocates nothing. A missing authority row is not representable:
+there is no `Option`, default row or read without authority.
 
 The original structural model, unit, dimension and tick-operation identities
 inside the order and association values are original checker identities, not
 final emitted nodes. IR SHALL NOT compare them with admitted graph nodes;
-their comparison against the checked time source is QSL's.
+QSL compares them against the checked time source.
+
+### Cross-owner seam: QSL `AdmittedPlanAuthority`
+
+QSL owns the single admission stage `PlanRoot::admit_authority(self,
+PlanAuthoritySelection, Option<progress::View>, &mut NativeJoinBudget) ->
+Result<AdmittedPlanAuthority, PlanAuthorityRefusal>`. This requirement depends
+on QSL providing, on `AdmittedPlanAuthority`:
+
+- `admitted_package() -> &CheckedPackageV2`, the package of its own one strict
+  read of the plan root's final emission, and `admission_binding() ->
+  AdmissionBinding` issued by that same package;
+- `admitted_order()` and `progress_context()` borrowed for the authority's
+  lifetime;
+- the checked time source's kind and exact period;
+- charging of every QSL selection, strict-read and canonical-value allocation
+  to the caller's `NativeJoinBudget` before it is made.
+
+FR-361-AC-6 depends on this seam.
 
 ## Outputs
 
 A successful `SelectedMonitorTypeClosure` SHALL expose
 `authority() -> &SelectedMonitorAuthorityReceipt<'a>` and
-`layout_context() -> SelectedMonitorLayoutContext<'a>`.
+`layout_context() -> &SelectedMonitorLayoutContext`.
 
-The receipt SHALL borrow from the closure and expose `clause()`,
-`occurrence()`, `clock()` (the selected `CheckedMonitorClockRead` for that
-occurrence), `order_value() -> &[u8]` and `progress_association() -> &[u8]`.
-The two byte values SHALL be byte-identical to the row's values.
+The receipt SHALL expose `clause()`, `occurrence()`, `clock()` (the selected
+`CheckedMonitorClockRead` for that occurrence), `order_value() -> &'a [u8]` and
+`progress_association() -> &'a [u8]`, which return the row's borrowed slices.
 
-The layout context SHALL expose, with no re-encoding:
+The layout context SHALL own these values, each produced once during the
+closure read:
 
 | Read | Value |
 | --- | --- |
-| `root_key()` | The plan's resolved root content key (`CheckedMonitorPlanRef::structural_key`). |
-| `entry_keys()` | The four resolved entry content keys in `init`, `on_event`, `on_watermark`, `on_gap` order. |
-| `clause_key()` | The resolved structural key of the admitted clause. |
-| `package_lock()` | The exact canonical bytes of the admitted package's `lock` member, as they occur in the admitted wire. |
-| `occurrence()` | The exact canonical bytes of the admitted source-map entry for the selected claim occurrence, as they occur in the admitted wire. |
-| `profile()` | The admitted temporal profile selection identity text of the selected clause. |
-| `subject()` | The `Display` text of the canonical Exact `NodeKey` of the clause's admitted subject (`over`) parameter. |
-| `clock_binding()` | The canonical clock-binding value of the selected clock read (below). |
-| `admitted_order()`, `progress_context()` | The receipt's `order_value` and `progress_association` bytes. |
+| `root_key()`, `entry_keys()`, `clause_key()` | Borrowed resolved structural keys of the plan root, the four entries in `init`, `on_event`, `on_watermark`, `on_gap` order, and the admitted clause. |
+| `package_lock() -> &[u8]` | The RFC 8785 encoding of the admitted `CheckedPackageLockV2` produced by IR's V2 envelope writer for the `lock` member (the fixed-shape member encoding of `encode_checked_package_v2`). |
+| `occurrence() -> &[u8]` | The RFC 8785 encoding, by its `quire_canonical::Encode` implementation, of the admitted `CheckedSourceMapEntry` for the selected claim occurrence. |
+| `profile() -> &str` | The RFC 8785 text of the object `{"authority", "identity", "role"}` holding the selected clause profile's `CheckedSelection` definition authority, definition identity and the role's wire spelling. |
+| `subject() -> &str` | The `Display` text of the canonical Exact `NodeKey` of the clause's admitted subject (`over`) parameter. |
+| `clock_binding() -> &[u8]` | The canonical clock-binding value (below). |
+
+The strict V2 reader refuses noncanonical input, so the admitted package's
+`lock` member and its source-map entries are already in RFC 8785 form; the
+writer's encoding of the admitted typed value therefore equals the admitted
+input bytes of that member. IR SHALL NOT retain a raw input buffer for this.
 
 The canonical clock-binding value SHALL be the RFC 8785 JSON object whose
 members are exactly the [QSpec FR-252](ix://agent-ix/quire-specification/FR-252)
-key components admitted by the selected profile, each holding the admitted
-value: for a `model-time` binding, `binding_kind`, `selected_profile_identity`,
-`time_source` (`kind` `dense`, or `kind` `tick` with `period` as canonical
-decimal-string `numerator` and `denominator`), `unit` (the `Display` text of the
-admitted unit's canonical Exact `NodeKey`) and `sequence_authority`
-`"step-order"`. A
-component the profile does not admit SHALL be absent, never empty or
-defaulted. Display name, source path, span and locale SHALL NOT appear. The
-value SHALL be encoded once, during the closure read, into storage charged
-before allocation.
+key components a `model-time` binding admits, read from the admitted
+timed-model facts of the selected occurrence:
+
+| Member | Value |
+| --- | --- |
+| `binding_kind` | `"model-time"` |
+| `selected_profile_identity` | The same object as `profile()`, as a JSON object. |
+| `time_source` | An object with `kind` (`"dense"` or `"tick"`), `model` (the model's qualified name: the admitted declaration path of the timed-model root's `model` reference, segments joined by `.`), and, for `tick` only, `operation` (the admitted declaration path of the time source's `operation` reference, joined by `.`). |
+| `unit` | The `Display` text of the canonical Exact `NodeKey` of the time source's admitted `unit`. |
+| `period` | For `tick` only: `{"denominator", "numerator"}` canonical decimal strings of the time source's admitted `period` rational. Absent for `dense`. |
+| `sequence_authority` | `"step-order"` |
+
+No other member SHALL appear and no admitted member SHALL be empty or
+defaulted. The kind, model, operation, unit and period SHALL be read from the
+time-source node named by `CheckedMonitorClock::ModelTime { source, .. }` and
+its timed-model root: the node's `kind` binding, and for `tick` its `model`,
+`operation` and `period` bindings. The runtime compares this value
+byte-for-byte as the clock-binding value of RT interface-012; IR is its only
+producer.
 
 A refusal SHALL return `SelectedMonitorTypeClosureError` with
 `code: SelectedMonitorTypeClosureErrorCode::Authority(SelectedMonitorAuthorityErrorCode)`,
@@ -115,22 +146,39 @@ the first native locus and charged work, and no closure, receipt or context.
 
 ## Behavior
 
+### Step order
+
+The closure read SHALL run its steps in this order and report the first
+refusal:
+
+1. `read_reached_model_facts`: graph and term traversal and the model
+   declaration, field, tuple, source-unit and model enum joins.
+2. Clock correspondence of every claim occurrence of the clause.
+3. Authority binding (below).
+4. Admitted equality reads.
+5. Source record, union, tuple, enum and collection joins and Exact
+   projection.
+6. Layout context and output materialization.
+
+A model-row refusal therefore precedes an authority refusal, and an authority
+refusal precedes every equality, source-row or projection refusal.
+
 ### Authority binding
 
-After the existing clock correspondence step and before any producer row join,
-the closure read SHALL check the authority row in this order and stop at the
-first failure:
+The read SHALL check, stopping at the first failure:
 
-1. `ForeignEmission`: the plan's admitted package does not `retain` the row's
-   `admission` capability. An independent read of equal bytes, or a different
-   package instance, SHALL refuse.
+1. `ForeignEmission`: the plan's package does not `retain` the row's
+   `admission` capability, or the plan's root, four entry and clause node IDs
+   do not resolve to the same structural keys in that admitted package. An
+   independent read of equal bytes, or another package instance, SHALL refuse.
 2. `ClauseMismatch`: the row's `clause` is not equal, by full structural
    identity, to the plan's admitted `clause` binding.
 3. `OccurrenceMismatch`: the row's `occurrence` is not one of the clause's
    admitted claim occurrences retained in `clocks()`.
-4. `TimeSourceMismatch`: the selected occurrence's admitted clock is not the
-   model-time alternative, or its admitted time-source kind differs from the
-   row's, or a tick period differs from the row's exact period.
+4. `TimeSourceMismatch`: the selected occurrence's clock is not
+   `CheckedMonitorClock::ModelTime`, or the time-source node's admitted `kind`
+   binding differs from the row's kind, or a tick `period` binding differs
+   from the row's exact period.
 
 Locus: `ForeignEmission` and `ClauseMismatch` at the plan root node;
 `OccurrenceMismatch` and `TimeSourceMismatch` at the clause node with the row
@@ -139,42 +187,45 @@ contents SHALL NOT satisfy any check.
 
 ### Charging
 
-Every inspected identity, component and byte SHALL be charged as work before
-inspection under FR-358. Retaining the receipt SHALL charge one handle for
-each byte value plus one storage unit per byte copied, before the copy. The
-layout context SHALL borrow admitted wire bytes and charge no storage for
-them; the subject text and the clock-binding value SHALL each charge one
-container plus one unit per encoded byte before allocation. The exact allowance SHALL succeed and one unit
-below it SHALL refuse at the first unpaid charge with no receipt.
+Every inspected identity, component and binding SHALL be charged as work
+before inspection under FR-358. The receipt borrows its byte values and SHALL
+charge no storage for them. Each owned layout-context value SHALL charge one
+container plus one storage unit per encoded byte before allocation. IR's own
+charges SHALL use `NativeJoinLocusSource::MonitorSeed(k)`, where `k` is the
+selected occurrence's index in `clocks()`, with form `"selected_authority"`
+for step 3 and `"selected_layout_context"` or `"selected_clock_binding"` for
+step 6. The exact allowance SHALL succeed and one unit below it SHALL refuse
+at the first unpaid charge with no receipt.
 
 ### Ownership boundary
 
 The receipt and context SHALL borrow only the admitted package and the row.
 They SHALL NOT contain a second plan identity, `PlanId`, digest or hash. QSL's
-source `PlanId` remains metadata and SHALL NOT be read. The plan's identity
-is its resolved root content key, which already covers the entries, premises
-and helper call closure.
+source `PlanId` remains metadata and SHALL NOT be read. The plan's identity is
+its resolved root content key, which already covers the entries, premises and
+helper call closure.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-361-AC-1 | An IR-owned strict admitted Timed monitor package with two claim occurrences of one clause and a row naming the second occurrence returns a closure whose receipt holds that occurrence, its own clock read and the exact row bytes; a row naming the first occurrence returns the first. Dense and tick sources with equal and different exact periods give the specified success or `TimeSourceMismatch`. | Test |
-| FR-361-AC-2 | Each of an independent strict read of equal package bytes, another package, a different clause, a non-Claim role (refused by `try_new`), an absent ordinal, a model-time row against a non-Timed clock, a dense row against a tick source and a different exact period returns its named `SelectedMonitorAuthorityErrorCode` at the stated locus, with charged work and no closure; checks run in the stated order when two defects are present. Empty order or association bytes are refused by `try_new`. | Test |
-| FR-361-AC-3 | The layout context's root, entry and clause keys equal the plan's resolved structural keys; `package_lock()` and `occurrence()` are byte-equal to the admitted wire's canonical member bytes and point into the admitted buffer; `clock_binding()` for dense and tick sources equals an independently written expected RFC 8785 object with exactly the specified members, and changing period, unit or source kind changes it. | Test |
-| FR-361-AC-4 | The read with authority succeeds at its exact measured work and storage allowance; one unit below either refuses at the first unpaid authority or clock-binding charge with the original kind, amount and locus and no partial receipt; the same read on a package clone yields equal values and charges. | Test |
-| FR-361-AC-5 | API and dependency inspection shows `SelectedMonitorClosureRows::authority` is a required field, `SelectedMonitorAuthorityRow` has private fields and one fallible constructor, the model crate gains no QSL, observation or runtime dependency, no byte value is decoded or re-encoded, and no `PlanId`, digest or second identity appears in the receipt or context. | Inspection |
-| FR-361-AC-6 | In `quire-integration`, a genuine QSL plan root's admitted authority handoff, translated unchanged, binds through the closure read on the strictly read emission; the receipt bytes equal QSL's order value and the owner's association value, and a handoff from a second emission of the same source refuses `ForeignEmission`. | Test |
+| FR-361-AC-1 | An IR-owned strict admitted Timed monitor package with two claim occurrences of one clause and a row naming the second occurrence returns a closure whose receipt holds that occurrence, its own clock read and the row's exact byte slices; a row naming the first returns the first. Dense and tick sources with equal and different exact periods give the specified success or `TimeSourceMismatch`. | Test |
+| FR-361-AC-2 | Each of an independent strict read of equal package bytes, another package, a different clause, an absent ordinal, a configured clock, a dense row against a tick source and a different exact period returns its named `SelectedMonitorAuthorityErrorCode` at the stated locus, with charged work and no closure. Paired defects show the stated authority check order; a model-row defect beside an authority defect reports the model row, and an authority defect beside a source-row or equality defect reports the authority. `try_new` returns `SelectedMonitorAuthorityRowError` with component `Occurrence`, `OrderValue` or `ProgressAssociation` for a non-Claim role, an empty order value and an empty association value. | Test |
+| FR-361-AC-3 | The root, entry and clause keys equal the plan's resolved structural keys. `package_lock()` and `occurrence()` are byte-equal to the corresponding member bytes of the admitted input. `profile()` and `clock_binding()` for dense and tick sources equal independently written expected RFC 8785 values with exactly the specified members; changing the model, tick operation, unit, period, source kind or profile each changes `clock_binding()`. | Test |
+| FR-361-AC-4 | The read succeeds at its exact measured work and storage allowance; one unit below either refuses at the first unpaid authority or layout-context charge with its kind, amount and `MonitorSeed` locus and no partial receipt; the same read on a package clone yields equal values and charges. | Test |
+| FR-361-AC-5 | API and dependency inspection shows `SelectedMonitorClosureRows::authority` is a required field, the row has private fields and one fallible constructor and borrows its byte values, the model crate gains no QSL, observation or runtime dependency, no byte value is decoded or re-encoded, no raw input buffer is retained, and no `PlanId`, digest or second identity appears. | Inspection |
+| FR-361-AC-6 | In `quire-integration`, a genuine `AdmittedPlanAuthority` row binds through the closure read on its own `admitted_package()`; the receipt bytes equal QSL's order value and the owner's association value. The same row against the package of a second admission of the same plan root's bytes refuses `ForeignEmission`. Depends on the QSL seam above. | Test |
 
 ## Dependencies
 
 - [FR-357](./FR-357-project-selected-generated-type-closure.md) owns the closure
   read this requirement extends; [FR-358](./FR-358-compose-native-identity-join-budget.md)
-  owns the shared budget; FR-038 owns the admitted clock read (FR-038-AC-470,
-  FR-038-AC-484) and the admission capability (FR-038-AC-492).
+  owns the shared budget; FR-038 owns strict canonical admission, the admitted
+  clock and model-time reads (FR-038-AC-470, FR-038-AC-484) and the admission
+  capability (FR-038-AC-492).
 - QSL [FR-251](ix://agent-ix/quire-spec-language/FR-251) (AC-45 through
-  AC-48) owns the order value, the same-emission handoff and the comparison of
-  original checker identities; the observation owner's FR-004 owns the
-  association value and its admission.
+  AC-48) and the seam above own the order value, the same-emission admission
+  and the comparison of original checker identities; the observation owner's
+  FR-004 owns the association value.
 - The driver's [FR-019](ix://agent-ix/quire-driver/FR-019) consumes the receipt
   and the context to fill runtime `Layout`.

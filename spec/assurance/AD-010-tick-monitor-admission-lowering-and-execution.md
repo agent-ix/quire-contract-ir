@@ -66,11 +66,10 @@ component dependencies.
 
 ```mermaid
 flowchart LR
-  QSL["QSL PlanRoot<br/>plan, obligations, emission"] -->|emission bytes| R["IR strict read<br/>CheckedPackageV2"]
-  QSL -->|budgeted adapters: IR-owned rows| D["Driver prepare_monitor"]
-  QSL -->|authority handoff: order value,<br/>association value, clause, occurrence| D
-  OBS["Observation owner<br/>association value"] --> QSL
-  R --> D
+  OBS["Observation owner<br/>progress view"] --> A
+  QSL["QSL PlanRoot<br/>plan, obligations, emission"] --> A["QSL admit_authority<br/>one strict read, order value,<br/>association value"]
+  A -->|AdmittedPlanAuthority:<br/>admitted package, binding, bytes| D["Driver prepare_monitor"]
+  QSL -->|budgeted adapters: IR-owned rows| D
   D -->|rows + authority row + budget| C["IR closure read<br/>SelectedMonitorTypeClosure"]
   C -->|closure, receipt, layout context| D
   D -->|ProgramParts| P["RT Program::try_new"]
@@ -80,14 +79,19 @@ flowchart LR
 1. QSL emits one `PlanRoot` for an independently selected clause and target.
    Its accessors are read-only; its `Emission` carries the plan-root bytes
    and every witness row of the same acquisition.
-2. The driver strictly reads the emission into one `CheckedPackageV2` and
-   compares it with the independently selected package instance.
-3. The driver obtains same-emission rows through QSL's budgeted adapters,
-   which return IR-owned row types, and QSL's authority handoff, which it
-   translates unchanged into `SelectedMonitorAuthorityRow`.
-4. IR's one closure read checks authority, joins every reached row, projects
-   Exact and nominal facts, reads admitted equality decisions, and returns
-   the closure, the receipt and the layout context, or one typed refusal.
+2. QSL's `PlanRoot::admit_authority` consumes the plan root with the
+   independent selection and the observation progress view, makes the one
+   strict IR read of the final emission, admits the order and association
+   values, and returns `AdmittedPlanAuthority`, which owns the root, the
+   admitted package and both values.
+3. The driver uses that authority's `admitted_package()` as the only admitted
+   package. It obtains same-emission rows through QSL's budgeted adapters,
+   which return IR-owned row types, and builds `SelectedMonitorAuthorityRow`
+   from the authority's admission binding, components and borrowed bytes.
+4. IR's one closure read over that package checks authority, joins every
+   reached row, projects Exact and nominal facts, reads admitted equality
+   decisions, and returns the closure, the receipt and the layout context, or
+   one typed refusal.
 5. The driver lowers the four entries' reachable closure into the RT function
    and expression arenas, builds the canonical `TypeEnvironment` and `Layout`,
    and moves them into `Program::try_new`.
@@ -99,9 +103,9 @@ flowchart LR
 
 | Seam | Provider | Consumer | Contract |
 | --- | --- | --- | --- |
-| Emission bytes and witness rows | QSL | IR, driver | QSL FR-251 Outputs; FR-038 strict reader. |
+| Emission bytes and witness rows | QSL | QSL's own strict read, driver | QSL FR-251 Outputs; FR-038 strict reader. |
 | Budgeted row adapters returning IR-owned rows | QSL | driver | Each takes the caller's `&mut NativeJoinBudget`, charges before every owned allocation, and on denial returns the IR denied charge and locus unchanged with no rows (driver FR-019 seam table). |
-| Same-emission authority handoff | QSL (with the observation owner's value) | driver | QSL FR-251-AC-45 through AC-48; components listed in FR-361 Inputs. |
+| `PlanRoot::admit_authority` and `AdmittedPlanAuthority` | QSL (with the observation owner's value) | driver | QSL FR-251-AC-45 through AC-48; the seam requirements of FR-361. |
 | `SelectedMonitorAuthorityRow`, closure read, receipt and layout context | IR | driver | FR-357, FR-361. |
 | `NativeJoinBudget` `resume` and `accounted_charge` | IR | QSL adapters, driver | FR-358. |
 | `ProgramParts`, `Program::try_new` | RT | driver | RT interface-002, FR-276. |
@@ -125,12 +129,13 @@ limits:
 
 | Phase | Charger | Charged before |
 | --- | --- | --- |
-| P1 selection | driver | final-subject comparisons, partial selection, clock admission |
-| P2 identity rows | QSL `identity_rows` | the native join and each owned record, member and union allocation |
-| P3 row adapters | QSL adapters | equality witness rows, source enum rows, model enum shape rows, collection rows |
-| P4 authority row | driver | copying the order and association bytes |
-| P5 closure | IR | every inspection, join, projection, receipt and context allocation |
-| P6 lowering | driver | every arena, environment, layout and diagnostic allocation |
+| P1 authority admission | QSL `admit_authority` | its selection checks, the strict read and both canonical values |
+| P2 selection | driver | final-subject comparisons, partial selection, clock admission |
+| P3 identity rows | QSL `identity_rows` | the native join and each owned record, member and union allocation |
+| P4 row adapters | QSL adapters | equality witness rows, source enum rows, model enum shape rows, collection rows |
+| P5 authority row | driver | inspecting the handoff components; the row borrows the order and association bytes, so no storage is charged |
+| P6 closure | IR | every inspection, join, projection, receipt and context allocation |
+| P7 lowering | driver | every arena, environment, layout and diagnostic allocation |
 
 A denial anywhere returns the first unpaid kind, attempted amount and
 non-owning locus, with no partial result and no reset. Cancellation is
@@ -148,8 +153,8 @@ Each component consumes only the public seams named here.
 | --- | --- |
 | Observation owner | Nothing in this pipeline. |
 | Plan producer (QSL) | The observation owner's association value and its structural identities; IR's `NativeJoinBudget`, `NativeJoinLocusSource` and IR-owned row types for its budgeted adapters. |
-| Contract IR | The emission bytes it strictly reads; the IR-owned rows and authority row supplied to the closure read. It consumes no QSL, observation or runtime type. |
-| Driver | QSL's `PlanRoot` accessors, adapters and authority handoff; IR's strict reader, closure read, receipt, layout context and budget; RT's `ProgramParts` and `Program::try_new`. |
+| Contract IR | The emission bytes QSL asks it to read strictly; the IR-owned rows and authority row supplied to the closure read. It consumes no QSL, observation or runtime type. |
+| Driver | QSL's `admit_authority`, `AdmittedPlanAuthority` and adapters; IR's closure read, receipt, layout context and budget; RT's `ProgramParts` and `Program::try_new`. |
 | Runtime | `ProgramParts` and the caller's `StepBudget`. It consumes no IR, QSL or driver type. |
 
 A component's IR-owned criteria that use only fixtures need nothing from
@@ -165,9 +170,11 @@ it crosses.
   takes no QSL, observation or runtime dependency.
 - IR supplies the canonical clock-binding value and the lock and occurrence
   bytes, because it owns the admitted facts they encode.
-- The driver's private operating ledger is replaced by the shared
-  `NativeJoinBudget`; storage is counted in that budget's logical units with
-  no release.
+- Preparation has one meter, the shared `NativeJoinBudget`; storage is counted
+  in its logical units with no release.
+- The order and association bytes are borrowed from QSL's admitted authority
+  by the row and the receipt, and copied exactly once, by the driver, into
+  `Layout` during P7.
 
 ## Risks
 
