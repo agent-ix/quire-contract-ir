@@ -1392,7 +1392,7 @@ fn sum_package(
     ] {
         package.add(name, &all);
     }
-    package.bounded("Bm", "unit_m", "-5/1", "5/1");
+    package.bounded("Bm", "unit_m", "-5", "5");
     let unit = package.ids["unit_m"].clone();
     let integer = package.ids["integer"].clone();
     let compound = json!({"package":package.wire["name"],
@@ -1589,7 +1589,7 @@ fn carried_sum_cs03_laws_then_required_mode_precede_types() {
         let (mut package, at) = sum_package("Q", bound, "Q", "Q", mode);
         if law {
             package.wire["semantic_graph"]["nodes"][at]["body"]["operation"]["laws"] = json!([
-                {"role":"integer_division","definition":{"package":"quire.math.integer/v1","name":"euclidean"}}
+                {"role":"integer_division","definition":{"authority":"quire.math.integer/v1","identity":"euclidean"}}
             ]);
         }
         assert_sum_refusal(
@@ -1638,5 +1638,48 @@ fn carried_sum_cs06_requires_carried_member_and_unique_identity() {
                 json!("quire.op.collection.sum.quantity");
         }
         assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-520")]
+#[test]
+fn ordinary_quantity_sum_refuses_a_carried_type_argument() {
+    let (mut package, at) = sum_package("Q", "Q", "Q", "Q", Some("exact"));
+    package.wire["semantic_graph"]["nodes"][at]["body"]["operation"]["identity"] =
+        json!("quire.op.collection.sum.quantity");
+    assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
+}
+
+#[trace("TC-048", "FR-038-AC-518")]
+#[test]
+fn quantity_sum_bound_constraint_compares_the_binder_parameter_type() {
+    let (mut package, at) = sum_package("Q", "unit_cm", "unit_m", "unit_m", Some("exact"));
+    package.wire["semantic_graph"]["nodes"][at]["body"]["operation"]["identity"] =
+        json!("quire.op.collection.sum.quantity");
+    assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
+}
+
+#[trace("TC-048", "FR-038-AC-515")]
+#[test]
+fn carried_sum_fixture_parameters_and_domains_admit_without_an_operation() {
+    for base in ["Q", "Qd", "q_rat"] {
+        let (mut package, at) = sum_package(base, base, base, base, Some("exact"));
+        package.wire["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .remove(at);
+        let result = package.read();
+        let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+            panic!("{base} fixture: {result:?}");
+        };
+        assert_eq!(
+            admitted
+                .graph()
+                .nodes
+                .iter()
+                .filter(|node| node.semantic_form.as_ref() == "parameter")
+                .count(),
+            2
+        );
     }
 }
