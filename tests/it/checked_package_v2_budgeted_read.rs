@@ -93,9 +93,9 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
 }
 
 /// The read's reservations are exact: the measured requirement admits, one
-/// byte below is denied at the last request, at its locus (the selected model
-/// document's declarations, the last stage to request heap), with the bytes
-/// asked.
+/// byte below is denied at the last request, at its locus (the term walk of
+/// the graph's last `value` node, the last stage to request heap), with the
+/// bytes asked.
 #[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
 fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
@@ -121,25 +121,24 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
     assert_eq!(short.first_unpaid(), None);
     assert_eq!(
         short.first_unpaid_locus(),
-        Some(envelope_locus(
-            PackageReadStage::ModelDocument,
-            "declarations"
-        ))
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 24),
+            form: "value",
+        })
     );
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
-    // The denied request belongs to the model document's declarations, so
-    // its stop carries the owner's pointer, which the one byte left cannot
-    // pay for: the fixed-size outcome at the request's locus.
-    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = result else {
-        panic!("a denial that owns a pointer is unaffordable: {result:?}");
+    // The denied request belongs to the term walk of a node, so the stop is
+    // incomplete at the node's body, which the budget can still name.
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {
+        panic!("a denial at a node is incomplete at its body: {result:?}");
     };
-    assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(exhausted.denied.amount, asked);
-    assert_eq!(exhausted.configured_bound, required - 1);
+    assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
+    assert_eq!(incomplete.denied.amount, asked);
+    assert_eq!(incomplete.limit, required - 1);
     assert_eq!(
-        exhausted.locus,
-        envelope_locus(PackageReadStage::ModelDocument, "declarations")
+        incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/24/body")
     );
     assert!(short.read_storage_consumed() < required);
 }

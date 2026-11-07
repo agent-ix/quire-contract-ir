@@ -1066,6 +1066,29 @@ pub(super) struct Budget<'w, 'b> {
     /// The stage and index heap requests and work are located at.
     stage: PackageReadStage,
     index: usize,
+    /// The value a refused request reports as the one whose request failed.
+    place: Place,
+}
+
+/// Where a refused request of a [`Budget`] points.
+#[derive(Clone, Copy)]
+enum Place {
+    /// The selected package's `model_root` owner.
+    Owner,
+    /// The entry of the lock array `member` at the budget's index.
+    Lock(&'static str),
+    /// The body of the graph node at the budget's index.
+    Node,
+}
+
+impl Place {
+    fn pointer(self, root: usize, index: usize) -> JsonPointer {
+        match self {
+            Self::Owner => crate::checked_package::common::node_pointer(root).key("owner"),
+            Self::Lock(member) => JsonPointer::root().key("lock").key(member).index(index),
+            Self::Node => crate::checked_package::common::node_pointer(index).key("body"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1121,6 +1144,33 @@ impl<'w, 'b> Budget<'w, 'b> {
             bytes,
             stage: PackageReadStage::ModelDocument,
             index: 0,
+            place: Place::Owner,
+        }
+    }
+
+    /// A budget for the lock stage, whose refusals point at the entry of the
+    /// lock array `member` that [`Budget::at`] names.
+    pub(super) fn lock(meter: &'w mut WorkMeter<'b>, member: &'static str) -> Self {
+        Self {
+            meter,
+            root: 0,
+            bytes: 0,
+            stage: PackageReadStage::Lock,
+            index: 0,
+            place: Place::Lock(member),
+        }
+    }
+
+    /// A budget for the graph node at `node`, whose refusals point at the
+    /// node's body.
+    pub(super) fn node(meter: &'w mut WorkMeter<'b>, node: usize) -> Self {
+        Self {
+            meter,
+            root: 0,
+            bytes: 0,
+            stage: PackageReadStage::Graph,
+            index: node,
+            place: Place::Node,
         }
     }
 
@@ -1135,9 +1185,14 @@ impl<'w, 'b> Budget<'w, 'b> {
         self.meter.consumed()
     }
 
+    /// Locates this budget's following charges at `index`.
+    pub(super) fn set_index(&mut self, index: usize) {
+        self.index = index;
+    }
+
     /// The pointer of the root owner this budget is charged at.
     pub(super) fn row(&self) -> JsonPointer {
-        crate::checked_package::common::node_pointer(self.root).key("owner")
+        self.place.pointer(self.root, self.index)
     }
 
     fn locus(&self, form: &'static str) -> NativeJoinLocus {
@@ -1162,10 +1217,23 @@ impl<'w, 'b> Budget<'w, 'b> {
         if let Some(budget) = self.meter.budget_mut() {
             budget.set_active_locus(Some(locus));
         }
-        let root = self.root;
-        self.meter.charge(work, || {
-            crate::checked_package::common::node_pointer(root).key("owner")
-        })
+        let (place, root, index) = (self.place, self.root, self.index);
+        self.meter.charge(work, || place.pointer(root, index))
+    }
+
+    /// Charges `work` at this budget's locus under `form`, a failed charge
+    /// reporting `at`.
+    pub(super) fn charge_at(
+        &mut self,
+        work: u64,
+        form: &'static str,
+        at: impl FnOnce() -> JsonPointer,
+    ) -> Result<(), ValidationFailure> {
+        let locus = self.locus(form);
+        if let Some(budget) = self.meter.budget_mut() {
+            budget.set_active_locus(Some(locus));
+        }
+        self.meter.charge(work, at)
     }
 
     /// Admits a request for `bytes` of heap at this budget's locus under
@@ -1180,7 +1248,7 @@ impl<'w, 'b> Budget<'w, 'b> {
             return Ok(());
         }
         let locus = self.locus(form);
-        let root = self.root;
+        let (place, root, index) = (self.place, self.root, self.index);
         let Some(budget) = self.meter.budget_mut() else {
             return Ok(());
         };
@@ -1188,8 +1256,10 @@ impl<'w, 'b> Budget<'w, 'b> {
         if budget.charge_read_storage(bytes as u128) {
             Ok(())
         } else {
-            let row = crate::checked_package::common::node_pointer(root).key("owner");
-            Err(read_storage_denial(budget, Some(row)))
+            Err(read_storage_denial(
+                budget,
+                Some(place.pointer(root, index)),
+            ))
         }
     }
 
