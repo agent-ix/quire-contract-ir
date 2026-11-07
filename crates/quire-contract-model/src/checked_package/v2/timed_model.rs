@@ -577,7 +577,6 @@ use super::{
     TemporalForm, TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::shared::CheckedPackageRefusalCause;
-use num_bigint::BigUint;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1446,40 +1445,34 @@ fn check_quantified_binders(
 
 type SourceOrderKey<'a> = (&'a str, u64, u64);
 
-#[derive(Clone, Debug)]
-enum OrderPart {
-    End,
-    Word(String),
-    Number(u64),
-    Infinity,
-    Ratio(BigUint, BigUint),
-    Start,
+/// A word of an order key: borrowed from the graph when the package spells
+/// it, otherwise formatted into a block charged first.
+#[derive(Debug)]
+enum Word<'g> {
+    Borrowed(&'g str),
+    Owned(Box<str>),
 }
 
-impl PartialEq for OrderPart {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl Eq for OrderPart {}
-
-impl Ord for OrderPart {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Self::End, Self::End) | (Self::Start, Self::Start) => Ordering::Equal,
-            (Self::Word(left), Self::Word(right)) => left.cmp(right),
-            (Self::Number(left), Self::Number(right)) => left.cmp(right),
-            (Self::Infinity, Self::Infinity) => Ordering::Equal,
-            (Self::Ratio(left_n, left_d), Self::Ratio(right_n, right_d)) => {
-                (left_n * right_d).cmp(&(right_n * left_d))
-            }
-            _ => self.rank().cmp(&other.rank()),
+impl Word<'_> {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Borrowed(text) => text,
+            Self::Owned(text) => text,
         }
     }
 }
 
-impl OrderPart {
+#[derive(Debug)]
+enum OrderPart<'g> {
+    End,
+    Word(Word<'g>),
+    Number(u64),
+    Infinity,
+    Ratio(quire_exact::Integer, quire_exact::Integer),
+    Start,
+}
+
+impl OrderPart<'_> {
     fn rank(&self) -> u8 {
         match self {
             Self::End => 0,
@@ -1490,19 +1483,45 @@ impl OrderPart {
             Self::Start => 5,
         }
     }
-}
 
-impl PartialOrd for OrderPart {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+    /// The order of two parts. Two ratios compare by cross multiplication,
+    /// each product's limb blocks charged before they are requested.
+    fn compare(&self, other: &Self, meter: &mut WorkMeter) -> Result<Ordering, ValidationFailure> {
+        Ok(match (self, other) {
+            (Self::End, Self::End) | (Self::Start, Self::Start) => Ordering::Equal,
+            (Self::Word(left), Self::Word(right)) => left.as_str().cmp(right.as_str()),
+            (Self::Number(left), Self::Number(right)) => left.cmp(right),
+            (Self::Infinity, Self::Infinity) => Ordering::Equal,
+            (Self::Ratio(left_n, left_d), Self::Ratio(right_n, right_d)) => {
+                let left = meter.exact_mul(left_n, right_d)?;
+                let right = meter.exact_mul(right_n, left_d)?;
+                left.cmp(&right)
+            }
+            _ => self.rank().cmp(&other.rank()),
+        })
     }
 }
 
-fn quantity_key(
+/// Lexicographic order of two keys, a shorter prefix first.
+fn compare_keys(
+    left: &[OrderPart<'_>],
+    right: &[OrderPart<'_>],
+    meter: &mut WorkMeter,
+) -> Result<Ordering, ValidationFailure> {
+    for (left, right) in left.iter().zip(right) {
+        match left.compare(right, meter)? {
+            Ordering::Equal => {}
+            order => return Ok(order),
+        }
+    }
+    Ok(left.len().cmp(&right.len()))
+}
+
+fn quantity_key<'g>(
     term: Option<&CheckedTerm>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
-) -> Result<Option<OrderPart>, ValidationFailure> {
+) -> Result<Option<OrderPart<'g>>, ValidationFailure> {
     let Some(value) = term.and_then(spelling) else {
         return Ok(None);
     };
@@ -1513,138 +1532,199 @@ fn quantity_key(
     let Some(exact) = ExactMagnitude::from_wire(value) else {
         return Ok(None);
     };
-    Ok(BigUint::parse_bytes(exact.numerator.as_bytes(), 10)
-        .zip(BigUint::parse_bytes(exact.denominator.as_bytes(), 10))
-        .map(|(numerator, denominator)| OrderPart::Ratio(numerator, denominator)))
+    let (Some(numerator), Some(denominator)) = (
+        meter.exact_integer(exact.numerator)?,
+        meter.exact_integer(exact.denominator)?,
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some(OrderPart::Ratio(numerator, denominator)))
 }
 
 /// Flatten the nested structural term key with explicit list delimiters.
 /// A reference is replaced by its target's form and body; node ids and
 /// source regions therefore cannot decide the order of a shared term.
-fn term_key(
-    graph: &Graph<'_>,
-    term: Option<&CheckedTerm>,
+/// `active` marks the positions on the current reference path, all clear on
+/// entry and on return.
+fn term_key<'g>(
+    graph: &Graph<'g>,
+    term: Option<&'g CheckedTerm>,
+    active: &mut [bool],
     meter: &mut WorkMeter,
     at: &JsonPointer,
-) -> Result<Option<Vec<OrderPart>>, ValidationFailure> {
-    enum Visit<'a> {
-        Term(&'a CheckedTerm),
-        Atom(OrderPart),
+) -> Result<Option<Vec<OrderPart<'g>>>, ValidationFailure> {
+    enum Visit<'g> {
+        Term(&'g CheckedTerm),
+        Atom(OrderPart<'g>),
         Exit(usize),
     }
-    let mut key = Vec::new();
-    let mut active = BTreeSet::new();
     let Some(term) = term else {
         return Ok(None);
     };
-    let mut pending = vec![Visit::Term(term)];
-    while let Some(visit) = pending.pop() {
-        meter.charge(1, || at.clone())?;
-        match visit {
-            Visit::Atom(atom) => key.push(atom),
-            Visit::Exit(position) => {
-                active.remove(&position);
-            }
-            Visit::Term(CheckedTerm::Reference { target }) => {
-                let Some(&position) = graph.index.get(target) else {
-                    return Ok(None);
-                };
-                if !active.insert(position) {
-                    return Ok(None);
+    let terms: &'g [Option<CheckedTerm>] = graph.terms;
+    let mut key: Vec<OrderPart<'g>> = Vec::new();
+    let mut pending: Vec<Visit<'g>> = meter.vec(1)?;
+    pending.push(Visit::Term(term));
+    let outcome = 'walk: {
+        while let Some(visit) = pending.pop() {
+            meter.charge(1, || at.clone())?;
+            match visit {
+                Visit::Atom(atom) => meter.push(&mut key, atom)?,
+                Visit::Exit(position) => {
+                    if let Some(mark) = active.get_mut(position) {
+                        *mark = false;
+                    }
                 }
-                let Some(body) = graph.terms.get(position).and_then(Option::as_ref) else {
-                    return Ok(None);
-                };
-                let Some(kind) = graph.kinds.get(position) else {
-                    return Ok(None);
-                };
-                pending.push(Visit::Exit(position));
-                pending.push(Visit::Atom(OrderPart::End));
-                pending.push(Visit::Term(body));
-                pending.push(Visit::Atom(OrderPart::Word(format!("{kind:?}"))));
-                pending.push(Visit::Atom(OrderPart::Start));
+                Visit::Term(CheckedTerm::Reference { target }) => {
+                    let Some(&position) = graph.index.get(target) else {
+                        break 'walk None;
+                    };
+                    match active.get_mut(position) {
+                        Some(mark) if !*mark => *mark = true,
+                        _ => break 'walk None,
+                    }
+                    let Some(body) = terms.get(position).and_then(Option::as_ref) else {
+                        break 'walk None;
+                    };
+                    let Some(kind) = graph.kinds.get(position) else {
+                        break 'walk None;
+                    };
+                    let word = meter.formatted(format_args!("{kind:?}"))?;
+                    meter.room(&mut pending, 5)?;
+                    pending.push(Visit::Exit(position));
+                    pending.push(Visit::Atom(OrderPart::End));
+                    pending.push(Visit::Term(body));
+                    pending.push(Visit::Atom(OrderPart::Word(Word::Owned(word))));
+                    pending.push(Visit::Atom(OrderPart::Start));
+                }
+                Visit::Term(CheckedTerm::Aggregate { members }) => {
+                    meter.room(&mut pending, members.len() + 2)?;
+                    pending.push(Visit::Atom(OrderPart::End));
+                    pending.extend(members.iter().rev().map(Visit::Term));
+                    pending.push(Visit::Atom(OrderPart::Start));
+                }
+                Visit::Term(CheckedTerm::Binding { name, value }) => {
+                    meter.room(&mut pending, 4)?;
+                    pending.push(Visit::Atom(OrderPart::End));
+                    pending.push(Visit::Term(value));
+                    pending.push(Visit::Atom(OrderPart::Word(Word::Borrowed(name))));
+                    pending.push(Visit::Atom(OrderPart::Start));
+                }
+                Visit::Term(CheckedTerm::Literal {
+                    value_kind, value, ..
+                }) => {
+                    let spelled = match value.as_str() {
+                        Some(text) => Word::Borrowed(text),
+                        None => Word::Owned(meter.formatted(format_args!("{value}"))?),
+                    };
+                    let kind = meter.formatted(format_args!("{value_kind:?}"))?;
+                    meter.room(&mut pending, 4)?;
+                    pending.push(Visit::Atom(OrderPart::End));
+                    pending.push(Visit::Atom(OrderPart::Word(spelled)));
+                    pending.push(Visit::Atom(OrderPart::Word(Word::Owned(kind))));
+                    pending.push(Visit::Atom(OrderPart::Start));
+                }
+                Visit::Term(CheckedTerm::Application {
+                    operator,
+                    arguments,
+                    ..
+                }) => {
+                    let word = meter.formatted(format_args!("{operator:?}"))?;
+                    meter.room(&mut pending, arguments.len() + 5)?;
+                    pending.push(Visit::Atom(OrderPart::End));
+                    pending.push(Visit::Atom(OrderPart::End));
+                    pending.extend(arguments.iter().rev().map(Visit::Term));
+                    pending.push(Visit::Atom(OrderPart::Start));
+                    pending.push(Visit::Atom(OrderPart::Word(Word::Owned(word))));
+                    pending.push(Visit::Atom(OrderPart::Start));
+                }
+                // These closed bodies cannot be owner, slot, binder or predicate
+                // terms. Leave their typed refusal to the later per-node join.
+                Visit::Term(_) => break 'walk None,
             }
-            Visit::Term(CheckedTerm::Aggregate { members }) => {
-                pending.push(Visit::Atom(OrderPart::End));
-                pending.extend(members.iter().rev().map(Visit::Term));
-                pending.push(Visit::Atom(OrderPart::Start));
+        }
+        Some(())
+    };
+    for visit in pending {
+        if let Visit::Exit(position) = visit {
+            if let Some(mark) = active.get_mut(position) {
+                *mark = false;
             }
-            Visit::Term(CheckedTerm::Binding { name, value }) => {
-                pending.push(Visit::Atom(OrderPart::End));
-                pending.push(Visit::Term(value));
-                pending.push(Visit::Atom(OrderPart::Word(name.to_string())));
-                pending.push(Visit::Atom(OrderPart::Start));
-            }
-            Visit::Term(CheckedTerm::Literal {
-                value_kind, value, ..
-            }) => {
-                pending.push(Visit::Atom(OrderPart::End));
-                pending.push(Visit::Atom(OrderPart::Word(
-                    value
-                        .as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| value.to_string()),
-                )));
-                pending.push(Visit::Atom(OrderPart::Word(format!("{value_kind:?}"))));
-                pending.push(Visit::Atom(OrderPart::Start));
-            }
-            Visit::Term(CheckedTerm::Application {
-                operator,
-                arguments,
-                ..
-            }) => {
-                pending.push(Visit::Atom(OrderPart::End));
-                pending.push(Visit::Atom(OrderPart::End));
-                pending.extend(arguments.iter().rev().map(Visit::Term));
-                pending.push(Visit::Atom(OrderPart::Start));
-                pending.push(Visit::Atom(OrderPart::Word(format!("{operator:?}"))));
-                pending.push(Visit::Atom(OrderPart::Start));
-            }
-            // These closed bodies cannot be owner, slot, binder or predicate
-            // terms. Leave their typed refusal to the later per-node join.
-            Visit::Term(_) => return Ok(None),
         }
     }
-    Ok(Some(key))
+    Ok(outcome.map(|()| key))
 }
 
-fn place_path_key(graph: &Graph<'_>, place: usize) -> Option<Vec<OrderPart>> {
-    let body = graph.terms.get(place)?.as_ref()?;
-    let mut key = vec![OrderPart::Start];
-    for step in bound(body, 1).map(typed_members)? {
-        match path_step_kind(step)? {
+/// Gives a key `more` parts, charged first.
+fn append<'g>(
+    meter: &mut WorkMeter,
+    key: &mut Vec<OrderPart<'g>>,
+    more: Vec<OrderPart<'g>>,
+) -> Result<(), ValidationFailure> {
+    meter.room(key, more.len())?;
+    key.extend(more);
+    Ok(())
+}
+
+macro_rules! need {
+    ($value:expr) => {
+        match $value {
+            Some(value) => value,
+            None => return Ok(None),
+        }
+    };
+}
+
+fn place_path_key<'g>(
+    graph: &Graph<'g>,
+    place: usize,
+    meter: &mut WorkMeter,
+) -> Result<Option<Vec<OrderPart<'g>>>, ValidationFailure> {
+    let terms: &'g [Option<CheckedTerm>] = graph.terms;
+    let body = need!(terms.get(place).and_then(Option::as_ref));
+    let steps = need!(bound(body, 1).map(typed_members));
+    // At most five parts a step, between the opening and closing marks.
+    let mut key: Vec<OrderPart<'g>> = meter.vec(steps.len().saturating_mul(5).saturating_add(2))?;
+    key.push(OrderPart::Start);
+    for step in steps {
+        match need!(path_step_kind(step)) {
             PathStepKind::Field => {
                 key.push(OrderPart::Number(0));
-                key.push(OrderPart::Word(text_member(step, 1)?.to_owned()));
+                key.push(OrderPart::Word(Word::Borrowed(need!(text_member(step, 1)))));
             }
             PathStepKind::Union => {
                 key.push(OrderPart::Number(2));
-                key.push(OrderPart::Word(text_member(step, 1)?.to_owned()));
+                key.push(OrderPart::Word(Word::Borrowed(need!(text_member(step, 1)))));
             }
             PathStepKind::Tuple => {
                 key.push(OrderPart::Number(1));
-                key.push(OrderPart::Number(bound(step, 1).and_then(integer_value)?));
+                key.push(OrderPart::Number(need!(
+                    bound(step, 1).and_then(integer_value)
+                )));
             }
             PathStepKind::Slot => {
                 key.push(OrderPart::Number(3));
-                key.push(OrderPart::Word(text_member(step, 1)?.to_owned()));
-                key.push(OrderPart::Number(bound(step, 3).and_then(integer_value)?));
+                key.push(OrderPart::Word(Word::Borrowed(need!(text_member(step, 1)))));
+                key.push(OrderPart::Number(need!(
+                    bound(step, 3).and_then(integer_value)
+                )));
                 key.push(if text_member(step, 4) == Some("unbounded") {
                     OrderPart::Infinity
                 } else {
-                    OrderPart::Number(bound(step, 4).and_then(integer_value)?)
+                    OrderPart::Number(need!(bound(step, 4).and_then(integer_value)))
                 });
             }
         }
     }
     key.push(OrderPart::End);
-    Some(key)
+    Ok(Some(key))
 }
 
-fn operation_name(graph: &Graph<'_>, term: Option<&CheckedTerm>) -> Option<String> {
+fn operation_name<'g>(graph: &Graph<'g>, term: Option<&CheckedTerm>) -> Option<&'g str> {
+    let terms: &'g [Option<CheckedTerm>] = graph.terms;
     let position = *graph.index.get(typed_target(term?)?)?;
-    let body = graph.terms.get(position)?.as_ref()?;
-    bound(body, 1).and_then(spelling).map(str::to_owned)
+    let body = terms.get(position)?.as_ref()?;
+    bound(body, 1).and_then(spelling)
 }
 
 #[derive(Clone, Copy)]
@@ -1653,123 +1733,176 @@ enum Shape {
     Quantity,
 }
 
-fn structural_order_key_inner(
-    graph: &Graph<'_>,
-    position: usize,
-    shape: &mut impl FnMut(Option<&CheckedTerm>, Shape) -> Option<Vec<OrderPart>>,
-) -> Option<Vec<OrderPart>> {
-    let body = graph.terms.get(position)?.as_ref()?;
-    let kind = graph.kinds.get(position)?;
-    let mut key = Vec::new();
-    match kind {
-        CheckedNodeKind::TimedModel(TimedModelForm::Place) => {
-            return place_path_key(graph, position)
-        }
-        CheckedNodeKind::TimedModel(TimedModelForm::Constraint) => {
-            if bound(body, 0).and_then(spelling) == Some("place") {
-                key.push(OrderPart::Number(0));
-                let place = *graph.index.get(typed_target(bound(body, 1)?)?)?;
-                key.extend(place_path_key(graph, place)?);
-                key.extend(shape(bound(body, 2), Shape::Term)?);
-                key.push(OrderPart::Start);
-                for slot in bound(body, 3).map(typed_members)? {
-                    key.extend(shape(Some(slot), Shape::Term)?);
-                }
-                key.push(OrderPart::End);
-                key.push(OrderPart::Number(comparison_rank(
-                    bound(body, 4).and_then(spelling)?,
-                )?));
-                key.extend(shape(bound(body, 5), Shape::Quantity)?);
-            } else {
-                key.push(OrderPart::Number(1));
-                key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
-                key.push(OrderPart::Word(text_member(body, 2)?.to_owned()));
-                key.push(OrderPart::Number(comparison_rank(
-                    bound(body, 3).and_then(spelling)?,
-                )?));
-                key.extend(shape(bound(body, 4), Shape::Quantity)?);
-            }
-        }
-        CheckedNodeKind::TimedModel(TimedModelForm::Reset) => {
-            if bound(body, 0).and_then(spelling) == Some("place") {
-                key.push(OrderPart::Number(0));
-                let place = *graph.index.get(typed_target(bound(body, 2)?)?)?;
-                key.extend(place_path_key(graph, place)?);
-                key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
-                key.extend(shape(bound(body, 6), Shape::Term)?);
-                key.push(OrderPart::Start);
-                for binder in bound(body, 5).map(typed_members)? {
-                    key.extend(shape(Some(binder), Shape::Term)?);
-                }
-                key.push(OrderPart::End);
-                key.extend(shape(bound(body, 3), Shape::Term)?);
-                key.push(OrderPart::Start);
-                for slot in bound(body, 4).map(typed_members)? {
-                    key.extend(shape(Some(slot), Shape::Term)?);
-                }
-                key.push(OrderPart::End);
-                key.extend(shape(bound(body, 7), Shape::Quantity)?);
-            } else {
-                key.push(OrderPart::Number(1));
-                key.push(OrderPart::Word(operation_name(graph, bound(body, 1))?));
-                key.push(OrderPart::Word(text_member(body, 2)?.to_owned()));
-                key.extend(shape(bound(body, 3), Shape::Quantity)?);
-            }
-        }
-        CheckedNodeKind::TimedModel(TimedModelForm::Guard) => {
-            key.push(OrderPart::Word(operation_name(graph, bound(body, 0))?))
-        }
-        CheckedNodeKind::TimedModel(TimedModelForm::Invariant) => {
-            key.push(OrderPart::Start);
-            let bounds_index = if is_quantified_binders(typed_members(body).get(1)) {
-                2
-            } else {
-                1
-            };
-            for bound_term in bound(body, bounds_index).map(typed_members)? {
-                let bound_position = *graph.index.get(typed_target(bound_term)?)?;
-                key.extend(structural_order_key_inner(graph, bound_position, shape)?);
-            }
-            key.push(OrderPart::End);
-            key.extend(shape(bound(body, 0), Shape::Term)?);
-        }
-        CheckedNodeKind::TimedModel(TimedModelForm::Urgency) => {
-            key.push(OrderPart::Word(text_member(body, 0)?.to_owned()));
-            key.push(OrderPart::Word(
-                text_member(body, 2).unwrap_or_default().to_owned(),
-            ));
-        }
-        _ => return None,
-    }
-    Some(key)
+/// What the key builders share: the graph, the path marks of the reference
+/// walk, the meter and where the work is charged.
+struct KeyWork<'w, 'g, 'b> {
+    graph: &'w Graph<'g>,
+    active: &'w mut [bool],
+    meter: &'w mut WorkMeter<'b>,
+    at: &'w JsonPointer,
 }
 
-fn structural_order_key(
-    graph: &Graph<'_>,
+impl<'g> KeyWork<'_, 'g, '_> {
+    fn shape(
+        &mut self,
+        term: Option<&'g CheckedTerm>,
+        shape: Shape,
+    ) -> Result<Option<Vec<OrderPart<'g>>>, ValidationFailure> {
+        match shape {
+            Shape::Term => term_key(self.graph, term, self.active, self.meter, self.at),
+            Shape::Quantity => match quantity_key(term, self.meter, self.at)? {
+                Some(part) => {
+                    let mut one = self.meter.vec(1)?;
+                    one.push(part);
+                    Ok(Some(one))
+                }
+                None => Ok(None),
+            },
+        }
+    }
+
+    /// Appends the key of `term` to `key`; `false` when it has none.
+    fn extend(
+        &mut self,
+        key: &mut Vec<OrderPart<'g>>,
+        term: Option<&'g CheckedTerm>,
+        shape: Shape,
+    ) -> Result<bool, ValidationFailure> {
+        match self.shape(term, shape)? {
+            Some(more) => {
+                append(self.meter, key, more)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    fn push(
+        &mut self,
+        key: &mut Vec<OrderPart<'g>>,
+        part: OrderPart<'g>,
+    ) -> Result<(), ValidationFailure> {
+        self.meter.push(key, part)
+    }
+
+    fn inner(&mut self, position: usize) -> Result<Option<Vec<OrderPart<'g>>>, ValidationFailure> {
+        let graph = self.graph;
+        let terms: &'g [Option<CheckedTerm>] = graph.terms;
+        let body = need!(terms.get(position).and_then(Option::as_ref));
+        let kind = need!(graph.kinds.get(position));
+        let mut key: Vec<OrderPart<'g>> = Vec::new();
+        macro_rules! got {
+            ($call:expr) => {
+                if !$call? {
+                    return Ok(None);
+                }
+            };
+        }
+        match kind {
+            CheckedNodeKind::TimedModel(TimedModelForm::Place) => {
+                return place_path_key(graph, position, self.meter);
+            }
+            CheckedNodeKind::TimedModel(TimedModelForm::Constraint) => {
+                if bound(body, 0).and_then(spelling) == Some("place") {
+                    self.push(&mut key, OrderPart::Number(0))?;
+                    let place = *need!(graph.index.get(need!(typed_target(need!(bound(body, 1))))));
+                    let path = need!(place_path_key(graph, place, self.meter)?);
+                    append(self.meter, &mut key, path)?;
+                    got!(self.extend(&mut key, bound(body, 2), Shape::Term));
+                    self.push(&mut key, OrderPart::Start)?;
+                    for slot in need!(bound(body, 3).map(typed_members)) {
+                        got!(self.extend(&mut key, Some(slot), Shape::Term));
+                    }
+                    self.push(&mut key, OrderPart::End)?;
+                    let rank = need!(comparison_rank(need!(bound(body, 4).and_then(spelling))));
+                    self.push(&mut key, OrderPart::Number(rank))?;
+                    got!(self.extend(&mut key, bound(body, 5), Shape::Quantity));
+                } else {
+                    self.push(&mut key, OrderPart::Number(1))?;
+                    let name = need!(operation_name(graph, bound(body, 1)));
+                    self.push(&mut key, OrderPart::Word(Word::Borrowed(name)))?;
+                    let member = need!(text_member(body, 2));
+                    self.push(&mut key, OrderPart::Word(Word::Borrowed(member)))?;
+                    let rank = need!(comparison_rank(need!(bound(body, 3).and_then(spelling))));
+                    self.push(&mut key, OrderPart::Number(rank))?;
+                    got!(self.extend(&mut key, bound(body, 4), Shape::Quantity));
+                }
+            }
+            CheckedNodeKind::TimedModel(TimedModelForm::Reset) => {
+                if bound(body, 0).and_then(spelling) == Some("place") {
+                    self.push(&mut key, OrderPart::Number(0))?;
+                    let place = *need!(graph.index.get(need!(typed_target(need!(bound(body, 2))))));
+                    let path = need!(place_path_key(graph, place, self.meter)?);
+                    append(self.meter, &mut key, path)?;
+                    let name = need!(operation_name(graph, bound(body, 1)));
+                    self.push(&mut key, OrderPart::Word(Word::Borrowed(name)))?;
+                    got!(self.extend(&mut key, bound(body, 6), Shape::Term));
+                    self.push(&mut key, OrderPart::Start)?;
+                    for binder in need!(bound(body, 5).map(typed_members)) {
+                        got!(self.extend(&mut key, Some(binder), Shape::Term));
+                    }
+                    self.push(&mut key, OrderPart::End)?;
+                    got!(self.extend(&mut key, bound(body, 3), Shape::Term));
+                    self.push(&mut key, OrderPart::Start)?;
+                    for slot in need!(bound(body, 4).map(typed_members)) {
+                        got!(self.extend(&mut key, Some(slot), Shape::Term));
+                    }
+                    self.push(&mut key, OrderPart::End)?;
+                    got!(self.extend(&mut key, bound(body, 7), Shape::Quantity));
+                } else {
+                    self.push(&mut key, OrderPart::Number(1))?;
+                    let name = need!(operation_name(graph, bound(body, 1)));
+                    self.push(&mut key, OrderPart::Word(Word::Borrowed(name)))?;
+                    let member = need!(text_member(body, 2));
+                    self.push(&mut key, OrderPart::Word(Word::Borrowed(member)))?;
+                    got!(self.extend(&mut key, bound(body, 3), Shape::Quantity));
+                }
+            }
+            CheckedNodeKind::TimedModel(TimedModelForm::Guard) => {
+                let name = need!(operation_name(graph, bound(body, 0)));
+                self.push(&mut key, OrderPart::Word(Word::Borrowed(name)))?;
+            }
+            CheckedNodeKind::TimedModel(TimedModelForm::Invariant) => {
+                self.push(&mut key, OrderPart::Start)?;
+                let bounds_index = if is_quantified_binders(typed_members(body).get(1)) {
+                    2
+                } else {
+                    1
+                };
+                for bound_term in need!(bound(body, bounds_index).map(typed_members)) {
+                    let bound_position = *need!(graph.index.get(need!(typed_target(bound_term))));
+                    let inner = need!(self.inner(bound_position)?);
+                    append(self.meter, &mut key, inner)?;
+                }
+                self.push(&mut key, OrderPart::End)?;
+                got!(self.extend(&mut key, bound(body, 0), Shape::Term));
+            }
+            CheckedNodeKind::TimedModel(TimedModelForm::Urgency) => {
+                let first = need!(text_member(body, 0));
+                self.push(&mut key, OrderPart::Word(Word::Borrowed(first)))?;
+                let second = text_member(body, 2).unwrap_or_default();
+                self.push(&mut key, OrderPart::Word(Word::Borrowed(second)))?;
+            }
+            _ => return Ok(None),
+        }
+        Ok(Some(key))
+    }
+}
+
+fn structural_order_key<'g>(
+    graph: &Graph<'g>,
     position: usize,
+    active: &mut [bool],
     meter: &mut WorkMeter,
     at: &JsonPointer,
-) -> Result<Option<Vec<OrderPart>>, ValidationFailure> {
-    let mut work_failure = None;
-    let key = structural_order_key_inner(graph, position, &mut |term, kind| {
-        let result = match kind {
-            Shape::Term => term_key(graph, term, meter, at),
-            Shape::Quantity => {
-                quantity_key(term, meter, at).map(|part| part.map(|part| vec![part]))
-            }
-        };
-        match result {
-            Ok(key) => key,
-            Err(failure) => {
-                work_failure = Some(failure);
-                None
-            }
-        }
-    });
-    match work_failure {
-        Some(failure) => Err(failure),
-        None => Ok(key),
+) -> Result<Option<Vec<OrderPart<'g>>>, ValidationFailure> {
+    KeyWork {
+        graph,
+        active,
+        meter,
+        at,
     }
+    .inner(position)
 }
 
 #[ix_trace_rs::string_edge]
@@ -1786,36 +1919,40 @@ fn comparison_rank(value: &str) -> Option<u64> {
 
 /// A source-map entry may add an earlier region to an existing node. Keep
 /// the minimum across every occurrence and region, independently of node id.
+/// The result is one entry per node, in id order.
 fn source_order_keys<'a>(
     source_map: &'a [CheckedSourceMapEntry],
     meter: &mut WorkMeter,
-) -> Result<BTreeMap<&'a CheckedNodeId, SourceOrderKey<'a>>, ValidationFailure> {
-    let mut keys = BTreeMap::new();
-    for entry in source_map {
+) -> Result<Vec<(&'a CheckedNodeId, SourceOrderKey<'a>)>, ValidationFailure> {
+    let regions = source_map.iter().fold(0_usize, |sum, entry| {
+        sum.saturating_add(entry.regions.len())
+    });
+    let mut keys: Vec<(&CheckedNodeId, SourceOrderKey<'_>)> = meter.vec(regions)?;
+    for (at, entry) in source_map.iter().enumerate() {
+        meter.at_row("source_map", at);
         for region in &entry.regions {
             meter.charge(1, || JsonPointer::root().key("source_map"))?;
-            let key = (region.source.identity.as_ref(), region.start, region.end);
-            keys.entry(&entry.node_id)
-                .and_modify(|minimum| {
-                    if key < *minimum {
-                        *minimum = key;
-                    }
-                })
-                .or_insert(key);
+            keys.push((
+                &entry.node_id,
+                (region.source.identity.as_ref(), region.start, region.end),
+            ));
         }
     }
+    keys.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
+    keys.dedup_by(|later, earlier| later.0 == earlier.0);
     Ok(keys)
 }
 
-fn check_reference_order(
-    graph: &Graph<'_>,
-    members: &[CheckedTerm],
+fn check_reference_order<'g>(
+    graph: &Graph<'g>,
+    members: &'g [CheckedTerm],
     at: &JsonPointer,
     first_index: usize,
-    keys: &BTreeMap<&CheckedNodeId, SourceOrderKey<'_>>,
+    keys: &[(&CheckedNodeId, SourceOrderKey<'_>)],
+    active: &mut [bool],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut previous: Option<(SourceOrderKey<'_>, Vec<OrderPart>)> = None;
+    let mut previous: Option<(SourceOrderKey<'_>, Vec<OrderPart<'g>>)> = None;
     for (index, member) in members.iter().enumerate() {
         let member_at = at.clone().key("members").index(index + first_index);
         meter.charge(1, || member_at.clone())?;
@@ -1823,10 +1960,14 @@ fn check_reference_order(
             continue;
         };
         let member_key = match graph.index.get(target) {
-            Some(&target) => structural_order_key(graph, target, meter, &member_at)?,
+            Some(&target) => structural_order_key(graph, target, active, meter, &member_at)?,
             None => None,
         };
-        let key = keys.get(target).copied().zip(member_key);
+        let source = keys
+            .binary_search_by(|(id, _)| (*id).cmp(target))
+            .ok()
+            .map(|at| keys[at].1);
+        let key = source.zip(member_key);
         // Graph-shape and source-map checks have already validated every
         // reference and region. Their refusal has precedence over this step.
         let Some(key) = key else {
@@ -1835,11 +1976,17 @@ fn check_reference_order(
         meter.charge(u64::try_from(key.1.len()).unwrap_or(u64::MAX), || {
             member_at.clone()
         })?;
-        if previous.as_ref().is_some_and(|before| &key <= before) {
-            return Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                member_at,
-            ));
+        if let Some(before) = previous.as_ref() {
+            let order = match key.0.cmp(&before.0) {
+                Ordering::Equal => compare_keys(&key.1, &before.1, meter)?,
+                order => order,
+            };
+            if order != Ordering::Greater {
+                return Err(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    member_at,
+                ));
+            }
         }
         previous = Some(key);
     }
@@ -1852,6 +1999,8 @@ fn check_timed_reference_order(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let keys = source_order_keys(source_map, meter)?;
+    // The positions on the reference path the key walk is on.
+    let mut active = meter.filled(graph.nodes.len(), false)?;
     for position in 0..graph.nodes.len() {
         let Some(body) = graph.terms.get(position).and_then(Option::as_ref) else {
             continue;
@@ -1873,6 +2022,7 @@ fn check_timed_reference_order(
                 &binding_at(position, binding),
                 0,
                 &keys,
+                &mut active,
                 meter,
             )?;
         }
@@ -1892,7 +2042,15 @@ fn check_timed_reference_order(
                 1
             };
             if let Some(members) = typed_members(part).get(first_constraint..) {
-                check_reference_order(graph, members, &at, first_constraint, &keys, meter)?;
+                check_reference_order(
+                    graph,
+                    members,
+                    &at,
+                    first_constraint,
+                    &keys,
+                    &mut active,
+                    meter,
+                )?;
             }
         }
     }
@@ -2804,6 +2962,7 @@ pub(super) fn validate_models<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NativeJoinBudget;
     use ix_trace_rs::trace;
     use serde_json::json;
     use std::path::Path;
@@ -2984,5 +3143,145 @@ mod tests {
             .as_deref(),
             Some("Sequence<ix://quire/native/Clock>")
         );
+    }
+
+    fn node(name: &str) -> CheckedNodeId {
+        CheckedNodeId {
+            package: "p".into(),
+            path: vec![crate::checked_package::shared::CheckedNodePathSegment::Name(name.into())],
+            ordinal: 0,
+        }
+    }
+
+    /// The structural key of a reference to a body holding a text and a
+    /// numeric literal, read under `limit` bytes of read storage.
+    fn key_under(limit: u64) -> (Option<Vec<String>>, Option<u128>, u64) {
+        let (a, b) = (node("a"), node("b"));
+        let nodes = [a.clone(), b.clone()];
+        let index: GraphIndex<'_> = [(&nodes[0], 0), (&nodes[1], 1)].into_iter().collect();
+        let kinds = [
+            CheckedNodeKind::TimedModel(TimedModelForm::Constraint),
+            CheckedNodeKind::TimedModel(TimedModelForm::Constraint),
+        ];
+        let terms = [
+            Some(CheckedTerm::Reference { target: b.clone() }),
+            Some(CheckedTerm::Aggregate {
+                members: vec![
+                    CheckedTerm::Binding {
+                        name: "label".into(),
+                        value: Box::new(CheckedTerm::Literal {
+                            type_id: a.clone(),
+                            value_kind: LiteralKind::Text,
+                            value: json!("on"),
+                        }),
+                    },
+                    CheckedTerm::Literal {
+                        type_id: a.clone(),
+                        value_kind: LiteralKind::Text,
+                        value: json!(7),
+                    },
+                ],
+            }),
+        ];
+        let graph = Graph {
+            nodes: &[],
+            kinds: &kinds,
+            terms: &terms,
+            index: &index,
+        };
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        let mut meter = WorkMeter::over(&mut budget);
+        let mut active = vec![false; 2];
+        let at = JsonPointer::root();
+        let key = term_key(&graph, terms[0].as_ref(), &mut active, &mut meter, &at);
+        drop(meter);
+        let words = key.ok().flatten().map(|key| {
+            key.iter()
+                .map(|part| match part {
+                    OrderPart::Word(word) => word.as_str().to_owned(),
+                    other => format!("{other:?}"),
+                })
+                .collect()
+        });
+        (
+            words,
+            budget.first_unpaid_read_storage(),
+            budget.read_storage_consumed(),
+        )
+    }
+
+    /// A structural term key is built in blocks charged before they are
+    /// requested: it is admitted at exactly the storage it consumed and
+    /// denied one byte short (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn a_structural_term_key_charges_every_block_before_it_allocates() {
+        let (words, unpaid, spent) = key_under(u64::MAX);
+        let words = words.expect("key");
+        assert!(unpaid.is_none());
+        assert!(spent > 0, "the key's vectors and words are charged");
+        assert!(words.iter().any(|word| word.contains("Constraint")));
+        assert!(words.iter().any(|word| word == "label" || word == "on"));
+        assert!(words.iter().any(|word| word == "7"));
+        let (again, unpaid, _) = key_under(spent);
+        assert_eq!(again.as_ref(), Some(&words));
+        assert!(unpaid.is_none());
+        let (short, unpaid, _) = key_under(spent - 1);
+        assert!(short.is_none());
+        assert!(unpaid.is_some(), "the short run was denied a request");
+    }
+
+    fn ratio(meter: &mut WorkMeter, numerator: &str, denominator: &str) -> OrderPart<'static> {
+        OrderPart::Ratio(
+            meter.exact_integer(numerator).unwrap().unwrap(),
+            meter.exact_integer(denominator).unwrap().unwrap(),
+        )
+    }
+
+    /// Parses two ratios of `wide` digits and, when asked, compares them,
+    /// under `limit` bytes of read storage; the storage consumed with it.
+    fn compare_under(limit: u64, compare: bool) -> (Result<Ordering, ValidationFailure>, u64) {
+        let wide = "9".repeat(80);
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        let mut meter = WorkMeter::over(&mut budget);
+        let outcome = (|| {
+            let big = ratio(&mut meter, &wide, "1");
+            let bigger = ratio(&mut meter, &wide, "1");
+            if compare {
+                big.compare(&bigger, &mut meter)
+            } else {
+                Ok(Ordering::Equal)
+            }
+        })();
+        drop(meter);
+        (outcome, budget.read_storage_consumed())
+    }
+
+    /// Two ratios compare by cross multiplication through the quire-exact
+    /// reserved entries: equal fractions are equal, and the products' limb
+    /// blocks are charged to the budget (FR-038-AC-504, FR-038-AC-516).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn ratio_parts_compare_exactly_and_charge_the_products() {
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0);
+        let mut meter = WorkMeter::over(&mut budget);
+        let third = ratio(&mut meter, "1", "3");
+        let two_sixths = ratio(&mut meter, "2", "6");
+        let half = ratio(&mut meter, "1", "2");
+        assert_eq!(
+            third.compare(&two_sixths, &mut meter).unwrap(),
+            Ordering::Equal
+        );
+        assert_eq!(third.compare(&half, &mut meter).unwrap(), Ordering::Less);
+        assert_eq!(half.compare(&third, &mut meter).unwrap(), Ordering::Greater);
+
+        let (parsed, parse_only) = compare_under(u64::MAX, false);
+        assert!(parsed.is_ok());
+        let (compared, spent) = compare_under(u64::MAX, true);
+        assert_eq!(compared.unwrap(), Ordering::Equal);
+        assert!(spent > parse_only, "the products are charged");
+        assert!(compare_under(spent, true).0.is_ok());
+        let (denied, _) = compare_under(spent - 1, true);
+        assert!(matches!(denied, Err(ValidationFailure::Budget(_))));
     }
 }

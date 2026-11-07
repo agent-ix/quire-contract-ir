@@ -198,6 +198,27 @@ impl<'b> WorkMeter<'b> {
         Ok(Box::from(text))
     }
 
+    /// `arguments` rendered into a block of exactly its length, charged
+    /// first. The length is counted by rendering into nothing.
+    pub(super) fn formatted(
+        &mut self,
+        arguments: std::fmt::Arguments<'_>,
+    ) -> Result<Box<str>, ValidationFailure> {
+        use std::fmt::Write;
+        struct Count(usize);
+        impl Write for Count {
+            fn write_str(&mut self, text: &str) -> std::fmt::Result {
+                self.0 = self.0.saturating_add(text.len());
+                Ok(())
+            }
+        }
+        let mut count = Count(0);
+        let _ = count.write_fmt(arguments);
+        let mut text = self.string(count.0)?;
+        let _ = text.write_fmt(arguments);
+        Ok(text.into_boxed_str())
+    }
+
     /// A copy of `items` at its exact length, charged first.
     pub(super) fn copy_slice<T: Clone>(
         &mut self,
