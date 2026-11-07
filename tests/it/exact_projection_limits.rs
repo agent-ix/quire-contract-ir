@@ -52,6 +52,154 @@ fn admitted(wire: &Value) -> Box<CheckedPackageV2> {
     }
 }
 
+#[trace("TC-467", "FR-358-AC-8")]
+#[test]
+fn original_limits_survive_stage_projection_and_later_shared_exhaustion() {
+    let wire = package(vec![node(
+        "integer",
+        "scalar_type",
+        "integer",
+        "integer",
+        &[],
+        json!({"term":"aggregate","members":[]}),
+    )]);
+    let package = admitted(&wire);
+    let integer: CheckedNodeId = serde_json::from_value(node_id("integer")).unwrap();
+    let mut stage = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let identities = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut stage)
+        .expect("genuine empty stage joins this admitted package");
+    let mut projection = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let expected = package
+        .project_exact_type(&integer, &identities, &mut projection)
+        .expect("scalar projection");
+    let stage_charge = stage.consumed();
+    let projection_charge = projection.consumed();
+    assert!(projection_charge.work > 0 && projection_charge.storage > 0);
+
+    for kind in [NativeJoinChargeKind::Work, NativeJoinChargeKind::Storage] {
+        let (work, storage) = match kind {
+            NativeJoinChargeKind::Work => {
+                (stage_charge.work + 2 * projection_charge.work - 1, u64::MAX)
+            }
+            NativeJoinChargeKind::Storage => (
+                u64::MAX,
+                stage_charge.storage + 2 * projection_charge.storage - 1,
+            ),
+        };
+        assert_ne!(work, storage);
+        let mut shared = NativeJoinBudget::new(work, storage);
+        assert_eq!(
+            (shared.work_limit(), shared.storage_limit()),
+            (work, storage)
+        );
+        let joined = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut shared)
+            .expect("initial stage fits the shared allowance");
+        assert_eq!(joined, identities);
+        assert_eq!(
+            (shared.work_limit(), shared.storage_limit()),
+            (work, storage)
+        );
+        assert_eq!(
+            package.project_exact_type(&integer, &joined, &mut shared),
+            Ok(expected.clone())
+        );
+        assert_eq!(
+            shared.consumed().work,
+            stage_charge.work + projection_charge.work
+        );
+        assert_eq!(
+            shared.consumed().storage,
+            stage_charge.storage + projection_charge.storage
+        );
+        assert_eq!(
+            (shared.work_limit(), shared.storage_limit()),
+            (work, storage)
+        );
+        let error = package
+            .project_exact_type(&integer, &joined, &mut shared)
+            .expect_err("second projection exceeds the cumulative allowance");
+        let bound = match kind {
+            NativeJoinChargeKind::Work => work,
+            NativeJoinChargeKind::Storage => storage,
+        };
+        assert_eq!(error.configured_bound, Some(bound));
+        assert_eq!(error.denied, shared.first_unpaid());
+        assert_eq!(error.denied.expect("native denial").kind, kind);
+        assert_eq!(shared.last_success_delta(), None);
+        assert_eq!(
+            (shared.work_limit(), shared.storage_limit()),
+            (work, storage)
+        );
+        assert!(shared.consumed().work <= work && shared.consumed().storage <= storage);
+    }
+}
+
+#[trace("TC-467", "FR-358-AC-8")]
+#[test]
+fn original_zero_and_diagnostic_bounds_are_present_but_semantic_refusals_have_none() {
+    let wire = package(vec![
+        node(
+            "integer",
+            "scalar_type",
+            "integer",
+            "integer",
+            &[],
+            json!({"term":"aggregate","members":[]}),
+        ),
+        node(
+            "option",
+            "composite_type",
+            "option",
+            "option",
+            &["integer"],
+            json!({"term":"aggregate","members":[{"term":"reference","target":node_id("integer")}]}),
+        ),
+    ]);
+    let package = admitted(&wire);
+    for (work, storage, kind, owns_locus) in [
+        (0, 10_000, NativeJoinChargeKind::Work, true),
+        (0, 1, NativeJoinChargeKind::Work, false),
+        (10_000, 0, NativeJoinChargeKind::Storage, false),
+    ] {
+        let mut budget = NativeJoinBudget::new(work, storage);
+        let error = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut budget)
+            .expect_err("stage cannot exceed its original configured bound");
+        assert_eq!(error.configured_bound, Some(0));
+        assert_eq!(error.denied, budget.first_unpaid());
+        assert_eq!(error.denied.expect("first unpaid charge").kind, kind);
+        assert_eq!(error.requested.is_some(), owns_locus);
+        assert_eq!(
+            (budget.work_limit(), budget.storage_limit()),
+            (work, storage)
+        );
+    }
+    let option: CheckedNodeId = serde_json::from_value(node_id("option")).unwrap();
+    let identities = SelectedExactIdentities::empty();
+    let mut ample = NativeJoinBudget::new(10_000, 20_000);
+    let semantic = package
+        .project_exact_type(&option, &identities, &mut ample)
+        .expect_err("unsupported native type is a semantic refusal");
+    assert_eq!(
+        semantic.code,
+        ExactTypeProjectionErrorCode::UnsupportedExactType
+    );
+    assert_eq!(semantic.configured_bound, None);
+    assert_eq!(semantic.denied, None);
+    let storage = ample.consumed().storage - 1;
+    let mut short = NativeJoinBudget::new(10_000, storage);
+    let compact = package
+        .project_exact_type(&option, &identities, &mut short)
+        .expect_err("complete semantic diagnostic is unaffordable");
+    assert_eq!(compact.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
+    assert_eq!(compact.configured_bound, Some(storage));
+    assert_eq!(compact.denied, short.first_unpaid());
+    assert_eq!(compact.requested, None);
+    assert_eq!(
+        (short.work_limit(), short.storage_limit()),
+        (10_000, storage)
+    );
+}
+
 #[trace("TC-468", "FR-359-AC-1", "FR-359-AC-2", "FR-359-AC-3", "FR-359-AC-5")]
 #[test]
 fn exact_projection_charges_complete_values_and_semantic_diagnostics() {

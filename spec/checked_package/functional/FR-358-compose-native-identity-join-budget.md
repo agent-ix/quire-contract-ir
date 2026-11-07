@@ -50,6 +50,16 @@ in a fixed-size form without an owned structural locus. The budget
 itself has fixed-size counters and charge metadata; it retains no per-charge
 log or caller row.
 
+The budget SHALL expose its original configured work and storage limits through
+`work_limit` and `storage_limit`; successful charges, denied charges and later
+operations SHALL NOT change these values. A native resource refusal carried by
+`ExactTypeProjectionError` SHALL expose `configured_bound` as the original
+limit for its denied resource, including zero. This bound SHALL remain present
+when diagnostic storage is unavailable and the refusal has no owned locus.
+If allocating a work refusal's diagnostic also exceeds storage, the compact
+refusal SHALL retain the original work denial and work limit. Non-resource
+refusals SHALL carry no configured bound.
+
 ## Behavior
 
 `NativeJoinBudget` SHALL be the sole public budget for this acquisition path.
@@ -137,6 +147,7 @@ limit or compatibility entry point is permitted.
 | FR-358-AC-5 | Each budgeted join preserves FR-352's selected-document, structural node, declaration/member identity, producer order and duplicate checks at sufficient allowance. Missing, foreign, conflicting, stale, wrong-form and incomplete rows retain their existing typed native causes and first loci, without a partial selected value. No caller-created opaque identity becomes authoritative through the budget API. | Test, Inspection |
 | FR-358-AC-6 | The exported API is cycle-free and has no QSL or runtime dependency. In-repository callers use the mandatory budget parameter; the IR implementation introduces no compatibility path, pin, copied artifact or diagnostic-payload claim belonging to IR-1359. | Test, Inspection |
 | FR-358-AC-7 | The admitted equality read requires the same caller-owned `NativeJoinBudget` and charges selected decisions, owned identities, row material, QSV work and typed refusal storage before the corresponding inspection or allocation. A complete admitted decision at exact work and storage allowances equals the ample value; one unit below either allowance refuses with the exhausted kind and first unpaid amount. Two individually affordable equality reads composed on a shared budget refuse at the first unpaid step of the second, retain cumulative consumption and clear the success delta. A nonzero allowance below a variable-size QSV cause's full diagnostic charge returns a compact typed code and original locus without the owned cause; its exact full charge retains the original cause. At zero storage a refusal owns no node, form or materialization payload. | Test, Inspection |
+| FR-358-AC-8 | The public work and storage getters return the caller's original, distinct configured limits before acquisition, after successful stage and type projection operations, and after a later shared-budget denial; neither getter reports the remaining allowance. Each full or compact `ExactTypeProjectionError` resource refusal carries the original bound of its denied resource, including zero and the first work denial when diagnostic storage is also denied. A non-resource refusal has no configured bound. | Test |
 
 ## Dependencies
 

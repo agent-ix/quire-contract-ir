@@ -3875,6 +3875,7 @@ fn admitted_native_record_late_unsupported_field_respects_exact_work_boundary() 
             at: None,
             form: None,
             work: BEFORE_SECOND_FIELD,
+            configured_bound: Some(BEFORE_SECOND_FIELD),
             denied: Some(quire_contract_model::NativeJoinDeniedCharge {
                 kind: quire_contract_model::NativeJoinChargeKind::Work,
                 amount: 1,
@@ -3904,6 +3905,7 @@ fn admitted_native_record_late_unsupported_field_respects_exact_work_boundary() 
                 form: Some("model/record_value_type".into()),
                 work: COMPLETE_WORK,
                 denied: None,
+                configured_bound: None,
             };
             for limit in [COMPLETE_WORK, 100] {
                 assert_eq!(
