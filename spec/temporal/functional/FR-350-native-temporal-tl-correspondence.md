@@ -148,13 +148,16 @@ validation and the cross-owner join. Neither `quire-contract-model` nor the
 - The bridge SHALL authenticate `request.binding` with
   `TraceBinding::authenticate` against the clause selection supplied by the
   selected `TemporalSubjectView` (its declaration, profile and clock). It SHALL
-  require the supplied occurrence to be an exact member of
-  `subject.occurrences()` and to match the request's selected occurrence, and
-  the selected valuation instance to agree with the request's trigger identity
-  and instance-bound valuation cells. It SHALL locate the
-  request's opaque anchor only by exact equality with an independently selected
-  admitted observation identity in `request.positions`, then use that
-  observation's numeric owner anchor for projection. It SHALL NOT parse the
+  select the effective occurrence by the request's `{role, ordinal}` key when
+  `request.occurrence` is present, or by the sole member of
+  `subject.occurrences()` when it is absent. An absent key with zero or multiple
+  occurrences, or a present key without exactly one match, SHALL refuse. The
+  supplied `ClauseOccurrence` SHALL equal the effective occurrence in node,
+  role and ordinal. The selected valuation instance SHALL agree with the
+  request's trigger identity and instance-bound valuation cells. It SHALL
+  locate the request's opaque anchor only by exact equality with an
+  independently selected admitted observation identity in `request.positions`,
+  then use that observation's numeric owner anchor for projection. It SHALL NOT parse the
   opaque identity, infer an alias or substitute a numeric position for the
   observation selection. A missing, duplicate or mismatched selection SHALL
   refuse before constructing a TL artifact.
@@ -321,13 +324,15 @@ an exact and one-over boundary without constructing a default-sized artifact.
 | FR-350-AC-6 | Missing, duplicate, swapped, replayed or foreign valuation cells; owner-reader rejection; malformed or noncanonical projection/join data; and each one-over resource limit return one deterministic non-admitted/incomplete result, with no partial artifact and no evaluator invocation. Exact limits admit. | Test (TC-461) |
 | FR-350-AC-7 | Withdrawn by the IR-1141 no-hash decision under QSpec #517/#518: the fixed 1429-byte vector, SHA-256 known answers and derived correspondence reference are removed. This id is retained and never reused. | Withdrawn |
 | FR-350-AC-8 | Each `TlLimits` setting uses its stated default, charges before work, admits exactly at the setting and returns `incomplete` one past it with `limit-reached{limit, value, setting}` and no partial artifact. | Test (TC-461) |
+| FR-350-AC-9 | Given an admitted request with an authenticated `TraceBinding`, an exact clause occurrence, a selected trigger instance and explicit instance-bound Boolean cells, TC-461 asserts that projection uses those values and maps an opaque anchor by exact equality with an independently selected admitted observation identity to that observation's numeric owner anchor, even when the opaque identity resembles a different numeric position. `request.occurrence = None` selects the sole occurrence; a wrong binding, wrong node/role/ordinal, absent or ambiguous occurrence, mismatched trigger instance, or absent, duplicate or mismatched observation identity refuses with no partial artifact or evaluator invocation. | Test (TC-461) |
 
 ## Dependencies
 
 - `agent-ix/quire-integration` (IR-1005) owns the QSL-typed `project_tl` bridge,
   strict projection and join readers, correspondence value, and executable
   TC-461 evidence. This Contract IR requirement remains the cross-repository
-  contract for FR-350-AC-1 through FR-350-AC-6 and FR-350-AC-8; AC-7 remains
+  contract for FR-350-AC-1 through FR-350-AC-6 and FR-350-AC-8 through
+  FR-350-AC-9; AC-7 remains
   withdrawn. FR-028-AC-3 and TC-041 keep both Contract IR packages free of
   QSL dependencies.
 - QSL FR-045 defines the support table; FR-515 supplies the borrowed checked
