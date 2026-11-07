@@ -19,8 +19,6 @@ Ticket: IR-1380. Original review covered PR #940 head 88eb1e140 and its three ch
 
 Plan completion: not assessed.
 
-- FR-038-AC-493 (examined, `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`): Inspection of `AdmissionBinding` and the V2 reader finds that the public capability uses the reader's original admission buffers; its fields are private, with no public constructor, buffer accessor, copied carrier or compatibility representation.
-
 ## Scope update (disposition pass 2)
 
 At PR head cc239d097, FR-350-AC-10 and the added TC-461 step/expected result were removed. The current PR retains the owner API and FR-350 `models` axis correction; executable bridge evidence remains future IR-1005 work. The original findings below and their first dispositions are historical records of the earlier reviewed head, not claims that AC-10 remains in the current specification. No new finding arises from this confined spec change.
@@ -37,7 +35,7 @@ At PR head 024529dae, the FR-038-AC-494 table declaration is again parsed as a c
 
 ## Verdict
 
-**PASS after dispositions** — Both historical findings have fixed outcomes; INSP-001 supplies the AC-493 inspection evidence when committed in this PR.
+**PASS after dispositions** — FND-001 is fixed; FND-002 is superseded by the removal of the attempted inspection change. The final PR adds only the backed AC-494 criterion.
 
 ## Dispositions
 
@@ -45,6 +43,7 @@ At PR head 024529dae, the FR-038-AC-494 table declaration is again parsed as a c
 | --- | --- | --- |
 | FND-001 | fixed | The owner-only test now tags only FR-038-AC-494. FR-350-AC-10 remains assigned to bridge TC-461 in IR-1005. |
 | FND-002 | fixed | Fixed by the independent Pass inspection act INSP-001 for FR-038-AC-493 at 58386de291c8291a1b313e591aa06b431b728052, authored for spec/evidence/inspections.md; the coder must commit that exact record. |
+| FND-002 | fixed | Supersedes the prior incorrect inspection-based disposition: AC-493 and its Review method are restored outside the minted table, and the unbacked INSP-001 record is removed at e52872c07. This PR adds no AC-493 or inspection target to strict coverage. |
 
 ## New findings (disposition pass 4)
 
@@ -55,3 +54,8 @@ At PR head 024529dae, the FR-038-AC-494 table declaration is again parsed as a c
 ## Scope update (disposition pass 5)
 
 I independently inspected the public API at 58386de291c8291a1b313e591aa06b431b728052. The authored inspection record is `/tmp/ir1380-inspection-58386de29/spec/evidence/inspections.md`, intended for `spec/evidence/inspections.md`; its Pass row names FR-038-AC-493, the inspector and exact inspected commit. No new finding arose from this inspection.
+
+## Scope update (disposition pass 6)
+
+At PR head e52872c07, the attempted AC-493 inspection change was reverted: AC-493 has its pre-PR Review wording outside the minted criteria table, and the added INSP-001 registry was removed. AC-494 remains in the minted table with its owner test trace. The coder reports focused matrix, validation and diff checks passed. The previous claim that the inspection record supplied strict coverage was incorrect; the record introduced an unbacked inspection target and has been removed. No new finding arises from this correction.
+

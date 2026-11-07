@@ -36,3 +36,8 @@ At PR head 024529dae, the FR-038-AC-494 table declaration is again parsed as a c
 **PASS** — No defects found in this method’s scoped review.
 
 The owner and bridge responsibilities are stated in the edited FR and TC; the new AC has observable ordering, empty and refusal cases.
+
+## Scope update (disposition pass 6)
+
+At PR head e52872c07, the attempted AC-493 inspection change was reverted: AC-493 has its pre-PR Review wording outside the minted criteria table, and the added INSP-001 registry was removed. AC-494 remains in the minted table with its owner test trace. The coder reports focused matrix, validation and diff checks passed. The previous claim that the inspection record supplied strict coverage was incorrect; the record introduced an unbacked inspection target and has been removed. No new finding arises from this correction.
+

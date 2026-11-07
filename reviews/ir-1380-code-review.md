@@ -36,3 +36,8 @@ At PR head 024529dae, the FR-038-AC-494 table declaration is again parsed as a c
 **PASS** — No defects found in this method’s scoped review.
 
 The public read borrows admitted selected identities without allocation or selection changes. Root ordering is established by `selected_model_roots` using a `BTreeMap`; `validate_domain_packages` preserves it. The test asserts an exact reordered sequence, clone behavior and an empty result. The wire has no selected-model alias field; an unrelated step-relation body has local aliases. Accepted coder-reported focused test, fmt, scoped Clippy and targeted Quire validation; no gates rerun.
+
+## Scope update (disposition pass 6)
+
+At PR head e52872c07, the attempted AC-493 inspection change was reverted: AC-493 has its pre-PR Review wording outside the minted criteria table, and the added INSP-001 registry was removed. AC-494 remains in the minted table with its owner test trace. The coder reports focused matrix, validation and diff checks passed. The previous claim that the inspection record supplied strict coverage was incorrect; the record introduced an unbacked inspection target and has been removed. No new finding arises from this correction.
+
