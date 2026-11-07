@@ -44,6 +44,7 @@ mod native_join_storage;
 mod natural;
 mod node_index;
 mod operation_catalog;
+pub use operation_catalog::CatalogReadError;
 mod operation_effects;
 mod operation_witness;
 mod operations;
@@ -883,6 +884,10 @@ pub enum CheckedPackageV2ReadResult {
     Refused(CheckedPackageRefusal),
     /// The input exceeded a caller limit.
     Incomplete(CheckedPackageIncomplete),
+    /// The reader's operation catalog is unreadable, so no package can be
+    /// checked: a skew between the reader and its catalog dependency, not a
+    /// verdict on the input.
+    CatalogUnavailable(CatalogReadError),
 }
 
 /// Immutable, admitted `quire.checked-package/v2` data.
@@ -1309,6 +1314,25 @@ impl CheckedPackageV2 {
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageV2ReadResult {
+        Self::read_against(
+            operation_catalog::production_catalog(),
+            bytes,
+            limits,
+            evidence,
+        )
+    }
+
+    /// [`Self::read`] against the given result of reading the operation
+    /// catalog: an unreadable catalog returns before any node is checked.
+    fn read_against(
+        catalog: &Result<operation_catalog::OperationCatalog, CatalogReadError>,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        evidence: &CheckedPackageEvidence,
+    ) -> CheckedPackageV2ReadResult {
+        if let Some(error) = operation_catalog::catalog_unavailable(catalog) {
+            return CheckedPackageV2ReadResult::CatalogUnavailable(error);
+        }
         match Self::admit_bytes(bytes, limits, evidence) {
             Ok(package) => CheckedPackageV2ReadResult::Admitted(Box::new(package)),
             Err(stop) => stop.into_result(

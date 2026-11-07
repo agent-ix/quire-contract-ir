@@ -480,8 +480,9 @@ that is a `carried_quantity` node, then with a `unit`, `compound_unit` and
 refuses `ill_typed`/`operator-ineligible` at the application. Give a `unit`
 type argument the mode `nearest-even`: it refuses
 `invalid_package`/`operation-mode-type-mismatch`, the mode before the
-constraint. Resolve unreadable production catalog bytes and apply any
-catalogued identity: the application refuses `invalid_package`/`unknown-operation`
+constraint. Read a package against production catalog bytes whose carried-sum
+constraint kind is outside the vocabulary: the read returns `CatalogUnavailable`
+with the path `operations[i].constraints[1].kind` and the word, not a refusal,
 and nothing panics (AC-58).
 
 Name `quire.op.control.case` under operator `unary`, and an identity the catalog

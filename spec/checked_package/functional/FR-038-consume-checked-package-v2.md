@@ -966,9 +966,11 @@ and not a caller's bytes, so an entry of another shape is never a package
 refusal. The catalog read is a function over supplied bytes that returns an
 error naming the unreadable entry, so that a test can supply bytes in which an
 entry carries `revision`; the production catalog is read through it once. If
-that read of the build's own bytes fails, the reader never stops the process:
-the catalog it holds catalogues no operation, and every application refuses
-`invalid_package`/`unknown-operation` (FR-038-AC-58).
+that read of the build's own bytes fails, the reader never stops the process
+and never refuses the package: `CheckedPackageV2::read` returns
+`CatalogUnavailable`, carrying the unreadable path and message, before it checks
+any node (FR-038-AC-58). The package is not at fault; the reader and its catalog
+dependency disagree.
 
 ### Selections bind by identity
 
@@ -5611,7 +5613,7 @@ copying QSL execution semantics into IR.
 | FR-038-AC-55 | A `source_map` region `source` or `diagnostics.entries[].loci[].source` that equals no `lock.sources` row in both `authority` and `identity` refuses as `invalid_source_map` at that `source`, whether its pair names another source or contains an empty member; the nonempty row check of FR-038-AC-54 applies to `lock.sources` only. | Test (TC-048) |
 | FR-038-AC-56 | An `operation.laws[].definition` of a value role admits only when its `{authority, identity}` pair is catalogued for the role and is a `lock.definition_selections` row, compared by those two members alone: a pair the role does not catalogue, including an empty one, refuses `invalid_package` with cause `operation-law-mismatch`, and a catalogued pair the lock does not select refuses `operation-law-unselected`, each at that law's `definition`. | Test (TC-048) |
 | FR-038-AC-57 | An `operation.laws[].definition` of a profile role (`temporal_profile` or `protocol_profile`) admits only when its `{authority, identity}` pair equals the pair of the lock's `profile_selections` row of that role; any other pair refuses `operation-law-unselected` at that law's `definition`. | Test (TC-048) |
-| FR-038-AC-58 | The operation catalog read over supplied bytes whose `law_roles` entries are exactly `{authority, identity}` returns the catalog, and over bytes in which an entry carries `revision`, `digest_domain` or `digest` returns an error naming the unreadable entry instead of a catalog and without a panic; this is a catalog read failure and not a package refusal. When the production catalog's own bytes are unreadable, the package read does not panic: each application refuses `invalid_package`/`unknown-operation`. | Test (TC-048) |
+| FR-038-AC-58 | The operation catalog read over supplied bytes whose `law_roles` entries are exactly `{authority, identity}` returns the catalog, and over bytes in which an entry carries `revision`, `digest_domain` or `digest` returns an error naming the unreadable entry instead of a catalog and without a panic; this is a catalog read failure and not a package refusal. When the production catalog's own bytes are unreadable, a package read returns the reader result `CatalogUnavailable` carrying the read error's path and message, before any node is checked; it never panics and never returns a package refusal. | Test (TC-048) |
 | FR-038-AC-59 | Withdrawn: no identity preimage mirrors definition selections and no stale-selection refusal exists. FR-038-AC-366 checks the single authoritative lock row. | Withdrawn |
 | FR-038-AC-60 | Editing one lock definition identity produces a different package value under the same name. The reader joins that identity to the supplied definition; it admits a valid selection and refuses a missing or ineligible selection under the existing definition-join code, without comparing an old package identity. | Test (TC-048) |
 | FR-038-AC-61 | A schema-valid `SourceOwner` whose `{authority, identity}` pair is absent from `lock.sources` refuses `missing_declaration`/`missing-selection` at its node's `node_id` in the owner join (QSpec FR-322-AC-52; FR-038-AC-155). A node carrying `DefinitionOwner` refuses `malformed_wire` at its `owner` during closed-schema validation, before any lock join, because `NodeOwner` admits only `SourceOwner`, `ModelOwner` and `ModelRootOwner` (QSpec FR-322-AC-51). Both adverse cases remain required; there is no definition-owner selection or compatibility variant. | Test (TC-048) |

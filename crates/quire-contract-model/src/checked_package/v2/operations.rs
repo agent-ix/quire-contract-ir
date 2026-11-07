@@ -6090,13 +6090,6 @@ mod tests {
     fn defect_for(
         node: &CheckedSemanticNodeV2,
     ) -> Result<Option<ValidationFailure>, ValidationFailure> {
-        defect_for_catalog(node, operation_catalog())
-    }
-
-    fn defect_for_catalog(
-        node: &CheckedSemanticNodeV2,
-        catalog: &super::OperationCatalog,
-    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
         let nodes = std::slice::from_ref(node);
         let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
         index.insert(&node.node_id, 0);
@@ -6117,7 +6110,7 @@ mod tests {
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
             super::OperationResolution {
-                catalog,
+                catalog: operation_catalog(),
                 fast_index: None,
             },
             &mut meter,
@@ -6665,34 +6658,6 @@ mod tests {
                 "/semantic_graph/nodes/0/body/operation/mode/value",
                 Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
                 application.node_id.clone(),
-            )))
-        );
-    }
-
-    /// Catalog bytes the reader cannot read, resolved as the production
-    /// catalog is, catalogue no operation: an application refuses
-    /// `invalid_package`/`unknown-operation` rather than stopping the process.
-    #[trace("TC-048", "FR-038-AC-58", "FR-038-AC-495")]
-    #[test]
-    fn an_unreadable_production_catalog_refuses_applications_without_panicking() {
-        let mut edited: Value = serde_json::from_str(
-            quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
-        )
-        .expect("the production catalog is JSON");
-        edited["constraint_kinds"][0] = json!("a_word_this_reader_lacks");
-        edited["operations"][0]["constraints"] =
-            json!([{ "kind": "a_word_this_reader_lacks", "operands": [], "family": null }]);
-        let read = super::super::operation_catalog::read_catalog(&edited.to_string());
-        assert!(read.is_err());
-        let catalog = super::super::operation_catalog::resolve_catalog(&read);
-        let node = application_node(CATALOGUED_IDENTITY, "binary");
-        assert_eq!(
-            defect_for_catalog(&node, catalog),
-            Ok(Some(refused_at(
-                CheckedPackageRefusalCode::InvalidPackage,
-                "/semantic_graph/nodes/0/body/operation/identity",
-                Some(CheckedPackageRefusalCause::UnknownOperation),
-                node.node_id.clone(),
             )))
         );
     }

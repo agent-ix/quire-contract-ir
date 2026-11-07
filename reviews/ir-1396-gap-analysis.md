@@ -33,3 +33,9 @@ CONDITIONAL: the PR's own criterion is traced and backed by tests. One gap from 
 - spec/checked_package/matrix/tests.md AC-495 row, examined.
 - Changed production code is owned by FR-038-AC-495; no stub or unowned feature added.
 - Plan completion: not assessed.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | deferred | IR-1398, "IR: V2 reader enforces QSpec FR-322 carried-quantity sum admission (bound_is_member, AC-389..391)", now owns it. The gap predates this PR and is outside IR-1396's ACs. |

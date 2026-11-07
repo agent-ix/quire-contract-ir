@@ -34,3 +34,17 @@ FAIL: ticket AC2 is not met on the path that caused the defect, and the new refu
 - operation_catalog.rs new tests, examined: the production catalog reads; the unknown-word test duplicates the FR-038-AC-65 test.
 - operation_catalog.rs `operation_catalog()` panic, examined (unchanged, the AC2 path).
 - Rust lane: no unsafe, no new unwrap or expect in production code, exhaustive match kept (no wildcard), focused tests only; no Kani or aggregate gate run, as the brief says.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | high | The fix for FND-001 turns a reader build defect into a false refusal of the producer's package. `resolve_catalog` maps any `CatalogReadError` to `EMPTY_CATALOG` and discards the error. A valid package from QSL is then refused `invalid_package`/`unknown-operation` at its first application's `/body/operation/identity`. The cause names the producer's package as defective, and the unreadable word and path (for example `operations[150].constraints[1].kind` `carried_member`) are not reported anywhere. How it fails: QVC main adds a new word and CG runs `cargo update`. Every genuine package is now refused as invalid with an unknown operation, CG records a refusal verdict against packages that are correct, and nothing points at the lock skew. The old panic at least named the word. This also contradicts FR-038 L964-966 and FR-038-AC-58's own first sentence, which say a catalog read failure is "never a package refusal". The correct outcome is a third read result beside `Refused` and `Incomplete`, for example a `ValidationFailure`/public read-error variant `CatalogUnavailable` that carries the `CatalogReadError` path and message. It is returned before any node is checked, from every entry point that reads through `operation_catalog()`. That is an IR-local reader error, not a package refusal, so it needs no QSpec code or cause. Only mapping it onto a refusal code would need QSpec. | crates/quire-contract-model/src/checked_package/v2/operation_catalog.rs:271-297 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | f2f0ea96 removes the panic: `OnceLock<Result<OperationCatalog, CatalogReadError>>`, and `operation_catalog()` no longer panics; tested through real `read_catalog` and `resolve_catalog`. The replacement outcome is wrong and is tracked as FND-004. |
+| FND-002 | fixed | `check_carried_member` now runs after `check_mode_type` (operations.rs:1424-1429). The new test `carried_member_is_checked_only_once_the_pinned_mode_agrees` asserts operation-mode-type-mismatch at /body/operation/mode/value, the same input that refused operator-ineligible in my round-0 probe. |
+| FND-003 | fixed | `compound_unit` added. The dropped cases cannot reach `carried_member` on this entry: an `integer` type_argument refuses at /body/result_type in the `member_family` check of `check_type_argument_member_result` (operations.rs:1335, round-0 mutation run), and a missing member refuses there too (`member_declaration` returns None, then refuse). Both run before `check_mode_type` and `check_carried_member`. |
