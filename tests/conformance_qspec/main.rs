@@ -57,6 +57,15 @@ mod model_option_types;
 mod support {
     pub(crate) use crate::fixture_support as checked_package;
 }
+// The shared map controls use these existing genuine reader/witness fixtures.
+#[path = "../it/native_join_budget.rs"]
+mod native_join_budget;
+#[path = "../it/checked_package_v2_model_fields.rs"]
+mod checked_package_v2_model_fields;
+#[path = "../it/checked_package_v2_owners.rs"]
+mod checked_package_v2_owners;
+#[path = "../it/checked_package_v2_parameters.rs"]
+mod checked_package_v2_parameters;
 #[path = "../it/checked_package_v2_map_type.rs"]
 mod map_type;
 mod model_root;

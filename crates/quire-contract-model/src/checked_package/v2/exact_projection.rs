@@ -4246,6 +4246,48 @@ mod tests {
 
     #[trace("TC-473", "FR-357-AC-20")]
     #[test]
+    fn projection_locus_ownership_is_independent_of_diagnostic_form() {
+        use super::super::{NativeJoinLocus, NativeJoinLocusSource};
+        let package = fixture();
+        let requested: CheckedNodeId = serde_json::from_value(id("boolean")).unwrap();
+        let position = package.graph().nodes.iter().position(|node| node.node_id == requested).unwrap();
+        for caller in [None,
+            Some(NativeJoinLocus { source: NativeJoinLocusSource::Package, form: "exact_projection_node" }),
+            Some(NativeJoinLocus { source: NativeJoinLocusSource::ReachedRow(9), form: "caller_row" }),
+        ] {
+            let mut budget = NativeJoinBudget::new(1, 0);
+            budget.set_active_locus(caller);
+            let error = package.project_exact_type(&requested, &SelectedExactIdentities::empty(), &mut budget)
+                .expect_err("lookup is paid but the following type inspection is not");
+            let expected = match caller {
+                Some(locus) => locus,
+                None => NativeJoinLocus { source: NativeJoinLocusSource::GraphNode(position), form: "exact_projection_type" },
+            };
+            assert_eq!(budget.first_unpaid_locus(), Some(expected));
+            assert_eq!(budget.active_locus(), caller, "restore the caller context after refusal");
+            assert_eq!(error.configured_bound, Some(1));
+            let denied = NativeJoinDeniedCharge { kind: NativeJoinChargeKind::Work, amount: 1 };
+            assert_eq!(error.denied, Some(denied));
+            assert_eq!(budget.accounted_charge(NativeJoinChargeKind::Storage, 99,
+                NativeJoinLocus { source: NativeJoinLocusSource::Package, form: "later" }), Err(denied));
+            assert_eq!(budget.first_unpaid_locus(), Some(expected));
+            assert_eq!(budget.last_success_delta(), None);
+        }
+        let mut unpaid = NativeJoinBudget::new(0, 0);
+        package.project_exact_type(&requested, &SelectedExactIdentities::empty(), &mut unpaid).unwrap_err();
+        let package_locus = NativeJoinLocus { source: NativeJoinLocusSource::Package, form: "exact_projection_node" };
+        assert_eq!(unpaid.first_unpaid_locus(), Some(package_locus));
+        assert_eq!(unpaid.consumed().work, 0);
+        assert_eq!(unpaid.active_locus(), None);
+        let missing: CheckedNodeId = serde_json::from_value(id("missing")).unwrap();
+        let mut unavailable = NativeJoinBudget::new(1, 0);
+        package.project_exact_type(&missing, &SelectedExactIdentities::empty(), &mut unavailable).unwrap_err();
+        assert_eq!(unavailable.first_unpaid_locus(), Some(package_locus), "an unavailable lookup has no graph position");
+        assert_eq!(unavailable.active_locus(), None);
+    }
+
+    #[trace("TC-473", "FR-357-AC-20")]
+    #[test]
     fn numeric_map_comparison_handle_is_charged_before_its_single_allocation() {
         let low: Integer = "170141183460469231731687303715884105728".parse().unwrap();
         let high: Integer = "680564733841876926926749214863536422913".parse().unwrap();
