@@ -905,140 +905,157 @@ impl PartialOrd for CheckedNodeId {
 
 impl Ord for CheckedNodeId {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
-        #[derive(Clone, Copy)]
-        enum Task<'a> {
-            Node(&'a CheckedNodeId, &'a CheckedNodeId),
-            Path(&'a [CheckedNodePathSegment], &'a [CheckedNodePathSegment]),
-            Ordinal(u64, u64),
+        // Without a meter nothing refuses a spill, so the comparison cannot
+        // fail.
+        match self.cmp_growing(other, &mut |_| Ok::<(), std::convert::Infallible>(())) {
+            Ok(order) => order,
+            Err(never) => match never {},
         }
-        /// Pending comparisons. Identities nest a handful of levels at most,
-        /// so the stack lives on the call stack; only a deeper identity
-        /// spills to the heap, which stays empty (and unallocated) otherwise.
+    }
+}
+
+impl CheckedNodeId {
+    /// The `Ord` order, where a spill past the inline stack asks `grow` for
+    /// permission first. `grow` receives the byte size of the whole new
+    /// block, before it is requested; its refusal ends the comparison.
+    ///
+    /// Operand chains are flat index references, so the wire bounds an
+    /// identity's nesting only by the node count; no depth is assumed.
+    pub(crate) fn cmp_growing<E>(
+        &self,
+        other: &Self,
+        grow: &mut dyn FnMut(usize) -> Result<(), E>,
+    ) -> Result<std::cmp::Ordering, E> {
+        use std::cmp::Ordering;
+        /// One identity pair being compared: the path segments left to
+        /// compare, then the ordinals that follow them.
+        #[derive(Clone, Copy)]
+        struct Frame<'a> {
+            left: &'a [CheckedNodePathSegment],
+            right: &'a [CheckedNodePathSegment],
+            ordinals: (u64, u64),
+        }
+        /// Pending frames, one for each level of nesting. The first
+        /// `INLINE` live on the call stack; a deeper identity spills to the
+        /// heap, which stays empty (and unallocated) otherwise.
+        const INLINE: usize = 32;
         struct Pending<'a> {
-            inline: [Task<'a>; 16],
+            inline: [Frame<'a>; INLINE],
             used: usize,
-            spill: Vec<Task<'a>>,
+            spill: Vec<Frame<'a>>,
         }
         impl<'a> Pending<'a> {
-            fn push(&mut self, task: Task<'a>) {
+            fn push<E>(
+                &mut self,
+                frame: Frame<'a>,
+                grow: &mut dyn FnMut(usize) -> Result<(), E>,
+            ) -> Result<(), E> {
                 if let Some(slot) = self.inline.get_mut(self.used) {
-                    *slot = task;
+                    *slot = frame;
                     self.used += 1;
-                } else {
-                    self.spill.push(task);
+                    return Ok(());
                 }
+                if self.spill.len() == self.spill.capacity() {
+                    let target = self.spill.capacity().saturating_mul(2).max(4);
+                    grow(target.saturating_mul(std::mem::size_of::<Frame<'a>>()))?;
+                    self.spill.reserve_exact(target - self.spill.len());
+                }
+                self.spill.push(frame);
+                Ok(())
             }
-            fn pop(&mut self) -> Option<Task<'a>> {
-                if let Some(task) = self.spill.pop() {
-                    return Some(task);
+            fn top(&mut self) -> Option<&mut Frame<'a>> {
+                if !self.spill.is_empty() {
+                    return self.spill.last_mut();
                 }
-                self.used = self.used.checked_sub(1)?;
-                self.inline.get(self.used).copied()
+                let top = self.used.checked_sub(1)?;
+                self.inline.get_mut(top)
+            }
+            fn pop(&mut self) {
+                if self.spill.pop().is_none() {
+                    self.used = self.used.saturating_sub(1);
+                }
             }
         }
-        let mut tasks = Pending {
-            inline: [Task::Ordinal(0, 0); 16],
+        /// Starts comparing two identities: the package decides first.
+        fn enter<'a, E>(
+            left: &'a CheckedNodeId,
+            right: &'a CheckedNodeId,
+            frames: &mut Pending<'a>,
+            grow: &mut dyn FnMut(usize) -> Result<(), E>,
+        ) -> Result<Ordering, E> {
+            #[cfg(test)]
+            checked_node_comparisons::visited();
+            if std::ptr::eq(left, right) {
+                return Ok(Ordering::Equal);
+            }
+            let order = left.package.cmp(&right.package);
+            if order == Ordering::Equal {
+                frames.push(
+                    Frame {
+                        left: &left.path,
+                        right: &right.path,
+                        ordinals: (left.ordinal, right.ordinal),
+                    },
+                    grow,
+                )?;
+            }
+            Ok(order)
+        }
+        let mut frames = Pending {
+            inline: [Frame {
+                left: &[],
+                right: &[],
+                ordinals: (0, 0),
+            }; INLINE],
             used: 0,
             spill: Vec::new(),
         };
-        tasks.push(Task::Node(self, other));
-        while let Some(task) = tasks.pop() {
-            match task {
-                Task::Node(left, right) => {
-                    #[cfg(test)]
-                    checked_node_comparisons::visited();
-                    if std::ptr::eq(left, right) {
-                        continue;
-                    }
-                    match left.package.cmp(&right.package) {
-                        Ordering::Equal => {
-                            tasks.push(Task::Ordinal(left.ordinal, right.ordinal));
-                            tasks.push(Task::Path(&left.path, &right.path));
-                        }
-                        order => return order,
+        match enter(self, other, &mut frames, grow)? {
+            Ordering::Equal => {}
+            order => return Ok(order),
+        }
+        while let Some(frame) = frames.top() {
+            let (Some((head_left, rest_left)), Some((head_right, rest_right))) =
+                (frame.left.split_first(), frame.right.split_first())
+            else {
+                let order = match (frame.left.is_empty(), frame.right.is_empty()) {
+                    (true, true) => frame.ordinals.0.cmp(&frame.ordinals.1),
+                    (true, false) => Ordering::Less,
+                    _ => Ordering::Greater,
+                };
+                if order != Ordering::Equal {
+                    return Ok(order);
+                }
+                frames.pop();
+                continue;
+            };
+            frame.left = rest_left;
+            frame.right = rest_right;
+            let order = match (head_left, head_right) {
+                (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => a.cmp(b),
+                (CheckedNodePathSegment::Name(_), _) => Ordering::Less,
+                (_, CheckedNodePathSegment::Name(_)) => Ordering::Greater,
+                (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b)) => a.cmp(b),
+                (CheckedNodePathSegment::Index(_), _) => Ordering::Less,
+                (_, CheckedNodePathSegment::Index(_)) => Ordering::Greater,
+                (CheckedNodePathSegment::Operand(a), CheckedNodePathSegment::Operand(b)) => {
+                    a.cmp(b)
+                }
+                (CheckedNodePathSegment::Operand(_), _) => Ordering::Less,
+                (_, CheckedNodePathSegment::Operand(_)) => Ordering::Greater,
+                (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
+                    if std::sync::Arc::ptr_eq(a, b) {
+                        Ordering::Equal
+                    } else {
+                        enter(a, b, &mut frames, grow)?
                     }
                 }
-                Task::Path(left, right) => match (left.split_first(), right.split_first()) {
-                    (None, None) => {}
-                    (None, Some(_)) => return Ordering::Less,
-                    (Some(_), None) => return Ordering::Greater,
-                    (Some((head_left, rest_left)), Some((head_right, rest_right))) => {
-                        tasks.push(Task::Path(rest_left, rest_right));
-                        match (head_left, head_right) {
-                            (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => {
-                                match a.cmp(b) {
-                                    Ordering::Equal => {}
-                                    order => return order,
-                                }
-                            }
-                            (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Node(_)) => {
-                                return Ordering::Less
-                            }
-                            (
-                                CheckedNodePathSegment::Name(_),
-                                CheckedNodePathSegment::Index(_)
-                                | CheckedNodePathSegment::Operand(_),
-                            ) => return Ordering::Less,
-                            (
-                                CheckedNodePathSegment::Index(_)
-                                | CheckedNodePathSegment::Operand(_),
-                                CheckedNodePathSegment::Name(_),
-                            ) => return Ordering::Greater,
-                            (
-                                CheckedNodePathSegment::Index(_),
-                                CheckedNodePathSegment::Operand(_),
-                            ) => return Ordering::Less,
-                            (
-                                CheckedNodePathSegment::Operand(_),
-                                CheckedNodePathSegment::Index(_),
-                            ) => return Ordering::Greater,
-                            (
-                                CheckedNodePathSegment::Operand(a),
-                                CheckedNodePathSegment::Operand(b),
-                            ) => match a.cmp(b) {
-                                Ordering::Equal => {}
-                                order => return order,
-                            },
-                            (
-                                CheckedNodePathSegment::Operand(_),
-                                CheckedNodePathSegment::Node(_),
-                            ) => return Ordering::Less,
-                            (
-                                CheckedNodePathSegment::Node(_),
-                                CheckedNodePathSegment::Operand(_),
-                            ) => return Ordering::Greater,
-                            (
-                                CheckedNodePathSegment::Index(a),
-                                CheckedNodePathSegment::Index(b),
-                            ) => match a.cmp(b) {
-                                Ordering::Equal => {}
-                                order => return order,
-                            },
-                            (CheckedNodePathSegment::Index(_), CheckedNodePathSegment::Node(_)) => {
-                                return Ordering::Less
-                            }
-                            (CheckedNodePathSegment::Node(_), CheckedNodePathSegment::Index(_)) => {
-                                return Ordering::Greater
-                            }
-                            (CheckedNodePathSegment::Node(_), CheckedNodePathSegment::Name(_)) => {
-                                return Ordering::Greater
-                            }
-                            (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
-                                if !std::sync::Arc::ptr_eq(a, b) {
-                                    tasks.push(Task::Node(a, b));
-                                }
-                            }
-                        }
-                    }
-                },
-                Task::Ordinal(left, right) => match left.cmp(&right) {
-                    Ordering::Equal => {}
-                    order => return order,
-                },
+            };
+            if order != Ordering::Equal {
+                return Ok(order);
             }
         }
-        Ordering::Equal
+        Ok(Ordering::Equal)
     }
 }
 
@@ -1831,7 +1848,7 @@ mod node_order_tests {
             Segment::Operand(1),
         ];
         let mut ids = Vec::new();
-        for depth in [0, 1, 2, 7, 15, 16, 17, 40] {
+        for depth in [0, 1, 2, 7, 15, 16, 17, 31, 32, 33, 40, 100] {
             for (at, leaf) in leaves.iter().enumerate() {
                 ids.push(nested(
                     depth,
@@ -1845,5 +1862,40 @@ mod node_order_tests {
                 assert_eq!(left.cmp(right), reference(left, right));
             }
         }
+    }
+
+    /// A spill past the inline stack is requested through the caller before
+    /// it is allocated, and the caller's refusal ends the comparison; an
+    /// identity within the inline stack never asks (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn node_id_spill_is_asked_for_before_it_is_allocated() {
+        let leaf = Segment::Name("a".into());
+        let shallow = (nested(20, leaf.clone(), 0), nested(20, leaf.clone(), 1));
+        let mut asked = Vec::new();
+        let order = shallow.0.cmp_growing(&shallow.1, &mut |bytes| {
+            asked.push(bytes);
+            Ok::<(), ()>(())
+        });
+        assert_eq!(order, Ok(shallow.0.cmp(&shallow.1)));
+        assert!(asked.is_empty(), "inline depth asked to grow: {asked:?}");
+
+        let deep = (nested(100, leaf.clone(), 0), nested(100, leaf, 1));
+        let mut asked = Vec::new();
+        let refused = deep.0.cmp_growing(&deep.1, &mut |bytes| {
+            asked.push(bytes);
+            Err(bytes)
+        });
+        assert_eq!(refused, Err(asked[0]));
+        assert_eq!(asked.len(), 1);
+        assert!(asked[0] > 0);
+
+        let mut granted = 0_usize;
+        let order = deep.0.cmp_growing(&deep.1, &mut |bytes| {
+            granted = bytes;
+            Ok::<(), ()>(())
+        });
+        assert_eq!(order, Ok(deep.0.cmp(&deep.1)));
+        assert!(granted > 0);
     }
 }

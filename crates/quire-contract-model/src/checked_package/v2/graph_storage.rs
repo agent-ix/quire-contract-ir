@@ -165,6 +165,16 @@ impl<'b> WorkMeter<'b> {
         Ok(())
     }
 
+    /// The order of two node ids. A comparison nested past the inline stack
+    /// asks for its spill here, so the block is charged before it is made.
+    pub(super) fn compare_ids(
+        &mut self,
+        left: &CheckedNodeId,
+        right: &CheckedNodeId,
+    ) -> Result<Ordering, ValidationFailure> {
+        left.cmp_growing(right, &mut |bytes| self.reserve(bytes))
+    }
+
     /// A vector of `count` copies of `value`, charged first.
     pub(super) fn filled<T: Clone>(
         &mut self,
@@ -425,7 +435,25 @@ impl<'g> GraphIndex<'g> {
     ) -> Result<Self, ValidationFailure> {
         let mut entries = meter.vec::<(&CheckedNodeId, usize)>(ids.len())?;
         entries.extend(ids.enumerate().map(|(position, id)| (id, position)));
-        entries.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
+        // A sort cannot return an error: the first refusal is kept and the
+        // remaining comparisons answer without work.
+        let mut refused = None;
+        entries.sort_unstable_by(|left, right| {
+            if refused.is_some() {
+                return Ordering::Equal;
+            }
+            match meter.compare_ids(left.0, right.0) {
+                Ok(Ordering::Equal) => left.1.cmp(&right.1),
+                Ok(order) => order,
+                Err(failure) => {
+                    refused = Some(failure);
+                    Ordering::Equal
+                }
+            }
+        });
+        if let Some(failure) = refused {
+            return Err(failure);
+        }
         let walked = meter.filled(entries.len(), 0_u32)?;
         Ok(Self {
             entries: entries.into_boxed_slice(),
