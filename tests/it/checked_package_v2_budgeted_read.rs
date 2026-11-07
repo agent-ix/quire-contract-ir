@@ -141,19 +141,15 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
 /// `incomplete` for `bytes`.
 #[trace("TC-472", "FR-038-AC-510", "FR-358-AC-14")]
 #[test]
-fn zero_read_storage_is_exhausted_at_the_first_request_and_bytes_precede_it() {
+fn zero_read_storage_is_denied_at_the_first_request_and_bytes_precede_it() {
     let mut zero = NativeJoinBudget::new(u64::MAX, u64::MAX);
     assert_eq!(zero.read_storage_limit(), 0);
-    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = read_with(&mut zero) else {
-        panic!("zero read storage owns no diagnostic");
+    // No allocation is owned by the outcome, so its diagnostic costs nothing.
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(denied) = read_with(&mut zero) else {
+        panic!("an envelope denial with no pointer owns no diagnostic");
     };
-    assert_eq!(exhausted.configured_bound, 0);
-    assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(
-        exhausted.locus,
-        envelope_locus(PackageReadStage::Envelope, "package_bytes")
-    );
-    assert_eq!(exhausted.pending, None);
+    assert_eq!(denied.limit, 0);
+    assert_eq!(denied.path, None);
     assert_eq!(
         zero.first_unpaid_locus(),
         Some(envelope_locus(PackageReadStage::Envelope, "package_bytes"))

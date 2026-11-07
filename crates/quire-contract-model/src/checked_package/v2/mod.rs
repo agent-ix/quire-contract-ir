@@ -15,6 +15,8 @@ pub use budgeted_read::{
     PackageReadDeniedCharge, PackageReadResource,
 };
 mod callable;
+mod checked_json;
+pub use checked_json::{CheckedJson, CheckedJsonError};
 mod model_operations;
 pub use model_operations::{
     CheckedModelOperation, CheckedModelOperations, CheckedOperationParameter,
@@ -677,7 +679,7 @@ pub struct CheckedDiagnosticV2 {
     /// Closed cause tag.
     pub cause_tag: CheckedDiagnosticCause,
     /// Typed semantic-term details.
-    pub details: Vec<Value>,
+    pub details: Vec<CheckedJson>,
     /// Source loci under locked sources.
     pub loci: Vec<CheckedSourceRegion>,
 }
@@ -806,6 +808,13 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
 >;
 
 type RawCheckedPackageWireV2 = CheckedPackageWireV2<Value>;
+
+/// The wire as the charged Document-based decode produces it: node bodies and
+/// diagnostic details are handles into the one retained package document, and
+/// every container holds exactly its final length. The validators still read
+/// [`RawCheckedPackageWireV2`] until each moves to the node API.
+#[allow(dead_code)]
+type DecodedWireV2 = CheckedPackageWireV2<CheckedJson>;
 
 /// Source correspondence supplied to the canonical V2 writer.
 #[derive(Clone, Copy, Debug)]
@@ -4099,6 +4108,7 @@ fn validate_diagnostics(
         .collect::<BTreeSet<_>>();
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
+            let detail = &detail.to_value();
             let detail_steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),

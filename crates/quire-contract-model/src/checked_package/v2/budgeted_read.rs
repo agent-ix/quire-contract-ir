@@ -295,10 +295,7 @@ fn budget_denial(
             form: DIAGNOSTIC_FORM,
         }));
     }
-    // A read with no read-storage allowance at all owns no diagnostic
-    // (FR-038-AC-510), whatever size it would have.
-    let affordable =
-        budget.read_storage_limit() > 0 && budget.charge_read_storage(diagnostic_bytes);
+    let affordable = budget.charge_read_storage(diagnostic_bytes);
     budget.set_active_locus(None);
     match (affordable, original_locus) {
         (true, _) => {
