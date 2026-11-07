@@ -31,3 +31,13 @@ Ticket: IR-1369. Rust review inspected all ExactTypeProjectionError constructors
 ## Evidence and limits
 
 Reviewed source head 1111b0400c4040b2769c1197ec5f6bb454d51255 in the ticket's existing single worktree. Focused evidence: /tmp/ir1369-focused.log and /tmp/ir1369-focused-final.log. Final log records one owned/compact test and five exact_projection_limits tests passing, with strict workspace Clippy complete. No reviewer Cargo build or aggregate gate was run. The lead's one final combined-tree gate remains pending; cargo-deny and release-wide qualification are not claimed by this review. No applicable AssuranceProfile was found. Plan completion: not assessed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Source fix 403a1437 adds #[must_use] to both original-limit getters; both pure calls now diagnose ignored returned bounds. |
+
+## Round 1 adoption
+
+**PASS** — Inspected 403a1437: exactly two #[must_use] attributes were added; no production behavior or test was changed. Current custody head 2ac7f679 has only the initial six review files beyond that source fix. Scoped strict workspace Clippy completed successfully in /tmp/ir1369-must-use-clippy.log. Earlier actual focused native results remain valid: one owned/compact diagnostic test and the five-test public exact_projection_limits module passed. No reviewer build or test repeat was performed; the final combined-tree aggregate gate remains pending with the lead. No new findings.
