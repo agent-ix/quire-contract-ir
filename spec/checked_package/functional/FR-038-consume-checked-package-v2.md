@@ -180,14 +180,18 @@ contract version is refused with a typed `unknown_contract_version` code.
 Untrusted wire bytes; caller-selected read limits, for which the crate ships one
 named finite default appropriate to a single local request — 1048576 bytes,
 10000 nodes, 100000 edges, 100000 occurrences, 10000 diagnostics and 1000000
-term-validation visits — as stable API, every member finite so that the default
-admits no unbounded read, and no member a nesting depth, the reader having no
-depth limit (see "Reading"); the V2 read takes its bytes, nodes, edges,
-occurrences and diagnostics members as structural validation caps and does not
-consult the `work` member, which belongs to the V1 reader of FR-035; the
-caller's mutable `NativeJoinBudget` of
-[FR-358](./FR-358-compose-native-identity-join-budget.md), which holds the V2
-read's work and storage allowance (see "Budget-charged strict read"); package evidence holding
+term-validation visits — as stable API, every member finite and no member a
+nesting depth, the reader having no depth limit (see "Reading"). The V2 read
+takes the bytes, nodes, edges, occurrences and diagnostics members as
+structural validation caps and does not consult the `work` member, which the
+complete-V1 contract-package reader of FR-035 keeps. The V2 read's work and
+heap are bounded by the caller's mutable `NativeJoinBudget` of
+[FR-358](./FR-358-compose-native-identity-join-budget.md) (its work limit and
+its read-storage limit; see "Budget-charged strict read"), not by the default
+limits, so a V2 read is unbounded only when the caller passes an unbounded
+budget. `read_checked_package` has no V1 branch: it is the V2 read, takes the
+same budget and passes it through; the FR-035 contract-package reader is a
+separate entry outside this budget. Package evidence holding
 each selected domain package's Semantic IR 2.0.0 document
 supplied as bytes under its identity, each selected dependency's
 admitted V2 package supplied under its library identity, and the reader-supported
@@ -205,7 +209,19 @@ it admits in its own reader — `crates/quire-contract-model/src/checked_package
 - A closed read result: admitted, refused, incomplete (limit kind, limit,
   consumed, and the location of the value whose charge failed) or exhausted
   (the fixed-size budget denial of "Budget-charged strict read", returned when
-  the owned diagnostic of the outcome cannot itself be charged). A refusal
+  the owned diagnostic of the outcome cannot itself be charged). These public
+  types change: `CheckedPackageV2ReadResult` gains
+  `Exhausted(CheckedPackageReadExhausted)`; `CheckedPackageDispatchResult`
+  gains `Exhausted(CheckedPackageReadExhausted)`, to which
+  `read_checked_package` maps the V2 variant one to one;
+  `CheckedPackageLimit` gains `ReadStorage`; and `CheckedPackageReadExhausted`
+  is a new `Copy` struct with the public fields `denied: NativeJoinDeniedCharge`,
+  `configured_bound: u64`, `locus: NativeJoinLocus` and
+  `pending: Option<CheckedPackagePendingOutcome>`, where the new `Copy` enum
+  `CheckedPackagePendingOutcome` has the variants
+  `Refused(CheckedPackageRefusalCode)` and `Incomplete(CheckedPackageLimit)`.
+  The FR-035 contract-package reader never returns `ReadStorage` or an
+  exhausted outcome. A refusal
   carries a typed code and an ordered, non-empty list of locations, so a caller
   distinguishes the condition and locates it without parsing prose. An
   `unknown_contract_version` refusal also carries the `contract_version`
@@ -364,9 +380,10 @@ value is parsed. The others are charged as follows:
   node body, a structural id member, an `operation`, a graph edge's
   member, or a diagnostic detail. The V2 read's work limit is the caller
   budget's configured work limit.
-- The storage limit at the value being decoded or validated when the denied
-  allocation was requested, and with no pointer when the denied growth belongs
-  to the shared reader or writer's own heap rather than to one value.
+- The read-storage limit at the value being decoded or validated when the
+  denied allocation was requested, and with no pointer when the denied request
+  belongs to the shared reader, writer, walker or exact-number library's own
+  heap rather than to one value.
 
 ### Reading
 
@@ -424,11 +441,39 @@ parser, deserializer or `RawValue`, and SHALL construct no `serde_json::Value`.
 
 A JSON payload that the admitted public typed wire carries without a closed
 type, a `literal` term's `value` and a diagnostic's `details`, is a
-`CheckedJson` value: an owned, cloneable handle to one node of the admitted
-package's retained `quire_canonical::Document`, compared by JSON value, encoded
-by `quire_canonical`'s iterative encoder and dropped without recursion. The
-admitted package retains that one document behind a shared `Arc`; no payload is
-copied into a second tree.
+`CheckedJson` value ("The `CheckedJson` payload type" below). The private JSON
+record an admitted `CheckedApplicationOperation` keeps is a `CheckedJson` too.
+The admitted package retains its one document behind a shared `Arc`; no payload
+is copied into a second tree.
+
+The read's term walks run on the shared `quire-walk` walker through its
+caller-reservation entry, so each growth of the walker's own work stacks is
+asked of the budget at its full new size before it is made. Every integer or
+rational the read parses, reduces or compares while validating (canonical
+rational literals, dimension exponents and ratios, timed-model magnitudes and
+schedulability bounds) is a `quire-exact` integer built and combined through
+its caller-reservation entries; the read calls no `num-bigint` parse or
+arithmetic. A canonical integer spelling (an optional `-`, no leading zero, no
+`-0`) is decided on its text, without a parse. Accessors an admitted package
+offers after the read keep their own numeric types and are outside this
+rule.
+
+The read uses the process-wide checked-operation catalog. Its initialisation
+is not part of any read: the catalog gate SHALL run before the first charge of
+the read, initialise the catalog when the process has not yet done so, and
+return `CatalogUnavailable` when it cannot. It charges nothing to the caller's
+budget, and its allocations fall outside the read's metered call. The catalog
+is parsed by the shared `quire_canonical` reader, not `serde_json`. A caller
+that requires every read's requested bytes to equal its charge initialises the
+catalog first with the public `initialize_operation_catalog() -> Result<(),
+CatalogReadError>`, before its first read; a later call returns the same
+result without parsing again.
+
+Sorting on the read path uses only the in-place `sort_unstable*` functions,
+which allocate nothing. The crate keeps `serde_json` only for uses outside the
+V2 read path (the writer-side `Encode` for `serde_json::Value`,
+`CheckedJson::from_value` and the FR-035 reader), with the features those uses
+need.
 
 Direct decoding retains the canonical-byte decision, closed-wire losslessness
 and unknown-member refusal, JSON pointers, structural-id shape and uniqueness
@@ -445,6 +490,12 @@ when its object closes and every other fault at its offset. So a repeated
 member followed, inside the same object, by a grammar fault refuses
 `malformed_wire` with no pointer, and a repeated member in an object that closes
 before a later grammar fault refuses `duplicate_member` at the later member.
+The QSpec checked-package adverse corpus this repository reads (FR-038-AC-112)
+SHALL be checked for any vector that holds a repeated member and a later
+grammar fault, or invalid UTF-8, in the same document; each such vector's
+published expected outcome must agree with this order, and a disagreeing vector
+is a failing conformance case reported to QSpec, not a local expectation
+override.
 For the flat 100000-node chain, the additional reader peak resident memory
 shall meet FR-038-AC-214 under its isolated measurement procedure; fixture
 generation, caller-owned input bytes, selected evidence, lowering and runtime
@@ -694,7 +745,7 @@ decided differently as a result:
 - An integer whose magnitude exceeds 2^53 anywhere in the document, such as
   9007199254740993 in a node body, refuses `noncanonical_wire`. The v2 literal
   grammar admits any `i64` or `u64` today and the document is canonical by
-  `serde_json`'s spelling, so it is admitted today; exact integers past 2^53
+  the shared writer's spelling of its number, so it is admitted today; exact integers past 2^53
   travel as decimal strings. The integer 9007199254740992 is canonical and is
   not refused for its size.
 - A whole float such as `2.0`, whose RFC 8785 spelling is `2`, refuses
@@ -5577,19 +5628,20 @@ copying QSL execution semantics into IR.
 read. It takes the caller's `&mut NativeJoinBudget` of
 [FR-358](./FR-358-compose-native-identity-join-budget.md) and charges to it
 every work step the read meters and every heap allocation the read makes,
-before the step or allocation, under FR-358's strict package read accounting
-rules. `read_checked_package` takes and passes the same budget. A caller that
-wants no allowance passes `NativeJoinBudget::new(u64::MAX, u64::MAX)`; there
-is no unmetered entry, wrapper, second read implementation or private work
-meter. `CheckedPackageReadLimits` members other than `work` remain structural
-validation caps with their existing outcomes and pointers; the V2 read does not
-consult `work`.
+before the step or allocation. `read_checked_package` takes and passes the
+same budget. A caller that wants no allowance passes
+`NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX)`;
+there is no unmetered entry, wrapper, second read implementation or private
+work meter. `CheckedPackageReadLimits` members other than `work` remain
+structural validation caps with their existing outcomes and pointers; the V2
+read does not consult `work`.
 
-The read is one budget operation. It starts by clearing the budget's previous
-success delta and first-unpaid record while keeping its cumulative consumption
-and limits. On admission it records its exact work and storage delta. Every
-other outcome leaves the success delta absent and keeps every admitted charge in
-cumulative consumption; a refused or incomplete read is not refunded.
+The read is one budget operation. After the catalog gate, it clears the
+budget's previous success delta and first-unpaid record while keeping its
+cumulative consumption and limits. On admission it records its exact work
+delta and read-storage delta. Every other outcome leaves both deltas absent
+and keeps every admitted charge in cumulative consumption; a refused,
+incomplete or exhausted read is not refunded.
 
 **Work.** Each work charge point of the graph, lock, model-document,
 equivalence, diagnostic, operation-effect and checked-term-data validators SHALL
@@ -5599,61 +5651,139 @@ per started 1024 bytes of a selected model document before it is read and the
 resolution cost model of FR-038-AC-144). No other stage charges work. A work
 denial is located as "Locating refusals and limits" states.
 
-**Storage.** Storage is charged in the heap bytes of FR-358. Each stage below
-names its allocation classes; every allocation of that class, including one on
-a refusal path and one later dropped, is charged at the stage's locus
-`NativeJoinLocusSource::PackageRead(stage, index)` before it is made. `index` is
-the position named in the stage row; `form` names the member or structure being
-built.
+**Read storage.** Every heap allocation and reallocation request the read
+makes, its own and those the shared reader and writer, the quire-walk walker
+and quire-exact make on its behalf, charges the budget's read-storage counter
+with the full size of the requested block, under FR-358's read-storage rule.
+The read charges nothing to the budget's logical storage counter. Each request,
+including one on a refusal path and one later dropped, is charged before it is
+made at the locus `NativeJoinLocusSource::PackageRead(stage, index)` of the
+stage making it, with the `index` and static `form` the table below names. A
+charge inside the walker uses the calling check's stage and index with `form`
+`"walk"`; a charge inside quire-exact uses them with `form` `"exact_number"`;
+a charge for an owned refusal or `incomplete` diagnostic uses them with `form`
+`"diagnostic"`.
 
-| Stage (`PackageReadStage`) | `index` | Charged allocations |
-| --- | --- | --- |
-| `Envelope` | 0 | Every working-byte reservation the shared reader asks while reading the package bytes: arena nodes, child ids and object members, decoded text, the open-container stack and its children, the duplicate-name sort buffer, and the pointer and lexeme of a number-out-of-range refusal. |
-| `Canonical` | 0 | Every reservation the shared writer asks while encoding the package document into the comparing sink. |
-| `WireDecode` | root-member item index (graph node index for `semantic_graph.nodes`) | Each typed wire container (`Vec`, `Box<[T]>`), owned string (`Box<str>`, `String`), `Box<T>`, structural node-id path, and each `CheckedJson` handle, at the exact length the document holds; and each closed-schema, unknown-member and lossless refusal's diagnostic. |
-| `WireChecks` | graph node index | The header checks, the owner schema, `flat_wire::check` and interval-bound checks: the decoded kind table and each temporary they build. |
-| `NodeIndex` | graph node index | `node_index::check`: the shared structural keys (`Arc<CheckedNodeId>` per node), the uniqueness table and the index-segment cycle worklist. |
-| `Lock` | lock entry index within the checked lock member | Lock entry checks, dependency-selection and required-feature uniqueness tables, the unit-reference table and its formatted names, duration resolution, dependency admission and derived-closure worklists, and the field tables. |
-| `ModelDocument` | position of the selected model in ascending identity order | The shared reader's reservations for that document, its `Arc<Document>`, and every declaration table, string and retained model record decoded from it. |
-| `Graph` | graph node index | `validate_graph` and every family validator it calls: the kind, schedulability-claim, monitor-plan and timed-model tables, typed `CheckedTerm` bodies, the declaration index, lowering facts and every temporary worklist, table and key they build. |
-| `SourceMap` | source-map entry index | `validate_source_map_entries` tables and worklists. |
-| `Equivalence` | graph node index | `validate_equivalence_occurrences` tables and worklists. |
-| `Extension` | graph node index | Extension source-region checks. |
-| `Capabilities` | capability-report entry index | Capability checks. |
-| `Diagnostics` | diagnostic entry index | `validate_diagnostics` tables and worklists. |
-| `OperationEffects` | operation-effect row index | `operation_effects::validate` tables and worklists. |
-| `CheckedTermData` | checked-term-data row index | `validate_checked_term_data` tables and worklists. |
-| `Retained` | 0 | Direct dependency vector, closure index, the typed semantic graph assembled with its terms, node and source indexes, timed-model roots, each shared `Arc` of the admitted package and admission binding, and the `Box` of the admitted result. |
+| Stage (`PackageReadStage`) | `index` | `form` | Charged requests |
+| --- | --- | --- | --- |
+| `Envelope` | 0 | `"package_bytes"` | Every reservation the shared reader asks while reading the package bytes: arena nodes, child ids and object members, decoded text, the open-container stack and its children, the duplicate-name sort buffer, and the pointer and lexeme of a duplicate-name or number-out-of-range refusal. |
+| `Canonical` | 0 | `"canonical_bytes"` | Every reservation the shared writer asks while encoding the package document into the comparing sink. |
+| `WireDecode` | the position of the decoded value in the innermost wire array holding it, or 0 for a value in no array | the dotted wire path of that array, or of the member for a value in no array, without indices (`"semantic_graph.nodes"`, `"lock.dependency_selections"`, `"diagnostics.entries"`, `"name"`) | Each typed wire container (`Vec`, `Box<[T]>`), owned string (`Box<str>`, `String`), `Box<T>`, structural node-id path and `CheckedJson` handle, at the exact length the document holds. |
+| `WireChecks` | graph node index; 0 for the header | `"header"`, `"owner_schema"`, `"flat_wire"` or `"interval_bounds"` | The header and owner-schema checks, `flat_wire::check` and interval-bound checks: the decoded kind table and each temporary they build. |
+| `NodeIndex` | graph node index | `"node_index"` | The shared structural keys (`Arc<CheckedNodeId>` per node), the uniqueness table and the index-segment cycle worklist. |
+| `Lock` | the position in the lock array being checked; the graph node index for unit references; the selected model position for field tables | `"lock.sources"`, `"lock.dependency_selections"`, `"lock.definition_selections"`, `"lock.profile_selections"`, `"lock.required_features"`, `"lock.refinement_internals"`, `"unit_refs"`, `"dependencies"` or `"field_tables"` | Lock entry checks and uniqueness tables, the unit-reference table and its formatted names, duration resolution, dependency admission and derived-closure worklists, and the field tables. |
+| `ModelDocument` | the selected model's position in ascending identity order | `"model_document"` for the reader's reservations, `"declarations"` for decoded tables | The shared reader's reservations for that document, its `Arc<Document>`, and every declaration table, string and retained model record decoded from it. |
+| `Graph` | graph node index; the sidecar row index for a sidecar row | the node's wire `node_tag`; for a sidecar row its wire member name (`"temporal_bindings"`, `"temporal_clause_names"`, `"refinement_step_rows"`, `"schedulability_claims"`) | `validate_graph`, every family validator and every sidecar row check it calls: the kind, schedulability-claim, monitor-plan and timed-model tables, typed `CheckedTerm` bodies, the declaration index, lowering facts, and every temporary table, key and worklist. |
+| `SourceMap` | source-map entry index | `"source_map"` | Source-map tables and worklists. |
+| `Equivalence` | graph node index | `"equivalence"` | Equivalence-occurrence tables and worklists. |
+| `Extension` | graph node index | `"extension"` | Extension source-region checks. |
+| `Capabilities` | capability-report entry index | `"capability_report"` | Capability checks. |
+| `Diagnostics` | diagnostic entry index | `"diagnostics.entries"` | Diagnostic tables and worklists. |
+| `OperationEffects` | operation-effect row index | `"operation_effects"` | Operation-effect tables and worklists. |
+| `CheckedTermData` | checked-term-data row index | `"checked_term_data"` | Checked-term-data tables and worklists. |
+| `Retained` | 0 | `"direct_dependencies"`, `"closure_index"`, `"semantic_graph"`, `"node_index"`, `"source_index"`, `"timed_model_roots"`, `"package"`, `"admission_binding"` or `"result"` | The direct dependency vector, closure index, typed semantic graph assembled with its terms, node and source indexes, timed-model roots, each shared `Arc` of the admitted package, the admission binding and the `Box` of the admitted result. |
 
-A container the read builds SHALL have an allocation size the read computes
-before the allocation: vectors, boxed slices and strings reserved at an exact
+A container the read builds SHALL have a requested block size the read computes
+before the request: vectors, boxed slices and strings reserved at an exact
 capacity, `Box` and `Arc` allocations of a known layout. Lookup tables are
 sorted exact-capacity slices searched by binary search; the read builds no
-`BTreeMap`, `BTreeSet`, `HashMap` or `serde_json::Map`. Sorting uses an
-unstable in-place sort or a charged buffer. A string assembled from parts
-reserves its computed full length first.
+`BTreeMap`, `BTreeSet`, `HashMap` or `serde_json::Map`. A string assembled from
+parts reserves its computed full length first.
 
 **Outcomes of a denial.** A budget denial SHALL first record FR-358's first
-unpaid charge and locus. The read then charges the owned diagnostic of the
-outcome it returns. When that charge is admitted, the read returns
-`incomplete` with `limit_kind` `Work` or `Storage`, `limit` the budget's
-configured limit for that resource, `consumed` the cumulative admitted
-consumption of that resource plus the denied amount, and the pointer
-"Locating refusals and limits" names. When it is denied, or the original denial
-was the allocation of a refusal or `incomplete` diagnostic, the read returns
-`exhausted`: a fixed-size `CheckedPackageReadExhausted` holding the original
-first unpaid charge, its configured bound, its `NativeJoinLocus`, and, when a
-refusal or structural `incomplete` outcome was being built, that outcome's
-fixed-size class (its refusal code, or its structural limit kind). An
-`exhausted` outcome owns no pointer, locus list or string, and allocates
-nothing. No outcome exposes a partial package.
+unpaid charge and locus; no request is made for the denied charge. The read
+then charges the owned diagnostic of the outcome it returns, and the only
+requests it makes after the denial are that diagnostic's, each charged before
+it is made. When that charge is admitted, the read returns `incomplete` with
+`limit_kind` `Work` or `ReadStorage`, `limit` the budget's configured limit for
+that resource, `consumed` the cumulative admitted consumption of that resource
+plus the denied amount, and the pointer "Locating refusals and limits" names.
+When it is denied, or the original denial was a request for a refusal or
+`incomplete` diagnostic, the read drops what it holds and returns `exhausted`
+(`CheckedPackageReadExhausted`): `denied` is the original first unpaid charge,
+`configured_bound` its resource's configured limit (including zero), `locus`
+its `NativeJoinLocus`, and `pending` the fixed-size class of the refusal or
+structural `incomplete` outcome being built, if any. An `exhausted` outcome
+owns no pointer, locus list or string, and makes no request. The byte limit
+is checked before any request, so an input over it returns `incomplete`
+`Bytes`, which owns no heap, at any read-storage limit including zero. No
+outcome exposes a partial package.
 
 **Identical results.** For every input, every budget whose limits are at least
-the read's measured work and storage requirement SHALL return the same outcome as
-an unlimited budget: an equal admitted package and equal lowering, or a refusal
-or structural `incomplete` with equal code, cause, loci and `document_pointer`.
-Reading the same bytes and evidence again, under equal limits, charges equal
-work and storage and stops at the same first unpaid charge.
+the read's measured work and read-storage requirement SHALL return the same
+outcome as an unlimited budget: an equal admitted package and equal lowering,
+or a refusal or structural `incomplete` with equal code, cause, loci and
+`document_pointer`. Reading the same bytes and evidence again, under equal
+limits, charges equal work and read storage and stops at the same first unpaid
+charge.
+
+### The `CheckedJson` payload type
+
+`CheckedJson` is a public, `Clone` owned handle to one value of a shared
+`quire_canonical::Document`: an `Arc<Document>` and that value's node id.
+
+- Construction. The read builds each handle from the package document it
+  retains. Outside the read, `CheckedJson::from_canonical_bytes(bytes,
+  max_input_bytes) -> Result<CheckedJson, CheckedJsonError>` reads one JSON
+  value with the shared reader and refuses bytes that are not its canonical
+  encoding, and `CheckedJson::from_value(&serde_json::Value) ->
+  Result<CheckedJson, CheckedJsonError>` encodes the value canonically and
+  reads it back. `CheckedJsonError` carries the reader's or encoder's typed
+  error. Neither constructor is on the read path or charges a budget.
+- Read access. `node(&self) -> quire_canonical::NodeRef<'_>` borrows the
+  value through the shared reader's node API (null, boolean, number with its
+  source text and double, string, array items, object members in document
+  order, member lookup by name). `to_value(&self) -> serde_json::Value` copies
+  it into a `serde_json::Value` for a consumer that wants one; it is not on
+  the read path.
+- Equality. Two handles are equal when their values have equal canonical
+  encodings; the comparison walks both documents without native recursion and
+  never compares node ids or `Arc` identity. `Eq` holds; `Hash` is not
+  implemented.
+- `Debug` renders the value's canonical JSON text, encoded iteratively.
+- Serde. `CheckedJson` implements `Serialize` by emitting the JSON value it
+  holds, and `Deserialize` by deserializing a JSON value and building it with
+  `from_value`, so `CheckedTerm`, `CheckedDiagnosticV2` and the other typed
+  wire types keep their `Serialize`/`Deserialize` derives with unchanged JSON
+  forms. These serde implementations are off the read path; `Encode` for the
+  complete envelope uses the iterative document encoder.
+
+The public uses that change are: `CheckedTerm::Literal.value` and
+`CheckedDiagnosticV2.details` (`Vec<CheckedJson>`); the
+`CheckedTerm::literal_text`, `literal_rational`, `literal_quantity` and
+`literal_integer` constructors, which build a `CheckedJson`; the
+crate's `tests/typed_terms_deserialize.rs`, whose expected literal values
+become `CheckedJson`; QSL's `qsl-package/src/emit/timed_order.rs` literal-value
+reads (from line 286), which read through `node()`; and every external writer
+that builds a `CheckedDiagnosticsV2` for the V2 encoder, which builds its
+details with `from_value` or `from_canonical_bytes`.
+
+### Owner prerequisites of the budget-charged read
+
+The read needs these owner entry points before its build can land; each is
+the minimum the read uses.
+
+- `agent-ix/quire-canonical` PR #17: the writer's caller-reservation entry,
+  asking before each growth of its work lists with the full new block size.
+- `agent-ix/quire-canonical` PR #18: the reader's caller-reservation entry,
+  with the same rule for its arena and scratch lists, the encoded-input
+  provision checked first.
+- `agent-ix/quire-canonical`: the reader's duplicate-name refusal carries the
+  later member's RFC 6901 pointer, as its number-out-of-range refusal does,
+  with that pointer's allocation asked of the reservation.
+- `agent-ix/quire-canonical`: a public `Copy` node id for a `Document` value,
+  `NodeRef::id()`, and `Document::node(id) -> Option<NodeRef<'_>>`, so an owned
+  handle can name one value of a shared document.
+- `agent-ix/quire-walk`: a caller-reservation variant of `walk` that asks a
+  caller reservation (`fn reserve(&mut self, bytes: usize) -> Result<(),
+  Denied>`) before each growth of the walker's task and pending stacks,
+  reserving exactly the full new capacity it asks, and that returns the denial
+  instead of walking further.
+- `agent-ix/quire-exact`: caller-reservation variants, with the same
+  reservation shape, of parsing a signed decimal integer from text, and of
+  integer addition, multiplication, exact division and greatest common
+  divisor, each asking the full size of every limb block it requests before
+  requesting it; comparison and sign tests allocate nothing.
 
 ## Acceptance Criteria
 
@@ -5670,8 +5800,8 @@ work and storage and stops at the same first unpaid charge.
 | FR-038-AC-377 | Implemented; evidence: `node_index::published_index_segment_refusals_precede_semantic_checks` and `checked_package_v2_canonical_encoding::tc_048_envelope_refuses_indexed_dependency_reference_node`.  Against the selected QSpec node-index vectors NI-01..NI-07, the reader refuses nested node ids, malformed index objects and a dependency-reference node path containing an index as `malformed_wire` at the patched segment. It accepts only string or closed `{"node": i}` segments with I-JSON integer `i` in range; a `DeclaredNodeId` path is all strings. The selected positive dependency-call fixture admits without an inline nested node id. | Test (TC-048) |
 | FR-038-AC-378 | Implemented; evidence: `node_index::published_index_segment_refusals_precede_semantic_checks` and `checked_package_v2_temporal::tc_048_out_of_range_operand_precedes_interval_semantics`.  NI-08..NI-10 each refuse `malformed_wire` with no cause at the out-of-range segment's `/node` pointer before any semantic-graph defect. With two out-of-range segments, the first in canonical byte order wins. NI-11 and NI-12 each refuse `malformed_wire` with no cause at the first cycle-closing own-path segment ordered by holding graph index then path position, including a self cycle; a forward reference without a cycle admits. The index checks precede every semantic-graph check, including duplicate ids, and retain their exact RFC 6901 pointers. | Test (TC-048) |
 | FR-038-AC-379 | Implemented; evidence: `node_index::imported_index_resolves_in_the_importing_graph` and `checked_package_v2_refinement::refinement_external_abstract_resolves_only_the_directly_selected_package_root`.  Every index segment in a package document resolves against that document's graph, even when the id's `package` names an imported node. NI-14's imported `Int[0, 9]` rebuilds against the importing graph and admits; resolving it against its owner's library graph would create a self-cycle and fails the oracle. An external FR-375 `{package, node}` key resolves against the selected dependency named by the key's own `package`; an unselected dependency or wrong document graph cannot supply the node. A dependency-reference node path remains string-only. | Test (TC-048) |
-| FR-038-AC-380 | Implemented; evidence: `node_index::long_index_chain_admits_on_a_small_stack_with_shared_keys` and iterative `CheckedNodeId` comparison, validation, clone and drop.  NI-13's 100000-node left-nested chain, with reader byte, node, edge, occurrence, diagnostic and work bounds sized not to decide the result, reads on a 256 KiB thread stack under serde_json's default 128 recursion limit. Its wire node ids stay at the fixed JSON depth and at most 200 bytes each; 100001 rebuilt structural keys are distinct and each derived key holds its predecessor's key as its final operand through shared `Arc` nodes. Key comparison, validation, clone and drop do not recurse in proportion to the chain. The existing AC-117 stack and AC-214 memory obligations remain. | Test, Inspection (TC-048) |
-| FR-038-AC-381 | Implemented; evidence: `node_index::long_index_chain_admits_on_a_small_stack_with_shared_keys`, `checked_package_v2_flat_wire::tc_048_a_syntax_or_duplicate_defect_is_refused_before_the_parse_limit`, and intake source-span inspection.  The shared strict reader and the closed-schema decoder accept the canonical NI-13 package with no recursion limit and without building a full-document `serde_json::Value`. A malformed node-id segment deep in the graph is reported at its own pointer, and syntax, duplicate-member and noncanonical-byte precedence from AC-24 and AC-214 remains unchanged. An actually nested body past the closed grammar still receives its existing typed refusal. | Test, Inspection (TC-048) |
+| FR-038-AC-380 | Implemented; evidence: `node_index::long_index_chain_admits_on_a_small_stack_with_shared_keys` and iterative `CheckedNodeId` comparison, validation, clone and drop.  NI-13's 100000-node left-nested chain, with reader byte, node, edge, occurrence and diagnostic bounds and a caller budget sized not to decide the result, reads on a 256 KiB thread stack through the shared strict reader, which has no recursion limit. Its wire node ids stay at the fixed JSON depth and at most 200 bytes each; 100001 rebuilt structural keys are distinct and each derived key holds its predecessor's key as its final operand through shared `Arc` nodes. Key comparison, validation, clone and drop do not recurse in proportion to the chain. The existing AC-117 stack and AC-214 memory obligations remain. | Test, Inspection (TC-048) |
+| FR-038-AC-381 | Implemented; evidence: `node_index::long_index_chain_admits_on_a_small_stack_with_shared_keys`, `checked_package_v2_flat_wire::tc_048_a_syntax_or_duplicate_defect_is_refused_before_canonical_bytes`, and intake source-span inspection.  The shared strict reader and the closed-schema decoder accept the canonical NI-13 package with no recursion limit and without building a full-document `serde_json::Value`. A malformed node-id segment deep in the graph is reported at its own pointer, and syntax, duplicate-member and noncanonical-byte precedence from AC-24 and AC-214 remains unchanged. An actually nested body past the closed grammar still receives its existing typed refusal. | Test, Inspection (TC-048) |
 | FR-038-AC-382 | A public-reader mutation that relabels an integer-range node as `text_bounds` while retaining its Integer semantic base and body refuses `invalid_package`, no cause, at `/semantic_graph/nodes/<n>/body`, with that node as locus. A `text_bounds` node over Text retains its own minimum, maximum and text profile unchanged. | Test (TC-226) |
 | FR-038-AC-383 | An external `temporal` clause with a fairness argument targeting a compensation template owned by protocol clause `Pay` admits when `Pay.compensations` lists that template exactly once and `Pay.requirements` is empty. The selected protocol and temporal profiles, all ordinary graph dependencies and every other body member are valid; the admitted fairness target retains the template's exact structural node id. Admission does not require a `Pay.requirements` back-edge to the external temporal clause. | Test (TC-048) |
 | FR-038-AC-384 | For the external temporal clause of AC-383, a compensation target not listed by any protocol clause, named in another package or naming a node of the wrong protocol form retains AC-103's missing-name or malformed-declaration refusal at the fairness target's `node` field, with the fairness node as locus. A fairness node omitted from every admitted temporal clause's fairness argument also refuses missing-name there even when its compensation target has a unique valid owner. A temporal clause listed in one protocol clause's `requirements` still refuses a compensation target owned only by another clause; the ownership join does not change the requirement association of protocol-root, attempt or parallel-branch fairness targets. | Test (TC-048) |
@@ -5710,7 +5840,7 @@ work and storage and stops at the same first unpaid charge.
 | FR-038-AC-23 | An application node whose `dependencies` omits a body reference target, lists them out of structural id order, repeats one, or adds its `result_type` refuses as `invalid_semantic_graph` at `semantic_graph.nodes.dependencies`, located at that node. | Test (TC-048) |
 | FR-038-AC-24 | Every refusal about a value carries the RFC 6901 pointer of that value, built from the reader's own position: member names escaped (`~` as `~0`, `/` as `~1`), array elements by index, resolving in the document read — an unknown member (including one whose name holds `~` or `/`) at that member, a repeated member at that member, a missing member at the object lacking it, a wrongly typed value at that value, a malformed structural id at its exact member, and each graph, lock, source-map, capability and diagnostic refusal at the member its failed check read; malformed JSON and non-canonical bytes carry no pointer. The `unknown field` occurrence-role value of FR-038-AC-2 points exactly at `/semantic_graph/nodes/0/occurrences/0/role`; the genuine extra-member and wrong-kind controls each point at the member or value they change. No refusal code changes. | Test (TC-048) |
 | FR-038-AC-25 | An `unknown_contract_version` refusal points at `/contract_version` and carries the exact `contract_version` string the reader read, including an empty one; no other refusal carries a version. | Test (TC-048) |
-| FR-038-AC-26 | Each one-over limit other than the byte limit returns `incomplete` carrying the RFC 6901 pointer of the value whose charge failed, which resolves in the document read: nodes at the first node past it, edges at the dependency and occurrences at the source-map entry or region that took the count past it, diagnostics at the first entry past it, work at the value whose validation took the caller budget's work counter past its configured work limit, and storage at the value being decoded or validated when the denied allocation was requested (none for a shared reader or writer reservation); the byte limit carries none. A work or storage `incomplete` reports the budget's configured limit and the cumulative consumption plus the denied amount. | Test (TC-048, TC-472) |
+| FR-038-AC-26 | Each one-over limit other than the byte limit returns `incomplete` carrying the RFC 6901 pointer of the value whose charge failed, which resolves in the document read: nodes at the first node past it, edges at the dependency and occurrences at the source-map entry or region that took the count past it, diagnostics at the first entry past it, work at the value whose validation took the caller budget's work counter past its configured work limit, and read storage at the value being decoded or validated when the denied request was made (none for a shared reader, writer, walker or exact-number reservation); the byte limit carries none. A work or read-storage `incomplete` reports the budget's configured limit and the cumulative consumption plus the denied amount. | Test (TC-048, TC-472) |
 | FR-038-AC-27 | A domain package selection is admitted only by the document the evidence supplies under its identity: no document under the root's identity refuses `missing_import`/`missing-selection` at the root's `owner/identity` (`/semantic_graph/nodes/<i>/owner/identity`); a document holding a number whose text denotes a magnitude past 2^53 refuses `noncanonical_wire` at that pointer (FR-038-AC-93); bytes that do not read refuse `malformed_wire`/`malformed-json` there with no `document_pointer`; a document naming another identity refuses `invalid_model_binding`/`wrong-model-selection` there; and a matching document admits. The document's `package.version` is neither required nor read: a matching document with no `package.version`, or a non-string one, admits, and two documents of one package at different versions admit when each is selected in its own package under the same identity (FR-038-AC-64). | Test (TC-048) |
 | FR-038-AC-28 | A domain package document's declarations refuse at the row, in FR-154's order: a node whose object id is invalid, whose `kind` names no construct, or that shares its identity, refuses for itself and any reference to it reports that refusal, never `missing_declaration`/`missing-name`, wherever the two sort; a node failing two rows reports the earlier (a dangling `typeRef` before a multiplicity with `lower > upper`, a malformed member before both); a `typeRef` naming a relationship refuses `invalid_model_binding`/`malformed-declaration` wherever its declaring node sorts; two nodes with no identity refuse `malformed-declaration`, never `conflicting-binding`. | Test (TC-048) |
 | FR-038-AC-29 | A package whose lock selects a domain package document with declared types, and whose graph holds a `dispatch_call` on one of its operations, admits; the same call naming an operation the document does not declare refuses `ill_typed`/`operator-ineligible` at the member's `name`; an inherited field resolves on a subtype and a subtype conforms to its supertype in either operand order; a field typed at an `Int[lo, hi]` value type has the integer-range member type `[lo, hi]`. | Test (TC-048) |
@@ -6139,26 +6269,29 @@ work and storage and stops at the same first unpaid charge.
 | FR-038-AC-490 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). A non-scalar map key refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}` (MT-04); omitting the `value` binding refuses `malformed_wire` with no cause at `/semantic_graph/nodes/{n}/body` during closed-schema admission (MT-05); and a body key reference that disagrees with the structural path refuses `invalid_package`/`invalid-derived-shape` at `/semantic_graph/nodes/{n}` (MT-06). No case yields an admitted or partial typed map view. A map carrying a Clock place follows QSpec FR-415's separate clock-place admission, without inventing a Clock value node (MT-07). | Test (TC-048; QSpec FR-322-AC-385, MT-04..MT-07) |
 | FR-038-AC-491 | IMPLEMENTED (IR-1356; focused TC-048 and QSpec MT-01..MT-07 controls pass). TC-048 reads QSpec main's `proposals/checked-package-v2/map-type-vectors.json` through `QUIRE_SPECIFICATION_DIR`, applies MT-01 through MT-07 to complete otherwise valid packages, and compares each published admission or refusal, code, cause and primary RFC 6901 pointer. Positive reads also assert typed key/value references and structural identity; the collection-bounds control keeps bounds in its separate node. A missing upstream vector or a changed expected outcome fails the control; no QSpec fixture, vector or schema is copied into IR. | Test (TC-048; QSpec FR-322-AC-385, TC-233) |
 | FR-038-AC-494 | An admitted `CheckedPackageV2` exposes its selected model package identities as a borrowed sequence in ascending identity order through `selected_model_packages`. A package with no selected model returns an empty sequence; a refused or incomplete read exposes no package. The read neither invents source aliases nor accepts caller-authored model selections. | Test (TC-233) |
-| FR-038-AC-495 | `CheckedPackageV2::read(bytes, limits, evidence, &mut NativeJoinBudget)` and `read_checked_package` with the same budget parameter are the only V2 read entries in the public item list. The call graph holds one read implementation: no unmetered entry, wrapper, fallback limit, second decoder or private work meter, and every in-repository caller passes a caller-owned budget (`NativeJoinBudget::new(u64::MAX, u64::MAX)` where it wants no allowance). A package admitted under the unlimited budget equals the package admitted under an exact budget. Changing `CheckedPackageReadLimits.work` changes no V2 read outcome; each other member keeps its own `incomplete` outcome and pointer. | Test, Inspection (TC-472) |
-| FR-038-AC-496 | A read clears the budget's previous success delta and first-unpaid record, keeps cumulative consumption and the configured limits, and on admission records a delta equal to its own work and storage charge. A refused, `incomplete` or `exhausted` read leaves the success delta absent and its admitted charges in cumulative consumption. Two reads, each affordable alone, composed on one budget whose limits are below their sum, admit the first and stop the second at its first unpaid charge; a read followed by an FR-358 native join on the same budget composes the same way. | Test (TC-472) |
-| FR-038-AC-497 | Envelope stage. For a genuine admitted package and for the adverse shapes of FR-038-AC-511, a storage limit equal to the read's measured storage requirement admits the package, and a storage limit one below the cumulative storage admitted through the shared reader's last package-bytes reservation refuses at that reservation: first unpaid `Storage` with the reservation's byte amount, locus `PackageRead(Envelope, 0)`, no document and no package. Each reader list class (arena nodes, child ids/members, decoded text, open-container stack and children, duplicate-name sort buffer) is the denied class in at least one one-below case, and a package-bytes number with no finite double charges its pointer and lexeme before the read returns `malformed_wire` with no pointer. | Test (TC-472) |
-| FR-038-AC-498 | Canonical stage. For a genuine admitted package, a storage limit one below the cumulative storage admitted through the shared writer's last reservation of the canonical comparison refuses at that reservation with locus `PackageRead(Canonical, 0)`; the comparing sink allocates nothing, and a noncanonical package refuses `noncanonical_wire` with no pointer at the same point of the order of checks as before, at any budget at least its requirement. | Test, Inspection (TC-472) |
-| FR-038-AC-499 | WireDecode stage. For a genuine admitted package, a storage limit one below the cumulative storage through the decoder's last allocation refuses at it with locus `PackageRead(WireDecode, i)` and the root member as `form`. Separate one-below cases deny the allocation of a node vector, an owned string, a structural node-id path, a `CheckedJson` handle, and an `unknown_member` refusal's diagnostic; each charged amount equals the bytes of that allocation. Every owned container is reserved at its exact final length, so no decoded container is reallocated. | Test (TC-472) |
-| FR-038-AC-500 | WireChecks stage. For a genuine admitted package, a storage limit one below the cumulative storage through the last allocation of the header, owner-schema, flat-wire or interval-bound checks refuses at it with locus `PackageRead(WireChecks, i)`; the decoded kind table is the denied allocation in one case, and an otherwise valid limit for the stage admits the same kind table as an unlimited budget. | Test (TC-472) |
-| FR-038-AC-501 | NodeIndex stage. For a genuine package with index segments and for the 100000-node chain, a storage limit one below the cumulative storage through the last node-index allocation refuses at it with locus `PackageRead(NodeIndex, i)`; the shared structural key of node `i`, the uniqueness table and the cycle worklist are each the denied allocation in one case. A duplicate node id and an index cycle keep their refusal codes and pointers at any budget at least their requirement. | Test (TC-472) |
-| FR-038-AC-502 | Lock stage. For a genuine package with dependency selections, required features, unit nodes and selected models, a storage limit one below the cumulative storage through the lock stage's last allocation refuses at it with locus `PackageRead(Lock, i)`; the dependency-identity table, the unit-reference table with its formatted names, the dependency admission worklist and the field tables are each the denied allocation in one case. A work limit one below the lock stage's cumulative work refuses at the existing lock work charge point. | Test (TC-472) |
-| FR-038-AC-503 | ModelDocument stage. For a package with two selected models, a storage limit one below the cumulative storage through the second document's last reader reservation refuses with locus `PackageRead(ModelDocument, 1)` and no model admitted; the declaration tables decoded from the document and its retained `Arc<Document>` are each the denied allocation in one case. The document is read through the shared reader's reservation entry, its declarations are read from the document without a `serde_json::Value`, and its work charge (one unit per started 1024 bytes) is admitted before the document is read. | Test, Inspection (TC-472) |
-| FR-038-AC-504 | Graph stage. For genuine packages that together reach every node family validator (frame, temporal, protocol, timed model, hybrid, refinement, operation, extension, state, claim and value bodies), a storage limit one below the cumulative storage through the last allocation the graph stage makes for node `i` refuses at it with locus `PackageRead(Graph, i)`; the typed `CheckedTerm` of node `i`, the declaration index, the lowering facts and one family validator's temporary table are each the denied allocation in one case. A work limit one below the graph stage's cumulative work refuses at the existing graph work charge point with its existing pointer. | Test (TC-472) |
-| FR-038-AC-505 | SourceMap, Equivalence, Extension and Capabilities stages. For a genuine package with source-map entries, equivalence occurrences, extension nodes and capability rows, a storage limit one below the cumulative storage through each stage's last allocation refuses at it with that stage's locus and the entry, node or row index named by FR-038's stage table; each stage's admitted outcome at its exact limit equals the unlimited outcome. | Test (TC-472) |
-| FR-038-AC-506 | Diagnostics, OperationEffects and CheckedTermData stages. For a genuine package with diagnostics, operation-effect rows and checked-term data, a storage limit one below the cumulative storage through each stage's last allocation refuses at it with that stage's locus and row index, and a work limit one below each stage's cumulative work refuses at its existing work charge point. | Test (TC-472) |
-| FR-038-AC-507 | Retained stage. For a genuine package with direct dependencies, a storage limit one below the read's full storage requirement refuses at the last retained allocation with locus `PackageRead(Retained, 0)` and no package; the direct-dependency vector, the closure index, the assembled typed semantic graph, the node index, each shared `Arc` of the admitted package, the admission binding and the result `Box` are each the denied allocation in one case. A storage limit equal to the requirement admits. | Test (TC-472) |
+| FR-038-AC-495 | `CheckedPackageV2::read(bytes, limits, evidence, &mut NativeJoinBudget)` and `read_checked_package` with the same budget parameter are the only V2 read entries in the public item list. The call graph holds one read implementation: no unmetered entry, wrapper, fallback limit, second decoder or private work meter, and every in-repository caller passes a caller-owned budget (an unlimited one where it wants no allowance). `read_checked_package` has no V1 branch and passes the budget through unchanged. A package admitted under the unlimited budget equals the package admitted under an exact budget. Changing `CheckedPackageReadLimits.work` changes no V2 read outcome; each other member keeps its own `incomplete` outcome and pointer. | Test, Inspection (TC-472) |
+| FR-038-AC-496 | A read clears the budget's previous success deltas and first-unpaid record, keeps cumulative consumption and the configured limits, and on admission records a work delta and a read-storage delta equal to its own charges and a logical storage delta of zero. A refused, `incomplete` or `exhausted` read leaves the deltas absent and its admitted charges in cumulative consumption. Two reads, each affordable alone, composed on one budget whose work or read-storage limit is below their sum, admit the first and stop the second at its first unpaid charge; an FR-358 native join after a read on the same budget has its own unchanged logical storage requirement and shares the work counter. | Test (TC-472) |
+| FR-038-AC-497 | Envelope stage. For a genuine admitted package and for the adverse shapes of FR-038-AC-511, a read-storage limit equal to the read's measured requirement admits the package, and a read-storage limit one below the cumulative read storage admitted through the shared reader's last package-bytes reservation refuses at that reservation: first unpaid `ReadStorage` with the reservation's byte amount, locus `PackageRead(Envelope, 0)` and form `"package_bytes"`, no document and no package. Each reader list class (arena nodes, child ids/members, decoded text, open-container stack and children, duplicate-name sort buffer) is the denied class in at least one one-below case, and the pointer and lexeme of a duplicate-name and of a number-out-of-range refusal are each charged before the refusal is returned. | Test (TC-472) |
+| FR-038-AC-498 | Canonical stage. For a genuine admitted package, a read-storage limit one below the cumulative read storage admitted through the shared writer's last reservation of the canonical comparison refuses at that reservation with locus `PackageRead(Canonical, 0)` and form `"canonical_bytes"`; the comparing sink requests nothing, and a noncanonical package refuses `noncanonical_wire` with no pointer at the same point of the order of checks as before, at any budget at least its requirement. | Test, Inspection (TC-472) |
+| FR-038-AC-499 | WireDecode stage. For a genuine admitted package, a read-storage limit one below the cumulative read storage through the decoder's last request refuses at it with locus `PackageRead(WireDecode, i)`, where `i` and `form` follow the stage table. Separate one-below cases deny a request for a node vector (`"semantic_graph.nodes"`), an owned string, a structural node-id path, a `CheckedJson` handle, a `lock.dependency_selections` item (index = its position) and an `unknown_member` refusal's diagnostic; each charged amount equals the requested block's size. Every owned container is reserved at its exact final length, so no decoded container is reallocated. | Test (TC-472) |
+| FR-038-AC-500 | WireChecks stage. For a genuine admitted package, a read-storage limit one below the cumulative read storage through the last request of the header, owner-schema, flat-wire or interval-bound checks refuses at it with locus `PackageRead(WireChecks, i)` and that check's form; the decoded kind table is the denied request in one case, and the stage's exact limit admits the same kind table as an unlimited budget. | Test (TC-472) |
+| FR-038-AC-501 | NodeIndex stage. For a genuine package with index segments and for the 100000-node chain, a read-storage limit one below the cumulative read storage through the last node-index request refuses at it with locus `PackageRead(NodeIndex, i)`; the shared structural key of node `i`, the uniqueness table and the cycle worklist are each the denied request in one case. A duplicate node id and an index cycle keep their refusal codes and pointers at any budget at least their requirement. | Test (TC-472) |
+| FR-038-AC-502 | Lock stage. For a genuine package with dependency selections, required features, unit nodes and selected models, a read-storage limit one below the cumulative read storage through the lock stage's last request refuses at it with locus `PackageRead(Lock, i)` and the stage table's form; the dependency-identity table, the unit-reference table with its formatted names, the dependency admission worklist and the field tables are each the denied request in one case. A work limit one below the lock stage's cumulative work refuses at the existing lock work charge point. | Test (TC-472) |
+| FR-038-AC-503 | ModelDocument stage. For a package with two selected models, a read-storage limit one below the cumulative read storage through the second document's last reader reservation refuses with locus `PackageRead(ModelDocument, 1)` and form `"model_document"`, and no model admitted; the declaration tables decoded from the document (form `"declarations"`) and its retained `Arc<Document>` are each the denied request in one case. The document is read through the shared reader's reservation entry, its declarations are read from the document without a `serde_json::Value`, and its work charge (one unit per started 1024 bytes) is admitted before the document is read. | Test, Inspection (TC-472) |
+| FR-038-AC-504 | Graph stage. For genuine packages that together reach every node family validator (frame, temporal, protocol, timed model, hybrid, refinement, operation, extension, state, claim and value bodies) and every sidecar row check, a read-storage limit one below the cumulative read storage through the last request the graph stage makes for node `i` refuses at it with locus `PackageRead(Graph, i)` and the node's `node_tag` as form (or the sidecar member and row index for a sidecar row); the typed `CheckedTerm` of node `i`, the declaration index, the lowering facts, one family validator's temporary table, one walker stack growth (form `"walk"`) and one quire-exact limb request (form `"exact_number"`) are each the denied request in one case. A work limit one below the graph stage's cumulative work refuses at the existing graph work charge point with its existing pointer. | Test (TC-472) |
+| FR-038-AC-505 | SourceMap, Equivalence, Extension and Capabilities stages. For a genuine package with source-map entries, equivalence occurrences, extension nodes and capability rows, a read-storage limit one below the cumulative read storage through each stage's last request refuses at it with that stage's locus, index and form from the stage table; each stage's admitted outcome at its exact limit equals the unlimited outcome. | Test (TC-472) |
+| FR-038-AC-506 | Diagnostics, OperationEffects and CheckedTermData stages. For a genuine package with diagnostics, operation-effect rows and checked-term data, a read-storage limit one below the cumulative read storage through each stage's last request refuses at it with that stage's locus, row index and form, and a work limit one below each stage's cumulative work refuses at its existing work charge point. | Test (TC-472) |
+| FR-038-AC-507 | Retained stage. For a genuine package with direct dependencies, a read-storage limit one below the read's full read-storage requirement refuses at the last retained request with locus `PackageRead(Retained, 0)` and no package; the direct-dependency vector, the closure index, the assembled typed semantic graph, the node index, each shared `Arc` of the admitted package, the admission binding and the result `Box` are each the denied request in one case, each reporting its stage-table form. A read-storage limit equal to the requirement admits. | Test (TC-472) |
 | FR-038-AC-508 | Every work charge of the V2 read is charged to the caller budget's work counter, at the same point, amount and order as the validation-visit rules of FR-038 already state, and no other stage charges work. For each fixture of TC-048 that states an exact work requirement, the same number is the read's work delta under the budget, and one below it refuses at the same value. | Test (TC-472) |
-| FR-038-AC-509 | Strict grammar under the shared reader. Package bytes with invalid UTF-8, a byte order mark, an unescaped control character, an invalid escape, a lone surrogate escape, a number outside RFC 8259 grammar, a number with no finite double, or trailing content each refuse `malformed_wire` with no pointer; a repeated member refuses `duplicate_member` at the later member's pointer, including a name holding `~` or `/`; a canonical-grammar package whose bytes differ from its canonical encoding refuses `noncanonical_wire` with no pointer; an unknown member refuses `unknown_member` at it; an explicit `null` for an omitted optional member refuses `malformed_wire` at it. Precedence: invalid UTF-8 anywhere refuses first; a repeated member followed inside the same object by a truncation refuses `malformed_wire` with no pointer; a repeated member in an object closed before a later grammar fault refuses `duplicate_member`; every byte-stream fault precedes `noncanonical_wire`, which precedes `contract_version` and closed-schema checks. A body nested 300 levels deep refuses `malformed_wire` at the first value outside the body grammar. | Test (TC-472) |
-| FR-038-AC-510 | A work denial whose `incomplete` diagnostic is affordable returns `incomplete` `Work` with the budget's configured work limit, cumulative work plus the denied amount, and the value's pointer; a storage denial likewise returns `incomplete` `Storage`. When the diagnostic's own storage is denied, or the denied allocation was a refusal diagnostic, the read returns a fixed-size `exhausted` outcome holding the original first unpaid kind and amount, its configured bound (including zero), its `PackageRead` locus and the pending outcome class (refusal code or structural limit kind), and allocating nothing. At zero storage, every read returns `exhausted` with no allocation observed. | Test (TC-472) |
-| FR-038-AC-511 | Whole-read accounting. A test binary whose global allocator counts the bytes of each allocation and of each reallocation's growth on the reading thread reads, under an unlimited budget, an exact budget and each one-below budget of AC-497 through AC-507: every positive TC-048 fixture, the QSpec checked-package conformance packages this repository reads, and the adverse shapes — the 100000-node reference chain, a 10000-node flat graph, a node with 10000 dependencies, a 1 MiB string member, 10000 source-map entries, 10000 diagnostics with detail terms, 64 direct dependencies and two selected model documents of 512 KiB — together with one refused input per refusal code. For every read, the storage delta the budget admitted equals the observed allocated bytes during the call, and no allocation is observed after a denied charge. | Test (TC-472) |
-| FR-038-AC-512 | Over the TC-048 corpus, every budget whose limits are at least the read's measured requirement returns the same outcome as the unlimited budget: an equal admitted package (equal graph, terms, models, selected documents, source map, diagnostics and lowering of every node) or an equal refusal or structural `incomplete` (code, cause, loci, `document_pointer`). Repeating a read with equal bytes, evidence and limits charges equal work and storage and stops at the same first unpaid charge and locus. | Test (TC-472) |
-| FR-038-AC-513 | The V2 read path (`CheckedPackageV2::read` and every function it reaches up to returning its result) calls no `serde_json` parser, deserializer or `RawValue`, constructs no `serde_json::Value`, and builds no `BTreeMap`, `BTreeSet`, `HashMap` or `serde_json::Map`; its tables are sorted exact-capacity slices and its containers are reserved at exact capacity before they are filled. | Inspection (TC-472) |
-| FR-038-AC-514 | A `literal` term's `value` and each diagnostic detail of an admitted package are `CheckedJson` handles into the package's one retained document. Cloning one shares the retained document without allocating a tree; its JSON value equality, canonical encoding and drop use no native recursion; and a complete V2 envelope re-encoded from an admitted package equals the input bytes. | Test (TC-472) |
+| FR-038-AC-509 | Strict grammar under the shared reader. Package bytes with invalid UTF-8, a byte order mark, an unescaped control character, an invalid escape, a lone surrogate escape, a number outside RFC 8259 grammar, a number with no finite double, or trailing content each refuse `malformed_wire` with no pointer; a repeated member refuses `duplicate_member` at the later member's pointer, including a name holding `~` or `/`; a canonical-grammar package whose bytes differ from its canonical encoding refuses `noncanonical_wire` with no pointer; an unknown member refuses `unknown_member` at it; an explicit `null` for an omitted optional member refuses `malformed_wire` at it. Precedence: invalid UTF-8 anywhere refuses first; a repeated member followed inside the same object by a truncation refuses `malformed_wire` with no pointer; a repeated member in an object closed before a later grammar fault refuses `duplicate_member`; every byte-stream fault precedes `noncanonical_wire`, which precedes `contract_version` and closed-schema checks. A test enumerates the QSpec adverse corpus read under FR-038-AC-112 and fails on any vector holding a repeated member together with a later grammar fault or invalid UTF-8 whose published expected outcome differs from this order. | Test (TC-472) |
+| FR-038-AC-510 | A work denial whose `incomplete` diagnostic is affordable returns `incomplete` `Work` with the budget's configured work limit, cumulative work plus the denied amount, and the value's pointer; a read-storage denial likewise returns `incomplete` `ReadStorage`. When the diagnostic's own request is denied, or the denied request was a refusal diagnostic, the read returns `exhausted` holding the original first unpaid kind and amount, its configured bound (including zero), its `PackageRead` locus and the pending outcome class (refusal code or structural limit kind), and makes no further request. At a zero read-storage limit, every read that reaches a read-storage charge returns `exhausted` with no request observed, while an input over the byte limit returns `incomplete` `Bytes` with no pointer and no request. | Test (TC-472) |
+| FR-038-AC-511 | Whole-read accounting. After `initialize_operation_catalog` has returned `Ok`, a test binary whose global allocator counts, on the reading thread during the call, the size of each allocation request and the new size of each reallocation request reads, under an unlimited budget, an exact budget and each one-below budget of AC-497 through AC-507: every positive TC-048 fixture, the QSpec checked-package conformance packages this repository reads, and the adverse shapes — the 100000-node reference chain, a 10000-node flat graph, a node with 10000 dependencies, a 1 MiB string member, 10000 source-map entries, 10000 diagnostics with detail terms, 64 direct dependencies and two selected model documents of 512 KiB — together with one refused input per refusal code. For every read, the read-storage delta the budget admitted equals the total bytes requested during the call; no request is observed for a denied charge; and every request observed after a denial belongs to the charged outcome diagnostic. | Test (TC-472) |
+| FR-038-AC-512 | Over the TC-048 corpus, every budget whose limits are at least the read's measured requirement returns the same outcome as the unlimited budget: an equal admitted package (equal graph, terms, models, selected documents, source map, diagnostics and lowering of every node) or an equal refusal or structural `incomplete` (code, cause, loci, `document_pointer`). Repeating a read with equal bytes, evidence and limits charges equal work and read storage and stops at the same first unpaid charge and locus. | Test (TC-472) |
+| FR-038-AC-513 | The V2 read path (`CheckedPackageV2::read` from the catalog gate's return through returning its result, and every function it reaches) calls no `serde_json` parser, deserializer or `RawValue`, constructs no `serde_json::Value`, calls no `num-bigint` parse or arithmetic, sorts only with `sort_unstable*`, and builds no `BTreeMap`, `BTreeSet`, `HashMap` or `serde_json::Map`; its tables are sorted exact-capacity slices and its containers are reserved at exact capacity before they are filled. The catalog initialisation parses the catalog with the shared `quire_canonical` reader and calls no `serde_json` parser. | Inspection (TC-472) |
+| FR-038-AC-514 | A `literal` term's `value` and each diagnostic detail of an admitted package are `CheckedJson` handles into the package's one retained document. Cloning one shares the retained document without allocating a tree; equality holds exactly when canonical encodings are equal, regardless of document or node identity; `Debug` prints the canonical JSON text; `node()` exposes every JSON kind with number source text; `from_canonical_bytes` refuses non-canonical bytes; `from_value` and `to_value` round-trip; a `CheckedTerm` and a `CheckedDiagnosticV2` serialize to and deserialize from the same JSON as before; equality, `Debug`, encoding and drop use no native recursion; and a complete V2 envelope re-encoded from an admitted package equals the input bytes. | Test (TC-472) |
+| FR-038-AC-515 | The catalog gate runs before the read's first charge and charges nothing: with the catalog initialised, a read's budget deltas are equal whether or not it is the process's first read; with the catalog not yet initialised, the first read initialises it and its budget deltas equal those of a later read. An unreadable catalog returns `CatalogUnavailable` before any charge, leaving the budget's counters unchanged. | Test (TC-472) |
+| FR-038-AC-516 | The read's term walks call quire-walk's caller-reservation entry, and every integer or rational the read parses, reduces or compares while validating is built and combined through quire-exact's caller-reservation entries. For a package whose canonical rational literals, dimension exponents, timed-model magnitudes and schedulability bounds hold multi-limb values, and for a term walk whose stack grows several times, each walker growth and each limb request is charged at its full requested size, and a one-below limit at each refuses with form `"walk"` or `"exact_number"` and no partial result. Canonical integer spellings are decided on text without a parse. | Test, Inspection (TC-472) |
+| FR-038-AC-517 | The public read outcomes are exactly: `CheckedPackageV2ReadResult::Exhausted(CheckedPackageReadExhausted)` and `CheckedPackageDispatchResult::Exhausted(CheckedPackageReadExhausted)` beside the existing variants, with `read_checked_package` mapping each V2 variant to its dispatch variant; `CheckedPackageLimit::ReadStorage`; and `CheckedPackageReadExhausted` with the `Copy` public fields `denied`, `configured_bound`, `locus` and `pending: Option<CheckedPackagePendingOutcome>` (variants `Refused(CheckedPackageRefusalCode)` and `Incomplete(CheckedPackageLimit)`). FR-019's public-item inventory lists each new item. The FR-035 contract-package reader returns neither `ReadStorage` nor an exhausted outcome. | Test, Inspection (TC-472) |
 
 | FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
 | FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |
@@ -6198,8 +6331,15 @@ AC-5) own the normative V2 wire, identity-domain and lowering semantics;
 quire-specification:TC-217 names this repository as their consumer evidence
 owner. The first-party `agent-ix/quire-canonical` crate owns the RFC 8785
 encoder that "Canonical encoding of the wire types" consumes (FR-038-AC-74 through
-FR-038-AC-80, FR-038-AC-89 through FR-038-AC-95 and FR-038-AC-109 through FR-038-AC-111), including its
-`Encode` for `serde_json::Value` (quire-canonical #7, merged).
+FR-038-AC-80, FR-038-AC-89 through FR-038-AC-95 and FR-038-AC-109 through FR-038-AC-111), and the
+shared strict reader and the reservation entries of the budget-charged read
+("Owner prerequisites of the budget-charged read"). The V2 read uses no
+`serde_json` parse; quire-canonical's `Encode` for `serde_json::Value` remains
+for the writer-side uses outside the read.
+[FR-358](./FR-358-compose-native-identity-join-budget.md) owns the budget, its
+read-storage counter and the `PackageRead` loci; `agent-ix/quire-walk` and
+`agent-ix/quire-exact` own the walker and exact-number entries the read
+charges.
 [FR-040](./FR-040-admit-frame-entries-and-state-clauses.md) owns the
 QSpec FR-340 `modifies` entry shape, scope and `deletes_scoped`, the FR-341 state clause and FR-342
 operation anchor bodies, and the `model` form set.

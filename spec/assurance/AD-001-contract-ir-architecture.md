@@ -195,21 +195,25 @@ the authored-contract interchange.
   terminal-record and obligation-identity concept; define none locally.
 - Make the budget-charged strict V2 read (FR-038 "Budget-charged strict
   read") the single V2 read. It takes the caller's `NativeJoinBudget`
-  (FR-358), the one meter for the read's work and the native joins that
-  follow it; there is no private work meter, unmetered entry or second read
-  implementation, and a caller with no allowance passes an unlimited budget.
-  Every allocation the read makes is charged in heap bytes before it is made,
-  cumulatively and without refund, so the charge is the read's exact
-  allocation rather than an estimate from input size. Structural read limits
+  (FR-358): its work counter is the one meter for the read's work, and a
+  separate read-storage counter, used only by this read, receives the full
+  size of every heap allocation or reallocation request the read makes, before
+  the request, cumulatively and without refund. The existing logical storage
+  counter and its charges are unchanged, so each counter has one unit. There
+  is no private work meter, unmetered entry or second read implementation; a
+  caller with no allowance passes an unlimited budget. Structural read limits
   stay validation caps.
 - Read the package bytes and every selected model document with the one
   shared strict JSON reader owned by `agent-ix/quire-canonical`, and compare
   canonical bytes with its writer, both through their caller-reservation
-  entries. Decode the typed wire from the reader's arena document with
-  containers whose allocation size is computed before the allocation, and
-  retain JSON payloads as handles into that document. `serde_json` is not
-  on the V2 read path: it offers no allocation hook, and its maps cannot be
-  charged before they grow.
+  entries; run the read's term walks on quire-walk and its exact numeric
+  checks on quire-exact, also through caller-reservation entries. Decode the
+  typed wire from the reader's arena document with containers whose request
+  size is computed before the request, and retain JSON payloads as
+  `CheckedJson` handles into that document. `serde_json` and `num-bigint` are
+  not on the V2 read path: neither offers an allocation hook. The
+  process-wide operation catalog is initialised outside any read, by the
+  catalog gate, and parsed by the shared reader.
 
 ## Risks
 
@@ -222,8 +226,8 @@ the authored-contract interchange.
 - Native/TL semantic disagreement: retained as a typed conflict rather than
   repaired, coerced, or hidden behind either owner's result vocabulary.
 - Uncharged allocation in the strict read: controlled by a counting-allocator
-  test binary that requires the charged storage of every read to equal the
-  bytes it allocated, over genuine and adverse packages.
+  test binary that requires the read-storage charge of every read to equal the
+  bytes it requested, over genuine and adverse packages.
 - Self-model authority confusion: controlled by constructor-private checked
   views, absent acceptance fields, and no conversion from model/proposal output
   into executable owner inputs.
