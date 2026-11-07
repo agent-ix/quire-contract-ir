@@ -517,3 +517,265 @@ The current computed matrix contains six AC-19 binders and eleven AC-20 binders,
 ### Current Final Verdict
 
 PASS in reviewed PR scope at 7692aae2b9dd3590494a44307d9a59dce76ceb61. No open findings. The lead still owns the single final combined-tree gate on the final integrated head; this artifact does not claim that aggregate gate or merge has passed.
+
+## New findings (final aggregate gate)
+
+The lead's still-running combined gate at custody head 960b35e2fe01f410f838ad1805a80cfe79181ee6 executed the required string-edge lane and reported one introduced occurrence. This reopens the prior in-scope PASS; the gate is still collecting its other command results and no overall completion is inferred here.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | medium | The new Package-to-GraphNode state transition branches on the diagnostic locus.form string, violating the required string-edge gate and coupling native provenance to a display label. Replace the stage decision with typed internal context while preserving the paid lookup, caller/row provenance and first-denial snapshot; do not allowlist or suppress it. | crates/quire-contract-model/src/checked_package/v2/exact_projection.rs:3717-3720 |
+
+### FND-005 Evidence
+
+Actual `/tmp/IR1409-combined-final-960b35e2f.log` records the required qsl-string-edge invocation with the repository's empty allow_list: `string-edge: 1 unmarked, unlisted occurrence(s)` at `exact_projection.rs:3719` in `CheckedPackageV2::project_exact_type_inner (branch-gating)`, command_exit=1. The offending `locus.form == "exact_projection_node"` condition is in this PR's new source, not an unchanged baseline. It decides whether the reader replaces Package context with an admitted GraphNode after lookup. The display-form label must not act as an internal state discriminator; the replacement needs a typed mode/context rather than an exception entry.
+
+No reviewer source changes or Cargo execution occurred. The candidate remains frozen until its active gate finishes. Future disposition requires actual string-edge success and the focused independent native key/value/fresh projection/caller-context controls, retaining the budget-paid lookup and sticky first-denial properties of FND-003. Earlier cold BQ/compound regression fixes and green receipts remain valid historical evidence.
+
+## Current Gate-Reopened Verdict
+
+HOLD: FND-005 open. Prior findings FND-002, FND-003 and FND-004 remain fixed. No aggregate PASS or final review clearance is claimed until the typed fix and its actual checks land.
+
+## New findings (completed candidate gate integration)
+
+The candidate gate at 960b35e2fe01f410f838ad1805a80cfe79181ee6 has now completed with aggregate exit1. In addition to FND-005 and its matching string-edge runtime test failure, the required conformance compile command found this separate introduced integration defect. The lead confirms no source mutation occurred during the candidate gate;1312 other root integration cases passed. The failure is not an unchanged baseline.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | high | The shared map test module imports two root-IT sibling fixture modules that are absent in the required conformance_qspec crate, so its new compound refusal control makes that existing target fail to compile with E0432/E0433. Share the genuine fixture/harness context across both targets without copying fixtures, excluding the control, weakening checks or suppressing errors. | tests/it/checked_package_v2_map_type.rs:1341; tests/it/checked_package_v2_map_type.rs:1498; tests/conformance_qspec/main.rs |
+
+### FND-006 Evidence
+
+Actual /tmp/IR1409-combined-final-960b35e2f.log1586-1603 records `cargo test --locked --workspace --features conformance-cli --no-run --test conformance_qspec --test monitor_plan_public --test temporal_binding_public --test it` failing exit101. The already reused map test module now includes `use crate::checked_package_v2_parameters;` in its genuine compound test and calls `crate::checked_package_v2_owners::complete_witness_fixture()`, but those modules were not declared by the conformance_qspec crate at the frozen gate head. Both new references compile in the root it harness, which is why its focused controls passed. This is a missing shared target context, not an invalid cold-unit reproduction and not a reason to skip the new tests. The fix must genuinely share existing fixture providers across the targets or place the shared builder at their common support home, without copied semantic fixture definitions.
+
+No reviewer Cargo or source changes occurred. The lead released the same coder only after the failed candidate gate finished. Disposition requires actual compile receipts for both it and conformance_qspec, plus the pending typed-string-edge/locus fix checks.
+
+## Current Completed-Gate Verdict
+
+HOLD: FND-005 and FND-006 open. Prior FND-002/003/004 fixed evidence remains intact. The candidate aggregate exit1 is preserved; no baseline exemption or gate PASS is claimed.
+
+## Candidate Fix Disposition Round 6
+
+Inspected all changes after failed candidate960b35e2 through c15367a0. ProjectionLocusMode is a private typed InitializeRequestedNode/PreserveCaller discriminator threaded through all three inner projection calls. The node lookup is still paid first; only a successful fresh requested-node lookup promotes Package to authentic GraphNode. A caller-owned Package whose display form happens to equal the old marker now remains caller-owned, and nested/caller provenance plus sticky first-denial context remain. Actual /tmp/ir1409-locus-mode-red.log proves the old source overwrote this caller Package context; /tmp/ir1409-typed-locus.log now passes the full eight projection-module controls. Authoritative /tmp/ir1409-typed-string-edge.log reports no unmarked/unlisted branch, without allowlisting or suppression.
+
+The conformance target now registers the same genuine parameters, owner, model-fields and native-budget test modules, with explicit relative paths for operation_census and option_types under the reused model-fields module. Existing fixtures are referenced rather than copied; no test or gate was disabled. Actual /tmp/ir1409-shared-conformance-compile.log successfully compiles both conformance_qspec and root it plus both public monitor/temporal targets. Earlier first-fix conformance101 and fmt1 receipts remain in /tmp/ir1409-typed-focuseds.log, and corrected exits0 in /tmp/ir1409-shared-focuseds.log are the latest results, not a rewrite of that failure. Full map15/15 and required ordinary strict workspace Clippy also pass.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-005 | fixed | Actual typed mode replaces diagnostic-string control; authoritative string-edge and eight independent projection context controls pass. |
+| FND-006 | fixed | Actual required no-run command compiles the reused controls in both harnesses with genuine shared modules and explicit child paths; no copies or skips. |
+
+## New findings (shared harness warning scope)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-007 | low | Importing the full owner fixture module into conformance_qspec introduces two dead_code warnings for CompleteWitnessFixture.budget/tuples and complete_witness_long_source_fixture. Remove the newly unreachable harness surface through genuine shared fixture organization or meaningful existing consumers, without suppression, copied fixtures or dummy reads. | tests/conformance_qspec/main.rs:63-64; tests/it/checked_package_v2_owners.rs:2410-2419 |
+
+### FND-007 Evidence
+
+/tmp/ir1409-shared-conformance-compile.log now compiles successfully but emits exactly two new conformance_qspec warnings for the unused fields and helper. The same diagnostics are absent from the failed960b35e2 candidate before the owner module was registered; the separate monitor_plan_public unused-import warning is unchanged baseline and not this finding. This non-default test=false target is compiled by the explicit conformance lane, while the ordinary all-targets Clippy PASS does not cover these new warnings. The language-independent code-review Integrity rule requires introduced warnings to be resolved, not hidden. This is a low cleanup on the actual integration fix, not a request for a new audit, test target, gate or PR.
+
+## Current Round 6 Verdict
+
+HOLD on new LOW FND-007 only. FND-002 through FND-006 latest outcomes are fixed; final review cannot claim zero open findings yet. No reviewer source/Cargo changes.
+
+## FND-007 Disposition Round 7
+
+Inspected the only final source delta: four lines register the existing complete_identity_witness module beside the same genuine producer fixture in conformance_qspec. There are no new fixture bodies, dummy reads, suppressed warnings, skipped tests or production changes. Existing controls meaningfully consume the recorded budget and tuple rows, prove cumulative acquisition/rebind arithmetic, and exercise long-source-owner work charging.
+
+Actual /tmp/ir1409-fnd007-compile.log compiles both conformance_qspec and root it plus public monitor/temporal targets without either introduced dead_code warning. Its sole remaining warning is the unchanged monitor_plan_public protocol_ports import, explicitly outside FND-007. Actual /tmp/ir1409-fnd007-witness.log executes all9 existing complete-witness controls in conformance_qspec and passes. /tmp/ir1409-fnd007-map.log executes all15 map controls there and passes. Typed context ownership control passes1/1 in /tmp/ir1409-fnd007-locus.log; strict workspace Clippy/fmt pass. The summaries record compile/witness/clippy/fmt/map/locus exits0.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-007 | fixed | Existing genuine witness consumers are registered beside their shared fixture; actual both-target compile has no new warnings and the nine meaningful consumers pass. |
+
+All prior FND-002 through FND-006 fixes remain intact. The failed960b35e2 aggregate, string-edge branch regression, missing shared target context and earlier cold-payload red failures remain preserved above; this is not a rewrite of the failed gate.
+
+## Corrected Candidate Final Review
+
+Reviewed clean pushed head 37824fbe44fb6bf8a31f608e078cfd16017cb445 after all introduced gate and integration fixes. No new findings. Latest outcomes for FND-002, FND-003, FND-004, FND-005, FND-006 and FND-007 are fixed. This supersedes prior HOLD verdicts while preserving the failed960b35e2 aggregate and every earlier finding, red receipt and disposition.
+
+Typed private mode—not diagnostic text—now decides fresh versus caller-owned projection context at all inner call sites. Actual authoritative scanner passes; old-code regression proves caller Package context was previously overwritten when its form matched the internal label. Current projection-module8/8 and final typed ownership1/1 pass, preserving paid lookup before authentic GraphNode, nested/caller provenance, context restoration and sticky first denial.
+
+The genuine shared harness modules and explicit model-field child paths compile under both it and conformance_qspec. The final four-line registration reuses existing complete_identity_witness controls rather than copying fixtures or hiding warnings. Its actual nine controls exercise budget/tuple acquisition and the long-source-owner bound; both-target compile now has no introduced warning. The unchanged monitor_plan_public protocol_ports warning remains explicitly baseline. Actual /tmp/ir1409-fnd007-focuseds.log and /tmp/ir1409-fnd007-controls.log report all compile/witness/map/locus/clippy/fmt exits0. Logs show conformance witness9/9, conformance map15/15 and typed ownership1/1. Earlier same-source root map15/15, projection8/8, cold footprint, unary and declared-unit controls remain valid.
+
+Cold bounded-quantity and compound exponent guards still precede derived equality, preserve UnsupportedExactType/MismatchedIdentityWitness distinctions and the supported declared-unit path, and retain both genuine red-to-green allocation controls. No caller-cache warming, invented numeric comparator, owner shim, duplicate fixture definition, suppression, disabled test or gate narrowing was introduced.
+
+The actual computed matrix at this corrected head records six live AC-19 binders and twelve live AC-20 binders, including the typed ownership regression. All eighteen bindings were checked against actual assertions. New attributes retain TC-first plus one AC. Existing receipt/tick criteria and unrelated bounded-wrapper PR951 scope are not overwritten or invented as blockers for these map criteria.
+
+### Corrected Final Scope
+
+```yaml
+{
+  "scope": [
+    {
+      "id": "FR-357-AC-19",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "examined",
+      "excerpt": "The public `SelectedSourceCollectionRow` carries `key_node: Option<CheckedNodeId>`. With one strictly admitted reached map whose key is scalar and whose value is a record, the collection row join and Exact projection return its complete producer `ValueType::Map`, preserving structural/base/key/value nodes and key-then-value order. The monitor closure retains that map row and follows both type dependencies; an unrelated map row is not selected. Existing sequence, set, bag and ordered-set rows retain `key_node: None` and their existing complete values. A row with a non-collection/non-map Exact v"
+    },
+    {
+      "id": "FR-357-AC-20",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "examined",
+      "excerpt": "Map row selection, acquisition and projection compose on one caller-owned `NativeJoinBudget`. Their measured exact combined work and storage allowances return the same complete map facts as ample limits; one unit below either refuses before its first unpaid operation with the original bound, native kind, full amount, row/key/value locus, consumed prefix and no partial output or success delta. Zero storage refuses before any owned allocation, including diagnostic material. A selected row after an unrelated earlier row retains its original `ReachedRow` index; preceding caller charges retain thei"
+    },
+    {
+      "id": "FR-357-AC-16",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "context_only",
+      "excerpt": "A reached admitted `composite_type`/`map` with a scalar key and a record value joins a collection row carrying its key node and value node in key-then-value order, and the closure retains the map's complete Exact `ValueType::Map`. A row whose `key_node` is absent, names another node, or is present on a non-map collection refuses `SelectedMonitorTypeClosureErrorCode::CollectionKey` at the collection node, with charged work and no partial closure; an unreached map row does not refuse. The closure with the map succeeds at its exact measured work and storage allowance, and one unit below either re"
+    },
+    {
+      "id": "FR-357-AC-17",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "context_only",
+      "excerpt": "The closure read requires the same-emission authority row of FR-361 and returns either a complete closure carrying the receipt and layout context or one typed first refusal; no read exists without that row, and no partial closure escapes an authority refusal."
+    },
+    {
+      "id": "FR-357-AC-18",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "context_only",
+      "excerpt": "The closure read seeds the plan's `tick_unit` premise with its unit and dimension facts and exposes `SelectedMonitorTypeClosure::tick_unit_dimension() -> &CheckedNodeId`, the admitted dimension node of that unit. For a source tick unit and for a model tick unit, it returns that unit's own admitted dimension; a tick unit whose admitted dimension is not the base Time dimension refuses at strict admission before any closure exists; the seeded facts are charged and succeed at the exact allowance and refuse one unit below at the first unpaid seed charge."
+    },
+    {
+      "id": "TC-473",
+      "path": "spec/checked_package/matrix/TC-473-reached-map-row-projection.md",
+      "role": "examined",
+      "excerpt": "Verify that reached map rows expose and retain the admitted key and value\nstructural nodes and complete producer Exact map value, and charge selection,\nrow materialization and nested projection to one native budget."
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "role": "examined",
+      "excerpt": "Map keys and values are separately joined before row retention; native comparison/storage charges and fresh projection loci precede their operations."
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/monitor_plan/selected_type_closure.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/monitor_plan/selected_type_closure.rs",
+      "role": "examined",
+      "excerpt": "Selected map rows retain original ReachedRow indices; after successful footprint preflight the selection form is restored before storage admission."
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/native_join_storage.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/native_join_storage.rs",
+      "role": "examined",
+      "excerpt": "Cold Integer copy footprints use the allocation-free owner inspector before storage admission."
+    },
+    {
+      "id": "tests/it/checked_package_v2_map_type.rs",
+      "path": "tests/it/checked_package_v2_map_type.rs",
+      "role": "examined",
+      "excerpt": "The real strict reader exercises complete map values, malformed rows, nested and bounded maps, exact/one-under shared budgets, independent key/value/graph loci and zero or paid-prefix allocation scopes."
+    },
+    {
+      "id": "tests/conformance_qspec/main.rs",
+      "path": "tests/conformance_qspec/main.rs",
+      "role": "examined",
+      "excerpt": "#[path = \"../it/complete_identity_witness.rs\"]\nmod complete_identity_witness;"
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "role": "examined",
+      "excerpt": "enum ProjectionLocusMode {\n    InitializeRequestedNode,\n    PreserveCaller,\n}"
+    }
+  ],
+  "bindings": [
+    {
+      "test_id": "tests::reached_map_rows::selected_closure_retains_only_reached_map_and_composes_exact_budget",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::reached_map_rows::selected_map_key_refusal_is_typed_and_unreached_bad_key_is_ignored",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_row_joins_and_projects_its_complete_value",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_rows_preserve_key_and_non_collection_refusals",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::projection_locus_ownership_is_independent_of_diagnostic_form",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::numeric_map_comparison_handle_is_charged_before_its_single_allocation",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::reached_map_rows::selected_closure_retains_only_reached_map_and_composes_exact_budget",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::reached_map_rows::selected_map_row_keeps_original_index_and_precharges_its_actual_copy",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "map_copy_tests::cold_map_integer_footprint_inspection_allocates_nothing_and_matches_owned_copy",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_rows_compose_at_exact_budget_and_preserve_first_denial",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_zero_storage_refuses_without_allocating_rows_or_diagnostics",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponents",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    }
+  ]
+}
+```
+
+### Corrected Final Verdict
+
+PASS in reviewed PR scope at 37824fbe44fb6bf8a31f608e078cfd16017cb445. Zero open findings. The lead's one corrected-head combined gate remains pending; this review does not claim that aggregate gate or merge has passed. No reviewer Cargo, source edit, new worktree or PR was performed.

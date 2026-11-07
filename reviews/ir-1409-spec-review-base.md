@@ -430,3 +430,204 @@ The current computed matrix contains six AC-19 binders and eleven AC-20 binders,
 ### Current Final Verdict
 
 PASS in reviewed PR scope at 7692aae2b9dd3590494a44307d9a59dce76ceb61. No open findings. The lead still owns the single final combined-tree gate on the final integrated head; this artifact does not claim that aggregate gate or merge has passed.
+
+## Aggregate Gate Reopened Review
+
+The required string-edge lane finds introduced diagnostic-string branch-gating in the fresh Exact projection context transition at custody head960b35e2. Code-review FND-005 records the defect; this method adds no duplicate independent finding. Prior PASS and fixed histories remain intact, but the current overall review is HOLD pending the typed context fix and real string-edge/locus receipts. The active gate is still running and this review does not infer its complete outcome.
+
+## Completed Candidate Gate Integration Finding
+
+The completed candidate gate960b35e2 also fails required conformance_qspec compilation with new map-control imports of root-only sibling fixture modules. Code-review FND-006 records the introduced defect separately from FND-005. Actual root focused controls remain valid, but they do not establish that reused shared test code compiles under both targets. Overall verdict remains HOLD until the same genuine fixtures work in both contexts and typed string-edge/locus checks pass. No new independent specification defect or duplicate review PR is introduced.
+
+## Shared Context Fix Review Round 6
+
+Actual typed locus, scanner and both-target compile evidence clears FND-005 and FND-006 at c15367a0. Code-review FND-007 records two introduced unused shared-fixture warnings in the now-compiling conformance context. This method adds no duplicate independent finding. Overall clearance remains HOLD on that low integration cleanup; all earlier defect/failure histories remain preserved.
+
+## Corrected Candidate Final Review
+
+Reviewed clean pushed head 37824fbe44fb6bf8a31f608e078cfd16017cb445 after all introduced gate and integration fixes. No new findings. Latest outcomes for FND-002, FND-003, FND-004, FND-005, FND-006 and FND-007 are fixed. This supersedes prior HOLD verdicts while preserving the failed960b35e2 aggregate and every earlier finding, red receipt and disposition.
+
+Typed private mode—not diagnostic text—now decides fresh versus caller-owned projection context at all inner call sites. Actual authoritative scanner passes; old-code regression proves caller Package context was previously overwritten when its form matched the internal label. Current projection-module8/8 and final typed ownership1/1 pass, preserving paid lookup before authentic GraphNode, nested/caller provenance, context restoration and sticky first denial.
+
+The genuine shared harness modules and explicit model-field child paths compile under both it and conformance_qspec. The final four-line registration reuses existing complete_identity_witness controls rather than copying fixtures or hiding warnings. Its actual nine controls exercise budget/tuple acquisition and the long-source-owner bound; both-target compile now has no introduced warning. The unchanged monitor_plan_public protocol_ports warning remains explicitly baseline. Actual /tmp/ir1409-fnd007-focuseds.log and /tmp/ir1409-fnd007-controls.log report all compile/witness/map/locus/clippy/fmt exits0. Logs show conformance witness9/9, conformance map15/15 and typed ownership1/1. Earlier same-source root map15/15, projection8/8, cold footprint, unary and declared-unit controls remain valid.
+
+Cold bounded-quantity and compound exponent guards still precede derived equality, preserve UnsupportedExactType/MismatchedIdentityWitness distinctions and the supported declared-unit path, and retain both genuine red-to-green allocation controls. No caller-cache warming, invented numeric comparator, owner shim, duplicate fixture definition, suppression, disabled test or gate narrowing was introduced.
+
+The actual computed matrix at this corrected head records six live AC-19 binders and twelve live AC-20 binders, including the typed ownership regression. All eighteen bindings were checked against actual assertions. New attributes retain TC-first plus one AC. Existing receipt/tick criteria and unrelated bounded-wrapper PR951 scope are not overwritten or invented as blockers for these map criteria.
+
+### Corrected Final Scope
+
+```yaml
+{
+  "scope": [
+    {
+      "id": "FR-357-AC-19",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "examined",
+      "excerpt": "The public `SelectedSourceCollectionRow` carries `key_node: Option<CheckedNodeId>`. With one strictly admitted reached map whose key is scalar and whose value is a record, the collection row join and Exact projection return its complete producer `ValueType::Map`, preserving structural/base/key/value nodes and key-then-value order. The monitor closure retains that map row and follows both type dependencies; an unrelated map row is not selected. Existing sequence, set, bag and ordered-set rows retain `key_node: None` and their existing complete values. A row with a non-collection/non-map Exact v"
+    },
+    {
+      "id": "FR-357-AC-20",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "examined",
+      "excerpt": "Map row selection, acquisition and projection compose on one caller-owned `NativeJoinBudget`. Their measured exact combined work and storage allowances return the same complete map facts as ample limits; one unit below either refuses before its first unpaid operation with the original bound, native kind, full amount, row/key/value locus, consumed prefix and no partial output or success delta. Zero storage refuses before any owned allocation, including diagnostic material. A selected row after an unrelated earlier row retains its original `ReachedRow` index; preceding caller charges retain thei"
+    },
+    {
+      "id": "FR-357-AC-16",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "context_only",
+      "excerpt": "A reached admitted `composite_type`/`map` with a scalar key and a record value joins a collection row carrying its key node and value node in key-then-value order, and the closure retains the map's complete Exact `ValueType::Map`. A row whose `key_node` is absent, names another node, or is present on a non-map collection refuses `SelectedMonitorTypeClosureErrorCode::CollectionKey` at the collection node, with charged work and no partial closure; an unreached map row does not refuse. The closure with the map succeeds at its exact measured work and storage allowance, and one unit below either re"
+    },
+    {
+      "id": "FR-357-AC-17",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "context_only",
+      "excerpt": "The closure read requires the same-emission authority row of FR-361 and returns either a complete closure carrying the receipt and layout context or one typed first refusal; no read exists without that row, and no partial closure escapes an authority refusal."
+    },
+    {
+      "id": "FR-357-AC-18",
+      "path": "spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md",
+      "role": "context_only",
+      "excerpt": "The closure read seeds the plan's `tick_unit` premise with its unit and dimension facts and exposes `SelectedMonitorTypeClosure::tick_unit_dimension() -> &CheckedNodeId`, the admitted dimension node of that unit. For a source tick unit and for a model tick unit, it returns that unit's own admitted dimension; a tick unit whose admitted dimension is not the base Time dimension refuses at strict admission before any closure exists; the seeded facts are charged and succeed at the exact allowance and refuse one unit below at the first unpaid seed charge."
+    },
+    {
+      "id": "TC-473",
+      "path": "spec/checked_package/matrix/TC-473-reached-map-row-projection.md",
+      "role": "examined",
+      "excerpt": "Verify that reached map rows expose and retain the admitted key and value\nstructural nodes and complete producer Exact map value, and charge selection,\nrow materialization and nested projection to one native budget."
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "role": "examined",
+      "excerpt": "Map keys and values are separately joined before row retention; native comparison/storage charges and fresh projection loci precede their operations."
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/monitor_plan/selected_type_closure.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/monitor_plan/selected_type_closure.rs",
+      "role": "examined",
+      "excerpt": "Selected map rows retain original ReachedRow indices; after successful footprint preflight the selection form is restored before storage admission."
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/native_join_storage.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/native_join_storage.rs",
+      "role": "examined",
+      "excerpt": "Cold Integer copy footprints use the allocation-free owner inspector before storage admission."
+    },
+    {
+      "id": "tests/it/checked_package_v2_map_type.rs",
+      "path": "tests/it/checked_package_v2_map_type.rs",
+      "role": "examined",
+      "excerpt": "The real strict reader exercises complete map values, malformed rows, nested and bounded maps, exact/one-under shared budgets, independent key/value/graph loci and zero or paid-prefix allocation scopes."
+    },
+    {
+      "id": "tests/conformance_qspec/main.rs",
+      "path": "tests/conformance_qspec/main.rs",
+      "role": "examined",
+      "excerpt": "#[path = \"../it/complete_identity_witness.rs\"]\nmod complete_identity_witness;"
+    },
+    {
+      "id": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "path": "crates/quire-contract-model/src/checked_package/v2/exact_projection.rs",
+      "role": "examined",
+      "excerpt": "enum ProjectionLocusMode {\n    InitializeRequestedNode,\n    PreserveCaller,\n}"
+    }
+  ],
+  "bindings": [
+    {
+      "test_id": "tests::reached_map_rows::selected_closure_retains_only_reached_map_and_composes_exact_budget",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::reached_map_rows::selected_map_key_refusal_is_typed_and_unreached_bad_key_is_ignored",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_row_joins_and_projects_its_complete_value",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_rows_preserve_key_and_non_collection_refusals",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations",
+      "ac_id": "FR-357-AC-19",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::projection_locus_ownership_is_independent_of_diagnostic_form",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::numeric_map_comparison_handle_is_charged_before_its_single_allocation",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::reached_map_rows::selected_closure_retains_only_reached_map_and_composes_exact_budget",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "tests::reached_map_rows::selected_map_row_keeps_original_index_and_precharges_its_actual_copy",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "map_copy_tests::cold_map_integer_footprint_inspection_allocates_nothing_and_matches_owned_copy",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_rows_compose_at_exact_budget_and_preserve_first_denial",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_zero_storage_refuses_without_allocating_rows_or_diagnostics",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    },
+    {
+      "test_id": "unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponents",
+      "ac_id": "FR-357-AC-20",
+      "trace": "correct"
+    }
+  ]
+}
+```
+
+### Corrected Final Verdict
+
+PASS in reviewed PR scope at 37824fbe44fb6bf8a31f608e078cfd16017cb445. Zero open findings. The lead's one corrected-head combined gate remains pending; this review does not claim that aggregate gate or merge has passed. No reviewer Cargo, source edit, new worktree or PR was performed.
