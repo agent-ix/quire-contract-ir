@@ -463,4 +463,14 @@ fn wide_root_scale_arithmetic_is_charged_to_the_read_budget() {
         "parse, inverse and product are charged at the node: {exact:?}"
     );
     assert_exact_and_one_short(&read, &requests);
+    // Each potentials pass charges its id table, entries, adjacency and
+    // queue at the equivalence node, ahead of the exact-number requests.
+    let tables = requests
+        .iter()
+        .filter(|request| request.index == 3 && request.form == "scalar_type")
+        .count();
+    assert!(
+        tables >= 10,
+        "the equivalence tables are charged at the node: {tables}"
+    );
 }

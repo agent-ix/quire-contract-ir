@@ -6,7 +6,7 @@
 pub mod nominal_reads;
 
 use super::dependency_references::SuppliedDependencies;
-use super::graph_storage::GraphIndex;
+use super::graph_storage::{GraphIndex, SortedTable};
 use super::model_members::DomainModel;
 use super::natural::coprime;
 use super::{
@@ -24,7 +24,7 @@ use crate::checked_package::shared::{
 use quire_exact::Integer;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Reader-owned view assembled from a node's body, owner and declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1031,12 +1031,38 @@ impl Site<'_> {
     }
 }
 
+type ModelNodes<'a> = SortedTable<(&'a str, &'a str), &'a CheckedNodeId>;
+
+/// The node of each selected model declaration, by package identity and
+/// declaration, as an exact-capacity sorted table charged first. Of two
+/// nodes naming one declaration the later wins, as a map built by
+/// insertion would hold.
+fn model_node_table<'a>(
+    nodes: impl Iterator<Item = (Option<&'a super::CheckedNodeOwner>, &'a CheckedNodeId)> + Clone,
+    meter: &mut WorkMeter,
+) -> Result<ModelNodes<'a>, ValidationFailure> {
+    let owned = |(owner, id): (Option<&'a super::CheckedNodeOwner>, &'a CheckedNodeId)| match owner
+    {
+        Some(super::CheckedNodeOwner::Model {
+            identity,
+            node: owner_node,
+        }) => Some(((identity.as_ref(), owner_node.as_ref()), id)),
+        _ => None,
+    };
+    let count = nodes.clone().filter_map(owned).count();
+    let mut entries = meter.vec(count)?;
+    entries.extend(nodes.filter_map(owned));
+    Ok(SortedTable::from_vec(entries, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    }))
+}
+
 fn record_from_node(
     node: &CheckedSemanticNodeV2,
     kind: NominalKind,
     position: usize,
     models: &[DomainModel],
-    model_nodes: &BTreeMap<(&str, &str), &CheckedNodeId>,
+    model_nodes: &ModelNodes<'_>,
 ) -> Result<NominalRecord, ValidationFailure> {
     let at = node_pointer(position);
     if kind == NominalKind::EnumMember {
@@ -1160,7 +1186,7 @@ fn model_record_from_node(
     identity: &str,
     owner_node: &str,
     models: &[DomainModel],
-    model_nodes: &BTreeMap<(&str, &str), &CheckedNodeId>,
+    model_nodes: &ModelNodes<'_>,
 ) -> Result<NominalRecord, ValidationFailure> {
     use crate::checked_package::shared::CheckedNodePathSegment as Segment;
     let at = node_pointer(position);
@@ -1266,17 +1292,14 @@ pub(super) fn validate_nominal_nodes(
     meter: &mut WorkMeter,
     bytes: u64,
 ) -> Result<BTreeSet<CheckedNodeId>, ValidationFailure> {
-    let model_nodes = nodes
-        .iter()
-        .filter_map(|node| match node.owner.as_ref() {
-            Some(super::CheckedNodeOwner::Model {
-                identity,
-                node: owner_node,
-            }) => Some(((identity.as_ref(), owner_node.as_ref()), &node.node_id)),
-            _ => None,
-        })
-        .collect::<BTreeMap<_, _>>();
-    let mut records = vec![None; nodes.len()];
+    let model_nodes = model_node_table(
+        nodes
+            .iter()
+            .map(|node| (node.owner.as_ref(), &node.node_id)),
+        meter,
+    )?;
+    let mut records: Vec<Option<NominalRecord>> = meter.vec(nodes.len())?;
+    records.resize_with(nodes.len(), || None);
     for &position in index.values() {
         if let Some(required) = NominalKind::required_by(kinds[position]) {
             records[position] = Some(record_from_node(
@@ -1288,10 +1311,12 @@ pub(super) fn validate_nominal_nodes(
             )?);
         }
     }
-    let selected_models = models
-        .iter()
-        .map(|model| (model.identity.as_ref(), model))
-        .collect();
+    // Of two models with one identity the later one is kept.
+    let mut identified = meter.vec::<(&str, &DomainModel)>(models.len())?;
+    identified.extend(models.iter().map(|model| (model.identity.as_ref(), model)));
+    let selected_models = SortedTable::from_vec(identified, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    });
     let imported = imported_nominals(dependencies, meter)?;
     let graph = NominalGraph {
         nodes,
@@ -1301,8 +1326,8 @@ pub(super) fn validate_nominal_nodes(
         selected_models,
         imported,
     };
-    let mut roots = BTreeSet::new();
-    let mut equivalence_pairs = BTreeSet::new();
+    let mut roots: Vec<&CheckedNodeId> = Vec::new();
+    let mut equivalence_pairs: Vec<&[CheckedNodeId; 2]> = Vec::new();
     let mut equivalences = Vec::new();
     for &position in index.values() {
         let node = &nodes[position];
@@ -1340,19 +1365,17 @@ pub(super) fn validate_nominal_nodes(
                     lock,
                     meter,
                 )?;
-                require(
-                    equivalence_pairs.insert(&equivalence.dimension_node_ids),
-                    || site.pointer(),
-                )?;
-                equivalences.push((position, equivalence));
+                let first =
+                    meter.insert_sorted(&mut equivalence_pairs, &equivalence.dimension_node_ids)?;
+                require(first, || site.pointer())?;
+                meter.push(&mut equivalences, (position, equivalence))?;
             }
             NominalRecord::Unit(unit) => {
                 validate_unit(&site, unit, &graph, lock, meter)?;
                 if unit.target_unit_node_id.is_none() {
                     // A dimension has exactly one targetless root unit.
-                    require(roots.insert(unit.dimension_node_id.clone()), || {
-                        site.nominal_member(&["target_unit_node_id"])
-                    })?;
+                    let first = meter.insert_sorted(&mut roots, &unit.dimension_node_id)?;
+                    require(first, || site.nominal_member(&["target_unit_node_id"]))?;
                 }
             }
         }
@@ -1381,18 +1404,14 @@ fn imported_nominals(
             u64::try_from(package.resolved_graph().nodes.len()).unwrap_or(u64::MAX),
             || JsonPointer::root().key("semantic_graph").key("nodes"),
         )?;
-        let model_nodes = package
-            .resolved_graph()
-            .nodes
-            .iter()
-            .filter_map(|node| match node.owner.as_ref() {
-                Some(super::CheckedNodeOwner::Model {
-                    identity,
-                    node: owner_node,
-                }) => Some(((identity.as_ref(), owner_node.as_ref()), &node.node_id)),
-                _ => None,
-            })
-            .collect::<BTreeMap<_, _>>();
+        let model_nodes = model_node_table(
+            package
+                .resolved_graph()
+                .nodes
+                .iter()
+                .map(|node| (node.owner.as_ref(), &node.node_id)),
+            meter,
+        )?;
         for (position, (node, kind)) in package
             .resolved_graph()
             .nodes
@@ -1878,24 +1897,71 @@ pub(super) fn model_duration_unit_key(
         .then(|| unit_node.node_id.clone()))
 }
 
-/// A dimension's canonical base component and exact root scale within it.
-type BasePotential = (CheckedNodeId, ExactRatio);
+/// The canonical base component and exact root scale of each dimension an
+/// equivalence reaches. Ids are held once, in order, as a charged exact
+/// block; an entry names its component by that block's index.
+struct Potentials<'a> {
+    ids: Vec<&'a CheckedNodeId>,
+    entries: Vec<Option<(usize, ExactRatio)>>,
+}
+
+impl<'a> Potentials<'a> {
+    fn locate(&self, id: &CheckedNodeId) -> Option<usize> {
+        self.ids.binary_search_by(|held| (*held).cmp(id)).ok()
+    }
+
+    /// The component and scale of `id`, when an equivalence reached it.
+    fn get(&self, id: &CheckedNodeId) -> Option<(&'a CheckedNodeId, &ExactRatio)> {
+        let at = self.locate(id)?;
+        let (component, scale) = self.entries.get(at)?.as_ref()?;
+        Some((self.ids[*component], scale))
+    }
+}
+
+/// One equivalence edge as the walk takes it: from, to, the multiplier, the
+/// node it was written at, and its place in the order the edges were added.
+type Step = (usize, usize, ExactRatio, usize, usize);
 
 /// Derives one potential per connected component and checks each edge against
 /// the first path already established to its target. The first structural ID
 /// in order starts each component with ratio one, so the result is deterministic.
-fn equivalence_potentials(
-    graph: &NominalGraph<'_>,
-    edges: &[(usize, &DimensionEquivalenceRecord)],
+fn equivalence_potentials<'a>(
+    graph: &'a NominalGraph<'a>,
+    edges: &'a [(usize, &'a DimensionEquivalenceRecord)],
     base_only: bool,
     meter: &mut WorkMeter,
-) -> Result<BTreeMap<CheckedNodeId, BasePotential>, ValidationFailure> {
+) -> Result<Potentials<'a>, ValidationFailure> {
     meter.charge(u64::try_from(graph.nodes.len()).unwrap_or(u64::MAX), || {
         JsonPointer::root().key("semantic_graph").key("nodes")
     })?;
-    let mut adjacency: BTreeMap<CheckedNodeId, Vec<(CheckedNodeId, ExactRatio, usize)>> =
-        BTreeMap::new();
-    for (position, edge) in edges {
+    // Every id the walk can reach: the graph's, the imported, and each
+    // edge's two ends.
+    let reachable = graph
+        .index
+        .len()
+        .saturating_add(graph.imported.len())
+        .saturating_add(edges.len().saturating_mul(2));
+    let mut ids: Vec<&CheckedNodeId> = meter.vec(reachable)?;
+    ids.extend(graph.index.keys().copied());
+    ids.extend(graph.imported.keys());
+    for (_, edge) in edges {
+        ids.extend(edge.dimension_node_ids.iter());
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    let count = ids.len();
+    let mut potentials = Potentials {
+        ids,
+        entries: meter.vec(count)?,
+    };
+    potentials.entries.resize_with(count, || None);
+    let located = |potentials: &Potentials<'_>, id: &CheckedNodeId| {
+        potentials.locate(id).ok_or_else(|| {
+            ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, node_pointer(0))
+        })
+    };
+    let mut adjacency: Vec<Step> = meter.vec(edges.len().saturating_mul(2))?;
+    for (sequence, (position, edge)) in edges.iter().enumerate() {
         let ids = &edge.dimension_node_ids;
         let is_base = |id: &CheckedNodeId| matches!(graph.nominal(id), Some(NominalRecord::Dimension(dim)) if dim.base);
         if base_only && !(is_base(&ids[0]) && is_base(&ids[1])) {
@@ -1905,34 +1971,41 @@ fn equivalence_potentials(
         meter.at_node(*position, "scalar_type");
         let ratio = ExactRatio::parse(&edge.root_scale, meter, &at)?;
         let inverse = ratio.inverse(meter)?;
-        adjacency
-            .entry(ids[0].clone())
-            .or_default()
-            .push((ids[1].clone(), inverse, *position));
-        adjacency
-            .entry(ids[1].clone())
-            .or_default()
-            .push((ids[0].clone(), ratio, *position));
+        let (first, second) = (
+            located(&potentials, &ids[0])?,
+            located(&potentials, &ids[1])?,
+        );
+        adjacency.push((first, second, inverse, *position, sequence * 2));
+        adjacency.push((second, first, ratio, *position, sequence * 2 + 1));
     }
-    let mut potentials = BTreeMap::new();
+    adjacency.sort_unstable_by(|left, right| left.0.cmp(&right.0).then(left.4.cmp(&right.4)));
+    let mut queue: Vec<usize> = meter.vec(count)?;
     for id in graph.index.keys().copied().chain(graph.imported.keys()) {
+        let start = located(&potentials, id)?;
         if !matches!(graph.nominal(id), Some(NominalRecord::Dimension(_)))
-            || potentials.contains_key(id)
+            || potentials.entries[start].is_some()
         {
             continue;
         }
-        let mut pending = VecDeque::from([id.clone()]);
-        potentials.insert(id.clone(), (id.clone(), ExactRatio::one()));
-        while let Some(current) = pending.pop_front() {
-            let Some((component, current_ratio)) = potentials.get(&current) else {
+        queue.clear();
+        queue.push(start);
+        potentials.entries[start] = Some((start, ExactRatio::one()));
+        let mut head = 0;
+        while let Some(&current) = queue.get(head) {
+            head += 1;
+            let Some((component, current_ratio)) = potentials.entries[current].as_ref() else {
                 continue;
             };
-            let (component, current_ratio) = (component.clone(), current_ratio.duplicate(meter)?);
-            for (neighbor, multiplier, position) in adjacency.get(&current).into_iter().flatten() {
+            let (component, current_ratio) = (*component, current_ratio.duplicate(meter)?);
+            let first = adjacency.partition_point(|step| step.0 < current);
+            for (_, neighbor, multiplier, position, _) in adjacency[first..]
+                .iter()
+                .take_while(|step| step.0 == current)
+            {
                 let at = || node_pointer(*position);
                 meter.at_node(*position, "scalar_type");
                 let candidate = current_ratio.multiply(multiplier, meter, &at)?;
-                match potentials.get(neighbor) {
+                match &potentials.entries[*neighbor] {
                     Some((known_component, known_ratio)) => {
                         require(
                             *known_component == component && *known_ratio == candidate,
@@ -1940,8 +2013,8 @@ fn equivalence_potentials(
                         )?;
                     }
                     None => {
-                        potentials.insert(neighbor.clone(), (component.clone(), candidate));
-                        pending.push_back(neighbor.clone());
+                        potentials.entries[*neighbor] = Some((component, candidate));
+                        queue.push(*neighbor);
                     }
                 }
             }
@@ -1950,13 +2023,15 @@ fn equivalence_potentials(
     Ok(potentials)
 }
 
-fn normalized_dimension(
+/// A dimension as the exponents of its base components, in component order,
+/// and its scale within them.
+fn normalized_dimension<'a>(
     id: &CheckedNodeId,
     graph: &NominalGraph<'_>,
-    bases: &BTreeMap<CheckedNodeId, BasePotential>,
+    bases: &Potentials<'a>,
     meter: &mut WorkMeter,
     at: &dyn Fn() -> JsonPointer,
-) -> Result<(BTreeMap<CheckedNodeId, Integer>, ExactRatio), ValidationFailure> {
+) -> Result<(Vec<(&'a CheckedNodeId, Integer)>, ExactRatio), ValidationFailure> {
     let Some(NominalRecord::Dimension(dimension)) = graph.nominal(id) else {
         return Err(invalid(at()));
     };
@@ -1964,12 +2039,11 @@ fn normalized_dimension(
         let Some((component, scale)) = bases.get(id) else {
             return Err(invalid(at()));
         };
-        return Ok((
-            BTreeMap::from([(component.clone(), Integer::one())]),
-            scale.duplicate(meter)?,
-        ));
+        let mut map = meter.vec(1)?;
+        map.push((component, Integer::one()));
+        return Ok((map, scale.duplicate(meter)?));
     }
-    let mut map: BTreeMap<CheckedNodeId, Integer> = BTreeMap::new();
+    let mut map: Vec<(&CheckedNodeId, Integer)> = meter.vec(dimension.terms.len())?;
     let mut scale = ExactRatio::one();
     for term in &dimension.terms {
         meter.charge(u64::try_from(term.exponent.len()).unwrap_or(u64::MAX), at)?;
@@ -1979,14 +2053,16 @@ fn normalized_dimension(
         let Some((component, base_scale)) = bases.get(&term.dimension_node_id) else {
             return Err(invalid(at()));
         };
-        let sum = match map.get(component) {
-            Some(held) => meter.exact_add(held, &exponent)?,
-            None => exponent,
-        };
-        map.insert(component.clone(), sum);
+        match map.binary_search_by(|(held, _)| (*held).cmp(component)) {
+            Ok(held) => {
+                let sum = meter.exact_add(&map[held].1, &exponent)?;
+                map[held].1 = sum;
+            }
+            Err(held) => map.insert(held, (component, exponent)),
+        }
         scale = scale.multiply(&base_scale.power(&term.exponent, meter, at)?, meter, at)?;
     }
-    map.retain(|_, exponent| !exponent.is_zero());
+    map.retain(|(_, exponent)| !exponent.is_zero());
     Ok((map, scale))
 }
 
@@ -2029,7 +2105,7 @@ type EquivalenceSource<'a> = (&'a str, &'a str);
 type EquivalenceAnchor = (u64, usize, u64);
 
 /// Anchors grouped by their declaring source.
-type SourceEquivalenceAnchors<'a> = BTreeMap<EquivalenceSource<'a>, Vec<EquivalenceAnchor>>;
+type SourceEquivalenceAnchors<'a> = Vec<(EquivalenceSource<'a>, EquivalenceAnchor)>;
 
 /// Anchor ordinals count equivalence declarations in source byte order, not
 /// graph order. Source-map admission already established the exact node and
@@ -2048,13 +2124,25 @@ pub(super) fn validate_equivalence_occurrences(
         u64::try_from(wire.source_map.len()).unwrap_or(u64::MAX),
         || JsonPointer::root().key("source_map"),
     )?;
-    let anchors = wire
-        .source_map
+    let is_anchor = |entry: &&crate::checked_package::shared::CheckedSourceMapEntry| {
+        entry.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor
+    };
+    let mut anchor_entries = meter.vec(wire.source_map.iter().filter(is_anchor).count())?;
+    anchor_entries.extend(
+        wire.source_map
+            .iter()
+            .filter(is_anchor)
+            .map(|entry| (&entry.node_id, entry)),
+    );
+    // Of two anchors for one node the later wins, as a map would hold.
+    let anchors = SortedTable::from_vec(anchor_entries, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    });
+    let equivalent = kinds
         .iter()
-        .filter(|entry| entry.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor)
-        .map(|entry| (&entry.node_id, entry))
-        .collect::<BTreeMap<_, _>>();
-    let mut by_source: SourceEquivalenceAnchors<'_> = BTreeMap::new();
+        .filter(|kind| **kind == CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence))
+        .count();
+    let mut by_source: SourceEquivalenceAnchors<'_> = meter.vec(equivalent)?;
     for (position, (node, kind)) in wire.semantic_graph.nodes.iter().zip(kinds).enumerate() {
         if *kind != CheckedNodeKind::ScalarType(ScalarTypeForm::DimensionEquivalence) {
             continue;
@@ -2067,7 +2155,7 @@ pub(super) fn validate_equivalence_occurrences(
             return Err(invalid(node_pointer(position).key("owner")));
         };
         meter.charge(1, || node_pointer(position).key("occurrences"))?;
-        let Some(entry) = anchors.get(&node.node_id) else {
+        let Some(entry) = anchors.get(&&node.node_id).copied() else {
             return Err(invalid(node_pointer(position).key("occurrences")));
         };
         let Some(start) = entry
@@ -2081,19 +2169,25 @@ pub(super) fn validate_equivalence_occurrences(
         else {
             return Err(invalid(node_pointer(position).key("occurrences")));
         };
-        by_source
-            .entry((authority, identity))
-            .or_default()
-            .push((start, position, entry.ordinal));
+        by_source.push((
+            (authority.as_ref(), identity.as_ref()),
+            (start, position, entry.ordinal),
+        ));
     }
-    for mut declarations in by_source.into_values() {
-        declarations.sort();
-        for (expected, (_, position, actual)) in declarations.into_iter().enumerate() {
-            require(
-                actual == u64::try_from(expected).unwrap_or(u64::MAX),
-                || node_pointer(position).key("occurrences"),
-            )?;
+    // Sorted by source, then by anchor: each source's declarations are one
+    // run, in source byte order.
+    by_source.sort_unstable();
+    let mut expected = 0_u64;
+    let mut previous: Option<EquivalenceSource<'_>> = None;
+    for (source, (_, position, actual)) in &by_source {
+        if previous != Some(*source) {
+            previous = Some(*source);
+            expected = 0;
         }
+        require(actual == &expected, || {
+            node_pointer(*position).key("occurrences")
+        })?;
+        expected = expected.saturating_add(1);
     }
     Ok(())
 }
@@ -2103,7 +2197,7 @@ struct NominalGraph<'a> {
     kinds: &'a [CheckedNodeKind],
     index: &'a GraphIndex<'a>,
     records: &'a [Option<NominalRecord>],
-    selected_models: BTreeMap<&'a str, &'a DomainModel>,
+    selected_models: SortedTable<&'a str, &'a DomainModel>,
     imported: BTreeMap<CheckedNodeId, NominalRecord>,
 }
 
@@ -2134,7 +2228,7 @@ impl NominalGraph<'_> {
             return None;
         };
         self.selected_models
-            .get(identity.as_ref())
+            .get(&identity.as_ref())
             .and_then(|model| model.variant_types.get(owner_node))
     }
 
@@ -2174,7 +2268,7 @@ fn validate_owner(
         NominalOwner::Model { identity, node } => {
             !node.is_empty()
                 && !identity.is_empty()
-                && graph.selected_models.contains_key(identity.as_ref())
+                && graph.selected_models.contains_key(&identity.as_ref())
         }
     };
     require(joined, at)
@@ -2565,19 +2659,13 @@ mod tests {
             "body":{"term":"aggregate","members":[]}
         })).expect("unit node");
         let nodes = [&dimension, &unit];
-        let model_nodes = nodes
-            .iter()
-            .map(|node| {
-                let Some(super::super::CheckedNodeOwner::Model {
-                    identity,
-                    node: owner_node,
-                }) = node.owner.as_ref()
-                else {
-                    unreachable!()
-                };
-                ((identity.as_ref(), owner_node.as_ref()), &node.node_id)
-            })
-            .collect::<BTreeMap<_, _>>();
+        let model_nodes = model_node_table(
+            nodes
+                .iter()
+                .map(|node| (node.owner.as_ref(), &node.node_id)),
+            &mut WorkMeter::new(u64::MAX),
+        )
+        .expect("model node table");
         let record = record_from_node(&unit, NominalKind::Unit, 1, &[model], &model_nodes)
             .expect("model unit join");
         let NominalRecord::Unit(record) = record else {
