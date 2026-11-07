@@ -76,7 +76,10 @@ fn genuine_qsl_d10_retains_static_context_and_complete_selected_family() {
     let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
         panic!("authentic D10 must admit: {result:?}");
     };
-    let expected = &package["checked_term_data"]["dispatch_tables"][0];
+    // The converted fixture is in slot form; the reader's ids are index form.
+    let mut resolved = package.clone();
+    crate::support::checked_package::resolve_operands(&mut resolved);
+    let expected = &resolved["checked_term_data"]["dispatch_tables"][0];
     let application: CheckedNodeId =
         serde_json::from_value(expected["application"].clone()).unwrap();
     let occurrence = serde_json::from_value(expected["occurrence"].clone()).unwrap();
@@ -99,7 +102,7 @@ fn genuine_qsl_d10_retains_static_context_and_complete_selected_family() {
         format!("ix://{PACKAGE}/ConfigVersion")
     );
     let call = admitted
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_id == application)
@@ -380,4 +383,44 @@ fn static_context_and_each_candidate_stay_bound_to_the_selected_family() {
         &document,
         "/checked_term_data/dispatch_tables/0/candidates/0/selected_operation",
     );
+}
+
+/// The D10 fixture is the QSL #950 emission converted to the FR-322 operand
+/// slot form (see the fixture README). Resolving its slots must give back the
+/// index-form graph the admitted package holds, node for node.
+#[trace("TC-472", "FR-354-AC-13")]
+#[test]
+fn converted_d10_fixture_resolves_to_the_admitted_index_form_graph() {
+    use crate::support::checked_package::{resolve_operands, wire_operands};
+    let wire: Value = serde_json::from_str(include_str!(
+        "../../fixtures/inherited-dispatch/d10-package.json"
+    ))
+    .expect("converted package");
+    let mut resolved = wire.clone();
+    resolve_operands(&mut resolved);
+    let mut rewired = resolved.clone();
+    wire_operands(&mut rewired);
+    assert_eq!(rewired, wire, "the slot form is the deterministic conversion");
+    let document = d10_model_document();
+    let evidence = evidence_with_document(&wire, PACKAGE, &document);
+    let bytes = include_bytes!("../../fixtures/inherited-dispatch/d10-package.json");
+    let result = CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), &evidence);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("converted D10 must admit: {result:?}");
+    };
+    let expected: Vec<CheckedNodeId> = resolved["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .map(|node| {
+            serde_json::from_value(node["node_id"].clone()).expect("index-form node id")
+        })
+        .collect();
+    let actual: Vec<_> = admitted
+        .resolved_graph()
+        .nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect();
+    assert_eq!(actual, expected);
 }
