@@ -2550,6 +2550,18 @@ pub struct ExactTypeProjectionError {
 }
 
 impl ExactTypeProjectionError {
+    fn compact_native(budget: &NativeJoinBudget, kind: NativeJoinChargeKind, amount: u128) -> Self {
+        let denied = budget
+            .first_unpaid()
+            .unwrap_or(NativeJoinDeniedCharge { kind, amount });
+        Self::compact(
+            denied.kind,
+            denied.amount,
+            budget.consumed().work,
+            budget.configured_bound(denied.kind),
+        )
+    }
+
     fn compact(
         kind: NativeJoinChargeKind,
         amount: u128,
@@ -2728,25 +2740,18 @@ fn native_budget_denial(
     at: &CheckedNodeId,
     form: &str,
 ) -> ExactTypeProjectionError {
+    let NativeJoinDeniedCharge { kind, amount } = budget
+        .first_unpaid()
+        .unwrap_or(NativeJoinDeniedCharge { kind, amount });
     if budget.exact_diagnostics() {
-        return ExactTypeProjectionError::compact(
-            kind,
-            amount,
-            budget.consumed().work,
-            budget.configured_bound(kind),
-        );
+        return ExactTypeProjectionError::compact_native(budget, kind, amount);
     }
     let diagnostic_storage = storage::node(requested)
         .saturating_add(storage::node(at))
         .saturating_add(form.len() as u128)
         .saturating_add(2);
     if !budget.charge(NativeJoinChargeKind::Storage, diagnostic_storage) {
-        return ExactTypeProjectionError::compact(
-            kind,
-            amount,
-            budget.consumed().work,
-            budget.configured_bound(kind),
-        );
+        return ExactTypeProjectionError::compact_native(budget, kind, amount);
     }
     ExactTypeProjectionError {
         code: match kind {
@@ -3319,11 +3324,10 @@ fn project_collection_element(
             if error.requested.is_some() {
                 let amount = storage::node(requested);
                 if !work.charge(NativeJoinChargeKind::Storage, amount) {
-                    return ExactTypeProjectionError::compact(
+                    return ExactTypeProjectionError::compact_native(
+                        work,
                         NativeJoinChargeKind::Storage,
                         amount,
-                        work.consumed().work,
-                        work.configured_bound(NativeJoinChargeKind::Storage),
                     );
                 }
                 error.requested = Some(Box::new(requested.clone()));
@@ -3624,11 +3628,10 @@ impl CheckedPackageV2 {
                             if error.requested.is_some() {
                                 let amount = storage::node(requested);
                                 if !work.charge(NativeJoinChargeKind::Storage, amount) {
-                                    return ExactTypeProjectionError::compact(
+                                    return ExactTypeProjectionError::compact_native(
+                                        work,
                                         NativeJoinChargeKind::Storage,
                                         amount,
-                                        work.consumed().work,
-                                        work.configured_bound(NativeJoinChargeKind::Storage),
                                     );
                                 }
                                 error.requested = Some(Box::new(requested.clone()));
@@ -4154,6 +4157,22 @@ mod tests {
             assert_eq!((budget.work_limit(), budget.storage_limit()), (9, storage));
             assert_eq!(budget.consumed().work, 5);
         }
+
+        let mut budget = NativeJoinBudget::new(9, 60);
+        assert!(budget.charge(NativeJoinChargeKind::Work, 5));
+        assert!(budget.charge(NativeJoinChargeKind::Storage, 7));
+        let owned = charge_native_work(&mut budget, &requested, &at, "native_test", 10)
+            .expect_err("original work denial has an affordable owned diagnostic");
+        assert!(owned.requested.is_some());
+        assert_eq!(budget.consumed().storage, 59);
+        assert!(!budget.charge(NativeJoinChargeKind::Storage, 2));
+        let retargeted =
+            ExactTypeProjectionError::compact_native(&budget, NativeJoinChargeKind::Storage, 2);
+        assert_eq!(retargeted.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+        assert_eq!(retargeted.configured_bound, Some(9));
+        assert_eq!(retargeted.denied, owned.denied);
+        assert_eq!(retargeted.work, 5);
+        assert_eq!(retargeted.requested, None);
     }
 
     #[test]
