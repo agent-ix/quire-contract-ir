@@ -176,8 +176,14 @@ context conforms to the operation-family declaring witness. Each candidate's
 original selected type SHALL conform to that family declaration; a candidate
 need not conform to the narrower static receiver subtype. Candidate effective
 operations SHALL reach the same declared family anchor through admitted
-`redefines` links. The bounded walk SHALL refuse a cycle rather than treating
-it as family membership.
+`redefines` links. Each traversed target SHALL be an actual retained operation
+member declared by an ancestor of the redefining operation's owner in the same
+selected document; the existence of a member identifier alone SHALL NOT
+establish a valid edge. The bounded walk SHALL refuse absent, wrong-kind or
+unrelated-owner targets and cycles rather than treating them as family
+membership. Work exhaustion SHALL propagate the existing selected-model
+reader exhaustion and owner locus without resetting the meter or returning a
+partial family result.
 
 Admission SHALL preserve the call member's static declaration, the table's
 selected declaring witness, the receiver context, and each candidate's exact
@@ -240,6 +246,8 @@ typed outcomes.
 | FR-354-AC-13 | A genuine inherited call whose operation member names static receiver `Sub` while its captured table names the selected `ConfigVersion` operation-family witness admits through the strict reader. Its public dispatch view preserves both distinct identities, receiver context `Sub`, the complete producer candidate order and each candidate's exact selected-operation witness. A genuine `ConfigVersion` family candidate remains admitted although it is not a subtype of the narrower static receiver `Sub`. A direct call with equal declaration identities continues to admit. | Test |
 | FR-354-AC-14 | Changing only that captured table's declaring witness to an unrelated selected declaration with a same-named operation refuses `InvalidPackage` with cause `InvalidValue` at `/checked_term_data/dispatch_tables/0/operation`; it returns no admitted package or dispatch view. Names alone cannot satisfy the family join. | Test |
 | FR-354-AC-15 | A table witness that differs from the call member's static declaration without an admitted inherited operation-family relation refuses `InvalidPackage` with cause `InvalidValue` at `/checked_term_data/dispatch_tables/0/operation`. In particular, merely making its declaration an ancestor with a same-named independent operation cannot replace the declared operation/redefinition-family join. | Test |
+
+| FR-354-AC-16 | A retained redefinition link to a field, to an operation outside the redefiner owner's ancestry, or into a cycle cannot authorize a mismatched table witness and refuses `InvalidPackage` with cause `InvalidValue` at the row's `operation` pointer. A valid multi-hop operation-family join succeeds with sufficient reader work; one unit below its measured successful work allowance returns the existing typed reader exhaustion with its selected-model owner locus and no admitted package. | Test |
 
 ## Dependencies
 

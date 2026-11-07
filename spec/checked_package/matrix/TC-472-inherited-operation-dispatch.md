@@ -34,7 +34,12 @@ construct a mismatch with no admitted inherited family relationship, including
 an ancestor's same-named independent operation without a connecting declared
 `redefines` edge. Keep the rest of each package admitted and compare the full
 typed refusal code, cause and pointer against independently stated expected
-values. Do not replace the original static receiver identity, synthesize a
+values. Include retained redefinition identifiers that name a field, an
+operation owned outside the redefiner's ancestry, and a cycle; each must fail
+the family check rather than turn identifier existence into operation
+authority. For a valid multi-hop operation-family case, measure the successful
+reader work, repeat at that exact allowance, and repeat with one unit less.
+Do not replace the original static receiver identity, synthesize a
 successful family relation from names, or skip the strict reader.
 
 ## Expected Results
@@ -46,5 +51,8 @@ unchanged. Both independently malformed witnesses refuse `InvalidPackage`
 with `InvalidValue` at
 `/checked_term_data/dispatch_tables/0/operation`, with no admitted package or
 partial dispatch view. Equal names and bare ancestry cannot authorize an
-unrelated family witness. The implementation uses the bounded retained-model
-resolver and preserves the reader's charged exhaustion outcome.
+unrelated family witness. Wrong-kind, unrelated-owner and cyclic redefinition targets cannot authorize
+the row. The valid multi-hop case succeeds at its measured exact reader work
+allowance; one unit below returns the existing typed reader exhaustion and
+selected-model owner locus without admission. The implementation uses the
+bounded retained-model resolver and preserves consumed work.
