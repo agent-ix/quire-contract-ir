@@ -767,6 +767,11 @@ fn dependency_outcome(
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             return Err(format!("{id}: unexpected incomplete {incomplete:?}"))
         }
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            return Err(format!(
+                "{id}: production operation catalog unavailable: {error:?}"
+            ));
+        }
     }
     Ok(())
 }

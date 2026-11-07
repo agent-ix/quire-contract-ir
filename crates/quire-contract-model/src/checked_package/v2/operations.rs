@@ -958,6 +958,7 @@ impl StructuralTypes {
 }
 
 /// Check a catalogued type-argument member result after operand admission.
+#[ix_trace_rs::string_edge]
 fn check_type_argument_member_result(
     application: Application<'_>,
     operation: &OperationWire,
@@ -974,7 +975,11 @@ fn check_type_argument_member_result(
     let refuse = || {
         application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            application.body(&["result_type"]),
+            if operation.identity.as_ref() == "quire.op.collection.sum.carried_quantity" {
+                node_pointer(application.position)
+            } else {
+                application.body(&["result_type"])
+            },
             CheckedPackageRefusalCause::OperatorIneligible,
         )
     };
@@ -1076,6 +1081,11 @@ fn operation_defect(
     )?;
     let mut structural = StructuralTypes::default();
     let refuse = |path: JsonPointer, cause| {
+        let path = if operation.identity.as_ref() == "quire.op.collection.sum.carried_quantity" {
+            node_pointer(application.position)
+        } else {
+            path
+        };
         Ok(Some(application.refuse(
             CheckedPackageRefusalCode::InvalidPackage,
             path,
@@ -1308,6 +1318,49 @@ fn operation_defect(
         )));
     }
 
+    // Carried sums pin their mode from the summand bound and result before
+    // comparing either with the type argument (FR-322, carried-quantity sum).
+    if operation.identity.as_ref() == "quire.op.collection.sum.carried_quantity" {
+        let result = match term {
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
+            _ => None,
+        };
+        let bound = admitted_arguments(application, graph)
+            .and_then(|arguments| arguments.get(1))
+            .and_then(|binder| binder_bound(binder, graph));
+        for type_id in result.into_iter().chain(bound.as_ref()) {
+            let pin = carried_unit_and_mode(type_id, graph)
+                .map(|(_, mode)| mode)
+                .or_else(|| {
+                    (resolve_selected_family(type_id, graph, owners) == Some("quantity"))
+                        .then_some("exact")
+                });
+            if pin.is_some_and(|pin| {
+                operation
+                    .mode
+                    .as_ref()
+                    .is_some_and(|mode| mode.value.as_ref() != pin)
+            }) {
+                return refuse(
+                    node_pointer(application.position),
+                    CheckedPackageRefusalCause::OperationModeTypeMismatch,
+                );
+            }
+        }
+        if let Some(failure) = check_carried_member(application, entry, &operation, graph) {
+            return Ok(Some(failure));
+        }
+    }
+    if operation.identity.as_ref() == "quire.op.collection.sum.quantity"
+        && member_declaration(&operation)
+            .is_some_and(|member| carried_unit_and_mode(&member, graph).is_some())
+    {
+        return Ok(Some(application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )));
+    }
     let place_presence = check_place_presence(application, &operation, graph, owners, meter)?;
     if !place_presence {
         if let Some(failure) = check_operands(
@@ -1423,6 +1476,11 @@ fn operation_defect(
     }
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
         return Ok(Some(failure));
+    }
+    if operation.identity.as_ref() != "quire.op.collection.sum.carried_quantity" {
+        if let Some(failure) = check_carried_member(application, entry, &operation, graph) {
+            return Ok(Some(failure));
+        }
     }
     let leaf_defect = check_leaf_count(
         application,
@@ -2041,6 +2099,38 @@ pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
     }
 }
 
+/// QSpec FR-322 `carried_member`: the `type_argument` member must resolve to a
+/// `scalar_type`/`carried_quantity` node. The constraint names no operand, so
+/// it is checked against the member alone, and only once the pinned mode has
+/// agreed (a mode mismatch refuses first).
+fn check_carried_member(
+    application: Application<'_>,
+    entry: &OperationCatalogEntry,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+) -> Option<ValidationFailure> {
+    if !entry
+        .constraints
+        .iter()
+        .any(|constraint| constraint.kind == OperationConstraintKind::CarriedMember)
+    {
+        return None;
+    }
+    let carried = member_declaration(operation)
+        .and_then(|member| graph.index.get(&member).copied())
+        .and_then(|position| graph.kinds.get(position))
+        == Some(&CheckedNodeKind::ScalarType(
+            ScalarTypeForm::CarriedQuantity,
+        ));
+    (!carried).then(|| {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    })
+}
+
 #[ix_trace_rs::string_edge]
 fn check_operands(
     application: Application<'_>,
@@ -2266,6 +2356,25 @@ fn check_operands(
                     }
                 }
             }
+            OperationConstraintKind::BoundIsMember => {
+                let member = member_declaration(operation);
+                let held = member.as_ref().is_some_and(|member| {
+                    indices.iter().all(|position| {
+                        typed_arguments
+                            .get(*position)
+                            .and_then(|binder| binder_bound(binder, graph))
+                            .as_ref()
+                            == Some(member)
+                    })
+                });
+                if !held {
+                    return Ok(Some(application.refuse(
+                        CheckedPackageRefusalCode::IllTyped,
+                        node_pointer(application.position),
+                        CheckedPackageRefusalCause::OperatorIneligible,
+                    )));
+                }
+            }
             // The catalog declares these, and this reader enforces none of
             // them (see the module documentation); each is named so a member
             // added to the vocabulary is a compile error here.
@@ -2274,7 +2383,6 @@ fn check_operands(
             | OperationConstraintKind::MemberOf
             | OperationConstraintKind::MemberFamily
             | OperationConstraintKind::BoundFamily
-            | OperationConstraintKind::BoundIsMember
             | OperationConstraintKind::ExactConversion
             | OperationConstraintKind::RangeNarrowing
             | OperationConstraintKind::RationalNarrowing
@@ -2306,6 +2414,8 @@ fn check_operands(
                     )));
                 }
             }
+            // Checked by `check_carried_member`, after the pinned mode.
+            OperationConstraintKind::CarriedMember => {}
             OperationConstraintKind::ReferenceEdge => {
                 if let [first, second] = indices[..] {
                     if let Some(failure) = check_reference_edge(
@@ -2323,6 +2433,14 @@ fn check_operands(
         }
     }
     Ok(None)
+}
+
+/// A binder's value names its summand; the summand's declared type is the bound.
+fn binder_bound(binder: &CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
+    let CheckedTerm::Binding { value, .. } = binder else {
+        return None;
+    };
+    operand_type_node_typed(value, graph.nodes, graph.kinds, graph.index)
 }
 
 /// The IEEE FMA catalog entries require their result to have the same fixed
@@ -6534,6 +6652,120 @@ mod tests {
                 "/semantic_graph/nodes/0/body/operation/member/declaration",
                 Some(CheckedPackageRefusalCause::OperatorIneligible),
                 node_id,
+            )))
+        );
+    }
+
+    /// `quire.op.collection.sum.carried_quantity` with rounding mode `mode`
+    /// and a `type_argument` member declared by the node keyed `declared`,
+    /// beside a node `member_form` keyed `4` that is also the result type.
+    fn carried_sum_defect(
+        member_form: &str,
+        mode: &str,
+        declared: char,
+    ) -> (
+        CheckedSemanticNodeV2,
+        Result<Option<ValidationFailure>, ValidationFailure>,
+    ) {
+        let mut operation = plain_operation("quire.op.collection.sum.carried_quantity");
+        operation["mode"] = json!({ "kind": "rounding", "value": mode });
+        operation["member"] = json!({
+            "kind": "type_argument",
+            "declaration": node_id(declared),
+        });
+        let mut application = custom_application_node(
+            "collection",
+            operation,
+            vec![
+                json!({ "term": "reference", "target": node_id('5') }),
+                json!({ "term": "binding", "name": "x", "value": {
+                    "term": "reference", "target": node_id('7'),
+                }}),
+            ],
+        );
+        application.body["result_type"] = json!(node_id('4'));
+        let parameter = |id, name, type_id| {
+            graph_node(
+                id,
+                "value",
+                "parameter",
+                &node_id(type_id),
+                json!({"term":"aggregate","members":[
+                    {"term":"binding","name":"name","value":{"term":"literal",
+                        "type":node_id('8'),"value_kind":"text","value":name}},
+                    {"term":"binding","name":"level","value":{"term":"literal",
+                        "type":node_id('9'),"value_kind":"integer","value":"0"}},
+                ]}),
+            )
+        };
+        let result = defect_for_graph(vec![
+            application.clone(),
+            scalar_type_node('4', member_form),
+            parameter('5', "q", '6'),
+            graph_node(
+                '6',
+                "composite_type",
+                "sequence",
+                &node_id('6'),
+                json!({"term":"aggregate","members":[{"term":"reference","target":node_id('4')}]}),
+            ),
+            parameter('7', "x", '4'),
+            unpinned_text_node('8'),
+            scalar_type_node('9', "integer"),
+        ]);
+        (application, result)
+    }
+
+    /// The `carried_member` constraint of the catalog's carried-quantity sum:
+    /// a `type_argument` that is not a `scalar_type`/`carried_quantity` node
+    /// refuses
+    /// `ill_typed`/`operator-ineligible` at the application.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn carried_member_refuses_a_type_argument_that_is_not_a_carried_quantity() {
+        for (form, declared) in [
+            ("unit", '4'),
+            ("compound_unit", '4'),
+            ("bounded_quantity", '4'),
+        ] {
+            let (application, result) = carried_sum_defect(form, "exact", declared);
+            assert_eq!(
+                result,
+                Ok(Some(refused_at(
+                    CheckedPackageRefusalCode::IllTyped,
+                    "/semantic_graph/nodes/0",
+                    Some(CheckedPackageRefusalCause::OperatorIneligible),
+                    application.node_id.clone(),
+                ))),
+                "a `{form}` type argument declared by `{declared}`"
+            );
+        }
+    }
+
+    /// The same application over a `carried_quantity` type argument satisfies
+    /// `carried_member` and is not refused.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn carried_member_admits_a_carried_quantity_type_argument() {
+        let (_, result) = carried_sum_defect("carried_quantity", "exact", '4');
+        assert_eq!(result, Ok(None));
+    }
+
+    /// The pinned rounding mode is checked before `carried_member`: a unit
+    /// type argument under a mode its type does not pin refuses
+    /// `invalid_package`/`operation-mode-type-mismatch`, not
+    /// `operator-ineligible`.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn carried_member_is_checked_only_once_the_pinned_mode_agrees() {
+        let (application, result) = carried_sum_defect("unit", "nearest-even", '4');
+        assert_eq!(
+            result,
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/semantic_graph/nodes/0",
+                Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
+                application.node_id.clone(),
             )))
         );
     }

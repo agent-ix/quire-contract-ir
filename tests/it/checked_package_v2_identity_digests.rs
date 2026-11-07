@@ -141,6 +141,9 @@ fn derived_range_binding_name_is_validated_independently_of_its_id() {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             panic!("malformed derived body exhausted a limit: {incomplete:?}")
         }
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            panic!("the operation catalog is unreadable: {error}")
+        }
     };
     assert_eq!(
         refusal.code,
