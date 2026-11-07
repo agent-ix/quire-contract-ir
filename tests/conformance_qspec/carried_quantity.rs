@@ -1471,7 +1471,7 @@ fn assert_sum_refusal(mut package: Package, at: usize, code: &str, cause: &str) 
     assert_eq!(refusal.locus.as_ref(), Some(&locus));
 }
 
-#[trace("TC-048", "FR-038-AC-515")]
+#[trace("TC-048", "FR-038-AC-524")]
 #[test]
 fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
     for (base, mode, carrier_form, bounds) in [
@@ -1614,7 +1614,7 @@ fn carried_sum_cs01_retains_integer_decimal_and_rational_domains() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-516")]
+#[trace("TC-048", "FR-038-AC-525")]
 #[test]
 fn carried_sum_cs02_mode_pins_precede_member_equality() {
     for (base, bound, result, mode) in [
@@ -1634,7 +1634,7 @@ fn carried_sum_cs02_mode_pins_precede_member_equality() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-517")]
+#[trace("TC-048", "FR-038-AC-526")]
 #[test]
 fn carried_sum_cs03_laws_then_required_mode_precede_types() {
     for (law, mode, bound) in [
@@ -1663,7 +1663,7 @@ fn carried_sum_cs03_laws_then_required_mode_precede_types() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-518")]
+#[trace("TC-048", "FR-038-AC-527")]
 #[test]
 fn carried_sum_cs04_bound_is_member_compares_exact_nodes() {
     for bound in ["Q4", "Qc", "Qk", "unit_m", "Qn"] {
@@ -1677,7 +1677,7 @@ fn carried_sum_cs04_bound_is_member_compares_exact_nodes() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-519")]
+#[trace("TC-048", "FR-038-AC-528")]
 #[test]
 fn carried_sum_cs05_result_mismatch_is_located_at_application() {
     for result in ["Q4", "unit_m"] {
@@ -1686,7 +1686,7 @@ fn carried_sum_cs05_result_mismatch_is_located_at_application() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-520")]
+#[trace("TC-048", "FR-038-AC-529")]
 #[test]
 fn carried_sum_cs06_requires_carried_member_and_unique_identity() {
     for member in ["unit_m", "Cm", "Bm", "Q"] {
@@ -1699,7 +1699,7 @@ fn carried_sum_cs06_requires_carried_member_and_unique_identity() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-520")]
+#[trace("TC-048", "FR-038-AC-529")]
 #[test]
 fn ordinary_quantity_sum_refuses_a_carried_type_argument() {
     let (mut package, at) = sum_package("Q", "Q", "Q", "Q", Some("exact"));
@@ -1708,7 +1708,7 @@ fn ordinary_quantity_sum_refuses_a_carried_type_argument() {
     assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
 }
 
-#[trace("TC-048", "FR-038-AC-518")]
+#[trace("TC-048", "FR-038-AC-527")]
 #[test]
 fn quantity_sum_bound_constraint_compares_the_binder_parameter_type() {
     let (mut package, at) = sum_package("Q", "unit_cm", "unit_m", "unit_m", Some("exact"));
@@ -1717,7 +1717,7 @@ fn quantity_sum_bound_constraint_compares_the_binder_parameter_type() {
     assert_sum_refusal(package, at, "ill_typed", "operator-ineligible");
 }
 
-#[trace("TC-048", "FR-038-AC-515")]
+#[trace("TC-048", "FR-038-AC-524")]
 #[test]
 fn carried_sum_fixture_parameters_and_domains_admit_without_an_operation() {
     for base in ["Q", "Qd", "q_rat"] {

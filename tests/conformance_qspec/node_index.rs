@@ -43,13 +43,13 @@ fn apply_patch(package: &mut Value, patch: &Value) {
     }
 }
 
-/// Trace: FR-038-AC-377, FR-038-AC-378, FR-038-AC-495, FR-038-AC-496
+/// Trace: FR-038-AC-377, FR-038-AC-378, FR-038-AC-520, FR-038-AC-521
 #[trace(
     "TC-048",
     "FR-038-AC-377",
     "FR-038-AC-378",
-    "FR-038-AC-495",
-    "FR-038-AC-496"
+    "FR-038-AC-520",
+    "FR-038-AC-521"
 )]
 #[test]
 fn published_operand_vectors_refuse_in_the_fr322_check_order() {
@@ -146,8 +146,8 @@ fn node_id_of(value: &Value) -> CheckedNodeId {
     serde_json::from_value(value.clone()).expect("published node id")
 }
 
-/// Trace: FR-038-AC-495, FR-038-AC-498
-#[trace("TC-048", "FR-038-AC-495", "FR-038-AC-498")]
+/// Trace: FR-038-AC-520, FR-038-AC-523
+#[trace("TC-048", "FR-038-AC-520", "FR-038-AC-523")]
 #[test]
 fn operand_slots_rebuild_structural_keys_through_the_rows() {
     let fixtures = fixtures_dir();
@@ -202,8 +202,8 @@ fn operand_slots_rebuild_structural_keys_through_the_rows() {
     assert_eq!(resolved, wire);
 }
 
-/// Trace: FR-038-AC-498
-#[trace("TC-048", "FR-038-AC-498")]
+/// Trace: FR-038-AC-523
+#[trace("TC-048", "FR-038-AC-523")]
 #[test]
 fn replace_node_id_replaces_slot_form_ids_as_written() {
     let fixtures = fixtures_dir();
@@ -230,8 +230,8 @@ fn replace_node_id_replaces_slot_form_ids_as_written() {
     );
 }
 
-/// Trace: FR-038-AC-497
-#[trace("TC-048", "FR-038-AC-497")]
+/// Trace: FR-038-AC-522
+#[trace("TC-048", "FR-038-AC-522")]
 #[test]
 fn unrelated_nodes_leave_other_nodes_bytes_and_keys_unchanged() {
     let fixtures = fixtures_dir();

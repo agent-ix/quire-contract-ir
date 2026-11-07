@@ -531,10 +531,10 @@ mod tests {
         }
     }
 
-    /// FR-038-AC-495: the production catalog declares `carried_member`, the
+    /// FR-038-AC-519: the production catalog declares `carried_member`, the
     /// word decodes to its enum member and back, and the carried-quantity sum
     /// reads with that constraint, which names no operand and no family.
-    #[trace("TC-048", "FR-038-AC-495")]
+    #[trace("TC-048", "FR-038-AC-519")]
     #[test]
     fn tc_048_the_carried_member_constraint_reads_from_the_production_catalog() {
         assert_eq!(
@@ -559,10 +559,10 @@ mod tests {
         assert_eq!(carried[0].family, None);
     }
 
-    /// FR-038-AC-495: a constraint kind outside the vocabulary on the
+    /// FR-038-AC-519: a constraint kind outside the vocabulary on the
     /// carried-quantity sum returns the typed read error naming its entry and
     /// word, not a panic.
-    #[trace("TC-048", "FR-038-AC-495")]
+    #[trace("TC-048", "FR-038-AC-519")]
     #[test]
     fn tc_048_an_unknown_constraint_kind_on_the_carried_sum_is_a_typed_read_error() {
         let mut edited: serde_json::Value =
@@ -585,12 +585,12 @@ mod tests {
         assert!(error.to_string().contains("not_carried"), "{error}");
     }
 
-    /// FR-038-AC-58, FR-038-AC-495: unreadable production catalog bytes make a
+    /// FR-038-AC-58, FR-038-AC-519: unreadable production catalog bytes make a
     /// package read return `CatalogUnavailable` with the offending path and
     /// message, before any node is checked, and never a package refusal. The
     /// injected bytes are the production catalog with the carried sum's
     /// constraint kind replaced, and take the path the production read takes.
-    #[trace("TC-048", "FR-038-AC-58", "FR-038-AC-495")]
+    #[trace("TC-048", "FR-038-AC-58", "FR-038-AC-519")]
     #[test]
     fn tc_048_unreadable_production_catalog_bytes_make_the_package_read_catalog_unavailable() {
         use super::super::CheckedPackageV2ReadResult as Result_;
@@ -628,7 +628,7 @@ mod tests {
         assert!(error.message().contains("not_carried"), "{error}");
     }
 
-    /// FR-035-AC-36, FR-038-AC-495: the FR-330 contract-package read gates on
+    /// FR-035-AC-36, FR-038-AC-519: the FR-330 contract-package read gates on
     /// the same catalog result, returning `CatalogUnavailable` with the
     /// offending path before it judges any byte, never a refusal.
     #[trace("TC-048", "FR-035-AC-36")]

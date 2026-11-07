@@ -9,13 +9,15 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-409
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-495
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-519
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-496
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-520
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-497
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-521
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-498
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-522
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-523
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-410
     type: verifies
@@ -71,17 +73,17 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-462
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-515
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-524
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-516
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-525
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-517
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-526
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-518
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-527
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-519
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-528
     type: verifies
-  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-520
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-529
     type: verifies
   - target: ix://agent-ix/quire-specification/TC-187
     type: references
@@ -482,7 +484,7 @@ The catalogue's `result: member` entries with `member: type_argument` are
 
 Read a package whose lock has exactly `sources`, `edition`, `profile_selections`, `definition_selections`, `required_features` and `dependency_selections`, with every direct dependency selection exactly `{identity}`. Supply each dependency under a matching nonempty package `name` and require admission. Extra `package_id`, `version`, `digest`, `identity_preimage` or model-selection members refuse `unknown_member` at the first extra member; missing or empty required names refuse at the closed-wire stage. A missing package refuses `missing_import`/`missing-selection`, and unequal complete packages under one selected name through a diamond refuse `invalid_package`/`conflicting-definition`.
 
-## Catalog words (FR-038-AC-65, FR-038-AC-67 through FR-038-AC-69, FR-038-AC-495)
+## Catalog words (FR-038-AC-65, FR-038-AC-67 through FR-038-AC-69, FR-038-AC-519)
 
 Read the production catalog and convert each of `case`, `temporal_formula`,
 `temporal_fairness`, `temporal_interval`, `fairness` and `union_arms` from its
@@ -2821,6 +2823,15 @@ The published FM set contains no case where the carried rounding mode differs
 from an operand or result type's rounding mode. Record that as unverified by
 these vectors; do not infer its reader outcome from their results.
 
+## Window aggregate clock unit owner (FR-038-AC-518)
+
+Build the published `AG-07-duration-quantile` package in package `example`
+with the time dimension and units moved to model-owned nodes of the selected
+domain package `acme/orders` (`ix://acme/orders/unit/ms`, `.../unit/s`), the
+clause's `timestamp_unit` naming the `ms` identity. Require admission. Then
+type `upper` by the `s` node and require `ill_typed`/`unit-mismatch` at that
+bound's value.
+
 ## Anonymous Map type admission (FR-038-AC-488 through FR-038-AC-491)
 
 Status: IMPLEMENTED (IR-1356; focused reader and QSpec MT controls pass). Read QSpec's current
@@ -2847,7 +2858,7 @@ admitted or partial map view. Read MT-07 as the published clock-bearing
 model-type control, joining its Map key to the symbolic clock-place slot
 under QSpec FR-415; it does not require a Clock value node.
 
-## Carried-quantity sum admission (FR-038-AC-515 through FR-038-AC-520)
+## Carried-quantity sum admission (FR-038-AC-524 through FR-038-AC-529)
 
 Status: qualified on the unmerged IR-1396 owner stack (IR-1398); merged-main
 qualification is pending. All 21 published variants and three combined-defect
@@ -2899,7 +2910,7 @@ red. The IR-1396 production catalog dependency must be available before this
 suite can establish reader behavior; a missing-entry panic or catalog decode
 failure is a dependency failure, not a passing negative admission assertion.
 
-## Operand rows and operand slots (FR-038-AC-495 through FR-038-AC-498)
+## Operand rows and operand slots (FR-038-AC-520 through FR-038-AC-523)
 
 Read QSpec's `positive-dependency-call.json` (supplied with
 `positive-dependency-library.json`) and `node-index-vectors.json` through
