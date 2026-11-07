@@ -1041,7 +1041,7 @@ fn check_clause(
         .collect::<Vec<_>>();
     aggregates.sort_by(|&left, &right| graph.nodes[left].node_id.cmp(&graph.nodes[right].node_id));
     let clock_unit = clock_unit.map(|name| CheckedNodeId {
-        package: node.node_id.package.clone(),
+        package: unit_owner(name).map_or_else(|| node.node_id.package.clone(), Into::into),
         path: vec![
             CheckedNodePathSegment::Name("scalar_type".into()),
             CheckedNodePathSegment::Name("unit".into()),
@@ -1234,6 +1234,15 @@ fn aggregate_presence(kind: AggregateKind, name: &str) -> (bool, bool) {
         "filter" => (true, false),
         _ => (true, true),
     }
+}
+
+/// The package that owns a clock unit named by its identity
+/// `ix://<package>/unit/<name>` (QSpec FR-370-AC-20): the unit's own node lives
+/// there, not in the package of the clause that uses it. A bare unit name
+/// carries no owner.
+fn unit_owner(identity: &str) -> Option<&str> {
+    let (package, name) = identity.strip_prefix("ix://")?.rsplit_once("/unit/")?;
+    (!package.is_empty() && !name.is_empty()).then_some(package)
 }
 
 /// One scan of the occurrence rows records a clock unit only if every row

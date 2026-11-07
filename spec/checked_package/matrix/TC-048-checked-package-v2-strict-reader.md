@@ -2783,6 +2783,14 @@ The published FM set contains no case where the carried rounding mode differs
 from an operand or result type's rounding mode. Record that as unverified by
 these vectors; do not infer its reader outcome from their results.
 
+## Window aggregate clock unit owner (FR-038-AC-518)
+
+Build the published `AG-07-duration-quantile` package with the clause's
+`timestamp_unit` and the unit nodes moved to the identity
+`ix://acme/rpc/unit/ms` owned by package `acme/rpc`, a package other than the
+clause's. Require admission; typing a bound by a node in the clause package
+refuses `ill_typed`/`unit-mismatch` at that bound.
+
 ## Anonymous Map type admission (FR-038-AC-488 through FR-038-AC-491)
 
 Status: IMPLEMENTED (IR-1356; focused reader and QSpec MT controls pass). Read QSpec's current
