@@ -27,7 +27,8 @@ final-emission source enum declaration/member rows. QSL-1723 and QSL-1727
 now supply final-emission source union and source record/member rows. Merged
 QSL-1463 retains model declaration/field, source-unit and equality
 producer/fact rows. Collections are structural Exact
-`ValueType::Collection` values and require no declaration identity row.
+`ValueType::Collection` or `ValueType::Map` values and require no declaration
+identity row.
 The IR-side union and source-record joins admit strict IR-owned fixture rows;
 they do not authenticate caller-created opaque Exact values. A genuine
 same-final-emission QSL-to-IR producer acceptance test in `quire-integration`
@@ -219,6 +220,46 @@ this selected generated-source closure. Implementations may reuse its admitted
 joins, but SHALL expose the complete selected result through one bounded read
 without a second plan, evaluator, type vocabulary or QSL source recheck.
 
+### Public reached-map row projection
+
+`SelectedSourceCollectionRow` SHALL expose the optional public `key_node`
+alongside its structural node, base node, element node and complete Exact
+value type. For a map, `key_node` SHALL name the admitted key type and
+`element_node` SHALL name the admitted value type; the admitted base references
+SHALL be joined in key-then-value order. For an ordinary sequence, set, bag or
+ordered set, `key_node` SHALL be `None` and `element_node` SHALL retain its
+existing element meaning. A map row's value SHALL be the complete producer
+`ValueType::Map`, not a unary collection approximation.
+
+The existing source-collection row join and Exact projection path SHALL
+accept a structurally corresponding map row and return its complete map type.
+This row support SHALL retain the existing admitted map key-type restrictions
+and cardinality rules; it SHALL NOT admit a new key domain. An ordinary
+standalone map projection that already requires no producer collection row
+SHALL retain its existing projection path and result.
+The selected monitor closure SHALL select and retain reached map rows through
+the same collection channel and follow both key and value type dependencies.
+It SHALL preserve their admitted structural node identities and the producer
+order within the retained row; it SHALL NOT synthesize a map key from a value
+node or use an unrelated row's key. A malformed key join SHALL keep AC-16's
+closure `CollectionKey` refusal. A source collection row whose Exact value is
+neither a collection nor a map SHALL keep the existing typed
+`MismatchedIdentityWitness` refusal; adding maps SHALL NOT broaden the
+collection row channel to scalar or other non-collection forms.
+
+Map selection, key-then-value inspection, row retention and nested projection
+SHALL debit the same caller-owned `NativeJoinBudget` under
+[FR-358](./FR-358-compose-native-identity-join-budget.md). Every map key,
+value, node identity, Exact value and row/container allocation or clone SHALL
+be precharged before it occurs. Reached row selection SHALL retain the
+original `ReachedRow` index and collection channel form; preceding public
+caller charges SHALL retain their supplied non-owning locus. A denied key or
+value charge SHALL preserve its first native kind, full amount, locus and original bound,
+spent prefix and empty success delta. No new budget, reset or partial map
+view SHALL replace a denial. Zero-storage refusal SHALL return the existing
+compact typed outcome without allocating an owned node, form, row, map or
+diagnostic.
+
 ### Reached model and unit prerequisite
 
 Before the complete public closure is available, an internal bounded read MAY
@@ -342,6 +383,8 @@ result alone SHALL NOT authorize either construction.
 | FR-357-AC-16 | A reached admitted `composite_type`/`map` with a scalar key and a record value joins a collection row carrying its key node and value node in key-then-value order, and the closure retains the map's complete Exact `ValueType::Map`. A row whose `key_node` is absent, names another node, or is present on a non-map collection refuses `SelectedMonitorTypeClosureErrorCode::CollectionKey` at the collection node, with charged work and no partial closure; an unreached map row does not refuse. The closure with the map succeeds at its exact measured work and storage allowance, and one unit below either refuses at the first unpaid key-join charge with its kind, amount and locus. | Test |
 | FR-357-AC-17 | The closure read requires the same-emission authority row of FR-361 and returns either a complete closure carrying the receipt and layout context or one typed first refusal; no read exists without that row, and no partial closure escapes an authority refusal. | Test, Inspection |
 | FR-357-AC-18 | The closure read seeds the plan's `tick_unit` premise with its unit and dimension facts and exposes `SelectedMonitorTypeClosure::tick_unit_dimension() -> &CheckedNodeId`, the admitted dimension node of that unit. For a source tick unit and for a model tick unit, it returns that unit's own admitted dimension; a tick unit whose admitted dimension is not the base Time dimension refuses at strict admission before any closure exists; the seeded facts are charged and succeed at the exact allowance and refuse one unit below at the first unpaid seed charge. | Test |
+| FR-357-AC-19 | The public `SelectedSourceCollectionRow` carries `key_node: Option<CheckedNodeId>`. With one strictly admitted reached map whose key is scalar and whose value is a record, the collection row join and Exact projection return its complete producer `ValueType::Map`, preserving structural/base/key/value nodes and key-then-value order. The monitor closure retains that map row and follows both type dependencies; an unrelated map row is not selected. Existing sequence, set, bag and ordered-set rows retain `key_node: None` and their existing complete values. A row with a non-collection/non-map Exact value keeps the existing `MismatchedIdentityWitness` refusal rather than being admitted as a map. | Test, Inspection |
+| FR-357-AC-20 | Map row selection, acquisition and projection compose on one caller-owned `NativeJoinBudget`. Their measured exact combined work and storage allowances return the same complete map facts as ample limits; one unit below either refuses before its first unpaid operation with the original bound, native kind, full amount, row/key/value locus, consumed prefix and no partial output or success delta. Zero storage refuses before any owned allocation, including diagnostic material. A selected row after an unrelated earlier row retains its original `ReachedRow` index; preceding caller charges retain their supplied native locus. Existing non-map typed refusals and non-map collection values are unchanged. | Test |
 
 ## Dependencies
 

@@ -31,6 +31,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocation-counter"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "beb9e990c0a33699f1984d85a6abead615ccc72dd8130bf3e15dcabe2ca149c9"
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1050,6 +1056,7 @@ dependencies = [
 name = "quire-contract-ir"
 version = "0.1.0"
 dependencies = [
+ "allocation-counter",
  "ix-cli-kit",
  "ix-trace-rs",
  "jsonschema 0.17.1",
@@ -1069,6 +1076,7 @@ dependencies = [
 name = "quire-contract-model"
 version = "0.1.0"
 dependencies = [
+ "allocation-counter",
  "ix-trace-rs",
  "jsonschema 0.17.1",
  "num-bigint",
@@ -1093,7 +1101,7 @@ dependencies = [
 [[package]]
 name = "quire-exact"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-exact?branch=main#7e06eba7910e31146fd1b95ef56065cffb818363"
+source = "git+https://github.com/agent-ix/quire-exact?branch=main#a08e1b2ffcc45b2133415809fc4ccaa39841354e"
 dependencies = [
  "allocator-api2",
  "arrayvec",

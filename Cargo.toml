@@ -106,6 +106,7 @@ serde_json = { version = "1.0.151", features = ["unbounded_depth"] }
 thiserror = "=2.0.20"
 
 [dev-dependencies]
+allocation-counter = "0.8"
 # Native Quire consumer qualification stays outside the cycle-free model.
 quire-rs = { version = "0.51", git = "https://github.com/agent-ix/quire-rs", branch = "main", default-features = false }
 syn = { version = "2", features = ["full", "visit"] }

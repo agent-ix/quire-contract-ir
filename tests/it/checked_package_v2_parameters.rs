@@ -183,7 +183,7 @@ fn extra_units(dimension: &Value, metre: &Value, metre_key: &str) -> Vec<(Value,
 /// `Metre`, the [`extra_units`], the Boolean, Integer and text scalars, the parameters `a` and
 /// `b`, the expression `a and b`, the function `both` that takes them, and
 /// the compound unit `Metre^2`.
-fn parameters_package() -> Value {
+pub(crate) fn parameters_package() -> Value {
     let members = nominal_fixture_members();
     // [2] = unit `Metre`, [3] = dimension `Length`.
     let mut nominal = vec![members[3].clone(), members[2].clone()];
@@ -268,7 +268,7 @@ fn parameters_package() -> Value {
     package
 }
 
-fn read(value: &Value) -> CheckedPackageV2ReadResult {
+pub(crate) fn read(value: &Value) -> CheckedPackageV2ReadResult {
     let mut wire = value.clone();
     index_fixture_node_ids(&mut wire);
     CheckedPackageV2::read(

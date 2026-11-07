@@ -6566,8 +6566,10 @@ fn tc_227_declaring_node_errors_follow_field_order_before_name_order() {
     }
 }
 
+#[path = "checked_package_v2_model_fields/operation_census.rs"]
 mod operation_census;
 
+#[path = "checked_package_v2_model_fields/option_types.rs"]
 mod option_types;
 
 /// Selected identity rows must join the complete admitted declaration key.
@@ -7027,6 +7029,7 @@ fn source_collection_fixture() -> (
             let row = SelectedSourceCollectionRow {
                 structural_node: structural_node.clone(),
                 base_node,
+                key_node: None,
                 element_node: element_node.clone(),
                 value_type,
             };
@@ -7544,6 +7547,7 @@ fn source_collection_with_unprojectable_option_element_keeps_native_refusal() {
     let row = SelectedSourceCollectionRow {
         structural_node: base.clone(),
         base_node: base,
+        key_node: None,
         element_node: option.clone(),
         value_type: ValueType::collection(CollectionType::new(
             CollectionKind::Sequence,
@@ -7658,12 +7662,14 @@ fn nested_collection_rows_follow_final_element_nodes_without_recursion() {
     let inner_row = SelectedSourceCollectionRow {
         structural_node: inner.clone(),
         base_node: inner.clone(),
+        key_node: None,
         element_node: integer,
         value_type: inner_type,
     };
     let outer_row = SelectedSourceCollectionRow {
         structural_node: outer.clone(),
         base_node: outer.clone(),
+        key_node: None,
         element_node: inner.clone(),
         value_type: outer_type.clone(),
     };
@@ -7688,6 +7694,7 @@ fn nested_collection_rows_follow_final_element_nodes_without_recursion() {
             [SelectedSourceCollectionRow {
                 structural_node: outer.clone(),
                 base_node: outer.clone(),
+                key_node: None,
                 element_node: inner.clone(),
                 value_type: outer_type,
             }],
@@ -7948,6 +7955,7 @@ fn complete_identity_witness_collection_helper_base_is_not_an_independent_obliga
         let row = SelectedSourceCollectionRow {
             structural_node: bounded,
             base_node: base,
+            key_node: None,
             element_node: element,
             value_type: ValueType::collection(CollectionType::new(
                 CollectionKind::Sequence,
@@ -8006,6 +8014,7 @@ fn complete_identity_witness_collection_helper_base_is_not_an_independent_obliga
     let plain = SelectedSourceCollectionRow {
         structural_node: bounded.base_node.clone(),
         base_node: bounded.base_node,
+        key_node: None,
         element_node: bounded.element_node,
         value_type: ValueType::collection(CollectionType::new(
             CollectionKind::Sequence,

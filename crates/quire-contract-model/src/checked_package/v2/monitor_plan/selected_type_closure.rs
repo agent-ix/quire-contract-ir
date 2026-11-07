@@ -139,6 +139,8 @@ pub enum SelectedMonitorTypeClosureErrorCode {
     ModelEnum(SelectedModelEnumErrorCode),
     /// Exact identity or type projection refused.
     Exact(ExactTypeProjectionErrorCode),
+    /// A reached map key or unary collection key disagrees with the admitted edge.
+    CollectionKey,
     /// Runtime declaration projection refused.
     TypeDeclaration(ExactTypeProjectionErrorCode),
     /// Selected clause clock correspondence refused.
@@ -511,9 +513,30 @@ fn preflight_source_enum(
 }
 
 fn preflight_source_collection(
+    package: &super::super::CheckedPackageV2,
     row: &SelectedSourceCollectionRow,
     budget: &mut NativeJoinBudget,
 ) -> Result<(), SelectedMonitorTypeClosureError> {
+    read_charge(budget, NativeJoinChargeKind::Work, 1).map_err(|_| native_error(budget))?;
+    let map = package.node_kind(&row.base_node)
+        == Some(super::super::CheckedNodeKind::CompositeType(
+            super::super::CompositeTypeForm::Map,
+        ));
+    if (map && !super::super::exact_projection::source_map_key_matches(package, row))
+        || (!map && row.key_node.is_some())
+    {
+        read_charge(
+            budget,
+            NativeJoinChargeKind::Storage,
+            storage::node(&row.structural_node),
+        )
+        .map_err(|_| native_error(budget))?;
+        return Err(semantic_error(
+            SelectedMonitorTypeClosureErrorCode::CollectionKey,
+            Some(Box::new(row.structural_node.clone())),
+            budget,
+        ));
+    }
     storage::preflight_value_type(&row.value_type, budget, &row.structural_node)
         .map_err(|error| exact_error(error, budget))
 }
@@ -551,6 +574,36 @@ fn select_rows<T: Clone>(
             read_charge(budget, NativeJoinChargeKind::Storage, storage_units(row))
                 .map_err(|_| native_error(budget))?;
             selected.push(row.clone());
+        }
+    }
+    Ok(selected)
+}
+
+fn select_source_collections(
+    package: &super::super::CheckedPackageV2,
+    rows: &[SelectedSourceCollectionRow],
+    reached: &BTreeSet<CheckedNodeId>,
+    budget: &mut NativeJoinBudget,
+) -> Result<Vec<(usize, SelectedSourceCollectionRow)>, SelectedMonitorTypeClosureError> {
+    budget.set_locus_form("source_collection_selection");
+    read_charge(budget, NativeJoinChargeKind::Storage, 1).map_err(|_| native_error(budget))?;
+    let mut selected = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        budget.set_active_locus(Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::ReachedRow(index),
+            form: "source_collection_selection",
+        }));
+        read_charge(budget, NativeJoinChargeKind::Work, 1).map_err(|_| native_error(budget))?;
+        if reached.contains(&row.structural_node) {
+            preflight_source_collection(package, row, budget)?;
+            budget.set_locus_form("source_collection_selection");
+            read_charge(
+                budget,
+                NativeJoinChargeKind::Storage,
+                storage::source_collection(row).saturating_add(1),
+            )
+            .map_err(|_| native_error(budget))?;
+            selected.push((index, row.clone()));
         }
     }
     Ok(selected)
@@ -790,14 +843,11 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 storage::source_enum,
                 preflight_source_enum,
             )?;
-            let source_collections = select_rows(
+            let source_collections = select_source_collections(
+                self.package,
                 rows.source_collections,
                 &reached.reached,
                 budget,
-                "source_collection_selection",
-                |row| &row.structural_node,
-                storage::source_collection,
-                preflight_source_collection,
             )?;
             let identities = reached
                 .identities
@@ -809,7 +859,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 .map_err(|error| exact_error(error, budget))?
                 .with_source_enum_rows(self.package, source_enums, budget)
                 .map_err(|error| exact_error(error, budget))?
-                .with_source_collection_rows(self.package, source_collections, budget)
+                .with_indexed_source_collection_rows(self.package, source_collections, budget)
                 .map_err(|error| exact_error(error, budget))?;
             // A parameter's name literal uses QSpec's unbounded Text marker.
             // It is metadata, not the parameter's ordinary value type. A Text
