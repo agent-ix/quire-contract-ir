@@ -461,6 +461,29 @@ fn source_map_rows_compose_at_exact_budget_and_preserve_first_denial() {
     let mut exact = NativeJoinBudget::new(used.work, used.storage);
     assert_eq!(run(&mut exact).expect("exact cumulative map allowance"), expected);
     assert_eq!(exact.consumed(), used);
+    let caller_locus = quire_contract_model::NativeJoinLocus {
+        source: quire_contract_model::NativeJoinLocusSource::MonitorSeed(7),
+        form: "caller_map_preparation",
+    };
+    let mut prefixed = NativeJoinBudget::new(used.work + 3, used.storage + 2);
+    prefixed.resume();
+    prefixed.accounted_charge(NativeJoinChargeKind::Work, 3, caller_locus).unwrap();
+    prefixed.accounted_charge(NativeJoinChargeKind::Storage, 2, caller_locus).unwrap();
+    assert_eq!(run(&mut prefixed).unwrap(), expected);
+    assert_eq!(prefixed.consumed().work, used.work + 3);
+    assert_eq!(prefixed.consumed().storage, used.storage + 2);
+    let mut caller_short = NativeJoinBudget::new(used.work + 3, 0);
+    caller_short.resume();
+    caller_short.accounted_charge(NativeJoinChargeKind::Work, 3, caller_locus).unwrap();
+    let denied = caller_short.accounted_charge(NativeJoinChargeKind::Storage, 2, caller_locus).unwrap_err();
+    assert_eq!(denied, quire_contract_model::NativeJoinDeniedCharge {
+        kind: NativeJoinChargeKind::Storage, amount: 2,
+    });
+    assert_eq!(caller_short.first_unpaid_locus(), Some(caller_locus));
+    assert_eq!(caller_short.consumed().work, 3);
+    assert_eq!(caller_short.consumed().storage, 0);
+    assert_eq!(caller_short.last_success_delta(), None);
+    assert_eq!(caller_short.storage_limit(), 0);
     for kind in [NativeJoinChargeKind::Work, NativeJoinChargeKind::Storage] {
         let limits = match kind {
             NativeJoinChargeKind::Work => (used.work - 1, used.storage),
