@@ -245,7 +245,7 @@ pub(crate) fn assert_exact_join(
 
 /// Each external locus source is admitted at the exact cumulative allowance and, one
 /// unit below, is reported unchanged as the first unpaid locus without consuming.
-#[trace("FR-358-AC-10")]
+#[trace("TC-471", "FR-358-AC-10")]
 #[test]
 fn external_loci_report_their_exact_source_at_the_allowance_edge() {
     let sources = [

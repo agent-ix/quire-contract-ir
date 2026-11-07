@@ -332,8 +332,8 @@ pub struct SelectedTypeDeclarationsError {
 
 impl SelectedTypeDeclarationsError {
     /// Resolve a denied node using the package and row slices supplied to projection.
-    /// Package allocations and unresolved declaration request coordinates have no
-    /// resolved node. Their fixed input coordinate remains in `denied_locus`;
+    /// Package allocations, unresolved declaration request coordinates and the
+    /// external adapter, preparer and authority sources have no resolved node. Their fixed input coordinate remains in `denied_locus`;
     /// this resolver never searches for an identity after a denied charge.
     pub fn denied_node<'a>(
         &self,
