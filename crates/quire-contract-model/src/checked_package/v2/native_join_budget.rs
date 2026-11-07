@@ -47,6 +47,16 @@ pub enum NativeJoinLocusSource {
     TupleRow(usize),
     /// Index into the runtime caller's source-unit rows.
     SourceUnitRow(usize),
+    /// Row `i` of an external adapter's channel being converted into an IR-owned row.
+    AdapterRow(usize),
+    /// An external preparer's charges while building the same-emission authority row.
+    AuthorityRow,
+    /// Selection comparison `k`, by position in the external preparer's comparison order.
+    PreparationSelection(usize),
+    /// Owned output item `k` an external preparer allocates after a native read.
+    PreparationOutput(usize),
+    /// Contract IR's own authority-row inspections before the occurrence is resolved.
+    MonitorAuthority,
 }
 
 /// Fixed-size first-denial metadata, resolved using the original caller context.

@@ -242,3 +242,65 @@ pub(crate) fn assert_exact_join(
     assert_eq!(denied.denied, zero_storage.first_unpaid());
     (expected, required)
 }
+
+/// Each external locus source is admitted at the exact cumulative allowance and, one
+/// unit below, is reported unchanged as the first unpaid locus without consuming.
+#[trace("FR-358-AC-10")]
+#[test]
+fn external_loci_report_their_exact_source_at_the_allowance_edge() {
+    let sources = [
+        NativeJoinLocusSource::AdapterRow(4),
+        NativeJoinLocusSource::AuthorityRow,
+        NativeJoinLocusSource::PreparationSelection(7),
+        NativeJoinLocusSource::PreparationOutput(9),
+        NativeJoinLocusSource::MonitorAuthority,
+    ];
+    for source in sources {
+        let locus = NativeJoinLocus {
+            source,
+            form: "external form",
+        };
+        let mut exact = NativeJoinBudget::new(2 + 5, 0);
+        exact.resume();
+        assert_eq!(
+            exact.accounted_charge(NativeJoinChargeKind::Work, 2, locus),
+            Ok(())
+        );
+        assert_eq!(
+            exact.accounted_charge(NativeJoinChargeKind::Work, 5, locus),
+            Ok(())
+        );
+        assert_eq!(
+            exact.consumed(),
+            NativeJoinCharge {
+                work: 7,
+                storage: 0
+            }
+        );
+        assert_eq!(exact.first_unpaid_locus(), None);
+
+        let mut short = NativeJoinBudget::new(2 + 5 - 1, 0);
+        short.resume();
+        assert_eq!(
+            short.accounted_charge(NativeJoinChargeKind::Work, 2, locus),
+            Ok(())
+        );
+        let denied = NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Work,
+            amount: 5,
+        };
+        assert_eq!(
+            short.accounted_charge(NativeJoinChargeKind::Work, 5, locus),
+            Err(denied)
+        );
+        assert_eq!(
+            short.consumed(),
+            NativeJoinCharge {
+                work: 2,
+                storage: 0
+            }
+        );
+        assert_eq!(short.first_unpaid(), Some(denied));
+        assert_eq!(short.first_unpaid_locus(), Some(locus));
+    }
+}

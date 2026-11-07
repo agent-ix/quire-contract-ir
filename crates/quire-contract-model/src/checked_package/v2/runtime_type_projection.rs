@@ -344,7 +344,12 @@ impl SelectedTypeDeclarationsError {
         match self.denied_locus?.source {
             NativeJoinLocusSource::Package
             | NativeJoinLocusSource::MonitorSeed(_)
-            | NativeJoinLocusSource::ReachedRow(_) => None,
+            | NativeJoinLocusSource::ReachedRow(_)
+            | NativeJoinLocusSource::AdapterRow(_)
+            | NativeJoinLocusSource::AuthorityRow
+            | NativeJoinLocusSource::PreparationSelection(_)
+            | NativeJoinLocusSource::PreparationOutput(_)
+            | NativeJoinLocusSource::MonitorAuthority => None,
             NativeJoinLocusSource::GraphNode(index) => {
                 package.graph().nodes.get(index).map(|node| &node.node_id)
             }
