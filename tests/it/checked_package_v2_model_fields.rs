@@ -4678,7 +4678,7 @@ fn tc_048_scalar_operands_keep_argument_identity_and_exact_range() {
             "value_kind": "integer", "value": "7"}),
     ]);
     let inner = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "binary" && node.node_id != outer)
@@ -4910,7 +4910,7 @@ fn selected_native_fields_keep_distinct_member_types() {
             Some(&expected)
         );
         let scalar = admitted
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| {
@@ -5176,7 +5176,9 @@ fn selected_process_field_n_resolves_through_the_model_member_step() {
         panic!("Flow.n projection must admit");
     };
     assert_eq!(
-        admitted.graph().nodes[positions[0]].semantic_form.as_ref(),
+        admitted.resolved_graph().nodes[positions[0]]
+            .semantic_form
+            .as_ref(),
         "query"
     );
 }
@@ -5708,7 +5710,7 @@ fn tc_227_the_accessor_tells_an_unknown_node_from_a_node_that_is_no_object_type(
     for key in [&integer, &thousand] {
         let structural = id(key);
         let wire = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .enumerate()
@@ -6980,7 +6982,7 @@ fn source_collection_fixture() -> (
         ty: Ty::Float32,
     });
     let package = admit(&selected, &[("Collect", OBJECT)], &reads);
-    let graph = &package.graph().nodes;
+    let graph = &package.resolved_graph().nodes;
     let element_node = graph
         .iter()
         .find(|node| {
@@ -7154,7 +7156,7 @@ fn source_collection_rows_project_all_kinds_and_bounds() {
     let bounded = &rows[4].0;
     assert_ne!(bounded.structural_node, bounded.base_node);
     let unrelated = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "float32")
@@ -7518,7 +7520,7 @@ fn source_collection_with_unprojectable_option_element_keeps_native_refusal() {
             ),
         }],
     );
-    let graph = &package.graph().nodes;
+    let graph = &package.resolved_graph().nodes;
     let option = graph
         .iter()
         .find(|node| node.semantic_form.as_ref() == "option")
@@ -7622,7 +7624,7 @@ fn nested_collection_rows_follow_final_element_nodes_without_recursion() {
         CheckedPackageV2ReadResult::Admitted(package) => *package,
         other => panic!("nested collection fixture must admit: {other:?}"),
     };
-    let graph = &admitted.graph().nodes;
+    let graph = &admitted.resolved_graph().nodes;
     let integer = graph
         .iter()
         .find(|node| {
@@ -7754,7 +7756,7 @@ pub(crate) fn complete_witness_model_rows(
     Vec<SelectedTupleDeclarationRow>,
 ) {
     let id = |original: &str| {
-        package.graph().nodes.iter().find(|node| matches!(&node.owner, Some(quire_contract_model::CheckedNodeOwner::Model { identity, node }) if identity.as_ref() == IDENTITY && node.as_ref() == original)).unwrap().node_id.clone()
+        package.resolved_graph().nodes.iter().find(|node| matches!(&node.owner, Some(quire_contract_model::CheckedNodeOwner::Model { identity, node }) if identity.as_ref() == IDENTITY && node.as_ref() == original)).unwrap().node_id.clone()
     };
     let record_key = NodeKey::new(
         "complete-stage",
@@ -7832,7 +7834,7 @@ fn complete_identity_witness_reuses_checked_private_channels_for_runtime_project
     };
     let (declarations, fields, tuples) = complete_witness_model_rows(&package);
     let units: Vec<_> = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .filter(|node| node.semantic_form.as_ref() == "unit")
@@ -7922,7 +7924,7 @@ fn complete_identity_witness_collection_helper_base_is_not_an_independent_obliga
             other => panic!("helper-base control admits: {other:?}"),
         };
         let base = admitted
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| node.semantic_form.as_ref() == "sequence")
@@ -7930,7 +7932,7 @@ fn complete_identity_witness_collection_helper_base_is_not_an_independent_obliga
             .node_id
             .clone();
         let bounded = admitted
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| node.semantic_form.as_ref() == "collection_bounds")
@@ -7938,7 +7940,7 @@ fn complete_identity_witness_collection_helper_base_is_not_an_independent_obliga
             .node_id
             .clone();
         let element = admitted
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| node.semantic_form.as_ref() == "integer")
@@ -7957,7 +7959,7 @@ fn complete_identity_witness_collection_helper_base_is_not_an_independent_obliga
         };
         let declaration = SelectedExactDeclarationRow::new(
             admitted
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .find(|node| node.semantic_form.as_ref() == "object_type")
@@ -8065,7 +8067,7 @@ fn complete_identity_witness_refuses_unemitted_and_unsupported_selected_identity
         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
     );
     let root = &package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "model_root")
@@ -8080,7 +8082,7 @@ fn complete_identity_witness_refuses_unemitted_and_unsupported_selected_identity
     selected["constructs"].as_array_mut().unwrap().push(json!({"kind":{"module":IDENTITY,"name":"process"},"construct":{"meaning":"quire.meaning.model.process/v1"}}));
     let package = admit(&selected, &[("Flow", "process")], &[]);
     let id = &package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "process")
@@ -8172,7 +8174,7 @@ fn complete_identity_witness_missing_model_unit_precedes_unread_field() {
     let unit_original = "ix://acme/orders/unit/second";
     let package = complete_review_model_unit(unit_original, 0);
     let record = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "record_value_type")
@@ -8180,7 +8182,7 @@ fn complete_identity_witness_missing_model_unit_precedes_unread_field() {
         .node_id
         .clone();
     let unit = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "unit")
@@ -8231,7 +8233,7 @@ fn complete_identity_witness_precharges_long_model_unit_owner_text() {
     // selected declaration is inspected once for each obligation. This is a
     // fixed logical ledger, independent of an ample implementation run.
     let mut prefix = 16 + 5 + 3 * record_original.len() + original.len();
-    let mut nodes: Vec<_> = package.graph().nodes.iter().collect();
+    let mut nodes: Vec<_> = package.resolved_graph().nodes.iter().collect();
     nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
     let mut expected_amount = None;
     for node in nodes {
@@ -8310,7 +8312,7 @@ fn complete_identity_witness_precharges_every_unrelated_census_candidate() {
 fn complete_identity_witness_tuple_validation_matches_projection() {
     let package = integer_add_control();
     let primitive = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_tag.as_ref() == "scalar_type")
@@ -8418,7 +8420,7 @@ fn runtime_two_tuple_indices_activate_the_first_row_after_witness_join() {
         "row zero insertion must follow a successful multirow witness join"
     );
     // Before resolving any declaration identity, its real request ordinal is sufficient.
-    let work = u64::try_from(package.graph().nodes.len()).unwrap();
+    let work = u64::try_from(package.resolved_graph().nodes.len()).unwrap();
     let mut before_declaration = NativeJoinBudget::new(work, u64::MAX);
     let error = package
         .project_selected_type_declarations(&identities, &rows, &[], &mut before_declaration)
