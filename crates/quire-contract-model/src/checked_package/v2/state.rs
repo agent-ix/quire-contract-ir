@@ -29,13 +29,13 @@
 //! (`structural`); a body that no longer parses here refuses as that stage
 //! would.
 
-use super::graph_storage::GraphIndex;
 use super::frame::{join, read_frame_body, DeletesScopedEntry, ModifiesEntry, StepGraph};
+use super::graph_storage::{first_repeat, GraphIndex};
 use super::model_members::{
     MemberKind, MemberType, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved,
 };
 use super::structural::{
-    is_state_clause_application, is_state_transition_application, reference_type_target,
+    is_state_clause_application, is_state_transition_application, reference_type_target_ref,
     typed_anchor_body, typed_clause_body, typed_parameter_binding, typed_reference,
     typed_transition_body, AnchorBody, TransitionBody,
 };
@@ -49,7 +49,7 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use crate::checked_package::terms::{subterms, At, Cursor};
-use quire_walk::{walk, Children, Walk};
+use quire_walk::{Children, Walk};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 
@@ -69,9 +69,14 @@ pub(super) fn validate_state(
         index,
         owners,
     };
-    validate_placement(&graph)?;
-    let mut anchors = Vec::new();
+    validate_placement(&graph, meter)?;
+    let anchor_count = graph
+        .each(CheckedNodeKind::State(StateForm::OperationAnchor))
+        .count();
+    meter.at_node(0, "state");
+    let mut anchors = meter.vec(anchor_count)?;
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::OperationAnchor)) {
+        meter.at_node(position, "state");
         let body = terms
             .get(position)
             .and_then(Option::as_ref)
@@ -80,29 +85,57 @@ pub(super) fn validate_state(
         check_anchor(node, position, &body, &graph, meter)?;
         anchors.push((position, node, body));
     }
-    let mut pairs = BTreeSet::new();
-    for (position, node, body) in &anchors {
-        if !pairs.insert((&body.context, body.operation, body.execution_point.as_ref())) {
-            return Err(ValidationFailure::refused_at(
-                CheckedPackageRefusalCode::AmbiguousDeclaration,
-                node_pointer(*position),
-                Some(CheckedPackageRefusalCause::AmbiguousName),
-                node.node_id.clone(),
-            ));
-        }
+    meter.at_node(0, "state");
+    if let Some(repeat) = first_repeat(
+        anchors
+            .iter()
+            .map(|(_, _, body)| (body.context, body.operation, body.execution_point)),
+        meter,
+    )? {
+        let (position, node, _) = &anchors[repeat];
+        return Err(ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::AmbiguousDeclaration,
+            node_pointer(*position),
+            Some(CheckedPackageRefusalCause::AmbiguousName),
+            node.node_id.clone(),
+        ));
     }
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::StateClause)) {
+        meter.at_node(position, "state");
         check_clause(node, position, terms, &graph, structural_keys, meter)?;
     }
-    let mut pairs = BTreeSet::new();
+    // A transition whose anchor and subject repeat an earlier one's refuses
+    // after its own checks and before the next transition's: the repeat is
+    // found over the keys of the transitions that read, then met in order.
+    let transition_count = graph
+        .each(CheckedNodeKind::State(StateForm::Transition))
+        .count();
+    meter.at_node(0, "state");
+    let mut keys = meter.vec(transition_count)?;
+    for (position, _) in graph.each(CheckedNodeKind::State(StateForm::Transition)) {
+        let Some(body) = terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(typed_transition_body)
+        else {
+            break;
+        };
+        keys.push((body.anchor, body.subject, position));
+    }
+    let repeated = first_repeat(
+        keys.iter().map(|&(anchor, subject, _)| (anchor, subject)),
+        meter,
+    )?
+    .map(|repeat| keys[repeat].2);
     for (position, node) in graph.each(CheckedNodeKind::State(StateForm::Transition)) {
+        meter.at_node(position, "state");
         let body = terms
             .get(position)
             .and_then(Option::as_ref)
             .and_then(typed_transition_body)
             .ok_or_else(|| shape_refusal(node, position))?;
         check_transition(node, position, &body, terms, &graph, meter)?;
-        if !pairs.insert((body.anchor, body.subject)) {
+        if repeated == Some(position) {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::AmbiguousDeclaration,
                 node_pointer(position),
@@ -145,13 +178,17 @@ fn model_refusal(
 
 /// Every `quire.op.state.clause` application stands as the body root of a
 /// `state`/`state_clause` node.
-fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure> {
+fn validate_placement(
+    graph: &StepGraph<'_, '_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
     for transition in [false, true] {
         for &position in graph.index.values() {
             let (Some(node), Some(&kind)) = (graph.nodes.get(position), graph.kinds.get(position))
             else {
                 continue;
             };
+            meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
             let steps = [
                 Step::Key("semantic_graph"),
                 Step::Key("nodes"),
@@ -172,7 +209,7 @@ fn validate_placement(graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure
                 transition,
                 cursor,
             };
-            if let ControlFlow::Break(failure) = walk(&mut placement, root) {
+            if let ControlFlow::Break(failure) = meter.walk(&mut placement, root)? {
                 return Err(failure);
             }
         }
@@ -318,7 +355,7 @@ fn check_anchor(
             &body.frame,
         )
     })?;
-    if anchor.semantic_type != body.context || frame.semantic_type != body.context {
+    if anchor.semantic_type != *body.context || frame.semantic_type != *body.context {
         return Err(model_refusal(
             ModelRefusal::malformed(),
             node_pointer(position),
@@ -425,8 +462,8 @@ fn check_clause(
             &body.anchor,
         )
     })?;
-    let mut parameters = Vec::with_capacity(body.parameters.len());
-    for (index, target) in body.parameters.iter().enumerate() {
+    let mut parameters = meter.vec(body.parameter_count())?;
+    for (index, target) in body.parameters().enumerate() {
         let (parameter, _) = join(
             clause,
             target,
@@ -467,15 +504,20 @@ fn check_clause(
     };
     let context_id = anchor_body
         .as_ref()
-        .map_or(&body.anchor, |anchor| &anchor.context);
+        .map_or(body.anchor, |anchor| anchor.context);
     let self_is_reference = parameters.first().is_some_and(|parameter| {
         graph
-            .node(&parameter.semantic_type)
-            .filter(|(_, kind)| {
-                *kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
+            .index
+            .get(&parameter.semantic_type)
+            .filter(|&&at| {
+                graph.kinds.get(at)
+                    == Some(&CheckedNodeKind::CompositeType(
+                        CompositeTypeForm::Reference,
+                    ))
             })
-            .and_then(|(node, _)| reference_type_target(node))
-            .as_ref()
+            .and_then(|&at| terms.get(at))
+            .and_then(Option::as_ref)
+            .and_then(reference_type_target_ref)
             == Some(context_id)
     });
     if !self_is_reference {
@@ -696,7 +738,7 @@ fn check_transition(
         .get("identity")
         .and_then(serde_json::Value::as_str)
         != Some("quire.op.model.deref")
-        || deref.semantic_type != anchor_body.context
+        || deref.semantic_type != *anchor_body.context
     {
         return Err(malformed_subject());
     }
@@ -718,17 +760,22 @@ fn check_transition(
         .is_some_and(|(name, level)| is_self_parameter(name, level));
     if !is_self
         || graph
-            .node(&self_node.semantic_type)
-            .filter(|(_, kind)| {
-                *kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
+            .index
+            .get(&self_node.semantic_type)
+            .filter(|&&at| {
+                graph.kinds.get(at)
+                    == Some(&CheckedNodeKind::CompositeType(
+                        CompositeTypeForm::Reference,
+                    ))
             })
-            .and_then(|(node, _)| reference_type_target(node))
-            .as_ref()
-            != Some(&anchor_body.context)
+            .and_then(|&at| terms.get(at))
+            .and_then(Option::as_ref)
+            .and_then(reference_type_target_ref)
+            != Some(anchor_body.context)
     {
         return Err(malformed_subject());
     }
-    let Some((context, context_kind)) = graph.node(&anchor_body.context) else {
+    let Some((context, context_kind)) = graph.node(anchor_body.context) else {
         return Err(malformed_subject());
     };
     let (owner, operation) =
@@ -747,8 +794,11 @@ fn check_transition(
                     .and_then(|(node, _)| graph.owners.recover(node).ok())
                     .is_some_and(|declaring_owner| {
                         declaring_owner.package.identity == field_owner.package.identity
-                            && field.identity.as_ref()
-                                == format!("{}/{}", declaring_owner.node, field_name)
+                            && field
+                                .identity
+                                .strip_prefix(declaring_owner.node)
+                                .and_then(|rest| rest.strip_prefix('/'))
+                                == Some(field_name)
                     });
                 if !declared {
                     return Err(malformed_subject());
@@ -786,8 +836,8 @@ fn check_transition(
         return Err(ineligible(transition, node_pointer(position)));
     }
 
-    let mut actual_inputs = Vec::with_capacity(body.inputs.len());
-    for (slot, target) in body.inputs.iter().enumerate() {
+    let mut actual_inputs = meter.vec(body.input_count())?;
+    for (slot, target) in body.inputs().enumerate() {
         let (parameter, _) = join(
             transition,
             target,

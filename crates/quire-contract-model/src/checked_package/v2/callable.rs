@@ -476,8 +476,8 @@ impl CheckedPackageV2 {
                 },
                 parameters,
                 body: function.body.clone(),
-                context: Some(anchor.context),
-                frame: Some(anchor.frame),
+                context: Some(anchor.context.clone()),
+                frame: Some(anchor.frame.clone()),
             });
         }
         Ok(CheckedCallableTable {

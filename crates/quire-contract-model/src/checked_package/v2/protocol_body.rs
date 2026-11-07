@@ -2053,7 +2053,7 @@ fn check_control_prefix(
                         matches!(
                             body.clause,
                             StateClauseKind::Precondition | StateClauseKind::Postcondition
-                        ) && body.anchor == check.nodes[operation].node_id
+                        ) && *body.anchor == check.nodes[operation].node_id
                     });
                 if !valid {
                     return Err(check.refuse(

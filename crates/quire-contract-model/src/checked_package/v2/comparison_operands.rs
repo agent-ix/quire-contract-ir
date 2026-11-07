@@ -310,7 +310,7 @@ impl CheckedPackageV2 {
                 context.error(Refusal::NotStateClause, Path::Clause, Some(clause.clone()))
             })?;
         context.kind = body.clause.into();
-        context.parameters = body.parameters;
+        context.parameters = body.parameters().cloned().collect();
         if !matches!(
             context.kind,
             CheckedComparisonClauseKind::Invariant | CheckedComparisonClauseKind::Constraint

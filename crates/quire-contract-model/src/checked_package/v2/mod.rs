@@ -3283,7 +3283,7 @@ fn validate_graph(
                 at("occurrences"),
             ));
         }
-        if let Some(repeat) = graph_storage::first_repeat(&node.occurrences, meter)? {
+        if let Some(repeat) = graph_storage::first_repeat(node.occurrences.iter(), meter)? {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSourceMap,
                 at("occurrences").index(repeat),

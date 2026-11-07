@@ -556,7 +556,7 @@ pub(super) fn validate_step_relations(
                             .is_some_and(|term| match term {
                                 CheckedTerm::AbstractionRelation { frames, .. } => {
                                     frames.iter().any(|frame| {
-                                        frame.context == anchor_body.context
+                                        frame.context == *anchor_body.context
                                             && frame.operation.as_ref() == anchor_body.operation
                                     })
                                 }
@@ -668,7 +668,7 @@ pub(super) fn validate_step_relations(
                         .and_then(Option::as_ref)
                         .and_then(typed_clause_body);
                     if parsed.as_ref().is_some_and(|body| {
-                        body.clause == clause_kind && body.anchor == entry.operation
+                        body.clause == clause_kind && *body.anchor == entry.operation
                     }) {
                         expected.push(clause.node_id.clone());
                     }

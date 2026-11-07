@@ -1545,23 +1545,23 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
     (is_root_unit && exponent_ok).then(|| unit.clone())
 }
 
-/// A `state`/`operation_anchor` body (QSpec FR-342).
+/// A `state`/`operation_anchor` body (QSpec FR-342), borrowed from its term.
 pub(super) struct AnchorBody<'a> {
     /// The object type declaring the operation.
-    pub(super) context: CheckedNodeId,
+    pub(super) context: &'a CheckedNodeId,
     /// The operation's name.
     pub(super) operation: &'a str,
     /// The operation's frame node.
-    pub(super) frame: CheckedNodeId,
+    pub(super) frame: &'a CheckedNodeId,
     /// Optional point, retained separately from the three expression terms.
-    pub(super) execution_point: Option<ExecutionPoint>,
+    pub(super) execution_point: Option<&'a ExecutionPoint>,
 }
 
 /// The admitted anchor body, or `None` for any other typed shape.
 pub(super) fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<'_>> {
     let (members, execution_point) = match body {
         CheckedTerm::OperationAnchorBody(anchor) => {
-            (&anchor.members[..], anchor.execution_point.clone())
+            (&anchor.members[..], anchor.execution_point.as_ref())
         }
         _ => (typed_aggregate(body)?, None),
     };
@@ -1578,37 +1578,60 @@ pub(super) fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<
         return None;
     };
     Some(AnchorBody {
-        context: typed_binding(context, "context")
-            .and_then(typed_reference)?
-            .clone(),
+        context: typed_binding(context, "context").and_then(typed_reference)?,
         operation: value.as_str().filter(|name| is_identifier(name))?,
-        frame: typed_binding(frame, "frame")
-            .and_then(typed_reference)?
-            .clone(),
+        frame: typed_binding(frame, "frame").and_then(typed_reference)?,
         execution_point,
     })
 }
 
 /// The catalogued identity of the state clause operation.
-/// A `state`/`state_clause` body (QSpec FR-341).
-pub(super) struct ClauseBody {
+/// A `state`/`state_clause` body (QSpec FR-341), borrowed from its term.
+pub(super) struct ClauseBody<'a> {
     /// The clause kind its `state_clause` member names.
     pub(super) clause: StateClauseKind,
-    /// The parameter aggregate's reference targets, in order.
-    pub(super) parameters: Vec<CheckedNodeId>,
+    /// The parameter aggregate, every member a reference.
+    parameters: &'a [super::CheckedTerm],
     /// The anchor reference's target.
-    pub(super) anchor: CheckedNodeId,
+    pub(super) anchor: &'a CheckedNodeId,
     /// Optional closed point of the clause application member.
-    pub(super) execution_point: Option<ExecutionPoint>,
+    pub(super) execution_point: Option<&'a ExecutionPoint>,
 }
 
-/// The five identity-bearing references of a Boolean state transition.
-pub(super) struct TransitionBody {
-    pub(super) anchor: CheckedNodeId,
-    pub(super) subject: CheckedNodeId,
-    pub(super) inputs: Vec<CheckedNodeId>,
-    pub(super) pre: Option<CheckedNodeId>,
-    pub(super) post: CheckedNodeId,
+impl<'a> ClauseBody<'a> {
+    /// The number of parameters.
+    pub(super) fn parameter_count(&self) -> usize {
+        self.parameters.len()
+    }
+
+    /// The parameter aggregate's reference targets, in order.
+    pub(super) fn parameters(&self) -> impl Iterator<Item = &'a CheckedNodeId> + '_ {
+        self.parameters
+            .iter()
+            .filter_map(|term| typed_reference(term))
+    }
+}
+
+/// The five identity-bearing references of a Boolean state transition,
+/// borrowed from its term.
+pub(super) struct TransitionBody<'a> {
+    pub(super) anchor: &'a CheckedNodeId,
+    pub(super) subject: &'a CheckedNodeId,
+    inputs: &'a [super::CheckedTerm],
+    pub(super) pre: Option<&'a CheckedNodeId>,
+    pub(super) post: &'a CheckedNodeId,
+}
+
+impl<'a> TransitionBody<'a> {
+    /// The number of inputs.
+    pub(super) fn input_count(&self) -> usize {
+        self.inputs.len()
+    }
+
+    /// The input reference targets, in order.
+    pub(super) fn inputs(&self) -> impl Iterator<Item = &'a CheckedNodeId> + '_ {
+        self.inputs.iter().filter_map(|term| typed_reference(term))
+    }
 }
 
 /// Whether a raw term is the catalogued state-transition application.
@@ -1618,7 +1641,7 @@ pub(super) fn is_state_transition_application(term: &Value) -> bool {
 }
 
 /// Decode the closed transition argument shape without doing its semantic joins.
-pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<TransitionBody> {
+pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<TransitionBody<'_>> {
     let super::CheckedTerm::Application {
         operator: ApplicationOperator::StateTransition,
         operation,
@@ -1636,25 +1659,19 @@ pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<Transit
     let [anchor, subject, inputs, pre, post] = arguments.as_slice() else {
         return None;
     };
-    let anchor = typed_binding(anchor, "anchor")
-        .and_then(typed_reference)?
-        .clone();
-    let subject = typed_binding(subject, "subject")
-        .and_then(typed_reference)?
-        .clone();
-    let inputs = typed_aggregate(typed_binding(inputs, "inputs")?)?
-        .iter()
-        .map(|term| typed_reference(term).cloned())
-        .collect::<Option<Vec<_>>>()?;
+    let anchor = typed_binding(anchor, "anchor").and_then(typed_reference)?;
+    let subject = typed_binding(subject, "subject").and_then(typed_reference)?;
+    let inputs = typed_aggregate(typed_binding(inputs, "inputs")?)?;
+    if !inputs.iter().all(|term| typed_reference(term).is_some()) {
+        return None;
+    }
     let pre = typed_aggregate(typed_binding(pre, "pre")?)?;
     let pre = match pre {
         [] => None,
-        [one] => Some(typed_reference(one)?.clone()),
+        [one] => Some(typed_reference(one)?),
         _ => return None,
     };
-    let post = typed_binding(post, "post")
-        .and_then(typed_reference)?
-        .clone();
+    let post = typed_binding(post, "post").and_then(typed_reference)?;
     Some(TransitionBody {
         anchor,
         subject,
@@ -1677,7 +1694,7 @@ pub(super) fn is_state_clause_application(term: &Value) -> bool {
 /// arguments an `aggregate` of one or more `reference` terms, a `reference`
 /// and the condition.
 // Decodes a state clause member's kind and clause.
-pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody> {
+pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody<'_>> {
     let super::CheckedTerm::Application {
         operator: ApplicationOperator::StateClause,
         operation,
@@ -1704,25 +1721,23 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
     {
         return None;
     }
-    let execution_point = operation.execution_point().cloned();
+    let execution_point = operation.execution_point();
     let clause = StateClauseKind::from_wire(member.get("clause")?.as_str()?)?;
     let [parameters, anchor, _condition] = arguments.as_slice() else {
         return None;
     };
-    let parameters = typed_aggregate(parameters)?
-        .iter()
-        .map(typed_reference)
-        .collect::<Option<Vec<_>>>()?
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    if parameters.is_empty() {
+    let parameters = typed_aggregate(parameters)?;
+    if parameters.is_empty()
+        || !parameters
+            .iter()
+            .all(|term| typed_reference(term).is_some())
+    {
         return None;
     }
     Some(ClauseBody {
         clause,
         parameters,
-        anchor: typed_reference(anchor)?.clone(),
+        anchor: typed_reference(anchor)?,
         execution_point,
     })
 }
@@ -1734,6 +1749,18 @@ pub(super) fn reference_type_target(node: &CheckedSemanticNodeV2) -> Option<Chec
         return None;
     };
     reference_target(target)
+}
+
+/// A `composite_type`/`reference` type node's target, borrowed from its typed
+/// body: exactly `aggregate{[reference(target)]}`.
+pub(super) fn reference_type_target_ref(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
+    let super::CheckedTerm::Aggregate { members } = term else {
+        return None;
+    };
+    let [one] = members.as_slice() else {
+        return None;
+    };
+    typed_reference(one)
 }
 
 pub(super) fn reference_type_target_typed(

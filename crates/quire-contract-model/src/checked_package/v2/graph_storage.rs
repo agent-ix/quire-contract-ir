@@ -10,9 +10,7 @@
 //! limit (lowering, unit tests) makes the same requests uncharged.
 
 use super::budgeted_read::{BudgetStop, PackageReadResource};
-use super::native_join_budget::{
-    NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
-};
+use super::native_join_budget::{NativeJoinLocus, NativeJoinLocusSource, PackageReadStage};
 use super::{WorkMeter, WorkSource};
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{CheckedNodeId, JsonPointer};
@@ -171,6 +169,30 @@ impl<'b> WorkMeter<'b> {
     /// The reservation a quire-exact operation asks before each limb block.
     pub(super) fn exact_reservation<'m>(&'m mut self) -> MeterReservation<'m, 'b> {
         MeterReservation::new(self.reborrow_for_reservation(), Some("exact_number"))
+    }
+
+    /// Runs `walker` over `root` on a walk whose list growths are charged to
+    /// the meter, form `"walk"`.
+    pub(super) fn walk<W: quire_walk::Walk + ?Sized>(
+        &mut self,
+        walker: &mut W,
+        root: W::Node,
+    ) -> Result<std::ops::ControlFlow<W::Stop>, ValidationFailure> {
+        let mut reservation = self.walk_reservation();
+        match quire_walk::walk_reserved(walker, root, &mut reservation) {
+            Ok(flow) => Ok(flow),
+            Err(refusal) => Err(reservation.into_denial().unwrap_or_else(|| {
+                let requested = match refusal {
+                    quire_walk::Refusal::Denied { requested }
+                    | quire_walk::Refusal::Allocation { requested } => requested,
+                };
+                ValidationFailure::Budget(BudgetStop {
+                    resource: PackageReadResource::ReadStorage,
+                    amount: requested as u128,
+                    path: None,
+                })
+            })),
+        }
     }
 
     fn reborrow_for_reservation(&mut self) -> &mut Self {
@@ -351,15 +373,15 @@ impl<K: Ord, V> SortedTable<K, V> {
     }
 }
 
-/// The position of the first item of `items` equal to an earlier one, found
-/// by sorting an exact-capacity table of references to them (charged first).
-pub(super) fn first_repeat<T: Ord>(
-    items: &[T],
+/// The index of the first key of `keys` equal to an earlier one, found by
+/// sorting an exact-capacity table of the keys (charged first).
+pub(super) fn first_repeat<K: Ord>(
+    keys: impl ExactSizeIterator<Item = K>,
     meter: &mut WorkMeter,
 ) -> Result<Option<usize>, ValidationFailure> {
-    let mut keyed = meter.vec::<(&T, usize)>(items.len())?;
-    keyed.extend(items.iter().enumerate().map(|(position, item)| (item, position)));
-    keyed.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
+    let mut keyed = meter.vec::<(K, usize)>(keys.len())?;
+    keyed.extend(keys.enumerate().map(|(position, key)| (key, position)));
+    keyed.sort_unstable();
     Ok(keyed
         .windows(2)
         .filter(|pair| pair[0].0 == pair[1].0)

@@ -1586,7 +1586,7 @@ impl RefinementGraph<'_, '_> {
                 .term(&external.node)?,
         };
         let anchor = super::structural::typed_anchor_body(term)?;
-        Some((anchor.context, Box::from(anchor.operation)))
+        Some((anchor.context.clone(), Box::from(anchor.operation)))
     }
 
     fn local_kind(
