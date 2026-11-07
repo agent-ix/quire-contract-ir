@@ -90,6 +90,16 @@ impl NativeJoinBudget {
         }
     }
 
+    /// Original configured work limit, unchanged by admitted or denied charges.
+    pub fn work_limit(&self) -> u64 {
+        self.work_limit
+    }
+
+    /// Original configured storage limit, unchanged by admitted or denied charges.
+    pub fn storage_limit(&self) -> u64 {
+        self.storage_limit
+    }
+
     /// Cumulative admitted work and storage, including a refused call's work.
     pub fn consumed(&self) -> NativeJoinCharge {
         self.consumed
