@@ -1340,6 +1340,38 @@ fn conversion_into_a_carried_quantity_requires_a_unit_or_carried_source() {
 // QSpec's scalar wire constructors and change their explicit bound values to
 // the CS table's domains; these are complete reader fixtures, not evaluations.
 fn sum_nodes() -> Value {
+    static SOURCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let source = SOURCE.get_or_init(|| {
+        // The conformance fixtures can be on an older checkout. The sum rows
+        // are read from that checkout's current owner reference explicitly.
+        let root = proposal_dir_of(&super::fixtures_dir())
+            .parent()
+            .expect("proposals directory")
+            .parent()
+            .expect("QSpec checkout")
+            .to_path_buf();
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args([
+                "show",
+                "origin/main:spec/test-cases/TC-187-quantity-and-unit-conversion.md",
+            ])
+            .output()
+            .expect("read current QSpec TC-187");
+        assert!(
+            output.status.success(),
+            "QSpec TC-187: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).expect("QSpec TC-187 UTF-8")
+    });
+    for case in ["CS-01", "CS-02", "CS-03", "CS-04", "CS-05", "CS-06"] {
+        assert!(
+            source.contains(&format!("| {case} |")),
+            "missing published {case} row"
+        );
+    }
     fn replace(value: &mut Value, from: &str, to: &str) {
         match value {
             Value::String(text) if text == from => *text = to.into(),
