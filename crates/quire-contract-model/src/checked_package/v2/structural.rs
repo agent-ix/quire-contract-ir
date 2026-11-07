@@ -64,7 +64,7 @@ use super::identity::is_identifier;
 use super::model_members::{DomainModel, MemberType, ValueBounds};
 use super::{
     ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
-    OperationMemberKind, StateClauseKind,
+    OperationMemberKind, StateClauseKind, WorkMeter,
 };
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, ClaimForm, CompositeTypeForm,
@@ -77,9 +77,6 @@ use crate::checked_package::shared::{
     rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole,
     CheckedPackageRefusalCode, JsonPointer,
 };
-use num_bigint::BigInt;
-use num_integer::Integer;
-use num_traits::One;
 use quire_exact::TextProfile;
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -351,8 +348,9 @@ pub(super) fn validate_structural_nodes(
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
     index: &GraphIndex<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[], None)
+    validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[], None, meter)
 }
 
 fn resolve_unlisted_dependency(
@@ -523,6 +521,7 @@ pub(super) fn validate_structural_nodes_with_keys(
     index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     models: Option<&[super::model_members::DomainModel]>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
@@ -549,6 +548,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                 node_id.clone(),
             )
         };
+        meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
         let form = StructuralForm::of(kind);
         let term = terms.get(position).and_then(Option::as_ref);
         let defect = match form {
@@ -778,6 +778,7 @@ pub(super) fn validate_derived_type_shapes(
     index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     models: &[super::model_members::DomainModel],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
@@ -789,6 +790,7 @@ pub(super) fn validate_derived_type_shapes(
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
         };
+        meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
         let term = terms.get(position).and_then(Option::as_ref);
         let valid = match kind {
             CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean | ScalarTypeForm::Integer) => {
@@ -965,13 +967,13 @@ pub(super) fn validate_derived_type_shapes(
                 carried_quantity_shape(catalog, node, term, &graph, terms, structural_keys)
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity) => {
-                bounded_quantity_shape(node, term, &graph, structural_keys)
+                bounded_quantity_shape(node, term, &graph, structural_keys, meter)?
             }
             _ => continue,
         };
         if !valid {
             let at = if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity) {
-                noncanonical_bounded_endpoint(term)
+                noncanonical_bounded_endpoint(term, meter)?
                     .map(|member| {
                         node_pointer(position)
                             .key("body")
@@ -1118,25 +1120,13 @@ fn carried_quantity_shape(
         ]
 }
 
-pub(super) fn canonical_rational(value: &str) -> Option<(BigInt, BigInt)> {
-    let integer = |text: &str| {
-        text.parse::<BigInt>()
-            .ok()
-            .filter(|number| number.to_string() == text)
+fn noncanonical_bounded_endpoint(
+    term: Option<&CheckedTerm>,
+    meter: &mut WorkMeter,
+) -> Result<Option<usize>, ValidationFailure> {
+    let Some(members) = term.and_then(typed_aggregate) else {
+        return Ok(None);
     };
-    match value.split_once('/') {
-        None => Some((integer(value)?, BigInt::one())),
-        Some((numerator, denominator)) => {
-            let numerator = integer(numerator)?;
-            let denominator = integer(denominator)?;
-            (denominator > BigInt::one() && numerator.gcd(&denominator).is_one())
-                .then_some((numerator, denominator))
-        }
-    }
-}
-
-fn noncanonical_bounded_endpoint(term: Option<&CheckedTerm>) -> Option<usize> {
-    let members = term.and_then(typed_aggregate)?;
     for (position, name) in [(1, "min"), (2, "max")] {
         let Some(CheckedTerm::Literal { value, .. }) = members
             .get(position)
@@ -1144,11 +1134,15 @@ fn noncanonical_bounded_endpoint(term: Option<&CheckedTerm>) -> Option<usize> {
         else {
             continue;
         };
-        if value.as_str().and_then(canonical_rational).is_none() {
-            return Some(position);
+        let canonical = match value.as_str() {
+            Some(text) => meter.canonical_rational(text)?.is_some(),
+            None => false,
+        };
+        if !canonical {
+            return Ok(Some(position));
         }
     }
-    None
+    Ok(None)
 }
 
 fn rational_bound<'a>(
@@ -1175,28 +1169,32 @@ fn bounded_quantity_shape(
     term: Option<&CheckedTerm>,
     graph: &Graph<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
-) -> bool {
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
     let Some([unit_term, min_term, max_term]) = term
         .and_then(typed_aggregate)
         .and_then(|members| <&[CheckedTerm; 3]>::try_from(members).ok())
     else {
-        return false;
+        return Ok(false);
     };
     let Some(unit) = typed_binding(unit_term, "unit").and_then(typed_reference) else {
-        return false;
+        return Ok(false);
     };
     let (Some((rational_type, min)), Some((max_type, max))) = (
         rational_bound(min_term, "min", graph),
         rational_bound(max_term, "max", graph),
     ) else {
-        return false;
+        return Ok(false);
     };
-    let (Some((min_num, min_den)), Some((max_num, max_den))) =
-        (canonical_rational(min), canonical_rational(max))
-    else {
-        return false;
+    let (Some((min_num, min_den)), Some((max_num, max_den))) = (
+        meter.canonical_rational(min)?,
+        meter.canonical_rational(max)?,
+    ) else {
+        return Ok(false);
     };
-    if min_num * max_den > max_num * min_den
+    let low = meter.exact_mul(&min_num, &max_den)?;
+    let high = meter.exact_mul(&max_num, &min_den)?;
+    if low > high
         || rational_type != max_type
         || node.semantic_type != node.node_id
         || node.declaration.is_some()
@@ -1204,35 +1202,40 @@ fn bounded_quantity_shape(
         || node.recursion_group.is_some()
         || !graph.type_matches(unit, ScalarTypeForm::Unit)
     {
-        return false;
+        return Ok(false);
     }
     let (Some(unit), Some(rational_type), Some(actual)) = (
         super::node_index::resolve_id(unit, structural_keys),
         super::node_index::resolve_id(rational_type, structural_keys),
         super::node_index::resolve_id(&node.node_id, structural_keys),
     ) else {
-        return false;
+        return Ok(false);
     };
-    let mut expected_dependencies = vec![unit.clone(), rational_type.clone()];
-    expected_dependencies.sort();
-    let actual_dependencies = node
-        .dependencies
-        .iter()
-        .map(|dependency| super::node_index::resolve_id(dependency, structural_keys))
-        .collect::<Option<Vec<_>>>();
-    actual_dependencies.as_deref() == Some(expected_dependencies.as_slice())
-        && actual.path
-            == vec![
-                CheckedNodePathSegment::Name("scalar_type".into()),
-                CheckedNodePathSegment::Name("bounded_quantity".into()),
-                CheckedNodePathSegment::Node(unit.into()),
-                CheckedNodePathSegment::Name("min".into()),
-                CheckedNodePathSegment::Node(rational_type.clone().into()),
-                CheckedNodePathSegment::Name(min.into()),
-                CheckedNodePathSegment::Name("max".into()),
-                CheckedNodePathSegment::Node(rational_type.into()),
-                CheckedNodePathSegment::Name(max.into()),
-            ]
+    let (first, second) = if unit <= rational_type {
+        (&unit, &rational_type)
+    } else {
+        (&rational_type, &unit)
+    };
+    let mut dependencies = node.dependencies.iter();
+    let listed = [first, second].into_iter().all(|expected| {
+        dependencies
+            .next()
+            .and_then(|dependency| super::node_index::resolve_id(dependency, structural_keys))
+            .is_some_and(|actual| &actual == expected)
+    }) && dependencies.next().is_none();
+    let names = |at: usize, name: &str| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Name(found)) if found.as_ref() == name);
+    let names_node = |at: usize, id: &CheckedNodeId| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Node(found)) if found.as_ref() == id);
+    Ok(listed
+        && actual.path.len() == 9
+        && names(0, "scalar_type")
+        && names(1, "bounded_quantity")
+        && names_node(2, &unit)
+        && names(3, "min")
+        && names_node(4, &rational_type)
+        && names(5, min)
+        && names(6, "max")
+        && names_node(7, &rational_type)
+        && names(8, max))
 }
 
 /// Join an admitted bounded type's actual members to the selected Semantic IR

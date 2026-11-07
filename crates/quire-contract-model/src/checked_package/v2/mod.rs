@@ -3357,6 +3357,7 @@ fn validate_graph(
         &index,
         structural_keys,
         Some(models),
+        meter,
     )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     schedulability::validate_graph(&graph.nodes, &kinds, &terms, &index, meter)?;
@@ -3368,6 +3369,7 @@ fn validate_graph(
         &index,
         structural_keys,
         models,
+        meter,
     )?;
     validate_selected_type_bounds(models, &terms, structural_keys)?;
     for &position in index.values() {

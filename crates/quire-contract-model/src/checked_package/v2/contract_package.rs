@@ -3429,6 +3429,7 @@ impl ContractPackageWireV1 {
             &kinds,
             &terms,
             &graph_index,
+            &mut *meter,
         )?;
         super::identity::validate_nominal_nodes(
             &self.semantic_graph.nodes,

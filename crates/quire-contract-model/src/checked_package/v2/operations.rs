@@ -8,8 +8,8 @@
 //! shape, owner, and reference validation. Node IDs are structural labels; this
 //! module does not derive an identity from an application body.
 
-use super::graph_storage::GraphIndex;
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
+use super::graph_storage::GraphIndex;
 use super::model_members::{
     units, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind, MemberType,
     ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
@@ -303,7 +303,7 @@ pub(super) fn validate_operations(
                 if let Some(term) = graph.terms.get(position).and_then(Option::as_ref) {
                     references.walk_admitted(Referrer { node, position }, term, meter)?;
                 }
-                if let Some(failure) = literal_defect(node, position, &graph, owners) {
+                if let Some(failure) = literal_defect(node, position, &graph, owners, meter)? {
                     return Err(failure);
                 }
                 if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
@@ -455,15 +455,23 @@ fn operand_position(
 /// Check each literal type before native payload syntax, including body roots
 /// and arguments in `any_value` positions. The heap stack retains authored
 /// paths and the second pass over native literals preserves type precedence.
-fn literal_defect(
+fn literal_defect<'t>(
     node: &CheckedSemanticNodeV2,
     position: usize,
-    graph: &Graph<'_>,
+    graph: &Graph<'t>,
     owners: &ModelOwners<'_>,
-) -> Option<ValidationFailure> {
-    let root = graph.terms.get(position).and_then(Option::as_ref)?;
-    let mut pending = vec![(root, node_pointer(position).key("body"))];
-    let mut native = Vec::new();
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let Some(root) = graph.terms.get(position).and_then(Option::as_ref) else {
+        return Ok(None);
+    };
+    // Each term waits with the step that reached it, so a path is built only
+    // for the one refusal that names it.
+    let mut steps: Vec<Step> = meter.vec(1)?;
+    steps.push(Step::BODY);
+    let mut pending: Vec<(&'t CheckedTerm, usize)> = meter.vec(1)?;
+    pending.push((root, 0));
+    let mut native: Vec<(bool, usize)> = Vec::new();
     while let Some((term, path)) = pending.pop() {
         if let CheckedTerm::Literal {
             type_id,
@@ -499,89 +507,132 @@ fn literal_defect(
                 LiteralKind::None => family == Some("option"),
             };
             if !fits {
-                return Some(ValidationFailure::refused_at(
+                return Ok(Some(ValidationFailure::refused_at(
                     CheckedPackageRefusalCode::IllTyped,
-                    path.key("type"),
+                    step_pointer(&steps, position, path).key("type"),
                     Some(CheckedPackageRefusalCause::OperatorIneligible),
                     node.node_id.clone(),
-                ));
+                )));
             }
             if *kind == LiteralKind::Text {
                 match text_literal_membership(type_id, value, graph) {
                     Ok(Some(false)) => {
-                        return Some(ValidationFailure::refused_at(
+                        return Ok(Some(ValidationFailure::refused_at(
                             CheckedPackageRefusalCode::IllTyped,
-                            path.key("value"),
+                            step_pointer(&steps, position, path).key("value"),
                             Some(CheckedPackageRefusalCause::TypeMismatch),
                             node.node_id.clone(),
-                        ));
+                        )));
                     }
-                    Err(failure) => return Some(failure),
+                    Err(failure) => return Ok(Some(failure)),
                     Ok(Some(true) | None) => {}
                 }
             }
-            let valid_native = match kind {
-                LiteralKind::String => Some(value.is_string()),
-                LiteralKind::Uuid => Some(value.as_str().is_some_and(canonical_uuid)),
-                LiteralKind::Timestamp => Some(value.as_str().is_some_and(|text| {
-                    text.parse::<i128>()
-                        .is_ok_and(|parsed| parsed.to_string() == text)
-                })),
-                LiteralKind::Quantity => {
-                    // Closed timed and schedulability body passes already
-                    // validate exact reduced rationals, including an explicit
-                    // denominator of one.
-                    let exact_body_quantity = graph
-                        .index
-                        .get(&node.node_id)
-                        .and_then(|&position| graph.kinds.get(position))
-                        .is_some_and(|kind| {
-                            matches!(
-                                kind,
-                                CheckedNodeKind::Claim(ClaimForm::Schedulability)
-                                    | CheckedNodeKind::TimedModel(
-                                        super::TimedModelForm::Reset
-                                            | super::TimedModelForm::Constraint
-                                    )
-                            )
-                        });
-                    (!exact_body_quantity).then(|| {
-                        value.as_str().is_some_and(|value| {
-                            super::structural::canonical_rational(value).is_some()
-                        })
-                    })
-                }
-                LiteralKind::Boolean
-                | LiteralKind::Integer
-                | LiteralKind::Rational
-                | LiteralKind::Decimal
-                | LiteralKind::Float32Bits
-                | LiteralKind::Float64Bits
-                | LiteralKind::Text
-                | LiteralKind::Enum
-                | LiteralKind::None => None,
-            };
+            let valid_native =
+                match kind {
+                    LiteralKind::String => Some(value.is_string()),
+                    LiteralKind::Uuid => Some(value.as_str().is_some_and(canonical_uuid)),
+                    LiteralKind::Timestamp => Some(value.as_str().is_some_and(|text| {
+                        text.parse::<i128>().is_ok_and(|n| displays_as(n, text))
+                    })),
+                    LiteralKind::Quantity => {
+                        // Closed timed and schedulability body passes already
+                        // validate exact reduced rationals, including an explicit
+                        // denominator of one.
+                        let exact_body_quantity = graph
+                            .index
+                            .get(&node.node_id)
+                            .and_then(|&position| graph.kinds.get(position))
+                            .is_some_and(|kind| {
+                                matches!(
+                                    kind,
+                                    CheckedNodeKind::Claim(ClaimForm::Schedulability)
+                                        | CheckedNodeKind::TimedModel(
+                                            super::TimedModelForm::Reset
+                                                | super::TimedModelForm::Constraint
+                                        )
+                                )
+                            });
+                        if exact_body_quantity {
+                            None
+                        } else {
+                            Some(match value.as_str() {
+                                Some(text) => meter.canonical_rational(text)?.is_some(),
+                                None => false,
+                            })
+                        }
+                    }
+                    LiteralKind::Boolean
+                    | LiteralKind::Integer
+                    | LiteralKind::Rational
+                    | LiteralKind::Decimal
+                    | LiteralKind::Float32Bits
+                    | LiteralKind::Float64Bits
+                    | LiteralKind::Text
+                    | LiteralKind::Enum
+                    | LiteralKind::None => None,
+                };
             if let Some(valid) = valid_native {
-                native.push((valid, path.clone()));
+                meter.push(&mut native, (valid, path))?;
             }
         }
+        let mut child = |meter: &mut WorkMeter,
+                         steps: &mut Vec<Step>,
+                         pending: &mut Vec<(&'t CheckedTerm, usize)>,
+                         term: &'t CheckedTerm,
+                         key: &'static str,
+                         index: Option<usize>|
+         -> Result<(), ValidationFailure> {
+            meter.push(
+                steps,
+                Step {
+                    parent: path,
+                    key,
+                    index,
+                },
+            )?;
+            meter.push(pending, (term, steps.len() - 1))
+        };
         match term {
             CheckedTerm::Application { arguments, .. } => {
-                for (index, child) in arguments.iter().enumerate().rev() {
-                    pending.push((child, path.clone().key("arguments").index(index)));
+                for (index, term) in arguments.iter().enumerate().rev() {
+                    child(
+                        meter,
+                        &mut steps,
+                        &mut pending,
+                        term,
+                        "arguments",
+                        Some(index),
+                    )?;
                 }
             }
             CheckedTerm::Aggregate { members } => {
-                for (index, child) in members.iter().enumerate().rev() {
-                    pending.push((child, path.clone().key("members").index(index)));
+                for (index, term) in members.iter().enumerate().rev() {
+                    child(
+                        meter,
+                        &mut steps,
+                        &mut pending,
+                        term,
+                        "members",
+                        Some(index),
+                    )?;
                 }
             }
             CheckedTerm::OperationAnchorBody(body) => {
-                for (index, child) in body.members.iter().enumerate().rev() {
-                    pending.push((child, path.clone().key("members").index(index)));
+                for (index, term) in body.members.iter().enumerate().rev() {
+                    child(
+                        meter,
+                        &mut steps,
+                        &mut pending,
+                        term,
+                        "members",
+                        Some(index),
+                    )?;
                 }
             }
-            CheckedTerm::Binding { value, .. } => pending.push((value, path.key("value"))),
+            CheckedTerm::Binding { value, .. } => {
+                child(meter, &mut steps, &mut pending, value, "value", None)?;
+            }
             CheckedTerm::Literal { .. }
             | CheckedTerm::Reference { .. }
             | CheckedTerm::DependencyReference { .. }
@@ -594,15 +645,66 @@ fn literal_defect(
     }
     for (valid, path) in native {
         if !valid {
-            return Some(ValidationFailure::refused_at(
+            return Ok(Some(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                path.key("value"),
+                step_pointer(&steps, position, path).key("value"),
                 Some(CheckedPackageRefusalCause::InvalidValue),
                 node.node_id.clone(),
-            ));
+            )));
         }
     }
-    None
+    Ok(None)
+}
+
+/// One step from a term to its child in a body: the key, and the index
+/// within it when the key holds a list.
+#[derive(Clone, Copy)]
+struct Step {
+    parent: usize,
+    key: &'static str,
+    index: Option<usize>,
+}
+
+impl Step {
+    const BODY: Self = Self {
+        parent: usize::MAX,
+        key: "body",
+        index: None,
+    };
+}
+
+/// The pointer of the term reached by step `at`, built only when a refusal
+/// names it.
+fn step_pointer(steps: &[Step], position: usize, at: usize) -> JsonPointer {
+    let mut chain = Vec::new();
+    let mut current = at;
+    while let Some(step) = steps.get(current) {
+        chain.push(*step);
+        current = step.parent;
+    }
+    chain
+        .iter()
+        .rev()
+        .fold(node_pointer(position), |pointer, step| {
+            let pointer = pointer.key(step.key);
+            match step.index {
+                Some(index) => pointer.index(index),
+                None => pointer,
+            }
+        })
+}
+
+/// Whether `value` prints exactly as `text`, without printing it anywhere.
+fn displays_as(value: impl std::fmt::Display, text: &str) -> bool {
+    struct Remaining<'a>(&'a str);
+    impl std::fmt::Write for Remaining<'_> {
+        fn write_str(&mut self, part: &str) -> std::fmt::Result {
+            self.0 = self.0.strip_prefix(part).ok_or(std::fmt::Error)?;
+            Ok(())
+        }
+    }
+    let mut remaining = Remaining(text);
+    std::fmt::write(&mut remaining, format_args!("{value}")).is_ok() && remaining.0.is_empty()
 }
 
 /// `None` keeps scalar Text literals outside the bounded-membership rule.
@@ -644,10 +746,22 @@ fn text_literal_membership(
     let normalized = profile
         .normalization()
         .is_none_or(|form| retained.chars().eq(form.apply(retained)));
-    let length = profile.length(retained).to_string();
-    let in_bounds = super::structural::canonical_non_negative_cmp(min, &length)
+    // u64::MAX has twenty digits; the length is printed on the stack.
+    let mut digits = [0_u8; 20];
+    let mut at = digits.len();
+    let mut rest = profile.length(retained);
+    loop {
+        at -= 1;
+        digits[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    let length = std::str::from_utf8(&digits[at..]).unwrap_or("0");
+    let in_bounds = super::structural::canonical_non_negative_cmp(min, length)
         != std::cmp::Ordering::Greater
-        && super::structural::canonical_non_negative_cmp(&length, max)
+        && super::structural::canonical_non_negative_cmp(length, max)
             != std::cmp::Ordering::Greater;
     Ok(Some(normalized && in_bounds))
 }
@@ -1298,7 +1412,7 @@ fn operation_defect(
         term,
         meter,
     )?;
-    if let Some(failure) = literal_defect(node, application.position, graph, owners) {
+    if let Some(failure) = literal_defect(node, application.position, graph, owners, meter)? {
         return Ok(Some(failure));
     }
 
@@ -5296,8 +5410,8 @@ mod tests {
     ) -> ValidationFailure {
         ValidationFailure::refused_at(code, pointer(path), cause, locus)
     }
-    use serde_json::{json, Value};
     use super::super::graph_storage::GraphIndex;
+    use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
     fn relationship_member_outcome(

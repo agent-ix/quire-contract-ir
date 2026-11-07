@@ -232,6 +232,58 @@ impl<'b> WorkMeter<'b> {
         }
     }
 
+    /// `text` as an exact integer, or `None` when it is not the canonical
+    /// spelling. The limb block a large value needs is charged first.
+    pub(super) fn exact_integer(
+        &mut self,
+        text: &str,
+    ) -> Result<Option<quire_exact::Integer>, ValidationFailure> {
+        let mut reservation = self.exact_reservation();
+        match quire_exact::Integer::parse_reserved(text, &mut reservation) {
+            Ok(value) => Ok(Some(value)),
+            Err(quire_exact::IntegerParseError::NonCanonical(_)) => Ok(None),
+            Err(quire_exact::IntegerParseError::Reserve(error)) => Err(reservation.failure(error)),
+        }
+    }
+
+    /// `text` as a canonical reduced rational, `n` or `n/d` with `d > 1`
+    /// coprime to `n`: its numerator and denominator.
+    pub(super) fn canonical_rational(
+        &mut self,
+        text: &str,
+    ) -> Result<Option<(quire_exact::Integer, quire_exact::Integer)>, ValidationFailure> {
+        let Some((numerator, denominator)) = text.split_once('/') else {
+            return Ok(self
+                .exact_integer(text)?
+                .map(|numerator| (numerator, quire_exact::Integer::one())));
+        };
+        let (Some(numerator), Some(denominator)) = (
+            self.exact_integer(numerator)?,
+            self.exact_integer(denominator)?,
+        ) else {
+            return Ok(None);
+        };
+        if denominator <= quire_exact::Integer::one() {
+            return Ok(None);
+        }
+        let mut reservation = self.exact_reservation();
+        let divisor = numerator
+            .gcd_reserved(&denominator, &mut reservation)
+            .map_err(|error| reservation.failure(error))?;
+        Ok((divisor == quire_exact::Integer::one()).then_some((numerator, denominator)))
+    }
+
+    /// `left * right`, its limb blocks charged first.
+    pub(super) fn exact_mul(
+        &mut self,
+        left: &quire_exact::Integer,
+        right: &quire_exact::Integer,
+    ) -> Result<quire_exact::Integer, ValidationFailure> {
+        let mut reservation = self.exact_reservation();
+        left.mul_reserved(right, &mut reservation)
+            .map_err(|error| reservation.failure(error))
+    }
+
     fn reborrow_for_reservation(&mut self) -> &mut Self {
         self
     }
@@ -252,6 +304,22 @@ impl<'m, 'b> MeterReservation<'m, 'b> {
             form,
             denial: None,
         }
+    }
+
+    /// The failure an exact-number operation ends the read with: the denial
+    /// this reservation returned, or the allocator's refusal.
+    pub(super) fn failure(self, error: quire_exact::IntegerReserveError) -> ValidationFailure {
+        self.denial.unwrap_or_else(|| {
+            let requested = match error {
+                quire_exact::IntegerReserveError::Allocation { requested } => requested,
+                quire_exact::IntegerReserveError::Denied => 0,
+            };
+            ValidationFailure::Budget(BudgetStop {
+                resource: PackageReadResource::ReadStorage,
+                amount: requested as u128,
+                path: None,
+            })
+        })
     }
 
     /// The denial this reservation returned, if any.
