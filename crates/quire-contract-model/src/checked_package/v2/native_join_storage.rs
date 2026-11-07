@@ -436,7 +436,10 @@ pub(super) fn source_collection(row: &SelectedSourceCollectionRow) -> u128 {
             add(1, node(&row.structural_node)),
             add(node(&row.base_node), node(&row.element_node)),
         ),
-        add(row.key_node.as_ref().map_or(0, node), value_type(&row.value_type)),
+        add(
+            row.key_node.as_ref().map_or(0, node),
+            value_type(&row.value_type),
+        ),
     )
 }
 
@@ -529,25 +532,43 @@ mod map_copy_tests {
     #[trace("TC-473", "FR-357-AC-20")]
     #[test]
     fn cold_map_integer_footprint_inspection_allocates_nothing_and_matches_owned_copy() {
-        for lower in ["170141183460469231731687303715884105728",
-            "-170141183460469231731687303715884105729"] {
+        for lower in [
+            "170141183460469231731687303715884105728",
+            "-170141183460469231731687303715884105729",
+        ] {
             let lower: Integer = lower.parse().unwrap();
-            let upper: Integer = "999999999999999999999999999999999999999999999".parse().unwrap();
-            let endpoints = IntegerInterval::new(lower.try_clone().unwrap(), upper.try_clone().unwrap()).unwrap();
+            let upper: Integer = "999999999999999999999999999999999999999999999"
+                .parse()
+                .unwrap();
+            let endpoints =
+                IntegerInterval::new(lower.try_clone().unwrap(), upper.try_clone().unwrap())
+                    .unwrap();
             // Integer's clone uses its fallible owned-copy representation, leaving
             // a cold lazy image even when interval construction compared endpoints.
             let cold = ValueType::map(MapType::new(ValueType::Int(endpoints.clone()), None));
-            let ValueType::Map(map) = &cold else { panic!("map") };
-            let ValueType::Int(interval) = map.values() else { panic!("bounded integer") };
-            let payload = interval.lower().copy_footprint().bytes + interval.upper().copy_footprint().bytes;
+            let ValueType::Map(map) = &cold else {
+                panic!("map")
+            };
+            let ValueType::Int(interval) = map.values() else {
+                panic!("bounded integer")
+            };
+            let payload =
+                interval.lower().copy_footprint().bytes + interval.upper().copy_footprint().bytes;
             assert!(payload > 0);
             let mut units = 0;
             let inspection = allocation_counter::measure(|| units = value_type(&cold));
-            assert_eq!(inspection.count_total, 0, "cold storage inspection must not materialize integer caches");
+            assert_eq!(
+                inspection.count_total, 0,
+                "cold storage inspection must not materialize integer caches"
+            );
             let mut copied = None;
             let allocations = allocation_counter::measure(|| copied = Some(interval.clone()));
             assert_eq!(allocations.bytes_total, u64::try_from(payload).unwrap());
-            assert_eq!(units, 6 + payload as u128, "map, interval and endpoint slots plus actual reserved limbs");
+            assert_eq!(
+                units,
+                6 + payload as u128,
+                "map, interval and endpoint slots plus actual reserved limbs"
+            );
             assert_eq!(copied.unwrap(), *interval);
         }
     }

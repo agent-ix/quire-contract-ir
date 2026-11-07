@@ -525,8 +525,12 @@ fn preflight_source_collection(
     if (map && !super::super::exact_projection::source_map_key_matches(package, row))
         || (!map && row.key_node.is_some())
     {
-        read_charge(budget, NativeJoinChargeKind::Storage, storage::node(&row.structural_node))
-            .map_err(|_| native_error(budget))?;
+        read_charge(
+            budget,
+            NativeJoinChargeKind::Storage,
+            storage::node(&row.structural_node),
+        )
+        .map_err(|_| native_error(budget))?;
         return Err(semantic_error(
             SelectedMonitorTypeClosureErrorCode::CollectionKey,
             Some(Box::new(row.structural_node.clone())),
@@ -592,9 +596,12 @@ fn select_source_collections(
         read_charge(budget, NativeJoinChargeKind::Work, 1).map_err(|_| native_error(budget))?;
         if reached.contains(&row.structural_node) {
             preflight_source_collection(package, row, budget)?;
-            read_charge(budget, NativeJoinChargeKind::Storage,
-                storage::source_collection(row).saturating_add(1))
-                .map_err(|_| native_error(budget))?;
+            read_charge(
+                budget,
+                NativeJoinChargeKind::Storage,
+                storage::source_collection(row).saturating_add(1),
+            )
+            .map_err(|_| native_error(budget))?;
             selected.push((index, row.clone()));
         }
     }
@@ -836,7 +843,10 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 preflight_source_enum,
             )?;
             let source_collections = select_source_collections(
-                self.package, rows.source_collections, &reached.reached, budget,
+                self.package,
+                rows.source_collections,
+                &reached.reached,
+                budget,
             )?;
             let identities = reached
                 .identities

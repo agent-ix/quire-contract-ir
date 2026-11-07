@@ -355,22 +355,28 @@ fn non_text_scalar_key_admits_but_has_no_exact_projection() {
 
 fn sort_map_fixture_dependencies(wire: &mut Value) {
     for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
-        node["dependencies"].as_array_mut().unwrap().sort_by(|left, right| {
-            let left: CheckedNodeId = serde_json::from_value(left.clone()).unwrap();
-            let right: CheckedNodeId = serde_json::from_value(right.clone()).unwrap();
-            left.cmp(&right)
-        });
+        node["dependencies"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by(|left, right| {
+                let left: CheckedNodeId = serde_json::from_value(left.clone()).unwrap();
+                let right: CheckedNodeId = serde_json::from_value(right.clone()).unwrap();
+                left.cmp(&right)
+            });
     }
 }
 
-fn source_map_fixture() -> (CheckedPackageV2, quire_contract_model::SelectedSourceCollectionRow) {
+fn source_map_fixture() -> (
+    CheckedPackageV2,
+    quire_contract_model::SelectedSourceCollectionRow,
+) {
     let (wire, position) = map_package();
     let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
         panic!("strict admitted map fixture");
     };
-    let id: CheckedNodeId = serde_json::from_value(
-        wire["semantic_graph"]["nodes"][position]["node_id"].clone(),
-    ).expect("map id");
+    let id: CheckedNodeId =
+        serde_json::from_value(wire["semantic_graph"]["nodes"][position]["node_id"].clone())
+            .expect("map id");
     let row = source_map_row(&package, &id, quire_exact::ValueType::Integer);
     (*package, row)
 }
@@ -384,8 +390,12 @@ fn source_map_row(
         panic!("map operands");
     };
     let target = |ordinal: usize| {
-        let CheckedTerm::Binding { value, .. } = &members[ordinal] else { panic!("map binding") };
-        let CheckedTerm::Reference { target } = value.as_ref() else { panic!("map target") };
+        let CheckedTerm::Binding { value, .. } = &members[ordinal] else {
+            panic!("map binding")
+        };
+        let CheckedTerm::Reference { target } = value.as_ref() else {
+            panic!("map target")
+        };
         target.clone()
     };
     quire_contract_model::SelectedSourceCollectionRow {
@@ -406,7 +416,8 @@ fn source_map_row_joins_and_projects_its_complete_value() {
     let joined = SelectedExactIdentities::empty()
         .with_source_collection_rows(&package, [row.clone()], &mut budget)
         .expect("authentic map row joins");
-    let projected = package.project_exact_type(&row.structural_node, &joined, &mut budget)
+    let projected = package
+        .project_exact_type(&row.structural_node, &joined, &mut budget)
         .expect("joined map projects");
     assert_eq!(projected.value_type(), &row.value_type);
     assert_eq!(joined.source_collection_rows().next(), Some(&row));
@@ -419,25 +430,34 @@ fn source_map_rows_preserve_key_and_non_collection_refusals() {
     use quire_contract_model::NativeJoinBudget;
     let (package, original) = source_map_fixture();
     for row in [
-        quire_contract_model::SelectedSourceCollectionRow { key_node: None, ..original.clone() },
         quire_contract_model::SelectedSourceCollectionRow {
-            key_node: Some(original.element_node.clone()), ..original.clone()
+            key_node: None,
+            ..original.clone()
         },
         quire_contract_model::SelectedSourceCollectionRow {
-            value_type: quire_exact::ValueType::Boolean, ..original.clone()
+            key_node: Some(original.element_node.clone()),
+            ..original.clone()
+        },
+        quire_contract_model::SelectedSourceCollectionRow {
+            value_type: quire_exact::ValueType::Boolean,
+            ..original.clone()
         },
         quire_contract_model::SelectedSourceCollectionRow {
             value_type: quire_exact::ValueType::map(quire_exact::MapType::new(
                 quire_exact::ValueType::Integer,
                 Some(quire_exact::CardinalityBound::new(0, 3).expect("bound")),
-            )), ..original.clone()
+            )),
+            ..original.clone()
         },
     ] {
         let mut budget = NativeJoinBudget::new(1_000_000, 1_000_000);
         let refusal = SelectedExactIdentities::empty()
             .with_source_collection_rows(&package, [row], &mut budget)
             .expect_err("a mismatched native row refuses");
-        assert_eq!(refusal.code, ExactTypeProjectionErrorCode::MismatchedIdentityWitness);
+        assert_eq!(
+            refusal.code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+        );
         assert_eq!(refusal.at.as_deref(), Some(&original.structural_node));
         assert!(budget.consumed().work > 0);
         assert_eq!(budget.last_success_delta(), None);
@@ -459,7 +479,10 @@ fn source_map_rows_compose_at_exact_budget_and_preserve_first_denial() {
     let expected = run(&mut ample).expect("ample map read");
     let used = ample.consumed();
     let mut exact = NativeJoinBudget::new(used.work, used.storage);
-    assert_eq!(run(&mut exact).expect("exact cumulative map allowance"), expected);
+    assert_eq!(
+        run(&mut exact).expect("exact cumulative map allowance"),
+        expected
+    );
     assert_eq!(exact.consumed(), used);
     let caller_locus = quire_contract_model::NativeJoinLocus {
         source: quire_contract_model::NativeJoinLocusSource::MonitorSeed(7),
@@ -467,18 +490,30 @@ fn source_map_rows_compose_at_exact_budget_and_preserve_first_denial() {
     };
     let mut prefixed = NativeJoinBudget::new(used.work + 3, used.storage + 2);
     prefixed.resume();
-    prefixed.accounted_charge(NativeJoinChargeKind::Work, 3, caller_locus).unwrap();
-    prefixed.accounted_charge(NativeJoinChargeKind::Storage, 2, caller_locus).unwrap();
+    prefixed
+        .accounted_charge(NativeJoinChargeKind::Work, 3, caller_locus)
+        .unwrap();
+    prefixed
+        .accounted_charge(NativeJoinChargeKind::Storage, 2, caller_locus)
+        .unwrap();
     assert_eq!(run(&mut prefixed).unwrap(), expected);
     assert_eq!(prefixed.consumed().work, used.work + 3);
     assert_eq!(prefixed.consumed().storage, used.storage + 2);
     let mut caller_short = NativeJoinBudget::new(used.work + 3, 0);
     caller_short.resume();
-    caller_short.accounted_charge(NativeJoinChargeKind::Work, 3, caller_locus).unwrap();
-    let denied = caller_short.accounted_charge(NativeJoinChargeKind::Storage, 2, caller_locus).unwrap_err();
-    assert_eq!(denied, quire_contract_model::NativeJoinDeniedCharge {
-        kind: NativeJoinChargeKind::Storage, amount: 2,
-    });
+    caller_short
+        .accounted_charge(NativeJoinChargeKind::Work, 3, caller_locus)
+        .unwrap();
+    let denied = caller_short
+        .accounted_charge(NativeJoinChargeKind::Storage, 2, caller_locus)
+        .unwrap_err();
+    assert_eq!(
+        denied,
+        quire_contract_model::NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Storage,
+            amount: 2,
+        }
+    );
     assert_eq!(caller_short.first_unpaid_locus(), Some(caller_locus));
     assert_eq!(caller_short.consumed().work, 3);
     assert_eq!(caller_short.consumed().storage, 0);
@@ -495,17 +530,25 @@ fn source_map_rows_compose_at_exact_budget_and_preserve_first_denial() {
         assert_eq!(denied.kind, kind);
         assert!(denied.amount > 0);
         assert_eq!(error.denied, Some(denied));
-        assert_eq!(error.configured_bound, Some(match kind {
-            NativeJoinChargeKind::Work => limits.0,
-            NativeJoinChargeKind::Storage => limits.1,
-        }));
+        assert_eq!(
+            error.configured_bound,
+            Some(match kind {
+                NativeJoinChargeKind::Work => limits.0,
+                NativeJoinChargeKind::Storage => limits.1,
+            })
+        );
         assert_eq!(short.work_limit(), limits.0);
         assert_eq!(short.storage_limit(), limits.1);
         assert_eq!(short.last_success_delta(), None);
         let locus = short.first_unpaid_locus().expect("native locus");
         let consumed = short.consumed();
-        assert!(consumed.work > 0 && consumed.storage > 0, "paid prefix remains spent");
-        let later = short.accounted_charge(kind, 99, locus).expect_err("first denial sticks");
+        assert!(
+            consumed.work > 0 && consumed.storage > 0,
+            "paid prefix remains spent"
+        );
+        let later = short
+            .accounted_charge(kind, 99, locus)
+            .expect_err("first denial sticks");
         assert_eq!(later, denied);
         assert_eq!(short.first_unpaid_locus(), Some(locus));
         assert_eq!(short.consumed(), consumed);
@@ -525,10 +568,16 @@ fn source_map_zero_storage_refuses_without_allocating_rows_or_diagnostics() {
         result = Some(initial.with_source_collection_rows(&package, [row], &mut budget));
     });
     let refusal = result.expect("attempted join").expect_err("zero storage");
-    assert_eq!(measured.count_total, 0, "no allocation before the first storage admission");
+    assert_eq!(
+        measured.count_total, 0,
+        "no allocation before the first storage admission"
+    );
     assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
     assert_eq!(refusal.denied, budget.first_unpaid());
-    assert_eq!(refusal.denied.expect("storage charge").kind, NativeJoinChargeKind::Storage);
+    assert_eq!(
+        refusal.denied.expect("storage charge").kind,
+        NativeJoinChargeKind::Storage
+    );
     assert_eq!(refusal.configured_bound, Some(0));
     assert_eq!(refusal.at, None);
     assert_eq!(refusal.requested, None);
@@ -539,6 +588,7 @@ fn source_map_zero_storage_refuses_without_allocating_rows_or_diagnostics() {
 
 /// Trace: FR-357-AC-19.
 #[trace("TC-473", "FR-357-AC-19")]
+#[trace("TC-473", "FR-357-AC-20")]
 #[test]
 fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
     use quire_contract_model::{NativeJoinBudget, SelectedSourceCollectionRow};
@@ -546,9 +596,13 @@ fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
     let (mut wire, inner_position) = map_package();
     let inner = wire["semantic_graph"]["nodes"][inner_position]["node_id"].clone();
     let text = wire["semantic_graph"]["nodes"][inner_position - 2]["node_id"].clone();
-    let outer = json!({"package":wire["name"], "path":["composite_type","map",text,inner],"ordinal":0});
+    let outer =
+        json!({"package":wire["name"], "path":["composite_type","map",text,inner],"ordinal":0});
     let outer_position = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
-    wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
         "schema_version":"quire.checked-semantic-graph/v2", "node_id":outer,
         "node_tag":"composite_type", "semantic_form":"map", "semantic_type":outer,
         "dependencies":[text,inner], "occurrences":[{"role":"type","ordinal":0}],
@@ -571,30 +625,117 @@ fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
     let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
         panic!("nested bounded map strictly admits");
     };
-    let id = |position: usize| serde_json::from_value::<CheckedNodeId>(
-        wire["semantic_graph"]["nodes"][position]["node_id"].clone()).unwrap();
+    let id = |position: usize| {
+        serde_json::from_value::<CheckedNodeId>(
+            wire["semantic_graph"]["nodes"][position]["node_id"].clone(),
+        )
+        .unwrap()
+    };
     let inner = source_map_row(&package, &id(inner_position), ValueType::Integer);
     let outer = source_map_row(&package, &id(outer_position), inner.value_type.clone());
     let bounded = SelectedSourceCollectionRow {
         structural_node: id(bounded_position),
-        value_type: ValueType::map(MapType::new(inner.value_type.clone(), Some(
-            CardinalityBound::new(1,3).unwrap()))),
+        value_type: ValueType::map(MapType::new(
+            inner.value_type.clone(),
+            Some(CardinalityBound::new(1, 3).unwrap()),
+        )),
         ..outer.clone()
     };
     let mut budget = NativeJoinBudget::new(1_000_000, 1_000_000);
-    let joined = SelectedExactIdentities::empty().with_source_collection_rows(&package,
-        [inner.clone(), outer.clone(), bounded.clone()], &mut budget).expect("nested rows join");
+    let joined = SelectedExactIdentities::empty()
+        .with_source_collection_rows(
+            &package,
+            [inner.clone(), outer.clone(), bounded.clone()],
+            &mut budget,
+        )
+        .expect("nested rows join");
+    let join_work = budget.consumed().work;
+    for (form, at) in [
+        ("source_map_key", outer.key_node.as_ref().unwrap()),
+        ("source_map_value", &outer.element_node),
+    ] {
+        let expected_locus = quire_contract_model::NativeJoinLocus {
+            source: quire_contract_model::NativeJoinLocusSource::ReachedRow(1), form,
+        };
+        let mut observed = false;
+        for allowance in 0..join_work {
+            let mut short = NativeJoinBudget::new(allowance, 1_000_000);
+            let error = SelectedExactIdentities::empty().with_source_collection_rows(
+                &package, [inner.clone(), outer.clone(), bounded.clone()], &mut short,
+            ).expect_err("work below complete native acquisition");
+            if short.first_unpaid_locus() != Some(expected_locus) { continue; }
+            let expected_charge = quire_contract_model::NativeJoinDeniedCharge {
+                kind: quire_contract_model::NativeJoinChargeKind::Work, amount: 1,
+            };
+            assert_eq!(error.denied, Some(expected_charge));
+            assert_eq!(error.configured_bound, Some(allowance));
+            assert_eq!(error.at.as_deref(), Some(at));
+            assert_eq!(short.consumed().work, allowance);
+            assert!(short.consumed().storage > 0, "the preceding authentic map row remains paid");
+            assert_eq!(short.last_success_delta(), None);
+            let spent = short.consumed();
+            let later = short.accounted_charge(quire_contract_model::NativeJoinChargeKind::Storage,
+                99, expected_locus).unwrap_err();
+            assert_eq!(later, expected_charge);
+            assert_eq!(short.first_unpaid_locus(), Some(expected_locus));
+            assert_eq!(short.consumed(), spent);
+            observed = true;
+            break;
+        }
+        assert!(observed, "native key/value work must expose its independently named original row phase");
+    }
+    let mut projection_budget = NativeJoinBudget::new(1_000_000, 1_000_000);
+    package.project_exact_type(&inner.structural_node, &joined, &mut projection_budget).unwrap();
+    for (form, at) in [
+        ("source_map_key", inner.key_node.as_ref().unwrap()),
+        ("source_map_value", &inner.element_node),
+    ] {
+        let expected_locus = quire_contract_model::NativeJoinLocus {
+            source: quire_contract_model::NativeJoinLocusSource::GraphNode(inner_position), form,
+        };
+        let mut observed = false;
+        for allowance in 0..projection_budget.consumed().work {
+            let mut short = NativeJoinBudget::new(allowance, 1_000_000);
+            let error = package.project_exact_type(&inner.structural_node, &joined, &mut short)
+                .expect_err("below complete projection work");
+            if short.first_unpaid_locus() != Some(expected_locus) { continue; }
+            assert_eq!(error.denied, Some(quire_contract_model::NativeJoinDeniedCharge {
+                kind: quire_contract_model::NativeJoinChargeKind::Work, amount: 1,
+            }));
+            assert_eq!(error.configured_bound, Some(allowance));
+            assert_eq!(error.at, None, "native projection resource errors remain compact");
+            assert_eq!(short.last_success_delta(), None);
+            assert!(package.node(at).is_some(), "the independently selected key/value node is admitted");
+            observed = true;
+            break;
+        }
+        assert!(observed, "fresh projection must expose the authentic requested graph node and phase");
+    }
     for row in [&inner, &outer, &bounded] {
-        let projection = package.project_exact_type(&row.structural_node, &joined, &mut budget)
+        let projection = package
+            .project_exact_type(&row.structural_node, &joined, &mut budget)
             .expect("nested map projection");
         assert_eq!(projection.value_type(), &row.value_type);
         assert_eq!(projection.type_node(), &row.base_node);
     }
-    let missing_inner = SelectedExactIdentities::empty().with_source_collection_rows(&package,
-        [outer.clone()], &mut NativeJoinBudget::new(1_000_000, 1_000_000)).unwrap();
-    let error = package.project_exact_type(&outer.structural_node, &missing_inner,
-        &mut NativeJoinBudget::new(1_000_000, 1_000_000)).expect_err("nested map row is required");
-    assert_eq!(error.code, ExactTypeProjectionErrorCode::UnavailableIdentityWitness);
+    let missing_inner = SelectedExactIdentities::empty()
+        .with_source_collection_rows(
+            &package,
+            [outer.clone()],
+            &mut NativeJoinBudget::new(1_000_000, 1_000_000),
+        )
+        .unwrap();
+    let error = package
+        .project_exact_type(
+            &outer.structural_node,
+            &missing_inner,
+            &mut NativeJoinBudget::new(1_000_000, 1_000_000),
+        )
+        .expect_err("nested map row is required");
+    assert_eq!(
+        error.code,
+        ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+    );
     assert_eq!(error.at.as_deref(), Some(&inner.structural_node));
 }
 
@@ -605,17 +746,23 @@ fn source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix() {
     use quire_contract_model::{NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocusSource};
     let (package, row) = source_map_fixture();
     let initial = SelectedExactIdentities::empty();
-    let project = |budget: &mut NativeJoinBudget| initial.with_source_collection_rows(
-        &package, [row.clone()], budget);
+    let project = |budget: &mut NativeJoinBudget| {
+        initial.with_source_collection_rows(&package, [row.clone()], budget)
+    };
     let mut ample = NativeJoinBudget::new(1_000_000, 1_000_000);
     project(&mut ample).expect("complete projection");
     // Locate the boundary through the public refusal metadata, without assuming
     // the size of any earlier native allocation or the retained map footprint.
-    let copy_boundary = (0..ample.consumed().storage).filter(|limit| {
-        let mut budget = NativeJoinBudget::new(1_000_000, *limit);
-        project(&mut budget).is_err() && budget.first_unpaid_locus().is_some_and(
-            |locus| locus.form == "source_collection_row")
-    }).next_back().expect("map copy has an observable storage boundary");
+    let copy_boundary = (0..ample.consumed().storage)
+        .filter(|limit| {
+            let mut budget = NativeJoinBudget::new(1_000_000, *limit);
+            project(&mut budget).is_err()
+                && budget
+                    .first_unpaid_locus()
+                    .is_some_and(|locus| locus.form == "source_collection_row")
+        })
+        .next_back()
+        .expect("map copy has an observable storage boundary");
     let mut short = NativeJoinBudget::new(1_000_000, copy_boundary);
     let mut refusal = None;
     let unpaid_allocations = allocation_counter::measure(|| {
@@ -629,21 +776,35 @@ fn source_map_copy_allocation_follows_its_storage_charge_after_a_paid_prefix() {
     let locus = short.first_unpaid_locus().expect("copy locus");
     assert_eq!(locus.form, "source_collection_row");
     assert_eq!(locus.source, NativeJoinLocusSource::ReachedRow(0));
-    assert!(short.consumed().storage > 0, "admitted traversal storage remains spent");
-    assert_eq!(unpaid_allocations.count_total, 0,
-        "the unpaid native row is the first actual allocation despite paid handle charges");
+    assert!(
+        short.consumed().storage > 0,
+        "admitted traversal storage remains spent"
+    );
+    assert_eq!(
+        unpaid_allocations.count_total, 0,
+        "the unpaid native row is the first actual allocation despite paid handle charges"
+    );
     let mut paid = NativeJoinBudget::new(1_000_000, copy_boundary + 1);
     let mut paid_result = None;
     let paid_allocations = allocation_counter::measure(|| {
         paid_result = Some(project(&mut paid));
     });
-    let paid_error = paid_result.unwrap().expect_err("later owned result remains unpaid");
-    assert_eq!(paid.first_unpaid_locus().unwrap().form, "source_collection_prior_map_copy");
+    let paid_error = paid_result
+        .unwrap()
+        .expect_err("later owned result remains unpaid");
+    assert_eq!(
+        paid.first_unpaid_locus().unwrap().form,
+        "source_collection_prior_map_copy"
+    );
     assert_eq!(paid_error.denied, paid.first_unpaid());
-    assert_eq!(paid.consumed().storage - short.consumed().storage,
-        u64::try_from(denied.amount).expect("map copy charge fits"));
-    assert!(paid_allocations.count_total > unpaid_allocations.count_total,
-        "the retained row and native map entry allocate only after their charge is admitted");
+    assert_eq!(
+        paid.consumed().storage - short.consumed().storage,
+        u64::try_from(denied.amount).expect("map copy charge fits")
+    );
+    assert!(
+        paid_allocations.count_total > unpaid_allocations.count_total,
+        "the retained row and native map entry allocate only after their charge is admitted"
+    );
     assert_eq!(short.last_success_delta(), None);
     assert_eq!(paid.last_success_delta(), None);
 }
@@ -661,41 +822,63 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
     let (mut wire, map_position) = map_package();
     let range = node_id(&integer_range_key(lower, upper));
     let integer = node_id(&integer_key());
-    wire["semantic_graph"]["nodes"].as_array_mut().unwrap().push(json!({
-        "schema_version":"quire.checked-semantic-graph/v2", "node_id":range,
-        "node_tag":"bounded_domain", "semantic_form":"integer_range", "semantic_type":integer,
-        "dependencies":[integer], "occurrences":[{"role":"type","ordinal":0}],
-        "body":bounds_body(lower,upper)
-    }));
+    wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "schema_version":"quire.checked-semantic-graph/v2", "node_id":range,
+            "node_tag":"bounded_domain", "semantic_form":"integer_range", "semantic_type":integer,
+            "dependencies":[integer], "occurrences":[{"role":"type","ordinal":0}],
+            "body":bounds_body(lower,upper)
+        }));
     let old = wire["semantic_graph"]["nodes"][map_position]["node_id"].clone();
     let mut fresh = old.clone();
     fresh["path"][3] = range.clone();
     reassign_node_id(&mut wire, &old, &fresh);
-    wire["semantic_graph"]["nodes"][map_position]["body"]["members"][1]["value"]["target"] = range.clone();
+    wire["semantic_graph"]["nodes"][map_position]["body"]["members"][1]["value"]["target"] =
+        range.clone();
     let text = wire["semantic_graph"]["nodes"][map_position - 2]["node_id"].clone();
-    wire["semantic_graph"]["nodes"][map_position]["dependencies"] = json!([text,range]);
+    wire["semantic_graph"]["nodes"][map_position]["dependencies"] = json!([text, range]);
     sort_map_fixture_dependencies(&mut wire);
     settle(&mut wire);
     index_fixture_node_ids(&mut wire);
     let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
         panic!("Map<Text,Int[large,larger]> strictly admits");
     };
-    let id = serde_json::from_value::<CheckedNodeId>(wire["semantic_graph"]["nodes"][map_position]["node_id"].clone()).unwrap();
+    let id = serde_json::from_value::<CheckedNodeId>(
+        wire["semantic_graph"]["nodes"][map_position]["node_id"].clone(),
+    )
+    .unwrap();
     let low: Integer = lower.parse().unwrap();
     let high: Integer = upper.parse().unwrap();
-    let interval = IntegerInterval::new(low.try_clone().unwrap(), high.try_clone().unwrap()).unwrap();
+    let interval =
+        IntegerInterval::new(low.try_clone().unwrap(), high.try_clone().unwrap()).unwrap();
     let row = || source_map_row(&package, &id, ValueType::Int(interval.clone()));
     let initial = SelectedExactIdentities::empty();
     let mut ample = NativeJoinBudget::new(1_000_000, 1_000_000);
-    let joined = initial.with_source_collection_rows(&package, [row()], &mut ample).unwrap();
+    let joined = initial
+        .with_source_collection_rows(&package, [row()], &mut ample)
+        .unwrap();
     let join_storage = ample.consumed().storage;
-    let projection = package.project_exact_type(&id, &joined, &mut ample).expect("cold numeric map projects");
-    assert_eq!(projection.value_type(), &ValueType::map(MapType::new(ValueType::Int(interval.clone()), None)));
-    let boundary = (0..join_storage).filter(|limit| {
-        let mut budget = NativeJoinBudget::new(1_000_000, *limit);
-        initial.with_source_collection_rows(&package, [row()], &mut budget).is_err()
-            && budget.first_unpaid_locus().is_some_and(|locus| locus.form == "source_collection_row")
-    }).next_back().expect("native row retention boundary");
+    let projection = package
+        .project_exact_type(&id, &joined, &mut ample)
+        .expect("cold numeric map projects");
+    assert_eq!(
+        projection.value_type(),
+        &ValueType::map(MapType::new(ValueType::Int(interval.clone()), None))
+    );
+    let boundary = (0..join_storage)
+        .filter(|limit| {
+            let mut budget = NativeJoinBudget::new(1_000_000, *limit);
+            initial
+                .with_source_collection_rows(&package, [row()], &mut budget)
+                .is_err()
+                && budget
+                    .first_unpaid_locus()
+                    .is_some_and(|locus| locus.form == "source_collection_row")
+        })
+        .next_back()
+        .expect("native row retention boundary");
     for limit in [0, boundary] {
         let cold_row = row();
         let mut budget = NativeJoinBudget::new(1_000_000, limit);
@@ -704,51 +887,98 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
             result = Some(initial.with_source_collection_rows(&package, [cold_row], &mut budget));
         });
         let error = result.unwrap().expect_err("unpaid cold map row");
-        assert_eq!(allocations.count_total, 0, "footprint inspection must not initialize cold integer caches");
+        assert_eq!(
+            allocations.count_total, 0,
+            "footprint inspection must not initialize cold integer caches"
+        );
         assert_eq!(error.denied, budget.first_unpaid());
         assert_eq!(error.configured_bound, Some(limit));
         assert_eq!(budget.last_success_delta(), None);
         if limit != 0 {
             assert!(budget.consumed().storage > 0);
-            assert_eq!(budget.first_unpaid_locus().unwrap().source, NativeJoinLocusSource::ReachedRow(0));
-            assert_eq!(budget.first_unpaid_locus().unwrap().form, "source_collection_row");
+            assert_eq!(
+                budget.first_unpaid_locus().unwrap().source,
+                NativeJoinLocusSource::ReachedRow(0)
+            );
+            assert_eq!(
+                budget.first_unpaid_locus().unwrap().form,
+                "source_collection_row"
+            );
         }
     }
     // A fresh joined payload keeps the integer images cold until the real
     // bounded owner comparison; locate its logical handle admission directly.
-    let joined = initial.with_source_collection_rows(&package, [row()],
-        &mut NativeJoinBudget::new(1_000_000, 1_000_000)).unwrap();
+    let joined = initial
+        .with_source_collection_rows(
+            &package,
+            [row()],
+            &mut NativeJoinBudget::new(1_000_000, 1_000_000),
+        )
+        .unwrap();
     let mut measured = NativeJoinBudget::new(1_000_000, 1_000_000);
-    package.project_exact_type(&id, &joined, &mut measured).unwrap();
-    let handle_boundary = (0..measured.consumed().storage).find(|limit| {
-        let mut budget = NativeJoinBudget::new(1_000_000, *limit);
-        package.project_exact_type(&id, &joined, &mut budget).is_err()
-            && budget.first_unpaid_locus().is_some_and(|locus| locus.form == "source_collection_comparison_handle")
-    }).expect("bounded numeric comparison handle charge");
-    let fresh_joined = initial.with_source_collection_rows(&package, [row()],
-        &mut NativeJoinBudget::new(1_000_000, 1_000_000)).unwrap();
+    package
+        .project_exact_type(&id, &joined, &mut measured)
+        .unwrap();
+    let handle_boundary = (0..measured.consumed().storage)
+        .find(|limit| {
+            let mut budget = NativeJoinBudget::new(1_000_000, *limit);
+            package
+                .project_exact_type(&id, &joined, &mut budget)
+                .is_err()
+                && budget
+                    .first_unpaid_locus()
+                    .is_some_and(|locus| locus.form == "source_collection_comparison_handle")
+        })
+        .expect("bounded numeric comparison handle charge");
+    let fresh_joined = initial
+        .with_source_collection_rows(
+            &package,
+            [row()],
+            &mut NativeJoinBudget::new(1_000_000, 1_000_000),
+        )
+        .unwrap();
     let mut short = NativeJoinBudget::new(1_000_000, handle_boundary);
     let mut result = None;
     let before = allocation_counter::measure(|| {
         result = Some(package.project_exact_type(&id, &fresh_joined, &mut short));
     });
-    let error = result.unwrap().expect_err("logical comparison handle is unpaid");
+    let error = result
+        .unwrap()
+        .expect_err("logical comparison handle is unpaid");
     let denied = short.first_unpaid().unwrap();
     assert_eq!(denied.kind, NativeJoinChargeKind::Storage);
-    assert_eq!(denied.amount, 1, "one shared Arc handle in FR-358 logical units");
+    assert_eq!(
+        denied.amount, 1,
+        "one shared Arc handle in FR-358 logical units"
+    );
     assert_eq!(error.denied, Some(denied));
     assert_eq!(error.configured_bound, Some(handle_boundary));
-    assert_eq!(short.first_unpaid_locus().unwrap().form, "source_collection_comparison_handle");
-    let fresh_joined = initial.with_source_collection_rows(&package, [row()],
-        &mut NativeJoinBudget::new(1_000_000, 1_000_000)).unwrap();
+    assert_eq!(short.first_unpaid_locus(), Some(quire_contract_model::NativeJoinLocus {
+        source: NativeJoinLocusSource::GraphNode(map_position),
+        form: "source_collection_comparison_handle",
+    }));
+    assert_eq!(
+        short.first_unpaid_locus().unwrap().form,
+        "source_collection_comparison_handle"
+    );
+    let fresh_joined = initial
+        .with_source_collection_rows(
+            &package,
+            [row()],
+            &mut NativeJoinBudget::new(1_000_000, 1_000_000),
+        )
+        .unwrap();
     let mut paid = NativeJoinBudget::new(1_000_000, handle_boundary + 1);
     let mut result = None;
     let after = allocation_counter::measure(|| {
         result = Some(package.project_exact_type(&id, &fresh_joined, &mut paid));
     });
     result.unwrap().expect_err("later result remains unpaid");
-    assert_eq!(after.count_total, before.count_total + 1,
-        "only the admitted cancellation Arc allocates; cold comparison adds no cache allocation");
+    assert_eq!(
+        after.count_total,
+        before.count_total + 1,
+        "only the admitted cancellation Arc allocates; cold comparison adds no cache allocation"
+    );
     assert_eq!(paid.consumed().storage, short.consumed().storage + 1);
     assert_eq!(short.last_success_delta(), None);
 }
