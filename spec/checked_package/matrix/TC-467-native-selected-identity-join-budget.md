@@ -36,6 +36,12 @@ Use a QSV materialization refusal with a variable-size exact charge to
 compare the full owned-cause storage boundary with a nonzero allowance one
 unit below it.
 
+Read the original work and storage limits before and after successful stage
+acquisition and type projection, then exhaust the second projection against
+their shared allowance. Check the original bound on work and storage refusals,
+zero-limit compact refusals, and a work refusal whose owned diagnostic cannot
+fit the remaining storage. Check that a semantic refusal has no resource bound.
+
 ## Expected Results
 
 Every exact-limit call yields the same selected identity value. Every
@@ -53,6 +59,12 @@ returns no owned diagnostic at zero storage.
 At the exact diagnostic allowance the original QSV cause is retained; one
 unit below it the compact typed code and first QSV locus remain while no
 owned cause is returned.
+
+The limit getters remain equal to the caller's original configured values,
+independently of consumption or denial. Full and compact native resource
+refusals retain the bound for the original denied kind; later diagnostic
+storage exhaustion cannot substitute its storage bound for a work bound.
+Zero is a present bound, while a non-resource refusal has no configured bound.
 
 ## Complete-witness acquisition and rebinding
 
