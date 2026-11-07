@@ -58,8 +58,6 @@ mod support {
     pub(crate) use crate::fixture_support as checked_package;
 }
 // The shared map controls use these existing genuine reader/witness fixtures.
-#[path = "../it/native_join_budget.rs"]
-mod native_join_budget;
 #[path = "../it/checked_package_v2_model_fields.rs"]
 mod checked_package_v2_model_fields;
 #[path = "../it/checked_package_v2_owners.rs"]
@@ -73,6 +71,8 @@ mod model_tuple_union;
 mod monitor_plan;
 #[path = "../it/support/monitor_plan.rs"]
 mod monitor_plan_fixtures;
+#[path = "../it/native_join_budget.rs"]
+mod native_join_budget;
 mod node_index;
 mod node_ordinal;
 mod operation_effects;

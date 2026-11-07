@@ -6566,8 +6566,10 @@ fn tc_227_declaring_node_errors_follow_field_order_before_name_order() {
     }
 }
 
+#[path = "checked_package_v2_model_fields/operation_census.rs"]
 mod operation_census;
 
+#[path = "checked_package_v2_model_fields/option_types.rs"]
 mod option_types;
 
 /// Selected identity rows must join the complete admitted declaration key.
