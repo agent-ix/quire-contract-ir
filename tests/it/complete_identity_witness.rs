@@ -354,7 +354,8 @@ fn complete_identity_witness_exact_limits_cumulative_charges_and_atomic_refusals
         }
     }
     let acquisition = fixture.budget.consumed();
-    let mut shared = fixture.budget.clone();
+    let mut shared = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    assert_eq!(acquire(&fixture, None, &mut shared), fixture.identities);
     assert_eq!(
         original.validate_and_rebind(&fixture.package, &mut shared),
         Ok(expected)

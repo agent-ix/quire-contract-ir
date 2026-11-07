@@ -11,8 +11,9 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageV2, CheckedPackageV2ReadResult, ExactTypeProjectionErrorCode, NativeJoinBudget,
-    NativeJoinChargeKind, SelectedExactDeclarationForm, SelectedExactDeclarationRow,
-    SelectedExactFieldRow, SelectedExactIdentities, SelectedExactIdentity,
+    NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource, SelectedExactDeclarationForm,
+    SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
+    SelectedExactIdentity,
 };
 use quire_exact::{
     Integer, IntegerInterval, MemberId, MemberOwner, NodeKey, PathSegment, Presence, ValueType,
@@ -132,6 +133,102 @@ fn original_limits_survive_stage_projection_and_later_shared_exhaustion() {
         );
         assert!(shared.consumed().work <= work && shared.consumed().storage <= storage);
     }
+}
+
+/// Trace: FR-358-AC-9, FR-357-AC-15.
+#[trace("TC-467", "FR-358-AC-9", "FR-357-AC-15")]
+#[test]
+fn external_charges_compose_with_native_stage_and_projection() {
+    let wire = package(vec![node(
+        "integer",
+        "scalar_type",
+        "integer",
+        "integer",
+        &[],
+        json!({"term":"aggregate","members":[]}),
+    )]);
+    let package = admitted(&wire);
+    let integer: CheckedNodeId = serde_json::from_value(node_id("integer")).unwrap();
+    let locus = NativeJoinLocus {
+        source: NativeJoinLocusSource::Package,
+        form: "driver selection",
+    };
+    let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    let selected =
+        SelectedExactIdentities::from_stage_rows(&package, [], [], &mut measured).unwrap();
+    let stage = measured.consumed();
+    let expected = package
+        .project_exact_type(&integer, &selected, &mut measured)
+        .unwrap();
+    let native = measured.consumed();
+    let work_limit = native.work + 2;
+    let storage_limit = native.storage + 3;
+
+    let mut exact = NativeJoinBudget::new(work_limit, storage_limit);
+    exact.resume();
+    assert_eq!(
+        exact.accounted_charge(NativeJoinChargeKind::Work, 2, locus),
+        Ok(())
+    );
+    assert_eq!(
+        exact.accounted_charge(NativeJoinChargeKind::Storage, 3, locus),
+        Ok(())
+    );
+    let joined = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut exact).unwrap();
+    assert_eq!(joined, selected);
+    assert_eq!(
+        package.project_exact_type(&integer, &joined, &mut exact),
+        Ok(expected)
+    );
+    assert_eq!(exact.consumed().work, work_limit);
+    assert_eq!(exact.consumed().storage, storage_limit);
+    assert_eq!(
+        (exact.work_limit(), exact.storage_limit()),
+        (work_limit, storage_limit)
+    );
+
+    let mut short = NativeJoinBudget::new(work_limit - 1, storage_limit);
+    short.resume();
+    assert_eq!(
+        short.accounted_charge(NativeJoinChargeKind::Work, 2, locus),
+        Ok(())
+    );
+    assert_eq!(
+        short.accounted_charge(NativeJoinChargeKind::Storage, 3, locus),
+        Ok(())
+    );
+    let joined = SelectedExactIdentities::from_stage_rows(&package, [], [], &mut short).unwrap();
+    assert_eq!(short.consumed().work, stage.work + 2);
+    let refusal = package
+        .project_exact_type(&integer, &joined, &mut short)
+        .unwrap_err();
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+    assert_eq!(refusal.denied, short.first_unpaid());
+    assert_eq!(refusal.configured_bound, Some(work_limit - 1));
+    assert_eq!(
+        (short.work_limit(), short.storage_limit()),
+        (work_limit - 1, storage_limit)
+    );
+
+    let mut storage_short = NativeJoinBudget::new(work_limit, storage_limit - 1);
+    storage_short.resume();
+    assert_eq!(
+        storage_short.accounted_charge(NativeJoinChargeKind::Work, 2, locus),
+        Ok(())
+    );
+    assert_eq!(
+        storage_short.accounted_charge(NativeJoinChargeKind::Storage, 3, locus),
+        Ok(())
+    );
+    let joined =
+        SelectedExactIdentities::from_stage_rows(&package, [], [], &mut storage_short).unwrap();
+    let refusal = package
+        .project_exact_type(&integer, &joined, &mut storage_short)
+        .unwrap_err();
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
+    assert_eq!(refusal.denied, storage_short.first_unpaid());
+    assert_eq!(refusal.configured_bound, Some(storage_limit - 1));
+    assert!(storage_short.consumed().storage < storage_limit);
 }
 
 #[trace("TC-467", "FR-358-AC-8")]
