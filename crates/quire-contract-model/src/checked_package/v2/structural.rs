@@ -62,6 +62,7 @@
 use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{DomainModel, MemberType, ValueBounds};
+use super::node_index::resolve_id_charged;
 use super::{
     ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
     OperationMemberKind, StateClauseKind, WorkMeter,
@@ -964,7 +965,7 @@ pub(super) fn validate_derived_type_shapes(
                     })
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::CarriedQuantity) => {
-                carried_quantity_shape(catalog, node, term, &graph, terms, structural_keys)
+                carried_quantity_shape(catalog, node, term, &graph, terms, structural_keys, meter)?
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity) => {
                 bounded_quantity_shape(node, term, &graph, structural_keys, meter)?
@@ -1028,18 +1029,19 @@ fn carried_quantity_shape(
     graph: &Graph<'_>,
     terms: &[Option<CheckedTerm>],
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
-) -> bool {
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
     let Some([unit_term, carrier_term, rounding_term]) = term
         .and_then(typed_aggregate)
         .and_then(|members| <&[CheckedTerm; 3]>::try_from(members).ok())
     else {
-        return false;
+        return Ok(false);
     };
     let Some(unit) = typed_binding(unit_term, "unit").and_then(typed_reference) else {
-        return false;
+        return Ok(false);
     };
     let Some(carrier) = typed_binding(carrier_term, "carrier").and_then(typed_reference) else {
-        return false;
+        return Ok(false);
     };
     let Some(CheckedTerm::Literal {
         type_id: text_type,
@@ -1047,16 +1049,16 @@ fn carried_quantity_shape(
         value,
     }) = typed_binding(rounding_term, "rounding")
     else {
-        return false;
+        return Ok(false);
     };
     let Some(rounding) = value.as_str() else {
-        return false;
+        return Ok(false);
     };
     let Some(rounding_mode) = CheckedRoundingMode::from_literal(catalog, rounding) else {
-        return false;
+        return Ok(false);
     };
     let Some(carrier_kind) = graph.kind(carrier) else {
-        return false;
+        return Ok(false);
     };
     let carrier_valid = match carrier_kind {
         CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => true,
@@ -1085,39 +1087,44 @@ fn carried_quantity_shape(
         || !carrier_valid
         || !graph.type_matches(text_type, ScalarTypeForm::Text)
     {
-        return false;
+        return Ok(false);
     }
     let (Some(unit), Some(carrier), Some(text_type), Some(actual)) = (
-        super::node_index::resolve_id(unit, structural_keys),
-        super::node_index::resolve_id(carrier, structural_keys),
-        super::node_index::resolve_id(text_type, structural_keys),
-        super::node_index::resolve_id(&node.node_id, structural_keys),
+        resolve_id_charged(unit, structural_keys, meter)?,
+        resolve_id_charged(carrier, structural_keys, meter)?,
+        resolve_id_charged(text_type, structural_keys, meter)?,
+        resolve_id_charged(&node.node_id, structural_keys, meter)?,
     ) else {
-        return false;
+        return Ok(false);
     };
-    let expected_dependencies = if unit <= carrier {
-        vec![unit.clone(), carrier.clone()]
+    let expected = if unit <= carrier {
+        [&unit, &carrier]
     } else {
-        vec![carrier.clone(), unit.clone()]
+        [&carrier, &unit]
     };
-    let actual_dependencies = node
-        .dependencies
-        .iter()
-        .map(|dependency| super::node_index::resolve_id(dependency, structural_keys))
-        .collect::<Option<Vec<_>>>();
-    if actual_dependencies.as_deref() != Some(expected_dependencies.as_slice()) {
-        return false;
+    // Each listed dependency is resolved and compared in turn, not collected.
+    let mut dependencies = node.dependencies.iter();
+    for expected in expected {
+        let Some(dependency) = dependencies.next() else {
+            return Ok(false);
+        };
+        if resolve_id_charged(dependency, structural_keys, meter)?.as_ref() != Some(expected) {
+            return Ok(false);
+        }
     }
-    actual.path
-        == vec![
-            CheckedNodePathSegment::Name("scalar_type".into()),
-            CheckedNodePathSegment::Name("carried_quantity".into()),
-            CheckedNodePathSegment::Node(unit.into()),
-            CheckedNodePathSegment::Node(carrier.into()),
-            CheckedNodePathSegment::Name("rounding".into()),
-            CheckedNodePathSegment::Node(text_type.into()),
-            CheckedNodePathSegment::Name(rounding.into()),
-        ]
+    if dependencies.next().is_some() {
+        return Ok(false);
+    }
+    let names = |at: usize, name: &str| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Name(found)) if found.as_ref() == name);
+    let names_node = |at: usize, id: &CheckedNodeId| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Node(found)) if found.as_ref() == id);
+    Ok(actual.path.len() == 7
+        && names(0, "scalar_type")
+        && names(1, "carried_quantity")
+        && names_node(2, &unit)
+        && names_node(3, &carrier)
+        && names(4, "rounding")
+        && names_node(5, &text_type)
+        && names(6, rounding))
 }
 
 fn noncanonical_bounded_endpoint(
@@ -1205,9 +1212,9 @@ fn bounded_quantity_shape(
         return Ok(false);
     }
     let (Some(unit), Some(rational_type), Some(actual)) = (
-        super::node_index::resolve_id(unit, structural_keys),
-        super::node_index::resolve_id(rational_type, structural_keys),
-        super::node_index::resolve_id(&node.node_id, structural_keys),
+        resolve_id_charged(unit, structural_keys, meter)?,
+        resolve_id_charged(rational_type, structural_keys, meter)?,
+        resolve_id_charged(&node.node_id, structural_keys, meter)?,
     ) else {
         return Ok(false);
     };
@@ -1217,12 +1224,18 @@ fn bounded_quantity_shape(
         (&rational_type, &unit)
     };
     let mut dependencies = node.dependencies.iter();
-    let listed = [first, second].into_iter().all(|expected| {
-        dependencies
-            .next()
-            .and_then(|dependency| super::node_index::resolve_id(dependency, structural_keys))
-            .is_some_and(|actual| &actual == expected)
-    }) && dependencies.next().is_none();
+    let mut listed = true;
+    for expected in [first, second] {
+        let Some(dependency) = dependencies.next() else {
+            listed = false;
+            break;
+        };
+        if resolve_id_charged(dependency, structural_keys, meter)?.as_ref() != Some(expected) {
+            listed = false;
+            break;
+        }
+    }
+    listed = listed && dependencies.next().is_none();
     let names = |at: usize, name: &str| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Name(found)) if found.as_ref() == name);
     let names_node = |at: usize, id: &CheckedNodeId| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Node(found)) if found.as_ref() == id);
     Ok(listed

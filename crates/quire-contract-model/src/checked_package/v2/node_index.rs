@@ -374,6 +374,26 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
     !stack.is_empty()
 }
 
+/// `resolve_id` with the copy's blocks (path, package, names) charged first.
+pub(super) fn resolve_id_charged(
+    wire: &super::CheckedNodeId,
+    keys: &[Arc<super::CheckedNodeId>],
+    meter: &mut super::WorkMeter,
+) -> Result<Option<super::CheckedNodeId>, ValidationFailure> {
+    let mut bytes = wire
+        .path
+        .len()
+        .saturating_mul(std::mem::size_of::<CheckedNodePathSegment>())
+        .saturating_add(wire.package.len());
+    for segment in &wire.path {
+        if let CheckedNodePathSegment::Name(name) = segment {
+            bytes = bytes.saturating_add(name.len());
+        }
+    }
+    meter.reserve(bytes)?;
+    Ok(resolve_id(wire, keys))
+}
+
 /// Rebuild an ID written in one package document against that document's
 /// graph. The returned operands share the already rebuilt graph keys. The
 /// ID must be in the reader's resolved form, whose operands are index segments.
