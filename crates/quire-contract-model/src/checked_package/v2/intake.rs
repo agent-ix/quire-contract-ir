@@ -14,9 +14,9 @@
 
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
-    CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner, CheckedPackageEnvelope,
-    CheckedPackageLockV2, RawCheckedPackageWireV2, RawSemanticGraphV2, RawSemanticNodeV2,
-    ValidationFailure,
+    CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedJson, CheckedNodeOwner,
+    CheckedPackageEnvelope, CheckedPackageLockV2, RawCheckedPackageWireV2, RawSemanticGraphV2,
+    RawSemanticNodeV2, ValidationFailure,
 };
 use crate::checked_package::common::{decode_closed_bytes, node_pointer, strict_parse};
 use crate::checked_package::shared::{
@@ -314,7 +314,14 @@ pub(super) fn decode_borrowed_wire(
                         details: entry
                             .details
                             .into_iter()
-                            .map(|term| strict_parse(term.get().as_bytes()))
+                            .map(|term| {
+                                let value = strict_parse(term.get().as_bytes())?;
+                                CheckedJson::from_value(&value).map_err(|_| {
+                                    ValidationFailure::refused_bytes(
+                                        CheckedPackageRefusalCode::MalformedWire,
+                                    )
+                                })
+                            })
                             .collect::<Result<Vec<_>, ValidationFailure>>()?,
                         loci: entry.loci,
                     })
