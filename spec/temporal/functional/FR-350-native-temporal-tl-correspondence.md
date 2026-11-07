@@ -333,7 +333,7 @@ an exact and one-over boundary without constructing a default-sized artifact.
   strict projection and join readers, correspondence value, and executable
   TC-461 evidence. This Contract IR requirement remains the cross-repository
   contract for FR-350-AC-1 through FR-350-AC-6 and FR-350-AC-8 through
-  FR-350-AC-9; AC-7 remains
+  FR-350-AC-10; AC-7 remains
   withdrawn. FR-028-AC-3 and TC-041 keep both Contract IR packages free of
   QSL dependencies.
 - QSL FR-045 defines the support table; FR-515 supplies the borrowed checked

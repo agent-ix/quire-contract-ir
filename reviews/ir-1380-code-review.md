@@ -1,0 +1,37 @@
+---
+id: SR-2026110602354640
+title: IR-1380 PR 940 code-review review
+type: SpecReview
+analysis: base
+scope: agent-ix/quire-contract-ir; spec/checked_package/functional/FR-038-consume-checked-package-v2.md;
+  spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md; spec/temporal/matrix/TC-461-native-temporal-tl-correspondence.md;
+  crates/quire-contract-model/src/checked_package/v2/mod.rs; tests/it/checked_package_v2_model_root.rs
+review_set: subset
+---
+
+## Summary
+
+Ticket: IR-1380. Reviewed PR #940 frozen head 88eb1e140, scoped to the changed API, test and three spec artifacts. No applicable AssuranceProfile was found under `spec/`.
+
+## Coverage
+
+- FR-038-AC-494 (examined, `spec/checked_package/functional/FR-038-consume-checked-package-v2.md`): An admitted `CheckedPackageV2` shall expose its selected model package identities as a borrowed sequence in ascending identity order through `selected_model_packages`. A package with no selected model returns an empty sequence; a refused or incomplete read exposes no package. The read neither invents source aliases nor accepts caller-authored model selections.
+- FR-350-AC-10 (examined, `spec/temporal/functional/FR-350-native-temporal-tl-correspondence.md`): Given selected model roots whose graph order differs from ascending package identity order, TC-461 records exactly the package identities returned by the admitted checked package's `selected_model_packages` read in that order, including the empty sequence for a package with no selected model. A renamed, missing, duplicated or reordered model entry fails strict correspondence reading; the bridge does not infer a source alias or accept a caller-authored alias map.
+- TC-461 (examined, `spec/temporal/matrix/TC-461-native-temporal-tl-correspondence.md`): 8. Select model roots in graph order `z/model`, `a/model`, then read the
+   admitted package's `selected_model_packages` and require the correspondence
+   `models` array to be `a/model`, `z/model`. Repeat with no selected model and
+   require an empty array. Rename, remove, duplicate and reorder an entry in
+   the encoded record; strict reading refuses each changed array. Supply no
+   source alias map to the bridge (FR-350-AC-10).
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | low | No findings (placeholder) | - |
+
+## Verdict
+
+**PASS** — No defects found in this method’s scoped review.
+
+The public read borrows admitted selected identities without allocation or selection changes. Root ordering is established by `selected_model_roots` using a `BTreeMap`; `validate_domain_packages` preserves it. The test asserts an exact reordered sequence, clone behavior and an empty result. The wire has no selected-model alias field; an unrelated step-relation body has local aliases. Accepted coder-reported focused test, fmt, scoped Clippy and targeted Quire validation; no gates rerun.

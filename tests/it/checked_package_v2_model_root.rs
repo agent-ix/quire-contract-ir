@@ -22,8 +22,8 @@ fn selected_package() -> Value {
     package
 }
 
-/// Trace: FR-038-AC-494, FR-350-AC-10
-#[trace("TC-233", "FR-038-AC-494", "FR-350-AC-10")]
+/// Trace: FR-038-AC-494
+#[trace("TC-233", "FR-038-AC-494")]
 #[test]
 fn selected_model_package_names_follow_admitted_identity_order() {
     let mut package = selected_package();
