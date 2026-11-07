@@ -209,6 +209,26 @@ fn external_charges_compose_with_native_stage_and_projection() {
         (short.work_limit(), short.storage_limit()),
         (work_limit - 1, storage_limit)
     );
+
+    let mut storage_short = NativeJoinBudget::new(work_limit, storage_limit - 1);
+    storage_short.resume();
+    assert_eq!(
+        storage_short.accounted_charge(NativeJoinChargeKind::Work, 2, locus),
+        Ok(())
+    );
+    assert_eq!(
+        storage_short.accounted_charge(NativeJoinChargeKind::Storage, 3, locus),
+        Ok(())
+    );
+    let joined =
+        SelectedExactIdentities::from_stage_rows(&package, [], [], &mut storage_short).unwrap();
+    let refusal = package
+        .project_exact_type(&integer, &joined, &mut storage_short)
+        .unwrap_err();
+    assert_eq!(refusal.code, ExactTypeProjectionErrorCode::ExhaustedStorage);
+    assert_eq!(refusal.denied, storage_short.first_unpaid());
+    assert_eq!(refusal.configured_bound, Some(storage_limit - 1));
+    assert!(storage_short.consumed().storage <= storage_limit - 1);
 }
 
 #[trace("TC-467", "FR-358-AC-8")]
