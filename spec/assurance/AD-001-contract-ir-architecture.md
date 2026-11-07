@@ -193,6 +193,23 @@ the authored-contract interchange.
   owner language inside Contract IR; preserve typed non-values at every join.
 - Use QSL's `qsl-replay` types for every replay, witness, envelope,
   terminal-record and obligation-identity concept; define none locally.
+- Make the budget-charged strict V2 read (FR-038 "Budget-charged strict
+  read") the single V2 read. It takes the caller's `NativeJoinBudget`
+  (FR-358), the one meter for the read's work and the native joins that
+  follow it; there is no private work meter, unmetered entry or second read
+  implementation, and a caller with no allowance passes an unlimited budget.
+  Every allocation the read makes is charged in heap bytes before it is made,
+  cumulatively and without refund, so the charge is the read's exact
+  allocation rather than an estimate from input size. Structural read limits
+  stay validation caps.
+- Read the package bytes and every selected model document with the one
+  shared strict JSON reader owned by `agent-ix/quire-canonical`, and compare
+  canonical bytes with its writer, both through their caller-reservation
+  entries. Decode the typed wire from the reader's arena document with
+  containers whose allocation size is computed before the allocation, and
+  retain JSON payloads as handles into that document. `serde_json` is not
+  on the V2 read path: it offers no allocation hook, and its maps cannot be
+  charged before they grow.
 
 ## Risks
 
@@ -204,6 +221,9 @@ the authored-contract interchange.
   constructor-private inputs and strict re-derivation.
 - Native/TL semantic disagreement: retained as a typed conflict rather than
   repaired, coerced, or hidden behind either owner's result vocabulary.
+- Uncharged allocation in the strict read: controlled by a counting-allocator
+  test binary that requires the charged storage of every read to equal the
+  bytes it allocated, over genuine and adverse packages.
 - Self-model authority confusion: controlled by constructor-private checked
   views, absent acceptance fields, and no conversion from model/proposal output
   into executable owner inputs.
