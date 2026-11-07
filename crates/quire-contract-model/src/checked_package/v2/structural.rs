@@ -832,7 +832,7 @@ pub(super) fn validate_derived_type_shapes(
                         typed_reference(typed_binding(value, "value")?)?,
                     ))
                 });
-                node.semantic_type == node.node_id
+                let shaped = node.semantic_type == node.node_id
                     && operands.is_some_and(|(key, value)| {
                         matches!(graph.kind(key), Some(CheckedNodeKind::ScalarType(
                             ScalarTypeForm::Boolean | ScalarTypeForm::Integer
@@ -856,20 +856,28 @@ pub(super) fn validate_derived_type_shapes(
                             && !matches!(graph.kind(value), Some(CheckedNodeKind::ScalarType(
                                 ScalarTypeForm::Dimension | ScalarTypeForm::DimensionEquivalence
                             )))
-                            && structural_keys.get(position).is_some_and(|id| {
-                                matches!(id.path.as_slice(),
-                                    [CheckedNodePathSegment::Name(tag),
-                                     CheckedNodePathSegment::Name(form),
-                                     CheckedNodePathSegment::Node(key_id),
-                                     CheckedNodePathSegment::Node(value_id)]
-                                        if tag.as_ref() == "composite_type"
-                                            && form.as_ref() == "map"
-                                            && key_id.as_ref()
-                                                == super::structural_key(key, index, structural_keys)
-                                            && value_id.as_ref()
-                                                == super::structural_key(value, index, structural_keys))
-                            })
-                    })
+                    });
+                // The key's identity holds the key and value nodes it names.
+                // Comparing them is charged: a rebuilt key nests as deep as
+                // its operand chain.
+                match (shaped, operands, structural_keys.get(position)) {
+                    (true, Some((key, value)), Some(id)) => match id.path.as_slice() {
+                        [CheckedNodePathSegment::Name(tag), CheckedNodePathSegment::Name(form), CheckedNodePathSegment::Node(key_id), CheckedNodePathSegment::Node(value_id)]
+                            if tag.as_ref() == "composite_type" && form.as_ref() == "map" =>
+                        {
+                            meter.compare_ids(
+                                key_id,
+                                super::structural_key(key, index, structural_keys),
+                            )? == std::cmp::Ordering::Equal
+                                && meter.compare_ids(
+                                    value_id,
+                                    super::structural_key(value, index, structural_keys),
+                                )? == std::cmp::Ordering::Equal
+                        }
+                        _ => false,
+                    },
+                    _ => false,
+                }
             }
             CheckedNodeKind::BoundedDomain(BoundedDomainForm::TextBounds) => {
                 // A bound's form selects its own base, regardless of its authored identity.
@@ -1097,7 +1105,7 @@ fn carried_quantity_shape(
     ) else {
         return Ok(false);
     };
-    let expected = if unit <= carrier {
+    let expected = if meter.compare_ids(&unit, &carrier)? != std::cmp::Ordering::Greater {
         [&unit, &carrier]
     } else {
         [&carrier, &unit]
@@ -1108,7 +1116,10 @@ fn carried_quantity_shape(
         let Some(dependency) = dependencies.next() else {
             return Ok(false);
         };
-        if resolve_id_charged(dependency, structural_keys, meter)?.as_ref() != Some(expected) {
+        let Some(listed) = resolve_id_charged(dependency, structural_keys, meter)? else {
+            return Ok(false);
+        };
+        if meter.compare_ids(&listed, expected)? != std::cmp::Ordering::Equal {
             return Ok(false);
         }
     }
@@ -1116,15 +1127,31 @@ fn carried_quantity_shape(
         return Ok(false);
     }
     let names = |at: usize, name: &str| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Name(found)) if found.as_ref() == name);
-    let names_node = |at: usize, id: &CheckedNodeId| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Node(found)) if found.as_ref() == id);
-    Ok(actual.path.len() == 7
+    let named = actual.path.len() == 7
         && names(0, "scalar_type")
         && names(1, "carried_quantity")
-        && names_node(2, &unit)
-        && names_node(3, &carrier)
         && names(4, "rounding")
-        && names_node(5, &text_type)
-        && names(6, rounding))
+        && names(6, rounding);
+    Ok(named
+        && names_node(&actual, 2, &unit, meter)?
+        && names_node(&actual, 3, &carrier, meter)?
+        && names_node(&actual, 5, &text_type, meter)?)
+}
+
+/// Whether the operand at `at` of `actual` is the node `id`, compared through
+/// the meter: both sides are rebuilt keys that may nest deeply.
+fn names_node(
+    actual: &CheckedNodeId,
+    at: usize,
+    id: &CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    match actual.path.get(at) {
+        Some(CheckedNodePathSegment::Node(found)) => {
+            Ok(meter.compare_ids(found, id)? == std::cmp::Ordering::Equal)
+        }
+        _ => Ok(false),
+    }
 }
 
 fn noncanonical_bounded_endpoint(
@@ -1218,11 +1245,12 @@ fn bounded_quantity_shape(
     ) else {
         return Ok(false);
     };
-    let (first, second) = if unit <= rational_type {
-        (&unit, &rational_type)
-    } else {
-        (&rational_type, &unit)
-    };
+    let (first, second) =
+        if meter.compare_ids(&unit, &rational_type)? != std::cmp::Ordering::Greater {
+            (&unit, &rational_type)
+        } else {
+            (&rational_type, &unit)
+        };
     let mut dependencies = node.dependencies.iter();
     let mut listed = true;
     for expected in [first, second] {
@@ -1230,25 +1258,29 @@ fn bounded_quantity_shape(
             listed = false;
             break;
         };
-        if resolve_id_charged(dependency, structural_keys, meter)?.as_ref() != Some(expected) {
+        let Some(held) = resolve_id_charged(dependency, structural_keys, meter)? else {
+            listed = false;
+            break;
+        };
+        if meter.compare_ids(&held, expected)? != std::cmp::Ordering::Equal {
             listed = false;
             break;
         }
     }
     listed = listed && dependencies.next().is_none();
     let names = |at: usize, name: &str| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Name(found)) if found.as_ref() == name);
-    let names_node = |at: usize, id: &CheckedNodeId| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Node(found)) if found.as_ref() == id);
-    Ok(listed
+    let named = listed
         && actual.path.len() == 9
         && names(0, "scalar_type")
         && names(1, "bounded_quantity")
-        && names_node(2, &unit)
         && names(3, "min")
-        && names_node(4, &rational_type)
         && names(5, min)
         && names(6, "max")
-        && names_node(7, &rational_type)
-        && names(8, max))
+        && names(8, max);
+    Ok(named
+        && names_node(&actual, 2, &unit, meter)?
+        && names_node(&actual, 4, &rational_type, meter)?
+        && names_node(&actual, 7, &rational_type, meter)?)
 }
 
 /// Join an admitted bounded type's actual members to the selected Semantic IR

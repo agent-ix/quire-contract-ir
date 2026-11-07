@@ -906,11 +906,35 @@ impl PartialOrd for CheckedNodeId {
 impl Ord for CheckedNodeId {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Without a meter nothing refuses a spill, so the comparison cannot
-        // fail.
-        match self.cmp_growing(other, &mut |_| Ok::<(), std::convert::Infallible>(())) {
+        // fail. The read path charges its comparisons (`cmp_growing` through
+        // the meter) or compares graph ranks; this plain order serves keys
+        // after admission, and a debug build can be told to refuse a spill
+        // on one thread so a test proves a read never reaches it.
+        match self.cmp_growing(other, &mut |_| {
+            #[cfg(debug_assertions)]
+            forbid_plain_spill();
+            Ok::<(), std::convert::Infallible>(())
+        }) {
             Ok(order) => order,
             Err(never) => match never {},
         }
+    }
+}
+
+/// Debug builds only: names the thread (by `std::thread` name) on which an
+/// uncharged `Ord::cmp` spill past the inline stack must panic. Tests set it
+/// to their own thread around a full read to prove the read path never
+/// reaches a plain comparison deep enough to allocate. `*` names every thread.
+#[cfg(debug_assertions)]
+pub const FORBID_PLAIN_SPILL_ENV: &str = "QUIRE_FORBID_PLAIN_CMP_SPILL_ON";
+
+#[cfg(debug_assertions)]
+fn forbid_plain_spill() {
+    if let Ok(name) = std::env::var(FORBID_PLAIN_SPILL_ENV) {
+        assert!(
+            name != "*" && std::thread::current().name() != Some(name.as_str()),
+            "an uncharged CheckedNodeId::cmp spill on the read path"
+        );
     }
 }
 

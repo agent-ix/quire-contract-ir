@@ -2753,17 +2753,23 @@ fn union_arms_hold(
         let [binders, body] = parts.as_slice() else {
             return Ok(false);
         };
-        let binders_hold = match binders {
-            CheckedTerm::Aggregate { members: binders } => Some(binders.as_slice()),
+        let mut binders_hold = match binders {
+            CheckedTerm::Aggregate { members: binders } => {
+                Some(binders.as_slice()).filter(|binders| binders.len() == member.payload.len())
+            }
             _ => None,
         }
-        .is_some_and(|binders| {
-            binders.len() == member.payload.len()
-                && binders
-                    .iter()
-                    .zip(&member.payload)
-                    .all(|(binder, payload)| binder_matches_payload(binder, payload, graph))
-        });
+        .is_some();
+        if binders_hold {
+            if let CheckedTerm::Aggregate { members: binders } = binders {
+                for (binder, payload) in binders.iter().zip(&member.payload) {
+                    if !binder_matches_payload(binder, payload, graph, meter)? {
+                        binders_hold = false;
+                        break;
+                    }
+                }
+            }
+        }
         // Implements: FR-347. an arm body conforms to a record `result_type`; a binder is
         // bound to the payload type and stays exact.
         let Some(result) = result_type else {
@@ -2784,18 +2790,39 @@ fn union_arms_hold(
     Ok(true)
 }
 
+/// Whether the rebuilt key `held` is the key `expected`, compared through the
+/// meter: both may nest as deep as their operand chains.
+fn same_key(
+    held: Option<&CheckedNodeId>,
+    expected: &CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    match held {
+        Some(held) => Ok(meter.compare_ids(held, expected)? == std::cmp::Ordering::Equal),
+        None => Ok(false),
+    }
+}
+
 fn binder_matches_payload(
     binder: &CheckedTerm,
     payload: &CheckedNodeId,
     graph: &Graph<'_>,
-) -> bool {
-    referenced_type(binder)
-        .and_then(|target| graph.index.get(&target).copied())
-        .is_some_and(|position| {
-            graph.kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
-                && graph.structural_id(&graph.nodes[position].semantic_type)
-                    == Some(graph.structural_id(payload).unwrap_or(payload))
-        })
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let Some(position) =
+        referenced_type(binder).and_then(|target| graph.index.get(&target).copied())
+    else {
+        return Ok(false);
+    };
+    if graph.kinds[position] != CheckedNodeKind::Value(ValueForm::Parameter) {
+        return Ok(false);
+    }
+    let expected = graph.structural_id(payload).unwrap_or(payload);
+    same_key(
+        graph.structural_id(&graph.nodes[position].semantic_type),
+        expected,
+        meter,
+    )
 }
 
 /// Whether a node of this kind is a type node: a `scalar_type`,
@@ -3010,7 +3037,11 @@ fn conforms_to_type(
     let Some(actual_key) = graph.structural_id(actual) else {
         return Ok(false);
     };
-    if actual_key == graph.structural_id(expected).unwrap_or(expected) {
+    if meter.compare_ids(
+        actual_key,
+        graph.structural_id(expected).unwrap_or(expected),
+    )? == std::cmp::Ordering::Equal
+    {
         return Ok(true);
     }
     let Some(parameter) = owners.record_by_key(expected) else {
@@ -3427,7 +3458,11 @@ fn check_tuple_position(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result_type.and_then(|id| graph.structural_id(id)) != Some(&expected_type) {
+    if !same_key(
+        result_type.and_then(|id| graph.structural_id(id)),
+        &expected_type,
+        meter,
+    )? {
         return ineligible();
     }
     Ok(None)
@@ -3587,7 +3622,11 @@ fn check_relationship_member(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if result.and_then(|id| graph.structural_id(id)) != Some(&expected_id) {
+    if !same_key(
+        result.and_then(|id| graph.structural_id(id)),
+        &expected_id,
+        meter,
+    )? {
         return ineligible(application.body(&["result_type"]));
     }
     // The population link is the last check of the member: every earlier defect
@@ -4015,7 +4054,11 @@ fn check_model_member(
             let Some(receiver_id) = receiver.node_id(&application.node.node_id.package) else {
                 return ineligible(argument_at(0));
             };
-            if type_node(0).as_ref().and_then(|id| graph.structural_id(id)) != Some(&receiver_id) {
+            if !same_key(
+                type_node(0).as_ref().and_then(|id| graph.structural_id(id)),
+                &receiver_id,
+                meter,
+            )? {
                 return ineligible(argument_at(0));
             }
             if arguments.len().saturating_sub(1) != resolved.parameters.len() {
@@ -4059,7 +4102,11 @@ fn check_model_member(
     let Some(member_id) = member_type.node_id(&application.node.node_id.package) else {
         return ineligible(application.body(&["result_type"]));
     };
-    if result_type.and_then(|id| graph.structural_id(id)) != Some(&member_id) {
+    if !same_key(
+        result_type.and_then(|id| graph.structural_id(id)),
+        &member_id,
+        meter,
+    )? {
         return ineligible(application.body(&["result_type"]));
     }
     Ok(None)
@@ -9009,14 +9056,19 @@ mod tests {
         let bound = super::CheckedTerm::Reference {
             target: nodes[2].node_id.clone(),
         };
-        assert!(super::binder_matches_payload(&bound, &generated, &graph));
-        assert!(super::binder_matches_payload(&bound, &indexed, &graph));
-        assert!(!super::binder_matches_payload(
-            &bound,
-            &node_id('z'),
-            &graph
-        ));
         let mut meter = WorkMeter::new(100);
+        assert_eq!(
+            super::binder_matches_payload(&bound, &generated, &graph, &mut meter).ok(),
+            Some(true)
+        );
+        assert_eq!(
+            super::binder_matches_payload(&bound, &indexed, &graph, &mut meter).ok(),
+            Some(true)
+        );
+        assert_eq!(
+            super::binder_matches_payload(&bound, &node_id('z'), &graph, &mut meter).ok(),
+            Some(false)
+        );
         assert_eq!(
             super::conforms_to_type(
                 &generated,

@@ -256,3 +256,59 @@ fn node_id_order_equals_canonical_key_byte_order_on_real_packages() {
         }
     }
 }
+
+/// A full read of packages whose structural keys nest far past the inline
+/// comparison stack performs no uncharged `CheckedNodeId::cmp` spill: the
+/// debug guard panics on this thread at the first plain comparison that
+/// would allocate (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn deeply_nested_keys_read_without_a_plain_comparison_spill() {
+    use quire_contract_model::CheckedPackageV2ReadResult;
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            std::env::remove_var("QUIRE_FORBID_PLAIN_CMP_SPILL_ON");
+        }
+    }
+    let name = std::thread::current()
+        .name()
+        .expect("test threads are named")
+        .to_owned();
+    // The guard is armed: two separately read 40-level chains of keys compare
+    // past the inline stack, and the plain comparison panics on this thread.
+    let (wire, maps, _) = crate::checked_package_v2_map_type::map_chain_wire(40);
+    let read_key = || {
+        let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
+            &canonical(&wire),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(&wire),
+        ) else {
+            panic!("chain admits");
+        };
+        package
+            .structural_key_at(maps[39])
+            .expect("deepest map key")
+            .clone()
+    };
+    let (left, right) = (read_key(), read_key());
+    std::env::set_var("QUIRE_FORBID_PLAIN_CMP_SPILL_ON", &name);
+    let _armed = Guard;
+    let spilled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| left.cmp(&right)));
+    assert!(spilled.is_err(), "a deep plain comparison trips the guard");
+    for depth in [40_usize, 120] {
+        let (wire, maps, _) = crate::checked_package_v2_map_type::map_chain_wire(depth);
+        assert_eq!(maps.len(), depth);
+        std::env::set_var("QUIRE_FORBID_PLAIN_CMP_SPILL_ON", &name);
+        let _guard = Guard;
+        let result = CheckedPackageV2::read(
+            &canonical(&wire),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(&wire),
+        );
+        assert!(
+            matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+            "depth {depth} admits: {result:?}"
+        );
+    }
+}

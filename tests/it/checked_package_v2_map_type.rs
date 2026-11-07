@@ -1080,6 +1080,15 @@ fn append_refusal_map(wire: &mut Value, text: &Value, value: &Value) -> (usize, 
 }
 
 pub fn nested_bounded_quantity_wire() -> (Value, usize, usize, usize) {
+    let (wire, maps, bounded_position) = map_chain_wire(2);
+    (wire, maps[1], maps[0], bounded_position)
+}
+
+/// The bounded-quantity fixture under `depth` nested maps, innermost first:
+/// the wire, each map's position and the bounded quantity's position. Each
+/// map's id holds the one before it, so the structural keys nest `depth`
+/// levels.
+pub fn map_chain_wire(depth: usize) -> (Value, Vec<usize>, usize) {
     use crate::support::checked_package::{nominal_fixture_members, nominal_package};
     let members = nominal_fixture_members();
     let unit = node_id(
@@ -1122,14 +1131,19 @@ pub fn nested_bounded_quantity_wire() -> (Value, usize, usize, usize) {
             {"term":"binding","name":"max","value":{"term":"literal","type":rational,"value_kind":"rational","value":maximum}}
         ]}
     }));
-    let (inner_position, inner) = append_refusal_map(&mut wire, &text, &bounded);
-    let (outer_position, _) = append_refusal_map(&mut wire, &text, &inner);
+    let mut maps = Vec::with_capacity(depth);
+    let mut held = bounded;
+    for _ in 0..depth {
+        let (position, id) = append_refusal_map(&mut wire, &text, &held);
+        maps.push(position);
+        held = id;
+    }
     settle(&mut wire);
     index_fixture_node_ids(&mut wire);
     sort_map_fixture_dependencies(&mut wire);
     settle(&mut wire);
     crate::support::checked_package::rebuild_complete_source_map(&mut wire);
-    (wire, outer_position, inner_position, bounded_position)
+    (wire, maps, bounded_position)
 }
 
 fn nested_bounded_quantity_maps() -> (
