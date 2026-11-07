@@ -302,6 +302,13 @@ pub(super) fn materialize_on(
     input_fields: &[(&str, Value)],
     tick_unit: Option<Value>,
 ) -> (Value, usize) {
+    // The selected support document predates the explicit base bit on a
+    // source dimension. Complete monitor fixtures use the current V2 body.
+    for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+        if node["semantic_form"] == "dimension" && node["owner"]["kind"] == "source" {
+            node["body"]["base"] = json!(true);
+        }
+    }
     let added_from = wire["semantic_graph"]["nodes"].as_array().unwrap().len();
     let integer = find(&wire, "integer");
     let text = find(&wire, "text");
@@ -725,6 +732,14 @@ pub(super) fn materialize_on(
 
 /// An IR-owned selected monitor with model facts reachable through Inputs.
 pub(super) fn model_fact_monitor_with_variant(reach_variant: bool) -> (Value, Value) {
+    model_fact_monitor_with_status(reach_variant, "integer")
+}
+
+/// An IR-owned monitor fixture with an explicitly selected activation-status type.
+pub(super) fn model_fact_monitor_with_status(
+    reach_variant: bool,
+    activation_status: &str,
+) -> (Value, Value) {
     let mut wire = fixture_support::v2_all_families();
     let account = fixture_support::node_id("fixture/1515");
     wire["operation_effects"] = Value::Array(
@@ -916,7 +931,7 @@ pub(super) fn model_fact_monitor_with_variant(reach_variant: bool) -> (Value, Va
         aggregate(vec![]),
         "Rational",
     );
-    let facts = json!({
+    let mut facts = json!({
         "bindings":["clause","state","inputs","scope","results","init","on_event",
             "on_watermark","counter_width_bits","max_reading_gap","max_event_rate",
             "buffers","counter","tick_unit","uncertainty","on_gap","activation_capacity"],
@@ -942,6 +957,7 @@ pub(super) fn model_fact_monitor_with_variant(reach_variant: bool) -> (Value, Va
             {"subformula":2,"capacity":7,"reached":true}],
         "tick_unit":{"form":"unit","dimension":"Time","index":7}
     });
+    facts["state"]["activation_status"] = json!(activation_status);
     let account = find(&wire, "object_type");
     let mut input_fields = vec![
         ("receipt", record.clone()),

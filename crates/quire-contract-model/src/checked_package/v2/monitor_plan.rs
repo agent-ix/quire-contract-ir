@@ -22,6 +22,11 @@ use std::sync::Arc;
 mod reached_model_read;
 #[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
 mod selected_closure_walk;
+mod selected_type_closure;
+pub use selected_type_closure::{
+    SelectedMonitorClosureRows, SelectedMonitorTypeClosure, SelectedMonitorTypeClosureError,
+    SelectedMonitorTypeClosureErrorCode,
+};
 
 const ENTRY_SLOTS: [usize; 4] = [5, 6, 7, 15];
 

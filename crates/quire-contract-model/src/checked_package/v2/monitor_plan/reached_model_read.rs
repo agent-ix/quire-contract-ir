@@ -36,6 +36,8 @@ pub(super) struct ReachedProducerRows<'a> {
 pub(super) struct ReachedModelRead {
     pub(super) types: SelectedTypeDeclarations,
     pub(super) enums: Vec<SelectedModelEnumShapeRow>,
+    pub(super) identities: SelectedExactIdentities,
+    pub(super) reached: BTreeSet<CheckedNodeId>,
     pub(super) work: u64,
 }
 
@@ -783,6 +785,8 @@ impl CheckedMonitorPlanRef<'_> {
             Ok(ReachedModelRead {
                 types,
                 enums: selected_enums,
+                identities,
+                reached,
                 work,
             })
         })();
@@ -825,14 +829,145 @@ mod tests {
     use crate::checked_package::v2::{
         CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
     };
-    use crate::checked_package::v2::{SelectedExactDeclarationForm, SelectedExactIdentity};
+    use crate::checked_package::v2::{
+        ExactTypeProjectionErrorCode, SelectedExactDeclarationForm, SelectedExactIdentity,
+    };
     use ix_trace_rs::trace;
     use quire_exact::{
-        EffectiveId, MemberId, MemberOwner, NodeKey, OriginalDeclarationKey, PathSegment, UnitId,
+        CollectionKind, CollectionType, EffectiveId, Location, MemberId, MemberOwner, NodeKey,
+        Origin, OriginalDeclarationKey, PathSegment, Presence, Role, UnionMember, UnitId,
+        ValueType,
     };
+    use quire_semantic_value::declaration::{EqualityOperator, EqualitySchedule};
 
     fn admitted_monitor() -> CheckedPackageV2 {
         admitted_monitor_with_variant(false)
+    }
+
+    fn admitted_monitor_for_closure() -> CheckedPackageV2 {
+        admitted_monitor_for_closure_with_status("integer")
+    }
+
+    fn admitted_monitor_for_closure_with_status(status: &str) -> CheckedPackageV2 {
+        let (mut wire, document) =
+            monitor_plan_fixtures::model_fact_monitor_with_status(false, status);
+        let boolean = monitor_plan_fixtures::find(&wire, "boolean");
+        let equality = monitor_plan_fixtures::append(
+            &mut wire,
+            "expression",
+            "binary",
+            Some(&boolean),
+            serde_json::json!({"term":"application","operator":"binary",
+                "operation":{"identity":"quire.op.boolean.eq","laws":[],"leaves":[],
+                    "member":null,"mode":null},"result_type":boolean,
+                "arguments":[
+                    {"term":"literal","type":boolean,"value_kind":"boolean","value":true},
+                    {"term":"literal","type":boolean,"value_kind":"boolean","value":true}]}),
+            "monitor_equality",
+        );
+        let equality_position = monitor_plan_fixtures::position(&wire, &equality);
+        wire["semantic_graph"]["nodes"][equality_position]["occurrences"] =
+            serde_json::json!([{"role":"expression","ordinal":0}]);
+        let conditional_position = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|node| {
+                node["semantic_form"] == "conditional" && node["node_id"]["path"][2] == "on_gap"
+            })
+            .expect("on_gap conditional");
+        wire["semantic_graph"]["nodes"][conditional_position]["body"]["arguments"][0] =
+            monitor_plan_fixtures::reference(&equality);
+        wire["semantic_graph"]["nodes"][conditional_position]["dependencies"]
+            .as_array_mut()
+            .unwrap()
+            .push(equality.clone());
+        monitor_plan_fixtures::rekey(&mut wire, conditional_position);
+        if wire["checked_term_data"].is_null() {
+            wire["checked_term_data"] = serde_json::json!({
+                "equality_decisions":[],"protocol_locations":[],
+                "dispatch_tables":[],"probabilistic_claims":[]});
+        }
+        wire["checked_term_data"]["equality_decisions"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"application":equality,
+                "occurrence":{"role":"expression","ordinal":0},"term_path":[],
+                "operator":"equal","schedule":"plan",
+                "left":{"operand":0,"source_type":boolean,"conversion_target":null},
+                "right":{"operand":1,"source_type":boolean,"conversion_target":null},
+                "units":[],"enum_members":[]}));
+        let source = wire["lock"]["sources"][0].clone();
+        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            if node["node_tag"] != "composite_type"
+                || !matches!(
+                    node["semantic_form"].as_str(),
+                    Some("record" | "tuple" | "union")
+                )
+            {
+                continue;
+            }
+            let Some(name) = node["node_id"]["path"][2].as_str().map(str::to_owned) else {
+                continue;
+            };
+            node["owner"] = fixture_support::source_owner(&source);
+            node["declaration"] = serde_json::json!({"qualified_name":["Example",name]});
+            node["occurrences"] = serde_json::json!([{"role":"declaration","ordinal":0}]);
+        }
+        fixture_support::rebuild_complete_source_map(&mut wire);
+        fixture_support::refresh_identity(&mut wire);
+        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            node["dependencies"]
+                .as_array_mut()
+                .unwrap()
+                .sort_by(|a, b| {
+                    let a: CheckedNodeId = serde_json::from_value(a.clone()).unwrap();
+                    let b: CheckedNodeId = serde_json::from_value(b.clone()).unwrap();
+                    a.cmp(&b)
+                });
+        }
+        admit_wire(&wire, &document)
+    }
+
+    fn equality_rows(package: &CheckedPackageV2) -> Vec<crate::SelectedEqualityApplicationRow> {
+        let application = package.graph().nodes.iter().find(|node| {
+            matches!(node.node_id.path.get(2),
+                Some(crate::CheckedNodePathSegment::Name(name)) if name.as_ref() == "monitor_equality")
+        }).expect("reached monitor equality").node_id.clone();
+        let occurrence = crate::CheckedOccurrence {
+            role: crate::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        };
+        let source_map_entry = package
+            .source_map()
+            .iter()
+            .find(|row| {
+                row.node_id == application
+                    && row.role == occurrence.role
+                    && row.ordinal == occurrence.ordinal
+            })
+            .expect("equality source occurrence")
+            .clone();
+        let key = NodeKey::new(
+            package.name(),
+            vec![PathSegment::Text("monitor-equality".into())],
+            0,
+        )
+        .unwrap();
+        vec![crate::SelectedEqualityApplicationRow::new(
+            application,
+            occurrence,
+            source_map_entry,
+            key.clone(),
+            Location::new(key, Origin::new(Role::from("expression"), 0)),
+        )]
+    }
+
+    #[trace("TC-470", "FR-357-AC-1")]
+    #[test]
+    fn source_owned_monitor_closure_fixture_admits() {
+        let package = admitted_monitor_for_closure();
+        assert_eq!(package.monitor_plans().len(), 1);
     }
 
     fn admitted_monitor_with_variant(reach_variant: bool) -> CheckedPackageV2 {
@@ -1028,6 +1163,661 @@ mod tests {
                 source_unit(package, "Second"),
             ],
         )
+    }
+
+    fn source_rows(
+        package: &CheckedPackageV2,
+    ) -> (
+        Vec<crate::SelectedSourceRecordRow>,
+        Vec<crate::SelectedSourceTupleRow>,
+        Vec<crate::SelectedSourceUnionRow>,
+        Vec<crate::SelectedSourceCollectionRow>,
+    ) {
+        use crate::{
+            SelectedSourceCollectionRow, SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
+            SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedTuplePositionRow,
+            SelectedUnionMemberRow,
+        };
+        let source = &package.lock().sources[0];
+        let mut records = Vec::new();
+        let mut tuples = Vec::new();
+        let mut unions = Vec::new();
+        let mut collections = Vec::new();
+        for node in &package.graph().nodes {
+            let Some(CheckedTerm::Aggregate { members }) = package.term(&node.node_id) else {
+                continue;
+            };
+            let qualified = node
+                .declaration
+                .as_ref()
+                .map(|declaration| declaration.qualified_name.clone());
+            match (package.node_kind(&node.node_id), qualified) {
+                (
+                    Some(CheckedNodeKind::CompositeType(super::super::CompositeTypeForm::Record)),
+                    Some(qualified_declaration),
+                ) => {
+                    let members = members
+                        .iter()
+                        .map(|term| {
+                            let CheckedTerm::Binding { name, value } = term else {
+                                panic!("record field")
+                            };
+                            let (presence, target) = match value.as_ref() {
+                                CheckedTerm::Reference { target } => {
+                                    (Presence::Required, target.clone())
+                                }
+                                CheckedTerm::Aggregate { members } => {
+                                    let [CheckedTerm::Binding { value, .. }] = members.as_slice()
+                                    else {
+                                        panic!("optional field")
+                                    };
+                                    let CheckedTerm::Reference { target } = value.as_ref() else {
+                                        panic!("optional target")
+                                    };
+                                    (Presence::Optional, target.clone())
+                                }
+                                _ => panic!("record field reference"),
+                            };
+                            SelectedSourceRecordMemberRow {
+                                original_member_identity: name.to_string().into(),
+                                admitted_name: name.to_string().into(),
+                                presence,
+                                type_node: target,
+                                value_type: ValueType::Integer,
+                            }
+                        })
+                        .collect();
+                    records.push(SelectedSourceRecordRow {
+                        structural_node: node.node_id.clone(),
+                        source_authority: source.authority.clone(),
+                        source_identity: source.identity.clone(),
+                        qualified_declaration,
+                        record_key: key(&format!("fixture-record-{}", records.len())),
+                        members,
+                    });
+                }
+                (
+                    Some(CheckedNodeKind::CompositeType(super::super::CompositeTypeForm::Tuple)),
+                    Some(qualified_declaration),
+                ) => {
+                    let positions = members
+                        .iter()
+                        .enumerate()
+                        .map(|(ordinal, term)| {
+                            let CheckedTerm::Reference { target } = term else {
+                                panic!("tuple position")
+                            };
+                            SelectedTuplePositionRow {
+                                ordinal: ordinal as u64,
+                                type_node: target.clone(),
+                                value_type: ValueType::Integer,
+                            }
+                        })
+                        .collect();
+                    tuples.push(SelectedSourceTupleRow {
+                        structural_node: node.node_id.clone(),
+                        source_authority: source.authority.clone(),
+                        source_identity: source.identity.clone(),
+                        qualified_declaration,
+                        type_handle: key(&format!("fixture-tuple-{}", tuples.len())),
+                        positions,
+                    });
+                }
+                (
+                    Some(CheckedNodeKind::CompositeType(super::super::CompositeTypeForm::Union)),
+                    Some(qualified_declaration),
+                ) => {
+                    let settled = key("outcome-settled");
+                    let members = members
+                        .iter()
+                        .map(|term| {
+                            let CheckedTerm::Binding { name, value } = term else {
+                                panic!("union case")
+                            };
+                            let CheckedTerm::Aggregate { members } = value.as_ref() else {
+                                panic!("union payload")
+                            };
+                            let payload_nodes = members
+                                .iter()
+                                .map(|item| {
+                                    let CheckedTerm::Reference { target } = item else {
+                                        panic!("union payload type")
+                                    };
+                                    target.clone()
+                                })
+                                .collect::<Vec<_>>();
+                            SelectedUnionMemberRow::new(
+                                UnionMember::from_admitted(settled.clone(), name.as_ref()).unwrap(),
+                                payload_nodes.clone(),
+                                vec![ValueType::Integer; payload_nodes.len()],
+                            )
+                        })
+                        .collect();
+                    unions.push(SelectedSourceUnionRow::new(
+                        node.node_id.clone(),
+                        source.authority.clone(),
+                        source.identity.clone(),
+                        qualified_declaration,
+                        key("outcome-handle"),
+                        settled,
+                        members,
+                    ));
+                }
+                (
+                    Some(CheckedNodeKind::CompositeType(super::super::CompositeTypeForm::Sequence)),
+                    None,
+                ) => {
+                    let [CheckedTerm::Reference { target }] = members.as_slice() else {
+                        continue;
+                    };
+                    collections.push(SelectedSourceCollectionRow {
+                        structural_node: node.node_id.clone(),
+                        base_node: node.node_id.clone(),
+                        element_node: target.clone(),
+                        value_type: ValueType::collection(CollectionType::new(
+                            CollectionKind::Sequence,
+                            ValueType::Integer,
+                            None,
+                        )),
+                    });
+                }
+                _ => {}
+            }
+        }
+        for row in &mut collections {
+            let element = &row.element_node;
+            let value = records
+                .iter()
+                .find(|record| &record.structural_node == element)
+                .map(|record| ValueType::Composite(record.record_key.clone()))
+                .or_else(|| {
+                    tuples
+                        .iter()
+                        .find(|tuple| &tuple.structural_node == element)
+                        .map(|tuple| ValueType::Composite(tuple.type_handle.clone()))
+                })
+                .or_else(|| {
+                    unions
+                        .iter()
+                        .find(|union| &union.structural_node == element)
+                        .map(|union| ValueType::Composite(union.type_handle.clone()))
+                })
+                .unwrap_or(ValueType::Integer);
+            row.value_type =
+                ValueType::collection(CollectionType::new(CollectionKind::Sequence, value, None));
+        }
+        (records, tuples, unions, collections)
+    }
+
+    #[trace("TC-470", "FR-357-AC-1", "FR-357-AC-3")]
+    #[test]
+    fn selected_monitor_closure_reuses_one_meter_for_reached_model_facts() {
+        let package = admitted_monitor_for_closure();
+        let equality_apps = equality_rows(&package);
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let (source_records, source_tuples, source_unions, source_collections) =
+            source_rows(&package);
+        let rows = super::super::selected_type_closure::SelectedMonitorClosureRows {
+            declarations: &declarations,
+            fields: &fields,
+            model_tuples: &[],
+            source_units: &source_units,
+            model_enum_declarations: &[],
+            model_enum_members: &[],
+            model_enum_shapes: &[],
+            source_records: &source_records,
+            source_tuples: &source_tuples,
+            source_unions: &source_unions,
+            source_enums: &[],
+            source_collections: &source_collections,
+            equality_applications: &equality_apps,
+            equality_facts: &[],
+        };
+        let plan = package.monitor_plans().next().unwrap();
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let closure = plan
+            .project_selected_type_closure(rows, &mut budget)
+            .unwrap();
+        assert_eq!(closure.model_types().records().len(), 1);
+        assert_eq!(closure.model_types().objects().len(), 1);
+        assert_eq!(closure.plan().state(), plan.state());
+        assert_eq!(closure.plan().init().node_id(), plan.init().node_id());
+        assert_eq!(closure.plan().on_event().body(), plan.on_event().body());
+        assert_eq!(
+            closure.plan().on_watermark().result_type(),
+            plan.on_watermark().result_type()
+        );
+        assert_eq!(closure.plan().on_gap().parameter_types().len(), 2);
+        assert!(!closure.clocks().is_empty());
+        assert_eq!(closure.clocks()[0].clause(), plan.clause());
+        assert_eq!(closure.equalities().len(), 1);
+        let equality = &closure.equalities()[0];
+        assert_eq!(equality.id.application, equality_apps[0].application);
+        assert_eq!(equality.id.occurrence, equality_apps[0].occurrence);
+        assert_eq!(equality.decision.application(), &equality_apps[0].node_key);
+        assert_eq!(equality.decision.operator(), EqualityOperator::Equal);
+        assert_eq!(equality.decision.schedule(), EqualitySchedule::Plan);
+        assert_eq!(equality.decision.left().source(), &ValueType::Boolean);
+        assert_eq!(equality.decision.right().source(), &ValueType::Boolean);
+        let union = closure
+            .identities()
+            .source_union_rows()
+            .next()
+            .expect("reached union");
+        assert_eq!(union.members, source_unions[0].members);
+        assert_eq!(union.type_handle, source_unions[0].type_handle);
+        let projected_union = closure
+            .exact_types()
+            .iter()
+            .find(|projection| projection.type_node() == &union.structural_node)
+            .expect("reached union Exact type");
+        assert_eq!(
+            projected_union.value_type(),
+            &ValueType::Composite(union.type_handle.clone())
+        );
+        let record = closure
+            .identities()
+            .source_record_rows()
+            .find(|row| {
+                row.qualified_declaration
+                    .last()
+                    .is_some_and(|name| name.as_ref() == "Result")
+            })
+            .expect("reached result record");
+        assert_eq!(record.members.len(), 2);
+        assert_eq!(record.members[0].admitted_name.as_ref(), "instance");
+        assert_eq!(record.members[1].admitted_name.as_ref(), "outcome");
+        assert_eq!(record.members[1].value_type, ValueType::Integer);
+        let used = budget.consumed();
+        assert_eq!(closure.work(), used.work);
+        let mut model_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        plan.read_reached_model_facts(
+            ReachedProducerRows {
+                declarations: &declarations,
+                fields: &fields,
+                tuples: &[],
+                source_units: &source_units,
+                enum_declarations: &[],
+                enum_members: &[],
+                enum_shapes: &[],
+            },
+            &mut model_budget,
+        )
+        .expect("individually affordable reached read");
+        let mut source_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        SelectedExactIdentities::empty()
+            .with_source_record_rows(&package, source_records.clone(), &mut source_budget)
+            .expect("individually affordable source join");
+        let mut equality_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let native_equality = package
+            .admitted_equality(
+                &equality_apps[0].application,
+                &equality_apps[0].occurrence,
+                &equality_apps,
+                &[],
+                &source_units,
+                &mut equality_budget,
+            )
+            .expect("individually affordable equality read");
+        assert_eq!(native_equality, equality.decision);
+        let combined_short = model_budget
+            .consumed()
+            .work
+            .max(source_budget.consumed().work)
+            .max(equality_budget.consumed().work);
+        assert!(combined_short < used.work);
+        let mut combined_budget = NativeJoinBudget::new(combined_short, used.storage);
+        assert_eq!(
+            plan.project_selected_type_closure(rows, &mut combined_budget)
+                .expect_err("combined charge refuses")
+                .code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::WorkLimit
+        );
+        let mut exact = NativeJoinBudget::new(used.work, used.storage);
+        assert_eq!(
+            plan.project_selected_type_closure(rows, &mut exact)
+                .unwrap()
+                .exact_types()
+                .len(),
+            closure.exact_types().len()
+        );
+        let mut short = NativeJoinBudget::new(used.work - 1, used.storage);
+        assert_eq!(
+            plan.project_selected_type_closure(rows, &mut short)
+                .expect_err("work refusal")
+                .code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::WorkLimit
+        );
+        assert!(short.first_unpaid_locus().is_some());
+        let mut short_storage = NativeJoinBudget::new(used.work, used.storage - 1);
+        assert_eq!(
+            plan.project_selected_type_closure(rows, &mut short_storage)
+                .expect_err("storage refusal")
+                .code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::StorageLimit
+        );
+        assert!(short_storage.first_unpaid_locus().is_some());
+        let mut zero_storage = NativeJoinBudget::new(used.work, 0);
+        let compact = plan
+            .project_selected_type_closure(rows, &mut zero_storage)
+            .expect_err("zero storage refusal");
+        assert_eq!(
+            compact.code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::StorageLimit
+        );
+        assert_eq!(compact.at, None);
+        assert_eq!(compact.denied.unwrap().kind, NativeJoinChargeKind::Storage);
+        let cloned = package.clone();
+        let mut cloned_budget = NativeJoinBudget::new(used.work, used.storage);
+        let cloned_closure = cloned
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .project_selected_type_closure(rows, &mut cloned_budget)
+            .unwrap();
+        assert_eq!(cloned_budget.consumed(), used);
+        assert_eq!(cloned_closure.model_types(), closure.model_types());
+        assert_eq!(cloned_closure.identities(), closure.identities());
+        assert_eq!(cloned_closure.exact_types(), closure.exact_types());
+        assert_eq!(cloned_closure.equalities(), closure.equalities());
+    }
+
+    #[trace("TC-470", "FR-357-AC-3")]
+    #[test]
+    fn selected_monitor_closure_precharges_variable_equality_key_and_location() {
+        use super::super::selected_type_closure::SelectedMonitorClosureRows;
+
+        let package = admitted_monitor_for_closure();
+        let applications = equality_rows(&package);
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let (source_records, source_tuples, source_unions, source_collections) =
+            source_rows(&package);
+        let plan = package.monitor_plans().next().unwrap();
+        let read = |apps: &[crate::SelectedEqualityApplicationRow],
+                    budget: &mut NativeJoinBudget| {
+            plan.project_selected_type_closure(
+                SelectedMonitorClosureRows {
+                    declarations: &declarations,
+                    fields: &fields,
+                    model_tuples: &[],
+                    source_units: &source_units,
+                    model_enum_declarations: &[],
+                    model_enum_members: &[],
+                    model_enum_shapes: &[],
+                    source_records: &source_records,
+                    source_tuples: &source_tuples,
+                    source_unions: &source_unions,
+                    source_enums: &[],
+                    source_collections: &source_collections,
+                    equality_applications: apps,
+                    equality_facts: &[],
+                },
+                budget,
+            )
+        };
+        let mut short_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        read(&applications, &mut short_budget).expect("short key closure");
+        let short_charge = short_budget.consumed();
+        let width = usize::try_from(short_charge.storage).unwrap() + 1024;
+        let long_key = NodeKey::new(
+            package.name(),
+            vec![PathSegment::Text("x".repeat(width))],
+            0,
+        )
+        .unwrap();
+        let mut long_applications = applications.clone();
+        long_applications[0].node_key = long_key.clone();
+        long_applications[0].location =
+            Location::new(long_key.clone(), Origin::new(Role::from("expression"), 0));
+        let mut ample = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let closure = read(&long_applications, &mut ample).expect("long key closure");
+        let exact_charge = ample.consumed();
+        assert_eq!(closure.equalities()[0].decision.application(), &long_key);
+        assert!(exact_charge.storage >= short_charge.storage + (width as u64 - 16) * 2);
+        assert!(exact_charge.work > short_charge.work);
+        let mut exact = NativeJoinBudget::new(exact_charge.work, exact_charge.storage);
+        assert_eq!(
+            read(&long_applications, &mut exact).unwrap().equalities(),
+            closure.equalities()
+        );
+
+        let mut probe = NativeJoinBudget::new(exact_charge.work, short_charge.storage);
+        let refusal =
+            read(&long_applications, &mut probe).expect_err("long key exceeds short allowance");
+        assert_eq!(
+            refusal.code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::StorageLimit
+        );
+        let denied = refusal.denied.expect("first unpaid key bytes");
+        assert_eq!(denied.kind, NativeJoinChargeKind::Storage);
+        assert_eq!(denied.amount, width as u128 + 1);
+        assert_eq!(
+            refusal.denied_locus.unwrap().source,
+            NativeJoinLocusSource::ReachedRow(0)
+        );
+        assert_eq!(
+            refusal.denied_locus.unwrap().form,
+            "equality_application_selection"
+        );
+        assert_eq!(refusal.at, None);
+        let one_below = probe.consumed().storage + u64::try_from(denied.amount).unwrap() - 1;
+        let mut one_below_budget = NativeJoinBudget::new(exact_charge.work, one_below);
+        let one_below_refusal = read(&long_applications, &mut one_below_budget)
+            .expect_err("one below key charge stops before selected-row clone");
+        assert_eq!(one_below_refusal.denied, Some(denied));
+        assert_eq!(one_below_refusal.denied_locus, refusal.denied_locus);
+        assert_eq!(
+            one_below_budget.consumed().storage,
+            probe.consumed().storage
+        );
+    }
+
+    #[trace("TC-470", "FR-357-AC-2", "FR-357-AC-3")]
+    #[test]
+    fn selected_monitor_closure_refuses_reached_rows_and_ignores_unreached_rows() {
+        use super::super::selected_type_closure::{
+            SelectedMonitorClosureRows, SelectedMonitorTypeClosureErrorCode as Code,
+        };
+        let package = admitted_monitor_for_closure();
+        let equality_apps = equality_rows(&package);
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let (source_records, source_tuples, source_unions, source_collections) =
+            source_rows(&package);
+        let plan = package.monitor_plans().next().unwrap();
+        let read = |records: &[crate::SelectedSourceRecordRow]| {
+            let rows = SelectedMonitorClosureRows {
+                declarations: &declarations,
+                fields: &fields,
+                model_tuples: &[],
+                source_units: &source_units,
+                model_enum_declarations: &[],
+                model_enum_members: &[],
+                model_enum_shapes: &[],
+                source_records: records,
+                source_tuples: &source_tuples,
+                source_unions: &source_unions,
+                source_enums: &[],
+                source_collections: &source_collections,
+                equality_applications: &equality_apps,
+                equality_facts: &[],
+            };
+            plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
+                .map(|closure| (closure.work(), closure.identities().clone()))
+        };
+        let (baseline_work, baseline) = read(&source_records).expect("complete fixture");
+        let read_equalities = |applications: &[crate::SelectedEqualityApplicationRow]| {
+            let rows = SelectedMonitorClosureRows {
+                declarations: &declarations,
+                fields: &fields,
+                model_tuples: &[],
+                source_units: &source_units,
+                model_enum_declarations: &[],
+                model_enum_members: &[],
+                model_enum_shapes: &[],
+                source_records: &source_records,
+                source_tuples: &source_tuples,
+                source_unions: &source_unions,
+                source_enums: &[],
+                source_collections: &source_collections,
+                equality_applications: applications,
+                equality_facts: &[],
+            };
+            plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
+                .map(|closure| (closure.work(), closure.equalities().to_vec()))
+        };
+        let (equality_work, equality_values) =
+            read_equalities(&equality_apps).expect("reached equality");
+        assert_eq!(equality_values.len(), 1);
+        let missing_equality = read_equalities(&[]).expect_err("reached equality requires row");
+        assert_eq!(
+            missing_equality.code,
+            Code::Equality(crate::AdmittedEqualityReadErrorCode::UnavailableEqualityWitness)
+        );
+        assert_eq!(
+            missing_equality.at.as_deref(),
+            Some(&equality_apps[0].application)
+        );
+        assert_eq!(
+            missing_equality.occurrence,
+            Some(equality_apps[0].occurrence.clone())
+        );
+        let mut stale_equality = equality_apps.clone();
+        stale_equality[0].node_key = NodeKey::new(
+            package.name(),
+            vec![PathSegment::Text("stale-equality".into())],
+            0,
+        )
+        .unwrap();
+        let stale_error = read_equalities(&stale_equality).expect_err("stale equality row");
+        assert_eq!(
+            stale_error.code,
+            Code::Equality(crate::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness)
+        );
+        let mut with_unreached_equality = equality_apps.clone();
+        let mut irrelevant_equality = equality_apps[0].clone();
+        irrelevant_equality.application.package = "foreign/package".into();
+        with_unreached_equality.push(irrelevant_equality);
+        let (extra_work, same_equalities) = read_equalities(&with_unreached_equality)
+            .expect("unreached unsupported equality row ignored");
+        assert_eq!(same_equalities, equality_values);
+        assert!(extra_work > equality_work);
+        let mut missing = source_records.clone();
+        missing.retain(|row| {
+            row.qualified_declaration
+                .last()
+                .is_none_or(|name| name.as_ref() != "Result")
+        });
+        let error = read(&missing).expect_err("reached record requires row");
+        assert_eq!(
+            error.code,
+            Code::Exact(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
+        );
+        assert!(error.at.is_some());
+        let missing_rows = SelectedMonitorClosureRows {
+            declarations: &declarations,
+            fields: &fields,
+            model_tuples: &[],
+            source_units: &source_units,
+            model_enum_declarations: &[],
+            model_enum_members: &[],
+            model_enum_shapes: &[],
+            source_records: &missing,
+            source_tuples: &source_tuples,
+            source_unions: &source_unions,
+            source_enums: &[],
+            source_collections: &source_collections,
+            equality_applications: &equality_apps,
+            equality_facts: &[],
+        };
+        let mut diagnostic_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let semantic = plan
+            .project_selected_type_closure(missing_rows, &mut diagnostic_budget)
+            .expect_err("complete diagnostic");
+        assert_eq!(
+            semantic.code,
+            Code::Exact(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
+        );
+        let mut short_diagnostic =
+            NativeJoinBudget::new(u64::MAX, diagnostic_budget.consumed().storage - 1);
+        let compact = plan
+            .project_selected_type_closure(missing_rows, &mut short_diagnostic)
+            .expect_err("diagnostic storage refusal");
+        assert_eq!(
+            compact.code,
+            Code::Exact(ExactTypeProjectionErrorCode::ExhaustedStorage)
+        );
+        assert_eq!(compact.at, None);
+        assert!(compact.denied_locus.is_some());
+        let mut foreign = source_records.clone();
+        foreign[0].source_identity = "other/source".into();
+        let error = read(&foreign).expect_err("foreign selected source refuses");
+        assert_eq!(
+            error.code,
+            Code::Exact(ExactTypeProjectionErrorCode::MismatchedIdentityWitness)
+        );
+        assert_eq!(error.at.as_deref(), Some(&foreign[0].structural_node));
+        let mut stale = source_records.clone();
+        stale[0].members[0].type_node = plan.state().clone();
+        let error = read(&stale).expect_err("stale member type refuses");
+        assert_eq!(
+            error.code,
+            Code::Exact(ExactTypeProjectionErrorCode::MismatchedIdentityWitness)
+        );
+        let mut with_unreached = source_records.clone();
+        let mut irrelevant = source_records[0].clone();
+        irrelevant.structural_node = CheckedNodeId {
+            package: "foreign/package".into(),
+            path: vec![crate::CheckedNodePathSegment::Name("unsupported".into())],
+            ordinal: 0,
+        };
+        irrelevant.source_identity = "unsupported/source".into();
+        with_unreached.push(irrelevant);
+        let (work, selected) = read(&with_unreached).expect("unreached row ignored");
+        assert_eq!(selected, baseline);
+        assert!(
+            work > baseline_work,
+            "unreached row lookup still charges inspection"
+        );
+        let unrepresentable = admitted_monitor_for_closure_with_status("text");
+        let unrepresentable_equalities = equality_rows(&unrepresentable);
+        let (unrepresentable_declarations, unrepresentable_fields, unrepresentable_units) =
+            producer_rows(&unrepresentable);
+        let (
+            unrepresentable_records,
+            unrepresentable_tuples,
+            unrepresentable_unions,
+            unrepresentable_collections,
+        ) = source_rows(&unrepresentable);
+        let error = unrepresentable
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .project_selected_type_closure(
+                SelectedMonitorClosureRows {
+                    declarations: &unrepresentable_declarations,
+                    fields: &unrepresentable_fields,
+                    model_tuples: &[],
+                    source_units: &unrepresentable_units,
+                    model_enum_declarations: &[],
+                    model_enum_members: &[],
+                    model_enum_shapes: &[],
+                    source_records: &unrepresentable_records,
+                    source_tuples: &unrepresentable_tuples,
+                    source_unions: &unrepresentable_unions,
+                    source_enums: &[],
+                    source_collections: &unrepresentable_collections,
+                    equality_applications: &unrepresentable_equalities,
+                    equality_facts: &[],
+                },
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .expect_err("unrepresentable reached type");
+        assert_eq!(
+            error.code,
+            Code::Exact(ExactTypeProjectionErrorCode::UnsupportedExactType),
+            "first native locus: {:?}",
+            error.at
+        );
     }
 
     /// Trace: FR-357, FR-357-AC-13. The admitted root reaches exactly the

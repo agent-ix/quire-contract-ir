@@ -306,6 +306,7 @@ mod tests {
     use super::*;
     #[cfg(feature = "qspec-conformance")]
     use crate::checked_package::v2::{CheckedPackageReadLimits, CheckedPackageV2ReadResult};
+    use ix_trace_rs::trace;
 
     #[cfg(feature = "qspec-conformance")]
     fn admitted_seeded_package(extra: bool) -> CheckedPackageV2 {
@@ -524,6 +525,7 @@ mod tests {
 
     /// Trace: FR-357-AC-12. A wide ordinary body stops on its first
     /// uncharged child; the visitor does not need a worklist entry per child.
+    #[trace("TC-470", "FR-357-AC-3")]
     #[test]
     fn wide_ordinary_term_stops_at_low_limit() {
         let id = CheckedNodeId {
@@ -586,6 +588,7 @@ mod tests {
     }
 
     /// Trace: FR-357-AC-12.
+    #[trace("TC-470", "FR-357-AC-3")]
     #[test]
     fn ordinary_typed_term_walk_uses_an_iterative_stack() {
         let id = CheckedNodeId {
