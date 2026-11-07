@@ -1833,7 +1833,11 @@ mod node_order_tests {
         let mut ids = Vec::new();
         for depth in [0, 1, 2, 7, 15, 16, 17, 40] {
             for (at, leaf) in leaves.iter().enumerate() {
-                ids.push(nested(depth, leaf.clone(), u64::try_from(at % 2).unwrap_or(0)));
+                ids.push(nested(
+                    depth,
+                    leaf.clone(),
+                    u64::try_from(at % 2).unwrap_or(0),
+                ));
             }
         }
         for left in &ids {

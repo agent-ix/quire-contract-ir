@@ -460,6 +460,9 @@ impl CheckedPackageV2 {
                     CheckedUnsupportedCompositeOperand::ApplicationSubterm,
                 ));
             }
+            // An accessor of the admitted package, outside the read: its
+            // visited set is its own.
+            let mut seen = std::collections::BTreeSet::new();
             let resolution = super::operations::resolve_family_with_selected(
                 &child.semantic_type,
                 |visit| match visit {
@@ -474,6 +477,7 @@ impl CheckedPackageV2 {
                     }
                 },
                 |id| self.models.variant_family(id),
+                &mut |id| seen.insert(id.clone()),
             )?;
             let family = match resolution {
                 super::operations::FamilyResolution::Family(family) => Some(family),

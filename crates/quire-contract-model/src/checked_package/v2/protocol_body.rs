@@ -1724,6 +1724,8 @@ fn integer_value(term: &CheckedTerm) -> Option<Numeral<'_>> {
 struct Numeral<'a> {
     negative: bool,
     digits: Digits<'a>,
+    /// The literal's own spelling, when it is one.
+    text: Option<&'a str>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1749,6 +1751,7 @@ impl<'a> Numeral<'a> {
         Self {
             negative: false,
             digits: Digits::Inline(buffer, at),
+            text: None,
         }
     }
 
@@ -1768,7 +1771,32 @@ impl<'a> Numeral<'a> {
         valid.then_some(Self {
             negative,
             digits: Digits::Text(digits),
+            text: Some(text),
         })
+    }
+
+    /// Whether `self > other`. Two canonical spellings (an optional `-`, no
+    /// leading zero, no `-0`) are compared as quire-exact integers built on
+    /// the read's budget; any other spelling is ordered by its digits.
+    fn exceeds(&self, other: &Self, meter: &mut WorkMeter) -> Result<bool, ValidationFailure> {
+        fn canonical(text: &str) -> bool {
+            let digits = text.strip_prefix('-').unwrap_or(text);
+            match digits.as_bytes() {
+                [b'0'] => digits.len() == text.len(),
+                [b'1'..=b'9', rest @ ..] => rest.iter().all(u8::is_ascii_digit),
+                _ => false,
+            }
+        }
+        if let (Some(left), Some(right)) = (self.text, other.text) {
+            if canonical(left) && canonical(right) {
+                if let (Some(left), Some(right)) =
+                    (meter.exact_integer(left)?, meter.exact_integer(right)?)
+                {
+                    return Ok(left > right);
+                }
+            }
+        }
+        Ok(self > other)
     }
 
     fn significant(&self) -> impl Iterator<Item = u8> + '_ {
@@ -2436,7 +2464,7 @@ fn check_control_prefix(
             ) else {
                 return Err(check.refuse(Code::MalformedWire, None, check.argument_path(2)));
             };
-            if lower > upper {
+            if lower.exceeds(&upper, meter)? {
                 return Err(check.refuse_with_detail(
                     Code::IllTyped,
                     Cause::TypeMismatch,
@@ -2634,7 +2662,7 @@ fn check_compensation(
     ) else {
         return Err(check.refuse(Code::MalformedWire, None, check.argument_path(8)));
     };
-    if lower > upper {
+    if lower.exceeds(&upper, meter)? {
         return Err(check.refuse_with_detail(
             Code::IllTyped,
             Cause::TypeMismatch,
@@ -3086,8 +3114,9 @@ fn collect_protocol_membership(
     index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(Vec<Option<usize>>, Vec<bool>), ValidationFailure> {
-    let mut owners = vec![None; nodes.len()];
-    let mut repeated = vec![false; nodes.len()];
+    meter.at_node(0, "protocol");
+    let mut owners = meter.filled(nodes.len(), None)?;
+    let mut repeated = meter.filled(nodes.len(), false)?;
     let mut pending = Vec::new();
     for &clause in index.values() {
         if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
@@ -3177,7 +3206,8 @@ pub(super) fn validate_temporal_fairness(
         .iter()
         .find(|selection| selection.role == CheckedSelectionRole::ProtocolProfile)
         .map(|selection| &selection.definition);
-    let mut validated = vec![None; graph.nodes.len()];
+    meter.at_node(0, "protocol");
+    let mut validated = meter.filled(graph.nodes.len(), None)?;
     for &position in graph.index.values() {
         let Some(CheckedNodeKind::Protocol(form)) = graph.kinds.get(position).copied() else {
             continue;
@@ -3270,7 +3300,8 @@ fn validate_protocol_membership(
         meter,
     )?;
 
-    let mut queue_count = vec![0u8; nodes.len()];
+    meter.at_node(0, "protocol");
+    let mut queue_count = meter.filled(nodes.len(), 0u8)?;
     for &position in index.values() {
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::Queue)) {
             continue;
@@ -5874,8 +5905,13 @@ pub(super) fn validate_protocol_nodes(
         .any(|selection| selection.role == CheckedSelectionRole::TemporalProfile);
 
     // Placement is one complete pass, so it precedes every operator defect.
-    let mut validated = vec![None; nodes.len()];
+    meter.at_node(0, "protocol");
+    let mut validated = meter.filled(nodes.len(), None)?;
     for &position in index.values() {
+        meter.at_node(
+            position,
+            super::graph_storage::node_form(&nodes[position].node_tag),
+        );
         if matches!(
             terms.get(position).and_then(Option::as_ref),
             Some(CheckedTerm::Application {
@@ -5930,6 +5966,7 @@ pub(super) fn validate_protocol_nodes(
             continue;
         }
         let node = &nodes[position];
+        meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
         meter.charge(1, || node_pointer(position).key("body"))?;
         let Some(body) = terms.get(position).and_then(Option::as_ref) else {
             return Err(body_defect(

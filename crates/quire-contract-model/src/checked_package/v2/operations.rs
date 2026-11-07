@@ -2061,13 +2061,18 @@ fn resolve_family_with_lookup(
     index: &GraphIndex<'_>,
     fast_index: Option<&FlatWireIndex<'_>>,
 ) -> Option<&'static str> {
-    let result = resolve_family_with(type_id, |visit| {
-        Ok::<_, std::convert::Infallible>(match visit {
-            FamilyVisit::Node(id) => operand_position(id, index, fast_index)
-                .and_then(|position| Some((nodes.get(position)?, *kinds.get(position)?))),
-            FamilyVisit::Forward => None,
-        })
-    });
+    index.begin_walk();
+    let result = resolve_family_with(
+        type_id,
+        |visit| {
+            Ok::<_, std::convert::Infallible>(match visit {
+                FamilyVisit::Node(id) => operand_position(id, index, fast_index)
+                    .and_then(|position| Some((nodes.get(position)?, *kinds.get(position)?))),
+                FamilyVisit::Forward => None,
+            })
+        },
+        &mut |id| index.first_visit(id),
+    );
     match result {
         Ok(FamilyResolution::Family(family)) => Some(family),
         Ok(FamilyResolution::NoFamily | FamilyResolution::Malformed(_)) => None,
@@ -2103,6 +2108,7 @@ fn resolve_family_from_selected_with_lookup(
     fast_index: Option<&FlatWireIndex<'_>>,
     owners: &ModelOwners<'_>,
 ) -> Option<&'static str> {
+    index.begin_walk();
     let result = resolve_family_with_selected(
         type_id,
         |visit| {
@@ -2113,6 +2119,7 @@ fn resolve_family_from_selected_with_lookup(
             })
         },
         |id| owners.variant_family(id),
+        &mut |id| index.first_visit(id),
     );
     match result {
         Ok(FamilyResolution::Family(family)) => Some(family),
@@ -2167,8 +2174,9 @@ pub(super) fn resolve_family_with<'a, E, Body: NominalEnumOrder + 'a>(
         FamilyVisit<'_>,
     )
         -> Result<Option<(&'a super::CheckedSemanticNodeV2<Body>, CheckedNodeKind)>, E>,
+    first_visit: &mut dyn FnMut(&CheckedNodeId) -> bool,
 ) -> Result<FamilyResolution, E> {
-    resolve_family_with_selected(type_id, visit, |_| None)
+    resolve_family_with_selected(type_id, visit, |_| None, first_visit)
 }
 
 pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
@@ -2180,14 +2188,14 @@ pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
         E,
     >,
     mut selected_family: impl FnMut(&CheckedNodeId) -> Option<&'static str>,
+    first_visit: &mut dyn FnMut(&CheckedNodeId) -> bool,
 ) -> Result<FamilyResolution, E> {
-    let mut seen = BTreeSet::new();
     let mut current = type_id;
     loop {
         let Some((node, kind)) = visit(FamilyVisit::Node(current))? else {
             return Ok(FamilyResolution::Malformed(current.clone()));
         };
-        if !seen.insert(node.node_id.clone()) {
+        if !first_visit(&node.node_id) {
             return Ok(FamilyResolution::Malformed(node.node_id.clone()));
         }
         if let Some(family) = selected_family(&node.node_id) {

@@ -410,6 +410,10 @@ impl quire_exact::Reservation for MeterReservation<'_, '_> {
 /// in id order, as the map's was.
 pub(super) struct GraphIndex<'g> {
     entries: Box<[(&'g CheckedNodeId, usize)]>,
+    /// One stamp per entry: the walk of a type chain that last visited it.
+    /// A chain walk asks for no memory of its own; it stamps this table.
+    walked: std::cell::RefCell<Vec<u32>>,
+    walk: std::cell::Cell<u32>,
 }
 
 impl<'g> GraphIndex<'g> {
@@ -422,9 +426,41 @@ impl<'g> GraphIndex<'g> {
         let mut entries = meter.vec::<(&CheckedNodeId, usize)>(ids.len())?;
         entries.extend(ids.enumerate().map(|(position, id)| (id, position)));
         entries.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
+        let walked = meter.filled(entries.len(), 0_u32)?;
         Ok(Self {
             entries: entries.into_boxed_slice(),
+            walked: std::cell::RefCell::new(walked),
+            walk: std::cell::Cell::new(0),
         })
+    }
+
+    /// Starts a new chain walk: no node counts as visited by it yet.
+    pub(super) fn begin_walk(&self) {
+        let next = self.walk.get().wrapping_add(1);
+        if next == 0 {
+            self.walked.borrow_mut().fill(0);
+            self.walk.set(1);
+        } else {
+            self.walk.set(next);
+        }
+    }
+
+    /// Marks the node with this id visited by the current walk; `false` when
+    /// it already was. A node outside the index cannot repeat.
+    pub(super) fn first_visit(&self, id: &CheckedNodeId) -> bool {
+        let at = self
+            .entries
+            .partition_point(|(entry, _)| entry.cmp(&id) == Ordering::Less);
+        if self.entries.get(at).is_none_or(|(entry, _)| *entry != id) {
+            return true;
+        }
+        let mut walked = self.walked.borrow_mut();
+        let Some(stamp) = walked.get_mut(at) else {
+            return true;
+        };
+        let first = *stamp != self.walk.get();
+        *stamp = self.walk.get();
+        first
     }
 
     /// The position of the first node with this id, as a map lookup.
@@ -481,6 +517,8 @@ impl<'g> FromIterator<(&'g CheckedNodeId, usize)> for GraphIndex<'g> {
         let mut entries: Vec<_> = entries.into_iter().collect();
         entries.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
         Self {
+            walked: std::cell::RefCell::new(vec![0; entries.len()]),
+            walk: std::cell::Cell::new(0),
             entries: entries.into_boxed_slice(),
         }
     }
@@ -561,4 +599,39 @@ pub(super) fn first_repeat<K: Ord>(
 /// The static wire spelling of a node's `node_tag`, for a request's form.
 pub(super) fn node_form(tag: &str) -> &'static str {
     super::CheckedNodeTag::from_wire(tag).map_or("node", super::CheckedNodeTag::as_wire)
+}
+
+#[cfg(test)]
+mod chain_walk_tests {
+    use super::GraphIndex;
+    use crate::checked_package::shared::{CheckedNodeId, CheckedNodePathSegment};
+    use ix_trace_rs::trace;
+
+    fn id(name: &str) -> CheckedNodeId {
+        CheckedNodeId {
+            package: "p".into(),
+            path: vec![CheckedNodePathSegment::Name(name.into())],
+            ordinal: 0,
+        }
+    }
+
+    /// A type-chain walk finds its first repeat by stamping the index's own
+    /// table, and each walk starts clean, so the walk asks for no memory
+    /// (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn chain_walks_stamp_the_index_and_each_starts_clean() {
+        let (a, b, outside) = (id("a"), id("b"), id("z"));
+        let index: GraphIndex<'_> = [(&a, 0), (&b, 1)].into_iter().collect();
+        index.begin_walk();
+        assert!(index.first_visit(&a));
+        assert!(index.first_visit(&b));
+        assert!(!index.first_visit(&a));
+        assert!(index.first_visit(&outside) && index.first_visit(&outside));
+        index.begin_walk();
+        assert!(index.first_visit(&a) && !index.first_visit(&a));
+        index.walk.set(u32::MAX);
+        index.begin_walk();
+        assert!(index.first_visit(&b) && !index.first_visit(&b));
+    }
 }
