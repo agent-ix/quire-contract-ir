@@ -194,6 +194,27 @@ impl<'b> WorkMeter<'b> {
         left.cmp_growing(right, &mut |bytes| self.reserve(bytes))
     }
 
+    /// A copy of `id` (its path list and the name and package text it holds;
+    /// nested nodes are shared), charged first.
+    pub(super) fn clone_id(
+        &mut self,
+        id: &CheckedNodeId,
+    ) -> Result<CheckedNodeId, ValidationFailure> {
+        use crate::checked_package::shared::CheckedNodePathSegment as Segment;
+        let mut bytes = id
+            .path
+            .len()
+            .saturating_mul(std::mem::size_of::<Segment>())
+            .saturating_add(id.package.len());
+        for segment in &id.path {
+            if let Segment::Name(name) = segment {
+                bytes = bytes.saturating_add(name.len());
+            }
+        }
+        self.reserve(bytes)?;
+        Ok(id.clone())
+    }
+
     /// A vector of `count` copies of `value`, charged first.
     pub(super) fn filled<T: Clone>(
         &mut self,
@@ -631,6 +652,16 @@ impl<K: Ord, V> SortedTable<K, V> {
     pub(super) fn get(&self, key: &K) -> Option<&V> {
         self.entries
             .binary_search_by(|(entry, _)| entry.cmp(key))
+            .ok()
+            .and_then(|at| self.entries.get(at))
+            .map(|(_, value)| value)
+    }
+
+    /// The value of the entry `probe` finds equal, where `probe` orders each
+    /// key against the one sought. The sought key need not outlive the table.
+    pub(super) fn find(&self, probe: impl Fn(&K) -> Ordering) -> Option<&V> {
+        self.entries
+            .binary_search_by(|(entry, _)| probe(entry))
             .ok()
             .and_then(|at| self.entries.get(at))
             .map(|(_, value)| value)

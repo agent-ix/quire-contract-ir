@@ -1492,25 +1492,25 @@ impl MemberCheck<'_> {
     fn check_target(
         &self,
         term: &CheckedTerm,
-        path: JsonPointer,
+        path: impl FnOnce() -> JsonPointer,
         expected: impl Fn(usize) -> bool,
     ) -> Result<usize, ValidationFailure> {
+        // The pointer is built only to name a refusal.
         let Some(target) = reference_target(term) else {
-            return Err(self.refuse(Code::MalformedWire, None, path));
+            return Err(self.refuse(Code::MalformedWire, None, path()));
         };
-        let target_path = path.key("target");
         let Some(&position) = self.index.get(target) else {
             return Err(self.refuse(
                 Code::MissingDeclaration,
                 Some(Cause::MissingName),
-                target_path,
+                path().key("target"),
             ));
         };
         if !expected(position) {
             return Err(self.refuse(
                 Code::InvalidModelBinding,
                 Some(Cause::MalformedDeclaration),
-                target_path,
+                path().key("target"),
             ));
         }
         Ok(position)
@@ -1529,7 +1529,7 @@ impl MemberCheck<'_> {
     ) -> Result<usize, ValidationFailure> {
         self.check_target(
             self.at(arguments, ordinal),
-            self.argument_path(ordinal),
+            || self.argument_path(ordinal),
             expected,
         )
     }
@@ -1538,7 +1538,11 @@ impl MemberCheck<'_> {
         self.kinds.get(position) == Some(&kind)
     }
 
-    fn boolean(&self, term: &CheckedTerm, path: JsonPointer) -> Result<(), ValidationFailure> {
+    fn boolean(
+        &self,
+        term: &CheckedTerm,
+        path: impl FnOnce() -> JsonPointer,
+    ) -> Result<(), ValidationFailure> {
         let valid = match term {
             CheckedTerm::Literal {
                 type_id,
@@ -1565,7 +1569,7 @@ impl MemberCheck<'_> {
         if valid {
             Ok(())
         } else {
-            Err(self.refuse(Code::IllTyped, Some(Cause::NonBooleanRoot), path))
+            Err(self.refuse(Code::IllTyped, Some(Cause::NonBooleanRoot), path()))
         }
     }
 
@@ -1574,7 +1578,7 @@ impl MemberCheck<'_> {
         term: &CheckedTerm,
         document_pointer: JsonPointer,
     ) -> Result<(), ValidationFailure> {
-        self.boolean(term, document_pointer.clone())
+        self.boolean(term, || document_pointer.clone())
             .map_err(|mut failure| {
                 if let ValidationFailure::Refused(ref mut refusal) = failure {
                     refusal.set_primary_path(Some(node_pointer(self.position)));
@@ -1588,10 +1592,10 @@ impl MemberCheck<'_> {
         &self,
         term: &CheckedTerm,
         form: ScalarTypeForm,
-        path: JsonPointer,
+        path: impl FnOnce() -> JsonPointer,
     ) -> Result<(), ValidationFailure> {
         let CheckedTerm::Literal { type_id, .. } = term else {
-            return Err(self.refuse(Code::MalformedWire, None, path));
+            return Err(self.refuse(Code::MalformedWire, None, path()));
         };
         if self
             .index
@@ -1600,7 +1604,7 @@ impl MemberCheck<'_> {
         {
             Ok(())
         } else {
-            Err(self.refuse(Code::IllTyped, Some(Cause::TypeMismatch), path))
+            Err(self.refuse(Code::IllTyped, Some(Cause::TypeMismatch), path()))
         }
     }
 
@@ -2025,7 +2029,7 @@ fn check_related_references(
             .key("members")
             .index(0)
             .key("value");
-        let position = check.check_target(relationship, path.clone(), |_| true)?;
+        let position = check.check_target(relationship, || path.clone(), |_| true)?;
         if !check.is(
             position,
             CheckedNodeKind::Relation(RelationForm::Relationship),
@@ -2173,7 +2177,7 @@ fn check_control_prefix(
         {
             check.check_target(
                 target,
-                check.argument_path(ordinal).key("members").index(position),
+                || check.argument_path(ordinal).key("members").index(position),
                 expected,
             )?;
         }
@@ -2191,7 +2195,7 @@ fn check_control_prefix(
             _ => None,
         };
     match operator {
-        "check" => check.boolean(check.at(arguments, 0), check.argument_path(0))?,
+        "check" => check.boolean(check.at(arguments, 0), || check.argument_path(0))?,
         "fence" => {}
         "send" | "receive" => {
             let channel = check.target_at(arguments, 0, |position| {
@@ -2251,10 +2255,9 @@ fn check_control_prefix(
                 }
             }
             let constraint_ordinal = if operator == "receive" { 4 } else { 3 };
-            check.boolean(
-                check.at(arguments, constraint_ordinal),
-                check.argument_path(constraint_ordinal),
-            )?;
+            check.boolean(check.at(arguments, constraint_ordinal), || {
+                check.argument_path(constraint_ordinal)
+            })?;
             check_related_types(check, arguments, related_ordinal, owners, meter)?;
         }
         "attempt" => {
@@ -2275,9 +2278,11 @@ fn check_control_prefix(
             let mut contracts = meter.vec(listed_contracts.len())?;
             for (ordinal, contract) in listed_contracts.iter().enumerate() {
                 let path = check.argument_path(3).key("members").index(ordinal);
-                let clause = check.check_target(contract, path.clone(), |position| {
-                    check.is(position, CheckedNodeKind::State(StateForm::StateClause))
-                })?;
+                let clause = check.check_target(
+                    contract,
+                    || path.clone(),
+                    |position| check.is(position, CheckedNodeKind::State(StateForm::StateClause)),
+                )?;
                 contracts.push((clause, path));
             }
             check.target_at(arguments, 4, |position| {
@@ -2302,7 +2307,7 @@ fn check_control_prefix(
                     ));
                 }
             }
-            check.boolean(check.at(arguments, 6), check.argument_path(6))?;
+            check.boolean(check.at(arguments, 6), || check.argument_path(6))?;
             check_related_types(check, arguments, 5, owners, meter)?;
         }
         "effect" => {
@@ -2313,7 +2318,7 @@ fn check_control_prefix(
                 check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
             })?;
             check_related_references(check, arguments, 2, owners, meter)?;
-            check.boolean(check.at(arguments, 3), check.argument_path(3))?;
+            check.boolean(check.at(arguments, 3), || check.argument_path(3))?;
             check_related_types(check, arguments, 2, owners, meter)?;
         }
         "event" => {
@@ -2331,12 +2336,16 @@ fn check_control_prefix(
                 members(check.at(arguments, 1)).and_then(|items| items.first())
             {
                 let path = check.argument_path(1).key("members").index(0);
-                let template = check.check_target(compensation, path.clone(), |position| {
-                    check.is(
-                        position,
-                        CheckedNodeKind::Protocol(ProtocolForm::Compensation),
-                    )
-                })?;
+                let template = check.check_target(
+                    compensation,
+                    || path.clone(),
+                    |position| {
+                        check.is(
+                            position,
+                            CheckedNodeKind::Protocol(ProtocolForm::Compensation),
+                        )
+                    },
+                )?;
                 if !check.same_clause(template, "compensate", meter)? {
                     return Err(check.refuse(
                         Code::InvalidModelBinding,
@@ -2349,7 +2358,7 @@ fn check_control_prefix(
                 check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
             })?;
             check_related_references(check, arguments, 3, owners, meter)?;
-            check.boolean(check.at(arguments, 4), check.argument_path(4))?;
+            check.boolean(check.at(arguments, 4), || check.argument_path(4))?;
             check_related_types(check, arguments, 3, owners, meter)?;
         }
         "commit" => {
@@ -2366,7 +2375,7 @@ fn check_control_prefix(
             check.target_at(arguments, 1, |position| {
                 check.is(position, CheckedNodeKind::Value(ValueForm::Parameter))
             })?;
-            check.boolean(check.at(arguments, 2), check.argument_path(2))?;
+            check.boolean(check.at(arguments, 2), || check.argument_path(2))?;
         }
         "sequence" => check_list(0, &control)?,
         "choice" | "parallel" => {
@@ -2390,7 +2399,7 @@ fn check_control_prefix(
                     .index(position);
                 check.check_target(
                     argument(fields, body_ordinal).expect("validated body"),
-                    path.clone().key("members").index(body_ordinal).key("value"),
+                    || path.clone().key("members").index(body_ordinal).key("value"),
                     control,
                 )?;
             }
@@ -2399,7 +2408,7 @@ fn check_control_prefix(
                 if argument_text(join, 0) == Some("predicate") {
                     check.check_target(
                         group_value(join, "predicate").expect("validated predicate"),
-                        check.argument_path(2).key("members").index(1).key("value"),
+                        || check.argument_path(2).key("members").index(1).key("value"),
                         |position| matches!(check.kinds[position], CheckedNodeKind::Function(_)),
                     )?;
                 }
@@ -2428,13 +2437,15 @@ fn check_control_prefix(
                 for (position, record) in records.iter().enumerate() {
                     check.boolean(
                         group_value(record, "guard").expect("validated guard"),
-                        check
-                            .argument_path(2)
-                            .key("members")
-                            .index(position)
-                            .key("members")
-                            .index(1)
-                            .key("value"),
+                        || {
+                            check
+                                .argument_path(2)
+                                .key("members")
+                                .index(position)
+                                .key("members")
+                                .index(1)
+                                .key("value")
+                        },
                     )?;
                 }
             }
@@ -2497,14 +2508,14 @@ fn check_control_prefix(
             {
                 check.check_target(
                     exhausted,
-                    check.argument_path(6).key("members").index(0),
+                    || check.argument_path(6).key("members").index(0),
                     control,
                 )?;
             }
             if members(check.at(arguments, 3)).is_some_and(|items| !items.is_empty()) {
                 check.boolean(
                     group_value(check.at(arguments, 3), "invariant").expect("validated invariant"),
-                    check.argument_path(3).key("members").index(0).key("value"),
+                    || check.argument_path(3).key("members").index(0).key("value"),
                 )?;
             }
             check.boolean_at_node(check.at(arguments, 4), check.argument_path(4))?;
@@ -2515,19 +2526,27 @@ fn check_control_prefix(
             let kind = argument_text(after, 0).expect("validated anchor kind");
             let anchor_path = check.argument_path(0).key("members").index(1).key("value");
             if kind == "compensation" {
-                check.check_target(anchor, anchor_path, |position| {
-                    check.is(
-                        position,
-                        CheckedNodeKind::Protocol(ProtocolForm::Compensation),
-                    )
-                })?;
+                check.check_target(
+                    anchor,
+                    || anchor_path,
+                    |position| {
+                        check.is(
+                            position,
+                            CheckedNodeKind::Protocol(ProtocolForm::Compensation),
+                        )
+                    },
+                )?;
             } else {
-                check.check_target(anchor, anchor_path, |position| {
-                    matches!(
-                        control_operator(position),
-                        Some("send" | "receive" | "attempt" | "effect" | "event" | "commit")
-                    )
-                })?;
+                check.check_target(
+                    anchor,
+                    || anchor_path,
+                    |position| {
+                        matches!(
+                            control_operator(position),
+                            Some("send" | "receive" | "attempt" | "effect" | "event" | "commit")
+                        )
+                    },
+                )?;
             }
             let event = check.target_at(arguments, 3, control)?;
             check.target_at(arguments, 4, control)?;
@@ -2611,13 +2630,15 @@ fn check_compensation(
             let binder = group_value(record, "binder").expect("validated capture binder");
             check.check_target(
                 binder,
-                check
-                    .argument_path(ordinal)
-                    .key("members")
-                    .index(position)
-                    .key("members")
-                    .index(0)
-                    .key("value"),
+                || {
+                    check
+                        .argument_path(ordinal)
+                        .key("members")
+                        .index(position)
+                        .key("members")
+                        .index(0)
+                        .key("value")
+                },
                 parameter,
             )?;
         }
@@ -2625,13 +2646,13 @@ fn check_compensation(
     let trigger = check.at(arguments, 6);
     check.check_target(
         group_value(trigger, "binder").expect("validated trigger binder"),
-        check.argument_path(6).key("members").index(0).key("value"),
+        || check.argument_path(6).key("members").index(0).key("value"),
         parameter,
     )?;
     let attempts = check.at(arguments, 9);
     let record_type = check.check_target(
         group_value(attempts, "record_type").expect("validated record type"),
-        check.argument_path(9).key("members").index(1).key("value"),
+        || check.argument_path(9).key("members").index(1).key("value"),
         |position| {
             matches!(
                 check.kinds[position],
@@ -2644,11 +2665,13 @@ fn check_compensation(
     for (position, name) in ["earlier", "later"].into_iter().enumerate() {
         let binder = check.check_target(
             group_value(retry, name).expect("validated retry binder"),
-            check
-                .argument_path(10)
-                .key("members")
-                .index(position)
-                .key("value"),
+            || {
+                check
+                    .argument_path(10)
+                    .key("members")
+                    .index(position)
+                    .key("value")
+            },
             parameter,
         )?;
         retry_binders[position] = binder;
@@ -2656,7 +2679,7 @@ fn check_compensation(
     if let Some(commit) = members(check.at(arguments, 11)).and_then(|items| items.first()) {
         check.check_target(
             commit,
-            check.argument_path(11).key("members").index(0),
+            || check.argument_path(11).key("members").index(0),
             |position| {
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control))
                     && check.terms[position].as_ref().is_some_and(|term| {
@@ -2669,30 +2692,30 @@ fn check_compensation(
     let recovery = check.at(arguments, 12);
     check.check_target(
         group_value(recovery, "binder").expect("validated recovery binder"),
-        check.argument_path(12).key("members").index(0).key("value"),
+        || check.argument_path(12).key("members").index(0).key("value"),
         parameter,
     )?;
-    check.scalar_literal(
-        check.at(arguments, 4),
-        ScalarTypeForm::Text,
-        check.argument_path(4),
-    )?;
+    check.scalar_literal(check.at(arguments, 4), ScalarTypeForm::Text, || {
+        check.argument_path(4)
+    })?;
     let within = check.at(arguments, 8);
     for (index, name) in ["lower", "upper"].into_iter().enumerate() {
         check.scalar_literal(
             group_value(within, name).expect("validated interval bound"),
             ScalarTypeForm::Integer,
-            check
-                .argument_path(8)
-                .key("members")
-                .index(index)
-                .key("value"),
+            || {
+                check
+                    .argument_path(8)
+                    .key("members")
+                    .index(index)
+                    .key("value")
+            },
         )?;
     }
     check.scalar_literal(
         group_value(attempts, "maximum").expect("validated maximum"),
         ScalarTypeForm::Integer,
-        check.argument_path(9).key("members").index(0).key("value"),
+        || check.argument_path(9).key("members").index(0).key("value"),
     )?;
     let forward_effect_binder = check.terms[forward]
         .as_ref()
@@ -2739,15 +2762,15 @@ fn check_compensation(
     }
     check.boolean(
         group_value(trigger, "guard").expect("validated trigger guard"),
-        check.argument_path(6).key("members").index(1).key("value"),
+        || check.argument_path(6).key("members").index(1).key("value"),
     )?;
     check.boolean(
         group_value(retry, "relation").expect("validated retry relation"),
-        check.argument_path(10).key("members").index(2).key("value"),
+        || check.argument_path(10).key("members").index(2).key("value"),
     )?;
     check.boolean(
         group_value(recovery, "predicate").expect("validated recovery predicate"),
-        check.argument_path(12).key("members").index(1).key("value"),
+        || check.argument_path(12).key("members").index(1).key("value"),
     )?;
     let (Some(lower), Some(upper)) = (
         group_value(within, "lower").and_then(integer_value),
@@ -2907,7 +2930,7 @@ fn check_member(
                     let binder = group_value(replication, "binder").expect("validated replication");
                     let binder = check.check_target(
                         binder,
-                        check.argument_path(1).key("members").index(2).key("value"),
+                        || check.argument_path(1).key("members").index(2).key("value"),
                         parameter,
                     )?;
                     let type_position =
@@ -2930,7 +2953,7 @@ fn check_member(
                         ));
                     }
                     if let Some(until) = group_value(replication, "until") {
-                        check.boolean(until, node_pointer(check.position))?;
+                        check.boolean(until, || node_pointer(check.position))?;
                     }
                 }
             }
@@ -2964,7 +2987,7 @@ fn check_member(
                 let binder = group_value(ordering, "binder").expect("validated fifo");
                 let position = check.check_target(
                     binder,
-                    check.argument_path(3).key("members").index(1).key("value"),
+                    || check.argument_path(3).key("members").index(1).key("value"),
                     parameter,
                 )?;
                 check.same_type(position, &check.nodes[carries].node_id)?;
@@ -2991,13 +3014,13 @@ fn check_member(
         ProtocolForm::Obligation => match operator {
             "finish" => {
                 check.target_at(arguments, 0, parameter)?;
-                check.boolean(check.at(arguments, 1), node_pointer(check.position))?;
+                check.boolean(check.at(arguments, 1), || node_pointer(check.position))?;
             }
             "terminal" => {
                 if let Some(condition) =
                     members(check.at(arguments, 1)).and_then(|items| items.first())
                 {
-                    check.boolean(condition, node_pointer(check.position))?;
+                    check.boolean(condition, || node_pointer(check.position))?;
                 }
             }
             _ => unreachable!("validated protocol operator"),
@@ -3883,7 +3906,7 @@ fn check_clause(
         let trigger = group_value(activation, "trigger").expect("validated each trigger");
         Some(check.check_target(
             trigger,
-            check.argument_path(1).key("members").index(1).key("value"),
+            || check.argument_path(1).key("members").index(1).key("value"),
             parameter,
         )?)
     } else {
@@ -3894,19 +3917,19 @@ fn check_clause(
     for (entry, record) in captures.iter().enumerate() {
         meter.charge(1, || node_pointer(check.position))?;
         let binder = group_value(record, "binder").expect("validated capture binder");
-        capture_positions.push(
-            check.check_target(
-                binder,
+        capture_positions.push(check.check_target(
+            binder,
+            || {
                 check
                     .argument_path(2)
                     .key("members")
                     .index(entry)
                     .key("members")
                     .index(0)
-                    .key("value"),
-                parameter,
-            )?,
-        );
+                    .key("value")
+            },
+            parameter,
+        )?);
     }
     // Binders introduced: the subject, the trigger when present, each capture.
     let mut readable_names: Vec<&str> = meter.vec(2 + captures.len())?;
@@ -3960,7 +3983,7 @@ fn check_clause(
         {
             meter.charge(1, || node_pointer(check.position))?;
             let path = check.argument_path(ordinal).key("members").index(entry);
-            let position = check.check_target(target, path.clone(), |_| true)?;
+            let position = check.check_target(target, || path.clone(), |_| true)?;
             if !check.is(position, expected) {
                 let cause = if ordinal == 4 {
                     Cause::WrongExport
@@ -3979,7 +4002,7 @@ fn check_clause(
     if let Some(terminal) = members(check.at(arguments, 9)).and_then(|items| items.first()) {
         check.check_target(
             terminal,
-            check.argument_path(9).key("members").index(0),
+            || check.argument_path(9).key("members").index(0),
             |position| {
                 check.is(
                     position,
@@ -4039,7 +4062,7 @@ fn check_clause_slots(
             None,
             meter,
         )?;
-        check.boolean(guard, path)?;
+        check.boolean(guard, || path)?;
     }
     let captures = members(check.at(arguments, 2)).expect("validated captures");
     for (entry, record) in captures.iter().enumerate() {

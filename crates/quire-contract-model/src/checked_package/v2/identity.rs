@@ -24,6 +24,7 @@ use crate::checked_package::shared::{
 use quire_exact::Integer;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Reader-owned view assembled from a node's body, owner and declaration.
@@ -1063,6 +1064,7 @@ fn record_from_node(
     position: usize,
     models: &[DomainModel],
     model_nodes: &ModelNodes<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<NominalRecord, ValidationFailure> {
     let at = node_pointer(position);
     if kind == NominalKind::EnumMember {
@@ -1073,8 +1075,8 @@ fn record_from_node(
             .and_then(Value::as_str)
             .ok_or_else(|| invalid(at.clone().key("body").key("value")))?;
         return Ok(NominalRecord::EnumMember(EnumMemberRecord {
-            declaration_node_id: node.semantic_type.clone(),
-            case: case.into(),
+            declaration_node_id: meter.clone_id(&node.semantic_type)?,
+            case: meter.boxed_str(case)?,
         }));
     }
     if let Some(super::CheckedNodeOwner::Model {
@@ -1090,6 +1092,7 @@ fn record_from_node(
             owner_node,
             models,
             model_nodes,
+            meter,
         );
     }
     let source_owner = match node.owner.as_ref() {
@@ -1097,20 +1100,24 @@ fn record_from_node(
             authority,
             identity,
         }) => NominalOwner::Source {
-            authority: authority.clone(),
-            identity: identity.clone(),
+            authority: meter.boxed_str(authority)?,
+            identity: meter.boxed_str(identity)?,
         },
         Some(super::CheckedNodeOwner::Model { identity, node }) => NominalOwner::Model {
-            identity: identity.clone(),
-            node: node.clone(),
+            identity: meter.boxed_str(identity)?,
+            node: meter.boxed_str(node)?,
         },
         _ => return Err(invalid(at.key("owner"))),
     };
-    let declared = || {
-        node.declaration
-            .as_ref()
-            .map(|declaration| declaration.qualified_name.clone())
-            .ok_or_else(|| invalid(at.clone().key("declaration")))
+    let mut declared = || -> Result<Vec<Box<str>>, ValidationFailure> {
+        let Some(declaration) = node.declaration.as_ref() else {
+            return Err(invalid(at.clone().key("declaration")));
+        };
+        let mut name = meter.vec(declaration.qualified_name.len())?;
+        for segment in &declaration.qualified_name {
+            name.push(meter.boxed_str(segment)?);
+        }
+        Ok(name)
     };
     let body = || NominalBody::from_value(&node.body, at.clone().key("body"));
     match (kind, body()?.into_kind()) {
@@ -1167,9 +1174,10 @@ fn record_from_node(
                         authority,
                         identity,
                     },
-                    dimension_node_ids: std::array::from_fn(|index| {
-                        dimension_node_ids[index].node_id().clone()
-                    }),
+                    dimension_node_ids: [
+                        meter.clone_id(dimension_node_ids[0].node_id())?,
+                        meter.clone_id(dimension_node_ids[1].node_id())?,
+                    ],
                     operands: dimension_node_ids,
                     root_scale,
                 },
@@ -1177,6 +1185,13 @@ fn record_from_node(
         }
         _ => Err(invalid(at.key("body"))),
     }
+}
+
+/// A one-segment declaration name, charged first.
+fn single_segment(name: &str, meter: &mut WorkMeter) -> Result<Vec<Box<str>>, ValidationFailure> {
+    let mut segments = meter.vec(1)?;
+    segments.push(meter.boxed_str(name)?);
+    Ok(segments)
 }
 
 fn model_record_from_node(
@@ -1187,33 +1202,33 @@ fn model_record_from_node(
     owner_node: &str,
     models: &[DomainModel],
     model_nodes: &ModelNodes<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<NominalRecord, ValidationFailure> {
     use crate::checked_package::shared::CheckedNodePathSegment as Segment;
     let at = node_pointer(position);
-    if node.declaration.is_some() || node.body != json!({"term":"aggregate","members":[]}) {
+    let empty_aggregate = node.body.as_object().is_some_and(|body| {
+        body.len() == 2
+            && body.get("term").and_then(Value::as_str) == Some("aggregate")
+            && body
+                .get("members")
+                .and_then(Value::as_array)
+                .is_some_and(Vec::is_empty)
+    });
+    if node.declaration.is_some() || !empty_aggregate {
         return Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::MalformedWire,
             at,
         ));
     }
-    let names = node
-        .node_id
-        .path
-        .iter()
-        .map(|part| match part {
-            Segment::Name(name) => Some(name.as_ref()),
-            Segment::Node(_) => None,
-            Segment::Index(_) | Segment::Operand(_) => None,
-        })
-        .collect::<Option<Vec<_>>>();
+    let expected_names = [
+        node.node_tag.as_ref(),
+        node.semantic_form.as_ref(),
+        owner_node,
+    ];
     require(
-        names.as_deref()
-            == Some(
-                &[
-                    node.node_tag.as_ref(),
-                    node.semantic_form.as_ref(),
-                    owner_node,
-                ][..],
+        node.node_id.path.len() == expected_names.len()
+            && node.node_id.path.iter().zip(expected_names).all(
+                |(part, expected)| matches!(part, Segment::Name(name) if name.as_ref() == expected),
             ),
         || at.clone().key("node_id").key("path"),
     )?;
@@ -1221,15 +1236,15 @@ fn model_record_from_node(
         .iter()
         .find(|model| model.identity.as_ref() == identity)
         .ok_or_else(|| invalid(at.clone().key("owner")))?;
-    let resolve = |fcd_identity: &str| {
-        model_nodes
-            .get(&(identity, fcd_identity))
-            .map(|id| (*id).clone())
-            .ok_or_else(|| invalid(at.clone().key("owner")))
+    let resolve = |meter: &mut WorkMeter, fcd_identity: &str| match model_nodes
+        .get(&(identity, fcd_identity))
+    {
+        Some(id) => meter.clone_id(id),
+        None => Err(invalid(at.clone().key("owner"))),
     };
     let owner = NominalOwner::Model {
-        identity: identity.into(),
-        node: owner_node.into(),
+        identity: meter.boxed_str(identity)?,
+        node: meter.boxed_str(owner_node)?,
     };
     match kind {
         NominalKind::Dimension => {
@@ -1237,19 +1252,16 @@ fn model_record_from_node(
                 .dimensions
                 .get(owner_node)
                 .ok_or_else(|| invalid(at.clone().key("owner")))?;
-            let terms = selected
-                .terms
-                .iter()
-                .map(|(target, exponent)| {
-                    Ok(DimensionTerm {
-                        dimension_node_id: resolve(target)?,
-                        exponent: exponent.clone(),
-                    })
-                })
-                .collect::<Result<Vec<_>, ValidationFailure>>()?;
+            let mut terms = meter.vec(selected.terms.len())?;
+            for (target, exponent) in &selected.terms {
+                terms.push(DimensionTerm {
+                    dimension_node_id: resolve(meter, target)?,
+                    exponent: meter.boxed_str(exponent)?,
+                });
+            }
             Ok(NominalRecord::Dimension(DimensionRecord {
                 owner,
-                qualified_declaration: vec![selected.name.clone()],
+                qualified_declaration: single_segment(&selected.name, meter)?,
                 base: selected.base,
                 terms,
             }))
@@ -1259,20 +1271,25 @@ fn model_record_from_node(
                 .units
                 .get(owner_node)
                 .ok_or_else(|| invalid(at.clone().key("owner")))?;
-            let ratio = |text: &str| {
+            let ratio = |text: &str, meter: &mut WorkMeter| {
                 let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
-                CheckedRational {
-                    numerator: numerator.into(),
-                    denominator: denominator.into(),
-                }
+                Ok::<_, ValidationFailure>(CheckedRational {
+                    numerator: meter.boxed_str(numerator)?,
+                    denominator: meter.boxed_str(denominator)?,
+                })
+            };
+            let dimension_node_id = resolve(meter, &selected.dimension)?;
+            let target_unit_node_id = match selected.target.as_deref() {
+                Some(target) => Some(resolve(meter, target)?),
+                None => None,
             };
             Ok(NominalRecord::Unit(UnitRecord {
                 owner,
-                qualified_declaration: vec![selected.name.clone()],
-                dimension_node_id: resolve(&selected.dimension)?,
-                target_unit_node_id: selected.target.as_deref().map(resolve).transpose()?,
-                scale: ratio(&selected.scale),
-                offset: ratio(&selected.offset),
+                qualified_declaration: single_segment(&selected.name, meter)?,
+                dimension_node_id,
+                target_unit_node_id,
+                scale: ratio(&selected.scale, meter)?,
+                offset: ratio(&selected.offset, meter)?,
             }))
         }
         _ => Err(invalid(at.key("owner"))),
@@ -1282,16 +1299,16 @@ fn model_record_from_node(
 /// Validates every node's nominal owner join, semantic rules and cross-field
 /// joins. `kinds` holds each node's decoded kind. Equivalence refusals point
 /// at their node; other nominal refusals point at the member at fault.
-pub(super) fn validate_nominal_nodes(
+pub(super) fn validate_nominal_nodes<'e>(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
     lock: &CheckedPackageLockV2,
     models: &[DomainModel],
-    dependencies: &SuppliedDependencies<'_>,
+    dependencies: &SuppliedDependencies<'e>,
     meter: &mut WorkMeter,
     bytes: u64,
-) -> Result<BTreeSet<CheckedNodeId>, ValidationFailure> {
+) -> Result<ImportedNominals<'e>, ValidationFailure> {
     let model_nodes = model_node_table(
         nodes
             .iter()
@@ -1308,6 +1325,7 @@ pub(super) fn validate_nominal_nodes(
                 position,
                 models,
                 &model_nodes,
+                meter,
             )?);
         }
     }
@@ -1318,6 +1336,8 @@ pub(super) fn validate_nominal_nodes(
         std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
     });
     let imported = imported_nominals(dependencies, meter)?;
+    let mut imported_ids = meter.vec(imported.len())?;
+    imported_ids.extend(imported.iter().map(|(id, _)| *id));
     let graph = NominalGraph {
         nodes,
         kinds,
@@ -1381,24 +1401,35 @@ pub(super) fn validate_nominal_nodes(
         }
     }
     validate_equivalence_graph(&graph, &equivalences, meter)?;
-    Ok(graph.imported.into_keys().collect())
+    Ok(ImportedNominals(imported_ids))
+}
+
+/// The ids of the nominal nodes imported from admitted dependencies, in id
+/// order, as one block charged before it is requested.
+pub(super) struct ImportedNominals<'e>(Vec<&'e CheckedNodeId>);
+
+impl ImportedNominals<'_> {
+    pub(super) fn contains(&self, id: &CheckedNodeId) -> bool {
+        self.0.binary_search_by(|held| (*held).cmp(id)).is_ok()
+    }
 }
 
 /// Reuses admitted dependency meanings for cross-package nominal references.
 /// Each reachable package and nominal node is visited once; the current read
 /// charges those visits before any local equivalence comparison.
-fn imported_nominals(
-    dependencies: &SuppliedDependencies<'_>,
+fn imported_nominals<'e>(
+    dependencies: &SuppliedDependencies<'e>,
     meter: &mut WorkMeter,
-) -> Result<BTreeMap<CheckedNodeId, NominalRecord>, ValidationFailure> {
+) -> Result<SortedTable<&'e CheckedNodeId, NominalRecord>, ValidationFailure> {
     let mut pending = dependencies.packages();
-    let mut seen = BTreeSet::new();
-    let mut records = BTreeMap::new();
+    let mut seen: Vec<&str> = Vec::new();
+    let mut records: Vec<(&CheckedNodeId, NominalRecord)> = Vec::new();
     while let Some(package) = pending.pop() {
         meter.charge(1, || JsonPointer::root().key("lock"))?;
-        if !seen.insert(package.name()) {
+        if !meter.insert_sorted(&mut seen, package.name())? {
             continue;
         }
+        meter.room(&mut pending, package.direct_dependencies.len())?;
         pending.extend(package.direct_dependencies.iter().map(AsRef::as_ref));
         meter.charge(
             u64::try_from(package.resolved_graph().nodes.len()).unwrap_or(u64::MAX),
@@ -1429,11 +1460,13 @@ fn imported_nominals(
                 position,
                 package.models.selected_models(),
                 &model_nodes,
+                meter,
             )?;
-            records.insert(node.node_id.clone(), record);
+            meter.push(&mut records, (&node.node_id, record))?;
         }
     }
-    Ok(records)
+    // A node id names one node, so each id holds its one record.
+    Ok(SortedTable::from_vec(records, |_, _| Ordering::Equal))
 }
 
 fn validate_dimension_equivalence(
@@ -1504,12 +1537,10 @@ fn validate_dimension_equivalence(
         .filter_map(|operand| match operand {
             CheckedDimensionOperand::Local(id) => Some(id),
             CheckedDimensionOperand::Package(_) => None,
-        })
-        .collect::<Vec<_>>();
-    require(
-        site.node.dependencies.iter().collect::<Vec<_>>() == local_ids,
-        || site.pointer(),
-    )?;
+        });
+    require(site.node.dependencies.iter().eq(local_ids), || {
+        site.pointer()
+    })?;
     require(
         matches!(site.node.occurrences.as_slice(), [occurrence]
             if occurrence.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor),
@@ -1706,13 +1737,8 @@ pub(super) fn duration_unit_key(
     })?;
     let Some((position, node)) = nodes.iter().enumerate().find(|(_, node)| {
         node.declaration.as_ref().is_some_and(|declaration| {
-            let declared = declaration
-                .qualified_name
-                .iter()
-                .map(AsRef::as_ref)
-                .collect::<Vec<&str>>()
-                .join("/");
-            format!("ix://quire/unit/{declared}") == name
+            name.strip_prefix("ix://quire/unit/")
+                .is_some_and(|declared| joined_with_slashes(&declaration.qualified_name, declared))
         }) && node.node_tag.as_ref() == "scalar_type"
             && node.semantic_form.as_ref() == "unit"
     }) else {
@@ -1733,7 +1759,9 @@ pub(super) fn duration_unit_key(
     let owner_matches = match node.owner.as_ref() {
         Some(super::CheckedNodeOwner::Source { .. }) => name == "ix://quire/unit/s",
         Some(super::CheckedNodeOwner::Model { identity, .. }) => {
-            name == format!("ix://quire/unit/{identity}/s")
+            name.strip_prefix("ix://quire/unit/")
+                .and_then(|rest| rest.strip_suffix("/s"))
+                == Some(identity.as_ref())
         }
         _ => false,
     };
@@ -1777,7 +1805,7 @@ pub(super) fn duration_unit_key(
         unit_scale,
         unit_offset,
     );
-    let mut seen = BTreeSet::new();
+    let mut seen: Vec<usize> = Vec::new();
     loop {
         meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
         let edge_scale = ExactRatio::parse(&current.2, meter, &at)?;
@@ -1789,12 +1817,17 @@ pub(super) fn duration_unit_key(
         let Some(target) = current.1.clone() else {
             break;
         };
-        if !seen.insert(target.clone()) {
-            return Ok(None);
-        }
-        let Some(next) = nodes.iter().find(|candidate| candidate.node_id == target) else {
+        let Some((next_position, next)) = nodes
+            .iter()
+            .enumerate()
+            .find(|(_, candidate)| candidate.node_id == target)
+        else {
             return Ok(None);
         };
+        // A node id names one node, so a repeated target is a repeated position.
+        if !meter.insert_sorted(&mut seen, next_position)? {
+            return Ok(None);
+        }
         let Ok(body) = NominalBody::from_value(&next.body, at().key("body")) else {
             return Ok(None);
         };
@@ -1943,7 +1976,7 @@ fn equivalence_potentials<'a>(
         .saturating_add(edges.len().saturating_mul(2));
     let mut ids: Vec<&CheckedNodeId> = meter.vec(reachable)?;
     ids.extend(graph.index.keys().copied());
-    ids.extend(graph.imported.keys());
+    ids.extend(graph.imported.iter().map(|(id, _)| *id));
     for (_, edge) in edges {
         ids.extend(edge.dimension_node_ids.iter());
     }
@@ -1980,7 +2013,12 @@ fn equivalence_potentials<'a>(
     }
     adjacency.sort_unstable_by(|left, right| left.0.cmp(&right.0).then(left.4.cmp(&right.4)));
     let mut queue: Vec<usize> = meter.vec(count)?;
-    for id in graph.index.keys().copied().chain(graph.imported.keys()) {
+    for id in graph
+        .index
+        .keys()
+        .copied()
+        .chain(graph.imported.iter().map(|(id, _)| *id))
+    {
         let start = located(&potentials, id)?;
         if !matches!(graph.nominal(id), Some(NominalRecord::Dimension(_)))
             || potentials.entries[start].is_some()
@@ -2198,7 +2236,7 @@ struct NominalGraph<'a> {
     index: &'a GraphIndex<'a>,
     records: &'a [Option<NominalRecord>],
     selected_models: SortedTable<&'a str, &'a DomainModel>,
-    imported: BTreeMap<CheckedNodeId, NominalRecord>,
+    imported: SortedTable<&'a CheckedNodeId, NominalRecord>,
 }
 
 impl NominalGraph<'_> {
@@ -2207,7 +2245,7 @@ impl NominalGraph<'_> {
             .get(id)
             .and_then(|position| self.records.get(*position))
             .and_then(Option::as_ref)
-            .or_else(|| self.imported.get(id))
+            .or_else(|| self.imported.find(|held| (*held).cmp(id)))
     }
 
     fn model_variant_cases(
@@ -2478,15 +2516,30 @@ fn validate_dimension(
     ) {
         return Err(invalid(term_at(pair.saturating_add(1))));
     }
-    let mut expected = dimension
-        .terms
-        .iter()
-        .map(|term| &term.dimension_node_id)
-        .collect::<Vec<_>>();
-    let mut actual = node.dependencies.iter().collect::<Vec<_>>();
-    expected.sort();
-    actual.sort();
-    require(expected == actual, || site.member("dependencies"))
+    let same = same_ids(
+        dimension.terms.iter().map(|term| &term.dimension_node_id),
+        dimension.terms.len(),
+        &node.dependencies,
+        meter,
+    )?;
+    require(same, || site.member("dependencies"))
+}
+
+/// Whether `expected` and `actual` hold the same ids as multisets, compared
+/// through two exact blocks charged first and sorted in place.
+fn same_ids<'a>(
+    expected: impl Iterator<Item = &'a CheckedNodeId>,
+    expected_len: usize,
+    actual: &'a [CheckedNodeId],
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let mut wanted = meter.vec(expected_len)?;
+    wanted.extend(expected);
+    let mut held = meter.vec(actual.len())?;
+    held.extend(actual.iter());
+    wanted.sort_unstable();
+    held.sort_unstable();
+    Ok(wanted == held)
 }
 
 fn validate_unit(
@@ -2513,7 +2566,6 @@ fn validate_unit(
     require(node.semantic_type == unit.dimension_node_id, || {
         site.member("semantic_type")
     })?;
-    let mut expected = vec![&unit.dimension_node_id];
     match &unit.target_unit_node_id {
         None => {
             require(is_rational(&unit.scale, "1", "1"), || {
@@ -2523,19 +2575,39 @@ fn validate_unit(
                 site.nominal_member(&["offset"])
             })?;
         }
-        Some(target) => {
+        Some(_) => {
             require(
                 integer_magnitude(&unit.scale.numerator).is_none_or(|m| !m.zero),
                 || site.nominal_member(&["scale", "numerator"]),
             )?;
-            expected.push(target);
             validate_unit_path(site, unit, graph, meter)?;
         }
     }
-    let mut actual = node.dependencies.iter().collect::<Vec<_>>();
-    expected.sort();
-    actual.sort();
-    require(expected == actual, || site.member("dependencies"))
+    let same = same_ids(
+        std::iter::once(&unit.dimension_node_id).chain(unit.target_unit_node_id.as_ref()),
+        1 + usize::from(unit.target_unit_node_id.is_some()),
+        &node.dependencies,
+        meter,
+    )?;
+    require(same, || site.member("dependencies"))
+}
+
+/// Whether `segments` joined by `/` spell `text`, compared in place.
+fn joined_with_slashes(segments: &[Box<str>], text: &str) -> bool {
+    let mut rest = text;
+    for (position, segment) in segments.iter().enumerate() {
+        if position > 0 {
+            let Some(after) = rest.strip_prefix('/') else {
+                return false;
+            };
+            rest = after;
+        }
+        let Some(after) = rest.strip_prefix(segment.as_ref()) else {
+            return false;
+        };
+        rest = after;
+    }
+    rest.is_empty()
 }
 
 fn is_rational(rational: &CheckedRational, numerator: &str, denominator: &str) -> bool {
@@ -2583,6 +2655,69 @@ mod tests {
     use super::*;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    fn id(package: &str, name: &str) -> CheckedNodeId {
+        CheckedNodeId {
+            package: package.into(),
+            path: vec![crate::checked_package::shared::CheckedNodePathSegment::Name(name.into())],
+            ordinal: 0,
+        }
+    }
+
+    /// The in-place slash join and the dependency multiset comparison agree
+    /// with the strings and sorted collections they replace, and the
+    /// comparison's blocks are charged first (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn slash_joins_and_id_multisets_agree_with_their_allocating_forms() {
+        use crate::NativeJoinBudget;
+        let names: Vec<Box<str>> = vec!["a".into(), "bc".into(), "d".into()];
+        for text in [
+            "a/bc/d", "a/bc/", "a/bc/dd", "a/b/d", "a//bc/d", "", "a/bc/d/",
+        ] {
+            let joined = names
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<&str>>()
+                .join("/");
+            assert_eq!(joined_with_slashes(&names, text), joined == text, "{text}");
+        }
+        assert!(joined_with_slashes(&[], ""));
+        let (a, b, c) = (id("p", "a"), id("p", "b"), id("q", "a"));
+        let run = |limit: u64, expected: &[&CheckedNodeId], actual: &[CheckedNodeId]| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            let same = same_ids(expected.iter().copied(), expected.len(), actual, &mut meter).ok();
+            drop(meter);
+            (same, budget.read_storage_consumed())
+        };
+        let cases: [(&[&CheckedNodeId], Vec<CheckedNodeId>); 5] = [
+            (&[&a, &b], vec![b.clone(), a.clone()]),
+            (&[&a, &b], vec![a.clone(), c.clone()]),
+            (&[&a, &a], vec![a.clone()]),
+            (&[&a], vec![a.clone(), a.clone()]),
+            (&[], vec![]),
+        ];
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let mut meter = WorkMeter::over(&mut budget);
+        assert_eq!(meter.clone_id(&a).ok(), Some(a.clone()));
+        drop(meter);
+        let spent = budget.read_storage_consumed();
+        assert!(spent > 0, "a cloned id is charged");
+        let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(spent - 1);
+        assert!(WorkMeter::over(&mut short).clone_id(&a).is_err());
+        for (expected, actual) in &cases {
+            let mut left: Vec<_> = expected.iter().copied().collect();
+            let mut right: Vec<_> = actual.iter().collect();
+            left.sort();
+            right.sort();
+            let (same, spent) = run(u64::MAX, expected, actual);
+            assert_eq!(same, Some(left == right));
+            if spent > 0 {
+                assert_eq!(run(spent - 1, expected, actual).0, None, "one byte short");
+            }
+        }
+    }
 
     #[trace("TC-280", "FR-038-AC-387")]
     #[test]
@@ -2666,8 +2801,15 @@ mod tests {
             &mut WorkMeter::new(u64::MAX),
         )
         .expect("model node table");
-        let record = record_from_node(&unit, NominalKind::Unit, 1, &[model], &model_nodes)
-            .expect("model unit join");
+        let record = record_from_node(
+            &unit,
+            NominalKind::Unit,
+            1,
+            &[model],
+            &model_nodes,
+            &mut WorkMeter::new(u64::MAX),
+        )
+        .expect("model unit join");
         let NominalRecord::Unit(record) = record else {
             panic!("unit record")
         };
@@ -2684,7 +2826,14 @@ mod tests {
         let mut malformed = unit.clone();
         malformed.body = json!({"term":"aggregate","members":[{"term":"literal","kind":"text","value":"extra"}]});
         assert!(matches!(
-            record_from_node(&malformed, NominalKind::Unit, 1, &[], &model_nodes),
+            record_from_node(
+                &malformed,
+                NominalKind::Unit,
+                1,
+                &[],
+                &model_nodes,
+                &mut WorkMeter::new(u64::MAX)
+            ),
             Err(ValidationFailure::Refused(refusal))
                 if refusal.code == CheckedPackageRefusalCode::MalformedWire
                     && refusal.loci[0].path.as_ref().is_some_and(|path| path.as_str() == "/semantic_graph/nodes/1")
