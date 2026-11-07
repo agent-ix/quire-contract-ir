@@ -7,8 +7,8 @@ use super::extension::integer_range_bounds;
 use super::operations::is_type_shaped;
 use super::{
     ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
-    CheckedResolvedEqualityUnitForm, CheckedTerm, ExpressionForm, ModelForm,
-    RawCheckedPackageWireV2, ScalarTypeForm, ValueForm, WorkMeter,
+    CheckedResolvedEqualityUnitForm, CheckedTerm, ExpressionForm, ModelForm, NativeJoinBudget,
+    NativeJoinChargeKind, RawCheckedPackageWireV2, ScalarTypeForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -25,7 +25,8 @@ use quire_semantic_value::declaration::{
     EqualityUnitDescriptor, EqualityUnitEdgeDescriptor, EqualityUnitForm,
 };
 use quire_semantic_value::reader_admission::{
-    mint_admitted_equality_decision, EqualityMaterializationError, ReaderSeal,
+    mint_admitted_equality_decision, EqualityMaterializationCode, EqualityMaterializationError,
+    EqualityMaterializationLocus, ReaderSeal,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -455,6 +456,9 @@ pub enum AdmittedEqualityReadErrorCode {
     /// A read charge exceeded the finite work limit.
     #[error("equality read work limit exhausted")]
     WorkLimit,
+    /// A logical storage charge could not be admitted.
+    #[error("equality read storage limit exhausted")]
+    StorageLimit,
     /// QSV refused a non-work resource charge while materializing admitted facts.
     #[error("equality materialization resource limit exhausted")]
     Resource,
@@ -469,77 +473,104 @@ pub enum AdmittedEqualityReadErrorCode {
 pub struct AdmittedEqualityReadError {
     /// Stable refusal kind.
     pub code: AdmittedEqualityReadErrorCode,
-    /// Requested equality application.
-    pub application: Box<CheckedNodeId>,
-    /// First structural node whose join failed.
-    pub at: Box<CheckedNodeId>,
+    /// Requested equality application when diagnostic storage was affordable.
+    pub application: Option<Box<CheckedNodeId>>,
+    /// First structural node whose join failed, when diagnostic storage was affordable.
+    pub at: Option<Box<CheckedNodeId>>,
     /// Missing witness kind, when a witness is unavailable.
     pub witness: Option<EqualityWitnessKind>,
-    /// Successfully charged read work.
+    /// Cumulative work admitted by the caller's shared budget.
     pub consumed_work: u64,
-    /// First refused charge; zero for a semantic refusal.
+    /// First refused work charge; storage denial details live in the budget.
     pub attempted_work: u64,
-    /// QSV's original typed materialization failure and locus.
+    /// QSV's stable typed materialization cause, including compact refusals.
+    pub materialization_code: Option<EqualityMaterializationCode>,
+    /// QSV's first materialization locus, including compact refusals.
+    pub materialization_locus: Option<EqualityMaterializationLocus>,
+    /// QSV's full typed failure when its owned payload was precharged.
     pub materialization: Option<Box<EqualityMaterializationError>>,
 }
 
-struct ReadWork {
-    consumed: u64,
-    limit: u64,
+fn charge_work(
+    budget: &mut NativeJoinBudget,
+    application: &CheckedNodeId,
+    at: &CheckedNodeId,
+) -> Result<(), AdmittedEqualityReadError> {
+    charge_work_amount(budget, application, at, 1)
 }
 
-impl ReadWork {
-    fn charge(
-        &mut self,
-        application: &CheckedNodeId,
-        at: &CheckedNodeId,
-    ) -> Result<(), AdmittedEqualityReadError> {
-        self.charge_amount(application, at, 1)
-    }
-
-    fn charge_amount(
-        &mut self,
-        application: &CheckedNodeId,
-        at: &CheckedNodeId,
-        amount: u64,
-    ) -> Result<(), AdmittedEqualityReadError> {
-        let Some(attempted) = self.consumed.checked_add(amount) else {
-            return Err(read_error(
-                AdmittedEqualityReadErrorCode::WorkLimit,
-                application,
-                at,
-                self.consumed,
-                amount,
-            ));
-        };
-        if attempted > self.limit {
-            return Err(read_error(
-                AdmittedEqualityReadErrorCode::WorkLimit,
-                application,
-                at,
-                self.consumed,
-                amount,
-            ));
-        }
-        self.consumed = attempted;
+fn charge_work_amount(
+    budget: &mut NativeJoinBudget,
+    application: &CheckedNodeId,
+    at: &CheckedNodeId,
+    amount: u64,
+) -> Result<(), AdmittedEqualityReadError> {
+    if budget.charge(NativeJoinChargeKind::Work, u128::from(amount)) {
         Ok(())
+    } else {
+        Err(read_error(
+            budget,
+            AdmittedEqualityReadErrorCode::WorkLimit,
+            application,
+            at,
+            amount,
+        ))
     }
+}
+
+fn charge_storage(
+    budget: &mut NativeJoinBudget,
+    application: &CheckedNodeId,
+    at: &CheckedNodeId,
+    amount: u128,
+) -> Result<(), AdmittedEqualityReadError> {
+    if budget.charge(NativeJoinChargeKind::Storage, amount) {
+        Ok(())
+    } else {
+        Err(read_error(
+            budget,
+            AdmittedEqualityReadErrorCode::StorageLimit,
+            application,
+            at,
+            0,
+        ))
+    }
+}
+
+fn diagnostic_floor(application: &CheckedNodeId, at: &CheckedNodeId) -> u128 {
+    super::native_join_storage::node(application)
+        .saturating_add(super::native_join_storage::node(at))
+        .saturating_add(1)
 }
 
 fn read_error(
+    budget: &mut NativeJoinBudget,
     code: AdmittedEqualityReadErrorCode,
     application: &CheckedNodeId,
     at: &CheckedNodeId,
-    consumed_work: u64,
     attempted_work: u64,
 ) -> AdmittedEqualityReadError {
+    let owned = budget.charge(
+        NativeJoinChargeKind::Storage,
+        diagnostic_floor(application, at),
+    );
     AdmittedEqualityReadError {
-        code,
-        application: Box::new(application.clone()),
-        at: Box::new(at.clone()),
+        code: if !owned
+            && budget
+                .first_unpaid()
+                .is_some_and(|denied| denied.kind == NativeJoinChargeKind::Storage)
+        {
+            AdmittedEqualityReadErrorCode::StorageLimit
+        } else {
+            code
+        },
+        application: owned.then(|| Box::new(application.clone())),
+        at: owned.then(|| Box::new(at.clone())),
         witness: None,
-        consumed_work,
+        consumed_work: budget.consumed().work,
         attempted_work,
+        materialization_code: None,
+        materialization_locus: None,
         materialization: None,
     }
 }
@@ -548,13 +579,13 @@ fn missing_witness(
     application: &CheckedNodeId,
     at: &CheckedNodeId,
     kind: EqualityWitnessKind,
-    work: &ReadWork,
+    budget: &mut NativeJoinBudget,
 ) -> AdmittedEqualityReadError {
     let mut error = read_error(
+        budget,
         AdmittedEqualityReadErrorCode::UnavailableEqualityWitness,
         application,
         at,
-        work.consumed,
         0,
     );
     error.witness = Some(kind);
@@ -569,20 +600,20 @@ fn selected_fact<'a>(
     at: &CheckedNodeId,
     kind: EqualityWitnessKind,
     predicate: impl Fn(&EqualityFactWitness) -> bool,
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<&'a SelectedEqualityFactRow, AdmittedEqualityReadError> {
     let mut found = None;
     for row in rows {
-        work.charge(application, &row.structural_node)?;
+        charge_work(work, application, &row.structural_node)?;
         if row.checked_application != *application || row.occurrence != application_row.occurrence {
             continue;
         }
         if row.structural_node.package != package.wire.name {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::ForeignEqualityWitness,
                 application,
                 &row.structural_node,
-                work.consumed,
                 0,
             ));
         }
@@ -593,20 +624,20 @@ fn selected_fact<'a>(
                 .is_none_or(|node| node.owner != row.owner)
         {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 &row.structural_node,
-                work.consumed,
                 0,
             ));
         }
         if predicate(&row.fact) && row.structural_node == *at {
             if found.is_some() {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::DuplicateEqualityWitness,
                     application,
                     at,
-                    work.consumed,
                     0,
                 ));
             }
@@ -620,9 +651,9 @@ fn exact_type(
     package: &CheckedPackageV2,
     application: &CheckedNodeId,
     type_id: &CheckedNodeId,
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<ValueType, AdmittedEqualityReadError> {
-    work.charge(application, type_id)?;
+    charge_work(work, application, type_id)?;
     let kind = package.node_kind(type_id).ok_or_else(|| {
         missing_witness(application, type_id, EqualityWitnessKind::PlanType, work)
     })?;
@@ -640,10 +671,17 @@ fn exact_type(
                     missing_witness(application, type_id, EqualityWitnessKind::PlanType, work)
                 })?;
             let bytes = lower.len().saturating_add(upper.len());
-            work.charge_amount(
+            charge_work_amount(
+                work,
                 application,
                 type_id,
                 u64::try_from(bytes).unwrap_or(u64::MAX),
+            )?;
+            charge_storage(
+                work,
+                application,
+                type_id,
+                (bytes as u128).saturating_add(2),
             )?;
             let lower: Integer = lower.parse().map_err(|_| {
                 missing_witness(application, type_id, EqualityWitnessKind::PlanType, work)
@@ -665,10 +703,17 @@ fn exact_type(
                 .len()
                 .saturating_add(max.len())
                 .saturating_add(profile.len());
-            work.charge_amount(
+            charge_work_amount(
+                work,
                 application,
                 type_id,
                 u64::try_from(bytes).unwrap_or(u64::MAX),
+            )?;
+            charge_storage(
+                work,
+                application,
+                type_id,
+                (bytes as u128).saturating_add(2),
             )?;
             let min = min.parse().map_err(|_| {
                 missing_witness(application, type_id, EqualityWitnessKind::TextType, work)
@@ -719,7 +764,7 @@ fn operand_type(
     rows: &[SelectedEqualityFactRow],
     type_id: &CheckedNodeId,
     selection: OperandFactSelection,
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<ValueType, AdmittedEqualityReadError> {
     let witness = match decision.schedule {
         super::CheckedEqualitySchedule::Text => EqualityWitnessKind::TextType,
@@ -743,7 +788,7 @@ fn operand_type(
     let OperandFactSelection { position, role } = selection;
     let mut has_fact = false;
     for row in rows {
-        work.charge(application, &row.structural_node)?;
+        charge_work(work, application, &row.structural_node)?;
         if row.checked_application == *application
             && row.structural_node == *type_id
             && matches!(row.fact, EqualityFactWitness::OperandType { position: p, role: r }
@@ -753,8 +798,8 @@ fn operand_type(
         }
     }
     if !has_fact {
-        if let Some(projected) = primitive_plan.as_ref() {
-            return Ok(projected.clone());
+        if let Some(projected) = primitive_plan {
+            return Ok(projected);
         }
     }
     let operand_row = selected_fact(
@@ -785,10 +830,10 @@ fn operand_type(
             ))
     {
         return Err(read_error(
+            work,
             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
             application,
             type_id,
-            work.consumed,
             0,
         ));
     }
@@ -800,20 +845,20 @@ fn operand_type(
         && exact_type(package, application, type_id, work)? != *value
     {
         return Err(read_error(
+            work,
             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
             application,
             type_id,
-            work.consumed,
             0,
         ));
     }
     if let Some(projected) = primitive_plan {
         if projected != *value {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 type_id,
-                work.consumed,
                 0,
             ));
         }
@@ -843,10 +888,10 @@ fn operand_type(
             || type_row.value_type.as_ref() != Some(value)
         {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 type_id,
-                work.consumed,
                 0,
             ));
         }
@@ -867,26 +912,26 @@ fn operand_type(
         )?;
         let EqualityFactWitness::Unit { unit_id, .. } = &unit_row.fact else {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 type_id,
-                work.consumed,
                 0,
             ));
         };
         let mut selected_unit = false;
         for unit in &decision.units {
-            work.charge(application, &unit.unit)?;
+            charge_work(work, application, &unit.unit)?;
             if unit.quantity_type == *type_id && unit.unit == unit_row.structural_node {
                 selected_unit = true;
             }
         }
-        if value != &ValueType::Quantity(unit_id.clone()) || !selected_unit {
+        if !matches!(value, ValueType::Quantity(id) if id == unit_id) || !selected_unit {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 type_id,
-                work.consumed,
                 0,
             ));
         }
@@ -906,14 +951,20 @@ fn operand_type(
             )
         {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 type_id,
-                work.consumed,
                 0,
             ));
         }
     }
+    charge_storage(
+        work,
+        application,
+        type_id,
+        super::native_join_storage::value_type(value),
+    )?;
     Ok(value.clone())
 }
 
@@ -925,7 +976,7 @@ fn operand(
     rows: &[SelectedEqualityFactRow],
     selected: &super::CheckedEqualityOperandDecision,
     position: usize,
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<EqualityOperand, AdmittedEqualityReadError> {
     let source = operand_type(
         package,
@@ -977,11 +1028,18 @@ fn exact_meter(work_limit: u64) -> Meter {
 }
 
 fn materialization_refusal(
+    budget: &mut NativeJoinBudget,
     application: &CheckedNodeId,
-    ir_work: u64,
-    exact_work: u64,
     cause: EqualityMaterializationError,
 ) -> AdmittedEqualityReadError {
+    let materialization_code = cause.code();
+    let materialization_locus = match &cause {
+        EqualityMaterializationError::IdentityForm { locus }
+        | EqualityMaterializationError::Resource { locus, .. }
+        | EqualityMaterializationError::Arithmetic { locus, .. }
+        | EqualityMaterializationError::Allocation { locus, .. }
+        | EqualityMaterializationError::Capacity { locus, .. } => *locus,
+    };
     let (code, attempted_work) = match &cause {
         EqualityMaterializationError::Resource { cause, .. } => (
             if cause.limit_kind == LimitKind::WorkUnits {
@@ -995,14 +1053,38 @@ fn materialization_refusal(
         ),
         _ => (AdmittedEqualityReadErrorCode::Materialization, 0),
     };
-    let mut error = read_error(
-        code,
-        application,
-        application,
-        ir_work.saturating_add(exact_work),
-        attempted_work,
-    );
-    error.materialization = Some(Box::new(cause));
+    if code == AdmittedEqualityReadErrorCode::WorkLimit {
+        budget.charge(NativeJoinChargeKind::Work, u128::from(attempted_work));
+    }
+    let cause_storage = match &cause {
+        EqualityMaterializationError::Resource { cause, .. } => {
+            Some(u128::from(cause.next_charge.magnitude_bits().div_ceil(8)).saturating_add(4))
+        }
+        // Stop can own nested domain payloads; retain its fixed code and locus.
+        EqualityMaterializationError::Arithmetic { .. } => None,
+        EqualityMaterializationError::IdentityForm { .. }
+        | EqualityMaterializationError::Allocation { .. }
+        | EqualityMaterializationError::Capacity { .. } => Some(2),
+    };
+    if let Some(cause_storage) = cause_storage {
+        let full_floor = diagnostic_floor(application, application).saturating_add(cause_storage);
+        if budget.charge(NativeJoinChargeKind::Storage, full_floor) {
+            return AdmittedEqualityReadError {
+                code,
+                application: Some(Box::new(application.clone())),
+                at: Some(Box::new(application.clone())),
+                witness: None,
+                consumed_work: budget.consumed().work,
+                attempted_work,
+                materialization_code: Some(materialization_code),
+                materialization_locus: Some(materialization_locus),
+                materialization: Some(Box::new(cause)),
+            };
+        }
+    }
+    let mut error = read_error(budget, code, application, application, attempted_work);
+    error.materialization_code = Some(materialization_code);
+    error.materialization_locus = Some(materialization_locus);
     error
 }
 
@@ -1012,9 +1094,9 @@ fn join_source_unit(
     unit_node: &CheckedNodeId,
     expected_id: &UnitId,
     rows: &[SelectedSourceUnitRow],
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<(), AdmittedEqualityReadError> {
-    work.charge(application, unit_node)?;
+    charge_work(work, application, unit_node)?;
     let Some(node) = package.node(unit_node) else {
         return Err(missing_witness(
             application,
@@ -1044,23 +1126,23 @@ fn join_source_unit(
     };
     let mut found = None;
     for row in rows {
-        work.charge(application, &row.structural_node)?;
+        charge_work(work, application, &row.structural_node)?;
         if row.structural_node.package != package.wire.name {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::ForeignEqualityWitness,
                 application,
                 &row.structural_node,
-                work.consumed,
                 0,
             ));
         }
         if row.structural_node == *unit_node {
             if found.is_some() {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::DuplicateEqualityWitness,
                     application,
                     unit_node,
-                    work.consumed,
                     0,
                 ));
             }
@@ -1077,13 +1159,14 @@ fn join_source_unit(
     })?;
     let mut selected_source = false;
     for source in &package.lock().sources {
-        work.charge(application, unit_node)?;
+        charge_work(work, application, unit_node)?;
         if source.authority == *authority && source.identity == *identity {
             selected_source = true;
         }
     }
     for segment in &row.qualified_declaration {
-        work.charge_amount(
+        charge_work_amount(
+            work,
             application,
             unit_node,
             u64::try_from(segment.len()).unwrap_or(u64::MAX),
@@ -1101,10 +1184,10 @@ fn join_source_unit(
         || !matches!(expected_id, UnitId::Declared(_))
     {
         return Err(read_error(
+            work,
             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
             application,
             unit_node,
-            work.consumed,
             0,
         ));
     }
@@ -1117,23 +1200,26 @@ fn join_compound_root(
     root: &CheckedNodeId,
     key: &NodeKey,
     source_rows: &[SelectedSourceUnitRow],
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<(), AdmittedEqualityReadError> {
-    work.charge(application, root)?;
+    charge_work(work, application, root)?;
     let owner = package.node(root).and_then(|node| node.owner.as_ref());
     match owner {
-        Some(CheckedNodeOwner::Source { .. }) => join_source_unit(
-            package,
-            application,
-            root,
-            &UnitId::declared(key.clone()),
-            source_rows,
-            work,
-        ),
+        Some(CheckedNodeOwner::Source { .. }) => {
+            charge_storage(work, application, root, 1)?;
+            join_source_unit(
+                package,
+                application,
+                root,
+                &UnitId::declared(key.clone()),
+                source_rows,
+                work,
+            )
+        }
         Some(CheckedNodeOwner::Model { identity, node }) => {
             let mut selected = false;
             for model in package.models.selected_models() {
-                work.charge(application, root)?;
+                charge_work(work, application, root)?;
                 if model.identity == *identity && model.units.contains_key(node) {
                     selected = true;
                 }
@@ -1164,9 +1250,10 @@ fn checked_rational(
     value: &super::CheckedRational,
     application: &CheckedNodeId,
     at: &CheckedNodeId,
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<Rational, AdmittedEqualityReadError> {
-    work.charge_amount(
+    charge_work_amount(
+        work,
         application,
         at,
         u64::try_from(
@@ -1177,30 +1264,38 @@ fn checked_rational(
         )
         .unwrap_or(u64::MAX),
     )?;
+    charge_storage(
+        work,
+        application,
+        at,
+        (value.numerator.len() as u128)
+            .saturating_add(value.denominator.len() as u128)
+            .saturating_add(3),
+    )?;
     let numerator: Integer = value.numerator.parse().map_err(|_| {
         read_error(
+            work,
             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
             application,
             at,
-            work.consumed,
             0,
         )
     })?;
     let denominator: Integer = value.denominator.parse().map_err(|_| {
         read_error(
+            work,
             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
             application,
             at,
-            work.consumed,
             0,
         )
     })?;
     Rational::new(numerator, denominator).map_err(|_| {
         read_error(
+            work,
             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
             application,
             at,
-            work.consumed,
             0,
         )
     })
@@ -1213,19 +1308,27 @@ fn validate_dimension_terms(
     unit_id: &UnitId,
     operand_position: usize,
     rows: &[SelectedEqualityFactRow],
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<(), AdmittedEqualityReadError> {
+    charge_storage(work, application, application, 1)?;
     let mut seen = BTreeSet::new();
     for declaration in rows {
-        work.charge(application, &declaration.structural_node)?;
+        charge_work(work, application, &declaration.structural_node)?;
         if declaration.checked_application != *application
             || !matches!(&declaration.fact,
                 EqualityFactWitness::DimensionDeclaration { unit_id: id, operand_position: position, .. }
                 if id == unit_id && *position == operand_position)
-            || !seen.insert(declaration.structural_node.clone())
+            || seen.contains(&declaration.structural_node)
         {
             continue;
         }
+        charge_storage(
+            work,
+            application,
+            &declaration.structural_node,
+            super::native_join_storage::node(&declaration.structural_node).saturating_add(1),
+        )?;
+        seen.insert(declaration.structural_node.clone());
         let body = match package.term(&declaration.structural_node) {
             Some(CheckedTerm::NominalBody(body)) => body,
             Some(_)
@@ -1240,26 +1343,27 @@ fn validate_dimension_terms(
             }
             _ => {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &declaration.structural_node,
-                    work.consumed,
                     0,
                 ))
             }
         };
         let Some(terms) = body.dimension_details() else {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 &declaration.structural_node,
-                work.consumed,
                 0,
             ));
         };
         for (ordinal, term) in terms.iter().enumerate() {
-            work.charge(application, &term.dimension_node_id)?;
-            work.charge_amount(
+            charge_work(work, application, &term.dimension_node_id)?;
+            charge_work_amount(
+                work,
                 application,
                 &declaration.structural_node,
                 u64::try_from(term.exponent.len()).unwrap_or(u64::MAX),
@@ -1286,10 +1390,10 @@ fn validate_dimension_terms(
             } = &fact.fact
             else {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &declaration.structural_node,
-                    work.consumed,
                     0,
                 ));
             };
@@ -1298,10 +1402,10 @@ fn validate_dimension_terms(
                 || exponent != &term.exponent
             {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &declaration.structural_node,
-                    work.consumed,
                     0,
                 ));
             }
@@ -1321,10 +1425,10 @@ fn validate_dimension_terms(
             )?;
             if &base_row.structural_key != base {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     base_node,
-                    work.consumed,
                     0,
                 ));
             }
@@ -1341,7 +1445,7 @@ fn quantity_unit(
     unit: &super::CheckedResolvedEqualityUnit,
     rows: &[SelectedEqualityFactRow],
     source_rows: &[SelectedSourceUnitRow],
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<EqualityUnitDescriptor, AdmittedEqualityReadError> {
     let roles = [
         (0, EqualityUnitRole::Source, &decision.left.source_type),
@@ -1385,10 +1489,10 @@ fn quantity_unit(
     )?;
     let EqualityFactWitness::Unit { unit_id, .. } = &row.fact else {
         return Err(read_error(
+            work,
             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
             application,
             &unit.unit,
-            work.consumed,
             0,
         ));
     };
@@ -1402,10 +1506,10 @@ fn quantity_unit(
     };
     if package.node_kind(&unit.unit) != Some(expected_kind) {
         return Err(read_error(
+            work,
             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
             application,
             &unit.unit,
-            work.consumed,
             0,
         ));
     }
@@ -1417,17 +1521,23 @@ fn quantity_unit(
     ) {
         join_source_unit(package, application, &unit.unit, unit_id, source_rows, work)?;
     }
-    let dimensions = |terms: &[super::CheckedUnitDimensionTerm], role, work: &mut ReadWork| {
+    let dimensions = |terms: &[super::CheckedUnitDimensionTerm],
+                      role,
+                      work: &mut NativeJoinBudget| {
+        charge_storage(work, application, &unit.unit, 1)?;
         terms.iter().map(|term| {
             let fact = selected_fact(package, application, application_row, rows,
                 &term.dimension, EqualityWitnessKind::BaseDimensionTerm,
                 |fact| matches!(fact, EqualityFactWitness::DimensionDeclaration { unit_id: id, operand_position, role: r, .. }
                     if id == unit_id && *operand_position == binding.0 && *r == role), work)?;
-            work.charge_amount(application, &term.dimension,
+            charge_work_amount(work, application, &term.dimension,
                 u64::try_from(term.exponent.len()).unwrap_or(u64::MAX))?;
+            charge_storage(work, application, &term.dimension,
+                (term.exponent.len() as u128).saturating_add(3))?;
             let exponent = term.exponent.parse::<Integer>().map_err(|_| read_error(
-                AdmittedEqualityReadErrorCode::MismatchedEqualityWitness, application,
-                &term.dimension, work.consumed, 0))?;
+                work, AdmittedEqualityReadErrorCode::MismatchedEqualityWitness, application,
+                &term.dimension, 0))?;
+            charge_storage(work, application, &term.dimension, 1)?;
             Ok((fact.structural_key.clone(), exponent))
         }).collect::<Result<Vec<_>, AdmittedEqualityReadError>>()
     };
@@ -1440,10 +1550,10 @@ fn quantity_unit(
         } => {
             if unit_id.declared_key() != Some(&row.structural_key) {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &unit.unit,
-                    work.consumed,
                     0,
                 ));
             }
@@ -1460,10 +1570,18 @@ fn quantity_unit(
                 },
                 work,
             )?;
+            charge_storage(work, application, dimension_node, 1)?;
             let dimension_key = dimension.structural_key.clone();
             let dimension_terms =
                 dimensions(dimension_terms, EqualityDimensionRole::BaseDimension, work)?;
+            charge_storage(work, application, &unit.unit, 1)?;
             let mut edges = Vec::new();
+            charge_storage(
+                work,
+                application,
+                &unit.unit,
+                super::native_join_storage::node(&unit.unit),
+            )?;
             let mut source = unit.unit.clone();
             for (ordinal, edge) in path.iter().enumerate() {
                 let fact = selected_fact(
@@ -1488,15 +1606,16 @@ fn quantity_unit(
                 } = &fact.fact
                 else {
                     return Err(read_error(
+                        work,
                         AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                         application,
                         &fact.structural_node,
-                        work.consumed,
                         0,
                     ));
                 };
                 for rational in [&edge.scale, &edge.offset] {
-                    work.charge_amount(
+                    charge_work_amount(
+                        work,
                         application,
                         &fact.structural_node,
                         u64::try_from(
@@ -1510,10 +1629,10 @@ fn quantity_unit(
                 }
                 if target_node != &edge.target || scale != &edge.scale || offset != &edge.offset {
                     return Err(read_error(
+                        work,
                         AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                         application,
                         &fact.structural_node,
-                        work.consumed,
                         0,
                     ));
                 }
@@ -1523,10 +1642,10 @@ fn quantity_unit(
                 ) {
                     let Some(CheckedTerm::NominalBody(body)) = package.term(&source) else {
                         return Err(read_error(
+                            work,
                             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                             application,
                             &source,
-                            work.consumed,
                             0,
                         ));
                     };
@@ -1534,10 +1653,10 @@ fn quantity_unit(
                         body.unit_details()
                     else {
                         return Err(read_error(
+                            work,
                             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                             application,
                             &source,
-                            work.consumed,
                             0,
                         ));
                     };
@@ -1546,10 +1665,10 @@ fn quantity_unit(
                         || selected_offset != &edge.offset
                     {
                         return Err(read_error(
+                            work,
                             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                             application,
                             &source,
-                            work.consumed,
                             0,
                         ));
                     }
@@ -1562,19 +1681,19 @@ fn quantity_unit(
                 ) {
                     let Some(CheckedTerm::NominalBody(body)) = package.term(&edge.target) else {
                         return Err(read_error(
+                            work,
                             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                             application,
                             &edge.target,
-                            work.consumed,
                             0,
                         ));
                     };
                     let Some((target_dimension, _, _, _)) = body.unit_details() else {
                         return Err(read_error(
+                            work,
                             AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                             application,
                             &edge.target,
-                            work.consumed,
                             0,
                         ));
                     };
@@ -1593,19 +1712,26 @@ fn quantity_unit(
                         work,
                     )?;
                 }
+                charge_storage(work, application, &fact.structural_node, 2)?;
                 edges.push(EqualityUnitEdgeDescriptor {
                     target: target.clone(),
                     scale: checked_rational(scale, application, &fact.structural_node, work)?,
                     offset: checked_rational(offset, application, &fact.structural_node, work)?,
                 });
+                charge_storage(
+                    work,
+                    application,
+                    &edge.target,
+                    super::native_join_storage::node(&edge.target),
+                )?;
                 source = edge.target.clone();
             }
             if source != *root_unit {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     root_unit,
-                    work.consumed,
                     0,
                 ));
             }
@@ -1621,19 +1747,19 @@ fn quantity_unit(
         } => {
             let Some(root_terms) = unit_id.compound_terms() else {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &unit.unit,
-                    work.consumed,
                     0,
                 ));
             };
             if root_terms.len() != terms.len() {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &unit.unit,
-                    work.consumed,
                     0,
                 ));
             }
@@ -1646,26 +1772,33 @@ fn quantity_unit(
                     source_rows,
                     work,
                 )?;
-                work.charge_amount(
+                charge_work_amount(
+                    work,
                     application,
                     &term.root_unit,
                     u64::try_from(term.exponent.len()).unwrap_or(u64::MAX),
                 )?;
+                charge_storage(
+                    work,
+                    application,
+                    &term.root_unit,
+                    (term.exponent.len() as u128).saturating_add(1),
+                )?;
                 if &term.exponent.parse::<Integer>().map_err(|_| {
                     read_error(
+                        work,
                         AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                         application,
                         &term.root_unit,
-                        work.consumed,
                         0,
                     )
                 })? != exponent
                 {
                     return Err(read_error(
+                        work,
                         AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                         application,
                         &term.root_unit,
-                        work.consumed,
                         0,
                     ));
                 }
@@ -1688,6 +1821,12 @@ fn quantity_unit(
         rows,
         work,
     )?;
+    charge_storage(
+        work,
+        application,
+        &unit.unit,
+        super::native_join_storage::unit(unit_id).saturating_add(1),
+    )?;
     Ok(EqualityUnitDescriptor {
         id: unit_id.clone(),
         form,
@@ -1701,7 +1840,7 @@ fn enum_descriptors(
     decision: &super::CheckedEqualityDecision,
     compared_type: &ValueType,
     rows: &[SelectedEqualityFactRow],
-    work: &mut ReadWork,
+    work: &mut NativeJoinBudget,
 ) -> Result<
     (
         Vec<EqualityEnumDeclarationDescriptor>,
@@ -1709,6 +1848,7 @@ fn enum_descriptors(
     ),
     AdmittedEqualityReadError,
 > {
+    charge_storage(work, application, application, 3)?;
     let mut declarations: Vec<EqualityEnumDeclarationDescriptor> = Vec::new();
     let mut members = Vec::new();
     let ValueType::Enum(expected_shape) = compared_type else {
@@ -1721,7 +1861,8 @@ fn enum_descriptors(
     };
     let mut expected_variants = Vec::new();
     for variant in expected_shape.variants() {
-        work.charge(application, &decision.left.source_type)?;
+        charge_work(work, application, &decision.left.source_type)?;
+        charge_storage(work, application, &decision.left.source_type, 1)?;
         expected_variants.push(variant);
     }
     if decision.enum_members.len() != expected_variants.len() {
@@ -1764,14 +1905,15 @@ fn enum_descriptors(
         } = &row.fact
         else {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 &wire.member,
-                work.consumed,
                 0,
             ));
         };
-        work.charge_amount(
+        charge_work_amount(
+            work,
             application,
             &wire.member,
             u64::try_from(case.len()).unwrap_or(u64::MAX),
@@ -1803,10 +1945,10 @@ fn enum_descriptors(
                 .is_none_or(|node| node.semantic_type != *declaration_node)
         {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 &wire.member,
-                work.consumed,
                 0,
             ));
         }
@@ -1818,17 +1960,24 @@ fn enum_descriptors(
                 work,
             ));
         };
+        charge_storage(
+            work,
+            application,
+            &wire.member,
+            (case.len() as u128).saturating_add(2),
+        )?;
         let variant =
             VariantId::new(source_declaration.clone(), case.to_string()).map_err(|_| {
                 read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &wire.member,
-                    work.consumed,
                     0,
                 )
             })?;
-        work.charge_amount(
+        charge_work_amount(
+            work,
             application,
             &wire.member,
             u64::try_from(expected_variants.len()).unwrap_or(u64::MAX),
@@ -1840,14 +1989,15 @@ fn enum_descriptors(
                 .is_none_or(|expected| *expected != &variant)
         {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                 application,
                 &wire.member,
-                work.consumed,
                 0,
             ));
         }
-        work.charge_amount(
+        charge_work_amount(
+            work,
             application,
             &wire.member,
             u64::try_from(declarations.len()).unwrap_or(u64::MAX),
@@ -1857,30 +2007,48 @@ fn enum_descriptors(
             let declaration_row = &mut declarations[index];
             if declaration_row.ordered != *ordered || declaration_row.members.len() != *ordinal {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &wire.member,
-                    work.consumed,
                     0,
                 ));
             }
+            charge_storage(
+                work,
+                application,
+                &wire.member,
+                (case.len() as u128).saturating_add(2),
+            )?;
             declaration_row.members.push(case.to_string());
         } else {
             if *ordinal != 0 {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &wire.member,
-                    work.consumed,
                     0,
                 ));
             }
+            charge_storage(
+                work,
+                application,
+                &wire.member,
+                (case.len() as u128).saturating_add(4),
+            )?;
             declarations.push(EqualityEnumDeclarationDescriptor {
                 key: declaration.clone(),
                 ordered: *ordered,
                 members: vec![case.to_string()],
             });
         }
+        charge_storage(
+            work,
+            application,
+            &wire.member,
+            (case.len() as u128).saturating_add(4),
+        )?;
         members.push(EqualityEnumMemberDescriptor {
             variant,
             declaration: declaration.clone(),
@@ -1899,6 +2067,7 @@ impl CheckedPackageV2 {
     /// Types requiring further QSL-stage identities refuse with their missing
     /// structural witness. The read never projects a type from an unrelated
     /// declaration row, reconstructs an Exact key, or selects a schedule.
+    /// All work and logical storage charges use the caller's shared budget.
     pub fn admitted_equality(
         &self,
         application: &CheckedNodeId,
@@ -1906,7 +2075,7 @@ impl CheckedPackageV2 {
         application_rows: &[SelectedEqualityApplicationRow],
         fact_rows: &[SelectedEqualityFactRow],
         source_unit_rows: &[SelectedSourceUnitRow],
-        work_limit: u64,
+        budget: &mut NativeJoinBudget,
     ) -> Result<AdmittedEqualityDecision, AdmittedEqualityReadError> {
         self.admitted_equality_metered(
             application,
@@ -1914,9 +2083,8 @@ impl CheckedPackageV2 {
             application_rows,
             fact_rows,
             source_unit_rows,
-            work_limit,
+            budget,
         )
-        .map(|(decision, _)| decision)
     }
 
     pub(super) fn admitted_equality_metered(
@@ -1926,37 +2094,34 @@ impl CheckedPackageV2 {
         application_rows: &[SelectedEqualityApplicationRow],
         fact_rows: &[SelectedEqualityFactRow],
         source_unit_rows: &[SelectedSourceUnitRow],
-        work_limit: u64,
-    ) -> Result<(AdmittedEqualityDecision, u64), AdmittedEqualityReadError> {
-        let mut work = ReadWork {
-            consumed: 0,
-            limit: work_limit,
-        };
-        work.charge(application, application)?;
+        work: &mut NativeJoinBudget,
+    ) -> Result<AdmittedEqualityDecision, AdmittedEqualityReadError> {
+        let before = work.begin();
+        charge_work(work, application, application)?;
         if application.package != self.wire.name {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::ForeignApplication,
                 application,
                 application,
-                work.consumed,
                 0,
             ));
         }
         let Some(&position) = self.node_index.get(application) else {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::UnknownApplication,
                 application,
                 application,
-                work.consumed,
                 0,
             ));
         };
         if self.kinds.get(position) != Some(&CheckedNodeKind::Expression(ExpressionForm::Binary)) {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::WrongApplicationForm,
                 application,
                 application,
-                work.consumed,
                 0,
             ));
         }
@@ -1967,22 +2132,28 @@ impl CheckedPackageV2 {
         }) = self.terms.get(position)
         else {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::WrongApplicationForm,
                 application,
                 application,
-                work.consumed,
                 0,
             ));
         };
         if operation.identity().and_then(equality_operator).is_none() {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::NonEqualityApplication,
                 application,
                 application,
-                work.consumed,
                 0,
             ));
         }
+        charge_storage(
+            work,
+            application,
+            application,
+            super::native_join_storage::node(application),
+        )?;
         let source_position = self.source_index.get(&(
             application.clone(),
             occurrence.role.clone(),
@@ -1994,25 +2165,25 @@ impl CheckedPackageV2 {
             || source_position.is_none()
         {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::WrongOccurrence,
                 application,
                 application,
-                work.consumed,
                 0,
             ));
         }
         let Some(data) = self.wire.checked_term_data.as_ref() else {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::UnavailableEqualityDecision,
                 application,
                 application,
-                work.consumed,
                 0,
             ));
         };
         let mut selected = None;
         for decision in &data.equality_decisions {
-            work.charge(application, &decision.application)?;
+            charge_work(work, application, &decision.application)?;
             if &decision.application == application && &decision.occurrence == occurrence {
                 selected = Some(decision);
                 break;
@@ -2020,42 +2191,51 @@ impl CheckedPackageV2 {
         }
         let Some(decision) = selected else {
             return Err(read_error(
+                work,
                 AdmittedEqualityReadErrorCode::UnavailableEqualityDecision,
                 application,
                 application,
-                work.consumed,
                 0,
             ));
         };
+        charge_storage(work, application, application, 1)?;
         let mut row = None;
         let mut seen_rows = BTreeSet::new();
         for candidate in application_rows {
-            work.charge(application, &candidate.application)?;
+            charge_work(work, application, &candidate.application)?;
             if candidate.application.package != self.wire.name {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::ForeignEqualityWitness,
                     application,
                     &candidate.application,
-                    work.consumed,
                     0,
                 ));
             }
-            if !seen_rows.insert((&candidate.application, &candidate.occurrence)) {
+            if seen_rows.contains(&(&candidate.application, &candidate.occurrence)) {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::DuplicateEqualityWitness,
                     application,
                     &candidate.application,
-                    work.consumed,
                     0,
                 ));
             }
+            charge_storage(work, application, &candidate.application, 1)?;
+            seen_rows.insert((&candidate.application, &candidate.occurrence));
+            charge_storage(
+                work,
+                application,
+                &candidate.application,
+                super::native_join_storage::node(&candidate.application),
+            )?;
             let candidate_source = self.source_index.get(&(
                 candidate.application.clone(),
                 candidate.occurrence.role.clone(),
                 candidate.occurrence.ordinal,
             ));
             for _ in &candidate.source_map_entry.regions {
-                work.charge(application, &candidate.application)?;
+                charge_work(work, application, &candidate.application)?;
             }
             let candidate_valid =
                 self.node_index
@@ -2075,10 +2255,10 @@ impl CheckedPackageV2 {
                         == occurrence_role(&candidate.occurrence.role);
             if !candidate_valid {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &candidate.application,
-                    work.consumed,
                     0,
                 ));
             }
@@ -2091,26 +2271,26 @@ impl CheckedPackageV2 {
                 application,
                 application,
                 EqualityWitnessKind::Application,
-                &work,
+                work,
             ));
         };
-        let units = decision
-            .units
-            .iter()
-            .map(|unit| {
-                quantity_unit(
-                    self,
-                    application,
-                    row,
-                    decision,
-                    unit,
-                    fact_rows,
-                    source_unit_rows,
-                    &mut work,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        work.charge(application, &decision.left.source_type)?;
+        charge_storage(work, application, application, 1)?;
+        let mut units = Vec::new();
+        for unit in &decision.units {
+            let projected = quantity_unit(
+                self,
+                application,
+                row,
+                decision,
+                unit,
+                fact_rows,
+                source_unit_rows,
+                work,
+            )?;
+            charge_storage(work, application, &unit.unit, 1)?;
+            units.push(projected);
+        }
+        charge_work(work, application, &decision.left.source_type)?;
         let left = operand(
             self,
             application,
@@ -2119,9 +2299,9 @@ impl CheckedPackageV2 {
             fact_rows,
             &decision.left,
             0,
-            &mut work,
+            work,
         )?;
-        work.charge(application, &decision.right.source_type)?;
+        charge_work(work, application, &decision.right.source_type)?;
         let right = operand(
             self,
             application,
@@ -2130,7 +2310,7 @@ impl CheckedPackageV2 {
             fact_rows,
             &decision.right,
             1,
-            &mut work,
+            work,
         )?;
         let schedule = match decision.schedule {
             super::CheckedEqualitySchedule::Text => EqualitySchedule::Text,
@@ -2142,25 +2322,18 @@ impl CheckedPackageV2 {
             let compared = left.target().unwrap_or_else(|| left.source());
             if right.target().unwrap_or_else(|| right.source()) != compared {
                 return Err(read_error(
+                    work,
                     AdmittedEqualityReadErrorCode::MismatchedEqualityWitness,
                     application,
                     &decision.right.source_type,
-                    work.consumed,
                     0,
                 ));
             }
-            enum_descriptors(
-                self,
-                application,
-                row,
-                decision,
-                compared,
-                fact_rows,
-                &mut work,
-            )?
+            enum_descriptors(self, application, row, decision, compared, fact_rows, work)?
         } else {
             (Vec::new(), Vec::new())
         };
+        charge_storage(work, application, application, 3)?;
         let descriptor = EqualityDecisionDescriptor {
             location: row.location.clone(),
             operator: match decision.operator {
@@ -2174,20 +2347,22 @@ impl CheckedPackageV2 {
             enum_declarations,
             enum_members,
         };
-        let mut meter = exact_meter(work.limit - work.consumed);
-        let decision = mint_admitted_equality_decision(ReaderSeal, descriptor, &mut meter)
-            .map_err(|cause| {
-                materialization_refusal(
-                    application,
-                    work.consumed,
-                    meter.consumed(LimitKind::WorkUnits),
-                    cause,
-                )
-            })?;
-        Ok((
-            decision,
-            work.consumed + meter.consumed(LimitKind::WorkUnits),
-        ))
+        charge_storage(work, application, application, 1)?;
+        let mut meter = exact_meter(work.remaining_work());
+        let result = mint_admitted_equality_decision(ReaderSeal, descriptor, &mut meter);
+        let qsv_work = u128::from(meter.consumed(LimitKind::WorkUnits));
+        if !work.charge(NativeJoinChargeKind::Work, qsv_work) {
+            return Err(read_error(
+                work,
+                AdmittedEqualityReadErrorCode::WorkLimit,
+                application,
+                application,
+                u64::try_from(qsv_work).unwrap_or(u64::MAX),
+            ));
+        }
+        let decision = result.map_err(|cause| materialization_refusal(work, application, cause))?;
+        work.finish(before);
+        Ok(decision)
     }
 }
 
@@ -2223,11 +2398,17 @@ mod tests {
                 charge_point: ChargePoint::UnitIdentityRead,
             },
         };
-        let refused = materialization_refusal(&application, 5, 3, cause.clone());
+        let mut budget = NativeJoinBudget::new(8, u64::MAX);
+        assert!(budget.charge(NativeJoinChargeKind::Work, 8));
+        let refused = materialization_refusal(&mut budget, &application, cause.clone());
         assert_eq!(refused.code, AdmittedEqualityReadErrorCode::WorkLimit);
         assert_eq!(refused.consumed_work, 8);
         assert_eq!(refused.attempted_work, 2);
         assert_eq!(refused.materialization.as_deref(), Some(&cause));
+        assert_eq!(
+            budget.first_unpaid().expect("QSV denial").kind,
+            NativeJoinChargeKind::Work
+        );
 
         let resource = EqualityMaterializationError::Resource {
             locus: EqualityMaterializationLocus::EnumMember { row: 1 },
@@ -2239,10 +2420,55 @@ mod tests {
                 charge_point: ChargePoint::EnumIdentityRead,
             },
         };
-        let refused = materialization_refusal(&application, 5, 2, resource.clone());
+        let mut budget = NativeJoinBudget::new(100, u64::MAX);
+        assert!(budget.charge(NativeJoinChargeKind::Work, 7));
+        let refused = materialization_refusal(&mut budget, &application, resource.clone());
         assert_eq!(refused.code, AdmittedEqualityReadErrorCode::Resource);
         assert_eq!(refused.consumed_work, 7);
         assert_eq!(refused.attempted_work, 7);
         assert_eq!(refused.materialization.as_deref(), Some(&resource));
+    }
+
+    /// Trace: FR-358-AC-7, FR-353-AC-4.
+    #[test]
+    fn equality_qsv_owned_refusal_requires_dynamic_storage_before_boxing() {
+        let application = super::super::test_support::node_id('a');
+        let amount: Integer = "9".repeat(160).parse().expect("large exact charge");
+        let locus = EqualityMaterializationLocus::Unit { row: 3 };
+        let cause = EqualityMaterializationError::Resource {
+            locus,
+            cause: Incomplete {
+                limit_kind: LimitKind::TextInputBytes,
+                limit: 0,
+                consumed: 0,
+                next_charge: amount.clone(),
+                charge_point: ChargePoint::UnitIdentityRead,
+            },
+        };
+        let floor = diagnostic_floor(&application, &application);
+        let owned = u128::from(amount.magnitude_bits().div_ceil(8)).saturating_add(4);
+        let full = floor.saturating_add(owned);
+        assert!(owned > 1);
+        let mut exact = NativeJoinBudget::new(10, u64::try_from(full).expect("finite fixture"));
+        let complete = materialization_refusal(&mut exact, &application, cause.clone());
+        assert_eq!(complete.materialization.as_deref(), Some(&cause));
+        assert_eq!(complete.materialization_locus, Some(locus));
+        assert_eq!(u128::from(exact.consumed().storage), full);
+
+        let mut short = NativeJoinBudget::new(10, u64::try_from(full - 1).expect("finite fixture"));
+        let compact = materialization_refusal(&mut short, &application, cause);
+        assert_eq!(compact.code, AdmittedEqualityReadErrorCode::Resource);
+        assert_eq!(compact.materialization, None);
+        assert_eq!(
+            compact.materialization_code,
+            Some(EqualityMaterializationCode::Resource)
+        );
+        assert_eq!(compact.materialization_locus, Some(locus));
+        assert_eq!(compact.at.as_deref(), Some(&application));
+        assert_eq!(u128::from(short.consumed().storage), floor);
+        assert_eq!(
+            short.first_unpaid().expect("full cause denied").amount,
+            full
+        );
     }
 }

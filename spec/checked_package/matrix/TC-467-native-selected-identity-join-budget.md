@@ -14,6 +14,8 @@ relationships:
 
 Exercise the mandatory caller-owned work and logical-storage budget through
 admitted selected-identity stage rows and all five source-row join families.
+Exercise the admitted equality read with the same budget and its existing
+producer-selected application and fact rows.
 
 ## Test Procedure
 
@@ -26,6 +28,13 @@ repeat the ordered joins against a cloned admitted package. Run the existing
 FR-352 semantic-refusal tests at ample limits and inspect the public API and
 call sites for the mandatory signature, cycle boundary and absence of a
 parallel budget path.
+Read an admitted Boolean equality at ample, exact work, exact storage,
+one-below work and storage, and zero storage. Repeat two individually
+affordable equality reads against a shared allowance one work unit below
+their combined requirement.
+Use a QSV materialization refusal with a variable-size exact charge to
+compare the full owned-cause storage boundary with a nonzero allowance one
+unit below it.
 
 ## Expected Results
 
@@ -38,6 +47,12 @@ unchanged after refusal, and a cloned package gives the same result and
 charges. Typed non-budget identity refusals retain their existing causes and
 first loci. The crate exports one mandatory `NativeJoinBudget` acquisition
 path and its charge metadata without a QSL or runtime dependency.
+The equality read returns the same opaque decision at both exact limits,
+records a success delta, refuses at the first unpaid shared charge and
+returns no owned diagnostic at zero storage.
+At the exact diagnostic allowance the original QSV cause is retained; one
+unit below it the compact typed code and first QSV locus remain while no
+owned cause is returned.
 
 ## Complete-witness acquisition and rebinding
 

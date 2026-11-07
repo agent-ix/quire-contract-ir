@@ -1736,7 +1736,7 @@ mod tests {
                 std::slice::from_ref(&row),
                 &[],
                 &[],
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect_err("Text identity row remains required");
         assert_eq!(
@@ -1748,7 +1748,7 @@ mod tests {
             Some(super::super::EqualityWitnessKind::TextType)
         );
         assert_eq!(
-            *missing.at,
+            missing.at.as_deref().expect("paid diagnostic").clone(),
             serde_json::from_value(
                 wire["checked_term_data"]["equality_decisions"][0]["left"]["source_type"].clone()
             )
@@ -1780,7 +1780,7 @@ mod tests {
             selected_error.code,
             super::super::SelectedFactsErrorCode::Equality
         );
-        assert_eq!(selected_error.at, missing.at);
+        assert_eq!(Some(selected_error.at.as_ref()), missing.at.as_deref());
         assert_eq!(selected_error.equality.as_deref(), Some(&missing));
     }
 
@@ -1863,7 +1863,7 @@ mod tests {
                 std::slice::from_ref(&application_row),
                 &facts,
                 &[],
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect("joined bounded Text decision");
         assert_eq!(admitted.schedule(), EqualitySchedule::Text);
@@ -1930,14 +1930,17 @@ mod tests {
                 &[application_row],
                 &facts,
                 &[],
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect_err("competing fact rows refuse");
         assert_eq!(
             duplicate.code,
             super::super::AdmittedEqualityReadErrorCode::DuplicateEqualityWitness
         );
-        assert_eq!(*duplicate.at, type_id);
+        assert_eq!(
+            duplicate.at.as_deref().expect("paid diagnostic").clone(),
+            type_id
+        );
     }
 
     /// Trace: FR-353-AC-1, FR-353-AC-7.
@@ -2026,7 +2029,7 @@ mod tests {
                 &[application_row],
                 &facts,
                 &[],
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect("typed declaration Plan decision");
         assert_eq!(admitted.schedule(), EqualitySchedule::Plan);
@@ -2252,7 +2255,7 @@ mod tests {
                 std::slice::from_ref(&application_row),
                 &facts,
                 std::slice::from_ref(&source_row),
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect("joined compound quantity decision");
         assert_eq!(admitted.schedule(), EqualitySchedule::Quantity);
@@ -2273,7 +2276,7 @@ mod tests {
                 std::slice::from_ref(&application_row),
                 &facts,
                 &[],
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect_err("source-owned root requires its selected source row");
         assert_eq!(
@@ -2281,7 +2284,11 @@ mod tests {
             Some(super::super::EqualityWitnessKind::SourceUnit)
         );
         assert_eq!(
-            *missing_source.at,
+            missing_source
+                .at
+                .as_deref()
+                .expect("paid diagnostic")
+                .clone(),
             serde_json::from_value(source_root.clone()).expect("source root id")
         );
         let mut reversed = facts.clone();
@@ -2300,7 +2307,7 @@ mod tests {
                 std::slice::from_ref(&application_row),
                 &reversed,
                 std::slice::from_ref(&source_row),
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect_err("wrong ordered root identities refuse");
         assert_eq!(
@@ -2308,7 +2315,7 @@ mod tests {
             super::super::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness
         );
         assert_eq!(
-            *wrong_order.at,
+            wrong_order.at.as_deref().expect("paid diagnostic").clone(),
             serde_json::from_value(source_root).expect("source root id")
         );
     }
@@ -2598,7 +2605,7 @@ mod tests {
                 std::slice::from_ref(&application_row),
                 &facts,
                 std::slice::from_ref(&source_row),
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect("joined declared quantity decision");
         assert_eq!(admitted.schedule(), EqualitySchedule::Quantity);
@@ -2636,7 +2643,7 @@ mod tests {
                 std::slice::from_ref(&application_row),
                 &facts,
                 std::slice::from_ref(&source_row),
-                mid,
+                &mut super::super::NativeJoinBudget::new(mid, u64::MAX),
             ) {
                 Ok(_) => high = mid,
                 Err(error)
@@ -2655,7 +2662,7 @@ mod tests {
                 std::slice::from_ref(&application_row),
                 &facts,
                 std::slice::from_ref(&source_row),
-                high - 1,
+                &mut super::super::NativeJoinBudget::new(high - 1, u64::MAX),
             )
             .expect_err("one less than the exact work threshold refuses");
         assert_eq!(
@@ -2688,14 +2695,17 @@ mod tests {
                 std::slice::from_ref(&application_row),
                 &changed,
                 std::slice::from_ref(&source_row),
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect_err("changed conversion target refuses");
         assert_eq!(
             mismatch.code,
             super::super::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness
         );
-        assert_eq!(*mismatch.at, unit_node);
+        assert_eq!(
+            mismatch.at.as_deref().expect("paid diagnostic").clone(),
+            unit_node
+        );
         facts.retain(|row| {
             !matches!(
                 row.fact,
@@ -2709,7 +2719,7 @@ mod tests {
                 &[application_row],
                 &facts,
                 &[source_row],
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect_err("missing dimension witness refuses");
         assert_eq!(
@@ -2720,10 +2730,13 @@ mod tests {
             missing.witness,
             Some(super::super::EqualityWitnessKind::DimensionDeclaration)
         );
-        assert_eq!(*missing.at, dimension_node);
+        assert_eq!(
+            missing.at.as_deref().expect("paid diagnostic").clone(),
+            dimension_node
+        );
     }
 
-    /// Trace: FR-353-AC-1, FR-353-AC-3, FR-353-AC-7.
+    /// Trace: FR-353-AC-1, FR-353-AC-3, FR-353-AC-7, FR-358-AC-7.
     /// Provenance: IR-1209 QSL enum per-member structural rows.
     #[test]
     fn enum_equality_reads_member_rows() {
@@ -2862,6 +2875,7 @@ mod tests {
                 ordered: false,
             },
         });
+        let mut ample = super::super::NativeJoinBudget::new(u64::MAX, u64::MAX);
         let admitted = package
             .admitted_equality(
                 &application,
@@ -2869,12 +2883,46 @@ mod tests {
                 std::slice::from_ref(&application_row),
                 &facts,
                 &[],
-                1000,
+                &mut ample,
             )
             .expect("joined enum decision");
         assert_eq!(admitted.schedule(), EqualitySchedule::Enum);
         assert_eq!(admitted.left().source(), &shape);
         assert_eq!(admitted.enum_members().len(), 1);
+        let required = ample.consumed();
+        assert!(required.storage > 0);
+        let mut exact = super::super::NativeJoinBudget::new(required.work, required.storage);
+        assert_eq!(
+            package.admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &facts,
+                &[],
+                &mut exact,
+            ),
+            Ok(admitted.clone())
+        );
+        assert_eq!(exact.consumed(), required);
+        let mut short = super::super::NativeJoinBudget::new(u64::MAX, required.storage - 1);
+        let refusal = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&application_row),
+                &facts,
+                &[],
+                &mut short,
+            )
+            .expect_err("enum row material stops one storage unit below exact");
+        assert_eq!(
+            refusal.code,
+            super::super::AdmittedEqualityReadErrorCode::StorageLimit
+        );
+        assert_eq!(
+            short.first_unpaid().expect("storage denial").kind,
+            super::super::NativeJoinChargeKind::Storage
+        );
         let super::super::EqualityFactWitness::EnumMember { case, .. } = &mut facts[2].fact else {
             panic!("enum member fact");
         };
@@ -2886,14 +2934,17 @@ mod tests {
                 &[application_row],
                 &facts,
                 &[],
-                1000,
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
             )
             .expect_err("changed member case refuses at member node");
         assert_eq!(
             mismatch.code,
             super::super::AdmittedEqualityReadErrorCode::MismatchedEqualityWitness
         );
-        assert_eq!(*mismatch.at, member_id);
+        assert_eq!(
+            mismatch.at.as_deref().expect("paid diagnostic").clone(),
+            member_id
+        );
     }
 
     /// Trace: FR-353-AC-2.
@@ -2965,7 +3016,14 @@ mod tests {
             Location::new(original, Origin::new(Role::from("expression"), 0)),
         );
         let missing = package
-            .admitted_equality(&application, &occurrence, &[row], &[], &[], 1000)
+            .admitted_equality(
+                &application,
+                &occurrence,
+                &[row],
+                &[],
+                &[],
+                &mut super::super::NativeJoinBudget::new(1000, u64::MAX),
+            )
             .expect_err("Decimal bounds need a Plan witness");
         assert_eq!(
             missing.code,
@@ -2976,7 +3034,7 @@ mod tests {
             Some(super::super::EqualityWitnessKind::PlanType)
         );
         assert_eq!(
-            *missing.at,
+            missing.at.as_deref().expect("paid diagnostic").clone(),
             serde_json::from_value(
                 wire["checked_term_data"]["equality_decisions"][0]["left"]["conversion_target"]
                     .clone()
@@ -3006,7 +3064,7 @@ mod tests {
         );
     }
 
-    /// Trace: FR-353-AC-2, FR-353-AC-3, FR-353-AC-4.
+    /// Trace: FR-353-AC-2, FR-353-AC-3, FR-353-AC-4, FR-358-AC-7.
     /// Provenance: IR-1209 scoped application and primitive Plan path.
     #[test]
     fn admitted_equality_joins_application_and_bounds_read() {
@@ -3042,6 +3100,7 @@ mod tests {
             original.clone(),
             Location::new(original.clone(), Origin::new(Role::from("expression"), 0)),
         );
+        let mut ample = super::super::NativeJoinBudget::new(u64::MAX, u64::MAX);
         let admitted = package
             .admitted_equality(
                 &application,
@@ -3049,7 +3108,7 @@ mod tests {
                 std::slice::from_ref(&row),
                 &[],
                 &[],
-                100,
+                &mut ample,
             )
             .expect("joined Plan decision");
         assert_eq!(admitted.application(), &original);
@@ -3062,24 +3121,12 @@ mod tests {
             EqualitySchedule::Plan
         );
 
-        let mut minimum = 0;
-        for limit in 0..=100 {
-            if package
-                .admitted_equality(
-                    &application,
-                    &occurrence,
-                    std::slice::from_ref(&row),
-                    &[],
-                    &[],
-                    limit,
-                )
-                .is_ok()
-            {
-                minimum = limit;
-                break;
-            }
-        }
+        let measured = ample.consumed();
+        let minimum = measured.work;
         assert!(minimum > 0);
+        assert!(measured.storage > 0);
+        assert_eq!(ample.last_success_delta(), Some(measured));
+        let mut exact = super::super::NativeJoinBudget::new(measured.work, measured.storage);
         assert_eq!(
             package.admitted_equality(
                 &application,
@@ -3087,10 +3134,91 @@ mod tests {
                 std::slice::from_ref(&row),
                 &[],
                 &[],
-                minimum
+                &mut exact
             ),
             Ok(admitted.clone())
         );
+        assert_eq!(exact.consumed(), measured);
+        let mut shared = super::super::NativeJoinBudget::new(
+            measured.work.saturating_mul(2).saturating_sub(1),
+            u64::MAX,
+        );
+        let first = package.admitted_equality(
+            &application,
+            &occurrence,
+            std::slice::from_ref(&row),
+            &[],
+            &[],
+            &mut shared,
+        );
+        assert_eq!(first, Ok(admitted.clone()));
+        assert_eq!(shared.last_success_delta(), Some(measured));
+        let second = package.admitted_equality(
+            &application,
+            &occurrence,
+            std::slice::from_ref(&row),
+            &[],
+            &[],
+            &mut shared,
+        );
+        assert_eq!(
+            second.unwrap_err().code,
+            super::super::AdmittedEqualityReadErrorCode::WorkLimit
+        );
+        assert_eq!(shared.last_success_delta(), None);
+        assert_eq!(
+            shared.first_unpaid().expect("second read stops").kind,
+            super::super::NativeJoinChargeKind::Work
+        );
+        assert!(shared.first_unpaid().expect("second read stops").amount > 0);
+        assert!(shared.consumed().work >= measured.work);
+        let mut storage_short = super::super::NativeJoinBudget::new(u64::MAX, measured.storage - 1);
+        let storage_error = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                &[],
+                &mut storage_short,
+            )
+            .expect_err("one less storage unit refuses");
+        assert_eq!(
+            storage_error.code,
+            super::super::AdmittedEqualityReadErrorCode::StorageLimit
+        );
+        assert_eq!(
+            storage_short
+                .first_unpaid()
+                .expect("first denied charge")
+                .kind,
+            super::super::NativeJoinChargeKind::Storage
+        );
+        assert!(
+            storage_short
+                .first_unpaid()
+                .expect("first denied charge")
+                .amount
+                > 0
+        );
+        let mut zero_storage = super::super::NativeJoinBudget::new(u64::MAX, 0);
+        let zero_error = package
+            .admitted_equality(
+                &application,
+                &occurrence,
+                std::slice::from_ref(&row),
+                &[],
+                &[],
+                &mut zero_storage,
+            )
+            .expect_err("zero storage refuses without owned diagnostic");
+        assert_eq!(
+            zero_error.code,
+            super::super::AdmittedEqualityReadErrorCode::StorageLimit
+        );
+        assert_eq!(zero_error.application, None);
+        assert_eq!(zero_error.at, None);
+        assert_eq!(zero_error.materialization, None);
         let short = package
             .admitted_equality(
                 &application,
@@ -3098,7 +3226,7 @@ mod tests {
                 std::slice::from_ref(&row),
                 &[],
                 &[],
-                minimum - 1,
+                &mut super::super::NativeJoinBudget::new(minimum - 1, u64::MAX),
             )
             .expect_err("one less work unit refuses");
         assert_eq!(
@@ -3106,10 +3234,17 @@ mod tests {
             super::super::AdmittedEqualityReadErrorCode::WorkLimit
         );
         assert_eq!(short.attempted_work, 1);
-        assert_eq!(short.at.as_ref(), &id('1'));
+        assert_eq!(short.at.as_deref(), Some(&id('1')));
         assert_eq!(
             package
-                .admitted_equality(&application, &occurrence, &[], &[], &[], 100)
+                .admitted_equality(
+                    &application,
+                    &occurrence,
+                    &[],
+                    &[],
+                    &[],
+                    &mut super::super::NativeJoinBudget::new(100, u64::MAX)
+                )
                 .unwrap_err()
                 .code,
             super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityWitness
@@ -3121,7 +3256,7 @@ mod tests {
                 &[row.clone(), row.clone()],
                 &[],
                 &[],
-                100,
+                &mut super::super::NativeJoinBudget::new(100, u64::MAX),
             )
             .expect_err("duplicate stage rows refuse");
         assert_eq!(
@@ -3141,7 +3276,7 @@ mod tests {
                 &[changed_location],
                 &[],
                 &[],
-                100,
+                &mut super::super::NativeJoinBudget::new(100, u64::MAX),
             )
             .expect_err("conflicting original location refuses");
         assert_eq!(
@@ -3151,7 +3286,14 @@ mod tests {
         let mut foreign = row;
         foreign.application.package = "foreign".into();
         let foreign = package
-            .admitted_equality(&application, &occurrence, &[foreign], &[], &[], 100)
+            .admitted_equality(
+                &application,
+                &occurrence,
+                &[foreign],
+                &[],
+                &[],
+                &mut super::super::NativeJoinBudget::new(100, u64::MAX),
+            )
             .expect_err("foreign stage row refuses");
         assert_eq!(
             foreign.code,
@@ -3163,14 +3305,28 @@ mod tests {
         };
         assert_eq!(
             package
-                .admitted_equality(&application, &wrong_occurrence, &[], &[], &[], 100)
+                .admitted_equality(
+                    &application,
+                    &wrong_occurrence,
+                    &[],
+                    &[],
+                    &[],
+                    &mut super::super::NativeJoinBudget::new(100, u64::MAX)
+                )
                 .expect_err("wrong occurrence refuses")
                 .code,
             super::super::AdmittedEqualityReadErrorCode::WrongOccurrence
         );
         assert_eq!(
             self::package()
-                .admitted_equality(&application, &occurrence, &[], &[], &[], 100)
+                .admitted_equality(
+                    &application,
+                    &occurrence,
+                    &[],
+                    &[],
+                    &[],
+                    &mut super::super::NativeJoinBudget::new(100, u64::MAX)
+                )
                 .expect_err("application without producer decision refuses")
                 .code,
             super::super::AdmittedEqualityReadErrorCode::UnavailableEqualityDecision
@@ -3256,12 +3412,13 @@ mod tests {
                 &mut crate::NativeJoinBudget::new(u64::MAX, u64::MAX),
             )
             .expect_err("one below complete allowance refuses");
-        assert_eq!(short.code, super::super::SelectedFactsErrorCode::Equality);
         assert_eq!(
-            short.equality.as_ref().unwrap().code,
-            super::super::AdmittedEqualityReadErrorCode::WorkLimit
+            short.code,
+            super::super::SelectedFactsErrorCode::ExhaustedWork
         );
-        assert_eq!(short.occurrence, Some(occurrence));
+        assert_eq!(short.at.as_ref(), &application);
+        assert!(short.attempted_work > 0);
+        assert_eq!(short.occurrence, None);
         let missing = package
             .project_selected_facts(
                 ids(),

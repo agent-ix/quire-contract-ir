@@ -2064,10 +2064,13 @@ fn selected_facts_join_only_explicit_model_field_and_charge_full_emission_rows()
             &mut quire_contract_model::NativeJoinBudget::new(u64::MAX, u64::MAX),
         )
         .expect_err("one less than complete selected-fact work refuses");
-    assert_eq!(combined_short.code, SelectedFactsErrorCode::Equality);
+    assert_eq!(combined_short.code, SelectedFactsErrorCode::ExhaustedWork);
+    assert_eq!(combined_short.at.as_ref(), &application);
+    assert_eq!(combined_short.equality, None);
+    assert!(combined_short.attempted_work > 0);
     assert_eq!(
-        combined_short.equality.as_ref().unwrap().code,
-        quire_contract_model::AdmittedEqualityReadErrorCode::WorkLimit
+        combined_short.work + combined_short.attempted_work,
+        combined.work
     );
     let exact = admitted
         .project_selected_facts(
