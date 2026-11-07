@@ -958,6 +958,7 @@ impl StructuralTypes {
 }
 
 /// Check a catalogued type-argument member result after operand admission.
+#[ix_trace_rs::string_edge]
 fn check_type_argument_member_result(
     application: Application<'_>,
     operation: &OperationWire,
