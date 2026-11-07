@@ -1391,7 +1391,13 @@ mod tests {
                         .find(|union| &union.structural_node == element)
                         .map(|union| ValueType::Composite(union.type_handle.clone()))
                 })
-                .unwrap_or(ValueType::Integer);
+                .unwrap_or_else(|| {
+                    if package.node_kind(element) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)) {
+                        ValueType::Boolean
+                    } else {
+                        ValueType::Integer
+                    }
+                });
             row.value_type = if row.key_node.is_some() {
                 ValueType::map(quire_exact::MapType::new(value, None))
             } else {
@@ -2600,7 +2606,7 @@ mod tests {
                 let (records, tuples, unions, mut collections) = source_rows(package);
                 let unrelated = collections.iter().position(|row| {
                     row.key_node.is_some() && row.value_type == ValueType::map(
-                        quire_exact::MapType::new(ValueType::Integer, None))
+                        quire_exact::MapType::new(ValueType::Boolean, None))
                 }).expect("unrelated boolean map has no opaque record payload");
                 let unrelated = collections.remove(unrelated);
                 collections.insert(0, unrelated);
