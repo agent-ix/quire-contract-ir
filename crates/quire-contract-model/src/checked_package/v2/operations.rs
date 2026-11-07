@@ -1424,6 +1424,9 @@ fn operation_defect(
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
         return Ok(Some(failure));
     }
+    if let Some(failure) = check_carried_member(application, entry, &operation, graph) {
+        return Ok(Some(failure));
+    }
     let leaf_defect = check_leaf_count(
         application,
         entry,
@@ -2041,6 +2044,38 @@ pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
     }
 }
 
+/// QSpec FR-322 `carried_member`: the `type_argument` member must resolve to a
+/// `scalar_type`/`carried_quantity` node. The constraint names no operand, so
+/// it is checked against the member alone, and only once the pinned mode has
+/// agreed (a mode mismatch refuses first).
+fn check_carried_member(
+    application: Application<'_>,
+    entry: &OperationCatalogEntry,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+) -> Option<ValidationFailure> {
+    if !entry
+        .constraints
+        .iter()
+        .any(|constraint| constraint.kind == OperationConstraintKind::CarriedMember)
+    {
+        return None;
+    }
+    let carried = member_declaration(operation)
+        .and_then(|member| graph.index.get(&member).copied())
+        .and_then(|position| graph.kinds.get(position))
+        == Some(&CheckedNodeKind::ScalarType(
+            ScalarTypeForm::CarriedQuantity,
+        ));
+    (!carried).then(|| {
+        application.refuse(
+            CheckedPackageRefusalCode::IllTyped,
+            node_pointer(application.position),
+            CheckedPackageRefusalCause::OperatorIneligible,
+        )
+    })
+}
+
 #[ix_trace_rs::string_edge]
 fn check_operands(
     application: Application<'_>,
@@ -2306,24 +2341,8 @@ fn check_operands(
                     )));
                 }
             }
-            // QSpec FR-322: the `type_argument` member must resolve to a
-            // `scalar_type`/`carried_quantity` node. The constraint names no
-            // operand, so it is checked against the member alone.
-            OperationConstraintKind::CarriedMember => {
-                let carried = member_declaration(operation)
-                    .and_then(|member| graph.index.get(&member).copied())
-                    .and_then(|position| graph.kinds.get(position))
-                    == Some(&CheckedNodeKind::ScalarType(
-                        ScalarTypeForm::CarriedQuantity,
-                    ));
-                if !carried {
-                    return Ok(Some(application.refuse(
-                        CheckedPackageRefusalCode::IllTyped,
-                        node_pointer(application.position),
-                        CheckedPackageRefusalCause::OperatorIneligible,
-                    )));
-                }
-            }
+            // Checked by `check_carried_member`, after the pinned mode.
+            OperationConstraintKind::CarriedMember => {}
             OperationConstraintKind::ReferenceEdge => {
                 if let [first, second] = indices[..] {
                     if let Some(failure) = check_reference_edge(
@@ -6071,6 +6090,13 @@ mod tests {
     fn defect_for(
         node: &CheckedSemanticNodeV2,
     ) -> Result<Option<ValidationFailure>, ValidationFailure> {
+        defect_for_catalog(node, operation_catalog())
+    }
+
+    fn defect_for_catalog(
+        node: &CheckedSemanticNodeV2,
+        catalog: &super::OperationCatalog,
+    ) -> Result<Option<ValidationFailure>, ValidationFailure> {
         let nodes = std::slice::from_ref(node);
         let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
         index.insert(&node.node_id, 0);
@@ -6091,7 +6117,7 @@ mod tests {
             &ModelOwners::default(),
             DependencyReferences::new(&SuppliedDependencies::default()),
             super::OperationResolution {
-                catalog: operation_catalog(),
+                catalog,
                 fast_index: None,
             },
             &mut meter,
@@ -6556,19 +6582,22 @@ mod tests {
         );
     }
 
-    /// `quire.op.collection.sum.carried_quantity` applied with a `type_argument`
-    /// member naming `member_form`'s scalar node, beside that node.
+    /// `quire.op.collection.sum.carried_quantity` with rounding mode `mode`
+    /// and a `type_argument` member declared by the node keyed `declared`,
+    /// beside a node `member_form` keyed `4` that is also the result type.
     fn carried_sum_defect(
         member_form: &str,
+        mode: &str,
+        declared: char,
     ) -> (
         CheckedSemanticNodeV2,
         Result<Option<ValidationFailure>, ValidationFailure>,
     ) {
         let mut operation = plain_operation("quire.op.collection.sum.carried_quantity");
-        operation["mode"] = json!({ "kind": "rounding", "value": "exact" });
+        operation["mode"] = json!({ "kind": "rounding", "value": mode });
         operation["member"] = json!({
             "kind": "type_argument",
-            "declaration": node_id('4'),
+            "declaration": node_id(declared),
         });
         let mut application = custom_application_node(
             "collection",
@@ -6588,12 +6617,17 @@ mod tests {
 
     /// The `carried_member` constraint of the catalog's carried-quantity sum:
     /// a `type_argument` that is not a `scalar_type`/`carried_quantity` node
-    /// refuses `ill_typed`/`operator-ineligible` at the application.
+    /// refuses
+    /// `ill_typed`/`operator-ineligible` at the application.
     #[trace("TC-048", "FR-038-AC-495")]
     #[test]
     fn carried_member_refuses_a_type_argument_that_is_not_a_carried_quantity() {
-        for form in ["unit", "bounded_quantity", "integer"] {
-            let (application, result) = carried_sum_defect(form);
+        for (form, declared) in [
+            ("unit", '4'),
+            ("compound_unit", '4'),
+            ("bounded_quantity", '4'),
+        ] {
+            let (application, result) = carried_sum_defect(form, "exact", declared);
             assert_eq!(
                 result,
                 Ok(Some(refused_at(
@@ -6602,7 +6636,7 @@ mod tests {
                     Some(CheckedPackageRefusalCause::OperatorIneligible),
                     application.node_id.clone(),
                 ))),
-                "a `{form}` type argument"
+                "a `{form}` type argument declared by `{declared}`"
             );
         }
     }
@@ -6612,8 +6646,55 @@ mod tests {
     #[trace("TC-048", "FR-038-AC-495")]
     #[test]
     fn carried_member_admits_a_carried_quantity_type_argument() {
-        let (_, result) = carried_sum_defect("carried_quantity");
+        let (_, result) = carried_sum_defect("carried_quantity", "exact", '4');
         assert_eq!(result, Ok(None));
+    }
+
+    /// The pinned rounding mode is checked before `carried_member`: a unit
+    /// type argument under a mode its type does not pin refuses
+    /// `invalid_package`/`operation-mode-type-mismatch`, not
+    /// `operator-ineligible`.
+    #[trace("TC-048", "FR-038-AC-495")]
+    #[test]
+    fn carried_member_is_checked_only_once_the_pinned_mode_agrees() {
+        let (application, result) = carried_sum_defect("unit", "nearest-even", '4');
+        assert_eq!(
+            result,
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/semantic_graph/nodes/0/body/operation/mode/value",
+                Some(CheckedPackageRefusalCause::OperationModeTypeMismatch),
+                application.node_id.clone(),
+            )))
+        );
+    }
+
+    /// Catalog bytes the reader cannot read, resolved as the production
+    /// catalog is, catalogue no operation: an application refuses
+    /// `invalid_package`/`unknown-operation` rather than stopping the process.
+    #[trace("TC-048", "FR-038-AC-58", "FR-038-AC-495")]
+    #[test]
+    fn an_unreadable_production_catalog_refuses_applications_without_panicking() {
+        let mut edited: Value = serde_json::from_str(
+            quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
+        )
+        .expect("the production catalog is JSON");
+        edited["constraint_kinds"][0] = json!("a_word_this_reader_lacks");
+        edited["operations"][0]["constraints"] =
+            json!([{ "kind": "a_word_this_reader_lacks", "operands": [], "family": null }]);
+        let read = super::super::operation_catalog::read_catalog(&edited.to_string());
+        assert!(read.is_err());
+        let catalog = super::super::operation_catalog::resolve_catalog(&read);
+        let node = application_node(CATALOGUED_IDENTITY, "binary");
+        assert_eq!(
+            defect_for_catalog(&node, catalog),
+            Ok(Some(refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                "/semantic_graph/nodes/0/body/operation/identity",
+                Some(CheckedPackageRefusalCause::UnknownOperation),
+                node.node_id.clone(),
+            )))
+        );
     }
 
     /// `operator-class-mismatch`: agent-ix/quire-contract-ir#171. `binary` is

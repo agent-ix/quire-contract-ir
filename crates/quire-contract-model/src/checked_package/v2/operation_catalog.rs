@@ -266,18 +266,34 @@ impl OperationCatalog {
     }
 }
 
-static CATALOG: OnceLock<OperationCatalog> = OnceLock::new();
+static CATALOG: OnceLock<Result<OperationCatalog, CatalogReadError>> = OnceLock::new();
+
+/// A catalog that catalogues nothing, standing in for catalog bytes that
+/// cannot be read.
+static EMPTY_CATALOG: OperationCatalog = OperationCatalog {
+    operations: BTreeMap::new(),
+    groups: BTreeMap::new(),
+    law_roles: BTreeMap::new(),
+    modes: BTreeMap::new(),
+    type_pinned_modes: BTreeMap::new(),
+};
+
+/// The catalog a read result stands for. Catalog bytes that could not be read
+/// catalogue no operation, so every application read against them refuses
+/// `invalid_package`/`unknown-operation`: unreadable bytes are a typed
+/// refusal of the package read, never a panic (FR-038-AC-58, FR-038-AC-495).
+pub(super) fn resolve_catalog(
+    read: &Result<OperationCatalog, CatalogReadError>,
+) -> &OperationCatalog {
+    read.as_ref().unwrap_or(&EMPTY_CATALOG)
+}
 
 /// The parsed, cached production catalog, read once through [`read_catalog`].
-/// Panics on first use if the build's own catalog bytes are unreadable: that
-/// is a build-time defect, never a caller input, so this one read asserts
-/// rather than threading a package refusal for it (FR-038-AC-58).
+/// If the build's own catalog bytes are unreadable, for example because the
+/// catalog dependency declares a word this reader does not know, the catalog
+/// is empty.
 pub(super) fn operation_catalog() -> &'static OperationCatalog {
-    CATALOG.get_or_init(|| {
-        read_catalog(CATALOG_BYTES).unwrap_or_else(|error| {
-            panic!("the checked-operation catalog this build depends on is unreadable: {error}")
-        })
-    })
+    resolve_catalog(CATALOG.get_or_init(|| read_catalog(CATALOG_BYTES)))
 }
 
 /// A catalog read failure: the member the bytes failed at and why. It names
