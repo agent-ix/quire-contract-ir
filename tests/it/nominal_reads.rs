@@ -581,7 +581,7 @@ fn equality_source_unit_row_joins_before_missing_dimension_key() {
             std::slice::from_ref(&app_row),
             std::slice::from_ref(&fact_row),
             &[],
-            10_000,
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
         )
         .expect_err("source UnitId is required");
     assert_eq!(
@@ -589,7 +589,10 @@ fn equality_source_unit_row_joins_before_missing_dimension_key() {
         AdmittedEqualityReadErrorCode::UnavailableEqualityWitness
     );
     assert_eq!(missing.witness, Some(EqualityWitnessKind::SourceUnit));
-    assert_eq!(*missing.at, metre.node_id);
+    assert_eq!(
+        missing.at.as_deref().expect("paid diagnostic").clone(),
+        metre.node_id
+    );
 
     let missing = package
         .admitted_equality(
@@ -598,7 +601,7 @@ fn equality_source_unit_row_joins_before_missing_dimension_key() {
             std::slice::from_ref(&app_row),
             std::slice::from_ref(&fact_row),
             std::slice::from_ref(&unit_row),
-            10_000,
+            &mut quire_contract_model::NativeJoinBudget::new(10_000, u64::MAX),
         )
         .expect_err("dimension key is unavailable");
     assert_eq!(
@@ -610,7 +613,7 @@ fn equality_source_unit_row_joins_before_missing_dimension_key() {
         Some(EqualityWitnessKind::DimensionDeclaration)
     );
     assert_eq!(
-        *missing.at,
+        missing.at.as_deref().expect("paid diagnostic").clone(),
         serde_json::from_value(dimension).expect("dimension node")
     );
 }

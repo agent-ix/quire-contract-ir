@@ -286,15 +286,20 @@ fn exact_error(
 
 fn equality_error(
     error: AdmittedEqualityReadError,
+    fallback: &CheckedNodeId,
     occurrence: &CheckedOccurrence,
     prior: u64,
+    native_before: u64,
 ) -> SelectedFactsError {
     SelectedFactsError {
         code: SelectedFactsErrorCode::Equality,
-        at: error.at.clone(),
+        at: error
+            .at
+            .clone()
+            .unwrap_or_else(|| Box::new(fallback.clone())),
         occurrence: Some(occurrence.clone()),
         field: None,
-        work: prior.saturating_add(error.consumed_work),
+        work: prior.saturating_add(error.consumed_work.saturating_sub(native_before)),
         attempted_work: error.attempted_work,
         exact: None,
         exact_code: None,
@@ -534,17 +539,26 @@ impl CheckedPackageV2 {
                 }
             }
             let prior = meter.used;
-            let (decision, work) = self
+            let native_before = native_budget.consumed().work;
+            let decision = self
                 .admitted_equality_metered(
                     &id.application,
                     &id.occurrence,
                     &[application_row],
                     &facts,
                     &units,
-                    work_limit.saturating_sub(meter.used),
+                    native_budget,
                 )
-                .map_err(|error| equality_error(error, &id.occurrence, prior))?;
-            meter.charge(&id.application, work)?;
+                .map_err(|error| {
+                    equality_error(error, &id.application, &id.occurrence, prior, native_before)
+                })?;
+            meter.charge(
+                &id.application,
+                native_budget
+                    .last_success_delta()
+                    .expect("successful equality read records its charge")
+                    .work,
+            )?;
             selected_equalities.push(SelectedFactEquality {
                 id: id.clone(),
                 decision,

@@ -32,7 +32,8 @@ as that decision.
 
 - An admitted package, the full structural `CheckedNodeId` of the equality
   `expression`/`application` node, one occurrence belonging to that node,
-  and a finite read work limit.
+  and the caller's mutable `NativeJoinBudget` with finite work and logical
+  storage allowances shared with native selected-identity joins.
 - An equality decision from the same checking stage that produced the package,
   carried into package admission under an authoritative producer contract.
   The producer decision identifies the package, equality application node,
@@ -168,8 +169,9 @@ operation catalog, run semantic type checking, or treat a general FR-352
 `project_exact_type` call as a substitute for a missing witness. Mapping an
 admitted representation with joined producer identities is permitted; it
 does not select a new semantic type, conversion or comparison plan.
-The IR read SHALL include QSV descriptor materialization in the same finite
-work allowance, passing the remaining allowance through QSV's Exact meter.
+The IR read SHALL include QSV descriptor materialization in the caller's shared
+work allowance, passing its remaining work through QSV's Exact meter and
+recording admitted QSV work in the same `NativeJoinBudget`.
 It SHALL preserve QSV's original typed `Incomplete` outcome and first failing
 locus on exhaustion, and the QSV typed materialization cause and locus on an
 arithmetic or admitted `UnitId` form failure, without returning a partial
@@ -221,8 +223,11 @@ non-application node, non-equality application, ineligible operation, and
 occurrence not owned by that application SHALL each have a
 distinct typed refusal. The reader SHALL charge every inspected application,
 operand and retained decision entry against the
-finite work limit before inspection. Exhaustion SHALL return the attempted
-work and first failing locus without a partial view. Repeated reads and reads
+finite shared work budget before inspection. IR-owned decision and row material
+and typed refusal payloads SHALL charge logical storage before allocation.
+Exhaustion SHALL return the attempted work or storage charge and first failing
+locus when its diagnostic floor is affordable; zero storage SHALL return a
+fixed-size typed refusal without an owned locus. Repeated reads and reads
 from an equal clone SHALL return equal complete views or equal typed refusals,
 without reparsing wire or source documents or changing package equality.
 

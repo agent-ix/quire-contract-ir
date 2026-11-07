@@ -114,6 +114,16 @@ The owned diagnostic payloads of clock admission and Exact projection are govern
 shared accounting rules and governs native stage-row and source-join budget
 denials; it does not claim that other diagnostic payloads are precharged.
 
+The admitted equality read SHALL accept the caller's same mutable
+`NativeJoinBudget` and charge inspected equality decisions, selected identity
+rows, copied row material, QSV materialization work, and owned typed refusals
+against its cumulative work and logical storage. An equality work or storage
+denial SHALL retain the first unpaid kind and amount in the budget. The read
+SHALL precharge the full owned diagnostic before allocation; at zero available
+storage it SHALL return a fixed-size typed refusal with no owned node or form.
+Successful reads record their work and storage delta. No local equality work
+limit or compatibility entry point is permitted.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
@@ -124,6 +134,7 @@ denials; it does not claim that other diagnostic payloads are precharged.
 | FR-358-AC-4 | Cumulative counters equal the sum of admitted charges across a successful stage acquisition and all five joins, while each success delta equals that operation's charge. A refusal clears the current success delta, leaves earlier admitted consumption visible, and records the first unpaid kind and amount without incrementing the denied charge; overflow cannot wrap either counter. Repeating the ordered inputs and limits, including against an admitted package clone, gives equal counters, values or first stops. | Test |
 | FR-358-AC-5 | Each budgeted join preserves FR-352's selected-document, structural node, declaration/member identity, producer order and duplicate checks at sufficient allowance. Missing, foreign, conflicting, stale, wrong-form and incomplete rows retain their existing typed native causes and first loci, without a partial selected value. No caller-created opaque identity becomes authoritative through the budget API. | Test, Inspection |
 | FR-358-AC-6 | The exported API is cycle-free and has no QSL or runtime dependency. In-repository callers use the mandatory budget parameter; the IR implementation introduces no compatibility path, pin, copied artifact or diagnostic-payload claim belonging to IR-1359. | Test, Inspection |
+| FR-358-AC-7 | The admitted equality read requires the same caller-owned `NativeJoinBudget` and charges selected decisions, owned identities, row material, QSV work and typed refusal storage before the corresponding inspection or allocation. A complete admitted decision at exact work and storage allowances equals the ample value; one unit below either allowance refuses with the exhausted kind and first unpaid amount. Two individually affordable equality reads composed on a shared budget refuse at the first unpaid step of the second, retain cumulative consumption and clear the success delta. At zero storage a refusal owns no node, form or materialization payload. | Test, Inspection |
 
 ## Dependencies
 
