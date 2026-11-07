@@ -8720,3 +8720,62 @@ fn process_and_machine_clause_signatures_use_declared_context() {
         }
     }
 }
+
+/// The refinement step's row table, occurrence tables, lock-source list,
+/// memory-model set and protocol node lists are charged at refinement loci
+/// before they are made (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn refinement_tables_are_charged_to_the_read_budget() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    use quire_contract_model::{NativeJoinBudget, PackageReadStage};
+    let (mut package, evidence, position) = memory_catalog_package();
+    let rows = json!([
+        {"source_class":"memory drain", "target":{"kind":"stutter"}},
+        {"source_class":"memory flush", "target":{"kind":"any"}}
+    ]);
+    package["semantic_graph"]["nodes"][position]["body"]["steps"] = rows;
+    settle_refinement(&mut package, position);
+    keep_refinement_declaration_occurrence(&mut package, position);
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let source = package["lock"]["sources"][0].clone();
+    package["refinement_step_rows"] = json!((0..2)
+        .map(|ordinal| json!({
+            "node_id":key, "ordinal":ordinal,
+            "region":{"source":source,"start":31+ordinal,"end":32+ordinal}
+        }))
+        .collect::<Vec<_>>());
+    refresh_identity(&mut package);
+    assert!(
+        matches!(
+            read(&package, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "the stepped refinement admits: {:?}",
+        read(&package, &evidence)
+    );
+    let bytes = canonical_indexed(&package);
+    let reader = |budget: &mut NativeJoinBudget| {
+        CheckedPackageV2::read_with_budget(
+            &bytes,
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+            budget,
+        )
+    };
+    let requests = stage_requests(&reader, PackageReadStage::Graph);
+    let refinement = requests
+        .iter()
+        .filter(|request| request.form == "refinement")
+        .count();
+    // Before the step charged its own tables it made no request at a
+    // refinement locus: its row table, occurrence tables, lock-source list,
+    // memory-model set and node lists were uncharged heap blocks.
+    assert!(
+        refinement > 0,
+        "the refinement step charges its tables at its nodes"
+    );
+    assert_exact_and_one_short(&reader, &requests);
+}
