@@ -18,7 +18,6 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
 };
 use ix_trace_rs::string_edge;
-use num_bigint::BigInt;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1032,7 +1031,7 @@ pub(super) fn wire_layout_defect(
         if capacity
             .and_then(|capacity| group_value(capacity, "value"))
             .and_then(integer_value)
-            .is_some_and(|value| value < BigInt::from(0))
+            .is_some_and(|value| value < Numeral::exact(0))
         {
             return Some(ProtocolLayoutWireDefect::NegativeQueueCapacity);
         }
@@ -1042,7 +1041,7 @@ pub(super) fn wire_layout_defect(
             .and_then(members)
             .and_then(|items| items.first())
             .and_then(integer_value)
-            .is_some_and(|value| value < BigInt::from(0))
+            .is_some_and(|value| value < Numeral::exact(0))
     {
         return Some(ProtocolLayoutWireDefect::NegativeBound {
             argument: 2,
@@ -1059,7 +1058,7 @@ pub(super) fn wire_layout_defect(
                     CheckedTerm::Binding { value, .. } => integer_value(value),
                     _ => None,
                 })
-                .is_some_and(|value| value < BigInt::from(0))
+                .is_some_and(|value| value < Numeral::exact(0))
             {
                 return Some(ProtocolLayoutWireDefect::NegativeBound {
                     argument: 2,
@@ -1078,7 +1077,7 @@ pub(super) fn wire_layout_defect(
                     CheckedTerm::Binding { value, .. } => integer_value(value),
                     _ => None,
                 })
-                .is_some_and(|value| value < BigInt::from(0))
+                .is_some_and(|value| value < Numeral::exact(0))
             {
                 return Some(ProtocolLayoutWireDefect::NegativeBound {
                     argument: 8,
@@ -1699,7 +1698,7 @@ impl MemberCheck<'_> {
         let Some(value) = integer_value(term) else {
             return Ok(());
         };
-        if (positive && value == BigInt::from(0)) || value < BigInt::from(0) {
+        if (positive && value == Numeral::exact(0)) || value < Numeral::exact(0) {
             Err(self.refuse(Code::IllTyped, Some(Cause::TypeMismatch), path))
         } else {
             Ok(())
@@ -1707,7 +1706,7 @@ impl MemberCheck<'_> {
     }
 }
 
-fn integer_value(term: &CheckedTerm) -> Option<BigInt> {
+fn integer_value(term: &CheckedTerm) -> Option<Numeral<'_>> {
     let CheckedTerm::Literal {
         value_kind: LiteralKind::Integer,
         value,
@@ -1716,7 +1715,126 @@ fn integer_value(term: &CheckedTerm) -> Option<BigInt> {
     else {
         return None;
     };
-    value.as_str().and_then(|number| number.parse().ok())
+    value.as_str().and_then(Numeral::parse)
+}
+
+/// An integer literal read in place: its sign and the digits as the wire
+/// spells them, compared and printed without a heap or a bounded width.
+#[derive(Clone, Copy, Debug)]
+struct Numeral<'a> {
+    negative: bool,
+    digits: Digits<'a>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Digits<'a> {
+    Text(&'a str),
+    Inline([u8; 20], usize),
+}
+
+impl<'a> Numeral<'a> {
+    /// A small constant. `u64::MAX` has twenty digits.
+    fn exact(value: impl TryInto<u64>) -> Self {
+        let mut rest = value.try_into().unwrap_or(u64::MAX);
+        let mut buffer = [0_u8; 20];
+        let mut at = buffer.len();
+        loop {
+            at -= 1;
+            buffer[at] = b'0' + (rest % 10) as u8;
+            rest /= 10;
+            if rest == 0 {
+                break;
+            }
+        }
+        Self {
+            negative: false,
+            digits: Digits::Inline(buffer, at),
+        }
+    }
+
+    /// `[+-]?` then decimal digits, a digit separator `_` allowed after the
+    /// first digit, as the integer text of the wire reads.
+    fn parse(text: &'a str) -> Option<Self> {
+        let (negative, digits) = match text.as_bytes().first()? {
+            b'-' => (true, &text[1..]),
+            b'+' => (false, &text[1..]),
+            _ => (false, text),
+        };
+        let valid = !digits.is_empty()
+            && !digits.starts_with('_')
+            && digits
+                .bytes()
+                .all(|byte| byte == b'_' || byte.is_ascii_digit());
+        valid.then_some(Self {
+            negative,
+            digits: Digits::Text(digits),
+        })
+    }
+
+    fn significant(&self) -> impl Iterator<Item = u8> + '_ {
+        let raw = match &self.digits {
+            Digits::Text(text) => text.as_bytes(),
+            Digits::Inline(buffer, at) => &buffer[*at..],
+        };
+        raw.iter()
+            .copied()
+            .filter(|byte| *byte != b'_')
+            .skip_while(|byte| *byte == b'0')
+    }
+
+    fn is_negative(&self) -> bool {
+        self.negative && self.significant().next().is_some()
+    }
+
+    fn magnitude_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.significant()
+            .count()
+            .cmp(&other.significant().count())
+            .then_with(|| self.significant().cmp(other.significant()))
+    }
+}
+
+impl PartialEq for Numeral<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for Numeral<'_> {}
+
+impl PartialOrd for Numeral<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Numeral<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self.is_negative(), other.is_negative()) {
+            (false, true) => std::cmp::Ordering::Greater,
+            (true, false) => std::cmp::Ordering::Less,
+            (false, false) => self.magnitude_cmp(other),
+            (true, true) => other.magnitude_cmp(self),
+        }
+    }
+}
+
+impl std::fmt::Display for Numeral<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Write as _;
+        if self.is_negative() {
+            formatter.write_char('-')?;
+        }
+        let mut any = false;
+        for digit in self.significant() {
+            formatter.write_char(char::from(digit))?;
+            any = true;
+        }
+        if !any {
+            formatter.write_char('0')?;
+        }
+        Ok(())
+    }
 }
 
 fn collect_type_children<'a>(term: &'a CheckedTerm, pending: &mut Vec<&'a CheckedNodeId>) -> bool {
@@ -2228,7 +2346,7 @@ fn check_control_prefix(
                     "quorum" => group_value(join, "count")
                         .and_then(integer_value)
                         .is_none_or(|count| {
-                            count < BigInt::from(1) || count > BigInt::from(joined.len())
+                            count < Numeral::exact(1) || count > Numeral::exact(joined.len())
                         }),
                     _ => unreachable!("validated join policy"),
                 };
@@ -2535,7 +2653,7 @@ fn check_compensation(
             check.argument_path(9).key("members").index(0).key("value"),
         ));
     };
-    if maximum < BigInt::from(1) {
+    if maximum < Numeral::exact(1) {
         return Err(check.refuse_with_detail(
             Code::IllTyped,
             Cause::TypeMismatch,
@@ -3643,7 +3761,7 @@ fn check_clause(
             .as_ref()
             .and_then(|body| group_value(body, "level"))
             .and_then(integer_value);
-        if actual != Some(BigInt::from(expected)) {
+        if actual != Some(Numeral::exact(expected)) {
             return Err(ValidationFailure::refused_at(
                 Code::InvalidSemanticGraph,
                 node_pointer(position),
@@ -4522,7 +4640,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             .as_ref()
             .and_then(|body| group_value(body, "level"))
             .and_then(integer_value);
-        if actual != Some(BigInt::from(input.len())) {
+        if actual != Some(Numeral::exact(input.len())) {
             return Err(ValidationFailure::refused_at(
                 Code::InvalidSemanticGraph,
                 node_pointer(position),
@@ -5641,7 +5759,7 @@ fn check_clause_causality(
                     .expect("validated maximum")
                     .first()
                     .is_none_or(|maximum| {
-                        integer_value(maximum).expect("validated maximum") > BigInt::from(0)
+                        integer_value(maximum).expect("validated maximum") > Numeral::exact(0)
                     });
                 guard_never_exits_by_control[position] && maximum_positive && steps[children[0]]
             }
@@ -5961,6 +6079,28 @@ mod tests {
     use crate::checked_package::v2::CheckedTerm;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    /// Protocol integers order exactly beyond any machine width, and read in
+    /// place: no request is made for them (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn numeral_orders_and_prints_integers_beyond_machine_width_in_place() {
+        fn parse(text: &str) -> Numeral<'_> {
+            Numeral::parse(text).expect("integer text")
+        }
+        let huge = "1000000000000000000000000000000000000000000000000";
+        let larger = "1000000000000000000000000000000000000000000000001";
+        assert!(parse(huge) < parse(larger));
+        assert!(parse(&format!("-{larger}")) < parse(&format!("-{huge}")));
+        assert!(parse(&format!("-{huge}")) < Numeral::exact(0));
+        assert!(parse(huge) > Numeral::exact(usize::MAX));
+        assert_eq!(parse("-0"), Numeral::exact(0));
+        assert_eq!(parse("+007_0"), Numeral::exact(70_u32));
+        assert_eq!(parse("-0070").to_string(), "-70");
+        assert_eq!(parse("000").to_string(), "0");
+        assert!(Numeral::parse("1_x").is_none() && Numeral::parse("_1").is_none());
+        assert!(Numeral::parse("-").is_none() && Numeral::parse("").is_none());
+    }
 
     fn validate_protocol_body(
         form: ProtocolForm,
