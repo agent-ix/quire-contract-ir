@@ -1,0 +1,35 @@
+---
+id: SR-2026110602354641
+title: "IR-1354 PR #941 gap-analysis"
+type: SpecReview
+analysis: gap-analysis
+scope: "agent-ix/quire-contract-ir; crates/quire-contract-model/src/checked_package/v2/monitor_plan/selected_type_closure.rs; spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md; spec/model/functional/FR-019-rust-library-interface.md; TC-470"
+review_set: subset
+---
+
+## Summary
+
+Ticket: IR-1354. Plan completion: not assessed. Targeted trace and assertion review covers changed FR-357 AC1-4 tests and source. Existing strict coverage baseline accepted from planner; semantic review beyond the changed behavior was not requested.
+
+## Examined units
+
+- FR-357-AC-1 (examined, spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md): "Implemented (IR-1354; TC-470). One bounded read of an admitted `CheckedMonitorPlanRef` seeds State, Inputs, Scope, Results and all four ordered entry signatures and bodies, then returns exactly the reachable complete type/declaration and admitted equality closure. Source records, tuples, structural collections, sealed unions, source/model enum cases, model objects/fields and units/dimensions/conversions retain original identities, QSL-issued opaque Exact identities, producer order, presence, shape and member/payload types sufficient for the canonical `TypeEnvironment`; shared references yield "
+- FR-357-AC-2 (examined, spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md): "Implemented (IR-1354; TC-470). A missing, foreign, duplicate, conflicting or stale producer row; changed member/payload type node; unresolved reached declaration; cross-package reference without an admitted resolution rule; unrepresentable reached type; or native nominal, Exact or equality refusal returns its typed cause and first node/edge/row/occurrence locus, with charged work, no partial view and no invented identity. An unrelated unsupported graph node or absent row outside the reached closure does not refuse; a selected row search can still exhaust at an inspected unrelated row position."
+- FR-357-AC-3 (examined, spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md): "Implemented (IR-1354; TC-470). A large selected closure amid unrelated graph nodes visits only reached graph, typed-term, semantic-type and declaration edges using iterative worklists and visited node/edge sets. A deep term does not grow the host stack. One shared native work and storage budget charges every inspected node/edge, row/index, member/payload position and identity/value byte, including nested Exact, nominal and equality reads and output; the exact allowance succeeds and one less names the first uncharged locus. Equal inputs and allowances, including a package clone, give equal comp"
+- FR-357-AC-4 (examined, spec/checked_package/functional/FR-357-project-selected-generated-type-closure.md): "Implemented (IR-1354; TC-470 and FR-019 exact inventory). Static API and dependency analysis finds one bounded `CheckedMonitorPlanRef` projection over admitted package facts and IR-owned selected producer rows, with no IR-owned `TypeEnvironment`, second plan/evaluator, QSL or RT dependency, source reparse or witness fabrication. The root exports appear in FR-019's exact implemented inventory."
+- TC-470 (examined, spec/checked_package/matrix/TC-470-runtime-type-projection-shared-budget.md): "Verify that runtime type projection, monitor-closure, nominal, and selected unit-definition reads charge one caller-owned native budget before bounded work or any reachable IR-owned storage, and preserve admitted facts within the measured allowance."
+- FR-019 (examined, spec/model/functional/FR-019-rust-library-interface.md): "The stable surface is the public API of quire_contract_model in a default-feature build: exactly the items the Public items table below lists."
+
+## Verdict
+
+**CONDITIONAL** — One targeted test gap.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | medium | TC-470 exercises exact and one-below limits with a fixed equality key, but has no variable-length equality key/location case that would fail when the selected-row clone omits those identity bytes from storage accounting. | crates/quire-contract-model/src/checked_package/v2/monitor_plan/reached_model_read.rs:1360-1530 |
+
+## Coverage
+
+Plan completion: not assessed. Review scope is PR #941 diff, FR-357 AC1-4, TC-470 and FR-019.

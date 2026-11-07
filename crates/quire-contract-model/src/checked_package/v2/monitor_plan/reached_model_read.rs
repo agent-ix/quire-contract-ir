@@ -1522,6 +1522,96 @@ mod tests {
         assert_eq!(cloned_closure.equalities(), closure.equalities());
     }
 
+    #[trace("TC-470", "FR-357-AC-3")]
+    #[test]
+    fn selected_monitor_closure_precharges_variable_equality_key_and_location() {
+        use super::super::selected_type_closure::SelectedMonitorClosureRows;
+
+        let package = admitted_monitor_for_closure();
+        let applications = equality_rows(&package);
+        let (declarations, fields, source_units) = producer_rows(&package);
+        let (source_records, source_tuples, source_unions, source_collections) =
+            source_rows(&package);
+        let plan = package.monitor_plans().next().unwrap();
+        let read = |apps: &[crate::SelectedEqualityApplicationRow],
+                    budget: &mut NativeJoinBudget| {
+            plan.project_selected_type_closure(
+                SelectedMonitorClosureRows {
+                    declarations: &declarations,
+                    fields: &fields,
+                    model_tuples: &[],
+                    source_units: &source_units,
+                    model_enum_declarations: &[],
+                    model_enum_members: &[],
+                    model_enum_shapes: &[],
+                    source_records: &source_records,
+                    source_tuples: &source_tuples,
+                    source_unions: &source_unions,
+                    source_enums: &[],
+                    source_collections: &source_collections,
+                    equality_applications: apps,
+                    equality_facts: &[],
+                },
+                budget,
+            )
+        };
+        let mut short_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        read(&applications, &mut short_budget).expect("short key closure");
+        let short_charge = short_budget.consumed();
+        let width = usize::try_from(short_charge.storage).unwrap() + 1024;
+        let long_key = NodeKey::new(
+            package.name(),
+            vec![PathSegment::Text("x".repeat(width))],
+            0,
+        )
+        .unwrap();
+        let mut long_applications = applications.clone();
+        long_applications[0].node_key = long_key.clone();
+        long_applications[0].location =
+            Location::new(long_key.clone(), Origin::new(Role::from("expression"), 0));
+        let mut ample = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        let closure = read(&long_applications, &mut ample).expect("long key closure");
+        let exact_charge = ample.consumed();
+        assert_eq!(closure.equalities()[0].decision.application(), &long_key);
+        assert!(exact_charge.storage >= short_charge.storage + (width as u64 - 16) * 2);
+        assert!(exact_charge.work > short_charge.work);
+        let mut exact = NativeJoinBudget::new(exact_charge.work, exact_charge.storage);
+        assert_eq!(
+            read(&long_applications, &mut exact).unwrap().equalities(),
+            closure.equalities()
+        );
+
+        let mut probe = NativeJoinBudget::new(exact_charge.work, short_charge.storage);
+        let refusal =
+            read(&long_applications, &mut probe).expect_err("long key exceeds short allowance");
+        assert_eq!(
+            refusal.code,
+            super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::StorageLimit
+        );
+        let denied = refusal.denied.expect("first unpaid key bytes");
+        assert_eq!(denied.kind, NativeJoinChargeKind::Storage);
+        assert_eq!(denied.amount, width as u128 + 1);
+        assert_eq!(
+            refusal.denied_locus.unwrap().source,
+            NativeJoinLocusSource::ReachedRow(0)
+        );
+        assert_eq!(
+            refusal.denied_locus.unwrap().form,
+            "equality_application_selection"
+        );
+        assert_eq!(refusal.at, None);
+        let one_below = probe.consumed().storage + u64::try_from(denied.amount).unwrap() - 1;
+        let mut one_below_budget = NativeJoinBudget::new(exact_charge.work, one_below);
+        let one_below_refusal = read(&long_applications, &mut one_below_budget)
+            .expect_err("one below key charge stops before selected-row clone");
+        assert_eq!(one_below_refusal.denied, Some(denied));
+        assert_eq!(one_below_refusal.denied_locus, refusal.denied_locus);
+        assert_eq!(
+            one_below_budget.consumed().storage,
+            probe.consumed().storage
+        );
+    }
+
     #[trace("TC-470", "FR-357-AC-2", "FR-357-AC-3")]
     #[test]
     fn selected_monitor_closure_refuses_reached_rows_and_ignores_unreached_rows() {

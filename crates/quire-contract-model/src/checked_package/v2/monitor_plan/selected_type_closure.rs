@@ -25,6 +25,7 @@ use crate::checked_package::v2::{
     SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
     SelectedTupleDeclarationRow, SelectedTypeDeclarations, SelectedTypeDeclarationsError,
 };
+use quire_exact::{NodeKey, PathSegmentView};
 use std::collections::BTreeSet;
 
 /// Producer rows from one final emission, split by their native selected channels.
@@ -302,6 +303,8 @@ fn source_map_storage(entry: &crate::CheckedSourceMapEntry) -> u128 {
     )
 }
 
+// The two opaque keys are charged by preflight_equality_application before this
+// fixed row and source-map footprint is calculated.
 fn equality_application_storage(row: &SelectedEqualityApplicationRow) -> u128 {
     storage::node(&row.application)
         .saturating_add(source_map_storage(&row.source_map_entry))
@@ -374,6 +377,54 @@ fn preflight_work(
     count: usize,
 ) -> Result<(), SelectedMonitorTypeClosureError> {
     read_charge(budget, NativeJoinChargeKind::Work, count as u128).map_err(|_| native_error(budget))
+}
+
+fn charge_opaque_key(
+    key: &NodeKey,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    read_charge(budget, NativeJoinChargeKind::Storage, 1).map_err(|_| native_error(budget))?;
+    let mut pending = vec![key.view()];
+    while let Some(view) = pending.pop() {
+        read_charge(budget, NativeJoinChargeKind::Work, 1).map_err(|_| native_error(budget))?;
+        read_charge(
+            budget,
+            NativeJoinChargeKind::Storage,
+            (view.package().len() as u128).saturating_add(2),
+        )
+        .map_err(|_| native_error(budget))?;
+        for segment in view.path() {
+            read_charge(budget, NativeJoinChargeKind::Work, 1).map_err(|_| native_error(budget))?;
+            match segment {
+                PathSegmentView::Text(text) => {
+                    let bytes = text.len() as u128;
+                    read_charge(budget, NativeJoinChargeKind::Work, bytes)
+                        .map_err(|_| native_error(budget))?;
+                    read_charge(
+                        budget,
+                        NativeJoinChargeKind::Storage,
+                        bytes.saturating_add(1),
+                    )
+                    .map_err(|_| native_error(budget))?;
+                }
+                PathSegmentView::Node(child) => {
+                    read_charge(budget, NativeJoinChargeKind::Storage, 1)
+                        .map_err(|_| native_error(budget))?;
+                    pending.push(child);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn preflight_equality_application(
+    row: &SelectedEqualityApplicationRow,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    preflight_work(budget, row.source_map_entry.regions.len())?;
+    charge_opaque_key(&row.node_key, budget)?;
+    charge_opaque_key(row.location.node(), budget)
 }
 
 fn preflight_source_record(
@@ -664,7 +715,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 "equality_application_selection",
                 |row| &row.application,
                 equality_application_storage,
-                |row, budget| preflight_work(budget, row.source_map_entry.regions.len()),
+                preflight_equality_application,
             )?;
             let equality_facts = select_equality_facts(rows.equality_facts, &equality_ids, budget)?;
             let source_units = select_rows(
