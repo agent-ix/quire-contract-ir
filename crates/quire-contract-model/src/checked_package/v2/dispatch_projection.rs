@@ -17,7 +17,7 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCode,
 };
 
-fn data_site(row: usize, at: Path<'static>) -> Site<'static> {
+pub(super) fn data_site(row: usize, at: Path<'static>) -> Site<'static> {
     Site::new(
         PackageReadStage::CheckedTermData,
         row,
@@ -28,7 +28,7 @@ fn data_site(row: usize, at: Path<'static>) -> Site<'static> {
 
 /// A refusal about the value at `at` in sidecar row `row`, its diagnostic
 /// charged before it is built.
-fn fail(
+pub(super) fn fail(
     meter: &mut WorkMeter,
     row: usize,
     code: CheckedPackageRefusalCode,
@@ -43,7 +43,7 @@ fn fail(
     stage_storage::refuse(meter, &data_site(row, at), refusal)
 }
 
-fn invalid(meter: &mut WorkMeter, row: usize, at: Path<'static>) -> ValidationFailure {
+pub(super) fn invalid(meter: &mut WorkMeter, row: usize, at: Path<'static>) -> ValidationFailure {
     fail(
         meter,
         row,
@@ -53,7 +53,11 @@ fn invalid(meter: &mut WorkMeter, row: usize, at: Path<'static>) -> ValidationFa
     )
 }
 
-fn conflicting(meter: &mut WorkMeter, row: usize, at: Path<'static>) -> ValidationFailure {
+pub(super) fn conflicting(
+    meter: &mut WorkMeter,
+    row: usize,
+    at: Path<'static>,
+) -> ValidationFailure {
     fail(
         meter,
         row,
@@ -85,14 +89,14 @@ fn node_positions<'w>(
 }
 
 /// The position of `id` among `index`.
-fn position_of(index: &[(&CheckedNodeId, usize)], id: &CheckedNodeId) -> Option<usize> {
+pub(super) fn position_of(index: &[(&CheckedNodeId, usize)], id: &CheckedNodeId) -> Option<usize> {
     index
         .binary_search_by(|(held, _)| (*held).cmp(id))
         .ok()
         .map(|found| index[found].1)
 }
 
-type Occurrence<'a> = (&'a CheckedNodeId, &'a CheckedOccurrenceRole, u64);
+pub(super) type Occurrence<'a> = (&'a CheckedNodeId, &'a CheckedOccurrenceRole, u64);
 
 /// The source map's occurrences, ascending.
 fn source_occurrences<'w>(

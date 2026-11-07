@@ -5,7 +5,9 @@
 //! operation-effect and checked-term-data stages charge every heap request to
 //! the caller's budget before it is made (TC-472).
 
-use crate::support::checked_package::{canonical, evidence_for, node_id, v2_all_families};
+use crate::support::checked_package::{
+    canonical, evidence_for, node_id, nominal_fixture_members, nominal_package, v2_all_families,
+};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackagePendingOutcome, CheckedPackageReadLimits, CheckedPackageRefusalCode,
@@ -334,4 +336,68 @@ fn stage_refusal_diagnostic_is_charged_and_exhausts_when_denied() {
             "diagnostic"
         )
     );
+}
+
+/// A package whose checked-term data holds one admitted equality decision.
+fn with_equality_decision() -> Value {
+    let members = nominal_fixture_members()
+        .into_iter()
+        .skip(2)
+        .collect::<Vec<_>>();
+    let mut wire = nominal_package(&members);
+    let boolean = json!({"package":wire["name"],"path":["scalar_type","boolean"],"ordinal":0});
+    let application = node_id("equality-application");
+    let unit = node_id("qualified:Example/Metre");
+    let dimension = node_id("qualified:Example/Length");
+    let source = wire["lock"]["sources"][0].clone();
+    let graph_nodes = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    graph_nodes.push(json!({
+        "node_id":boolean,"schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"scalar_type","semantic_form":"boolean","semantic_type":boolean,
+        "dependencies":[],"occurrences":[{"role":"type","ordinal":0}],
+        "body":{"term":"aggregate","members":[]}
+    }));
+    graph_nodes.push(json!({
+        "node_id":application,"schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"expression","semantic_form":"binary","semantic_type":boolean,
+        "dependencies":[unit],"occurrences":[{"role":"expression","ordinal":0}],
+        "body":{"term":"application","operator":"binary",
+            "operation":{"identity":"quire.op.quantity.eq","laws":[],"mode":null,
+                "member":null,"leaves":[]},
+            "result_type":boolean,
+            "arguments":[{"term":"reference","target":unit},{"term":"reference","target":unit}]}
+    }));
+    let source_map = wire["source_map"].as_array_mut().expect("source map");
+    source_map.push(json!({"node_id":boolean,"role":"type","ordinal":0,
+        "regions":[{"source":source,"start":0,"end":1}]}));
+    source_map.push(
+        json!({"node_id":application,"role":"expression","ordinal":0,
+        "regions":[{"source":source,"start":1,"end":2}]}),
+    );
+    wire["checked_term_data"] = json!({"equality_decisions":[{
+        "application":application,"occurrence":{"role":"expression","ordinal":0},
+        "term_path":[],"operator":"equal","schedule":"quantity",
+        "left":{"operand":0,"source_type":unit,"conversion_target":null},
+        "right":{"operand":1,"source_type":unit,"conversion_target":null},
+        "units":[{"quantity_type":unit,"unit":unit,"form":{
+            "kind":"declared","dimension_node":dimension,"dimension_terms":[],
+            "root_unit":unit,"path":[]}}],"enum_members":[]
+    }],"protocol_locations":[],"dispatch_tables":[],"probabilistic_claims":[]});
+    wire
+}
+
+#[trace("TC-472", "FR-038-AC-506")]
+#[test]
+fn equality_decision_tables_are_charged_one_byte_short_at_the_checked_term_data() {
+    let wire = with_equality_decision();
+    check_stage(
+        &wire,
+        PackageReadStage::CheckedTermData,
+        "checked_term_data",
+    );
+    let requests = stage_requests(&reader(&wire), PackageReadStage::CheckedTermData);
+    // The node table, the source-map table and the decision table.
+    assert!(requests.len() >= 3, "{requests:?}");
 }
