@@ -92,9 +92,10 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
     assert_eq!(budget.last_success_read_storage_delta(), None);
 }
 
-/// The envelope's and the canonical comparison's reservations are exact: the
-/// measured requirement admits, one byte below is denied at the last request,
-/// at its locus, with the bytes asked.
+/// The read's reservations are exact: the measured requirement admits, one
+/// byte below is denied at the last request, at its locus (the selected model
+/// document's declarations, the last stage to request heap), with the bytes
+/// asked.
 #[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
 fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
@@ -121,18 +122,25 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
     assert_eq!(
         short.first_unpaid_locus(),
         Some(envelope_locus(
-            PackageReadStage::Canonical,
-            "canonical_bytes"
+            PackageReadStage::ModelDocument,
+            "declarations"
         ))
     );
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
-    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {
-        panic!("a denial with no pointer to own is affordable: {result:?}");
+    // The denied request belongs to the model document's declarations, so
+    // its stop carries the owner's pointer, which the one byte left cannot
+    // pay for: the fixed-size outcome at the request's locus.
+    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = result else {
+        panic!("a denial that owns a pointer is unaffordable: {result:?}");
     };
-    assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(incomplete.denied.amount, asked);
-    assert_eq!(incomplete.limit, required - 1);
+    assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
+    assert_eq!(exhausted.denied.amount, asked);
+    assert_eq!(exhausted.configured_bound, required - 1);
+    assert_eq!(
+        exhausted.locus,
+        envelope_locus(PackageReadStage::ModelDocument, "declarations")
+    );
     assert!(short.read_storage_consumed() < required);
 }
 
