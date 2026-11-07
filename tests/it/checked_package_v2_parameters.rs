@@ -384,11 +384,13 @@ fn tc_048_a_function_with_parameters_reads_and_lowers() {
     assert!(forms.contains(&("value", "parameter")));
     assert!(forms.contains(&("scalar_type", "compound_unit")));
 
-    let every_node = admitted
-        .graph()
-        .nodes
-        .iter()
-        .map(|node| node.node_id.clone())
+    let every_node = (0..admitted.graph().nodes.len())
+        .map(|position| {
+            admitted
+                .document_held_id(position)
+                .expect("graph node")
+                .clone()
+        })
         .collect::<Vec<_>>();
     let profile = CompleteLoweringProfileV2 {
         reference: quire_contract_model::LoweringProfileRef {

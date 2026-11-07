@@ -194,8 +194,14 @@ fn generated_occurrence_ordinal_and_source_region_survive_reading() {
     assert_eq!(reordered.name(), first.name());
     assert_eq!(reordered.graph(), first.graph());
     assert_eq!(
-        reordered.graph().nodes[position].node_id,
-        first.graph().nodes[position].node_id
+        reordered
+            .document_held_id(position)
+            .expect("graph node")
+            .clone(),
+        first
+            .document_held_id(position)
+            .expect("graph node")
+            .clone()
     );
     assert_eq!(reordered.graph().nodes[position].occurrences[0].ordinal, 1);
     assert_eq!(reordered.source_map()[map_position].ordinal, 1);
@@ -1167,12 +1173,12 @@ fn tc_048_a_content_only_model_owner_admits_and_its_keys_ignore_the_selected_doc
         panic!("the same selected Dimension declaration must admit at version 2");
     };
     assert_eq!(
-        first.graph().nodes[0].node_id,
-        second.graph().nodes[0].node_id
+        first.document_held_id(0).expect("graph node").clone(),
+        second.document_held_id(0).expect("graph node").clone()
     );
     assert_eq!(
-        first.graph().nodes[1].node_id,
-        second.graph().nodes[1].node_id
+        first.document_held_id(1).expect("graph node").clone(),
+        second.document_held_id(1).expect("graph node").clone()
     );
 
     // A `version` member on a model owner violates its closed wire shape.

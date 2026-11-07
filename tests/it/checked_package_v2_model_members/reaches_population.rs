@@ -36,7 +36,7 @@ fn typed_fixture_id(handle: &str) -> CheckedNodeId {
 fn wire_fixture_id(package: &CheckedPackageV2, handle: &str) -> CheckedNodeId {
     let expected = typed_fixture_id(handle);
     package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .enumerate()
@@ -441,7 +441,7 @@ fn tc_048_reaches_population_refuses_every_node_that_is_not_a_reaches_applicatio
     let add = application_of(&package, "quire.op.integer.add");
     assert_eq!(package.reaches_population(&add), refusal, "integer.add");
     let literal = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_tag.as_ref() == "value" && node.semantic_form.as_ref() == "literal")
@@ -747,7 +747,7 @@ fn tc_048_the_dependency_join_lists_exactly_the_named_population() {
     let (scenario, population) = linked(ORDER, "3", &[0]);
     let package = scenario.admitted();
     let application = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_id == reaches_id(&package))
@@ -755,7 +755,7 @@ fn tc_048_the_dependency_join_lists_exactly_the_named_population() {
     let listed: Vec<_> = application.dependencies.to_vec();
     let structural = |id: &CheckedNodeId| {
         let position = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .position(|node| &node.node_id == id)

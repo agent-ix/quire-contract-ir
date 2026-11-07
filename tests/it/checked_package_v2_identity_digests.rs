@@ -131,7 +131,11 @@ fn derived_range_binding_name_is_validated_independently_of_its_id() {
     let mut evidence = CheckedPackageEvidence::new();
     evidence.support_feature("quire.value.complete/v1");
     let outcome = CheckedPackageV2::read(
-        &quire_canonical::to_vec(&package, Limits::new(u64::MAX)).expect("canonical bytes"),
+        &quire_canonical::to_vec(
+            &crate::support::checked_package::wire_form(&package),
+            Limits::new(u64::MAX),
+        )
+        .expect("canonical bytes"),
         CheckedPackageReadLimits::bounded(),
         &evidence,
     );
@@ -186,7 +190,11 @@ fn derived_range_type_and_literal_type_are_checked_independently_of_id() {
         let mut evidence = CheckedPackageEvidence::new();
         evidence.support_feature("quire.value.complete/v1");
         let outcome = CheckedPackageV2::read(
-            &quire_canonical::to_vec(&changed, Limits::new(u64::MAX)).expect("canonical bytes"),
+            &quire_canonical::to_vec(
+                &crate::support::checked_package::wire_form(&changed),
+                Limits::new(u64::MAX),
+            )
+            .expect("canonical bytes"),
             CheckedPackageReadLimits::bounded(),
             &evidence,
         );
@@ -242,7 +250,11 @@ fn package_with_independent_requests() -> Value {
 fn admit(value: &Value) -> Box<CheckedPackageV2> {
     let mut evidence = CheckedPackageEvidence::new();
     evidence.support_feature("quire.value.complete/v1");
-    let bytes = quire_canonical::to_vec(value, Limits::new(u64::MAX)).expect("fixture bytes");
+    let bytes = quire_canonical::to_vec(
+        &crate::support::checked_package::wire_form(value),
+        Limits::new(u64::MAX),
+    )
+    .expect("fixture bytes");
     match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("structural package must admit, got {other:?}"),
@@ -365,7 +377,11 @@ fn package_name_is_stable_while_complete_admitted_value_changes() {
 fn canonical_envelope_bytes_follow_semantic_and_source_edits() {
     let wire = local_package();
     let original = admit(&wire);
-    let expected = quire_canonical::to_vec(&wire, Limits::new(u64::MAX)).expect("expected bytes");
+    let expected = quire_canonical::to_vec(
+        &crate::support::checked_package::wire_form(&wire),
+        Limits::new(u64::MAX),
+    )
+    .expect("expected bytes");
     assert_eq!(encode(&original, u64::MAX).expect("writer bytes"), expected);
 
     let mut semantic = wire.clone();
@@ -421,7 +437,11 @@ fn typed_node_and_envelope_encoding_have_exact_byte_limits() {
 #[test]
 fn multi_request_lowering_preserves_independent_sibling_on_local_byte_failure() {
     let wire = package_with_independent_requests();
-    let bytes = quire_canonical::to_vec(&wire, Limits::new(u64::MAX)).expect("input bytes");
+    let bytes = quire_canonical::to_vec(
+        &crate::support::checked_package::wire_form(&wire),
+        Limits::new(u64::MAX),
+    )
+    .expect("input bytes");
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.bytes = bytes.len() as u64;
     let mut evidence = CheckedPackageEvidence::new();
@@ -432,8 +452,8 @@ fn multi_request_lowering_preserves_independent_sibling_on_local_byte_failure() 
         panic!("input admits at its exact byte limit");
     };
     let requests = [
-        package.graph().nodes[1].node_id.clone(),
-        package.graph().nodes[2].node_id.clone(),
+        package.document_held_id(1).expect("graph node").clone(),
+        package.document_held_id(2).expect("graph node").clone(),
     ];
     let profile = CompleteLoweringProfileV2 {
         reference: LoweringProfileRef {

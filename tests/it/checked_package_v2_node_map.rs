@@ -916,17 +916,26 @@ fn hundred_thousand_node_position_remap_preserves_admitted_references() {
         other => panic!("valid remap refused: {other:?}"),
     };
     for position in 1..LENGTH {
-        let previous = &rewritten.graph().nodes[base_count + position - 1].node_id;
+        let previous = &rewritten
+            .document_held_id(base_count + position - 1)
+            .expect("graph node")
+            .clone();
         let node = &rewritten.graph().nodes[base_count + position];
         assert_eq!(node.dependencies.len(), 1);
         assert_eq!(node.dependencies.first(), Some(previous));
         assert!(matches!(&node.body, CheckedTerm::Reference { target } if target == previous));
     }
     for position in [0, LENGTH / 2, LENGTH - 1] {
-        let old = &original.graph().nodes[base_count + position].node_id;
+        let old = &original
+            .document_held_id(base_count + position)
+            .expect("graph node")
+            .clone();
         let expected = reverse_chain_id(old, LENGTH).expect("chain node");
         assert_eq!(
-            rewritten.graph().nodes[base_count + position].node_id,
+            rewritten
+                .document_held_id(base_count + position)
+                .expect("graph node")
+                .clone(),
             expected
         );
     }

@@ -152,7 +152,7 @@ fn current_qspec_protocol_reader_refusals_preserve_published_provenance() {
         assert_eq!(selected.len(), 1, "{id}: one published row");
         let row = selected[0];
         assert_eq!(row["expect"]["decision"], "refuse", "{id}");
-        let mut edited = base.clone();
+        let mut edited = fixture_support::wire_form(&base);
         for edit in row["edit"].as_array().expect("published edits") {
             apply_layout_edit(&mut edited, edit);
         }
@@ -241,7 +241,7 @@ fn assert_paired_reader_refusal(first: &str, second: &str, first_node: usize) {
             .as_str()
             .expect("selected domain document"),
     );
-    let mut edited = base;
+    let mut edited = fixture_support::wire_form(&base);
     let rows = manifest["rows"].as_array().expect("published rows");
     for id in [first, second] {
         let row = rows
@@ -359,7 +359,7 @@ fn current_qspec_protocol_layout_rows_refuse_at_exact_node_pointer() {
         assert_eq!(row["expect"]["stage"], "schema", "{id}: schema stage");
         assert_eq!(row["expect"]["code"], "malformed_wire", "{id}: schema code");
         assert!(row["expect"]["cause"].is_null(), "{id}: no cause");
-        let mut edited = base.clone();
+        let mut edited = fixture_support::wire_form(&base);
         for edit in row["edit"].as_array().expect("published edits") {
             apply_layout_edit(&mut edited, edit);
         }
@@ -754,14 +754,16 @@ fn qspec_event_package() -> (Value, std::path::PathBuf, Value) {
         .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
         .expect("Boolean type")["node_id"]
         .clone();
-    let mut event = read_json(&fixtures.join("protocol-node-layout-rows.json"))
-        .expect("layout rows")["rows"]
+    let layout = read_json(&fixtures.join("protocol-node-layout-rows.json")).expect("layout rows");
+    let template = layout["rows"]
         .as_array()
         .expect("rows")
         .iter()
         .find(|row| row["id"] == "L12")
-        .expect("fence template")["edit"][0]["value"]
-        .clone();
+        .expect("fence template");
+    // The template is a node in wire form with its operand row beside it.
+    let mut event = template["edit"][0]["value"].clone();
+    fixture_support::resolve_node_row(&mut event, &template["edit"][1]["value"]);
     event["body"]["operation"]["member"]["operator"] = Value::from("event");
     event["body"]["arguments"] = published_bindings(
         &fixtures,

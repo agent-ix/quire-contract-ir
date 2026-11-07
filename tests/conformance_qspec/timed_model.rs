@@ -174,7 +174,8 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
     let encoded: Value =
         serde_json::from_slice(&encode_package(&package)).expect("typed clause writer JSON");
     assert_eq!(
-        encoded, wire,
+        encoded,
+        crate::fixture_support::wire_form(&wire),
         "all admitted clause bodies retain their exact wire form"
     );
     for (form, kind) in [
@@ -224,7 +225,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
         let clause_id = id_at(&wire, clause_position);
         let anchor_id = id_at(&wire, anchor_position);
         assert!(package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .any(|node| node.node_id == clause_id));
@@ -406,7 +407,8 @@ fn timed_clause_published_vectors_match_reader() {
                 let encoded: Value = serde_json::from_slice(&encode_package(&package))
                     .expect("admitted clause writer JSON");
                 assert_eq!(
-                    encoded, candidate,
+                    encoded,
+                    crate::fixture_support::wire_form(&candidate),
                     "{id}: clause body and identity retention"
                 );
                 if matches!(id, "CL-57" | "CL-59") {
@@ -1355,7 +1357,8 @@ fn timed_model_published_tick_retains_typed_operation_anchor() {
     let bytes = encode_package(&package);
     let encoded: Value = serde_json::from_slice(&bytes).expect("writer JSON");
     assert_eq!(
-        encoded, wire,
+        encoded,
+        crate::fixture_support::wire_form(&wire),
         "typed writer preserves the published tick package"
     );
     assert!(encoded.get("identity_preimage").is_none());

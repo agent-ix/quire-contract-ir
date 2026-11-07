@@ -741,7 +741,9 @@ impl ContractSourceKeyV1 {
                 match segment {
                     CheckedNodePathSegment::Name(_) => {}
                     CheckedNodePathSegment::Node(operand) => pending.push(operand),
-                    CheckedNodePathSegment::Index(_) => return None,
+                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
+                        return None
+                    }
                 }
             }
         }
@@ -766,7 +768,9 @@ impl ContractSourceKeyV1 {
                     let position = usize::try_from(*index).ok()?;
                     CheckedNodePathSegment::Node(source.structural_keys.get(position)?.clone())
                 }
-                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Node(_) => return None,
+                CheckedNodePathSegment::Index(_)
+                | CheckedNodePathSegment::Operand(_)
+                | CheckedNodePathSegment::Node(_) => return None,
             });
         }
         Some(Self(Arc::new(CheckedNodeId {
@@ -1415,7 +1419,7 @@ impl ContractPackageWireV1 {
         // graph-order coordinate is derived for a member's node ID.
         let nodes = canonical_node_order(
             source
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .enumerate()
@@ -1430,18 +1434,18 @@ impl ContractPackageWireV1 {
                 }),
         );
         let source_positions = source
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
             .collect::<BTreeMap<_, _>>();
-        let mut projected_positions = vec![None; source.graph().nodes.len()];
+        let mut projected_positions = vec![None; source.resolved_graph().nodes.len()];
         for (position, node) in nodes.iter().enumerate() {
             projected_positions[source_positions[&node.node_id]] = Some(position);
         }
         let source_kinds = source
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .zip(source.node_kinds())
@@ -1497,7 +1501,7 @@ impl ContractPackageWireV1 {
             lowering_profile: profile.reference.clone(),
         };
         let semantic_graph = ContractSemanticGraphV1 {
-            graph_version: source.graph().graph_version.clone(),
+            graph_version: source.resolved_graph().graph_version.clone(),
             nodes: nodes.into_iter().map(|node| node.to_raw()).collect(),
         };
         let terms: Vec<Option<super::CheckedTerm>> = semantic_graph
@@ -1594,20 +1598,20 @@ fn source_frame_wire(expanded: &mut Value, source: &CheckedPackageV2) -> Result<
         .map(|at| CheckedNodeId::from_value(expanded.pointer(at.as_str()).ok_or(())?).ok_or(()))
         .collect::<Result<Vec<_>, _>>()?;
     let source_positions = source
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .enumerate()
         .map(|(position, node)| (&node.node_id, position))
         .collect::<BTreeMap<_, _>>();
-    let mut included = vec![false; source.graph().nodes.len()];
+    let mut included = vec![false; source.resolved_graph().nodes.len()];
     let mut pending = VecDeque::new();
     for id in &direct {
         include_source_operands(id, &source_positions, &mut included, &mut pending)?;
     }
     while let Some(position) = pending.pop_front() {
         include_source_operands(
-            &source.graph().nodes[position].node_id,
+            &source.resolved_graph().nodes[position].node_id,
             &source_positions,
             &mut included,
             &mut pending,
@@ -1618,7 +1622,7 @@ fn source_frame_wire(expanded: &mut Value, source: &CheckedPackageV2) -> Result<
     for (position, included) in included.into_iter().enumerate() {
         if included {
             table_positions[position] = Some(keys.len());
-            keys.push(source.graph().nodes[position].node_id.clone());
+            keys.push(source.resolved_graph().nodes[position].node_id.clone());
         }
     }
     let mut key_positions = keys
@@ -1711,7 +1715,7 @@ impl ContractPackageWireV1 {
             return Err(ContractSourceHandoffError::SourceLock);
         }
         let source_nodes = source
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .enumerate()
@@ -1725,11 +1729,11 @@ impl ContractPackageWireV1 {
             })
             .collect::<BTreeMap<_, _>>();
         let projected_keys =
-            super::node_index::rebuild_graph_keys(&package.wire.semantic_graph.nodes, |_| {
+            super::node_index::rebuild_graph_keys(&package.wire.semantic_graph.nodes, None, |_| {
                 unreachable!("admitted V1 graph was already index-checked")
             })
             .expect("admitted V1 graph keys");
-        let mut projected_positions = vec![None; source.graph().nodes.len()];
+        let mut projected_positions = vec![None; source.resolved_graph().nodes.len()];
         let mut source_positions = Vec::with_capacity(package.wire.semantic_graph.nodes.len());
         for (position, represented) in package.wire.semantic_graph.nodes.iter().enumerate() {
             let key = &represented.node_id;
@@ -1742,7 +1746,7 @@ impl ContractPackageWireV1 {
         for (position, represented) in package.wire.semantic_graph.nodes.iter().enumerate() {
             let key = &represented.node_id;
             let source_position = source_positions[position].expect("matched source position");
-            let node = &source.graph().nodes[source_position];
+            let node = &source.resolved_graph().nodes[source_position];
             let mut source_value = serde_json::to_value(node.to_raw())
                 .map_err(|_| ContractSourceHandoffError::NodeMismatch(key.clone()))?;
             remap_projected_indexes(&mut source_value, &projected_positions)
@@ -1770,7 +1774,7 @@ impl ContractPackageWireV1 {
                     .frames
                     .source(node_id)
                     .and_then(|key| source_nodes.get(key).copied())
-                    .and_then(|position| source.graph().nodes.get(position))
+                    .and_then(|position| source.resolved_graph().nodes.get(position))
                     .and_then(|node| source.node_kind(&node.node_id))
                     .map(Some)
                     .ok_or_else(|| ContractSourceHandoffError::MissingNode(node_id.clone())),
@@ -1900,6 +1904,7 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
         .collect::<Result<Vec<_>, _>>()?;
     let output_keys = super::node_index::rebuild_keys(
         &output_ids.iter().collect::<Vec<_>>(),
+        None,
         |position, slot| {
             graph_at
                 .clone()
@@ -1929,6 +1934,7 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
         .collect::<Result<Vec<_>, _>>()?;
     let source_keys = super::node_index::rebuild_keys(
         &source_ids.iter().collect::<Vec<_>>(),
+        None,
         |position, slot| {
             table_at
                 .clone()
@@ -2790,7 +2796,7 @@ impl ContractPackageWireV1 {
                 Some(JsonPointer::root().key("semantic_graph").key("nodes")),
             ));
         }
-        let structural_keys = super::node_index::rebuild_graph_keys(nodes, |at| {
+        let structural_keys = super::node_index::rebuild_graph_keys(nodes, None, |at| {
             malformed(at, CheckedPackageRefusalCause::InvalidValue)
         })?;
         let mut interner = super::node_index::StructuralInterner::new();

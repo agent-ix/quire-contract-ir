@@ -344,7 +344,7 @@ mod tests {
     #[cfg(feature = "qspec-conformance")]
     fn id_for(package: &CheckedPackageV2, tag: &str, form: &str) -> CheckedNodeId {
         package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| node.node_tag.as_ref() == tag && node.semantic_form.as_ref() == form)
@@ -415,7 +415,7 @@ mod tests {
             .node_id()
             .clone();
         let position = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .position(|node| node.node_id == entry)
@@ -455,7 +455,7 @@ mod tests {
             .node_id()
             .clone();
         let position = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .position(|node| node.node_id == entry)
@@ -495,7 +495,7 @@ mod tests {
             .clone();
         let target = single.monitor_plans().next().unwrap().state().clone();
         let position = single
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .position(|node| node.node_id == entry)

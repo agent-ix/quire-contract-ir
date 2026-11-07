@@ -45,7 +45,7 @@ impl CheckedPackageV2 {
         use CheckedParameterDeclarationError as Error;
 
         let kind_of = |id: &CheckedNodeId| {
-            let position = *self.node_index.get(id)?;
+            let position = self.position_of(id)?;
             self.kinds.get(position).copied()
         };
         let found = self.node(node).ok_or(Error::UnknownNode)?;
@@ -150,6 +150,7 @@ mod tests {
             timed_model_roots: Vec::new(),
             node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
             structural_keys: Vec::new(),
+            slot_graph: Default::default(),
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),

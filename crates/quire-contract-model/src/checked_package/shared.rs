@@ -619,8 +619,11 @@ pub enum CheckedNodePathSegment {
     Name(Box<str>),
     /// An operand node's structural identity.
     Node(std::sync::Arc<CheckedNodeId>),
-    /// A graph-local operand index on the V2 wire, before key resolution.
+    /// A document-held graph index on the V2 wire, before key resolution.
     Index(u64),
+    /// A node-held operand slot on the V2 wire: entry `k` of the holding
+    /// node's operand row, before key resolution.
+    Operand(u64),
 }
 
 impl Serialize for CheckedNodePathSegment {
@@ -631,6 +634,11 @@ impl Serialize for CheckedNodePathSegment {
             Self::Index(index) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("node", index)?;
+                map.end()
+            }
+            Self::Operand(slot) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("operand", slot)?;
                 map.end()
             }
             Self::Node(node) => node.serialize(serializer),
@@ -712,6 +720,7 @@ impl std::fmt::Debug for CheckedNodeTableDebug<'_> {
                 match segment {
                     CheckedNodePathSegment::Name(name) => write!(formatter, "Name({name:?})")?,
                     CheckedNodePathSegment::Index(index) => write!(formatter, "Index({index})")?,
+                    CheckedNodePathSegment::Operand(slot) => write!(formatter, "Operand({slot})")?,
                     CheckedNodePathSegment::Node(child) => write!(
                         formatter,
                         "Node(#{})",
@@ -747,7 +756,9 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
             type Value = Segment;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a path string or an object containing only a node index")
+                formatter.write_str(
+                    "a path string or an object containing only a node index or operand slot",
+                )
             }
 
             fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Segment, E> {
@@ -763,21 +774,29 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                 let name: String = map
                     .next_key()?
                     .ok_or_else(|| A::Error::missing_field("node"))?;
-                if name != "node" {
-                    return Err(A::Error::unknown_field(&name, &["node"]));
-                }
+                let is_operand = match name.as_str() {
+                    "node" => false,
+                    "operand" => true,
+                    _ => return Err(A::Error::unknown_field(&name, &["node", "operand"])),
+                };
                 let index: u64 = map.next_value()?;
                 if index > 9_007_199_254_740_991 {
-                    return Err(A::Error::custom("node index exceeds I-JSON bound"));
+                    return Err(A::Error::custom("path segment exceeds I-JSON bound"));
                 }
-                if let Some(name) = map.next_key::<String>()? {
-                    return Err(if name == "node" {
-                        A::Error::duplicate_field("node")
+                if let Some(other) = map.next_key::<String>()? {
+                    return Err(if other == name {
+                        A::Error::duplicate_field(if is_operand { "operand" } else { "node" })
+                    } else if is_operand {
+                        A::Error::unknown_field(&other, &["operand"])
                     } else {
-                        A::Error::unknown_field(&name, &["node"])
+                        A::Error::unknown_field(&other, &["node"])
                     });
                 }
-                Ok(Segment(CheckedNodePathSegment::Index(index)))
+                Ok(Segment(if is_operand {
+                    CheckedNodePathSegment::Operand(index)
+                } else {
+                    CheckedNodePathSegment::Index(index)
+                }))
             }
         }
         impl<'de> Deserialize<'de> for Segment {
@@ -837,6 +856,8 @@ impl CheckedNodeId {
                     CheckedNodePathSegment::Name(_) => {}
                     CheckedNodePathSegment::Index(index) if *index <= 9_007_199_254_740_991 => {}
                     CheckedNodePathSegment::Index(_) => return false,
+                    CheckedNodePathSegment::Operand(slot) if *slot <= 9_007_199_254_740_991 => {}
+                    CheckedNodePathSegment::Operand(_) => return false,
                     CheckedNodePathSegment::Node(node) => pending.push(node),
                 }
             }
@@ -923,12 +944,39 @@ impl Ord for CheckedNodeId {
                             (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Node(_)) => {
                                 return Ordering::Less
                             }
-                            (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Index(_)) => {
-                                return Ordering::Less
-                            }
-                            (CheckedNodePathSegment::Index(_), CheckedNodePathSegment::Name(_)) => {
-                                return Ordering::Greater
-                            }
+                            (
+                                CheckedNodePathSegment::Name(_),
+                                CheckedNodePathSegment::Index(_)
+                                | CheckedNodePathSegment::Operand(_),
+                            ) => return Ordering::Less,
+                            (
+                                CheckedNodePathSegment::Index(_)
+                                | CheckedNodePathSegment::Operand(_),
+                                CheckedNodePathSegment::Name(_),
+                            ) => return Ordering::Greater,
+                            (
+                                CheckedNodePathSegment::Index(_),
+                                CheckedNodePathSegment::Operand(_),
+                            ) => return Ordering::Less,
+                            (
+                                CheckedNodePathSegment::Operand(_),
+                                CheckedNodePathSegment::Index(_),
+                            ) => return Ordering::Greater,
+                            (
+                                CheckedNodePathSegment::Operand(a),
+                                CheckedNodePathSegment::Operand(b),
+                            ) => match a.cmp(b) {
+                                Ordering::Equal => {}
+                                order => return order,
+                            },
+                            (
+                                CheckedNodePathSegment::Operand(_),
+                                CheckedNodePathSegment::Node(_),
+                            ) => return Ordering::Less,
+                            (
+                                CheckedNodePathSegment::Node(_),
+                                CheckedNodePathSegment::Operand(_),
+                            ) => return Ordering::Greater,
                             (
                                 CheckedNodePathSegment::Index(a),
                                 CheckedNodePathSegment::Index(b),
@@ -1010,7 +1058,8 @@ pub(crate) fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> V
             for (a, b) in left.path.iter().zip(&right.path) {
                 let order = match (a, b) {
                     (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => a.cmp(b),
-                    (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b)) => {
+                    (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b))
+                    | (CheckedNodePathSegment::Operand(a), CheckedNodePathSegment::Operand(b)) => {
                         a.cmp(b)
                     }
                     (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
@@ -1021,6 +1070,10 @@ pub(crate) fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> V
                     (CheckedNodePathSegment::Name(_), _) => Ordering::Less,
                     (_, CheckedNodePathSegment::Name(_)) => Ordering::Greater,
                     (CheckedNodePathSegment::Index(_), _) => Ordering::Less,
+                    (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Index(_)) => {
+                        Ordering::Greater
+                    }
+                    (CheckedNodePathSegment::Operand(_), _) => Ordering::Less,
                     (CheckedNodePathSegment::Node(_), _) => Ordering::Greater,
                 };
                 if order != Ordering::Equal {
@@ -1201,6 +1254,12 @@ impl Encode for CheckedNodeId {
                     writer.begin_object()?;
                     writer.name("node")?;
                     writer.integer(i128::from(*index))?;
+                    writer.end_object()?;
+                }
+                Event::Segment(CheckedNodePathSegment::Operand(slot)) => {
+                    writer.begin_object()?;
+                    writer.name("operand")?;
+                    writer.integer(i128::from(*slot))?;
                     writer.end_object()?;
                 }
                 Event::Segment(CheckedNodePathSegment::Node(node)) => {

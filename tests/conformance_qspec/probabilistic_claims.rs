@@ -167,7 +167,8 @@ fn read(wire: &Value) -> CheckedPackageV2ReadResult {
 fn encode_producer(wire: &Value, sidecar: Option<&CheckedTermDataV2>) -> Vec<u8> {
     let lock: CheckedPackageLockV2 = serde_json::from_value(wire["lock"].clone()).expect("lock");
     let graph: CheckedSemanticGraphV2<Value> =
-        serde_json::from_value(wire["semantic_graph"].clone()).expect("graph");
+        serde_json::from_value(crate::fixture_support::wire_form(wire)["semantic_graph"].clone())
+            .expect("graph");
     let source_map: Vec<CheckedSourceMapEntry> =
         serde_json::from_value(wire["source_map"].clone()).expect("source map");
     let refinement_step_rows: Option<Vec<CheckedRefinementStepRowRegion>> = wire

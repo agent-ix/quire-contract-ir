@@ -410,7 +410,8 @@ fn typed<T: DeserializeOwned>(value: &Value) -> T {
 
 fn encoded(package: &Value) -> Vec<u8> {
     let lock: CheckedPackageLockV2 = typed(&package["lock"]);
-    let graph: CheckedSemanticGraphV2<Value> = typed(&package["semantic_graph"]);
+    let graph: CheckedSemanticGraphV2<Value> =
+        typed(&crate::support::checked_package::wire_form(package)["semantic_graph"]);
     let source_map: Vec<CheckedSourceMapEntry> = typed(&package["source_map"]);
     let capabilities: Vec<CheckedCapability> = typed(&package["capability_report"]);
     let diagnostics: CheckedDiagnosticsV2 = typed(&package["diagnostics"]);
@@ -856,7 +857,9 @@ fn state_graph_identity_and_shared_occurrences() {
         let read = admitted(instance);
         let written = reread_written(instance);
         assert_eq!(
-            read.graph().nodes[base_node_index()].node_id,
+            read.document_held_id(base_node_index())
+                .expect("graph node")
+                .clone(),
             admitted(&possible).graph().nodes[base_node_index()].node_id
         );
         assert_eq!(read.name(), admitted(&possible).name());
@@ -986,7 +989,9 @@ fn terminal_identity_and_uniqueness_per_model() {
         let read = admitted(named);
         let written = reread_written(named);
         assert_eq!(
-            read.graph().nodes[base_node_index()].node_id,
+            read.document_held_id(base_node_index())
+                .expect("graph node")
+                .clone(),
             admitted(&any).graph().nodes[base_node_index()].node_id
         );
         assert_eq!(read.name(), admitted(&any).name());

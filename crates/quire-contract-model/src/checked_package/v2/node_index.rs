@@ -70,7 +70,8 @@ impl StructuralInterner {
                                 CheckedNodePathSegment::Node(operand) => TokenSegment::Operand(
                                     *self.pointers.get(&Arc::as_ptr(operand))?,
                                 ),
-                                CheckedNodePathSegment::Index(_) => return None,
+                                CheckedNodePathSegment::Index(_)
+                                | CheckedNodePathSegment::Operand(_) => return None,
                             });
                         }
                         let descriptor = TokenDescriptor {
@@ -94,11 +95,44 @@ fn malformed(at: JsonPointer) -> ValidationFailure {
     ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
 }
 
-struct IndexSite {
+/// One operand segment of the document, in canonical byte order by `offset`.
+struct SegmentSite {
     offset: usize,
-    index: u64,
-    graph_nodes: usize,
+    value: u64,
+    /// An operand slot (`{"operand": k}`) rather than an index segment.
+    slot: bool,
+    /// The node whose members hold this segment; `None` in a document-held id.
+    holder: Option<usize>,
+    /// Inside a foreign `{package, node}` key, which names a dependency's
+    /// graph of this many nodes and takes no part in the placement check.
+    foreign_graph: Option<usize>,
     at: JsonPointer,
+}
+
+/// One entry of an operand row.
+struct RowSite {
+    offset: usize,
+    value: u64,
+    at: JsonPointer,
+}
+
+/// Where the walk is in the package, to tell node-held ids from document-held.
+#[derive(Clone, Copy)]
+enum Scope {
+    Root,
+    Graph,
+    Nodes,
+    Node(usize),
+    Rows,
+    Row,
+    Other,
+}
+
+#[derive(Clone, Copy)]
+struct Walk {
+    graph_nodes: usize,
+    scope: Scope,
+    foreign_graph: Option<usize>,
 }
 
 fn object_members(raw: &[u8]) -> Option<Vec<(String, &[u8])>> {
@@ -151,6 +185,7 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
         Path,
         Ordinal,
         Node,
+        Operand,
         Term,
     }
     enum Frame {
@@ -231,6 +266,7 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
                             Some(b"path") => Key::Path,
                             Some(b"ordinal") => Key::Ordinal,
                             Some(b"node") => Key::Node,
+                            Some(b"operand") => Key::Operand,
                             Some(b"term") => Key::Term,
                             _ => Key::Other,
                         };
@@ -239,6 +275,7 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
                             Key::Path => 2,
                             Key::Ordinal => 4,
                             Key::Node => 8,
+                            Key::Operand => 16,
                             Key::Term => 0,
                             Key::Other => 0,
                         };
@@ -291,10 +328,15 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
                     index,
                 }) = stack.last_mut()
                 {
+                    let prefix: &[u8] = if keys == 16 {
+                        b"{\"operand\":"
+                    } else {
+                        b"{\"node\":"
+                    };
                     let is_index = members == 1
-                        && keys == 8
+                        && (keys == 8 || keys == 16)
                         && bytes
-                            .get(start + b"{\"node\":".len()..at)
+                            .get(start + prefix.len()..at)
                             .and_then(|raw| std::str::from_utf8(raw).ok())
                             .and_then(|raw| raw.parse::<u64>().ok())
                             .is_some_and(|index| index <= 9_007_199_254_740_991);
@@ -333,7 +375,8 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
 }
 
 /// Rebuild an ID written in one package document against that document's
-/// graph. The returned operands share the already rebuilt graph keys.
+/// graph. The returned operands share the already rebuilt graph keys. The
+/// ID must be in the reader's resolved form, whose operands are index segments.
 pub(super) fn resolve_id(
     wire: &super::CheckedNodeId,
     keys: &[Arc<super::CheckedNodeId>],
@@ -345,7 +388,7 @@ pub(super) fn resolve_id(
             CheckedNodePathSegment::Index(index) => {
                 CheckedNodePathSegment::Node(Arc::clone(keys.get(usize::try_from(*index).ok()?)?))
             }
-            CheckedNodePathSegment::Node(_) => return None,
+            CheckedNodePathSegment::Node(_) | CheckedNodePathSegment::Operand(_) => return None,
         });
     }
     Some(super::CheckedNodeId {
@@ -419,23 +462,23 @@ pub(super) fn equivalent_values(
     true
 }
 
-/// Check every graph-local index before any graph meaning check, then reject
-/// the first own-path edge in a cycle by holder and path position.
-/// The marked comparisons recognize only the closed V2 member names and term
-/// discriminator; an unmatched name never selects a valid alternate shape.
-#[ix_trace_rs::string_edge]
 /// Resolve graph-local node operands for either the checked V2 envelope or
 /// its FR-330 ContractPackage projection. The caller owns refusal coding.
+/// Each node-held operand slot resolves through the node's operand row.
+#[ix_trace_rs::string_edge]
 pub(super) fn rebuild_graph_keys(
     nodes: &[super::RawSemanticNodeV2],
+    rows: Option<&[Vec<u64>]>,
     refuse: impl Fn(JsonPointer) -> ValidationFailure,
 ) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
+    let operand = if rows.is_some() { "operand" } else { "node" };
     rebuild_keys(
         nodes
             .iter()
             .map(|node| &node.node_id)
             .collect::<Vec<_>>()
             .as_slice(),
+        rows,
         |position, slot| {
             JsonPointer::root()
                 .key("semantic_graph")
@@ -444,49 +487,54 @@ pub(super) fn rebuild_graph_keys(
                 .key("node_id")
                 .key("path")
                 .index(slot)
-                .key("node")
+                .key(operand)
         },
         refuse,
     )
 }
 
-/// Resolve one document-local table of indexed IDs without recursive key construction.
-/// The caller supplies the table-specific pointer for an indexed operand.
+/// Resolve one document-local table of IDs without recursive key construction.
+/// With `rows`, the IDs are node-held: they hold operand slots read through
+/// the operand row of the node at their position. Without, they are
+/// document-held and hold index segments. The caller supplies the
+/// table-specific pointer for an operand.
 pub(super) fn rebuild_keys(
     ids: &[&super::CheckedNodeId],
+    rows: Option<&[Vec<u64>]>,
     pointer: impl Fn(usize, usize) -> JsonPointer,
     refuse: impl Fn(JsonPointer) -> ValidationFailure,
 ) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
     let node_count = ids.len();
+    // The graph position a segment names, or `None` for a segment that is
+    // not an operand reference of this table's kind.
+    let target_of = |position: usize, segment: &CheckedNodePathSegment| -> Option<Option<usize>> {
+        match (rows, segment) {
+            (_, CheckedNodePathSegment::Name(_) | CheckedNodePathSegment::Node(_)) => Some(None),
+            (None, CheckedNodePathSegment::Index(index)) => {
+                Some(Some(usize::try_from(*index).ok()?))
+            }
+            (Some(rows), CheckedNodePathSegment::Operand(slot)) => {
+                let entry = rows.get(position)?.get(usize::try_from(*slot).ok()?)?;
+                Some(Some(usize::try_from(*entry).ok()?))
+            }
+            (None, CheckedNodePathSegment::Operand(_))
+            | (Some(_), CheckedNodePathSegment::Index(_)) => None,
+        }
+    };
+    let mut edges: Vec<Vec<(usize, usize)>> = Vec::with_capacity(node_count);
     for (position, id) in ids.iter().enumerate() {
+        let mut outgoing = Vec::new();
         for (slot, segment) in id.path.iter().enumerate() {
-            if let CheckedNodePathSegment::Index(index) = segment {
-                if usize::try_from(*index)
-                    .ok()
-                    .is_none_or(|index| index >= node_count)
-                {
-                    return Err(refuse(pointer(position, slot)));
-                }
+            match target_of(position, segment) {
+                Some(None) => {}
+                Some(Some(target)) if target < node_count => outgoing.push((slot, target)),
+                Some(Some(_)) | None => return Err(refuse(pointer(position, slot))),
             }
         }
+        edges.push(outgoing);
     }
-    let edges: Vec<Vec<(usize, usize)>> = ids
-        .iter()
-        .map(|id| {
-            id.path
-                .iter()
-                .enumerate()
-                .filter_map(|(slot, segment)| match segment {
-                    CheckedNodePathSegment::Index(index) => {
-                        usize::try_from(*index).ok().map(|target| (slot, target))
-                    }
-                    CheckedNodePathSegment::Name(_) | CheckedNodePathSegment::Node(_) => None,
-                })
-                .collect()
-        })
-        .collect();
     // Kosaraju's two heap-backed passes make the cycle decision linear in
-    // nodes plus index segments, independent of graph order and chain depth.
+    // nodes plus operand segments, independent of graph order and chain depth.
     let mut seen = vec![false; node_count];
     let mut order = Vec::with_capacity(node_count);
     for start in 0..node_count {
@@ -545,8 +593,10 @@ pub(super) fn rebuild_keys(
             .map(|segment| match segment {
                 CheckedNodePathSegment::Name(name) => CheckedNodePathSegment::Name(name.clone()),
                 CheckedNodePathSegment::Node(key) => CheckedNodePathSegment::Node(Arc::clone(key)),
-                CheckedNodePathSegment::Index(index) => {
-                    let target = usize::try_from(*index).expect("index was checked in bounds");
+                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
+                    let target = target_of(node, segment)
+                        .flatten()
+                        .expect("operand was checked in bounds");
                     CheckedNodePathSegment::Node(Arc::clone(
                         keys[target].as_ref().expect("target key built first"),
                     ))
@@ -566,15 +616,27 @@ pub(super) fn rebuild_keys(
 }
 
 #[ix_trace_rs::string_edge]
-pub(super) fn check(
+/// Collect the operand segments and operand row entries of `bytes` in
+/// document order. A segment object is `{"operand": k}` or `{"node": i}` as
+/// the sole member of a path item of a node ID.
+fn collect_sites(
     bytes: &[u8],
-    wire: &RawCheckedPackageWireV2,
+    node_count: usize,
     evidence: &CheckedPackageEvidence,
-) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
-    let node_count = wire.semantic_graph.nodes.len();
-    let mut pending = vec![(bytes, JsonPointer::root(), node_count)];
-    let mut indices = Vec::new();
-    while let Some((raw, at, graph_nodes)) = pending.pop() {
+) -> Result<(Vec<SegmentSite>, Vec<RowSite>), ValidationFailure> {
+    let mut pending = vec![(
+        bytes,
+        JsonPointer::root(),
+        Walk {
+            graph_nodes: node_count,
+            scope: Scope::Root,
+            foreign_graph: None,
+        },
+    )];
+    let mut sites = Vec::new();
+    let mut row_sites = Vec::new();
+    let offset_of = |part: &[u8]| (part.as_ptr() as usize).saturating_sub(bytes.as_ptr() as usize);
+    while let Some((raw, at, walk)) = pending.pop() {
         match raw.first() {
             Some(b'{') => {
                 let members = object_members(raw).ok_or_else(|| malformed(at.clone()))?;
@@ -618,19 +680,23 @@ pub(super) fn check(
                         }
                         let object = object_members(segment)
                             .ok_or_else(|| malformed(at.clone().key("path").index(slot)))?;
-                        if object.len() != 1 || object[0].0 != "node" {
+                        if object.len() != 1 || !matches!(object[0].0.as_str(), "node" | "operand")
+                        {
                             continue;
                         }
-                        let member = object[0].1;
-                        let index: u64 = serde_json::from_slice(member)
+                        let (name, member) = (&object[0].0, object[0].1);
+                        let value: u64 = serde_json::from_slice(member)
                             .map_err(|_| malformed(at.clone().key("path").index(slot)))?;
-                        let offset =
-                            (member.as_ptr() as usize).saturating_sub(bytes.as_ptr() as usize);
-                        indices.push(IndexSite {
-                            offset,
-                            index,
-                            graph_nodes,
-                            at: at.clone().key("path").index(slot).key("node"),
+                        sites.push(SegmentSite {
+                            offset: offset_of(member),
+                            value,
+                            slot: name == "operand",
+                            holder: match walk.scope {
+                                Scope::Node(holder) => Some(holder),
+                                _ => None,
+                            },
+                            foreign_graph: walk.foreign_graph,
+                            at: at.clone().key("path").index(slot).key(name),
                         });
                     }
                 }
@@ -645,45 +711,238 @@ pub(super) fn check(
                         .find(|(name, _)| name == "package")
                         .and_then(|(_, raw)| serde_json::from_slice::<String>(raw).ok())
                         .and_then(|package| evidence.dependency_package(&package))
-                        .map(|package| package.graph().nodes.len())
+                        .map(|package| package.resolved_graph().nodes.len())
                 } else {
                     None
                 };
                 for (name, child) in members.into_iter().rev() {
-                    let child_graph_nodes = if name == "node" {
-                        if is_external_key {
-                            external_graph_nodes.unwrap_or(usize::MAX)
-                        } else {
-                            graph_nodes
-                        }
-                    } else {
-                        graph_nodes
+                    let mut child_walk = walk;
+                    child_walk.scope = match (walk.scope, name.as_str()) {
+                        (Scope::Root, "semantic_graph") => Scope::Graph,
+                        (Scope::Graph, "nodes") => Scope::Nodes,
+                        (Scope::Graph, "operand_rows") => Scope::Rows,
+                        (Scope::Node(holder), _) => Scope::Node(holder),
+                        _ => Scope::Other,
                     };
-                    pending.push((child, at.clone().key(&name), child_graph_nodes));
+                    if name == "node" && is_external_key {
+                        let nodes = external_graph_nodes.unwrap_or(usize::MAX);
+                        child_walk.graph_nodes = nodes;
+                        child_walk.foreign_graph = Some(nodes);
+                    }
+                    pending.push((child, at.clone().key(&name), child_walk));
                 }
             }
             Some(b'[') => {
                 let items = array_items(raw).ok_or_else(|| malformed(at.clone()))?;
                 for (position, child) in items.into_iter().enumerate().rev() {
-                    pending.push((child, at.clone().index(position), graph_nodes));
+                    let mut child_walk = walk;
+                    child_walk.scope = match walk.scope {
+                        Scope::Nodes => Scope::Node(position),
+                        Scope::Rows => Scope::Row,
+                        Scope::Node(holder) => Scope::Node(holder),
+                        _ => Scope::Other,
+                    };
+                    if let Scope::Row = walk.scope {
+                        let value: u64 = serde_json::from_slice(child)
+                            .map_err(|_| malformed(at.clone().index(position)))?;
+                        row_sites.push(RowSite {
+                            offset: offset_of(child),
+                            value,
+                            at: at.clone().index(position),
+                        });
+                        continue;
+                    }
+                    pending.push((child, at.clone().index(position), child_walk));
                 }
             }
             _ => {}
         }
     }
-    if let Some(site) = indices
+    sites.sort_by_key(|site| site.offset);
+    row_sites.sort_by_key(|site| site.offset);
+    Ok((sites, row_sites))
+}
+
+/// Run the FR-322 operand checks in their order, before any graph meaning
+/// check, then rebuild every node's structural key. The first defect of the
+/// first step that has one is refused as `malformed_wire`.
+#[ix_trace_rs::string_edge]
+pub(super) fn check(
+    bytes: &[u8],
+    wire: &RawCheckedPackageWireV2,
+    evidence: &CheckedPackageEvidence,
+) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
+    let node_count = wire.semantic_graph.nodes.len();
+    let rows = &wire.semantic_graph.operand_rows;
+    let graph_at = || JsonPointer::root().key("semantic_graph");
+    // 1. Rows.
+    if rows.len() != node_count {
+        return Err(malformed(graph_at().key("operand_rows")));
+    }
+    let (sites, row_sites) = collect_sites(bytes, node_count, evidence)?;
+    // 2. Placement. A foreign key's segments name its dependency's graph.
+    if let Some(site) = sites
         .iter()
-        .filter(|site| {
-            usize::try_from(site.index)
-                .ok()
-                .is_none_or(|index| index >= site.graph_nodes)
-        })
-        .min_by_key(|site| site.offset)
+        .find(|site| site.foreign_graph.is_none() && site.slot != site.holder.is_some())
     {
         return Err(malformed(site.at.clone()));
     }
+    // 3. Range.
+    let out_of_range = sites.iter().find_map(|site| {
+        let limit = match (site.slot, site.holder, site.foreign_graph) {
+            (true, Some(holder), None) => rows[holder].len(),
+            (false, _, Some(graph)) => graph,
+            (false, _, None) => node_count,
+            (true, _, _) => 0,
+        };
+        usize::try_from(site.value)
+            .ok()
+            .is_none_or(|value| value >= limit)
+            .then_some((site.offset, &site.at))
+    });
+    let bad_entry = row_sites.iter().find_map(|site| {
+        usize::try_from(site.value)
+            .ok()
+            .is_none_or(|value| value >= node_count)
+            .then_some((site.offset, &site.at))
+    });
+    if let Some((_, at)) = [out_of_range, bad_entry]
+        .into_iter()
+        .flatten()
+        .min_by_key(|(offset, _)| *offset)
+    {
+        return Err(malformed(at.clone()));
+    }
+    // 4. Numbering by first occurrence, node by node in graph order.
+    let mut slots_by_node: Vec<Vec<&SegmentSite>> = vec![Vec::new(); node_count];
+    for site in &sites {
+        if let (true, Some(holder), None) = (site.slot, site.holder, site.foreign_graph) {
+            slots_by_node[holder].push(site);
+        }
+    }
+    for (node, slots) in slots_by_node.iter().enumerate() {
+        let mut named = 0u64;
+        for site in slots {
+            if site.value > named {
+                return Err(malformed(site.at.clone()));
+            }
+            named = named.max(site.value + 1);
+        }
+        let mut distinct = std::collections::BTreeSet::new();
+        for (position, entry) in rows[node].iter().enumerate() {
+            let unnamed = u64::try_from(position).ok().is_none_or(|p| p >= named);
+            if unnamed || !distinct.insert(*entry) {
+                return Err(malformed(
+                    graph_at().key("operand_rows").index(node).index(position),
+                ));
+            }
+        }
+    }
+    // 5. Cycle, then the keys themselves.
+    rebuild_graph_keys(&wire.semantic_graph.nodes, Some(rows), malformed)
+}
 
-    rebuild_graph_keys(&wire.semantic_graph.nodes, malformed)
+/// Rewrite every node-held operand slot of the checked nodes to the document
+/// index segment of the node its row names. The rest of the reader compares
+/// operands by graph index, so a slot is read through its row once, here.
+/// Every slot was range-checked by [`check`].
+pub(super) fn resolve_slots(wire: &mut RawCheckedPackageWireV2) {
+    let graph = &mut wire.semantic_graph;
+    let rows = &graph.operand_rows;
+    for (node, row) in graph.nodes.iter_mut().zip(rows) {
+        let to_index = |id: &mut super::CheckedNodeId| {
+            for segment in &mut id.path {
+                if let CheckedNodePathSegment::Operand(slot) = segment {
+                    if let Some(entry) = usize::try_from(*slot).ok().and_then(|slot| row.get(slot))
+                    {
+                        *segment = CheckedNodePathSegment::Index(*entry);
+                    }
+                }
+            }
+        };
+        to_index(&mut node.node_id);
+        to_index(&mut node.semantic_type);
+        node.dependencies.iter_mut().for_each(to_index);
+        if let Some(id) = node.owner_model.as_mut() {
+            to_index(id);
+        }
+        resolve_value_slots(&mut node.body, row);
+    }
+}
+
+fn resolve_value_slots(body: &mut serde_json::Value, row: &[u64]) {
+    let mut pending = vec![body];
+    while let Some(value) = pending.pop() {
+        match value {
+            serde_json::Value::Array(items) => pending.extend(items.iter_mut()),
+            serde_json::Value::Object(object) => {
+                let is_node_id = object.len() == 3
+                    && object.contains_key("package")
+                    && object.contains_key("ordinal");
+                if is_node_id {
+                    if let Some(serde_json::Value::Array(path)) = object.get_mut("path") {
+                        for segment in path.iter_mut() {
+                            let slot = match segment {
+                                serde_json::Value::Object(map) if map.len() == 1 => {
+                                    map.get("operand").and_then(serde_json::Value::as_u64)
+                                }
+                                _ => None,
+                            };
+                            if let Some(entry) = slot
+                                .and_then(|slot| usize::try_from(slot).ok())
+                                .and_then(|slot| row.get(slot))
+                            {
+                                *segment = serde_json::json!({ "node": entry });
+                            }
+                        }
+                    }
+                }
+                pending.extend(object.values_mut());
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Whether `id` names an operand by slot.
+pub(super) fn holds_slot(id: &super::CheckedNodeId) -> bool {
+    id.path
+        .iter()
+        .any(|segment| matches!(segment, CheckedNodePathSegment::Operand(_)))
+}
+
+/// The wire form of a resolved graph: each node-held id written with the
+/// operand slots its node's row names its operands by.
+pub(super) fn slot_graph(graph: &super::CheckedSemanticGraphV2) -> super::CheckedSemanticGraphV2 {
+    let mut out = graph.clone();
+    for (node, row) in out.nodes.iter_mut().zip(&graph.operand_rows) {
+        node.map_node_ids(|id| {
+            let held = id
+                .path
+                .iter()
+                .any(|segment| matches!(segment, CheckedNodePathSegment::Index(_)));
+            held.then(|| {
+                let mut restored = id.clone();
+                restore_slots(&mut restored, row);
+                restored
+            })
+        });
+    }
+    out
+}
+
+/// The inverse of [`resolve_slots`] for one node: write each document index
+/// segment of a node-held id as the slot the node's row names it by.
+pub(super) fn restore_slots(id: &mut super::CheckedNodeId, row: &[u64]) {
+    for segment in &mut id.path {
+        if let CheckedNodePathSegment::Index(index) = segment {
+            if let Some(slot) = row.iter().position(|entry| entry == index) {
+                *segment = CheckedNodePathSegment::Operand(
+                    u64::try_from(slot).expect("a row position fits in u64"),
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]

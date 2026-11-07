@@ -561,6 +561,9 @@ pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     pub graph_version: Box<str>,
     /// Complete closed graph.
     pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
+    /// One operand row per node, in graph order: slot `k` of node `i` names
+    /// `nodes[operand_rows[i][k]]`. Required on read.
+    pub operand_rows: Vec<Vec<u64>>,
 }
 
 type RawSemanticGraphV2 = CheckedSemanticGraphV2<Value>;
@@ -885,6 +888,14 @@ pub enum CheckedPackageV2ReadResult {
     Incomplete(CheckedPackageIncomplete),
 }
 
+/// The graph in its wire form and the positions of the nodes whose own ID
+/// holds an operand slot, by those bytes.
+struct SlotView {
+    graph: CheckedSemanticGraphV2,
+    /// `None` when several nodes have the same bytes.
+    positions: BTreeMap<CheckedNodeId, Option<usize>>,
+}
+
 /// Immutable, admitted `quire.checked-package/v2` data.
 ///
 /// The closed body grammar and flat ownership of complete selected documents
@@ -904,6 +915,9 @@ pub struct CheckedPackageV2 {
     node_index: Arc<BTreeMap<CheckedNodeId, usize>>,
     /// Graph-local wire IDs rebuilt as shared, document-independent keys.
     structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
+    /// The graph in its wire form, node-held operands as operand slots,
+    /// built on first use from the resolved graph in `wire`.
+    slot_graph: Arc<std::sync::OnceLock<SlotView>>,
     /// Admission-derived position of each exact source occurrence.
     pub(in crate::checked_package) source_index:
         Arc<BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>>,
@@ -1290,7 +1304,7 @@ impl CheckedPackageV2 {
         &self,
         id: &CheckedNodeId,
     ) -> Option<(usize, &CheckedSemanticNodeV2)> {
-        let position = *self.node_index.get(id)?;
+        let position = self.position_of(id)?;
         self.wire
             .semantic_graph
             .nodes
@@ -1299,7 +1313,7 @@ impl CheckedPackageV2 {
                 #[cfg(test)]
                 model_fields::probe::node_visited();
             })
-            .filter(|candidate| &candidate.node_id == id)
+            .filter(|candidate| node_index::holds_slot(id) || &candidate.node_id == id)
             .map(|node| (position, node))
     }
 
@@ -1350,11 +1364,10 @@ impl CheckedPackageV2 {
                 member_pointer(&["name"]),
             ));
         }
-        let wire = intake::decode_borrowed_wire(bytes)
+        let mut wire = intake::decode_borrowed_wire(bytes)
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
-        validate_owner_schema(&wire)?;
         let ValidatedPackage {
             kinds,
             schedulability_claim_index,
@@ -1364,7 +1377,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(&wire, bytes, limits, evidence)?;
+        } = validate(&mut wire, bytes, limits, evidence)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1413,6 +1426,7 @@ impl CheckedPackageV2 {
                 .zip(terms.iter().cloned())
                 .map(|(node, term)| node.into_typed(term))
                 .collect(),
+            operand_rows: semantic_graph.operand_rows,
         };
         let wire = CheckedPackageEnvelope {
             contract_version,
@@ -1455,6 +1469,7 @@ impl CheckedPackageV2 {
             terms,
             node_index,
             structural_keys,
+            slot_graph: Arc::default(),
             source_index,
             lowering_facts,
             bytes: limits.bytes,
@@ -1494,8 +1509,44 @@ impl CheckedPackageV2 {
         self.direct_dependencies.iter().map(std::sync::Arc::as_ref)
     }
 
-    /// The complete closed checked graph.
+    /// The complete closed checked graph as the wire holds it: each
+    /// node-held operand is an operand slot read through the node's row of
+    /// `operand_rows`, each document-held one an index segment.
     pub fn graph(&self) -> &CheckedSemanticGraphV2 {
+        &self.slot_view().graph
+    }
+
+    fn slot_view(&self) -> &SlotView {
+        self.slot_graph.get_or_init(|| {
+            let graph = node_index::slot_graph(&self.wire.semantic_graph);
+            let mut positions = BTreeMap::new();
+            for (position, node) in graph.nodes.iter().enumerate() {
+                if node_index::holds_slot(&node.node_id) {
+                    positions
+                        .entry(node.node_id.clone())
+                        .and_modify(|first| *first = None)
+                        .or_insert(Some(position));
+                }
+            }
+            SlotView { graph, positions }
+        })
+    }
+
+    /// The graph position of `id`: a resolved index-form ID by the retained
+    /// index, or a node ID as `graph()` shows it, operand slots included, when
+    /// exactly one node has those bytes. Equal bytes name different nodes
+    /// when their rows differ, so such an ID names none.
+    fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
+        if node_index::holds_slot(id) {
+            return self.slot_view().positions.get(id).copied().flatten();
+        }
+        self.node_index.get(id).copied()
+    }
+
+    /// The graph with every node-held operand resolved to the index segment of
+    /// the node it names, the form the reader checks and the typed views
+    /// borrow from. Its `operand_rows` are the wire's.
+    pub fn resolved_graph(&self) -> &CheckedSemanticGraphV2 {
         &self.wire.semantic_graph
     }
 
@@ -1505,10 +1556,49 @@ impl CheckedPackageV2 {
         self.structural_keys.get(index).map(std::sync::Arc::as_ref)
     }
 
+    /// The ID of the graph node at `position` as a document-held ID, the form
+    /// a request, report or sidecar row names a node by: each operand is the
+    /// index segment of the node it names rather than a slot of the node's row.
+    pub fn document_held_id(&self, position: usize) -> Option<&CheckedNodeId> {
+        self.wire
+            .semantic_graph
+            .nodes
+            .get(position)
+            .map(|node| &node.node_id)
+    }
+
+    /// The structural key of a node-held ID written in the node at graph
+    /// `holder`, as `graph()` shows it: each operand slot is read through the
+    /// holder's operand row, each index segment against the graph. `None` when
+    /// a slot or index names no node.
+    pub fn resolve_node_held(&self, holder: usize, id: &CheckedNodeId) -> Option<CheckedNodeId> {
+        let row = self.wire.semantic_graph.operand_rows.get(holder)?;
+        let mut path = Vec::with_capacity(id.path.len());
+        for segment in &id.path {
+            path.push(match segment {
+                CheckedNodePathSegment::Operand(slot) => {
+                    let entry = row.get(usize::try_from(*slot).ok()?)?;
+                    CheckedNodePathSegment::Node(Arc::clone(
+                        self.structural_keys.get(usize::try_from(*entry).ok()?)?,
+                    ))
+                }
+                CheckedNodePathSegment::Index(index) => CheckedNodePathSegment::Node(Arc::clone(
+                    self.structural_keys.get(usize::try_from(*index).ok()?)?,
+                )),
+                other => other.clone(),
+            });
+        }
+        Some(CheckedNodeId {
+            package: id.package.clone(),
+            path,
+            ordinal: id.ordinal,
+        })
+    }
+
     /// Resolve an ID written by this package against this package's graph.
     /// The ID's `package` names its owner and does not select the graph.
     pub fn structural_key(&self, id: &CheckedNodeId) -> Option<&CheckedNodeId> {
-        self.structural_key_at(*self.node_index.get(id)?)
+        self.structural_key_at(self.position_of(id)?)
     }
 
     /// Each graph node's decoded family and form, in graph order.
@@ -1519,12 +1609,12 @@ impl CheckedPackageV2 {
     /// The retained admitted family and form of one graph node by its ID.
     /// Returns `None` for an ID absent from this package.
     pub fn node_kind(&self, id: &CheckedNodeId) -> Option<CheckedNodeKind> {
-        self.kinds.get(*self.node_index.get(id)?).copied()
+        self.kinds.get(self.position_of(id)?).copied()
     }
 
     /// The typed body of an admitted node.
     pub fn term(&self, id: &CheckedNodeId) -> Option<&CheckedTerm> {
-        self.terms.get(*self.node_index.get(id)?)
+        self.terms.get(self.position_of(id)?)
     }
 
     /// The exact source map.
@@ -1618,7 +1708,7 @@ struct ValidatedGraph {
 }
 
 fn validate(
-    wire: &RawCheckedPackageWireV2,
+    wire: &mut RawCheckedPackageWireV2,
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
@@ -1628,6 +1718,10 @@ fn validate(
     // here, before any identity is recomputed (FR-038-AC-116).
     let flat_kinds = flat_wire::check(wire)?;
     let structural_keys = node_index::check(bytes, wire, evidence)?;
+    // Every check below compares operands by graph index.
+    node_index::resolve_slots(wire);
+    let wire = &*wire;
+    validate_owner_schema(wire)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds)?;
     let mut meter = WorkMeter::new(limits.work);
     let LockAdmission {
@@ -2983,7 +3077,7 @@ fn validate_graph(
                     .is_some_and(|(selected_position, selected_package)| {
                         imported_node_matches(
                             node,
-                            &selected_package.graph().nodes[selected_position].to_raw(),
+                            &selected_package.resolved_graph().nodes[selected_position].to_raw(),
                             structural_keys,
                             &selected_package.structural_keys,
                         )
@@ -4002,6 +4096,63 @@ mod test_support {
     use super::{CheckedNodeId, CheckedPackageWireV2, CheckedTerm};
     use serde_json::{json, Value};
 
+    /// Bytes of a package a test authored in resolved index form, written as
+    /// the V2 wire: each node-held index segment becomes an operand slot,
+    /// numbered by first occurrence in the node's canonical order, beside
+    /// the node's operand row. A package that already has rows is left alone.
+    pub(super) fn canonical(package: &Value) -> Vec<u8> {
+        fn walk(value: &mut Value, row: &mut Vec<u64>) {
+            match value {
+                Value::Array(items) => items.iter_mut().for_each(|item| walk(item, row)),
+                Value::Object(object) => {
+                    if object.len() == 2 && object.contains_key("package") {
+                        return;
+                    }
+                    if object.len() == 3 && object.contains_key("path") {
+                        if let Some(Value::Array(path)) = object.get_mut("path") {
+                            for segment in path {
+                                let index = segment
+                                    .as_object()
+                                    .filter(|member| member.len() == 1)
+                                    .and_then(|member| member.get("node"))
+                                    .and_then(Value::as_u64);
+                                if let Some(index) = index {
+                                    let slot = row
+                                        .iter()
+                                        .position(|entry| *entry == index)
+                                        .unwrap_or_else(|| {
+                                            row.push(index);
+                                            row.len() - 1
+                                        });
+                                    *segment = json!({ "operand": slot });
+                                }
+                            }
+                        }
+                    }
+                    object.values_mut().for_each(|member| walk(member, row));
+                }
+                _ => {}
+            }
+        }
+        let mut wire = package.clone();
+        if wire["semantic_graph"]["nodes"].is_array()
+            && wire["semantic_graph"].get("operand_rows").is_none()
+        {
+            let rows = wire["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("graph nodes")
+                .iter_mut()
+                .map(|node| {
+                    let mut row = Vec::new();
+                    walk(node, &mut row);
+                    json!(row)
+                })
+                .collect::<Vec<_>>();
+            wire["semantic_graph"]["operand_rows"] = Value::Array(rows);
+        }
+        serde_json::to_vec(&wire).expect("canonical test JSON")
+    }
+
     /// The JSON of a distinct structural node identity.
     pub(super) fn id(digit: char) -> Value {
         json!({"package": "test", "path": [digit.to_string()], "ordinal": 0})
@@ -4017,6 +4168,12 @@ mod test_support {
     /// deserializer cannot decode nested structural node IDs from a buffered
     /// JSON value.
     pub(super) fn private_wire(mut value: Value) -> CheckedPackageWireV2 {
+        // Test graphs name operands by graph index, so their rows are empty.
+        let count = value["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("test nodes")
+            .len();
+        value["semantic_graph"]["operand_rows"] = json!(vec![Vec::<u64>::new(); count]);
         let nodes = value["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("test nodes");
@@ -4361,7 +4518,7 @@ mod tests {
                 "definition_selections": [],
                 "required_features": [], "dependency_selections": []
             },
-            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": []},
+            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": [], "operand_rows": []},
             "source_map": [], "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []}
         }))
@@ -4401,6 +4558,7 @@ mod tests {
                     timed_model_roots: Vec::new(),
                     node_index: std::sync::Arc::new(Default::default()),
                     structural_keys: keys,
+                    slot_graph: Default::default(),
                     source_index: std::sync::Arc::new(Default::default()),
                     lowering_facts: Vec::new(),
                     wire: std::sync::Arc::new(wire),

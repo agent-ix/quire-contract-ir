@@ -235,7 +235,10 @@ fn published_temporal_aggregate_arguments_match_strict_reader() {
             )
             .expect("published formula identity");
             assert_eq!(
-                admitted.graph().nodes[position].node_id,
+                admitted
+                    .document_held_id(position)
+                    .expect("graph node")
+                    .clone(),
                 expected_id,
                 "{case_id}: formula identity retained"
             );

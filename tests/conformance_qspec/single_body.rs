@@ -55,7 +55,7 @@ fn published_single_body_packages_round_trip_through_the_writer() {
         );
         assert_eq!(
             serde_json::to_value(read.graph()).expect("typed graph"),
-            package["semantic_graph"],
+            crate::fixture_support::wire_form(&package)["semantic_graph"],
             "{name}: complete graph and structural node ids"
         );
         let bytes = encode_checked_package_v2(
@@ -80,7 +80,8 @@ fn published_single_body_packages_round_trip_through_the_writer() {
         .expect("published envelope encodes");
         let encoded: Value = serde_json::from_slice(&bytes).expect("encoded JSON");
         assert_eq!(
-            encoded, package,
+            encoded,
+            crate::fixture_support::wire_form(&package),
             "{name}: no second wire body or lost member"
         );
         assert_eq!(

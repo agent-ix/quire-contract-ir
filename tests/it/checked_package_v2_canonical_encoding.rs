@@ -145,7 +145,7 @@ fn graph_of(package: &Value) -> CheckedSemanticGraphV2 {
 }
 
 fn raw_graph_of(package: &Value) -> CheckedSemanticGraphV2<Value> {
-    typed(&package["semantic_graph"])
+    typed(&crate::support::checked_package::wire_form(package)["semantic_graph"])
 }
 
 /// The envelope writes graph-local index operands, and refuses a structural
@@ -342,6 +342,7 @@ fn crafted_graph() -> CheckedSemanticGraphV2<Value> {
         nodes.push(node);
     }
     let mut graph = package["semantic_graph"].clone();
+    graph["operand_rows"] = json!(vec![Vec::<u64>::new(); nodes.len()]);
     graph["nodes"] = Value::Array(nodes);
     typed(&graph)
 }

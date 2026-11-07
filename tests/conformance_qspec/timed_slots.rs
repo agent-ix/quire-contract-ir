@@ -293,8 +293,8 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
     let (wire, vectors, fixtures) = published_slots();
     let package = admitted_slots(&wire, &fixtures);
     let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
-    assert_eq!(package.graph().nodes.len(), nodes.len());
-    for (admitted, authored) in package.graph().nodes.iter().zip(nodes) {
+    assert_eq!(package.resolved_graph().nodes.len(), nodes.len());
+    for (admitted, authored) in package.resolved_graph().nodes.iter().zip(nodes) {
         assert_eq!(
             admitted.semantic_form.as_ref(),
             authored["semantic_form"].as_str().unwrap()

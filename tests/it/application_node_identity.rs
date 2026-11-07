@@ -53,6 +53,7 @@ fn envelope() -> (
             "occurrences": [{"role": "generated", "ordinal": 0}],
             "body": {"term": "aggregate", "members": []},
         }],
+        "operand_rows": [[]],
     }))
     .expect("typed graph");
     let source_map = serde_json::from_value(json!([{
@@ -118,7 +119,10 @@ fn structural_identity_requires_complete_reader_admission() {
     let CheckedPackageV2ReadResult::Admitted(package) = admitted else {
         panic!("complete structural package must admit: {admitted:?}");
     };
-    assert_eq!(package.graph().nodes[0].node_id, expected);
+    assert_eq!(
+        package.document_held_id(0).expect("graph node").clone(),
+        expected
+    );
 }
 
 /// The public encoder uses the exact complete envelope byte ceiling.
@@ -146,6 +150,7 @@ fn structural_envelope_has_an_exact_canonical_byte_boundary() {
 fn repeated_structural_node_id_refuses_without_a_package() {
     let (lock, mut graph, source_map, diagnostics) = envelope();
     graph.nodes.push(graph.nodes[0].clone());
+    graph.operand_rows.push(Vec::new());
     let bytes = encode(&lock, &graph, &source_map, &diagnostics, 1 << 20)
         .expect("duplicate graph remains encodable");
     let result = CheckedPackageV2::read(

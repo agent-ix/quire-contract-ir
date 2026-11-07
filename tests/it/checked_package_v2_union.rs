@@ -919,7 +919,14 @@ fn tc_048_a_grouped_union_value_preserves_assigned_ordinals_and_refuses_malforme
     rebuild_source_map(&mut reassigned);
     refresh_identity(&mut reassigned);
     let admitted_package = admitted("producer-assigned grouped ordinal", &reassigned);
-    assert_eq!(admitted_package.graph().nodes[position].node_id.ordinal, 3);
+    assert_eq!(
+        admitted_package
+            .document_held_id(position)
+            .expect("graph node")
+            .clone()
+            .ordinal,
+        3
+    );
     let mut invalid = package.clone();
     invalid["semantic_graph"]["nodes"][position]["node_id"]["ordinal"] =
         json!(9007199254740992_u64);

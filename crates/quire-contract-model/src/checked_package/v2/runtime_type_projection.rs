@@ -345,9 +345,11 @@ impl SelectedTypeDeclarationsError {
             NativeJoinLocusSource::Package
             | NativeJoinLocusSource::MonitorSeed(_)
             | NativeJoinLocusSource::ReachedRow(_) => None,
-            NativeJoinLocusSource::GraphNode(index) => {
-                package.graph().nodes.get(index).map(|node| &node.node_id)
-            }
+            NativeJoinLocusSource::GraphNode(index) => package
+                .resolved_graph()
+                .nodes
+                .get(index)
+                .map(|node| &node.node_id),
             NativeJoinLocusSource::SelectedDeclaration(_)
             | NativeJoinLocusSource::IdentityDeclaration(_) => None,
             NativeJoinLocusSource::TupleRow(index) => {
@@ -601,7 +603,9 @@ impl ProjectionBudget<'_> {
                 self.charge(at, form)?;
                 match segment {
                     CheckedNodePathSegment::Name(name) => self.charge_work(at, form, name.len())?,
-                    CheckedNodePathSegment::Index(_) => self.charge_work(at, form, 8)?,
+                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
+                        self.charge_work(at, form, 8)?
+                    }
                     CheckedNodePathSegment::Node(child) => {
                         self.charge_storage(1)?;
                         pending.push(child);
@@ -791,13 +795,13 @@ impl CheckedPackageV2 {
                 }
             }
             for (index, (node, kind)) in self
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .zip(self.node_kinds())
                 .enumerate()
                 .take(if reached.is_none() {
-                    self.graph().nodes.len()
+                    self.resolved_graph().nodes.len()
                 } else {
                     0
                 })
@@ -897,7 +901,7 @@ impl CheckedPackageV2 {
                     "selected_document_type",
                 );
                 let root = &self
-                    .graph()
+                    .resolved_graph()
                     .nodes
                     .get(model.root)
                     .expect("admitted selected model root is a graph node")
@@ -1512,7 +1516,7 @@ impl CheckedPackageV2 {
                 let row = source_unit_by_node
                     .get(id)
                     .expect("checked complete source-unit rows");
-                let node = &self.graph().nodes[position];
+                let node = &self.resolved_graph().nodes[position];
                 ctx.charge_storage(1)?;
                 nominal_rows.push(NominalDeclarationRow {
                     node: id,

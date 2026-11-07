@@ -49,7 +49,7 @@ impl CheckedPackageV2 {
     ///
     /// A legacy role without a member, an unknown node, or a non-role returns `None`.
     pub fn protocol_role_model_member(&self, role: &CheckedNodeId) -> Option<(&str, &str)> {
-        let position = *self.node_index.get(role)?;
+        let position = self.position_of(role)?;
         if self.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::Role) {
             return None;
         }
