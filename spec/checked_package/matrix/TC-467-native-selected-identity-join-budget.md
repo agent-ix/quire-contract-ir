@@ -32,6 +32,9 @@ Read an admitted Boolean equality at ample, exact work, exact storage,
 one-below work and storage, and zero storage. Repeat two individually
 affordable equality reads against a shared allowance one work unit below
 their combined requirement.
+Use a QSV materialization refusal with a variable-size exact charge to
+compare the full owned-cause storage boundary with a nonzero allowance one
+unit below it.
 
 ## Expected Results
 
@@ -47,6 +50,9 @@ path and its charge metadata without a QSL or runtime dependency.
 The equality read returns the same opaque decision at both exact limits,
 records a success delta, refuses at the first unpaid shared charge and
 returns no owned diagnostic at zero storage.
+At the exact diagnostic allowance the original QSV cause is retained; one
+unit below it the compact typed code and first QSV locus remain while no
+owned cause is returned.
 
 ## Complete-witness acquisition and rebinding
 

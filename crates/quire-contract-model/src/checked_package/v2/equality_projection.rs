@@ -25,7 +25,8 @@ use quire_semantic_value::declaration::{
     EqualityUnitDescriptor, EqualityUnitEdgeDescriptor, EqualityUnitForm,
 };
 use quire_semantic_value::reader_admission::{
-    mint_admitted_equality_decision, EqualityMaterializationError, ReaderSeal,
+    mint_admitted_equality_decision, EqualityMaterializationCode, EqualityMaterializationError,
+    EqualityMaterializationLocus, ReaderSeal,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -482,7 +483,11 @@ pub struct AdmittedEqualityReadError {
     pub consumed_work: u64,
     /// First refused work charge; storage denial details live in the budget.
     pub attempted_work: u64,
-    /// QSV's original typed materialization failure and locus.
+    /// QSV's stable typed materialization cause, including compact refusals.
+    pub materialization_code: Option<EqualityMaterializationCode>,
+    /// QSV's first materialization locus, including compact refusals.
+    pub materialization_locus: Option<EqualityMaterializationLocus>,
+    /// QSV's full typed failure when its owned payload was precharged.
     pub materialization: Option<Box<EqualityMaterializationError>>,
 }
 
@@ -532,6 +537,12 @@ fn charge_storage(
     }
 }
 
+fn diagnostic_floor(application: &CheckedNodeId, at: &CheckedNodeId) -> u128 {
+    super::native_join_storage::node(application)
+        .saturating_add(super::native_join_storage::node(at))
+        .saturating_add(1)
+}
+
 fn read_error(
     budget: &mut NativeJoinBudget,
     code: AdmittedEqualityReadErrorCode,
@@ -539,10 +550,10 @@ fn read_error(
     at: &CheckedNodeId,
     attempted_work: u64,
 ) -> AdmittedEqualityReadError {
-    let floor = super::native_join_storage::node(application)
-        .saturating_add(super::native_join_storage::node(at))
-        .saturating_add(1);
-    let owned = budget.charge(NativeJoinChargeKind::Storage, floor);
+    let owned = budget.charge(
+        NativeJoinChargeKind::Storage,
+        diagnostic_floor(application, at),
+    );
     AdmittedEqualityReadError {
         code: if !owned
             && budget
@@ -558,6 +569,8 @@ fn read_error(
         witness: None,
         consumed_work: budget.consumed().work,
         attempted_work,
+        materialization_code: None,
+        materialization_locus: None,
         materialization: None,
     }
 }
@@ -1019,6 +1032,14 @@ fn materialization_refusal(
     application: &CheckedNodeId,
     cause: EqualityMaterializationError,
 ) -> AdmittedEqualityReadError {
+    let materialization_code = cause.code();
+    let materialization_locus = match &cause {
+        EqualityMaterializationError::IdentityForm { locus }
+        | EqualityMaterializationError::Resource { locus, .. }
+        | EqualityMaterializationError::Arithmetic { locus, .. }
+        | EqualityMaterializationError::Allocation { locus, .. }
+        | EqualityMaterializationError::Capacity { locus, .. } => *locus,
+    };
     let (code, attempted_work) = match &cause {
         EqualityMaterializationError::Resource { cause, .. } => (
             if cause.limit_kind == LimitKind::WorkUnits {
@@ -1035,10 +1056,35 @@ fn materialization_refusal(
     if code == AdmittedEqualityReadErrorCode::WorkLimit {
         budget.charge(NativeJoinChargeKind::Work, u128::from(attempted_work));
     }
-    let mut error = read_error(budget, code, application, application, attempted_work);
-    if error.at.is_some() {
-        error.materialization = Some(Box::new(cause));
+    let cause_storage = match &cause {
+        EqualityMaterializationError::Resource { cause, .. } => {
+            Some(u128::from(cause.next_charge.magnitude_bits().div_ceil(8)).saturating_add(4))
+        }
+        // Stop can own nested domain payloads; retain its fixed code and locus.
+        EqualityMaterializationError::Arithmetic { .. } => None,
+        EqualityMaterializationError::IdentityForm { .. }
+        | EqualityMaterializationError::Allocation { .. }
+        | EqualityMaterializationError::Capacity { .. } => Some(2),
+    };
+    if let Some(cause_storage) = cause_storage {
+        let full_floor = diagnostic_floor(application, application).saturating_add(cause_storage);
+        if budget.charge(NativeJoinChargeKind::Storage, full_floor) {
+            return AdmittedEqualityReadError {
+                code,
+                application: Some(Box::new(application.clone())),
+                at: Some(Box::new(application.clone())),
+                witness: None,
+                consumed_work: budget.consumed().work,
+                attempted_work,
+                materialization_code: Some(materialization_code),
+                materialization_locus: Some(materialization_locus),
+                materialization: Some(Box::new(cause)),
+            };
+        }
     }
+    let mut error = read_error(budget, code, application, application, attempted_work);
+    error.materialization_code = Some(materialization_code);
+    error.materialization_locus = Some(materialization_locus);
     error
 }
 
@@ -2354,7 +2400,6 @@ mod tests {
         };
         let mut budget = NativeJoinBudget::new(8, u64::MAX);
         assert!(budget.charge(NativeJoinChargeKind::Work, 8));
-        assert!(budget.charge(NativeJoinChargeKind::Storage, 1));
         let refused = materialization_refusal(&mut budget, &application, cause.clone());
         assert_eq!(refused.code, AdmittedEqualityReadErrorCode::WorkLimit);
         assert_eq!(refused.consumed_work, 8);
@@ -2377,11 +2422,53 @@ mod tests {
         };
         let mut budget = NativeJoinBudget::new(100, u64::MAX);
         assert!(budget.charge(NativeJoinChargeKind::Work, 7));
-        assert!(budget.charge(NativeJoinChargeKind::Storage, 1));
         let refused = materialization_refusal(&mut budget, &application, resource.clone());
         assert_eq!(refused.code, AdmittedEqualityReadErrorCode::Resource);
         assert_eq!(refused.consumed_work, 7);
         assert_eq!(refused.attempted_work, 7);
         assert_eq!(refused.materialization.as_deref(), Some(&resource));
+    }
+
+    /// Trace: FR-358-AC-7, FR-353-AC-4.
+    #[test]
+    fn equality_qsv_owned_refusal_requires_dynamic_storage_before_boxing() {
+        let application = super::super::test_support::node_id('a');
+        let amount: Integer = "9".repeat(160).parse().expect("large exact charge");
+        let locus = EqualityMaterializationLocus::Unit { row: 3 };
+        let cause = EqualityMaterializationError::Resource {
+            locus,
+            cause: Incomplete {
+                limit_kind: LimitKind::TextInputBytes,
+                limit: 0,
+                consumed: 0,
+                next_charge: amount.clone(),
+                charge_point: ChargePoint::UnitIdentityRead,
+            },
+        };
+        let floor = diagnostic_floor(&application, &application);
+        let owned = u128::from(amount.magnitude_bits().div_ceil(8)).saturating_add(4);
+        let full = floor.saturating_add(owned);
+        assert!(owned > 1);
+        let mut exact = NativeJoinBudget::new(10, u64::try_from(full).expect("finite fixture"));
+        let complete = materialization_refusal(&mut exact, &application, cause.clone());
+        assert_eq!(complete.materialization.as_deref(), Some(&cause));
+        assert_eq!(complete.materialization_locus, Some(locus));
+        assert_eq!(u128::from(exact.consumed().storage), full);
+
+        let mut short = NativeJoinBudget::new(10, u64::try_from(full - 1).expect("finite fixture"));
+        let compact = materialization_refusal(&mut short, &application, cause);
+        assert_eq!(compact.code, AdmittedEqualityReadErrorCode::Resource);
+        assert_eq!(compact.materialization, None);
+        assert_eq!(
+            compact.materialization_code,
+            Some(EqualityMaterializationCode::Resource)
+        );
+        assert_eq!(compact.materialization_locus, Some(locus));
+        assert_eq!(compact.at.as_deref(), Some(&application));
+        assert_eq!(u128::from(short.consumed().storage), floor);
+        assert_eq!(
+            short.first_unpaid().expect("full cause denied").amount,
+            full
+        );
     }
 }

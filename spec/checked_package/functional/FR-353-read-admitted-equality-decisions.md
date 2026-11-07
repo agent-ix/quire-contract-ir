@@ -172,10 +172,12 @@ does not select a new semantic type, conversion or comparison plan.
 The IR read SHALL include QSV descriptor materialization in the caller's shared
 work allowance, passing its remaining work through QSV's Exact meter and
 recording admitted QSV work in the same `NativeJoinBudget`.
-It SHALL preserve QSV's original typed `Incomplete` outcome and first failing
-locus on exhaustion, and the QSV typed materialization cause and locus on an
-arithmetic or admitted `UnitId` form failure, without returning a partial
-descriptor or opaque value.
+It SHALL preserve QSV's stable typed materialization code and first failing
+locus on exhaustion, arithmetic failure or admitted `UnitId` form failure.
+Contract IR SHALL retain the full QSV cause, including an `Incomplete`
+record, only when it has charged the complete logical-storage footprint before
+ownership; otherwise it SHALL retain a fixed-size typed code and locus
+without the owned cause. No partial descriptor or opaque value is returned.
 QSV SHALL mechanically fold the sidecar's already selected ordered exact
 affine conversion-edge path with exact arithmetic when its private
 `Unit.canonical` representation requires a scalar. The fold SHALL preserve that
@@ -225,6 +227,8 @@ distinct typed refusal. The reader SHALL charge every inspected application,
 operand and retained decision entry against the
 finite shared work budget before inspection. IR-owned decision and row material
 and typed refusal payloads SHALL charge logical storage before allocation.
+When full materialization-cause storage is unavailable, a bounded typed code
+and original QSV locus SHALL remain available without owning the cause.
 Exhaustion SHALL return the attempted work or storage charge and first failing
 locus when its diagnostic floor is affordable; zero storage SHALL return a
 fixed-size typed refusal without an owned locus. Repeated reads and reads
