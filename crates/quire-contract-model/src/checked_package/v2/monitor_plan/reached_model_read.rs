@@ -1209,14 +1209,14 @@ mod tests {
             false,
         );
         let wrapper = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| node.semantic_form.as_ref() == "collection_bounds")
             .expect("bounded wrapper");
         let base = wrapper.semantic_type.clone();
         let element = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| node.semantic_form.as_ref() == "integer")
