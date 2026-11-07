@@ -34,3 +34,11 @@ FAIL. The owner hooks S-1 and S-2 are both necessary and are not recorded as pre
 
 S-1 is necessary: PR #18 returns ReadError::Malformed { offset, kind: DuplicateName } with no pointer and no document, so IR cannot produce AC-509's duplicate_member RFC 6901 pointer without re-parsing. S-2 is necessary: NodeRef<'d> borrows the Document and its id is private, so an owned CheckedJson (Arc<Document> plus node) cannot be built. A quire-walk reservation hook (see SR-202611070939002 FND-002) has no ticket. PLAT-1265 (PR #17) and PLAT-1247 (PR #18) are still open. None of these is a relationship or a stated prerequisite in FR-038, FR-358 or AD-001, so a coder can start a build-plan PR that cannot pass. Fix: list each as a blocking prerequisite with its owning ticket in FR-038 Dependencies and in Linear blocks edges.
 
+
+## Dispositions
+
+Verified against fix commit 03518d07b1afac4ecd962d57d44c2a7742ce7cb6 (81c8c041e..03518d0).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 03518d0; after: ### Owner prerequisites of the budget-charged read -- quire-canonical PR #17 (writer reservation), PR #18 (reader reservation), duplicate-name refusal pointer ( |

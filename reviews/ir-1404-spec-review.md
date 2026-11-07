@@ -43,3 +43,12 @@ The shared reader checks max_input_bytes before asking the Reservation anything 
 
 The new duplicate-at-object-close order is sound and matches PR #18, but neither AC-509 nor the prose says that no QSpec adverse vector read through the FR-038-AC-112 harness pins the old serde_json order (duplicate before a later fault in the same object). If one does, the harness fails with no AC owning the change. Fix: add one sentence that the QSpec adverse corpus holds no such pair (or name the vector and its expected change). The 300-level body clause is also stated in both AC-117 and AC-509; keep it in one.
 
+
+## Dispositions
+
+Verified against fix commit 03518d07b1afac4ecd962d57d44c2a7742ce7cb6 (81c8c041e..03518d0).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 03518d0; after: At a zero read-storage limit, every read that reaches a read-storage charge returns `exhausted` with no request observed, while an input over the byte limit ret |
+| FND-002 | fixed | Fix commit 03518d0; after: A test enumerates the QSpec adverse corpus read under FR-038-AC-112 and fails on any vector holding a repeated member together with a later grammar fault or inv |

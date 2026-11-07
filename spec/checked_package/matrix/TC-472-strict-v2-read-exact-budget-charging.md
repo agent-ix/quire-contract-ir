@@ -33,7 +33,9 @@ and that every sufficient budget returns the unlimited budget's outcome.
    conformance packages this repository reads by reference, one refused input
    per refusal code, and the adverse shapes of FR-038-AC-511 generated in the
    test from the repository's public fixture builders.
-3. Read each input under `NativeJoinBudget::new(u64::MAX, u64::MAX)` and record
+3. Read each input through `CheckedPackageV2::read_with_budget` under
+   `NativeJoinBudget::unlimited()`, and through the unbudgeted
+   `CheckedPackageV2::read` and `read_checked_package`, and record
    the outcome, the work, logical storage and read-storage deltas, and the
    observed bytes. With a crate-private stage probe, record the cumulative work
    and read storage admitted at the last charge of each `PackageReadStage`.
@@ -64,7 +66,9 @@ and that every sufficient budget returns the unlimited budget's outcome.
    `RawValue`, `num-bigint` arithmetic, stable sorts, `BTreeMap`, `BTreeSet`,
    `HashMap`, a private work meter, an unmetered entry or a second read
    implementation; confirm the public read entries take the budget and the
-   public outcome types of FR-038-AC-517.
+   public outcome types of FR-038-AC-517, with the existing result, limit and
+   charge types unchanged and the unbudgeted entries delegating to the one
+   budgeted implementation.
 
 ## Expected Results
 
@@ -73,15 +77,17 @@ and that every sufficient budget returns the unlimited budget's outcome.
   inputs; its logical storage delta is zero; no request is observed for a
   denied charge, and every request after a denial belongs to the charged
   outcome diagnostic.
+- The unbudgeted entries return the budgeted entry's unlimited outcome, never
+  a budget outcome.
 - Exact limits admit an outcome equal to the unlimited outcome. Each one-below
   read refuses at the last charge of its stage, with first unpaid kind and
   amount equal to that charge, `first_unpaid_locus` naming
   `PackageRead(stage, index)` and its form, no admitted package and no success
   delta; earlier charges stay in cumulative consumption.
 - A work or read-storage denial with an affordable diagnostic returns
-  `incomplete` with the configured limit, cumulative consumption plus the
+  `BudgetIncomplete` with the configured limit, cumulative consumption plus the
   denied amount and the pointer FR-038 names; an unaffordable diagnostic, or
-  zero read storage, returns the fixed-size `exhausted` outcome with the
+  zero read storage, returns the fixed-size `Exhausted` outcome with the
   original denial, its configured bound, its locus and the pending outcome
   class, and requests nothing more; an over-byte-limit input returns
   `incomplete` `Bytes` at any read-storage limit.

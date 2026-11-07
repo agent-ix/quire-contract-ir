@@ -199,9 +199,11 @@ the authored-contract interchange.
   separate read-storage counter, used only by this read, receives the full
   size of every heap allocation or reallocation request the read makes, before
   the request, cumulatively and without refund. The existing logical storage
-  counter and its charges are unchanged, so each counter has one unit. There
-  is no private work meter, unmetered entry or second read implementation; a
-  caller with no allowance passes an unlimited budget. Structural read limits
+  counter and its charges are unchanged, so each counter has one unit. The
+  budgeted entry `read_with_budget` is the one implementation; the existing
+  `read` and `read_checked_package` keep their signatures and results and call
+  it with `NativeJoinBudget::unlimited()`, so no existing caller changes.
+  There is no private work meter or second read implementation. Structural read limits
   stay validation caps.
 - Read the package bytes and every selected model document with the one
   shared strict JSON reader owned by `agent-ix/quire-canonical`, and compare

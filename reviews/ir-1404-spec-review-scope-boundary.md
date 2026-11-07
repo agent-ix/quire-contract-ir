@@ -41,3 +41,12 @@ After this PR the budget's single storage counter adds PackageRead heap bytes to
 
 Ignoring `work` for V2 is acceptable (one meter), but FR-038 still says the default's members are all finite 'so that the default admits no unbounded read', which no longer holds for V2 work under an unlimited budget, and read_checked_package now takes a budget without saying whether its V1 branch charges it. Fix: say the V2 bound comes from the budget, and that the V1 branch ignores the budget (or charges it).
 
+
+## Dispositions
+
+Verified against fix commit 03518d07b1afac4ecd962d57d44c2a7742ce7cb6 (81c8c041e..03518d0).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 03518d0; after: `NativeJoinBudget` SHALL hold a second storage counter, **read storage**, with its own configured limit, used only by the strict V2 checked-package read of FR-0 |
+| FND-002 | fixed | Fix commit 03518d0; after: The V2 read's work and heap are bounded by the caller's mutable `NativeJoinBudget` ... not by the default limits, so a V2 read is unbounded only when the caller |

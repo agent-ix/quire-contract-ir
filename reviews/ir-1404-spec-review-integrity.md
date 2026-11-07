@@ -55,3 +55,25 @@ WireDecode's 'root-member item index' is undefined for object-valued root member
 
 AC-380 still says the chain 'reads ... under serde_json's default 128 recursion limit'; FR-038:697 says the document 'is canonical by serde_json's spelling'; AC-381's evidence name 'before_the_parse_limit' and the Dependencies note on quire-canonical's 'Encode for serde_json::Value' (FR-038:6201-6202) describe the removed path. Fix: reword to the shared reader, and say whether the quire-canonical serde_json feature and the float_roundtrip/raw_value/unbounded_depth features stay.
 
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | medium | Downstream V2 read callers are not listed, and the zero read-storage default makes the obvious migration refuse every read | spec/checked_package/functional/FR-038-consume-checked-package-v2.md:6272 |
+
+### FND-005
+
+The read signature change forces every downstream production caller of CheckedPackageV2::read / read_checked_package to pass a budget: quire-spec-language qsl-package/src/checked_v2.rs, qsl-package/src/emit/extent_agreement.rs, src/checked_handoff.rs, qsl-replay/src/hybrid/process_request.rs; quire-contract-codegen src/kani/generate/negotiate.rs, src/kani/generate/outcome.rs, src/replay/composite_builder.rs. The spec lists the CheckedJson consumer changes but not these, and the scope freeze says QSL is untouched, which a compile-breaking signature cannot honour. Because NativeJoinBudget::new(work, storage) now leaves the read-storage limit at zero (FR-358-AC-14), the natural migration NativeJoinBudget::new(u64::MAX, u64::MAX) compiles and then returns Exhausted on every read. In-repo nothing breaks silently: no production IR code builds a budget before a read today, and every call site must be edited anyway. Fix: list the downstream read call sites as public uses that change, with the required form NativeJoinBudget::new(..).with_read_storage_limit(..), or add an unlimited constructor (for example NativeJoinBudget::unlimited()).
+
+
+## Dispositions
+
+Verified against fix commit 03518d07b1afac4ecd962d57d44c2a7742ce7cb6 (81c8c041e..03518d0).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 03518d0; after: ### The `CheckedJson` payload type -- Construction: `CheckedJson::from_canonical_bytes(bytes, max_input_bytes)` and `CheckedJson::from_value(&serde_json::Value) |
+| FND-002 | fixed | Fix commit 03518d0; after: `CheckedPackageV2ReadResult` gains `Exhausted(CheckedPackageReadExhausted)`; `CheckedPackageDispatchResult` gains `Exhausted(CheckedPackageReadExhausted)`, to w |
+| FND-003 | fixed | Fix commit 03518d0; after: / `WireDecode` / the position of the decoded value in the innermost wire array holding it, or 0 for a value in no array / the dotted wire path of that array, or |
+| FND-004 | fixed | Fix commit 03518d0; after: AC-380: reads on a 256 KiB thread stack through the shared strict reader, which has no recursion limit. FR-038:748: canonical by the shared writer's spelling of |

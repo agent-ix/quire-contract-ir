@@ -155,11 +155,17 @@ its limit keeps one meaning.
 - `read_storage_consumed()` returns cumulative admitted read storage, and
   `last_success_read_storage_delta()` the most recent successful operation's
   read-storage delta, absent after a refused or exhausted operation.
-- `NativeJoinChargeKind` gains `ReadStorage`. A read-storage denial records the
-  first unpaid charge with kind `ReadStorage`, the full attempted amount and
-  the active locus, exactly as a work or storage denial does, without
-  incrementing the counter. `NativeJoinCharge` and the existing getters keep
-  their fields and meanings.
+- `NativeJoinBudget::unlimited()` creates a budget whose work, logical storage
+  and read-storage allowances are unlimited: it admits every charge, and its
+  counters saturate at `u64::MAX` instead of denying, so an operation on it is
+  never refused for a budget charge.
+- A read-storage denial is reported by `first_unpaid_read_storage() ->
+  Option<u128>`, the full attempted amount, with its locus in
+  `first_unpaid_locus()`; it increments no counter. `first_unpaid()` reports
+  only work and logical storage denials and is `None` after a read-storage
+  denial. `NativeJoinChargeKind`, `NativeJoinCharge`, `NativeJoinDeniedCharge`
+  and the existing getters keep their variants, fields and meanings, so no
+  existing match on them changes.
 
 Each allocation request, and each reallocation request, made by the strict
 read charges read storage with the full size in bytes of the block requested
@@ -187,10 +193,10 @@ released during the read, including scratch lists, temporary tables, a parsed
 document that is not retained and a partly built diagnostic, keeps its charge.
 The read's work counter keeps FR-038's validation-visit units.
 
-IR SHALL supply the budget, as a reservation charging `ReadStorage` at the
+IR SHALL supply the budget, as a reservation charging read storage at the
 active `PackageRead` locus, to `quire_canonical`'s reader and writer, to the
 quire-walk walker and to the quire-exact parse and reduction entries the read
-uses. A denied reservation records the first unpaid `ReadStorage` charge with
+uses. A denied reservation records the first unpaid read-storage charge with
 the bytes asked and that locus; the library then makes no request for it and
 returns no document, output, walk or number.
 
@@ -245,8 +251,8 @@ limit or compatibility entry point is permitted.
 | FR-358-AC-10 | An external adapter charging row `i` of a channel with `NativeJoinLocusSource::AdapterRow(i)`, a charge with `AuthorityRow`, a preparer charging output item `k` with `PreparationOutput(k)`, and a preparer charging comparison `k` with `PreparationSelection(k)` each admit at an allowance exactly equal to the cumulative consumption including that charge, and, one unit below, leave exactly that source, form, kind and attempted amount as the first unpaid locus without allocating; admitted charges with these sources are cumulative with the following native read. | Test |
 | FR-358-AC-11 | `NativeJoinLocusSource::PackageRead(stage, index)` exists for every `PackageReadStage` of FR-038 in its stage order, is `Copy` and owns no node, key or string. A strict V2 read denied in each stage leaves `first_unpaid_locus` naming exactly that stage, the index FR-038 names and its static `form`, with no allocation made for the locus. The existing variants and their loci are unchanged. | Test, Inspection (TC-472) |
 | FR-358-AC-12 | At a `PackageRead` locus, the read-storage charge of each allocation class — exact-capacity `Vec`, boxed slice and `String` growth charged at the full new capacity, `Box<T>`, `Box<str>`, `Arc<T>`, `Arc<[T]>` and `Arc<str>` allocation, and shared reader, writer, quire-walk and quire-exact reservations — equals the size a counting global allocator observes for that allocation or reallocation request (a reallocation counted at its new size); a zero-size allocation and an `Arc` clone charge nothing and are observed as nothing. Released memory keeps its charge: a read whose scratch and temporary tables are dropped before it returns has a read-storage delta equal to the total bytes it requested, not its retained bytes. | Test (TC-472) |
-| FR-358-AC-13 | The strict read passes the caller budget to `quire_canonical`'s reader and writer, the quire-walk walker and the quire-exact entries it uses as their reservation; a reservation one byte past the remaining read storage is denied with first unpaid `ReadStorage` equal to the bytes asked at the active `PackageRead` locus, the library makes no request for it and returns no partial result. A strict read charges zero logical storage, and a native join after it on the same budget has the same exact and one-below logical storage limits as on a fresh budget, while their work charges sum in the one work counter. | Test (TC-472) |
-| FR-358-AC-14 | `NativeJoinBudget::new(work, storage)` has a zero read-storage limit; `with_read_storage_limit(bytes)` sets it; `read_storage_limit()` returns it unchanged after admitted charges, a denial and later operations. `read_storage_consumed()` and `last_success_read_storage_delta()` report the read-storage counter alone; `consumed()`, `last_success_delta()`, `work_limit()` and `storage_limit()` keep their meanings and are unchanged by read-storage charges. A read-storage denial reports kind `ReadStorage`, its attempted amount and locus through `first_unpaid` and `first_unpaid_locus`, without incrementing any counter; checked arithmetic exhaustion is a denial. | Test (TC-472) |
+| FR-358-AC-13 | The strict read passes the caller budget to `quire_canonical`'s reader and writer, the quire-walk walker and the quire-exact entries it uses as their reservation; a reservation one byte past the remaining read storage is denied with `first_unpaid_read_storage` equal to the bytes asked at the active `PackageRead` locus, the library makes no request for it and returns no partial result. A strict read charges zero logical storage, and a native join after it on the same budget has the same exact and one-below logical storage limits as on a fresh budget, while their work charges sum in the one work counter. | Test (TC-472) |
+| FR-358-AC-14 | `NativeJoinBudget::new(work, storage)` has a zero read-storage limit; `with_read_storage_limit(bytes)` sets it; `read_storage_limit()` returns it unchanged after admitted charges, a denial and later operations. `read_storage_consumed()` and `last_success_read_storage_delta()` report the read-storage counter alone; `consumed()`, `last_success_delta()`, `work_limit()` and `storage_limit()` keep their meanings and are unchanged by read-storage charges. A read-storage denial reports its attempted amount through `first_unpaid_read_storage` and its locus through `first_unpaid_locus`, leaves `first_unpaid` `None`, and increments no counter; checked arithmetic exhaustion is a denial. `NativeJoinBudget::unlimited()` admits charges whose sum exceeds `u64::MAX` on every counter, saturating, and never records a denial. `NativeJoinChargeKind`, `NativeJoinCharge` and `NativeJoinDeniedCharge` gain no variant or field. | Test (TC-472) |
 
 ## Dependencies
 

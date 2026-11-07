@@ -57,3 +57,15 @@ The outcome rule (FR-038 'Outcomes of a denial') records the first unpaid charge
 
 slice::sort/sort_by allocate a scratch buffer whose size the standard library chooses and changes between releases, so a coder cannot compute and charge it exactly. Fix: require sort_unstable* on the read path, or an IR-owned merge buffer of a stated size; drop 'or a charged buffer' for std sorts.
 
+
+## Dispositions
+
+Verified against fix commit 03518d07b1afac4ecd962d57d44c2a7742ce7cb6 (81c8c041e..03518d0).
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix commit 03518d0; after: Each allocation request, and each reallocation request, made by the strict read charges read storage with the full size in bytes of the block requested (for a r |
+| FND-002 | fixed | Fix commit 03518d0; after: The read's term walks run on the shared `quire-walk` walker through its caller-reservation entry ... Every integer or rational the read parses, reduces or compa |
+| FND-003 | fixed | Fix commit 03518d0; after: The read uses the process-wide checked-operation catalog. Its initialisation is not part of any read: the catalog gate SHALL run before the first charge of the  |
+| FND-004 | fixed | Fix commit 03518d0; after: For every read, the read-storage delta the budget admitted equals the total bytes requested during the call; no request is observed for a denied charge; and eve |
+| FND-005 | fixed | Fix commit 03518d0; after: Sorting on the read path uses only the in-place `sort_unstable*` functions, which allocate nothing. |
