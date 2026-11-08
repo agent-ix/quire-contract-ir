@@ -123,9 +123,38 @@ pub(in crate::checked_package) fn exact_rows<'de, D>(
 where
     D: de::Deserializer<'de>,
 {
-    // Decode directly into the final outer vector. The document sequence
-    // access charges each row's `Vec<u64>` allocation as it is decoded.
-    exact_vec::<D, Vec<u64>>(deserializer)
+    struct RowSeed;
+    impl<'de> de::DeserializeSeed<'de> for RowSeed {
+        type Value = Vec<u64>;
+        fn deserialize<D: de::Deserializer<'de>>(
+            self,
+            deserializer: D,
+        ) -> Result<Self::Value, D::Error> {
+            exact_vec(deserializer)
+        }
+    }
+    struct Rows;
+    impl<'de> Visitor<'de> for Rows {
+        type Value = Vec<Vec<u64>>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("operand rows")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            let mut rows = Vec::with_capacity(sequence.size_hint().unwrap_or(0));
+            while let Some(row) = sequence.next_element_seed(RowSeed)? {
+                rows.push(row);
+            }
+            Ok(rows)
+        }
+        fn visit_newtype_struct<D: de::Deserializer<'de>>(
+            self,
+            inner: D,
+        ) -> Result<Self::Value, D::Error> {
+            inner.deserialize_seq(self)
+        }
+    }
+    ELEMENT_BYTES.with(|bytes| bytes.set(std::mem::size_of::<Vec<u64>>()));
+    deserializer.deserialize_newtype_struct(SEQUENCE_TOKEN, Rows)
 }
 
 /// [`exact_vec`] for an optional member: absent stays `None`.

@@ -3159,7 +3159,7 @@ fn imported_node_matches<B>(
                     node_index::resolve_id_charged(left, importer_keys, meter)?,
                     node_index::resolve_id_charged(right, selected_keys, meter)?,
                 ) {
-                    (Some(left), Some(right)) => left == right,
+                    (Some(left), Some(right)) => meter.compare_ids(&left, &right)?.is_eq(),
                     _ => false,
                 },
             )

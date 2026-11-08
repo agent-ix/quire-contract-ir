@@ -716,9 +716,15 @@ pub(super) fn equivalent_values(
                 let (Some(a), Some(b)) = (a, b) else {
                     return Ok(false);
                 };
-                if resolve_id_charged(&a, left_keys, meter)?
-                    != resolve_id_charged(&b, right_keys, meter)?
-                {
+                let same = match (
+                    resolve_id_charged(&a, left_keys, meter)?,
+                    resolve_id_charged(&b, right_keys, meter)?,
+                ) {
+                    (Some(a), Some(b)) => meter.compare_ids(&a, &b)?.is_eq(),
+                    (None, None) => true,
+                    _ => false,
+                };
+                if !same {
                     return Ok(false);
                 }
             } else {
@@ -1624,11 +1630,24 @@ mod imported_body_storage_tests {
         let body = serde_json::json!({"term":"aggregate","members":[{"term":"reference","target":{"package":"p","path":[{"operand":0}],"ordinal":0}}]});
         let left = CheckedJson::from_value(&body).expect("document");
         let right = CheckedJson::from_value(&body).expect("document");
-        let keys = [Arc::new(super::super::CheckedNodeId {
-            package: "p".into(),
-            path: vec![CheckedNodePathSegment::Name("target".into())],
-            ordinal: 0,
-        })];
+        let make_keys = || {
+            let mut node = Arc::new(super::super::CheckedNodeId {
+                package: "p".into(),
+                path: vec![CheckedNodePathSegment::Name("target".into())],
+                ordinal: 0,
+            });
+            for _ in 0..512 {
+                node = Arc::new(super::super::CheckedNodeId {
+                    package: "p".into(),
+                    path: vec![CheckedNodePathSegment::Node(node)],
+                    ordinal: 0,
+                });
+            }
+            [node]
+        };
+        let left_keys = make_keys();
+        let right_keys = make_keys();
+        assert!(!Arc::ptr_eq(&left_keys[0], &right_keys[0]));
         let run = |limit| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let mut result = None;
@@ -1638,8 +1657,8 @@ mod imported_body_storage_tests {
                 result = Some(equivalent_values(
                     TermNode::of(&left),
                     TermNode::of(&right),
-                    &keys,
-                    &keys,
+                    &left_keys,
+                    &right_keys,
                     &[0],
                     &[0],
                     &mut meter,

@@ -67,7 +67,6 @@ impl EmptyAggregateBody for CheckedTerm {
     }
 }
 
-
 /// The form of the graph-stage requests of the model checks: the tag of the
 /// selected package's `model_root` node.
 const MODEL: &str = "model";
@@ -3449,62 +3448,88 @@ fn rational_value_type(
 /// An FCD value type bound as `Int[lo, hi]`, Rational, or `Text[min, max; profile]`.
 // Reads a selected domain package document's value type.
 #[ix_trace_rs::string_edge]
-fn semantic_ir_value_type(value: View<'_>, unit_refs: &UnitRefs) -> Option<ValueBounds> {
-    let constraint = |keyword: &str| -> Option<View<'_>> {
-        let mut found = list(value, "constraints")
-            .ok()?
-            .iter()
-            .filter(|constraint| constraint.get("keyword").and_then(View::as_str) == Some(keyword));
-        let constraint = found.next()?;
-        if found.next().is_some() {
-            return None;
-        }
-        Some(constraint)
-    };
-    let integer = |keyword| -> Option<i128> {
-        let value = constraint(keyword)?.get("operands")?.get("value")?;
-        match value.node() {
-            quire_canonical::Node::Number(_) => value.as_i64().map(i128::from),
-            quire_canonical::Node::String(text) => text.parse().ok(),
-            _ => None,
-        }
-    };
-    let scalar = value.get("scalar").and_then(View::as_str)?;
-    if scalar != "rational" && value.get("unit").is_some() {
-        return None;
-    }
-    match scalar {
-        "integer" => {
-            let (lower, upper) = (integer("min")?, integer("max")?);
-            (lower <= upper).then_some(ValueBounds::Integer(IntegerBounds { lower, upper }))
-        }
-        "rational" => rational_value_type(value, unit_refs).ok().flatten(),
-        "string" => {
-            let (lower, upper) = (
-                u64::try_from(integer("minLength")?).ok()?,
-                u64::try_from(integer("maxLength")?).ok()?,
-            );
-            let name = constraint("format")?
-                .get("operands")?
-                .get("name")?
-                .as_str()?;
-            let profile = name.strip_prefix("text-profile:")?;
-            if lower > upper
-                || !matches!(
-                    profile,
-                    "unicode-scalars" | "nfc" | "nfd" | "nfkc" | "nfkd" | "binary-utf8"
-                )
-            {
+fn semantic_ir_value_type_charged(
+    value: View<'_>,
+    unit_refs: &UnitRefs,
+    budget: &mut Budget<'_, '_>,
+) -> Result<Option<ValueBounds>, ValidationFailure> {
+    let mut denied = None;
+    let value = (|| {
+        let constraint = |keyword: &str| -> Option<View<'_>> {
+            let mut found = list(value, "constraints")
+                .ok()?
+                .iter()
+                .filter(|constraint| {
+                    constraint.get("keyword").and_then(View::as_str) == Some(keyword)
+                });
+            let constraint = found.next()?;
+            if found.next().is_some() {
                 return None;
             }
-            Some(ValueBounds::Text(TextBounds {
-                lower,
-                upper,
-                profile: profile.into(),
-            }))
+            Some(constraint)
+        };
+        let integer = |keyword| -> Option<i128> {
+            let value = constraint(keyword)?.get("operands")?.get("value")?;
+            match value.node() {
+                quire_canonical::Node::Number(_) => value.as_i64().map(i128::from),
+                quire_canonical::Node::String(text) => text.parse().ok(),
+                _ => None,
+            }
+        };
+        let scalar = value.get("scalar").and_then(View::as_str)?;
+        if scalar != "rational" && value.get("unit").is_some() {
+            return None;
         }
-        _ => None,
+        match scalar {
+            "integer" => {
+                let (lower, upper) = (integer("min")?, integer("max")?);
+                (lower <= upper).then_some(ValueBounds::Integer(IntegerBounds { lower, upper }))
+            }
+            "rational" => rational_value_type(value, unit_refs).ok().flatten(),
+            "string" => {
+                let (lower, upper) = (
+                    u64::try_from(integer("minLength")?).ok()?,
+                    u64::try_from(integer("maxLength")?).ok()?,
+                );
+                let name = constraint("format")?
+                    .get("operands")?
+                    .get("name")?
+                    .as_str()?;
+                let profile = name.strip_prefix("text-profile:")?;
+                if lower > upper
+                    || !matches!(
+                        profile,
+                        "unicode-scalars" | "nfc" | "nfd" | "nfkc" | "nfkd" | "binary-utf8"
+                    )
+                {
+                    return None;
+                }
+                Some(ValueBounds::Text(TextBounds {
+                    lower,
+                    upper,
+                    profile: match budget.text(profile, "declarations") {
+                        Ok(profile) => profile,
+                        Err(stop) => {
+                            denied = Some(stop);
+                            return None;
+                        }
+                    },
+                }))
+            }
+            _ => None,
+        }
+    })();
+    match denied {
+        Some(stop) => Err(stop),
+        None => Ok(value),
     }
+}
+
+#[cfg(test)]
+fn semantic_ir_value_type(value: View<'_>, unit_refs: &UnitRefs) -> Option<ValueBounds> {
+    let mut meter = WorkMeter::new(u64::MAX);
+    let mut budget = Budget::node(&mut meter, 0);
+    semantic_ir_value_type_charged(value, unit_refs, &mut budget).expect("unmetered fixture")
 }
 
 /// FR-154's declaration-refusal order for one node. Parameter collisions and
@@ -4574,7 +4599,7 @@ pub(super) fn read_semantic_ir(
                         }
                     }
                 } else {
-                    semantic_ir_value_type(declared_node, &model.unit_refs)
+                    semantic_ir_value_type_charged(declared_node, &model.unit_refs, budget)?
                 };
                 let key = budget.text(node, F)?;
                 model.value_types.insert(budget, key, bounds, F)?;
