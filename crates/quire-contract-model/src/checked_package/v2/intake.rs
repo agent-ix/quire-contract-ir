@@ -20,8 +20,8 @@ use super::{
 };
 use crate::checked_package::common::{decode_closed_bytes, node_pointer, strict_parse};
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSourceMapEntry,
-    CheckedSourceRegion,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOperandEntry,
+    CheckedSourceMapEntry, CheckedSourceRegion,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
 use serde::{Deserialize, Deserializer};
@@ -101,7 +101,12 @@ struct BorrowedGraph<'a> {
     graph_version: Box<str>,
     #[serde(borrow)]
     nodes: Vec<BorrowedNode<'a>>,
-    operand_rows: Vec<Vec<u64>>,
+    // The typed decode of the rows, their dependency package names and the
+    // transient buffer of one untagged entry is bounded by the package byte
+    // limit, since each entry is at most the bytes it spans. It is not charged
+    // separately: `read_envelope` charges only the shared reader's Document
+    // passes.
+    operand_rows: Vec<Vec<CheckedOperandEntry>>,
 }
 
 // Keep native wire errors at the logical ID boundary. The refinement below

@@ -2740,6 +2740,7 @@ fn node_id_value(id: &CheckedNodeId) -> Value {
         Name(&'a str),
         Index(u64),
         Operand(u64),
+        Dependency(&'a str, u64),
         Finish(&'a CheckedNodeId),
     }
     let mut pending = vec![Task::Node(id)];
@@ -2754,6 +2755,9 @@ fn node_id_value(id: &CheckedNodeId) -> Value {
                         CheckedNodePathSegment::Node(child) => Task::Node(child),
                         CheckedNodePathSegment::Index(index) => Task::Index(*index),
                         CheckedNodePathSegment::Operand(slot) => Task::Operand(*slot),
+                        CheckedNodePathSegment::Dependency { package, node } => {
+                            Task::Dependency(package, *node)
+                        }
                     });
                 }
             }
@@ -2766,6 +2770,12 @@ fn node_id_value(id: &CheckedNodeId) -> Value {
             Task::Operand(slot) => {
                 let mut object = serde_json::Map::new();
                 object.insert("operand".into(), Value::Number(slot.into()));
+                values.push(Value::Object(object));
+            }
+            Task::Dependency(package, node) => {
+                let mut object = serde_json::Map::new();
+                object.insert("package".into(), Value::String(package.to_owned()));
+                object.insert("node".into(), Value::Number(node.into()));
                 values.push(Value::Object(object));
             }
             Task::Finish(node) => {

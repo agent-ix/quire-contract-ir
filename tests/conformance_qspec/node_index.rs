@@ -10,7 +10,7 @@ use super::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeKind, CheckedNodePathSegment, CheckedNodeTag,
+    CheckedNodeId, CheckedNodeKind, CheckedNodePathSegment, CheckedNodeTag, CheckedOperandEntry,
     CheckedPackageReadLimits, CheckedPackageV2ReadResult, CheckedSemanticNodeV2, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
     ContractPackageReadResult, ContractPackageWireV1, ExpressionForm, LoweringProfileRef,
@@ -154,7 +154,12 @@ fn operand_slots_rebuild_structural_keys_through_the_rows() {
     let package = admitted_wire(&wire);
     assert_eq!(
         package.graph().operand_rows,
-        vec![vec![], vec![], vec![0], vec![0]]
+        vec![
+            vec![],
+            vec![],
+            vec![CheckedOperandEntry::Node(0)],
+            vec![CheckedOperandEntry::Node(0)]
+        ]
     );
     let integer = package.structural_key_at(0).expect("Integer key");
     let bounded = package.structural_key_at(2).expect("Int[0, 9] key");
@@ -248,7 +253,12 @@ fn unrelated_nodes_leave_other_nodes_bytes_and_keys_unchanged() {
     let after = admitted_wire(&reversed);
     assert_eq!(
         after.graph().operand_rows,
-        vec![vec![3], vec![3], vec![], vec![]]
+        vec![
+            vec![CheckedOperandEntry::Node(3)],
+            vec![CheckedOperandEntry::Node(3)],
+            vec![],
+            vec![]
+        ]
     );
     for position in 0..4 {
         assert_eq!(
@@ -354,6 +364,9 @@ pub(super) fn fixture_structural_key_for_id(
                     )))
                 }
                 CheckedNodePathSegment::Node(node) => CheckedNodePathSegment::Node(node.clone()),
+                // A dependency position is already the resolved form of a
+                // foreign operand; it names a node of another graph.
+                CheckedNodePathSegment::Dependency { .. } => segment.clone(),
                 CheckedNodePathSegment::Operand(_) => {
                     panic!("resolve an operand slot through its row first")
                 }
@@ -382,7 +395,10 @@ pub(super) fn fixture_graph_ids(wire: &Value) -> Vec<CheckedNodeId> {
                 .as_array()
                 .expect("fixture operand row")
                 .iter()
-                .map(|entry| entry.as_u64().expect("fixture row entry"))
+                .map(|entry| {
+                    serde_json::from_value::<CheckedOperandEntry>(entry.clone())
+                        .expect("fixture row entry")
+                })
                 .collect::<Vec<_>>();
             resolve_slots(&id, &row)
         })
@@ -390,16 +406,24 @@ pub(super) fn fixture_graph_ids(wire: &Value) -> Vec<CheckedNodeId> {
 }
 
 /// An id with each operand slot replaced by the index segment its row names.
-pub(super) fn resolve_slots(id: &CheckedNodeId, row: &[u64]) -> CheckedNodeId {
+pub(super) fn resolve_slots(id: &CheckedNodeId, row: &[CheckedOperandEntry]) -> CheckedNodeId {
     CheckedNodeId {
         package: id.package.clone(),
         path: id
             .path
             .iter()
             .map(|segment| match segment {
-                CheckedNodePathSegment::Operand(slot) => CheckedNodePathSegment::Index(
-                    row[usize::try_from(*slot).expect("slot fits usize")],
-                ),
+                CheckedNodePathSegment::Operand(slot) => {
+                    match &row[usize::try_from(*slot).expect("slot fits usize")] {
+                        CheckedOperandEntry::Node(index) => CheckedNodePathSegment::Index(*index),
+                        CheckedOperandEntry::Dependency(operand) => {
+                            CheckedNodePathSegment::Dependency {
+                                package: operand.package.clone(),
+                                node: operand.node,
+                            }
+                        }
+                    }
+                }
                 other => other.clone(),
             })
             .collect(),
@@ -422,7 +446,7 @@ pub(super) fn sort_fixture_node_refs_with_ids(ids: &[CheckedNodeId], references:
 
 pub(super) fn fixture_structural_key<Body>(
     nodes: &[CheckedSemanticNodeV2<Body>],
-    operand_rows: &[Vec<u64>],
+    operand_rows: &[Vec<CheckedOperandEntry>],
     position: usize,
 ) -> CheckedNodeId {
     let ids = nodes

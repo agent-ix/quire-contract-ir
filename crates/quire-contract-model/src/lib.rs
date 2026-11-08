@@ -274,6 +274,11 @@ pub use checked_package::{
 pub use checked_package::{
     CheckedApplicationOperationFixture, CheckedApplicationOperationFixtureError,
 };
+pub use checked_package::{
+    CheckedComponentClause, CheckedCompositionComponent, CheckedCompositionPremise,
+    CheckedDependencyOperand, CheckedEnvironmentEntry, CheckedEnvironmentSupplies,
+    CheckedFairnessSupply, CheckedGuaranteeMeasure, CheckedGuaranteeProgress, CheckedOperandEntry,
+};
 pub use checked_package::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
 pub use checked_package::{
     CheckedModelVariantBody, CheckedModelVariantCase, CheckedVariantPayloadType,

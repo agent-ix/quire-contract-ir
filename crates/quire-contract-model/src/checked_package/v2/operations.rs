@@ -386,6 +386,16 @@ impl PartialEq for FlatNodeKey<'_> {
                         CheckedNodePathSegment::Operand(left),
                         CheckedNodePathSegment::Operand(right),
                     ) => left == right,
+                    (
+                        CheckedNodePathSegment::Dependency {
+                            package: left_package,
+                            node: left,
+                        },
+                        CheckedNodePathSegment::Dependency {
+                            package: right_package,
+                            node: right,
+                        },
+                    ) => left_package == right_package && left == right,
                     _ => false,
                 })
     }
@@ -411,6 +421,11 @@ impl Hash for FlatNodeKey<'_> {
                 CheckedNodePathSegment::Operand(slot) => {
                     2_u8.hash(state);
                     slot.hash(state);
+                }
+                CheckedNodePathSegment::Dependency { package, node } => {
+                    3_u8.hash(state);
+                    package.hash(state);
+                    node.hash(state);
                 }
                 CheckedNodePathSegment::Node(_) => unreachable!("flat node key"),
             }

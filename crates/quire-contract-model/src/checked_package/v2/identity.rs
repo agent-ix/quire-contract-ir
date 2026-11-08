@@ -1180,7 +1180,7 @@ fn model_record_from_node(
         .map(|part| match part {
             Segment::Name(name) => Some(name.as_ref()),
             Segment::Node(_) => None,
-            Segment::Index(_) | Segment::Operand(_) => None,
+            Segment::Index(_) | Segment::Operand(_) | Segment::Dependency { .. } => None,
         })
         .collect::<Option<Vec<_>>>();
     require(

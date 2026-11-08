@@ -1410,7 +1410,7 @@ fn census_endpoints(
         .collect();
     let nodes: BTreeSet<_> = node_facts
         .keys()
-        .filter(|n| !conflicting_nodes.contains(*n))
+        .filter(|n| !conflicting_nodes.contains::<CheckedNodeId>(n))
         .map(|n| (*n).clone())
         .collect();
     let criteria: BTreeSet<_> = rows
