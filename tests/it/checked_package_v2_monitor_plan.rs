@@ -8,13 +8,13 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeKind, CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedNodeKind, CheckedPackageReadLimits, CheckedPackageRefusalCode,
     CheckedPackageV2ReadResult, TemporalForm,
 };
 use serde_json::{json, Value};
 
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(wire),

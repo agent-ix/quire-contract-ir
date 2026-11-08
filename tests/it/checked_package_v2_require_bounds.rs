@@ -207,7 +207,7 @@ fn package(nodes: Vec<(String, Value)>) -> Fixture {
 }
 
 fn admit(value: &Value) -> CheckedPackageV2 {
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(value),
@@ -224,7 +224,7 @@ fn assert_literal_dependency_refusal(value: &Fixture, name: &str) {
         .iter()
         .position(|node| node["node_id"] == node_id(&key(name)))
         .expect("literal node");
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(value),

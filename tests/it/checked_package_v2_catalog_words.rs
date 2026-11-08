@@ -17,7 +17,7 @@ use crate::support::checked_package::{canonical, evidence_for, pointer, settle, 
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageRefusalCode, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -28,7 +28,7 @@ const OPERATORS: [(&str, &str); 3] = [
 ];
 
 fn refused(package: &Value) -> CheckedPackageRefusal {
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),

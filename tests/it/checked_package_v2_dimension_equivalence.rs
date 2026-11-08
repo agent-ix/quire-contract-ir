@@ -76,7 +76,7 @@ pub(super) fn package() -> Value {
 }
 
 fn read(value: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(value),
@@ -446,7 +446,7 @@ fn wide_root_scale_arithmetic_is_charged_to_the_read_budget() {
     let bytes = canonical(&wide);
     let evidence = evidence_for(&wide);
     let read = |budget: &mut NativeJoinBudget| {
-        CheckedPackageV2::read_with_budget(
+        crate::qspec_read_proof::read_budget_and_account(
             &bytes,
             CheckedPackageReadLimits::bounded(),
             &evidence,
@@ -493,7 +493,7 @@ fn imported_nominal_records_are_charged_at_the_imported_node() {
         .insert_dependency_package(name.as_str(), dependency.clone())
         .expect("dependency evidence agrees on admitted content");
     let read = |budget: &mut NativeJoinBudget| {
-        CheckedPackageV2::read_with_budget(
+        crate::qspec_read_proof::read_budget_and_account(
             &bytes,
             CheckedPackageReadLimits::bounded(),
             &evidence,

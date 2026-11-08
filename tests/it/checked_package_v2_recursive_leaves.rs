@@ -313,7 +313,7 @@ fn equality_package(types: Vec<Typed>, root: &str, leaves: Vec<Value>) -> (Value
 }
 
 fn read(package: &Value, limits: CheckedPackageReadLimits) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(&canonical(package), limits, &evidence_for(package))
+    crate::read_and_account(&canonical(package), limits, &evidence_for(package))
 }
 
 /// The pointer of `operation.leaves` of the application node keyed `id`.

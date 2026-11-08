@@ -11,13 +11,13 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeKind, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, ProtocolForm,
+    CheckedPackageRefusalCode, CheckedPackageV2ReadResult, ProtocolForm,
 };
 use serde_json::{json, Value};
 use std::time::Instant;
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -581,7 +581,7 @@ fn hundred_thousand_protocol_reference_cycle_is_admitted_iteratively() {
             work: u64::MAX,
         };
         let started = Instant::now();
-        let actual = CheckedPackageV2::read(&bytes, limits, &evidence);
+        let actual = crate::read_and_account(&bytes, limits, &evidence);
         let elapsed = started.elapsed();
         let CheckedPackageV2ReadResult::Admitted(admitted) = actual else {
             panic!("{member_count}-node protocol cycle did not admit: {actual:?}");
