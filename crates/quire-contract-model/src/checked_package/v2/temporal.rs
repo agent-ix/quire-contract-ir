@@ -3067,15 +3067,42 @@ mod tests {
     #[test]
     fn placement_faults_prepay_diagnostics_at_exact_short_zero_and_repeated_limits() {
         for route in 0..5 {
-            let nodes = clause_graph(&['1', '2']);
-            let mut kinds: Vec<_> = nodes
+            let mut nodes = clause_graph(&['1', '2']);
+            match route {
+                // A placed class at an ordinary node's root.
+                0 => {
+                    nodes[0].node_tag = "function".into();
+                    nodes[0].semantic_form = "pure_function".into();
+                }
+                // A temporal node with no application at its root.
+                1 => {
+                    nodes[0].body = CheckedJson::from_serializable(
+                        &json!({"term": "aggregate", "members": []}),
+                    ).expect("closed aggregate body");
+                }
+                // A temporal node holding a different placed class.
+                2 => nodes[0].semantic_form = "formula".into(),
+                // A forbidden formula or fairness reference reaches Placement::enter.
+                3 | 4 => {
+                    nodes[0].node_tag = "function".into();
+                    nodes[0].semantic_form = "pure_function".into();
+                    nodes[0].body = CheckedJson::from_serializable(
+                        &json!({"term": "reference", "target": id('2')}),
+                    ).expect("closed reference body");
+                    if route == 4 {
+                        nodes[2].semantic_form = "fairness".into();
+                    }
+                }
+                _ => unreachable!("five placement routes"),
+            }
+            let kinds: Vec<_> = nodes
                 .iter()
                 .map(|node| {
                     let tag = CheckedNodeTag::from_wire(&node.node_tag).expect("node tag");
                     CheckedNodeKind::decode(tag, &node.semantic_form).expect("node form")
                 })
                 .collect();
-            let mut terms: Vec<_> = nodes
+            let terms: Vec<_> = nodes
                 .iter()
                 .map(|node| {
                     Some(
@@ -3084,23 +3111,6 @@ mod tests {
                     )
                 })
                 .collect();
-            match route {
-                // A placed class at an ordinary node's root.
-                0 => kinds[0] = CheckedNodeKind::Value(ValueForm::Parameter),
-                // A temporal node with no application at its root.
-                1 => terms[0] = Some(CheckedTerm::Aggregate { members: Vec::new() }),
-                // A temporal node holding a different placed class.
-                2 => kinds[0] = CheckedNodeKind::Temporal(TemporalForm::Formula),
-                // A forbidden formula or fairness reference reaches Placement::enter.
-                3 | 4 => {
-                    kinds[0] = CheckedNodeKind::Value(ValueForm::Parameter);
-                    if route == 4 {
-                        kinds[2] = CheckedNodeKind::Temporal(TemporalForm::Fairness);
-                    }
-                    terms[0] = Some(CheckedTerm::Reference { target: nodes[2].node_id.clone() });
-                }
-                _ => unreachable!("five placement routes"),
-            }
             let index: GraphIndex<'_> = nodes
                 .iter()
                 .enumerate()
