@@ -1158,6 +1158,7 @@ pub(super) fn check_wire<'a, V: TermSource<'a>>(
     body: V,
     typed: Option<&CheckedTerm>,
     at: &Trail<'_>,
+    walk: &mut super::read_charge::WalkReservation<'_>,
 ) -> Result<(), ValidationFailure> {
     let Some(CheckedTerm::Refinement {
         steps,
@@ -1209,9 +1210,7 @@ pub(super) fn check_wire<'a, V: TermSource<'a>>(
         }
     }
     row_terms(body, at, |term, term_at| {
-        super::read_charge::with_unmetered_walk(|walk| {
-            super::flat_wire::check_refinement_term(term, term_at, walk)
-        })
+        super::flat_wire::check_refinement_term(term, term_at, walk)
     })
 }
 
@@ -4134,6 +4133,70 @@ mod tests {
     use super::*;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-499", "FR-038-AC-511")]
+    #[test]
+    fn refinement_row_walks_charge_the_callers_budget() {
+        let id = |name| json!({"package":"refinement-test","path":[name],"ordinal":0});
+        let wire = json!({
+            "term":"refinement", "abstract":id("a"),
+            "profile":{"authority":"test","identity":"quire.temporal.infinite-trace/v1"},
+            "populations":[], "objects":[], "steps":[],
+            "histories":[{"concrete_type":id("b"),"name":"past","type":id("c"),
+                "initial":{"term":"reference","target":id("d")},
+                "updates":[{"operation":id("e"),"expression":{
+                    "term":"aggregate","members":[{"term":"aggregate","members":[
+                        {"term":"reference","target":id("a")}
+                    ]}]
+                }}]}], "assume":[], "ensure":[]
+        });
+        let typed = CheckedTerm::decode_admitted(&wire).expect("closed refinement");
+        let document = super::super::CheckedJson::from_value(&wire).expect("document");
+        let run = |limit| {
+            let mut budget =
+                super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let measured = allocation_counter::measure(|| {
+                let meter = super::super::read_charge::Meter::new(&mut budget);
+                let site = super::super::read_charge::Site::new(
+                    super::super::PackageReadStage::WireChecks,
+                    7,
+                    "refinement",
+                );
+                outcome = Some(check_wire(
+                    TermNode::of(&document),
+                    Some(&typed),
+                    &Trail::Base(&[]),
+                    &mut meter.reservation(site),
+                ));
+            });
+            (
+                outcome.expect("ran"),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+                budget.first_unpaid_locus(),
+            )
+        };
+        let (outcome, allocated, charged, _) = run(u64::MAX);
+        outcome.expect("refinement rows admitted");
+        assert!(allocated > 0);
+        assert_eq!(allocated, charged);
+        let (outcome, allocated, paid, _) = run(charged);
+        outcome.expect("exact budget admits");
+        assert_eq!(allocated, paid);
+        let (outcome, allocated, paid, locus) = run(charged - 1);
+        assert!(matches!(outcome, Err(ValidationFailure::Budget(_))));
+        assert_eq!(allocated, paid, "denied request allocates nothing");
+        let locus = locus.expect("unpaid row walk locus");
+        assert_eq!(
+            locus.source,
+            super::super::NativeJoinLocusSource::PackageRead(
+                super::super::PackageReadStage::WireChecks,
+                7
+            )
+        );
+        assert!(matches!(locus.form, "refinement" | "walk"));
+    }
 
     fn channel_classes(delivery: &str) -> Option<Vec<String>> {
         let argument = CheckedTerm::decode_admitted(&json!({
