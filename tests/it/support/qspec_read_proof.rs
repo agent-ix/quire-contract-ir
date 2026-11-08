@@ -200,8 +200,17 @@ pub(crate) fn read_and_account(
     // the worker's own thread-local allocator counter remains fully armed.
     let reference = crate::without_qspec_instrumentation(|| {
         std::thread::scope(|scope| {
-            scope
-                .spawn(|| observe(bytes, limits, evidence, limits.work, u64::MAX))
+            std::thread::Builder::new()
+                .name(format!(
+                    "ir1404-first:{}:{} / {}",
+                    location.file(),
+                    location.line(),
+                    test_name
+                ))
+                .spawn_scoped(scope, || {
+                    observe(bytes, limits, evidence, limits.work, u64::MAX)
+                })
+                .expect("start first measured driver worker")
                 .join()
                 .expect("first measured driver read")
         })
@@ -210,12 +219,19 @@ pub(crate) fn read_and_account(
     crate::without_qspec_instrumentation(|| {
         std::thread::scope(|scope| {
             let plain = &plain;
-            scope
-                .spawn(move || {
+            std::thread::Builder::new()
+                .name(format!(
+                    "ir1404-proof:{}:{} / {}",
+                    location.file(),
+                    location.line(),
+                    test_name
+                ))
+                .spawn_scoped(scope, move || {
                     finish_proof(
                         bytes, limits, evidence, reference, plain, mode, test_name, location,
                     )
                 })
+                .expect("start driver accounting worker")
                 .join()
                 .expect("driver accounting proof")
         })
