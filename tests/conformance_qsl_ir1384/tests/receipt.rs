@@ -585,3 +585,54 @@ fn mismatched_emissions_refuse_with_typed_authority_errors() {
         SelectedMonitorAuthorityComponent::ProgressAssociation
     );
 }
+
+#[trace("TC-471", "FR-361-AC-4")]
+#[test]
+fn genuine_authority_prepays_a_large_clause_and_its_refusal_diagnostic() {
+    let emitted = emit(
+        qsl_dir().as_path(),
+        "time M tick M::ConfigVersion::attemptUpdate period 2 ms unit ms;",
+    );
+    let authority = &emitted.authority;
+    let package = authority.admitted_package();
+    let plan = package.monitor_plans().next().unwrap();
+    let mut clause = plan.clause().clone();
+    let prefix = "selected-qsl-clause".repeat(2048);
+    clause.path.push(quire_contract_model::CheckedNodePathSegment::Name(prefix.clone().into()));
+    let claim = authority.root().plan().subject();
+    let row = SelectedMonitorAuthorityRow::try_new(
+        authority.admission_binding(),
+        clause,
+        CheckedOccurrence {
+            role: CheckedOccurrenceRole::Claim,
+            ordinal: u64::from(claim.occurrence().origin().ordinal()),
+        },
+        SelectedMonitorTimeSource::Tick {
+            period: authority.checked_tick_period().unwrap().clone(),
+        },
+        authority.admitted_order(),
+        authority.progress_context(),
+    ).unwrap();
+    let mut measured = big();
+    let full = project(authority, package, &row, &mut measured).unwrap_err();
+    assert_eq!(code(&full), SelectedMonitorAuthorityErrorCode::ClauseMismatch);
+    assert_eq!(full.at.as_deref(), Some(plan.node_id()));
+    assert!(full.work > prefix.len() as u64, "the caller's entire clause width is charged");
+    let spent = measured.consumed();
+    let exact = project(authority, package, &row, &mut NativeJoinBudget::new(spent.work, spent.storage)).unwrap_err();
+    assert_eq!(exact, full);
+    let compact = project(authority, package, &row, &mut NativeJoinBudget::new(spent.work, spent.storage - 1)).unwrap_err();
+    assert_eq!(compact.code, SelectedMonitorTypeClosureErrorCode::StorageLimit);
+    assert_eq!(compact.at, None);
+    assert_eq!(compact.occurrence, None);
+    assert_eq!(compact.work, full.work);
+    assert_eq!(compact.denied_locus, Some(NativeJoinLocus {
+        source: NativeJoinLocusSource::MonitorAuthority,
+        form: "selected_authority",
+    }));
+    let diagnostic = compact.denied.unwrap();
+    assert_eq!(diagnostic.kind, quire_contract_model::NativeJoinChargeKind::Storage);
+    let before_diagnostic = spent.storage - u64::try_from(diagnostic.amount).unwrap();
+    let empty = project(authority, package, &row, &mut NativeJoinBudget::new(spent.work, before_diagnostic)).unwrap_err();
+    assert_eq!(empty, compact, "zero remaining diagnostic storage keeps the same compact refusal");
+}
