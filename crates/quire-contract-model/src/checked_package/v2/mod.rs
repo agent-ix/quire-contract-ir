@@ -5282,8 +5282,39 @@ mod admitted_document_bridge_tests {
             let term = term.expect("closed body");
             assert!(charged > 0);
             assert_eq!(allocated, charged, "{kind:?}");
-            if let CheckedTerm::Reference { target } = &term {
-                assert_eq!(target.path, [CheckedNodePathSegment::Index(19)]);
+            match kind {
+                CheckedNodeKind::Expression(ExpressionForm::Reference) => {
+                    let CheckedTerm::Reference { target } = &term else {
+                        panic!("retained reference");
+                    };
+                    assert_eq!(target.path, [CheckedNodePathSegment::Index(19)]);
+                }
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension) => {
+                    let CheckedTerm::NominalBody(body) = &term else {
+                        panic!("retained dimension");
+                    };
+                    let identity::NominalBodyKind::Dimension { base, terms } = body.kind() else {
+                        panic!("dimension body");
+                    };
+                    assert!(*base);
+                    assert!(terms.is_empty());
+                }
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Unit) => {
+                    let CheckedTerm::NominalBody(body) = &term else {
+                        panic!("retained unit");
+                    };
+                    let identity::NominalBodyKind::Unit {
+                        dimension_node_id,
+                        target_unit_node_id,
+                        ..
+                    } = body.kind()
+                    else {
+                        panic!("unit body");
+                    };
+                    assert_eq!(dimension_node_id.path, [CheckedNodePathSegment::Index(19)]);
+                    assert!(target_unit_node_id.is_none());
+                }
+                _ => panic!("unexpected test kind"),
             }
             assert_eq!(run(charged).0.expect("exact allowance"), term);
             assert!(
@@ -5293,6 +5324,7 @@ mod admitted_document_bridge_tests {
         }
     }
 
+    #[trace("TC-472", "FR-038-AC-512")]
     #[test]
     fn malformed_nominal_bridge_preserves_the_body_member_refusal() {
         let body = CheckedJson::from_value(&json!({"term":"unit",
@@ -5311,6 +5343,7 @@ mod admitted_document_bridge_tests {
         assert!(matches!(failure,ValidationFailure::Refused(refusal)
             if refusal.code==CheckedPackageRefusalCode::MalformedWire && refusal.primary_path().is_some_and(|path|path.as_str()=="/semantic_graph/nodes/3/body/scale/numerator")));
     }
+    #[trace("TC-472", "FR-038-AC-512")]
     #[test]
     fn lock_duration_partial_defers_shape_refusal_but_propagates_reservation_denial() {
         let malformed = serde_json::json!({"term":"unit","dimension_node_id":{},"target_unit_node_id":null,

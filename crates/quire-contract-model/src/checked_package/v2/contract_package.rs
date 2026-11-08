@@ -1903,7 +1903,7 @@ impl ContractPackageWireV1 {
         wire.validate_correspondence(limits, &frames)?;
         wire.validate_accounting(&frames)?;
         wire.validate_dependencies(dependencies, &mut work_meter)?;
-        let terms = wire.validate_references(dependencies, limits, &mut work_meter, &frames)?;
+        let terms = wire.validate_references(dependencies, &mut work_meter, &frames)?;
         let node_index = wire
             .semantic_graph
             .nodes
@@ -3294,7 +3294,6 @@ impl ContractPackageWireV1 {
     fn validate_references(
         &self,
         dependencies: &ContractDependencies<'_>,
-        limits: CheckedPackageReadLimits,
         meter: &mut super::WorkMeter,
         frames: &ContractFrameKeys,
     ) -> Result<Vec<Option<CheckedTerm>>, ValidationFailure> {

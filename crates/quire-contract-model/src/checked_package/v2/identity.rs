@@ -1671,7 +1671,7 @@ fn model_record_from_node<B>(
     )?;
     let model = models
         .iter()
-        .find(|model| model.identity.as_ref() == identity)
+        .find(|model| model.identity.as_ref() == identity.as_ref())
         .ok_or_else(|| invalid(at().key("owner")))?;
     let resolve = |meter: &mut WorkMeter, fcd_identity: &str| match model_nodes
         .get(&(identity, fcd_identity))
