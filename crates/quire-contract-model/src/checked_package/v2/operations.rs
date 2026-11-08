@@ -66,6 +66,34 @@ impl Application<'_> {
         )
     }
 
+    fn read_node(self) -> super::stage_storage::Path<'static> {
+        super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(self.position)
+    }
+
+    fn refuse_read(
+        self,
+        code: CheckedPackageRefusalCode,
+        path: super::stage_storage::Path<'_>,
+        cause: CheckedPackageRefusalCause,
+        meter: &mut WorkMeter,
+    ) -> ValidationFailure {
+        super::stage_storage::refuse(
+            meter,
+            &super::stage_storage::Site::new(
+                super::PackageReadStage::Graph,
+                self.position,
+                super::graph_storage::node_form(&self.node.node_tag),
+                path,
+            ),
+            super::stage_storage::Refusal::new(code, path)
+                .because(cause)
+                .at_node(&self.node.node_id),
+        )
+    }
+
     fn refuse(
         self,
         code: CheckedPackageRefusalCode,
@@ -948,6 +976,7 @@ fn check_bounded_dimensions(
     application: Application<'_>,
     operation: &OperationWire,
     graph: &Graph<'_>,
+    meter: &mut WorkMeter,
 ) -> Option<ValidationFailure> {
     if !matches!(
         operation.identity.as_ref(),
@@ -1009,10 +1038,11 @@ fn check_bounded_dimensions(
         _ => return None,
     };
     (operand_mismatch || result_mismatch).then(|| {
-        application.refuse(
+        application.refuse_read(
             CheckedPackageRefusalCode::IllTyped,
-            node_pointer(application.position),
+            application.read_node(),
             CheckedPackageRefusalCause::OperatorIneligible,
+            meter,
         )
     })
 }
@@ -1340,10 +1370,11 @@ fn operation_defect(
             application.body(&["operation", "identity"]),
         )));
     };
-    meter.charge(
+    work_at_path(
+        meter,
+        &OperationPath::Read(application.read_node().key("body").key("operation")),
         1 + u64::try_from(operation.laws.len()).unwrap_or(u64::MAX)
             + u64::try_from(operation.leaves.len()).unwrap_or(u64::MAX),
-        || application.body(&["operation"]),
     )?;
     let mut structural = StructuralTypes::default();
     let refuse = |path: JsonPointer, cause| {
@@ -1732,7 +1763,7 @@ fn operation_defect(
     if let Some(failure) = check_quantity_conversion(application, &operation, graph) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_bounded_dimensions(application, &operation, graph) {
+    if let Some(failure) = check_bounded_dimensions(application, &operation, graph, meter) {
         return Ok(Some(failure));
     }
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
@@ -2819,17 +2850,18 @@ fn union_type<'g>(
     owners: &'g ModelOwners<'_>,
     meter: &mut WorkMeter,
     structural: &mut StructuralTypes,
-    at: &JsonPointer,
+    at: &impl DiagnosticPath,
 ) -> Result<Option<Vec<UnionMember<'g>>>, ValidationFailure> {
     let Some((position, kind)) = structural.resolve(type_id, graph, meter, at)? else {
         return Ok(None);
     };
     match kind {
-        CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => Ok(graph
-            .terms
-            .get(position)
-            .and_then(Option::as_ref)
-            .and_then(typed_union_type_body)),
+        CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
+            match graph.terms.get(position).and_then(Option::as_ref) {
+                Some(term) => typed_union_type_body(term, meter),
+                None => Ok(None),
+            }
+        }
         CheckedNodeKind::Model(ModelForm::VariantType) => {
             selected_union_members(&graph.nodes[position].node_id, owners, meter)
         }
@@ -2920,7 +2952,14 @@ fn union_arms_hold(
         owners,
         meter,
         structural,
-        &application.body(&["operation"]),
+        &OperationPath::Read(
+            super::stage_storage::Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(application.position)
+                .key("body")
+                .key("operation"),
+        ),
     )?
     else {
         return Ok(false);
@@ -3117,12 +3156,10 @@ fn union_defect(
     };
     let kind = kinds[position];
     if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
-        let Some(members) = graph
-            .terms
-            .get(position)
-            .and_then(Option::as_ref)
-            .and_then(typed_union_type_body)
-        else {
+        let Some(term) = graph.terms.get(position).and_then(Option::as_ref) else {
+            return Ok(None);
+        };
+        let Some(members) = typed_union_type_body(term, meter)? else {
             return Ok(None);
         };
         let mut names = meter.vec(members.len())?;
@@ -3172,11 +3209,12 @@ fn union_defect(
             )
         };
         let members = match kinds[declared] {
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => graph
-                .terms
-                .get(declared)
-                .and_then(Option::as_ref)
-                .and_then(typed_union_type_body),
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
+                match graph.terms.get(declared).and_then(Option::as_ref) {
+                    Some(term) => typed_union_type_body(term, meter)?,
+                    None => None,
+                }
+            }
             CheckedNodeKind::Model(ModelForm::VariantType) => {
                 selected_union_members(&node.semantic_type, owners, meter)?
             }
@@ -4151,7 +4189,7 @@ fn check_place_presence(
     for (offset, selector) in selectors.iter().enumerate() {
         let argument_index = offset + 2;
         let actual = presence_value_type(&arguments[argument_index], graph);
-        if actual != Some(*selector) {
+        if actual != Some(selector) {
             return Err(application.refuse(
                 CheckedPackageRefusalCode::IllTyped,
                 application.body(&["arguments"]).index(argument_index),

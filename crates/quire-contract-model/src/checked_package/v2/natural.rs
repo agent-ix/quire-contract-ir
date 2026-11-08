@@ -2,10 +2,49 @@
 //! canonical decimal rational is reduced, with every limb operation charged as
 //! work so the metered cost bounds the real cost.
 
+use super::stage_storage::Site;
 use super::WorkMeter;
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::JsonPointer;
 use std::cmp::Ordering;
+
+enum WorkAt<'a> {
+    Legacy(&'a dyn Fn() -> JsonPointer),
+    Paid(Site<'a>),
+}
+impl WorkAt<'_> {
+    fn charge(&self, meter: &mut WorkMeter, amount: u64) -> Result<(), ValidationFailure> {
+        match self {
+            Self::Legacy(at) => meter.charge(amount, at),
+            Self::Paid(site) => work_at(meter, *site, amount),
+        }
+    }
+}
+
+/// Charges work at the caller's original active locus, preserving its amount
+/// and denial accounting. Only the denied outcome's borrowed pointer is paid
+/// and materialized here; an admitted charge allocates nothing.
+pub(super) fn work_at(
+    meter: &mut WorkMeter,
+    site: Site<'_>,
+    amount: u64,
+) -> Result<(), ValidationFailure> {
+    if meter.budget_mut().is_none() {
+        return meter.charge(amount, || site.at.build());
+    }
+    // The original charge records its first-unpaid locus before any diagnostic
+    // reservation. Its temporary empty pointer owns no heap.
+    match meter.charge(amount, JsonPointer::root) {
+        Err(ValidationFailure::Budget(mut stop)) => {
+            let paid = meter
+                .budget_mut()
+                .is_some_and(|budget| budget.prepay_diagnostic(site.at.pointer_len() as u128));
+            stop.path = paid.then(|| site.at.build());
+            Err(ValidationFailure::Budget(stop))
+        }
+        outcome => outcome,
+    }
+}
 
 /// Little-endian base-2^32 limbs with no most-significant zero limbs.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19,12 +58,20 @@ impl Natural {
         meter: &mut WorkMeter,
         at: &dyn Fn() -> JsonPointer,
     ) -> Result<Self, ValidationFailure> {
+        Self::parse_at(digits, meter, &WorkAt::Legacy(at))
+    }
+
+    fn parse_at(
+        digits: &str,
+        meter: &mut WorkMeter,
+        at: &WorkAt<'_>,
+    ) -> Result<Self, ValidationFailure> {
         // Ten digits per 33.2 bits: the limbs the whole number can need,
         // asked for once, before the first digit is read.
         let bits = digits.len().saturating_mul(10).div_ceil(3);
         let mut limbs: Vec<u32> = meter.vec(bits.div_ceil(32))?;
         for byte in digits.bytes() {
-            meter.charge(limb_work(limbs.len()), at)?;
+            at.charge(meter, limb_work(limbs.len()))?;
             let mut carry = u64::from(byte.wrapping_sub(b'0'));
             for limb in &mut limbs {
                 let product = u64::from(*limb) * 10 + carry;
@@ -175,8 +222,29 @@ pub(super) fn coprime(
     meter: &mut WorkMeter,
     at: &dyn Fn() -> JsonPointer,
 ) -> Result<bool, ValidationFailure> {
-    let mut left = Natural::parse(numerator, meter, at)?;
-    let mut right = Natural::parse(denominator, meter, at)?;
+    coprime_core(numerator, denominator, meter, &WorkAt::Legacy(at))
+}
+
+/// The same binary GCD with borrowed diagnostic position and caller-paid work
+/// denials. Arithmetic operations and their work charges are shared with the
+/// postread callback API.
+pub(super) fn coprime_at(
+    numerator: &str,
+    denominator: &str,
+    meter: &mut WorkMeter,
+    site: Site<'_>,
+) -> Result<bool, ValidationFailure> {
+    coprime_core(numerator, denominator, meter, &WorkAt::Paid(site))
+}
+
+fn coprime_core(
+    numerator: &str,
+    denominator: &str,
+    meter: &mut WorkMeter,
+    at: &WorkAt<'_>,
+) -> Result<bool, ValidationFailure> {
+    let mut left = Natural::parse_at(numerator, meter, at)?;
+    let mut right = Natural::parse_at(denominator, meter, at)?;
     if left.is_zero() {
         return Ok(right.is_one());
     }
@@ -188,14 +256,14 @@ pub(super) fn coprime(
     }
     loop {
         while left.is_even() {
-            meter.charge(left.work(), at)?;
+            at.charge(meter, left.work())?;
             left.halve();
         }
         while right.is_even() {
-            meter.charge(right.work(), at)?;
+            at.charge(meter, right.work())?;
             right.halve();
         }
-        meter.charge(left.work().max(right.work()), at)?;
+        at.charge(meter, left.work().max(right.work()))?;
         match left.cmp(&right) {
             Ordering::Equal => return Ok(left.is_one()),
             Ordering::Less => right.subtract(&left),
@@ -209,6 +277,101 @@ mod tests {
     use super::*;
     use crate::checked_package::shared::CheckedPackageLimit;
     use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn borrowed_gcd_preserves_work_and_prepays_affordable_denial_pointers() {
+        let path = super::super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(45)
+            .key("body");
+        let site = Site::new(
+            super::super::PackageReadStage::Graph,
+            45,
+            "timed_model",
+            path,
+        );
+        let mut legacy = WorkMeter::new(u64::MAX);
+        assert!(coprime("18446744073709551617", "1", &mut legacy, &at).unwrap());
+        let mut borrowed = WorkMeter::new(u64::MAX);
+        assert!(coprime_at("18446744073709551617", "1", &mut borrowed, site).unwrap());
+        assert_eq!(borrowed.consumed(), legacy.consumed());
+        // The first limb block is four bytes; the first digit then denies
+        // work. Its diagnostic pointer is independently affordable or not.
+        for allowance in [4, 4 + path.pointer_len() as u64] {
+            let mut budget =
+                super::super::NativeJoinBudget::new(0, 0).with_read_storage_limit(allowance);
+            let mut outcome = None;
+            let allocated = allocation_counter::measure(|| {
+                outcome = Some(coprime_at(
+                    "1",
+                    "1",
+                    &mut WorkMeter::over(&mut budget),
+                    site,
+                ));
+            });
+            let Err(ValidationFailure::Budget(stop)) = outcome.expect("ran") else {
+                panic!("work denial");
+            };
+            assert_eq!(stop.resource, super::super::PackageReadResource::Work);
+            assert_eq!(stop.amount, 1);
+            assert_eq!(allocated.bytes_total, budget.read_storage_consumed());
+            assert_eq!(
+                stop.path.as_ref().map(JsonPointer::as_str),
+                if allowance == 4 {
+                    None
+                } else {
+                    Some("/semantic_graph/nodes/45/body")
+                }
+            );
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn borrowed_gcd_keeps_legacy_first_unpaid_work_and_locus() {
+        use super::super::native_join_budget::{
+            NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+        };
+        let path = super::super::stage_storage::Path::root().key("scale");
+        let site = Site::new(PackageReadStage::Graph, 45, "timed_model", path);
+        let original = NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 4),
+            form: "scalar_type",
+        };
+        let mut legacy = super::super::NativeJoinBudget::new(1, 0);
+        legacy.set_active_locus(Some(original));
+        assert!(coprime("1", "1", &mut WorkMeter::over(&mut legacy), &at).is_err());
+        for allowance in [
+            8,
+            8 + path.pointer_len() as u64 - 1,
+            8 + path.pointer_len() as u64,
+        ] {
+            let mut paid =
+                super::super::NativeJoinBudget::new(1, 0).with_read_storage_limit(allowance);
+            paid.set_active_locus(Some(original));
+            let mut outcome = None;
+            let allocated = allocation_counter::measure(|| {
+                outcome = Some(coprime_at("1", "1", &mut WorkMeter::over(&mut paid), site))
+            });
+            let Err(ValidationFailure::Budget(stop)) = outcome.expect("ran") else {
+                panic!("work denial");
+            };
+            assert_eq!(paid.first_unpaid(), legacy.first_unpaid());
+            assert_eq!(paid.first_unpaid_locus(), legacy.first_unpaid_locus());
+            assert_eq!(paid.first_unpaid_locus(), Some(original));
+            assert_eq!(allocated.bytes_total, paid.read_storage_consumed());
+            assert_eq!(
+                stop.path.as_ref().map(JsonPointer::as_str),
+                if allowance == 8 + path.pointer_len() as u64 {
+                    Some("/scale")
+                } else {
+                    None
+                }
+            );
+        }
+    }
 
     /// The rational a charge is reported at in these tests.
     fn at() -> JsonPointer {

@@ -128,8 +128,13 @@ impl<'e> StructuralImportIndex<'e> {
 }
 
 impl<'e> SuppliedDependencies<'e> {
-    pub(super) fn packages(&self) -> Vec<&'e CheckedPackageV2> {
-        self.packages.iter().map(|entry| entry.package).collect()
+    pub(super) fn packages(
+        &self,
+        meter: &mut WorkMeter,
+    ) -> Result<Vec<&'e CheckedPackageV2>, ValidationFailure> {
+        let mut packages = meter.vec(self.packages.len())?;
+        packages.extend(self.packages.iter().map(|entry| entry.package));
+        Ok(packages)
     }
     /// Whether a directly selected package holds the node `id`: a
     /// component composition's subject or clause in a component package.

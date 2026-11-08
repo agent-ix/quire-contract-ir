@@ -361,7 +361,10 @@ impl Serialize for CheckedJson {
     }
 }
 
-fn serialize_node<S: Serializer>(node: NodeRef<'_>, serializer: S) -> Result<S::Ok, S::Error> {
+pub(super) fn serialize_node<S: Serializer>(
+    node: NodeRef<'_>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
     match node.node() {
         Node::Null => serializer.serialize_unit(),
         Node::Bool(value) => serializer.serialize_bool(value),
