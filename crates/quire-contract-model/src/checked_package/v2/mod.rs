@@ -173,6 +173,13 @@ pub use monitor_plan::{
     CheckedMonitorPlanRef, SelectedMonitorClosureRows, SelectedMonitorTypeClosure,
     SelectedMonitorTypeClosureError, SelectedMonitorTypeClosureErrorCode,
 };
+#[cfg(feature = "test-support")]
+mod native_budget_observer;
+#[cfg(feature = "test-support")]
+pub use native_budget_observer::{
+    with_native_allocation_class, with_native_budget_observer, NativeBudgetEvent,
+    NativeBudgetResource,
+};
 pub use native_join_budget::{
     NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
     NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,

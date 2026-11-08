@@ -351,6 +351,22 @@ impl NativeJoinBudget {
     /// active locus. A denial records the first unpaid read-storage charge
     /// once and increments no counter.
     pub(super) fn charge_read_storage(&mut self, bytes: u128) -> bool {
+        #[cfg(feature = "test-support")]
+        let before = self.read_storage_consumed;
+        let admitted = self.charge_read_storage_inner(bytes);
+        #[cfg(feature = "test-support")]
+        super::native_budget_observer::emit(super::NativeBudgetEvent {
+            resource: super::NativeBudgetResource::ReadStorage,
+            amount: bytes,
+            consumed_before: before,
+            admitted,
+            locus: self.active_locus,
+            allocation_class: None,
+        });
+        admitted
+    }
+
+    fn charge_read_storage_inner(&mut self, bytes: u128) -> bool {
         if self.unlimited {
             let add = u64::try_from(bytes).unwrap_or(u64::MAX);
             self.read_storage_consumed = self.read_storage_consumed.saturating_add(add);
@@ -421,6 +437,28 @@ impl NativeJoinBudget {
     }
 
     pub(super) fn charge(&mut self, kind: NativeJoinChargeKind, amount: u128) -> bool {
+        #[cfg(feature = "test-support")]
+        let before = match kind {
+            NativeJoinChargeKind::Work => self.consumed.work,
+            NativeJoinChargeKind::Storage => self.consumed.storage,
+        };
+        let admitted = self.charge_inner(kind, amount);
+        #[cfg(feature = "test-support")]
+        super::native_budget_observer::emit(super::NativeBudgetEvent {
+            resource: match kind {
+                NativeJoinChargeKind::Work => super::NativeBudgetResource::Work,
+                NativeJoinChargeKind::Storage => super::NativeBudgetResource::LogicalStorage,
+            },
+            amount,
+            consumed_before: before,
+            admitted,
+            locus: self.active_locus,
+            allocation_class: None,
+        });
+        admitted
+    }
+
+    fn charge_inner(&mut self, kind: NativeJoinChargeKind, amount: u128) -> bool {
         let (consumed, limit) = match kind {
             NativeJoinChargeKind::Work => (&mut self.consumed.work, self.work_limit),
             NativeJoinChargeKind::Storage => (&mut self.consumed.storage, self.storage_limit),
