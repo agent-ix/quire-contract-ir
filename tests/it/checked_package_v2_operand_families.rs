@@ -1553,15 +1553,41 @@ fn genuine_integer_fold_with_both_authored_binders_is_admitted() {
     else {
         panic!("genuine Integer fold with accumulator and element binders must admit");
     };
-    assert_eq!(
-        package
-            .graph()
-            .nodes
-            .iter()
-            .filter(|node| node.semantic_form.as_ref() == "collection")
-            .count(),
-        1
-    );
+    let fold = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "collection")
+        .expect("emitted fold node");
+    let Some(quire_contract_model::CheckedTerm::Application {
+        arguments,
+        result_type,
+        ..
+    }) = package.term(&fold.node_id)
+    else {
+        panic!("typed fold application");
+    };
+    let quire_contract_model::CheckedTerm::Binding { name, value } = &arguments[1] else {
+        panic!("accumulator binder");
+    };
+    assert_eq!(name.as_ref(), "acc");
+    let quire_contract_model::CheckedTerm::Aggregate { members } = value.as_ref() else {
+        panic!("element binder wrapper");
+    };
+    let [quire_contract_model::CheckedTerm::Binding { name, value }] = members.as_slice() else {
+        panic!("single element binder");
+    };
+    assert_eq!(name.as_ref(), "x");
+    let quire_contract_model::CheckedTerm::Reference { target } = value.as_ref() else {
+        panic!("step reference");
+    };
+    let step = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| &node.node_id == target)
+        .expect("resolved final step");
+    assert_eq!(&step.semantic_type, result_type);
 }
 
 #[trace("TC-048", "TC-229", "FR-038-AC-247", "FR-038-AC-248", "FR-038-AC-305")]
