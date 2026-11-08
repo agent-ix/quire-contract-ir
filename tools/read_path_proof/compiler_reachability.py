@@ -1003,9 +1003,12 @@ class Graph:
             if instruction.result:
                 if not value and "ptr" in rhs and not self.call(instruction) and not rhs.startswith(("load ", "getelementptr ", "select ", "phi ")):
                     value = scalar(Atom("unknown", f"unsupported pointer instruction: {rhs[:120]}"))
-                changed |= join_into(state.values.setdefault(instruction.result, {}), value)
-        if changed:
-            self.schedule(function.symbol)
+                if join_into(state.values.setdefault(instruction.result, {}), value):
+                    changed = True
+                    # Only local SSA deltas require another whole-body visit.
+                    # Return, argument and memory deltas already notify their
+                    # actual consumers through caller/object watchers.
+                    self.schedule(function.symbol)
         return changed
 
     def mir_evidence(self, record: dict) -> tuple[dict | None, list[dict]]:
