@@ -41,9 +41,7 @@ use crate::checked_package::common::{
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use crate::checked_package::terms::{subterms, subterms_of, At, Cursor};
 use quire_walk::{Children, Walk};
-use serde::Deserialize;
 use serde_json::Value;
-use std::borrow::Cow;
 use std::ops::ControlFlow;
 
 /// The charge site of the flat-wire check at graph node `index`.
@@ -458,18 +456,15 @@ pub(super) fn check_interval_bounds(
             continue;
         }
         let operation = match CheckedTerm::view_from_wire(body) {
-            Some(CheckedTermView::Application { operation, .. }) => Some(Cow::Borrowed(operation)),
-            _ => ApplicationProjection::deserialize(&node.body)
-                .ok()
-                .and_then(|projection| projection.operation)
-                .map(Cow::Owned),
+            Some(CheckedTermView::Application { operation, .. }) => Some(operation),
+            _ => member(&node.body, "operation"),
         };
         let Some(operation) = operation else {
             continue;
         };
-        let outside_pattern = interval_bound_outside_pattern(&operation);
+        let outside_pattern = interval_bound_outside_pattern(operation);
         let mut nonhybrid_open_upper = false;
-        if timed_upper_is_null(&operation) {
+        if timed_upper_is_null(operation) {
             if hybrid_formulas.is_none() {
                 hybrid_formulas = Some(hybrid_formula_nodes(wire, kinds, budget)?);
             }
@@ -501,57 +496,37 @@ pub(super) fn check_interval_bounds(
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct ApplicationProjection {
-    #[serde(default)]
-    operation: Option<Value>,
-    #[serde(default)]
-    arguments: Option<Value>,
-}
-
-#[derive(Deserialize)]
-struct ReferenceProjection {
-    #[serde(default)]
-    target: Option<CheckedNodeId>,
-}
-
-fn reference_target(term: &CheckedTerm) -> Option<&CheckedNodeId> {
-    match term {
-        CheckedTerm::Reference { target } => Some(target),
-        _ => None,
-    }
+/// A member of an application body that is present and not `null`.
+fn member<'v>(body: &'v Value, name: &str) -> Option<&'v Value> {
+    body.get(name).filter(|value| !value.is_null())
 }
 
 /// Calls `visit` with the target of each argument of the application `body`,
 /// in order, and returns whether `body` has arguments to visit.
 ///
 /// A malformed application still exposes its independent arguments to the
-/// early interval exception check. Decode that one projection only when the
-/// complete admitted term cannot be built; later shape checks own its refusal.
+/// early interval exception check, so this reads the `arguments` member and
+/// each argument's `target` directly; later shape checks own the refusal. A
+/// well-formed application's reference arguments name the same targets. Each
+/// target is built by a charged parse at `site`.
 fn application_targets(
     body: &Value,
-    mut visit: impl FnMut(Option<&CheckedNodeId>) -> Result<(), ValidationFailure>,
+    budget: &mut NativeJoinBudget,
+    site: Site,
+    mut visit: impl FnMut(
+        &mut NativeJoinBudget,
+        Option<&CheckedNodeId>,
+    ) -> Result<(), ValidationFailure>,
 ) -> Result<bool, ValidationFailure> {
-    if let Ok(CheckedTerm::Application { arguments, .. }) = CheckedTerm::decode_admitted(body) {
-        for argument in &arguments {
-            visit(reference_target(argument))?;
-        }
-        return Ok(true);
-    }
-    let Some(arguments) = ApplicationProjection::deserialize(body)
-        .ok()
-        .and_then(|projection| projection.arguments)
-    else {
-        return Ok(false);
-    };
-    let Some(arguments) = arguments.as_array() else {
+    let Some(arguments) = member(body, "arguments").and_then(Value::as_array) else {
         return Ok(false);
     };
     for argument in arguments {
-        let target = ReferenceProjection::deserialize(argument)
-            .ok()
-            .and_then(|projection| projection.target);
-        visit(target.as_ref())?;
+        let target = match member(argument, "target") {
+            Some(target) => read_charge::node_id_from_value(budget, site, target, false)?,
+            None => None,
+        };
+        visit(budget, target.as_ref())?;
     }
     Ok(true)
 }
@@ -612,7 +587,7 @@ fn hybrid_formula_nodes<'w>(
         }
         let (mut over, mut formula) = (None, None);
         let mut index = 0usize;
-        application_targets(&node.body, |target| {
+        application_targets(&node.body, budget, interval_site(position), |_, target| {
             match index {
                 0 => over = target.and_then(|id| found.position(id)),
                 5 => formula = target.and_then(|id| found.position(id)),
@@ -651,16 +626,17 @@ fn hybrid_formula_nodes<'w>(
         let Some(node) = nodes.get(position) else {
             continue;
         };
-        let mut reached = Vec::new();
-        application_targets(&node.body, |target| {
-            if let Some(reached_position) = target.and_then(|id| found.position(id)) {
-                reached.push(reached_position);
-            }
-            Ok(())
-        })?;
-        for reached_position in reached {
-            read_charge::push(budget, site, &mut pending, reached_position)?;
-        }
+        application_targets(
+            &node.body,
+            budget,
+            interval_site(position),
+            |budget, target| {
+                if let Some(reached) = target.and_then(|id| found.position(id)) {
+                    read_charge::push(budget, site, &mut pending, reached)?;
+                }
+                Ok(())
+            },
+        )?;
     }
     Ok(found)
 }
