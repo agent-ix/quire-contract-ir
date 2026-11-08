@@ -622,6 +622,15 @@ enum Slot {
     FairnessList,
     /// A `temporal`/`fairness` node: a member of a clause's fairness argument.
     Fairness,
+    /// The `quantifiers` binding of a `claim`/`hyperproperty` body.
+    HyperQuantifiers,
+    /// The Tuple a `quantifiers` binding holds.
+    QuantifierTuple,
+    /// One quantifier Group of that Tuple.
+    QuantifierGroup,
+    /// A direct member of a quantifier Group: where a fairness reference
+    /// stands (QSpec FR-370-AC-21).
+    GroupMember,
 }
 
 /// The slot of argument `index` of the application at the root of a node of
@@ -719,19 +728,26 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                 }));
             }
             Some(CheckedTermView::Aggregate { members }) => {
-                let member = if slot == Slot::FairnessList {
-                    Slot::Fairness
+                let hyper_root =
+                    is_root && self.kind == CheckedNodeKind::Claim(super::ClaimForm::Hyperproperty);
+                children.extend(members.iter().enumerate().map(|(at, member_term)| {
+                    let member = match slot {
+                        Slot::FairnessList => Slot::Fairness,
+                        Slot::QuantifierTuple => Slot::QuantifierGroup,
+                        Slot::QuantifierGroup => Slot::GroupMember,
+                        _ if hyper_root && at == 3 => Slot::HyperQuantifiers,
+                        _ => Slot::Other,
+                    };
+                    (member_term, false, member)
+                }));
+            }
+            Some(CheckedTermView::Binding { name, value }) => {
+                let value_slot = if slot == Slot::HyperQuantifiers && name == "quantifiers" {
+                    Slot::QuantifierTuple
                 } else {
                     Slot::Other
                 };
-                children.extend(
-                    members
-                        .iter()
-                        .map(|member_term| (member_term, false, member)),
-                );
-            }
-            Some(CheckedTermView::Binding { value, .. }) => {
-                children.extend(std::iter::once((value, false, Slot::Other)));
+                children.extend(std::iter::once((value, false, value_slot)));
             }
             Some(CheckedTermView::Reference { .. }) => {
                 let target = reference_target(term).and_then(|target| self.graph.node(&target));
@@ -740,7 +756,7 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                         slot != Slot::Formula
                     }
                     Some((_, CheckedNodeKind::Temporal(TemporalForm::Fairness))) => {
-                        slot != Slot::Fairness
+                        !matches!(slot, Slot::Fairness | Slot::GroupMember)
                     }
                     _ => false,
                 };

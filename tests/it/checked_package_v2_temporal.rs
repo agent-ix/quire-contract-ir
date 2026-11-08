@@ -3328,3 +3328,200 @@ fn tc_048_the_first_non_reduced_bound_is_the_lower_key_nodes() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// FR-038-AC-519 (QSpec FR-370-AC-21): fairness references of a hyperproperty
+// ---------------------------------------------------------------------------
+
+fn text(value: &str) -> Value {
+    json!({"term": "literal", "type": node_id(&family_key("a1a1")),
+           "value_kind": "text", "value": value})
+}
+
+fn named(name: &str, value: Value) -> Value {
+    json!({"term": "binding", "name": name, "value": value})
+}
+
+fn group(members: Vec<Value>) -> Value {
+    let mut all = vec![
+        named("variable", text("a")),
+        named("quantifier", text("forall")),
+        named("alias", text("m")),
+    ];
+    all.extend(members);
+    json!({"term": "aggregate", "members": all})
+}
+
+/// A `claim`/`hyperproperty` node whose seven bindings hold the given
+/// `quantifiers` Tuple, `match` and `align_skip` members and `body` term.
+fn hyperproperty(
+    form: &str,
+    quantifiers: Vec<Value>,
+    matched: Vec<Value>,
+    skip: Vec<Value>,
+    body: Value,
+) -> Value {
+    let aggregate = |members: Vec<Value>| json!({"term": "aggregate", "members": members});
+    let members = vec![
+        named("domain", text("behaviours")),
+        named("subjects", aggregate(vec![])),
+        named("parameters", aggregate(vec![])),
+        named("quantifiers", aggregate(quantifiers)),
+        named("match", aggregate(matched)),
+        named("align_skip", aggregate(skip)),
+        named("body", body),
+    ];
+    node_with_key(&fresh(), "claim", form, aggregate(members))
+}
+
+/// The model-enabled fixture with a fairness node, the clause's formula node
+/// and the labels of both.
+fn hyper_fixture() -> (Value, String, String) {
+    let (mut package, fair) =
+        with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
+    let fair_key = node_label(&package, fair);
+    let formula_key = node_label(
+        &package,
+        find_identity(&package, &temporal_identity("eventually")),
+    );
+    let clause_key = node_label(&package, clause(&package));
+    // The clause no longer names the fairness node: only the claim does.
+    let clause_at = clause(&package);
+    package["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][4] =
+        json!({"term": "aggregate", "members": []});
+    (package, fair_key, format!("{formula_key}\n{clause_key}"))
+}
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_a_fairness_reference_in_a_quantifier_group_is_admitted() {
+    let (mut package, fair, keys) = hyper_fixture();
+    let clause_key = keys.split('\n').nth(1).expect("clause").to_owned();
+    push(
+        &mut package,
+        hyperproperty(
+            "hyperproperty",
+            vec![group(vec![refer(&fair), refer(&fair)]), group(vec![])],
+            vec![],
+            vec![],
+            refer(&clause_key),
+        ),
+    );
+    settle(&mut package);
+    admitted("fairness reference in a quantifier Group", &package);
+}
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_a_fairness_reference_elsewhere_in_a_hyperproperty_refuses_at_the_node() {
+    let (base, fair, keys) = hyper_fixture();
+    let clause_key = keys.split('\n').nth(1).expect("clause").to_owned();
+    let body = || refer(&clause_key);
+    let cases: Vec<(&str, Value)> = vec![
+        (
+            "in the match aggregate",
+            hyperproperty(
+                "hyperproperty",
+                vec![group(vec![])],
+                vec![refer(&fair)],
+                vec![],
+                body(),
+            ),
+        ),
+        (
+            "in the align_skip aggregate",
+            hyperproperty(
+                "hyperproperty",
+                vec![group(vec![])],
+                vec![],
+                vec![refer(&fair)],
+                body(),
+            ),
+        ),
+        (
+            "as the body target",
+            hyperproperty(
+                "hyperproperty",
+                vec![group(vec![])],
+                vec![],
+                vec![],
+                refer(&fair),
+            ),
+        ),
+        (
+            "as the value of a Group's binding",
+            hyperproperty(
+                "hyperproperty",
+                vec![group(vec![named("extra", refer(&fair))])],
+                vec![],
+                vec![],
+                body(),
+            ),
+        ),
+        (
+            "directly in the quantifiers Tuple",
+            hyperproperty("hyperproperty", vec![refer(&fair)], vec![], vec![], body()),
+        ),
+        (
+            "in the quantifier Group of another claim form",
+            hyperproperty(
+                "verification_claim",
+                vec![group(vec![refer(&fair)])],
+                vec![],
+                vec![],
+                body(),
+            ),
+        ),
+    ];
+    for (case, node) in cases {
+        let mut package = base.clone();
+        let position = push(&mut package, node);
+        settle(&mut package);
+        misplaced(case, &package, position);
+    }
+}
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_a_formula_reference_anywhere_in_a_hyperproperty_refuses_at_the_node() {
+    let (base, _, keys) = hyper_fixture();
+    let (formula_key, clause_key) = keys.split_once('\n').expect("keys");
+    let cases: Vec<(&str, Value)> = vec![
+        (
+            "in a quantifier Group",
+            hyperproperty(
+                "hyperproperty",
+                vec![group(vec![refer(formula_key)])],
+                vec![],
+                vec![],
+                refer(clause_key),
+            ),
+        ),
+        (
+            "in the match aggregate",
+            hyperproperty(
+                "hyperproperty",
+                vec![group(vec![])],
+                vec![refer(formula_key)],
+                vec![],
+                refer(clause_key),
+            ),
+        ),
+        (
+            "as the body target",
+            hyperproperty(
+                "hyperproperty",
+                vec![group(vec![])],
+                vec![],
+                vec![],
+                refer(formula_key),
+            ),
+        ),
+    ];
+    for (case, node) in cases {
+        let mut package = base.clone();
+        let position = push(&mut package, node);
+        settle(&mut package);
+        misplaced(case, &package, position);
+    }
+}
