@@ -33,7 +33,8 @@ use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::natural::{compare_rationals, coprime};
 use super::operation_catalog::OperationCatalog;
 use super::operations::resolve_family;
-use super::structural::typed_reference;
+// These validators consume the strict decoder's authenticated typed table.
+use super::structural::typed_admitted_reference as typed_reference;
 use super::{
     member_pointer, ApplicationOperator, CheckedDiagnosticV2, CheckedNodeKind,
     CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm, ClockConfiguration,
@@ -437,7 +438,6 @@ pub(super) fn validate_timed_bounds_reduced(
             let Some(rational) = Rational::read_node(bound_node, meter)? else {
                 continue;
             };
-            let at_body = || node_pointer(position).key("body");
             if !coprime(
                 rational.numerator.digits(),
                 rational.denominator.digits(),
@@ -453,15 +453,28 @@ pub(super) fn validate_timed_bounds_reduced(
                         .key("body"),
                 ),
             )? {
-                return Err(ValidationFailure::refused_at(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    at_body()
-                        .key("operation")
-                        .key("member")
-                        .key("interval")
-                        .key(bound),
-                    None,
-                    node.node_id.clone(),
+                let at = super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position)
+                    .key("body")
+                    .key("operation")
+                    .key("member")
+                    .key("interval")
+                    .key(bound);
+                return Err(super::stage_storage::refuse(
+                    meter,
+                    &super::stage_storage::Site::new(
+                        super::PackageReadStage::Graph,
+                        position,
+                        "temporal",
+                        at,
+                    ),
+                    super::stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        at,
+                    )
+                    .at_node(&node.node_id),
                 ));
             }
         }
@@ -1010,7 +1023,11 @@ fn check_bounds(
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let at_body = || node_pointer(position).key("body");
+    let at_body = super::stage_storage::Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(position)
+        .key("body");
     let defective = match interval {
         Interval::Unbounded | Interval::LowerBounded => false,
         Interval::Closed { lower, upper } => lower > upper,
@@ -1044,11 +1061,17 @@ fn check_bounds(
         },
     };
     if defective {
-        Err(ValidationFailure::refused_at(
-            CheckedPackageRefusalCode::InvalidPackage,
-            at_body(),
-            Some(CheckedPackageRefusalCause::InvalidValue),
-            graph.nodes[position].node_id.clone(),
+        Err(super::stage_storage::refuse(
+            meter,
+            &super::stage_storage::Site::new(
+                super::PackageReadStage::Graph,
+                position,
+                "temporal",
+                at_body,
+            ),
+            super::stage_storage::Refusal::new(CheckedPackageRefusalCode::InvalidPackage, at_body)
+                .because(CheckedPackageRefusalCause::InvalidValue)
+                .at_node(&graph.nodes[position].node_id),
         ))
     } else {
         Ok(())
