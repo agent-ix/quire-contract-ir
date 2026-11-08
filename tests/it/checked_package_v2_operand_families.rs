@@ -1601,6 +1601,39 @@ fn genuine_integer_fold_with_both_authored_binders_is_admitted() {
     assert_eq!(&step.semantic_type, result_type);
 }
 
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-251")]
+#[test]
+fn genuine_monitor_base_fold_is_admitted_without_removing_semantics() {
+    let bytes = include_bytes!("../fixtures/fold-binders/monitor-base.json");
+    let mut evidence = quire_contract_model::CheckedPackageEvidence::new();
+    evidence.support_feature("quire.value.complete/v1");
+    evidence.insert_domain_package_document("example/config-version",
+        include_bytes!("../fixtures/fold-binders/monitor-model.json").to_vec())
+        .expect("selected ConfigVersion model evidence");
+    let package = match CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), &evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("complete genuine monitor-base fold must admit: {other:?}"),
+    };
+    assert_eq!(package.graph().nodes.len(), 1114, "retain the full emitted graph");
+    let fold = &package.graph().nodes[359];
+    let Some(quire_contract_model::CheckedTerm::Application { operation, arguments, result_type, .. }) =
+        package.term(&fold.node_id) else { panic!("original monitor fold application"); };
+    assert_eq!(operation.identity(), Some("quire.op.collection.fold"));
+    let quire_contract_model::CheckedTerm::Binding { name, value } = &arguments[1]
+        else { panic!("monitor accumulator binder"); };
+    assert_eq!(name.as_ref(), "a");
+    let quire_contract_model::CheckedTerm::Aggregate { members } = value.as_ref()
+        else { panic!("monitor element wrapper"); };
+    let [quire_contract_model::CheckedTerm::Binding { name, value }] = members.as_slice()
+        else { panic!("monitor element binder"); };
+    assert_eq!(name.as_ref(), "x");
+    let quire_contract_model::CheckedTerm::Reference { target } = value.as_ref()
+        else { panic!("monitor final step reference"); };
+    let step = package.resolved_graph().nodes.iter().find(|node| &node.node_id == target)
+        .expect("monitor final step resolves");
+    assert_eq!(&step.semantic_type, result_type);
+}
+
 #[trace("TC-048", "TC-229", "FR-038-AC-247", "FR-038-AC-248", "FR-038-AC-305")]
 #[test]
 fn non_member_model_results_remain_admitted() {
