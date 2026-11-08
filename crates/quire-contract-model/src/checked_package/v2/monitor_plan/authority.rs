@@ -299,3 +299,55 @@ impl<'a> CheckedMonitorPlanRef<'a> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ix_trace_rs::trace;
+
+    fn period(numerator: &str, denominator: &str) -> CheckedRational {
+        CheckedRational {
+            numerator: numerator.into(),
+            denominator: denominator.into(),
+        }
+    }
+
+    #[trace("TC-471", "FR-361-AC-1")]
+    #[test]
+    fn exact_period_comparison_rejects_invalid_denominators_and_text() {
+        let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        assert!(same_period("2", &period("4", "2"), &mut budget).unwrap());
+        assert!(same_period("2/3", &period("4", "6"), &mut budget).unwrap());
+        for row in [period("0", "0"), period("2", "0"), period("-2", "1"), period("x", "1"), period("", "1"), period("2", "3")] {
+            assert!(!same_period("2", &row, &mut budget).unwrap(), "{row:?}");
+        }
+    }
+
+    #[trace("TC-471", "FR-361-AC-4")]
+    #[test]
+    fn exact_period_comparison_reserves_work_and_scratch_at_the_authority_locus() {
+        let row = period("40000000000000000000000000000000000000000000000000", "20000000000000000000000000000000000000000000000000");
+        let location = NativeJoinLocus {
+            source: NativeJoinLocusSource::MonitorSeed(1),
+            form: FORM,
+        };
+        let read = |budget: &mut NativeJoinBudget| {
+            budget.set_active_locus(Some(location));
+            same_period("2", &row, budget)
+        };
+        let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
+        assert!(read(&mut measured).unwrap());
+        let spent = measured.consumed();
+        assert!(read(&mut NativeJoinBudget::new(spent.work, spent.storage)).unwrap());
+        for (budget, expected) in [
+            (NativeJoinBudget::new(spent.work - 1, spent.storage), SelectedMonitorTypeClosureErrorCode::WorkLimit),
+            (NativeJoinBudget::new(spent.work, spent.storage - 1), SelectedMonitorTypeClosureErrorCode::StorageLimit),
+        ] {
+            let mut budget = budget;
+            let error = read(&mut budget).expect_err("one below refuses before arithmetic");
+            assert_eq!(error.code, expected);
+            assert_eq!(error.denied_locus, Some(location));
+            assert!(error.denied.is_some());
+        }
+    }
+}
