@@ -558,7 +558,7 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
     }
     let vectors = qspec_inputs::read_json(&proposal.join("model-option-type-vectors.json"))
         .expect("published option vectors");
-    let base = qspec_option_inputs::document(&vectors["domain_package"]);
+    let (base, field_queries) = qspec_option_inputs::field_query_inputs(&vectors);
     let (wire, evidence) = qspec_option_inputs::prepare(&base);
     cases.push(Case {
         label: format!(
@@ -569,6 +569,12 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
         evidence,
         expected: Expected::Admitted,
     });
+    // The original driver applies every query to this same admitted base;
+    // source sharing establishes input provenance without crediting extra reads.
+    for query in field_queries {
+        let id = query["name"].as_str().expect("option field query name");
+        providers.insert(format!("conformance_qspec/model_option_types.rs: model-option-type-vectors.json#/field_type_cases#{id}"));
+    }
     for row in vectors["intake_cases"]
         .as_array()
         .expect("option intake cases")

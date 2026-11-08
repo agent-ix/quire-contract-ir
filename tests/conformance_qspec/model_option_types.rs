@@ -84,7 +84,7 @@ fn expected(value: &Value, unit: &CheckedNodeId, identity: &str) -> CheckedMembe
 #[test]
 fn published_option_field_types_match_canonical_domains() {
     let vectors = vectors();
-    let input = document(&vectors["domain_package"]);
+    let (input, field_queries) = inputs::field_query_inputs(&vectors);
     let admitted = match read(&input) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("base option projection must admit: {other:?}"),
@@ -113,7 +113,7 @@ fn published_option_field_types_match_canonical_domains() {
         .node_id
         .clone();
     let mut seen = BTreeSet::new();
-    for case in vectors["field_type_cases"].as_array().unwrap() {
+    for case in field_queries {
         let name = case["name"].as_str().unwrap();
         assert!(seen.insert(name));
         if let Some(field) = case["field"].as_str() {

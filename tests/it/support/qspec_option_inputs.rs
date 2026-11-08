@@ -227,3 +227,14 @@ pub(crate) fn prepare(input: &Input) -> (Value, CheckedPackageEvidence) {
     evidence.support_feature("quire.value.complete/v1");
     (package, evidence)
 }
+
+/// The original field queries share one admitted projection. These rows are
+/// consumed after that read; none describes an independent package mutation.
+pub(crate) fn field_query_inputs(vectors: &Value) -> (Input, &[Value]) {
+    (
+        document(&vectors["domain_package"]),
+        vectors["field_type_cases"]
+            .as_array()
+            .expect("published option field queries"),
+    )
+}
