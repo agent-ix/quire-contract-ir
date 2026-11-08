@@ -89,6 +89,14 @@ fn row_pointer(index: usize) -> JsonPointer {
     JsonPointer::root().key("temporal_bindings").index(index)
 }
 
+fn binding_work(
+    meter: &mut WorkMeter,
+    path: super::stage_storage::Path<'_>,
+) -> Result<(), ValidationFailure> {
+    let site = super::natural::site(meter, path);
+    super::natural::work_at(meter, site, 1)
+}
+
 fn malformed(at: JsonPointer) -> ValidationFailure {
     ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
 }
@@ -179,7 +187,12 @@ fn validate_shape(
     for (index, row) in rows.iter().enumerate() {
         meter.at_row("temporal_bindings", index);
         let at = || row_pointer(index);
-        meter.charge(1, at)?;
+        binding_work(
+            meter,
+            super::stage_storage::Path::root()
+                .key("temporal_bindings")
+                .index(index),
+        )?;
         if row.clock_name.is_empty() {
             return Err(malformed(at().key("clock_name")));
         }
@@ -448,7 +461,13 @@ pub(super) fn validate<B>(
         };
         let mut owned = false;
         for occurrence in &nodes[position].occurrences {
-            meter.charge(1, || at().key("occurrence"))?;
+            binding_work(
+                meter,
+                super::stage_storage::Path::root()
+                    .key("temporal_bindings")
+                    .index(row_index)
+                    .key("occurrence"),
+            )?;
             if occurrence.role == role && occurrence.ordinal == row.occurrence {
                 owned = true;
                 break;
@@ -494,7 +513,14 @@ pub(super) fn validate<B>(
             continue;
         };
         for occurrence in &node.occurrences {
-            meter.charge(1, || node_pointer(position).key("body"))?;
+            binding_work(
+                meter,
+                super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position)
+                    .key("body"),
+            )?;
             if occurrence.role == role
                 && seen.binary_search(&(position, occurrence.ordinal)).is_err()
             {
@@ -539,7 +565,14 @@ pub(super) fn validate<B>(
         let mut selected = false;
         if let Some(law) = law.as_ref() {
             for selection in &lock.profile_selections {
-                meter.charge(1, || at().key("clock").key("kind"))?;
+                binding_work(
+                    meter,
+                    super::stage_storage::Path::root()
+                        .key("temporal_bindings")
+                        .index(row_index)
+                        .key("clock")
+                        .key("kind"),
+                )?;
                 if selection.role == CheckedSelectionRole::TemporalProfile
                     && selection.definition == *law
                 {
@@ -947,6 +980,96 @@ mod closed_record_storage_tests {
             assert!(matches!(result,Err(ValidationFailure::Budget(_))));
             assert_eq!(allocated,budget.read_storage_consumed());
             assert!(budget.first_unpaid_read_storage().is_some());
+        }
+    }
+}
+
+#[cfg(test)]
+mod occurrence_work_storage_tests {
+    use super::super::{NativeJoinBudget, PackageReadStage};
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-508", "FR-038-AC-511")]
+    #[test]
+    fn occurrence_work_denial_prepays_only_its_final_pointer() {
+        use super::super::stage_storage::Path;
+        for borrowed in [
+            Path::root().key("temporal_bindings").index(0),
+            Path::root()
+                .key("temporal_bindings")
+                .index(0)
+                .key("occurrence"),
+            Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(7)
+                .key("body"),
+            Path::root()
+                .key("temporal_bindings")
+                .index(0)
+                .key("clock")
+                .key("kind"),
+        ] {
+            let expected_path = borrowed.build();
+            let path = expected_path.as_str();
+            let run = |budget: &mut NativeJoinBudget| {
+                budget.set_active_locus(Some(super::super::NativeJoinLocus {
+                    source: super::super::NativeJoinLocusSource::PackageRead(
+                        PackageReadStage::Graph,
+                        7,
+                    ),
+                    form: "temporal_clause",
+                }));
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(budget);
+                    meter.at_node(7, "temporal_clause");
+                    result = Some(binding_work(&mut meter, borrowed));
+                })
+                .bytes_total;
+                (result.unwrap(), allocated)
+            };
+            let mut admitted = NativeJoinBudget::new(1, 0);
+            assert_eq!(run(&mut admitted), (Ok(()), 0));
+            assert_eq!(admitted.consumed().work, 1);
+            let mut ample = NativeJoinBudget::new(0, 0).with_read_storage_limit(u64::MAX);
+            let (expected, allocated) = run(&mut ample);
+            let Err(ValidationFailure::Budget(stop)) = &expected else {
+                panic!("work denial")
+            };
+            assert_eq!(stop.path.as_ref().unwrap().as_str(), path);
+            assert_eq!(stop.resource, super::super::PackageReadResource::Work);
+            assert_eq!(stop.amount, 1);
+            let required = ample.read_storage_consumed();
+            assert_eq!(required, path.len() as u64);
+            assert_eq!(allocated, required);
+            let locus = ample.first_unpaid_locus();
+            assert!(locus.is_some());
+            assert_eq!(
+                locus.unwrap().source,
+                super::super::NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 7)
+            );
+            let mut exact = NativeJoinBudget::new(0, 0).with_read_storage_limit(required);
+            assert_eq!(run(&mut exact), (expected.clone(), required));
+            for limit in [0, required - 1] {
+                let mut short = NativeJoinBudget::new(0, 0).with_read_storage_limit(limit);
+                let (result, allocated) = run(&mut short);
+                let Err(ValidationFailure::Budget(stop)) = result else {
+                    panic!("work denial")
+                };
+                assert_eq!(stop.path, None);
+                assert_eq!(allocated, 0);
+                assert_eq!(short.read_storage_consumed(), 0);
+                assert_eq!(short.first_unpaid_locus(), locus);
+                assert_eq!(short.consumed().work, ample.consumed().work);
+            }
+            let mut repeated = NativeJoinBudget::new(0, 0).with_read_storage_limit(2 * required);
+            assert_eq!(run(&mut repeated), (expected.clone(), required));
+            assert_eq!(run(&mut repeated), (expected, required));
+            assert_eq!(repeated.read_storage_consumed(), 2 * required);
+            assert_eq!(repeated.first_unpaid_locus(), locus);
+            assert_eq!(repeated.consumed().work, ample.consumed().work);
         }
     }
 }
