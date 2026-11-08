@@ -239,13 +239,13 @@ existing element meaning. A map row's value SHALL be the complete producer
 
 The existing source-collection row join and Exact projection path SHALL
 accept a structurally corresponding map row and return its complete map type.
-This row support SHALL retain the existing admitted map key-type restrictions
-and cardinality rules; it SHALL NOT admit a new key domain. A package map type
-declares its key type, its value type and its entry-count bound
-(QSpec FR-154 "Map types"), and a projected `ValueType::Map` SHALL carry the
-Exact type of the emitted key node, not a fixed key: a `Text` or `String` key
-projects as `ValueType::String`, and a `Boolean`, `Integer`, `UUID` or
-`Timestamp` key as its own Exact type. A key node of any other form SHALL keep
+This row support SHALL retain the existing cardinality rules. The admitted map
+key domain is the package's scalar key types (QSpec FR-154 "Map types"); a
+package map type declares its key type, its value type and its entry-count
+bound, and a projected `ValueType::Map` SHALL carry the Exact type of the
+emitted key node, not a fixed key: a `Text` or `String` key projects as
+`ValueType::String`, and a `Boolean`, `Integer`, `UUID` or `Timestamp` key as
+its own Exact type. Row support SHALL NOT admit a key outside that domain. A key node of any other form SHALL keep
 the existing `UnsupportedExactType` refusal. A source map row whose Exact map
 key differs from the Exact type of its key node SHALL NOT join. A projection
 rebuilt from an existing map SHALL forward that map's key and bound

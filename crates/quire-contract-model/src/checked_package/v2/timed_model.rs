@@ -4039,6 +4039,164 @@ mod tests {
         }
     }
 
+    /// Runs `check_resolved_path` over the published map-slot place with the
+    /// package's `ClockMap` declaring `upper` and the place spelling
+    /// `spelled` as its maximum (`None` spells `unbounded`).
+    fn map_slot_place(upper: Option<u64>, spelled: Option<u64>) -> Result<(), ValidationFailure> {
+        let root = std::env::var("QUIRE_SPECIFICATION_DIR").expect("published QSpec checkout");
+        let proposal = FilePath::new(&root).join("proposals/checked-package-v2");
+        let vectors: Value = serde_json::from_slice(
+            &std::fs::read(proposal.join("timed-slot-selector-vectors.json"))
+                .expect("published slot vectors"),
+        )
+        .expect("vector JSON");
+        let mut wire: Value = serde_json::from_slice(
+            &std::fs::read(
+                proposal.join(
+                    vectors["selected_package"]
+                        .as_str()
+                        .expect("published package reference"),
+                ),
+            )
+            .expect("published slot package"),
+        )
+        .expect("wire JSON");
+        let mut selected: Value = serde_json::from_slice(
+            &std::fs::read(proposal.join("domain-package-acme-timed-slots.json"))
+                .expect("original selected model"),
+        )
+        .expect("selected JSON");
+        let declared = selected["types"]
+            .as_array_mut()
+            .expect("types")
+            .iter_mut()
+            .find(|ty| ty["identity"] == "ix://acme/orders/ClockMap")
+            .expect("ClockMap");
+        declared["bound"] = match upper {
+            Some(upper) => json!({"lower": 0, "upper": upper}),
+            None => json!({"lower": 0}),
+        };
+        let at = wire["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .position(|node| {
+                node["semantic_form"] == "clock_place"
+                    && node["body"]
+                        .to_string()
+                        .contains("Map<Text, ix://quire/native/Clock>")
+            })
+            .expect("the published map-slot place");
+        let place = &mut wire["semantic_graph"]["nodes"][at];
+        let member = |body: &mut Value, name: &str| -> usize {
+            body["members"]
+                .as_array()
+                .expect("members")
+                .iter()
+                .position(|member| member["name"] == name)
+                .unwrap_or_else(|| panic!("{name}"))
+        };
+        let body = &mut place["body"];
+        let path = member(body, "path");
+        let slot = &mut body["members"][path]["value"]["members"][1];
+        let minimum = member(slot, "minimum");
+        let maximum = member(slot, "maximum");
+        let integer = slot["members"][minimum]["value"]["type"].clone();
+        if let Some(spelled) = spelled {
+            slot["members"][maximum]["value"] = json!({
+                "term": "literal", "type": integer, "value": spelled, "value_kind": "integer"
+            });
+        }
+        let resolved = member(body, "resolved_path");
+        let row = &mut body["members"][resolved]["value"]["members"][0];
+        let maximum = member(row, "maximum");
+        row["members"][maximum]["value"]["value"] =
+            json!(spelled.map_or_else(|| "unbounded".to_owned(), |text| text.to_string()));
+        let mut wire: super::super::RawCheckedPackageWireV2 =
+            serde_json::from_value(wire).expect("mutated wire");
+        let models =
+            [super::super::model_members::tests::read(&selected).expect("selected model intake")];
+        let bodies: Vec<_> = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| node.body.clone())
+            .collect();
+        let mut setup = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        super::super::node_index::resolve_slots(&mut wire, &bodies, &mut setup)
+            .expect("wire slot resolution");
+        let nodes = &wire.semantic_graph.nodes;
+        let owners = ModelOwners::new(&models, nodes, |_| Ok(())).expect("model owners");
+        let kinds: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                super::super::CheckedNodeTag::from_wire(&node.node_tag)
+                    .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+                    .expect("published node kind")
+            })
+            .collect();
+        let terms: Vec<_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(at, _)| {
+                super::super::decode_admitted_body(
+                    kinds[at],
+                    &bodies[at],
+                    wire.semantic_graph
+                        .operand_rows
+                        .get(at)
+                        .map_or(&[][..], Vec::as_slice),
+                    at,
+                    &mut WorkMeter::over(&mut setup),
+                )
+                .ok()
+            })
+            .collect();
+        let index: GraphIndex<'_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(at, node)| (&node.node_id, at))
+            .collect();
+        let graph = Graph {
+            nodes,
+            kinds: &kinds,
+            terms: &terms,
+            index: &index,
+        };
+        let place = terms[at].as_ref().expect("place body");
+        let model = *index
+            .get(
+                bound(place, 0)
+                    .and_then(typed_target)
+                    .expect("model target"),
+            )
+            .expect("model node");
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        check_resolved_path(
+            &graph,
+            at,
+            place,
+            model,
+            &owners,
+            &mut WorkMeter::over(&mut budget),
+        )
+    }
+
+    /// A map slot spells the declared bound of its map type, not an unbounded default.
+    #[trace("TC-473", "FR-357-AC-24")]
+    #[test]
+    fn map_slot_spells_the_declared_bound_of_its_map_type() {
+        // The package as published: `{lower: 0}` is unbounded.
+        assert!(map_slot_place(None, None).is_ok());
+        // A declared upper of 2 is spelled `2`.
+        assert!(map_slot_place(Some(2), Some(2)).is_ok());
+        // A place that still spells `unbounded` contradicts it, and one that
+        // spells a bound the map does not declare contradicts an unbounded map.
+        assert!(map_slot_place(Some(2), None).is_err());
+        assert!(map_slot_place(None, Some(2)).is_err());
+        assert!(map_slot_place(Some(2), Some(3)).is_err());
+    }
+
     #[trace("TC-472", "FR-038-AC-511")]
     #[test]
     fn timed_wire_first_defect_refusal_and_its_denial_are_paid() {
