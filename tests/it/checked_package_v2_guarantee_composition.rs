@@ -1187,3 +1187,69 @@ fn tc_474_guarantee_operations_must_belong_to_the_clause_model_subject() {
         &at(position, "/body/progress/0"),
     );
 }
+
+#[trace("TC-474", "FR-038-AC-531")]
+#[test]
+fn guarantee_without_progress_or_environment_retains_its_complete_typed_body() {
+    let (package, position) = guaranteed(|body| {
+        body["progress"] = json!([]);
+        body["environment"] = json!([]);
+    });
+    let expected = nodes(&package)[position]["body"].clone();
+    let admitted = admitted("empty guarantee lists", &package);
+    let node = &admitted.graph().nodes[position];
+    let term = admitted.term(&node.node_id).expect("retained guarantee");
+    let CheckedTerm::ImplementationGuarantee {
+        progress,
+        environment,
+        ..
+    } = term
+    else {
+        panic!("the guarantee must retain its typed body");
+    };
+    assert!(progress.is_empty());
+    assert!(environment.is_empty());
+    assert_eq!(
+        serde_json::to_value(term).expect("typed guarantee"),
+        expected
+    );
+}
+
+#[trace("TC-474", "FR-038-AC-532")]
+#[test]
+fn every_composition_rule_retains_its_rule_and_distinct_premise_lists() {
+    for expected_rule in [
+        "assume-guarantee",
+        "protocol-refinement",
+        "refinement-transfer",
+        "interface",
+    ] {
+        let (package, position) = composed(|body| body["rule"] = json!(expected_rule));
+        let expected = nodes(&package)[position]["body"].clone();
+        let admitted = admitted(expected_rule, &package);
+        let node = &admitted.graph().nodes[position];
+        let term = admitted.term(&node.node_id).expect("retained composition");
+        let CheckedTerm::ComponentComposition {
+            rule,
+            relies,
+            liveness_dependencies,
+            ..
+        } = term
+        else {
+            panic!("the composition must retain its typed body");
+        };
+        assert_eq!(rule.as_ref(), expected_rule);
+        assert_eq!(
+            serde_json::to_value(relies).expect("typed relies"),
+            expected["relies"]
+        );
+        assert_eq!(
+            serde_json::to_value(liveness_dependencies).expect("typed liveness dependencies"),
+            expected["liveness_dependencies"]
+        );
+        assert_eq!(
+            serde_json::to_value(term).expect("typed composition"),
+            expected
+        );
+    }
+}
