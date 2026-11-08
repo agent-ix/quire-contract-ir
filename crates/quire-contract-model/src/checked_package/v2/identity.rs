@@ -1948,7 +1948,7 @@ fn validate_dimension_equivalence(
     let ids = &equivalence.dimension_node_ids;
     for (position, operand) in equivalence.operands.iter().enumerate() {
         let id = operand.node_id();
-        let at = site.nominal_member(&["dimension_node_ids"]).index(position);
+        let at = || site.nominal_member(&["dimension_node_ids"]).index(position);
         meter.charge(1, || {
             site.nominal_member(&["dimension_node_ids"]).index(position)
         })?;
@@ -1956,7 +1956,7 @@ fn validate_dimension_equivalence(
             CheckedDimensionOperand::Local(_) => {
                 require(
                     id.package == site.node.node_id.package && graph.index.contains_key(id),
-                    || at.clone(),
+                    &at,
                 )?;
             }
             CheckedDimensionOperand::Package(reference) => {
@@ -1965,14 +1965,14 @@ fn validate_dimension_equivalence(
                     .ok_or_else(|| {
                         ValidationFailure::refused_because(
                             CheckedPackageRefusalCode::MissingDeclaration,
-                            at.clone().key("package"),
+                            at().key("package"),
                             CheckedPackageRefusalCause::MissingSelection,
                         )
                     })?;
                 if selected.node(id).is_none() {
                     return Err(ValidationFailure::refused_because(
                         CheckedPackageRefusalCode::MissingDeclaration,
-                        at.clone().key("node"),
+                        at().key("node"),
                         CheckedPackageRefusalCause::MissingName,
                     ));
                 }
@@ -1980,7 +1980,7 @@ fn validate_dimension_equivalence(
         }
         require(
             matches!(graph.nominal(id), Some(NominalRecord::Dimension(_))),
-            || at,
+            &at,
         )?;
     }
     require(ids[0] < ids[1], || site.pointer())?;
