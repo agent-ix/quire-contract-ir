@@ -6193,8 +6193,8 @@ mod namespace_fault_storage_tests {
 
 #[cfg(test)]
 mod header_fault_storage_tests {
-    use super::*;
     use super::monitor_plan::model_document_test_fixture as fixture;
+    use super::*;
     use ix_trace_rs::trace;
 
     #[trace("TC-451", "TC-472", "FR-038-AC-510", "FR-038-AC-511")]
@@ -6209,16 +6209,19 @@ mod header_fault_storage_tests {
 
         let version = std::mem::replace(&mut wire.contract_version, "unknown".into());
         let mut priority = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
-        assert!(matches!(check_package_header(&wire, &mut WorkMeter::over(&mut priority)),
+        assert!(
+            matches!(check_package_header(&wire, &mut WorkMeter::over(&mut priority)),
             Err(ValidationFailure::Refused(refusal))
-                if refusal.code == CheckedPackageRefusalCode::UnknownContractVersion));
+                if refusal.code == CheckedPackageRefusalCode::UnknownContractVersion)
+        );
         wire.contract_version = version;
 
         let run = |budget: &mut NativeJoinBudget| {
             let mut result = None;
             let allocated = allocation_counter::measure(|| {
                 result = Some(check_package_header(&wire, &mut WorkMeter::over(budget)));
-            }).bytes_total;
+            })
+            .bytes_total;
             (result.unwrap(), allocated)
         };
         let mut ample = NativeJoinBudget::new(0, 0).with_read_storage_limit(u64::MAX);
@@ -6233,19 +6236,38 @@ mod header_fault_storage_tests {
         let required = ample.read_storage_consumed();
         assert_eq!(allocated, required);
         assert_eq!(ample.consumed().work, 0);
-        assert_eq!(ample.take_paid(), Some(CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::MalformedWire)));
+        assert_eq!(
+            ample.take_paid(),
+            Some(CheckedPackagePendingOutcome::Refused(
+                CheckedPackageRefusalCode::MalformedWire
+            ))
+        );
         let mut exact = NativeJoinBudget::new(0, 0).with_read_storage_limit(required);
         assert_eq!(run(&mut exact), (expected.clone(), required));
         for limit in [0, required - 1] {
             let mut short = NativeJoinBudget::new(0, 0).with_read_storage_limit(limit);
-            assert!(matches!(run(&mut short), (Err(ValidationFailure::Budget(_)), 0)));
+            assert!(matches!(
+                run(&mut short),
+                (Err(ValidationFailure::Budget(_)), 0)
+            ));
             assert_eq!(short.read_storage_consumed(), 0);
-            assert_eq!(short.first_unpaid_read_storage(), Some(u128::from(required)));
-            assert_eq!(short.first_unpaid_locus(), Some(NativeJoinLocus {
-                source: NativeJoinLocusSource::PackageRead(PackageReadStage::WireChecks, 0),
-                form: "diagnostic",
-            }));
-            assert_eq!(short.take_pending(), Some(CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::MalformedWire)));
+            assert_eq!(
+                short.first_unpaid_read_storage(),
+                Some(u128::from(required))
+            );
+            assert_eq!(
+                short.first_unpaid_locus(),
+                Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::PackageRead(PackageReadStage::WireChecks, 0),
+                    form: "diagnostic",
+                })
+            );
+            assert_eq!(
+                short.take_pending(),
+                Some(CheckedPackagePendingOutcome::Refused(
+                    CheckedPackageRefusalCode::MalformedWire
+                ))
+            );
             assert_eq!(short.consumed().work, 0);
         }
         let mut repeated = NativeJoinBudget::new(0, 0).with_read_storage_limit(2 * required);
