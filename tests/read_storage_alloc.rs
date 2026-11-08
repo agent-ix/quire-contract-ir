@@ -1117,8 +1117,7 @@ fn protocol_location_origin_has_no_unpaid_allocation() {
 }
 
 /// A refused protocol-location row pays for its refusal diagnostic before it
-/// is built, and a read stopped at any work charge inside the rows pays for the
-/// locus it reports (FR-322-AC-289).
+/// is built (FR-322-AC-289).
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn protocol_location_refusals_have_no_unpaid_allocation() {
