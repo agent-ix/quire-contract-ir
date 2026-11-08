@@ -139,7 +139,7 @@ fn wide_fixture() -> Value {
 
 /// Both retained population indexes own their identity, and each copy must be
 /// reserved before the selected-model reader constructs it.
-#[trace("TC-472", "FR-038-AC-497", "FR-038-AC-511")]
+#[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn population_keys_are_paid_before_both_retained_copies_are_allocated() {
     const POPULATION: &str = "ix://acme/orders/widgets";
