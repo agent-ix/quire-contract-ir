@@ -18,7 +18,7 @@ use super::read_charge::{Denied, ReadStorage, Site};
 use super::stage_storage::Path;
 use super::term_view::{NodeIdRead, TermNode};
 use super::{WorkMeter, WorkSource};
-use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::CheckedNodeId;
 use std::cmp::Ordering;
 

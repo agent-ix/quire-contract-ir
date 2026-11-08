@@ -12,12 +12,12 @@
 use super::common::{Step, TermField, TermTag, Trail, ValidationFailure, WireTerm};
 use super::shared::CheckedNodeId;
 use super::v2::read_charge::{Denied, ReadStorage, Site};
-use super::v2::{
-    ApplicationOperator, BodyTerm, CheckedTerm, CheckedTermView, NodeIdRead, TermNode,
-};
+use super::v2::{ApplicationOperator, BodyTerm, NodeIdRead, TermNode};
 use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
+use std::marker::PhantomData;
+use std::ops::ControlFlow;
 
 /// One term below another and where it sits: the member `key` of the parent
 /// (`arguments`, `members` or `value`) and, for an array member, the `index`
@@ -346,7 +346,6 @@ pub(super) struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     /// A cursor at `base`, the position of the walk's root.
-    #[cfg(test)]
     pub(super) fn at(base: &Trail<'a>) -> Self {
         Self {
             steps: base.steps(),
@@ -398,7 +397,6 @@ impl<'a> Cursor<'a> {
     }
 
     /// The node `subterm` of the entered node, with `extra`.
-    #[cfg(test)]
     pub(super) fn subterm<X>(&self, subterm: Subterm<'a>, extra: X) -> At<'a, X> {
         self.child(subterm.value, Some(subterm.key), subterm.index, extra)
     }
@@ -449,15 +447,11 @@ impl<'a> Cursor<'a> {
 
 #[cfg(test)] // the strict read walks `TermNode` subterms; kept as the Value oracle
 /// Visits every term of `root` in document pre-order, outermost first, until
-/// `visit` returns [`std::ops::ControlFlow::Break`].
+/// `visit` returns [`ControlFlow::Break`].
 pub(super) fn visit_terms<'a, B>(
     root: &'a Value,
-    visit: impl FnMut(&'a Value) -> std::ops::ControlFlow<B>,
-) -> std::ops::ControlFlow<B> {
-    use quire_walk::{walk, Children, Walk};
-    use std::marker::PhantomData;
-    use std::ops::ControlFlow;
-
+    visit: impl FnMut(&'a Value) -> ControlFlow<B>,
+) -> ControlFlow<B> {
     struct Visit<'a, B, F>(F, PhantomData<fn(&'a Value) -> B>);
 
     impl<'a, B, F: FnMut(&'a Value) -> ControlFlow<B>> Walk for Visit<'a, B, F> {

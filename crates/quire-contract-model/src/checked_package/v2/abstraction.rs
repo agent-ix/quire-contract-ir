@@ -67,13 +67,44 @@ use crate::checked_package::terms::TermSource;
 
 /// One `{name, rust_*}` binding: a `fields` entry (`rust_field`) or a
 /// `parameters` entry (`rust_parameter`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Binding {
+    name: Box<str>,
+    rust: Box<str>,
+}
+
+/// An `objects` entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ObjectEntry {
+    type_id: CheckedNodeId,
+    rust_type: Vec<Box<str>>,
+    fields: Vec<Binding>,
+}
+
+/// A `populations` entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PopulationEntry {
+    population: CheckedNodeId,
+    collection: Vec<Box<str>>,
+}
+
+/// A `frames` entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FrameEntry {
+    context: CheckedNodeId,
+    operation: Box<str>,
+    function: Vec<Box<str>>,
+    receiver: Box<str>,
+    parameters: Vec<Binding>,
+}
+
 /// An abstraction relation body as the wire carries it, entries in wire
 /// order.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct AbstractionBody {
-    objects: Vec<CheckedAbstractionObject>,
-    populations: Vec<CheckedAbstractionPopulation>,
-    frames: Vec<CheckedAbstractionFrame>,
+    objects: Vec<ObjectEntry>,
+    populations: Vec<PopulationEntry>,
+    frames: Vec<FrameEntry>,
 }
 
 impl AbstractionBody {
@@ -483,7 +514,7 @@ pub(super) fn validate_abstraction<Body: super::model_members::EmptyAggregateBod
         meter.at_node(position, "correspondence");
         let site = Site { node, position };
         let body = check_node(&site, &graph, meter)?;
-        meter.push(&mut admitted, (position, body))?;
+        admitted.push((position, body));
     }
     check_keys(&admitted, meter)
 }
@@ -573,7 +604,7 @@ fn check_order<Body>(
         return out_of_order(body_at.key("populations"), meter);
     }
     let frames_at = body_at.key("frames");
-    fn frame_key(entry: &CheckedAbstractionFrame) -> (&CheckedNodeId, &str) {
+    fn frame_key(entry: &FrameEntry) -> (&CheckedNodeId, &str) {
         (&entry.context, entry.operation.as_ref())
     }
     if !ascending(body.frames.iter().map(frame_key)) {
@@ -727,7 +758,7 @@ fn check_object<Body: super::model_members::EmptyAggregateBody>(
     match entry
         .fields
         .iter()
-        .position(|field| !is_rust_field(&field.field_ident))
+        .position(|field| !is_rust_field(&field.rust))
     {
         Some(index) => Err(malformed(fields_at.index(index), meter)),
         None => Ok(()),
@@ -790,7 +821,7 @@ fn check_frame<Body: super::model_members::EmptyAggregateBody>(
     if let Some(clash) = entry
         .parameters
         .iter()
-        .position(|parameter| parameter.parameter_ident == entry.receiver)
+        .position(|parameter| parameter.rust == entry.receiver)
     {
         return Err(malformed(parameters_at.index(clash), meter));
     }
@@ -800,7 +831,7 @@ fn check_frame<Body: super::model_members::EmptyAggregateBody>(
     match entry
         .parameters
         .iter()
-        .position(|parameter| !is_rust_identifier(&parameter.parameter_ident))
+        .position(|parameter| !is_rust_identifier(&parameter.rust))
     {
         Some(index) => Err(malformed(parameters_at.index(index), meter)),
         None => Ok(()),

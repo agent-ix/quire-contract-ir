@@ -879,6 +879,7 @@ impl ContractPackageV1 {
                         Ok(())
                     },
                     ids,
+                    None,
                 )
             })?;
             work.charge(body_work.saturating_mul(4))
@@ -2930,6 +2931,7 @@ impl ContractPackageWireV1 {
                     &Trail::Base(&steps),
                     &mut |_, _, _, _, _| Ok(()),
                     ids,
+                    None,
                 )
             })?;
             work_meter.charge(work, || at.clone().key("body"))?;
@@ -3397,6 +3399,7 @@ impl ContractPackageWireV1 {
                         Ok(())
                     },
                     ids,
+                    None,
                 )
             })?;
             if let Some(pointer) = missing {
@@ -3587,33 +3590,3 @@ impl ContractPackageWireV1 {
     }
 }
 
-/// The V1 reader and writer's existing special-body decoder. Strict V2 reads
-/// use the retained document decoder in the parent module.
-fn decode_v1_body(
-    kind: super::CheckedNodeKind,
-    body: &Value,
-) -> Result<CheckedTerm, super::typed_terms::TermConversionCause> {
-    if super::source_nominal_body(kind, body.get("term").and_then(Value::as_str)) {
-        super::identity::NominalBody::from_value(body, JsonPointer::root())
-            .map(|body| CheckedTerm::NominalBody(Box::new(body)))
-            .map_err(
-                |_| super::typed_terms::TermConversionCause::MalformedMember {
-                    member: "body",
-                    category: serde_json::error::Category::Data,
-                },
-            )
-    } else if kind == super::CheckedNodeKind::State(super::StateForm::Frame) {
-        super::frame::read_frame_body_legacy(body, &Trail::Base(&[]))
-            .map(|(frame, _)| frame.into_checked_term_legacy())
-            .map_err(
-                |_| super::typed_terms::TermConversionCause::MalformedMember {
-                    member: "body",
-                    category: serde_json::error::Category::Data,
-                },
-            )
-    } else if kind == super::CheckedNodeKind::State(super::StateForm::OperationAnchor) {
-        super::execution_point::decode_anchor_body(body)
-    } else {
-        CheckedTerm::decode_admitted(body)
-    }
-}

@@ -67,14 +67,6 @@ impl EmptyAggregateBody for CheckedTerm {
     }
 }
 
-impl EmptyAggregateBody for super::CheckedJson {
-    fn is_empty_aggregate(&self) -> bool {
-        matches!(
-            super::TermNode::of(self).view(),
-            Some(super::TermView::Aggregate { members }) if members.len() == 0
-        )
-    }
-}
 
 /// The form of the graph-stage requests of the model checks: the tag of the
 /// selected package's `model_root` node.

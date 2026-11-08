@@ -2598,6 +2598,10 @@ fn validate_body<'a, V: TermSource<'a>>(
         }
     }
     if let Some(nominal) = nominal {
+        let mut visit = |id: &CheckedNodeId, site, at: &Trail<'_>| {
+            read_charge::charge_node_id_clone(ids.sink, ids.site, id)?;
+            visit(id.clone(), site, at, ids.sink, ids.site)
+        };
         let site = ReferenceSite {
             member: ReferenceMember::Target,
             is_body_root: false,
@@ -2610,7 +2614,7 @@ fn validate_body<'a, V: TermSource<'a>>(
                         &term.dimension_node_id,
                         site,
                         &at.key("terms").index(index).key("dimension_node_id"),
-                    );
+                    )?;
                 }
             }
             identity::NominalBodyKind::Unit {
@@ -2618,9 +2622,9 @@ fn validate_body<'a, V: TermSource<'a>>(
                 target_unit_node_id,
                 ..
             } => {
-                visit(dimension_node_id, site, &at.key("dimension_node_id"));
+                visit(dimension_node_id, site, &at.key("dimension_node_id"))?;
                 if let Some(target) = target_unit_node_id {
-                    visit(target, site, &at.key("target_unit_node_id"));
+                    visit(target, site, &at.key("target_unit_node_id"))?;
                 }
             }
             identity::NominalBodyKind::DimensionEquivalence {
@@ -2628,7 +2632,7 @@ fn validate_body<'a, V: TermSource<'a>>(
             } => {
                 for (index, operand) in dimension_node_ids.iter().enumerate() {
                     if let identity::CheckedDimensionOperand::Local(id) = operand {
-                        visit(id, site, &at.key("dimension_node_ids").index(index));
+                        visit(id, site, &at.key("dimension_node_ids").index(index))?;
                     }
                 }
             }
@@ -2659,7 +2663,7 @@ fn validate_body<'a, V: TermSource<'a>>(
         BodyGrammar::Extension => {
             extension::read_body(node, at.pointer(), ids).map(|body| extension::body_work(&body))
         }
-        BodyGrammar::Frame => frame::read_frame_body_legacy(body, at).map(|(_, work)| work),
+        BodyGrammar::Frame => Ok(["modifies", "creates", "deletes", "deletes_scoped"].into_iter().map(|key| body.member(key).and_then(TermSource::items).map_or(0, |rows| rows.count() as u64)).fold(1_u64, u64::saturating_add)),
         BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence => {
             abstraction::scan_body(node, at, visit, ids)
         }
@@ -3053,6 +3057,7 @@ fn body_reference_pointer(
                 Ok(())
             },
             ids,
+            None,
         )
     });
     found.unwrap_or_else(|| node_pointer(position).key("body"))

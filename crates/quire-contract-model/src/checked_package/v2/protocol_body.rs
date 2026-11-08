@@ -6408,6 +6408,7 @@ mod tests {
                     .copied()
                     .collect::<Vec<_>>()
             );
+            drop(meter);
             Some(budget.read_storage_consumed())
         };
         let spent = run(u64::MAX).expect("unbounded run completes");
