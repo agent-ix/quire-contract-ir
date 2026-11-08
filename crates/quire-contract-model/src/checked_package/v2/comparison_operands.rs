@@ -12,6 +12,7 @@ use super::{
     CheckedOccurrenceRole, CheckedPackageV2, CheckedScalarOperandRange, CheckedSemanticNodeV2,
     CheckedTerm, LiteralKind, StateClauseKind, StateForm, ValueForm,
 };
+#[cfg(test)]
 use serde_json::Value;
 use thiserror::Error;
 
@@ -290,10 +291,9 @@ impl CheckedPackageV2 {
         if self
             .term(clause)
             .and_then(|term| match term {
-                CheckedTerm::Application { operation, .. } => operation.pointer("/member/clause"),
+                CheckedTerm::Application { operation, .. } => operation.member_text("clause"),
                 _ => None,
             })
-            .and_then(Value::as_str)
             .is_some_and(|kind| StateClauseKind::from_wire(kind).is_none())
         {
             return Err(context.error(
@@ -304,24 +304,24 @@ impl CheckedPackageV2 {
         }
         let body = self
             .position_of(clause)
-            .and_then(|position| self.terms.get(position))
+            .and_then(|position| self.term_at(position))
             .and_then(typed_clause_body)
             .ok_or_else(|| {
                 context.error(Refusal::NotStateClause, Path::Clause, Some(clause.clone()))
             })?;
         context.kind = body.clause.into();
-        context.parameters = body.parameters;
+        context.parameters = body.parameters().cloned().collect();
         if !matches!(
             context.kind,
             CheckedComparisonClauseKind::Invariant | CheckedComparisonClauseKind::Constraint
         ) {
             context.operation = context
-                .node(&body.anchor)
-                .and_then(|anchor| self.node_index.get(&anchor.node_id).copied())
-                .and_then(|position| self.terms.get(position))
+                .node(body.anchor)
+                .and_then(|anchor| self.node_position(&anchor.node_id))
+                .and_then(|position| self.term_at(position))
                 .and_then(typed_anchor_body)
                 .and_then(|anchor| {
-                    context.node(&anchor.context).and_then(|owner| {
+                    context.node(anchor.context).and_then(|owner| {
                         self.term(&owner.node_id).and_then(|term| {
                             self.models.operation_types(owner, term, anchor.operation)
                         })
@@ -363,16 +363,13 @@ impl CheckedPackageV2 {
                 Some(condition.clone()),
             ));
         };
-        let identity = operation
-            .get("identity")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                context.error(
-                    Refusal::UnknownOperator,
-                    Path::Comparison,
-                    Some(condition.clone()),
-                )
-            })?;
+        let identity = operation.identity().ok_or_else(|| {
+            context.error(
+                Refusal::UnknownOperator,
+                Path::Comparison,
+                Some(condition.clone()),
+            )
+        })?;
         if self.catalog.entry(identity).is_none() {
             return Err(context.error(
                 Refusal::UnknownOperator,
@@ -564,37 +561,29 @@ fn read_range(
     else {
         return Err(fail(Refusal::IneligibleOperand));
     };
-    let member = operation
-        .get("member")
-        .ok_or_else(|| fail(Refusal::IneligibleOperand))?;
-    if member.get("kind").and_then(Value::as_str) != Some("field") {
+    if operation.member_kind() != Some(super::OperationMemberKind::Field) {
         return Err(fail(Refusal::IneligibleOperand));
     }
-    let declaration: CheckedNodeId = serde_json::from_value(
-        member
-            .get("declaration")
-            .cloned()
-            .ok_or_else(|| fail(Refusal::IneligibleOperand))?,
-    )
-    .map_err(|_| fail(Refusal::IneligibleOperand))?;
+    let declaration = operation
+        .member_key("declaration")
+        .ok_or_else(|| fail(Refusal::IneligibleOperand))?;
     let self_type = context
         .parameters
         .first()
         .and_then(|id| context.node(id))
         .and_then(|parameter| context.node(&parameter.semantic_type))
         .and_then(reference_type_target_typed);
-    if self_type.as_ref() != Some(&declaration)
-        || deref.semantic_type != declaration
+    if self_type.as_ref() != Some(declaration)
+        || &deref.semantic_type != declaration
         || result_type != &project.semantic_type
     {
         return Err(fail(Refusal::IneligibleOperand));
     }
-    let field = member
-        .get("name")
-        .and_then(Value::as_str)
+    let field = operation
+        .member_name()
         .ok_or_else(|| fail(Refusal::IneligibleOperand))?;
     let declared = context
-        .node(&declaration)
+        .node(declaration)
         .ok_or_else(|| context.error(Refusal::MissingChild, path, Some(declaration.clone())))?;
     let ty = context
         .package
@@ -621,7 +610,7 @@ fn read_range(
         Kind::Read {
             provenance: Read::StateField {
                 project: project.node_id.clone(),
-                declaration,
+                declaration: declaration.clone(),
                 field: field.into(),
             },
             observation,
@@ -637,7 +626,7 @@ fn operation_identity<'a>(
     let CheckedTerm::Application { operation, .. } = package.term(&node.node_id)? else {
         return None;
     };
-    operation.get("identity").and_then(Value::as_str)
+    operation.identity()
 }
 
 fn one_reference(
@@ -672,12 +661,14 @@ fn literal_range(term: &Value) -> Result<CheckedScalarOperandRange, CheckedCompa
     if term.get("value_kind").and_then(Value::as_str) != Some("integer") {
         return Err(Refusal::IneligibleOperand);
     }
-    integer_value_range(term.get("value").ok_or(Refusal::IneligibleOperand)?)
+    integer_value_range(&super::CheckedJson::scalar(
+        term.get("value").ok_or(Refusal::IneligibleOperand)?,
+    ))
 }
 
 fn typed_literal_range(
     kind: LiteralKind,
-    value: &Value,
+    value: &super::CheckedJson,
 ) -> Result<CheckedScalarOperandRange, CheckedComparisonRefusal> {
     if kind != LiteralKind::Integer {
         return Err(CheckedComparisonRefusal::IneligibleOperand);
@@ -686,7 +677,7 @@ fn typed_literal_range(
 }
 
 fn integer_value_range(
-    value: &Value,
+    value: &super::CheckedJson,
 ) -> Result<CheckedScalarOperandRange, CheckedComparisonRefusal> {
     use CheckedComparisonRefusal as Refusal;
     let text = value.as_str().ok_or(Refusal::IneligibleOperand)?;
@@ -766,12 +757,6 @@ mod tests {
             "source_map": [], "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
         }));
-        let terms = wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .map(|node| node.body.clone())
-            .collect();
         let package = CheckedPackageV2 {
             schedulability_claim_index: Vec::new(),
             monitor_plan_index: Vec::new(),
@@ -782,7 +767,6 @@ mod tests {
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),
-            terms: std::sync::Arc::new(terms),
             kinds: std::sync::Arc::new(vec![
                 CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean),
                 CheckedNodeKind::Value(ValueForm::Parameter),
@@ -795,8 +779,9 @@ mod tests {
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+            catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
+            body_documents: Vec::new(),
         }
         .retain_original_admission();
         let clause = serde_json::from_value(id('5')).expect("node id");
@@ -808,8 +793,10 @@ mod tests {
     }
 
     fn sync_comparison_term(package: &mut CheckedPackageV2) {
-        std::sync::Arc::make_mut(&mut package.terms)[3] =
-            package.wire.semantic_graph.nodes[3].body.clone();
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[3]
+            .body = package.wire.semantic_graph.nodes[3].body.clone();
     }
 
     fn edit_body(package: &mut CheckedPackageV2, position: usize, edit: impl FnOnce(&mut Value)) {
@@ -868,7 +855,10 @@ mod tests {
         std::sync::Arc::make_mut(&mut package.kinds)[4] =
             CheckedNodeKind::State(StateForm::StateClause);
         let CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[4]
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("fixture clause term");
         };
@@ -881,14 +871,20 @@ mod tests {
             (Refusal::UnsupportedClauseKind, Path::Clause)
         );
         let CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[4]
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("fixture clause term");
         };
         operation.record_mut()["member"]["clause"] = json!("invariant");
 
         let CheckedTerm::Application { arguments, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[4]
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("fixture clause term");
         };
@@ -908,7 +904,10 @@ mod tests {
         );
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
         let CheckedTerm::Application { arguments, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[4]
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("fixture clause term");
         };
@@ -1025,33 +1024,6 @@ mod tests {
         }
     }
 
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn comparison_uses_retained_terms_after_raw_condition_body_changes() {
-        let (mut package, clause, claim) = fixture();
-        edit_body(&mut package, 3, |body| {
-            *body = json!({"term": "aggregate", "members": []})
-        });
-        let error = package
-            .direct_integer_comparison(&clause, &claim)
-            .expect_err("two retained inline literals still have no read");
-        assert_eq!(error.kind, CheckedComparisonRefusal::NoRead);
-        assert_eq!(error.path, CheckedComparisonPath::Comparison);
-    }
-
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn comparison_uses_retained_clause_condition_after_raw_body_changes() {
-        let (mut package, clause, claim) = fixture();
-        edit_body(&mut package, 4, |body| {
-            body["arguments"][2] = reference('9')
-        });
-        let error = package
-            .direct_integer_comparison(&clause, &claim)
-            .expect_err("two retained inline literals still have no read");
-        assert_eq!(error.kind, CheckedComparisonRefusal::NoRead);
-        assert_eq!(error.path, CheckedComparisonPath::Comparison);
-    }
     fn expect_failure(
         package: &CheckedPackageV2,
         clause: &CheckedNodeId,
@@ -1089,14 +1061,12 @@ mod tests {
         .expect("private comparison child");
         child.body = CheckedTerm::decode_admitted(&body).expect("private comparison body");
         let id = child.node_id.clone();
-        std::sync::Arc::make_mut(&mut package.node_index)
-            .insert(id.clone(), package.wire.semantic_graph.nodes.len());
-        std::sync::Arc::make_mut(&mut package.terms).push(child.body.clone());
         std::sync::Arc::make_mut(&mut package.kinds).push(kind);
         std::sync::Arc::make_mut(&mut package.wire)
             .semantic_graph
             .nodes
             .push(child);
+        package.reindex();
         id
     }
 
@@ -1217,7 +1187,10 @@ mod tests {
         );
         std::sync::Arc::make_mut(&mut package.kinds)[5] =
             CheckedNodeKind::Value(ValueForm::Literal);
-        std::sync::Arc::make_mut(&mut package.terms)[5] =
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[5]
+            .body =
             CheckedTerm::decode_admitted(&literal("340282366920938463463374607431768211456"))
                 .expect("arbitrary integer term");
         edit_body(&mut package, 3, |body| {
@@ -1249,7 +1222,10 @@ mod tests {
             json!({"term": "aggregate", "members": []}),
         );
         let CheckedTerm::Application { arguments, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[4]
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("clause");
         };

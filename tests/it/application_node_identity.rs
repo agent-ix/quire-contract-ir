@@ -8,8 +8,8 @@ use quire_canonical::Limits;
 use quire_contract_model::{
     encode_checked_package_v2, CheckedArtifactRef, CheckedDiagnosticsV2, CheckedNodeId,
     CheckedNodePathSegment, CheckedPackageEvidence, CheckedPackageLockV2, CheckedPackageReadLimits,
-    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedSemanticGraphV2, CheckedSourceMapEntry,
+    CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef, CheckedPackageV2ReadResult,
+    CheckedSemanticGraphV2, CheckedSourceMapEntry,
 };
 use serde_json::{json, Value};
 
@@ -111,7 +111,7 @@ fn structural_identity_requires_complete_reader_admission() {
     assert_eq!(graph.nodes[0].node_id, expected);
     let bytes = encode(&lock, &graph, &source_map, &diagnostics, 1 << 20)
         .expect("complete envelope encodes");
-    let admitted = CheckedPackageV2::read(
+    let admitted = crate::read_and_account(
         &bytes,
         CheckedPackageReadLimits::bounded(),
         &CheckedPackageEvidence::new(),
@@ -153,7 +153,7 @@ fn repeated_structural_node_id_refuses_without_a_package() {
     graph.operand_rows.push(Vec::new());
     let bytes = encode(&lock, &graph, &source_map, &diagnostics, 1 << 20)
         .expect("duplicate graph remains encodable");
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &bytes,
         CheckedPackageReadLimits::bounded(),
         &CheckedPackageEvidence::new(),

@@ -3,13 +3,14 @@
 
 //! Public reader checks for the first protocol validation passes.
 
+use crate::support::checked_package::protocol_ports::role_port_fixture;
 use crate::support::checked_package::{
     admitted_protocol_families, application_node_key, canonical, evidence_for,
     evidence_with_document, family_key, family_model_document, fixture_source, node_id,
     owned_structural_node, protocol_named_node, protocol_role_node, reassign_node_id,
     rebuild_source_map, refresh_identity, refresh_identity_projection, refusal, refusal_at_id,
-    rename_node, role_port_fixture, select_model, selected_interface_model_node, settle,
-    source_owner, v2_all_families,
+    rename_node, select_model, selected_interface_model_node, settle, source_owner,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -21,7 +22,7 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -38,7 +39,7 @@ fn settle_after_structural_rekey(package: &mut Value) {
 fn read_at_work(package: &Value, work: u64) -> CheckedPackageV2ReadResult {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
-    CheckedPackageV2::read(&canonical(package), limits, &evidence_for(package))
+    crate::read_and_account(&canonical(package), limits, &evidence_for(package))
 }
 
 fn decision_work(package: &Value) -> u64 {
@@ -86,7 +87,7 @@ fn read_with_model(
     package: &Value,
     evidence: &CheckedPackageEvidence,
 ) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         evidence,
@@ -235,7 +236,7 @@ fn sequence_successor_and_finish_read_predecessor_binders() {
     ));
 }
 
-fn decision_fact_fixture() -> (Value, usize, usize, usize) {
+pub(super) fn decision_fact_fixture() -> (Value, usize, usize, usize) {
     let (mut package, effect, _) = package_with_admitted_effect();
     let root = protocol_position(&package, "control");
     let attempt = effect - 1;
@@ -6306,7 +6307,7 @@ pub(crate) fn package_with_admitted_compensation() -> (Value, usize, usize) {
     (package, root, compensation)
 }
 
-fn compensation_clock_case(
+pub(super) fn compensation_clock_case(
     case: &Value,
     declarations: &[Value],
 ) -> (Value, std::collections::BTreeMap<String, Value>) {
@@ -10560,7 +10561,7 @@ fn add_minimal_protocol_named(package: &mut Value, name: &str) -> usize {
     position
 }
 
-fn instantiate_fairness_reader_vector(vector: &Value) -> (Value, usize) {
+pub(super) fn instantiate_fairness_reader_vector(vector: &Value) -> (Value, usize) {
     let mut member = vector["member"].clone();
     let field = if member["target"]["kind"] == "parallel_branch" {
         "parallel"
@@ -10846,7 +10847,7 @@ fn recovery_case_arm_binder_is_local_to_its_arm_body() {
     let CheckedTerm::Aggregate { members: empty } = empty.as_ref() else {
         panic!("Empty arm");
     };
-    assert!(matches!(&empty[1], CheckedTerm::Literal { value, .. } if value == "0"));
+    assert!(matches!(&empty[1], CheckedTerm::Literal { value, .. } if value.as_str() == Some("0")));
 }
 
 fn assert_recovery_case_binder_refusal(package: &Value, compensation: usize) {
@@ -11130,7 +11131,7 @@ fn recovery_slot_let_initializer_cannot_read_its_local_binder() {
 #[test]
 fn role_accepts_a_selected_port_member_without_changing_legacy_roles() {
     let (package, document, _) = role_port_fixture();
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence_with_document(&package, "test/families", &document),
@@ -11347,7 +11348,7 @@ fn unused_local_binding_does_not_hide_barred_initializer_model_state() {
 }
 
 fn read_port(package: &Value, document: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_with_document(package, "test/families", document),
@@ -11479,7 +11480,7 @@ fn port_member_borrowed_read_and_typed_writer_preserve_the_exact_pair() {
         quire_canonical::Limits::new(1 << 24),
     )
     .unwrap();
-    let CheckedPackageV2ReadResult::Admitted(again) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(again) = crate::read_and_account(
         &encoded,
         CheckedPackageReadLimits::bounded(),
         &evidence_with_document(&package, "test/families", &document),
@@ -11507,4 +11508,41 @@ fn port_member_borrowed_read_and_typed_writer_preserve_the_exact_pair() {
         read_port(&legacy, &document),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+}
+
+/// The protocol step's position tables, binder scopes, slot walks and
+/// compensation checks are charged at protocol loci before they are made
+/// (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn protocol_step_tables_and_walks_are_charged_to_the_read_budget() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    use quire_contract_model::{NativeJoinBudget, PackageReadStage};
+    let (package, ..) = decision_fact_fixture();
+    let bytes = canonical(&package);
+    let evidence = evidence_for(&package);
+    let reader = |budget: &mut NativeJoinBudget| {
+        crate::qspec_read_proof::read_budget_and_account(
+            &bytes,
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+            budget,
+        )
+    };
+    let requests = stage_requests(&reader, PackageReadStage::Graph);
+    let protocol = requests
+        .iter()
+        .filter(|request| request.form == "protocol")
+        .count();
+    // The declaration-path table, the visited marks, the binder-origin and
+    // fact-role tables, the position sets of each scope, the slot walks'
+    // lists and the causality tables are requests of their own: before they
+    // were charged the step made 170 requests here, not over 250.
+    assert!(
+        protocol > 250,
+        "the protocol step charges its tables and walks: {protocol}"
+    );
+    assert_exact_and_one_short(&reader, &requests);
 }

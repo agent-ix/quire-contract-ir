@@ -418,6 +418,8 @@ value is parsed. The others are charged as follows:
   belongs to the shared reader, writer, walker or exact-number library's own
   heap rather than to one value.
 
+Reserved arithmetic work exception (AC-508): parsing n validated decimal digits prepays n * max(1, ceil(ceil(10n/3)/32)) former 32-bit-limb units. No prefix of that parse can touch more limbs. Before a nontrivial GCD, let S be the sum of the operands' significant bit lengths and L their maximum significant 32-bit-limb count; prepay (2S + 1) * L units. In the former binary GCD, each halving decreases S, and every unequal odd subtraction/comparison leads to at least one halving, so at most S halvings and S+1 comparisons each touch at most L limbs. Zero and both-even shortcuts run no GCD and incur no GCD bound. Saturating size calculations deny exhausted work rather than wrap. These are conservative work bounds, not shadow arithmetic or heap estimates: actual quire-exact limb requests remain charged exactly through its caller reservation, with form `exact_number`. Parse/GCD charges retain operand and validation-stage order and the original active work locus; multiplication retains the original product of significant 32-bit-limb counts.
+
 ### Reading
 
 The reader shall measure raw bytes against the byte limit, read the document
@@ -491,16 +493,19 @@ arithmetic. A canonical integer spelling (an optional `-`, no leading zero, no
 offers after the read keep their own numeric types and are outside this
 rule.
 
-The read uses the process-wide checked-operation catalog. Its initialisation
-is not part of any read: the catalog gate SHALL run before the first charge of
-the read, initialise the catalog when the process has not yet done so, and
-return `CatalogUnavailable` when it cannot. It charges nothing to the caller's
-budget, and its allocations fall outside the read's metered call. The catalog
-is parsed by the shared `quire_canonical` reader, not `serde_json`. A caller
-that requires every read's requested bytes to equal its charge initialises the
-catalog first with the public `initialize_operation_catalog() -> Result<(),
-CatalogReadError>`, before its first read; a later call returns the same
-result without parsing again.
+Every read owns a fresh checked-operation catalog parsed with the shared
+`quire_canonical` reader and decoded into exact-capacity sorted tables. After
+checking the package byte cap, the read SHALL charge each catalog allocation
+to its caller's read-storage account before requesting it, at
+`PackageRead(Envelope, 0)` with form `"operation_catalog"`. The admitted
+package retains its owned catalog through shared ownership; package clones
+share that admitted catalog. No process cache or hidden unlimited budget
+serves a strict read. An unaffordable catalog request returns the same typed
+budget outcome as any other read-storage denial. An unreadable catalog returns
+`CatalogUnavailable`, retaining all prior admitted charges. The public
+`initialize_operation_catalog() -> Result<(), CatalogReadError>` checks the
+published catalog independently; it neither caches it nor exempts later reads
+from charging their own catalog.
 
 Sorting on the read path uses only the in-place `sort_unstable*` functions,
 which allocate nothing. The crate keeps `serde_json` only for uses outside the
@@ -612,10 +617,17 @@ recompute, hash, rekey or seal a node id.
 The reader SHALL accept only string, closed operand slot `{"operand": k}` or
 closed index segment `{"node": i}` path segments, where `k` and `i` are I-JSON
 integers from zero through 9007199254740991; `semantic_graph.operand_rows` is
-required, and the reader reads no other form of a node-held operand. It SHALL
-reject a nested node id, a malformed operand slot or index segment or any
-segment in a `dependency_reference.node` declaration path as `malformed_wire`
-at the offending segment. After closed-schema validation and before every
+required, and the reader reads no other form of a node-held operand. An
+`operand_rows` entry is a graph index `i`, or the closed dependency position
+`{"package": P, "node": j}` naming the node at index `j` of the graph of the
+directly supplied dependency `P`. A dependency position is the one form of an
+id that names a dependency's node by that node's own operands: a slot whose
+row entry is a dependency position holds the position, the importing graph
+holds no copy of the dependency's node, and the position is never written as a
+path segment. The reader SHALL reject a nested node id, a malformed operand
+slot or index segment or any segment in a `dependency_reference.node`
+declaration path as `malformed_wire` at the offending segment. After
+closed-schema validation and before every
 `semantic_graph` check, it SHALL run the QSpec FR-322 reader checks in their
 order and refuse at the first defect of the first step that has one, as
 `malformed_wire` without cause: rows (an `operand_rows` whose length differs
@@ -625,9 +637,15 @@ member, first in canonical byte order); range (an operand slot not below its
 holding node's row length, an index segment or row entry not below the node
 count); numbering (a row not numbered by first occurrence); and cycle (a self
 or longer cycle through node-own-path operand slots, at the first slot ordered
-by holding node's graph index and path position). A foreign `{package, node}`
-key takes part in neither placement nor range. Forward references without a
-cycle are admitted. Graph order stays producer chosen; reordering nodes
+by holding node's graph index and path position). A row entry that is a
+dependency position is in range only when `P` is a supplied dependency package
+and `j` is below that package's node count; an unsupplied package or a `j` past
+its last node, at the entry, and a `{package, node}` object written as a path
+segment, at the segment, refuse `malformed_wire`. A node's own `node_id` names
+only nodes of its own graph and refuses a slot whose entry is a dependency
+position. A foreign `{package, node}` key takes part in neither placement nor
+range. Forward references without a cycle are admitted. Graph order stays
+producer chosen; reordering nodes
 rewrites row entries and document-held index segments and never changes a
 node's bytes or an ordinal by itself.
 
@@ -1110,8 +1128,8 @@ and matches by those two members. The production catalog is a build-time input
 and not a caller's bytes, so an entry of another shape is never a package
 refusal. The catalog read is a function over supplied bytes that returns an
 error naming the unreadable entry, so that a test can supply bytes in which an
-entry carries `revision`; the production catalog is read through it once. If
-that read of the build's own bytes fails, the reader never stops the process
+entry carries `revision`. Each V2 read calls the budgeted catalog entry and
+retains its own admitted catalog. If that read of the build's own bytes fails, the reader never stops the process
 and never refuses the package: `CheckedPackageV2::read` returns
 `CatalogUnavailable`, carrying the unreadable path and message, before it checks
 any node (FR-038-AC-58). The package is not at fault; the reader and its catalog
@@ -5671,6 +5689,23 @@ NOT substitute for that selection. Reads SHALL expose the selected package's
 actual keys and referenced values, without merging equal-named plans or
 copying QSL execution semantics into IR.
 
+### Fold and reduce binder bounds
+
+For `quire.op.collection.fold` and `quire.op.collection.reduce`, the reader
+SHALL resolve `bound_is_member` through [QSL FR-093](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-093-lower-checked-value-expressions-to-fr-322-terms.md)'s
+two-binder encoding in [QSpec FR-322](https://github.com/agent-ix/quire-specification/blob/main/spec/objects/interfaces/FR-322-checked-package-artifact.md) terms: an accumulator `binding` whose value is an `aggregate`
+containing exactly one element `binding`, whose value names the final step.
+The final step's resolved type SHALL equal the `type_argument` declaration.
+An empty or multiple-member aggregate, a non-binding member, or a final step
+of a different type SHALL refuse `ill_typed`/`operator-ineligible` at the
+application node. A further nested aggregate step retains the earlier
+`malformed_wire` refusal at that step's value, without a cause. Direct single-binder
+bounds retain their existing meaning. This rule does not assign a type to
+arbitrary aggregate operands or change other operations' binder resolution.
+FR-038-AC-247 and FR-038-AC-251 include these positive and negative controls
+and strict admission of both genuine Integer-only QSL fold bytes and the
+complete original monitor-base document with its selected model evidence.
+
 ### Carried-quantity sum admission (IR-1398)
 
 When reading `quire.op.collection.sum.carried_quantity`, the strict V2 reader
@@ -5698,6 +5733,111 @@ application graph-node locus and primary pointer
 no partial admitted package is returned. This admission contract does not
 execute a sum or add evaluation results to the wire.
 
+### Implementation guarantee and component composition bodies
+
+When the strict V2 reader reads a `correspondence` node of `semantic_form`
+`implementation_guarantee` or `component_composition`, it SHALL admit the body
+exactly as QSpec FR-490 and FR-491 "Checked-package node" define it, as
+FR-346 admits the `abstraction_relation` body, and expose it as a typed term.
+The closed `correspondence` form vocabulary gains these two members, matched
+exhaustively with no catch-all arm, and an unrecognized form still refuses as
+`invalid_semantic_graph` at the node's `semantic_form`. Contract IR reads
+these nodes from the package alone; it reads nothing from QSL.
+
+An `implementation_guarantee` body is `{term, clause, relation, initial,
+progress, environment}`: `clause` and `relation` are node keys, `initial` a
+`RustPath`, each `progress` entry `{context, operation, measure}` with
+`measure` `{decreases: RustPath}` or `{bound: count}`, and each `environment`
+entry `{name, supplier, supplies}` with `supplies` `{fairness: {kind,
+granularity, context, operation}}` or `{assumption: node key}`. A
+`component_composition` body is `{term, rule, components, guarantees, relies,
+liveness_dependencies, supplies, environment}`: `rule` one of
+`assume-guarantee`, `protocol-refinement`, `refinement-transfer` and
+`interface`; `components` entries `{name, package, subject}`; `guarantees`
+entries `{component, clause}`; `relies` and `liveness_dependencies` entries
+`{guarantee: {component, clause}, on: {component, clause}}`, kept as separate
+lists; `supplies` entries the scheduling object above; and `environment` as in
+the guarantee. Every member is required and each shape is closed. The body is
+flat: it holds node keys, identifiers, Rust paths and fixed spellings and no
+application, aggregate, binding or literal term, and the per-node body loop
+validates it as it validates an `abstraction_relation` body.
+
+The guarantee step runs after the abstraction step, over the guarantee nodes
+and then the composition nodes, each in ascending structural node-id order.
+For one node the first failing check is its defect:
+
+1. **Shape.** A body that is not the closed shape, a `term` that is not the
+   node's form, a fairness spelling outside `weak`/`strong` and
+   `whole`/`each`, or a rule outside the four: `invalid_semantic_graph` at the
+   offending entry, else at the body. A malformed structural node key refuses
+   `malformed_wire` at the key. An `application` at the body root refuses
+   `ill_typed`/`operator-ineligible` at the node.
+2. **Identity.** `semantic_type` is the node's own id and `dependencies` are
+   exactly the unique, ascending set of every `clause`, `relation`,
+   `subject`, `context` and `assumption` target of the body; else
+   `invalid_semantic_graph` at the node.
+3. **Order.** A guarantee's `progress` ascends by `context` then `operation`
+   bytes and its `environment` by `name`; a composition's `components` ascend
+   by `name`, `guarantees` by `component` then `clause`, `relies` and
+   `liveness_dependencies` by the guarantee's then the peer's, `supplies` by
+   `context`, `operation`, `kind` spelling bytes then `granularity` spelling
+   bytes, and `environment` by
+   `name`. Equal keys are in order, and the member checks below refuse them.
+   Out of order refuses `invalid_semantic_graph` at the array.
+4. **Targets** (guarantee). `clause` joins a `temporal`/`temporal_clause`
+   node whose one `temporal_profile` law selects
+   `quire.temporal.infinite-trace/v1`, `relation` a `correspondence`/
+   `abstraction_relation` node, each `context` a `model`/`object_type` node
+   and each `assumption` a `function`/`predicate` node; a target that is not a
+   declared dependency refuses `missing_declaration`/`missing-name` and one of
+   another kind `invalid_model_binding`/`malformed-declaration`, at the
+   member holding it.
+5. **Members.** For a guarantee, in this order over the whole node: every
+   `progress` and fairness `operation` resolves to an operation its `context`
+   declares (FR-342 "Operation resolution", as a frame entry's does); `initial`
+   and each `decreases` path are Rust paths and no `bound` is 0
+   (`invalid_model_binding`/`malformed-declaration`); no two `progress`
+   members share a (`context`, `operation`) and no two `environment` members
+   a `name` (`invalid_model_binding`/`conflicting-binding` at the second). For
+   a composition: no two `components` share a `name` or a (`package`,
+   `subject`) (`conflicting-binding`); every component a `guarantees`,
+   `relies` or `liveness_dependencies` entry names is declared
+   (`missing_declaration`/`missing-name`); and a premise's `guarantee` is a
+   declared guarantee of a component other than its `on` peer
+   (`invalid_model_binding`/`malformed-declaration`).
+
+IR reading (QSpec FR-490 and FR-491 fix the refusal code and cause but no
+locus): the loci above are the entry or array, and the locus node key is the
+target or, where the entry names none, the node.
+A composition's component packages are the admitted dependency packages
+selected through FR-322. A component subject or clause that the component
+package names by its own operands is written in the composition's id as the
+dependency position of that package in place of the operand, and the target
+resolves in the component package when the id, with each such position read as
+the component package's own index segment, is a node of its graph. A local
+index segment in such an id names no node of the component package, and a
+position of another package names none either. Each component subject
+resolves to an object type in its named package; each component clause
+resolves to a temporal clause of that package over the component's model
+subject. An absent selected package or subject refuses
+`missing_declaration`/`missing-name` at the component; a target of another kind refuses
+`invalid_model_binding`/`malformed-declaration` at the member. Scheduling
+contexts resolve in a component package and assumptions in the composing
+package. A scheduling operation outside every component's model subject
+refuses `missing_declaration`/`missing-name`.
+
+After component and premise membership checks, a `relies` peer classified
+by QSpec FR-363 as liveness, or a `liveness_dependencies` side not classified
+as liveness, refuses `invalid_model_binding`/`malformed-declaration` at the
+premise. Classification reads the admitted typed formula graph in negation
+normal form. Composition environment assumptions must be predicates and
+names must be unique, with the same target and duplicate-name refusals as
+guarantee environments. Operations resolve through the admitted component
+model declarations, using the guarantee operation checks above.
+
+QSpec FR-490's dependency set includes every scheduling environment
+`context`; FR-491's also includes every `supplies` context.
+
 ### Budget-charged strict read
 
 `CheckedPackageV2::read_with_budget(bytes, limits, evidence, budget)` SHALL be
@@ -5716,7 +5856,7 @@ work meter. `CheckedPackageReadLimits` members other than `work` remain
 structural validation caps with their existing outcomes and pointers; the
 budgeted entries do not consult `work`.
 
-The read is one budget operation. After the catalog gate, it clears the
+The read is one budget operation. Before reading the catalog, it clears the
 budget's previous success delta and first-unpaid record while keeping its
 cumulative consumption and limits. On admission it records its exact work
 delta and read-storage delta. Every other outcome leaves both deltas absent
@@ -5746,10 +5886,10 @@ a charge for an owned refusal or `incomplete` diagnostic uses them with `form`
 
 | Stage (`PackageReadStage`) | `index` | `form` | Charged requests |
 | --- | --- | --- | --- |
-| `Envelope` | 0 | `"package_bytes"` | Every reservation the shared reader asks while reading the package bytes: arena nodes, child ids and object members, decoded text, the open-container stack and its children, the duplicate-name sort buffer, and the pointer and lexeme of a duplicate-name or number-out-of-range refusal. |
+| `Envelope` | 0 | `"operation_catalog"`, then `"package_bytes"` | Every catalog reader, typed catalog decode, exact table and owned catalog reservation, followed by every reservation the shared reader asks while reading the package bytes: arena nodes, child ids and object members, decoded text, the open-container stack and its children, the duplicate-name sort buffer, and the pointer and lexeme of a duplicate-name or number-out-of-range refusal. |
 | `Canonical` | 0 | `"canonical_bytes"` | Every reservation the shared writer asks while encoding the package document into the comparing sink. |
 | `WireDecode` | the position of the decoded value in the innermost wire array holding it, or 0 for a value in no array | the dotted wire path of that array, or of the member for a value in no array, without indices (`"semantic_graph.nodes"`, `"lock.dependency_selections"`, `"diagnostics.entries"`, `"name"`) | Each typed wire container (`Vec`, `Box<[T]>`), owned string (`Box<str>`, `String`), `Box<T>`, structural node-id path and `CheckedJson` handle, at the exact length the document holds. |
-| `WireChecks` | graph node index; 0 for the header | `"header"`, `"owner_schema"`, `"flat_wire"` or `"interval_bounds"` | The header and owner-schema checks, `flat_wire::check` and interval-bound checks: the decoded kind table and each temporary they build. |
+| `WireChecks` | graph node index; 0 for the header | `"header"`, `"owner_schema"`, `"flat_wire"` or `"interval_bounds"` | The operand-slot resolution that precedes the owner-schema check (its worklist for each node body, at that node's index with the form `"owner_schema"`; a rewritten slot reuses its own key text and requests nothing), the header and owner-schema checks, `flat_wire::check` and interval-bound checks: the decoded kind table and each temporary they build. |
 | `NodeIndex` | graph node index | `"node_index"` | The shared structural keys (`Arc<CheckedNodeId>` per node), the uniqueness table and the index-segment cycle worklist. |
 | `Lock` | the position in the lock array being checked; the graph node index for unit references; the selected model position for field tables | `"lock.sources"`, `"lock.dependency_selections"`, `"lock.definition_selections"`, `"lock.profile_selections"`, `"lock.required_features"`, `"lock.refinement_internals"`, `"unit_refs"`, `"dependencies"` or `"field_tables"` | Lock entry checks and uniqueness tables, the unit-reference table and its formatted names, duration resolution, dependency admission and derived-closure worklists, and the field tables. |
 | `ModelDocument` | the selected model's position in ascending identity order | `"model_document"` for the reader's reservations, `"declarations"` for decoded tables | The shared reader's reservations for that document, its `Arc<Document>`, and every declaration table, string and retained model record decoded from it. |
@@ -6361,6 +6501,16 @@ the minimum the read uses.
 | FR-038-AC-527 | Implemented and qualified on the IR-1396 owner stack; merged-main qualification pending (IR-1398). With pinned mode agreeing, the reader refuses every CS-04 binder/member mismatch as ill_typed/operator-ineligible at the application: a different carrier bound Q4, unit Qc, carrier kind Qk, or unit-node Um; and binder and result both Qn under nearest-even while type_argument remains Q. The bound_is_member constraint compares the resolved bound against the member, not against the result alone. | Test |
 | FR-038-AC-528 | Implemented and qualified on the IR-1396 owner stack; merged-main qualification pending (IR-1398). With pinned mode agreeing, the reader refuses every CS-05 result/member mismatch as ill_typed/operator-ineligible at the application, for result Q4 and result Um. The primary pointer names the application node, never its body/result_type member. | Test |
 | FR-038-AC-529 | Implemented and qualified on the IR-1396 owner stack; merged-main qualification pending (IR-1398). For every CS-06 variant, the reader refuses ill_typed/operator-ineligible at the application: member, binder and result all Um, all compound-unit Cm, or all bounded-quantity Bm under exact mode; and sum.quantity over the otherwise valid carried member Q. Carried-sum membership consumes IR-1396 carried_member enforcement; ordinary sum.quantity cannot accept a carried type_argument even when operand and result checks otherwise pass. | Test |
+| FR-038-AC-531 | A package holding one `correspondence`/`implementation_guarantee` node over a clause selecting the infinite-trace profile, an `abstraction_relation` node, a `predicate` node and the `Order` object type admits for a body with `initial`, a `decreases` and a `bound` progress member and a fairness and an assumption environment member, and the typed term reproduces the body; a body with empty `progress` and `environment` lists admits. | Test (TC-474) |
+| FR-038-AC-532 | A package holding one `correspondence`/`component_composition` node admits for a body with two components, two guarantees, one `relies`, one `liveness_dependencies`, one `supplies` and one `environment` entry, the typed term keeps the premise lists separate, and each of the four rule spellings admits. | Test (TC-474) |
+| FR-038-AC-533 | A missing or extra body member, a `term` of the other form, an empty `initial` path, a measure of two members, an unknown fairness kind, a `supplies` of neither form, an unknown composition rule and a component without its package each refuse `invalid_semantic_graph` at the offending entry or the body; a malformed structural node key refuses `malformed_wire` at the key; an `application` at the body root refuses `ill_typed`/`operator-ineligible` at the node. | Test (TC-474) |
+| FR-038-AC-534 | For each form, a `semantic_type` that is not the node, a `dependencies` list that omits a body target and one that adds a target the body does not hold each refuse `invalid_semantic_graph` at the node. | Test (TC-474) |
+| FR-038-AC-535 | An out-of-order `progress`, `environment`, `components`, `guarantees`, `relies`, `liveness_dependencies` or `supplies` array refuses `invalid_semantic_graph` at that array. | Test (TC-474) |
+| FR-038-AC-536 | A guarantee whose `clause` is no temporal clause or selects another profile, whose `relation` is no abstraction relation, whose `progress` or fairness `context` is no object type or whose `assumption` is no predicate refuses `invalid_model_binding`/`malformed-declaration` at the member. | Test (TC-474) |
+| FR-038-AC-537 | A guarantee whose `progress` or fairness operation its context does not declare refuses `missing_declaration`/`missing-name`; an operation the context only inherits, a non-Rust `initial` or `decreases` path and `bound` 0 refuse `invalid_model_binding`/`malformed-declaration`; two `progress` members for one operation and two `environment` members of one name refuse `invalid_model_binding`/`conflicting-binding` at the second. | Test (TC-474) |
+| FR-038-AC-538 | A composition with two components of one name or over one subject refuses `invalid_model_binding`/`conflicting-binding` at the second; a guarantee or premise naming an undeclared component refuses `missing_declaration`/`missing-name`; a premise whose guarantee is undeclared, whose two sides name one component, a rely on liveness or a depends with a non-liveness side refuses `invalid_model_binding`/`malformed-declaration`; component subjects and clauses resolve through admitted dependency packages, clauses must belong to the component model subject, scheduling operations must belong to a component subject, and environment assumptions and names obey the guarantee checks. | Test (TC-474) |
+| FR-038-AC-539 | A package holding a `correspondence`/`component_composition` node whose component clause is a node of a supplied dependency named by its own operand admits when the composition's `operand_rows` entry for that operand is the dependency position `{package, node}`; the importing graph holds no node of the dependency, the position lies past the importing graph's last node, the typed body keeps the dependency position, and the graph as shown is read again. | Test (TC-474) |
+| FR-038-AC-540 | A dependency position naming an unsupplied package or a `node` past the dependency's last node refuses `malformed_wire` at the row entry; a `{package, node}` object written as an id path segment refuses `malformed_wire` at the segment; a local index segment in a foreign id refuses `missing_declaration`/`missing-name` at the member holding it. | Test (TC-474) |
 | FR-038-AC-495 | `CheckedPackageV2::read_with_budget(bytes, limits, evidence, &mut NativeJoinBudget)` and `read_checked_package_with_budget` are the budgeted V2 read entries, and `CheckedPackageV2::read(bytes, limits, evidence)` and `read_checked_package(bytes, limits, evidence)` keep their existing signatures, result types and outcomes. The call graph holds one read implementation: each unbudgeted entry creates `NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX)`, calls its budgeted entry and maps the result variant for variant, with no second decoder, fallback limit or private work meter. No existing in-repository or downstream caller of the unbudgeted entries changes. For every TC-048 input, including each fixture at its exact work limit and one below it, the unbudgeted entry's outcome equals today's outcome; one below the work requirement it returns `CheckedPackageIncomplete` with `Work`, `limits.work`, the same `consumed` and the same pointer. `read_checked_package_with_budget` has no V1 branch and passes the budget through unchanged. Changing `CheckedPackageReadLimits.work` changes no budgeted-entry outcome; each other member keeps its own `Incomplete` outcome and pointer on every entry. | Test, Inspection (TC-472) |
 | FR-038-AC-496 | A budgeted read clears the budget's previous success deltas and first-unpaid records, keeps cumulative consumption and the configured limits, and on admission records a work delta and a read-storage delta equal to its own charges and a logical storage delta of zero. A refused, `Incomplete`, `BudgetIncomplete` or `Exhausted` read leaves the deltas absent and its admitted charges in cumulative consumption. Two budgeted reads, each affordable alone, composed on one budget whose work or read-storage limit is below their sum, admit the first and stop the second at its first unpaid charge; an FR-358 native join after a read on the same budget has its own unchanged logical storage requirement and shares the work counter. | Test (TC-472) |
 | FR-038-AC-497 | Envelope stage. For a genuine admitted package and for the adverse shapes of FR-038-AC-511, a read-storage limit equal to the read's measured requirement admits the package, and a read-storage limit one below the cumulative read storage admitted through the shared reader's last package-bytes reservation refuses at that reservation: first unpaid `ReadStorage` with the reservation's byte amount, locus `PackageRead(Envelope, 0)` and form `"package_bytes"`, no document and no package. Each reader list class (arena nodes, child ids/members, decoded text, open-container stack and children, duplicate-name sort buffer) is the denied class in at least one one-below case, and the pointer and lexeme of a duplicate-name and of a number-out-of-range refusal are each charged before the refusal is returned. | Test (TC-472) |
@@ -6374,14 +6524,14 @@ the minimum the read uses.
 | FR-038-AC-505 | SourceMap, Equivalence, Extension and Capabilities stages. For a genuine package with source-map entries, equivalence occurrences, extension nodes and capability rows, a read-storage limit one below the cumulative read storage through each stage's last request refuses at it with that stage's locus, index and form from the stage table; each stage's admitted outcome at its exact limit equals the unlimited outcome. | Test (TC-472) |
 | FR-038-AC-506 | Diagnostics, OperationEffects and CheckedTermData stages. For a genuine package with diagnostics, operation-effect rows and checked-term data, a read-storage limit one below the cumulative read storage through each stage's last request refuses at it with that stage's locus, row index and form, and a work limit one below each stage's cumulative work refuses at its existing work charge point. | Test (TC-472) |
 | FR-038-AC-507 | Retained stage. For a genuine package with direct dependencies, a read-storage limit one below the read's full read-storage requirement refuses at the last retained request with locus `PackageRead(Retained, 0)` and no package; the direct-dependency vector, the closure index, the assembled typed semantic graph, the node index, each shared `Arc` of the admitted package, the admission binding and the result `Box` are each the denied request in one case, each reporting its stage-table form. A read-storage limit equal to the requirement admits. | Test (TC-472) |
-| FR-038-AC-508 | Every work charge of the V2 read is charged to the caller budget's work counter, at the same point, amount and order as the validation-visit rules of FR-038 already state, and no other stage charges work. For each fixture of TC-048 that states an exact work requirement, the same number is the read's work delta under the budget, and one below it refuses at the same value. | Test (TC-472) |
+| FR-038-AC-508 | Every work charge of the V2 read is charged to the caller budget's work counter, at the same point, amount and order as the validation-visit rules of FR-038 already state, and no other stage charges work, except that reserved decimal parsing and GCD charge the conservative operand-size bounds stated under Work before those operations. Those bounds are no smaller than the former 32-bit-limb parse/GCD work; their exact totals and first attempted amounts replace the former arithmetic-specific totals only. Multiplication and all other validation work keep their existing amounts and order. For each TC-048 exact work fixture, the applicable total is the read's work delta and one below it refuses at that charge's original value and active work locus. | Test (TC-472) |
 | FR-038-AC-509 | Strict grammar under the shared reader. Package bytes with invalid UTF-8, a byte order mark, an unescaped control character, an invalid escape, a lone surrogate escape, a number outside RFC 8259 grammar, a number with no finite double, or trailing content each refuse `malformed_wire` with no pointer; a repeated member refuses `duplicate_member` at the later member's pointer, including a name holding `~` or `/`; a canonical-grammar package whose bytes differ from its canonical encoding refuses `noncanonical_wire` with no pointer; an unknown member refuses `unknown_member` at it; an explicit `null` for an omitted optional member refuses `malformed_wire` at it. Precedence: invalid UTF-8 anywhere refuses first; a repeated member followed inside the same object by a truncation refuses `malformed_wire` with no pointer; a repeated member in an object closed before a later grammar fault refuses `duplicate_member`; every byte-stream fault precedes `noncanonical_wire`, which precedes `contract_version` and closed-schema checks. A test enumerates the QSpec adverse corpus read under FR-038-AC-112 and fails on any vector holding a repeated member together with a later grammar fault or invalid UTF-8 whose published expected outcome differs from this order. | Test (TC-472) |
 | FR-038-AC-510 | On a budgeted entry, a work denial whose diagnostic is affordable returns `BudgetIncomplete` with `denied` `Work` and its amount, the budget's configured work limit, cumulative work plus the denied amount, and the value's pointer; a read-storage denial likewise returns `BudgetIncomplete` with `denied` `ReadStorage`. When the diagnostic's own request is denied, or the denied request was a refusal diagnostic, the read returns `Exhausted` holding the original denied resource and amount, its configured bound (including zero), its `PackageRead` locus and the pending outcome class (refusal code or structural limit kind), and makes no further request. At a zero read-storage limit, a budgeted read is denied at its first read-storage request, and because the outcome of that denial owns no pointer, locus list or string its diagnostic needs no storage and costs nothing: it returns `BudgetIncomplete` with `denied` `ReadStorage`, `limit` zero and no pointer, observing no request beyond the denied one; it returns `Exhausted` only when the outcome's diagnostic itself needs storage the budget cannot pay (a refusal or `incomplete` outcome that owns a pointer). An input over the byte limit returns `Incomplete` with `Bytes`, no pointer and no request. The unbudgeted entries map a work denial one to one onto `CheckedPackageIncomplete` `Work` with `limits.work`, the same `consumed` and pointer, and never return a read-storage denial or `Exhausted`, including for the 100000-node chain and every adverse shape of AC-511. | Test (TC-472) |
-| FR-038-AC-511 | Whole-read accounting. After `initialize_operation_catalog` has returned `Ok`, a test binary whose global allocator counts, on the reading thread during the call, the size of each allocation request and the new size of each reallocation request reads, under an unlimited budget, an exact budget and each one-below budget of AC-497 through AC-507: every positive TC-048 fixture, the QSpec checked-package conformance packages this repository reads, and the adverse shapes — the 100000-node reference chain, a 10000-node flat graph, a node with 10000 dependencies, a 1 MiB string member, 10000 source-map entries, 10000 diagnostics with detail terms, 64 direct dependencies and two selected model documents of 512 KiB — together with one refused input per refusal code. For every read, the read-storage delta the budget admitted equals the total bytes requested during the call; no request is observed for a denied charge; and every request observed after a denial belongs to the charged outcome diagnostic. | Test (TC-472) |
+| FR-038-AC-511 | Whole-read accounting, including each read's owned catalog. A test binary whose global allocator counts, on the reading thread during the call, the size of each allocation request and the new size of each reallocation request reads, under an unlimited budget, an exact budget and each one-below budget of AC-497 through AC-507: every positive TC-048 fixture, the QSpec checked-package conformance packages this repository reads, and the adverse shapes — the 100000-node reference chain, a 10000-node flat graph, a node with 10000 dependencies, a 1 MiB string member, 10000 source-map entries, 10000 diagnostics with detail terms, 64 direct dependencies and two selected model documents of 512 KiB — together with one refused input per refusal code. For every read, the read-storage delta the budget admitted equals the total bytes requested during the call; no request is observed for a denied charge; and every request observed after a denial belongs to the charged outcome diagnostic. | Test (TC-472) |
 | FR-038-AC-512 | Over the TC-048 corpus, every budget whose limits are at least the read's measured requirement returns the same outcome as the unlimited budget: an equal admitted package (equal graph, terms, models, selected documents, source map, diagnostics and lowering of every node) or an equal refusal or structural `incomplete` (code, cause, loci, `document_pointer`). Repeating a read with equal bytes, evidence and limits charges equal work and read storage and stops at the same first unpaid charge and locus. | Test (TC-472) |
-| FR-038-AC-513 | The V2 read path (`CheckedPackageV2::read` from the catalog gate's return through returning its result, and every function it reaches) calls no `serde_json` parser, deserializer or `RawValue`, constructs no `serde_json::Value`, calls no `num-bigint` parse or arithmetic, sorts only with `sort_unstable*`, and builds no `BTreeMap`, `BTreeSet`, `HashMap` or `serde_json::Map`; its tables are sorted exact-capacity slices and its containers are reserved at exact capacity before they are filled. The catalog initialisation parses the catalog with the shared `quire_canonical` reader and calls no `serde_json` parser. | Inspection (TC-472) |
+| FR-038-AC-513 | The V2 read path (`CheckedPackageV2::read` from entry through returning its result, including the owned catalog, and every function it reaches) calls no `serde_json` parser, deserializer or `RawValue`, constructs no `serde_json::Value`, calls no `num-bigint` parse or arithmetic, sorts only with `sort_unstable*`, and builds no `BTreeMap`, `BTreeSet`, `HashMap` or `serde_json::Map`; its tables are sorted exact-capacity slices and its containers are reserved at exact capacity before they are filled. Every read parses the catalog with the shared `quire_canonical` reader and charges its own catalog storage before allocation. | Inspection (TC-472) |
 | FR-038-AC-514 | A `literal` term's `value` and each diagnostic detail of an admitted package are `CheckedJson` handles into the package's one retained document. Cloning one shares the retained document without allocating a tree; equality holds exactly when canonical encodings are equal, regardless of document or node identity; `Debug` prints the canonical JSON text; `node()` exposes every JSON kind with number source text; `from_canonical_bytes` refuses non-canonical bytes; `from_value` and `to_value` round-trip; a `CheckedTerm` and a `CheckedDiagnosticV2` serialize to and deserialize from the same JSON as before; equality, `Debug`, encoding and drop use no native recursion; and a complete V2 envelope re-encoded from an admitted package equals the input bytes. | Test (TC-472) |
-| FR-038-AC-515 | The catalog gate runs before the read's first charge and charges nothing: with the catalog initialised, a read's budget deltas are equal whether or not it is the process's first read; with the catalog not yet initialised, the first read initialises it and its budget deltas equal those of a later read. An unreadable catalog returns `CatalogUnavailable` before any charge, leaving the budget's counters unchanged. | Test (TC-472) |
+| FR-038-AC-515 | Each strict read owns a freshly parsed catalog and charges every catalog allocation to the caller before requesting it, at `PackageRead(Envelope, 0)` with form `"operation_catalog"`. Two reads on fresh equal budgets have equal deltas, independently of earlier reads or `initialize_operation_catalog`; no process cache serves either read. A zero read-storage allowance denies the first catalog allocation without allocating it, the exact catalog requirement admits its catalog, and one byte below a catalog request refuses at that request. An unreadable catalog returns `CatalogUnavailable` with every earlier admitted charge retained; a catalog allocation denial returns the typed budget outcome. | Test (TC-472) |
 | FR-038-AC-516 | The read's term walks call quire-walk's caller-reservation entry, and every integer or rational the read parses, reduces or compares while validating is built and combined through quire-exact's caller-reservation entries. For a package whose canonical rational literals, dimension exponents, timed-model magnitudes and schedulability bounds hold multi-limb values, and for a term walk whose stack grows several times, each walker growth and each limb request is charged at its full requested size, and a one-below limit at each refuses with form `"walk"` or `"exact_number"` and no partial result. Canonical integer spellings are decided on text without a parse. | Test, Inspection (TC-472) |
 | FR-038-AC-517 | The existing public types `CheckedPackageV2ReadResult`, `CheckedPackageDispatchResult`, `CheckedPackageLimit`, `CheckedPackageIncomplete`, `NativeJoinChargeKind`, `NativeJoinCharge` and `NativeJoinDeniedCharge` keep exactly their variants and fields. The budgeted entries return `CheckedPackageV2BudgetedReadResult` and `CheckedPackageBudgetedDispatchResult`, each holding the unbudgeted result's variants plus `BudgetIncomplete(CheckedPackageBudgetIncomplete)` and `Exhausted(CheckedPackageReadExhausted)`, with `read_checked_package_with_budget` mapping each V2 variant to its dispatch variant; `PackageReadResource`, `PackageReadDeniedCharge`, `CheckedPackageBudgetIncomplete`, `CheckedPackageReadExhausted` and `CheckedPackagePendingOutcome` have the fields and variants FR-038's Outputs name. FR-019's public-item inventory lists each new item. The FR-035 contract-package reader returns none of the new outcomes. | Test, Inspection (TC-472) |
 | FR-038-AC-518 | The strict reader matches a `duration` aggregate bound's `type` against the clause's clock unit by `node_id.path` (`["scalar_type", "unit", T]`, `T` the `timestamp_unit` the clause's bindings name) alone, and never builds the clock unit's `node_id` from the clause node's package. A clause in package `example` whose `timestamp_unit` is `ix://acme/orders/unit/ms` admits bounds typed by the model-owned `acme/orders` node of that unit, and refuses an `upper` typed by the `ix://acme/orders/unit/s` node with `ill_typed`/`unit-mismatch` at `upper`'s value (QSpec FR-370-AC-20). | Test (TC-048; QSpec FR-370-AC-20, TC-303) |

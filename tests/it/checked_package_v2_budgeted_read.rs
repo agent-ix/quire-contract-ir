@@ -94,10 +94,10 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
     assert_eq!(budget.last_success_read_storage_delta(), None);
 }
 
-/// The envelope's and the canonical comparison's reservations are exact: the
-/// measured requirement admits, one byte below is denied at the last request,
-/// at its locus, with the bytes asked.
-#[trace("TC-472", "FR-038-AC-498", "FR-358-AC-13")]
+/// The read's reservations are exact: the measured requirement admits, one
+/// byte below is denied at the last request, at its locus (the result `Box`,
+/// the last request of the `Retained` stage), with the bytes asked.
+#[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
 fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
     let mut measure = NativeJoinBudget::unlimited();
@@ -115,31 +115,27 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
 
     let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required - 1);
     let result = read_with(&mut short);
-    let asked = u64::try_from(
-        short
-            .first_unpaid_read_storage()
-            .expect("a denial is recorded"),
-    )
-    .unwrap();
+    let asked = short
+        .first_unpaid_read_storage()
+        .expect("a denial is recorded");
     assert!(asked > 0);
-    // The denied request is the read's last one.
-    assert_eq!(short.read_storage_consumed() + asked, required);
     assert_eq!(short.first_unpaid(), None);
+    // The result `Box` is the last request the read makes.
     assert_eq!(
         short.first_unpaid_locus(),
-        Some(envelope_locus(
-            PackageReadStage::Canonical,
-            "canonical_bytes"
-        ))
+        Some(envelope_locus(PackageReadStage::Retained, "result"))
     );
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
+    // The retained stage owns no pointer, so the stop names none.
     let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {
-        panic!("a denial with no pointer to own is affordable: {result:?}");
+        panic!("a denial in the retained stage is incomplete: {result:?}");
     };
     assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(incomplete.denied.amount, u128::from(asked));
+    assert_eq!(incomplete.denied.amount, asked);
     assert_eq!(incomplete.limit, required - 1);
+    assert_eq!(incomplete.path, None);
+    assert!(short.read_storage_consumed() < required);
 }
 
 /// A zero read-storage limit is denied at the first allocation of the shared
@@ -159,7 +155,10 @@ fn zero_read_storage_is_denied_at_the_first_request_and_bytes_precede_it() {
     assert_eq!(denied.path, None);
     assert_eq!(
         zero.first_unpaid_locus(),
-        Some(envelope_locus(PackageReadStage::Envelope, "package_bytes"))
+        Some(envelope_locus(
+            PackageReadStage::Envelope,
+            "operation_catalog"
+        ))
     );
     assert_eq!(zero.read_storage_consumed(), 0);
 
@@ -302,13 +301,30 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
                 .unwrap_or_else(|| panic!("limit {limit}: a denial is recorded")),
         )
         .unwrap();
-        let consumed = budget.read_storage_consumed();
+        // A denial inside the decode or a validator names the value it was
+        // decoding or checking, and that pointer is an owned diagnostic. If it
+        // is affordable it is charged after the denied request and the outcome
+        // is `BudgetIncomplete`; if it is not, the outcome is `Exhausted` and
+        // consumption stops at the request boundary.
+        let consumed = match &result {
+            CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) => {
+                let pointer = incomplete
+                    .path
+                    .as_ref()
+                    .map_or(0, |path| path.as_str().len() as u64);
+                let boundary = budget.read_storage_consumed() - pointer;
+                assert!(boundary + pointer <= limit, "limit {limit}: pointer paid");
+                boundary
+            }
+            CheckedPackageV2BudgetedReadResult::Exhausted(_) => budget.read_storage_consumed(),
+            other => panic!("limit {limit}: {other:?}"),
+        };
         assert!(
             consumed <= limit && consumed + asked > limit,
             "limit {limit}"
         );
         let stage = match budget.first_unpaid_locus().expect("denial locus").source {
-            NativeJoinLocusSource::PackageRead(stage, 0) => stage,
+            NativeJoinLocusSource::PackageRead(stage, _) => stage,
             other => panic!("limit {limit}: {other:?}"),
         };
         if let Some((last_consumed, last_end, last_stage)) = previous {
@@ -317,7 +333,10 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
             } else {
                 assert_eq!(consumed, last_end, "limit {limit}: next request follows");
             }
-            assert!(stage >= last_stage, "limit {limit}: stages are ordered");
+            assert!(
+                stage >= last_stage,
+                "limit {limit}: stages are ordered: {last_stage:?} then {stage:?}"
+            );
         }
         if stage == PackageReadStage::Envelope {
             envelope_end = consumed + asked;
@@ -383,12 +402,11 @@ fn duplicate_name_and_out_of_range_number_diagnostics_are_charged_before_return(
     }
 }
 
-/// The catalog gate charges nothing: two reads of the same bytes on fresh
-/// budgets record equal work and read-storage deltas, whichever is the
-/// process's first.
+/// Each read charges its fresh owned catalog, so explicit validation of the
+/// catalog does not change either read's request sequence or deltas.
 #[trace("TC-472", "FR-038-AC-515")]
 #[test]
-fn the_catalog_gate_charges_nothing_to_any_read() {
+fn every_read_charges_its_owned_catalog_independently() {
     assert!(initialize_operation_catalog().is_ok());
     let mut first = NativeJoinBudget::unlimited();
     let mut later = NativeJoinBudget::unlimited();
@@ -406,9 +424,22 @@ fn the_catalog_gate_charges_nothing_to_any_read() {
         later.last_success_read_storage_delta()
     );
     assert_eq!(first.consumed(), later.consumed());
+    let mut denied = storage_budget(0);
+    assert!(matches!(
+        read_with(&mut denied),
+        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_)
+    ));
+    assert_eq!(
+        denied.first_unpaid_locus(),
+        Some(envelope_locus(
+            PackageReadStage::Envelope,
+            "operation_catalog"
+        ))
+    );
+    assert_eq!(denied.read_storage_consumed(), 0);
 }
 
-/// A refusal's owned pointer is a diagnostic the read pays for. Exactly paid,
+/// A refusal's record, location and owned pointer are paid diagnostics. Exactly paid,
 /// the refusal is returned; one byte short, the read is `Exhausted` with the
 /// request that was denied, its bound, locus and pending refusal.
 #[trace("TC-472", "FR-038-AC-510")]
@@ -422,6 +453,15 @@ fn an_unaffordable_refusal_diagnostic_is_exhausted_with_the_pending_refusal() {
     else {
         panic!("an unknown member refuses");
     };
+    assert_eq!(refusal.loci.len(), 1);
+    assert!(refusal.loci[0].source_region.is_none());
+    assert!(refusal.cause.is_none());
+    assert!(refusal.locus.is_none());
+    assert!(refusal.contract_version.is_none());
+    assert!(refusal.document_pointer.is_none());
+    assert!(refusal.extension_detail.is_none());
+    assert!(refusal.protocol_detail.is_none());
+    assert!(refusal.terminal_duplicate.is_none());
     let pointer = refusal.loci[0]
         .path
         .as_ref()
@@ -429,20 +469,26 @@ fn an_unaffordable_refusal_diagnostic_is_exhausted_with_the_pending_refusal() {
         .as_str()
         .len() as u64;
     assert!(pointer > 0);
-    let paid = measure.read_storage_consumed() - pointer;
-    let mut exact = storage_budget(paid + pointer);
+    // The public outcome moves the record out of its read-time box. Its
+    // layout and the one owned location still determine that allocation.
+    let diagnostic =
+        u64::try_from(std::mem::size_of_val(&refusal) + std::mem::size_of_val(&refusal.loci[0]))
+            .expect("diagnostic layout fits u64")
+            + pointer;
+    let paid = measure.read_storage_consumed() - diagnostic;
+    let mut exact = storage_budget(paid + diagnostic);
     assert!(matches!(
         read_bytes(&bytes, &mut exact),
         CheckedPackageV2BudgetedReadResult::Refused(_)
     ));
-    let mut short = storage_budget(paid + pointer - 1);
+    let mut short = storage_budget(paid + diagnostic - 1);
     let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = read_bytes(&bytes, &mut short)
     else {
         panic!("an unaffordable refusal diagnostic is exhausted");
     };
     assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(exhausted.denied.amount, u128::from(pointer));
-    assert_eq!(exhausted.configured_bound, paid + pointer - 1);
+    assert_eq!(exhausted.denied.amount, u128::from(diagnostic));
+    assert_eq!(exhausted.configured_bound, paid + diagnostic - 1);
     assert_eq!(
         exhausted.locus,
         NativeJoinLocus {

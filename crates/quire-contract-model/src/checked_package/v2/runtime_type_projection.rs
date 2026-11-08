@@ -314,7 +314,9 @@ impl SelectedTypeDeclarations {
 
 /// A typed refusal with the first failing admitted node and charged work.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-#[error("selected runtime type projection refused: {code:?} at {form:?} (native locus {denied_locus:?})")]
+#[error(
+    "selected runtime type projection refused: {code:?} at {form:?} (native locus {denied_locus:?})"
+)]
 pub struct SelectedTypeDeclarationsError {
     /// Stable refusal category shared with Exact type projection.
     pub code: ExactTypeProjectionErrorCode,
@@ -609,9 +611,9 @@ impl ProjectionBudget<'_> {
                 self.charge(at, form)?;
                 match segment {
                     CheckedNodePathSegment::Name(name) => self.charge_work(at, form, name.len())?,
-                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
-                        self.charge_work(at, form, 8)?
-                    }
+                    CheckedNodePathSegment::Index(_)
+                    | CheckedNodePathSegment::Operand(_)
+                    | CheckedNodePathSegment::Dependency { .. } => self.charge_work(at, form, 8)?,
                     CheckedNodePathSegment::Node(child) => {
                         self.charge_storage(1)?;
                         pending.push(child);

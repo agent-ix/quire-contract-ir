@@ -3,17 +3,18 @@
 
 //! Declared names of temporal-clause source occurrences.
 
+use super::graph_storage::GraphIndex;
+use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
     identity::is_identifier, CheckedNodeId, CheckedNodeKind, CheckedOccurrenceRole,
     RawSemanticNodeV2, TemporalForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
 
 /// One declared name of a temporal-clause claim occurrence.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -37,31 +38,51 @@ impl Encode for TemporalClauseName {
     }
 }
 
-fn root() -> JsonPointer {
-    JsonPointer::root().key("temporal_clause_names")
+fn root() -> Path<'static> {
+    Path::root().key("temporal_clause_names")
 }
-
-fn invalid(at: JsonPointer, cause: Cause, declaration: &CheckedNodeId) -> ValidationFailure {
-    ValidationFailure::refused_at(Code::InvalidPackage, at, Some(cause), declaration.clone())
+fn site(index: usize, path: Path<'_>) -> Site<'_> {
+    Site::new(
+        super::PackageReadStage::Graph,
+        index,
+        "temporal_clause_names",
+        path,
+    )
+}
+fn invalid(
+    at: Path<'_>,
+    cause: Cause,
+    declaration: &CheckedNodeId,
+    index: usize,
+    meter: &mut WorkMeter,
+) -> ValidationFailure {
+    stage_storage::refuse(
+        meter,
+        &site(index, at),
+        Refusal::new(Code::InvalidPackage, at)
+            .because(cause)
+            .at_node(declaration),
+    )
 }
 
 pub(super) fn validate(
     rows: Option<&[TemporalClauseName]>,
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut seen = BTreeSet::new();
-    let mut previous: Option<(&CheckedNodeId, u64)> = None;
+    let mut seen = Vec::new();
+    let mut previous: Option<(super::graph_storage::ResolvedKey<'_>, u64)> = None;
     for (row_index, row) in rows.unwrap_or_default().iter().enumerate() {
         let at = root().index(row_index);
-        meter.charge(1, || at.clone())?;
+        stage_storage::work(meter, &site(row_index, at), 1)?;
         if !is_identifier(&row.name) {
-            return Err(ValidationFailure::refused(
-                Code::MalformedWire,
-                at.key("name"),
+            return Err(stage_storage::refuse(
+                meter,
+                &site(row_index, at),
+                Refusal::new(Code::MalformedWire, at.key("name")),
             ));
         }
         let Some(&position) = index.get(&row.declaration).filter(|&&position| {
@@ -71,11 +92,13 @@ pub(super) fn validate(
                 at.key("declaration"),
                 Cause::InvalidValue,
                 &row.declaration,
+                row_index,
+                meter,
             ));
         };
         let mut owned = false;
         for occurrence in &nodes[position].occurrences {
-            meter.charge(1, || at.clone().key("occurrence"))?;
+            stage_storage::work(meter, &site(row_index, at.key("occurrence")), 1)?;
             if occurrence.role == CheckedOccurrenceRole::Claim
                 && occurrence.ordinal == row.occurrence
             {
@@ -88,14 +111,41 @@ pub(super) fn validate(
                 at.key("occurrence"),
                 Cause::InvalidValue,
                 &row.declaration,
+                row_index,
+                meter,
             ));
         }
-        if !seen.insert((&row.declaration, row.occurrence)) {
-            return Err(invalid(at, Cause::ConflictingDefinition, &row.declaration));
+        let key = (&row.declaration, row.occurrence);
+        match seen.binary_search(&key) {
+            Ok(_) => {
+                return Err(invalid(
+                    at,
+                    Cause::ConflictingDefinition,
+                    &row.declaration,
+                    row_index,
+                    meter,
+                ))
+            }
+            Err(position) => {
+                if seen.is_empty() {
+                    seen = stage_storage::vec(
+                        meter,
+                        &site(row_index, at),
+                        rows.map_or(0, <[TemporalClauseName]>::len),
+                    )?;
+                }
+                seen.insert(position, key);
+            }
         }
-        let key = (structural_keys[position].as_ref(), row.occurrence);
+        let key = (index.resolved_at(position, structural_keys), row.occurrence);
         if previous.is_some_and(|previous| previous > key) {
-            return Err(invalid(at, Cause::InvalidValue, &row.declaration));
+            return Err(invalid(
+                at,
+                Cause::InvalidValue,
+                &row.declaration,
+                row_index,
+                meter,
+            ));
         }
         previous = Some(key);
     }
@@ -104,14 +154,16 @@ pub(super) fn validate(
             continue;
         }
         for occurrence in &node.occurrences {
-            meter.charge(1, root)?;
+            stage_storage::work(meter, &site(position, root()), 1)?;
             if occurrence.role == CheckedOccurrenceRole::Claim
-                && !seen.contains(&(&node.node_id, occurrence.ordinal))
+                && seen
+                    .binary_search(&(&node.node_id, occurrence.ordinal))
+                    .is_err()
             {
-                return Err(ValidationFailure::refused_because(
-                    Code::InvalidPackage,
-                    root(),
-                    Cause::InvalidValue,
+                return Err(stage_storage::refuse(
+                    meter,
+                    &site(position, root()),
+                    Refusal::new(Code::InvalidPackage, root()).because(Cause::InvalidValue),
                 ));
             }
         }

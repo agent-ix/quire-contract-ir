@@ -47,14 +47,19 @@ impl CheckedPackageV2 {
                 ReachesLookup::Unknown => Error::UnknownNode,
                 ReachesLookup::NotReaches => Error::NotReachesApplication,
             })?;
-        let Some(named) = operation.pointer("/member/population") else {
+        let Some(_named) = operation
+            .member_node()
+            .and_then(|member| member.get("population"))
+        else {
             return Ok(None);
         };
-        let binding = CheckedNodeId::from_value(named).ok_or(Error::UnresolvedPopulation)?;
+        let binding = operation
+            .member_key("population")
+            .ok_or(Error::UnresolvedPopulation)?;
         let population = self
-            .node(&binding)
+            .node(binding)
             .filter(|_| {
-                self.node_kind(&binding)
+                self.node_kind(binding)
                     == Some(CheckedNodeKind::BoundedDomain(
                         BoundedDomainForm::ModelPopulation,
                     ))
@@ -65,7 +70,7 @@ impl CheckedPackageV2 {
             .ok_or(Error::UnresolvedPopulation)?;
         Ok(Some(CheckedSelectedPopulationSelector {
             package_name: self.name().into(),
-            binding,
+            binding: binding.clone(),
             occurrence,
         }))
     }
@@ -100,8 +105,6 @@ mod tests {
         }))
         .expect("a population node");
         let id = population.node_id.clone();
-        std::sync::Arc::make_mut(&mut package.node_index)
-            .insert(id.clone(), package.wire.semantic_graph.nodes.len());
         std::sync::Arc::make_mut(&mut package.wire)
             .semantic_graph
             .nodes
@@ -111,11 +114,13 @@ mod tests {
                 super::super::BoundedDomainForm::ModelPopulation,
             ),
         );
-        std::sync::Arc::make_mut(&mut package.terms)
-            .push(super::super::CheckedTerm::Aggregate { members: vec![] });
-        let position = package.node_index[&ids[&'7']];
+        package.reindex();
+        let position = package.node_position(&ids[&'7']).expect("indexed node");
         let super::super::CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[position]
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[position]
+                .body
         else {
             panic!("admitted reaches application term");
         };
@@ -156,7 +161,9 @@ mod tests {
             (
                 "population node with its Type occurrences removed",
                 Box::new(|package, _| {
-                    let node = package.node_index[&raw_node_id('e')];
+                    let node = package
+                        .node_position(&raw_node_id('e'))
+                        .expect("indexed node");
                     std::sync::Arc::make_mut(&mut package.wire)
                         .semantic_graph
                         .nodes[node]
@@ -180,7 +187,7 @@ mod tests {
     #[test]
     fn reaches_population_uses_retained_kind_after_raw_node_tag_changes() {
         let (mut package, ids, population) = naming_a_population();
-        let position = package.node_index[&population];
+        let position = package.node_position(&population).expect("indexed node");
         std::sync::Arc::make_mut(&mut package.wire)
             .semantic_graph
             .nodes[position]
@@ -201,9 +208,12 @@ mod tests {
         ids: &BTreeMap<char, CheckedNodeId>,
         value: Value,
     ) {
-        let position = package.node_index[&ids[&'7']];
+        let position = package.node_position(&ids[&'7']).expect("indexed node");
         let super::super::CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[position]
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[position]
+                .body
         else {
             panic!("admitted reaches application term");
         };

@@ -75,7 +75,10 @@ fn typed_literal_with_empty_dependencies_preserves_its_body_and_type() {
     };
     assert_eq!(type_id, &node.semantic_type);
     assert_eq!(*value_kind, LiteralKind::Boolean);
-    assert_eq!(*body_value, json!(true));
+    assert_eq!(
+        serde_json::to_value(body_value).expect("JSON literal"),
+        json!(true)
+    );
 }
 
 #[trace("FR-038-AC-472")]

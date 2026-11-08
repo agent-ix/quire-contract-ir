@@ -207,7 +207,7 @@ fn package(nodes: Vec<(String, Value)>) -> Fixture {
 }
 
 fn admit(value: &Value) -> CheckedPackageV2 {
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(value),
@@ -224,7 +224,7 @@ fn assert_literal_dependency_refusal(value: &Fixture, name: &str) {
         .iter()
         .position(|node| node["node_id"] == node_id(&key(name)))
         .expect("literal node");
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(value),
@@ -770,7 +770,7 @@ fn canonical_referenced_integer_exponent_lowers_and_parameters_still_require_bou
         panic!("checked exponent is the original Integer literal");
     };
     assert_eq!(type_id, &integer);
-    assert_eq!(value, "2");
+    assert_eq!(value.as_str(), Some("2"));
     let Some(CheckedTerm::Application { result_type, .. }) = admitted.term(&square) else {
         panic!("checked square application");
     };

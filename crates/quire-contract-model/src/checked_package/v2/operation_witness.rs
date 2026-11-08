@@ -153,7 +153,7 @@ impl<'a> SelectedOperationMembers<'a> {
                     consumed,
                 ));
             };
-            let Some(owner) = package.models.owner_by_key(&body.context) else {
+            let Some(owner) = package.models.owner_by_key(body.context) else {
                 return Err(refusal(
                     SelectedOperationMemberErrorCode::UnavailableWitness,
                     anchor,
@@ -173,7 +173,7 @@ impl<'a> SelectedOperationMembers<'a> {
                     ));
                 }
             };
-            if package.node_kind(&body.context) != Some(CheckedNodeKind::Model(form)) {
+            if package.node_kind(body.context) != Some(CheckedNodeKind::Model(form)) {
                 return Err(refusal(
                     SelectedOperationMemberErrorCode::UnavailableWitness,
                     anchor,

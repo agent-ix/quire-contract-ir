@@ -12,12 +12,12 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),

@@ -301,7 +301,7 @@ fn read(
     package: &Value,
     evidence: &quire_contract_model::CheckedPackageEvidence,
 ) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &indexed_bytes(package),
         CheckedPackageReadLimits::bounded(),
         evidence,
@@ -1598,7 +1598,7 @@ const CALL: usize = 6;
 
 const RELATIONSHIP: &str = "ix://acme/orders/relationship/Order-links-Order";
 
-fn authored_relationship() -> Value {
+pub(super) fn authored_relationship() -> Value {
     json!({
         "identity": RELATIONSHIP, "category": "structural", "composite": false,
         "direction": "bidirectional",
@@ -1845,7 +1845,7 @@ fn reaches_with_operands(
     reaches_over(authored_relationship(), "links", first_type, second_type)
 }
 
-fn reaches_over(
+pub(super) fn reaches_over(
     relation: Value,
     role: &str,
     first_type: &str,
@@ -2491,7 +2491,7 @@ fn tc_048_relationship_navigation_total_work_limit_reports_its_first_unpayable_e
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
-        CheckedPackageV2::read(&bytes, limits, &evidence)
+        crate::read_and_account(&bytes, limits, &evidence)
     };
     let (mut insufficient, mut admitted) = (0, CheckedPackageReadLimits::bounded().work);
     assert!(matches!(
@@ -2947,7 +2947,7 @@ fn tc_048_reading_a_domain_package_is_charged_to_the_work_limit() {
     let (package, evidence) = package_over(&domain_document(json!({})), "total");
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = 0;
-    match CheckedPackageV2::read(&indexed_bytes(&package), limits, &evidence) {
+    match crate::read_and_account(&indexed_bytes(&package), limits, &evidence) {
         CheckedPackageV2ReadResult::Incomplete(CheckedPackageIncomplete {
             limit_kind,
             limit,
@@ -3400,7 +3400,7 @@ fn tc_048_a_package_stream_refusal_carries_no_document_pointer() {
     let package = package_selecting("total");
     let mut bytes = indexed_bytes(&package);
     bytes.push(b' ');
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &bytes,
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&package),
@@ -3434,13 +3434,13 @@ fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
     limits.bytes = length;
     assert!(
         matches!(
-            CheckedPackageV2::read(&package_bytes, limits, &evidence),
+            crate::read_and_account(&package_bytes, limits, &evidence),
             CheckedPackageV2ReadResult::Admitted(_)
         ),
         "a document exactly `limits.bytes` long is read and matches"
     );
     limits.bytes = length - 1;
-    match CheckedPackageV2::read(&package_bytes, limits, &evidence) {
+    match crate::read_and_account(&package_bytes, limits, &evidence) {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Bytes);
             assert_eq!(incomplete.limit, length - 1);
@@ -3452,7 +3452,7 @@ fn tc_048_a_model_document_is_read_and_encoded_under_the_byte_limit() {
     // The work limit charged for the same document is located at the root.
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = length.div_ceil(1024) - 1;
-    match CheckedPackageV2::read(&package_bytes, limits, &evidence) {
+    match crate::read_and_account(&package_bytes, limits, &evidence) {
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Work);
             assert_eq!(
@@ -3772,7 +3772,7 @@ fn tc_227_a_relationship_edge_read_charges_its_effective_table_end_to_end() {
         let read = |work| {
             let mut limits = CheckedPackageReadLimits::bounded();
             limits.work = work;
-            CheckedPackageV2::read(&indexed_bytes(&package), limits, &evidence)
+            crate::read_and_account(&indexed_bytes(&package), limits, &evidence)
         };
         let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
         assert!(matches!(
@@ -4186,7 +4186,7 @@ fn tc_048_retaining_the_relationship_end_changes_neither_equality_nor_work() {
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
-        CheckedPackageV2::read(&bytes, limits, &evidence)
+        crate::read_and_account(&bytes, limits, &evidence)
     };
     let work_boundary = || {
         let (mut insufficient, mut sufficient) = (0, CheckedPackageReadLimits::bounded().work);

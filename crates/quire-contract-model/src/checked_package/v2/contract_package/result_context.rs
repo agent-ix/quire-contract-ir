@@ -10,9 +10,8 @@ use super::{
 use crate::checked_package::shared::{CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry};
 use crate::checked_package::v2::{
     ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
-    ExpressionForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
-use serde::Deserialize;
 use std::collections::BTreeMap;
 
 #[cfg(test)]
@@ -253,7 +252,9 @@ impl ContractPackageV1 {
             if !conversion_sources
                 .iter()
                 .any(|entry| selected.matches(entry))
-                || !direct_narrow_of(converted.root, &reached.root.node_id)
+                || !self
+                    .term(&converted.root.node_id)
+                    .is_some_and(|term| direct_narrow_of(term, &reached.root.node_id))
             {
                 return Ok(ContractResultContextV1::IncompleteContext);
             }
@@ -360,7 +361,9 @@ mod tests {
                 let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
                 assert_eq!(source_probe::builds(), 1);
                 assert_eq!(source_probe::build_entries(), entries as u64);
-                println!("result_sources K={requests} R={entries} candidates={visits} id_comparisons={comparisons}");
+                println!(
+                    "result_sources K={requests} R={entries} candidates={visits} id_comparisons={comparisons}"
+                );
                 if entries == 16 {
                     assert!(comparisons < requests * 16, "a full source scan must fail");
                 }
@@ -380,21 +383,20 @@ fn node_kind(node: &CheckedSemanticNodeV2) -> Option<CheckedNodeKind> {
     )
 }
 
-fn direct_narrow_of(node: &CheckedSemanticNodeV2, expression: &CheckedNodeId) -> bool {
-    if node_kind(node) != Some(CheckedNodeKind::Expression(ExpressionForm::Conversion)) {
-        return false;
-    }
-    let Ok(CheckedTerm::Application {
+fn direct_narrow_of(term: &CheckedTerm, expression: &CheckedNodeId) -> bool {
+    let CheckedTerm::Application {
         operator: ApplicationOperator::Convert,
         operation,
         arguments,
         ..
-    }) = CheckedTerm::decode_admitted(&node.body)
+    } = term
     else {
         return false;
     };
-    let Ok(operation) = super::super::operations::OperationWire::deserialize(operation.record())
-    else {
+    let Ok(Some(operation)) = super::super::operations::OperationWire::from_record(
+        operation.record(),
+        &mut super::super::WorkMeter::new(u64::MAX),
+    ) else {
         return false;
     };
     if super::super::KnownOperation::from_wire(&operation.identity)

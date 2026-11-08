@@ -953,9 +953,8 @@ fn validate_source_enum_row(
                 storage::node(at).saturating_add(2),
             )?;
             let source_entry = package
-                .source_index
-                .get(&(at.clone(), occurrence.role.clone(), occurrence.ordinal))
-                .and_then(|&position| package.source_map().get(position));
+                .source_position(at, &occurrence.role, occurrence.ordinal)
+                .and_then(|position| package.source_map().get(position));
             let Some(source_entry) = source_entry.filter(|entry| !entry.regions.is_empty()) else {
                 return Err(source_enum_error(
                     requested,
@@ -3903,7 +3902,7 @@ impl CheckedPackageV2 {
                         "bounded_map_result",
                         storage::value_type(projected.values()).saturating_add(2),
                     )?;
-                    ValueType::map(MapType::new(projected.values().clone(), Some(bound)))
+                    ValueType::map(bounded_map_type(projected, bound))
                 } else {
                     // A bounded collection's wrapper resolves to its unbounded
                     // base as its semantic type, but the producer's row is keyed
@@ -3963,7 +3962,10 @@ impl CheckedPackageV2 {
                         self, identities, requested, value, work, work_limit,
                     )?;
                     charge_native_storage(work, requested, type_id, "map_result", 2)?;
-                    ValueType::map(MapType::new(projected, None))
+                    ValueType::map(
+                        MapType::new(ValueType::String, projected, None)
+                            .expect("a string map key is a leaf"),
+                    )
                 }
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
@@ -4017,9 +4019,24 @@ impl CheckedPackageV2 {
                     _ => {
                         return Err(refuse_target!(
                             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
-                        ))
+                        ));
                     }
                 }
+            }
+            CheckedNodeKind::Model(ModelForm::VariantType) => {
+                identities.check_binding(self, work, type_id)?;
+                let shape = identities.model_enum_shapes.get(type_id).ok_or_else(|| {
+                    refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
+                })?;
+                storage::preflight_enum_shape(shape, work, type_id)?;
+                charge_native_storage(
+                    work,
+                    requested,
+                    type_id,
+                    "model_enum_projection",
+                    storage::enum_shape(shape).saturating_add(1),
+                )?;
+                ValueType::Enum(shape.clone())
             }
             CheckedNodeKind::Model(ModelForm::RecordValueType) => {
                 let identity = identities
@@ -4066,7 +4083,7 @@ impl CheckedPackageV2 {
                             _ => {
                                 return Err(refuse!(
                                     ExactTypeProjectionErrorCode::UnsupportedExactType
-                                ))
+                                ));
                             }
                         }
                     } else {
@@ -4272,12 +4289,37 @@ impl CheckedPackageV2 {
     }
 }
 
+/// `projected` with `bound` declared; its key and values carry over unchanged.
+fn bounded_map_type(projected: &MapType, bound: CardinalityBound) -> MapType {
+    MapType::new(
+        projected.key().clone(),
+        projected.values().clone(),
+        Some(bound),
+    )
+    .expect("a projected map key is a leaf")
+}
+
+#[cfg(test)]
+mod model_enum_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::checked_package::v2::{CheckedPackageWireV2, RetainedModels};
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
+
+    #[test]
+    fn bounded_map_rebuild_forwards_the_key_values_and_bound() {
+        let bound = CardinalityBound::new(1, 3).unwrap();
+        for key in [ValueType::String, ValueType::Integer, ValueType::Boolean] {
+            let projected = MapType::new(key.clone(), ValueType::Boolean, None).unwrap();
+            let rebuilt = bounded_map_type(&projected, bound);
+            assert_eq!(rebuilt.key(), &key);
+            assert_eq!(rebuilt.values(), &ValueType::Boolean);
+            assert_eq!(rebuilt.bound(), Some(bound));
+        }
+    }
 
     #[trace("TC-473", "FR-357-AC-20")]
     #[test]
@@ -4492,12 +4534,6 @@ mod tests {
             "source_map":[],"capability_report":[],
             "diagnostics":{"catalog":{"authority":"test","identity":"diagnostics"},"entries":[]},
         }));
-        let terms = wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .map(|node| node.body.clone())
-            .collect();
         let kinds = wire
             .semantic_graph
             .nodes
@@ -4520,15 +4556,15 @@ mod tests {
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),
-            terms: std::sync::Arc::new(terms),
             kinds: std::sync::Arc::new(kinds),
             bytes: 1 << 20,
             models: std::sync::Arc::new(RetainedModels::default()),
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+            catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
+            body_documents: Vec::new(),
         }
         .retain_original_admission()
     }

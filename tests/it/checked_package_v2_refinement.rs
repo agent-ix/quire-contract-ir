@@ -443,14 +443,14 @@ fn selected_process_persistence_state_and_record_keep_owner_and_reference_identi
     let encoded = writer_bytes(&package);
     assert_eq!(encoded, canonical_indexed(&package));
     let CheckedPackageV2ReadResult::Admitted(again) =
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("first canonical reread must admit");
     };
     let second = writer_bytes(&serde_json::from_slice(&encoded).expect("canonical JSON"));
     assert_eq!(second, encoded);
     let CheckedPackageV2ReadResult::Admitted(third) =
-        CheckedPackageV2::read(&second, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&second, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("second canonical reread must admit");
     };
@@ -747,7 +747,7 @@ pub(super) fn machine_package() -> (Value, CheckedPackageEvidence) {
 
 fn read(package: &Value, evidence: &CheckedPackageEvidence) -> CheckedPackageV2ReadResult {
     let indexed = indexed_package(package);
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(&indexed),
         CheckedPackageReadLimits::bounded(),
         evidence,
@@ -1460,7 +1460,7 @@ fn catalog_free_process_and_machine_frames_admit_declared_fields_and_scoped_para
         };
         let encoded = writer_bytes(&package);
         let CheckedPackageV2ReadResult::Admitted(second) =
-            CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+            crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
         else {
             panic!("{form} frame writer must read back");
         };
@@ -1646,7 +1646,7 @@ fn catalog_free_operation_step_joins_selected_object_type() {
         }
         let encoded = writer_bytes(&package);
         let CheckedPackageV2ReadResult::Admitted(second) =
-            CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+            crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
         else {
             panic!("{form} public writer must read back");
         };
@@ -1948,7 +1948,7 @@ fn assert_refinement_dependency_matrix(
         "writer changed authored dependencies"
     );
     let CheckedPackageV2ReadResult::Admitted(reread) =
-        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), evidence)
+        crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), evidence)
     else {
         panic!("dependency baseline writer output refused");
     };
@@ -2069,7 +2069,7 @@ fn refinement_history_reference_dependencies_exclude_type_annotations() {
     empty["semantic_graph"]["nodes"][position]["semantic_type"] = alternate.clone();
     let bytes = writer_bytes(&empty);
     let CheckedPackageV2ReadResult::Admitted(admitted) =
-        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("concrete root annotation must not create a local dependency");
     };
@@ -2178,7 +2178,7 @@ fn refinement_expression_operands_enter_dependencies_before_row_meaning() {
             "{location}: writer changed expression"
         );
         let CheckedPackageV2ReadResult::Refused(written_refusal) =
-            CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
+            crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
         else {
             panic!("{location}: writer must not heal the row defect");
         };
@@ -2346,7 +2346,7 @@ fn refinement_dependency_only_protocol_target_precedes_catalog_node_mismatch() {
     );
     for result in [
         read(&package, &evidence),
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence),
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence),
     ] {
         assert_step_refusal(
             result,
@@ -2515,12 +2515,12 @@ fn complete_model_refinement_retains_all_rows_through_public_roundtrip() {
         crate::support::checked_package::wire_form(&indexed)["semantic_graph"]["nodes"][position]
     );
     let CheckedPackageV2ReadResult::Admitted(second) =
-        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("writer output refused");
     };
     let second_bytes = writer_bytes(&written);
-    let CheckedPackageV2ReadResult::Admitted(third) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(third) = crate::read_and_account(
         &second_bytes,
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -2596,7 +2596,7 @@ fn model_step_targets_keep_operation_stutter_and_any_through_public_writer() {
                 ["semantic_graph"]["nodes"][position]["body"]["steps"][0]["target"]
         );
         let CheckedPackageV2ReadResult::Admitted(reread) =
-            CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+            crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
         else {
             panic!("{name} target refused after writer");
         };
@@ -2709,7 +2709,7 @@ fn directly_selected_abstract_operation_target_uses_declaring_owner() {
     );
     let encoded = writer_bytes(&package);
     let CheckedPackageV2ReadResult::Admitted(reread) =
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("written external abstract operation refused");
     };
@@ -2785,7 +2785,7 @@ fn declared_protocol_step_target_roundtrips_and_refuses_wrong_row_keys() {
         target
     );
     let CheckedPackageV2ReadResult::Admitted(reread) =
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("written declared protocol target refused");
     };
@@ -2955,7 +2955,7 @@ fn row_empty_refinement_swapped_concrete_root_retains_structural_identity() {
     let bytes = writer_bytes(&swapped);
     assert_eq!(bytes, canonical_indexed(&swapped));
     assert!(matches!(
-        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
+        crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 }
@@ -3125,7 +3125,7 @@ fn ac5_refusal_preserved_by_writer(
         "public writer changed adverse input"
     );
     assert_step_refusal(
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), evidence),
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), evidence),
         code,
         None,
         path,
@@ -3147,7 +3147,7 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
         initial
     );
     let literal_bytes = writer_bytes(&package);
-    let CheckedPackageV2ReadResult::Admitted(literal_reread) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(literal_reread) = crate::read_and_account(
         &literal_bytes,
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -3187,7 +3187,7 @@ fn history_initial_literal_and_local_literal_reference_roundtrip() {
     };
     let encoded = writer_bytes(&package);
     let CheckedPackageV2ReadResult::Admitted(second) =
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("writer output refused");
     };
@@ -3431,7 +3431,7 @@ fn history_update_and_assume_accept_declaring_type_anchor_and_refuse_foreign_roo
     );
     let bytes = writer_bytes(&package);
     assert!(matches!(
-        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
+        crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 
@@ -3689,7 +3689,7 @@ fn row_empty_protocol_subject_admits_two_equal_empty_concrete_class_sets() {
     );
     let bytes = writer_bytes(&package);
     assert!(matches!(
-        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
+        crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 }
@@ -3947,7 +3947,7 @@ fn catalog_free_operation_steps_join_in_received_order() {
         &format!("{at}/1/source_class"),
     );
     assert_step_refusal(
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence),
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageRefusalCode::InvalidModelBinding,
         Some(CheckedPackageRefusalCause::MalformedDeclaration),
         &format!("{at}/1/source_class"),
@@ -4254,7 +4254,7 @@ fn refinement_catalog_activate_each_uses_clause_and_trigger_signature() {
     let position = set_concrete_catalog(&mut package, vec![finish_entry.clone(), activate.clone()]);
     let bytes = writer_bytes(&package);
     assert_eq!(bytes, canonical_indexed(&package));
-    let admitted = CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
+    let admitted = crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
     assert!(
         matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
         "{admitted:?}"
@@ -4431,7 +4431,7 @@ fn refinement_catalog_activate_record_follows_authored_inherited_field_order() {
         let bytes = writer_bytes(&package);
         assert_eq!(bytes, canonical_indexed(&package));
         let admitted =
-            CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
+            crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
         assert!(
             matches!(admitted, CheckedPackageV2ReadResult::Admitted(_)),
             "{admitted:?}"
@@ -4829,7 +4829,7 @@ fn tied_protocol_and_memory_step_rows_keep_declaration_order_and_node_presence()
         rows
     );
     let CheckedPackageV2ReadResult::Admitted(reread) =
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("written tied and memory rows refused");
     };
@@ -4870,7 +4870,7 @@ fn tied_protocol_and_memory_step_rows_keep_declaration_order_and_node_presence()
             received
         );
         let CheckedPackageV2ReadResult::Admitted(second) =
-            CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+            crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
         else {
             panic!("written step permutation refused");
         };
@@ -4928,7 +4928,7 @@ fn tied_protocol_and_memory_step_rows_keep_declaration_order_and_node_presence()
     );
     let encoded = writer_bytes(&memory_target);
     let CheckedPackageV2ReadResult::Admitted(reread) =
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("written memory protocol target refused");
     };
@@ -5034,7 +5034,7 @@ fn memory_drain_catalog_roundtrips_and_joins_source_defaults() {
         package["semantic_graph"]["nodes"][position]["node_id"]
     );
     let CheckedPackageV2ReadResult::Admitted(reread) =
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("written catalog refused on reread");
     };
@@ -5849,7 +5849,7 @@ fn refinement_occurrences_follow_proof_eligibility_and_step_count() {
     }
     let encoded = writer_bytes(&two);
     let CheckedPackageV2ReadResult::Admitted(reread) =
-        CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &two_evidence)
+        crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &two_evidence)
     else {
         panic!("written proof-eligible steps refused");
     };
@@ -6249,7 +6249,7 @@ fn refinement_row_empty_model_refinement_is_admitted() {
     let bytes = writer_bytes(&package);
     assert_eq!(bytes, canonical_indexed(&package));
     assert!(matches!(
-        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
+        crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
 }
@@ -6810,7 +6810,7 @@ fn refinement_catalog_joins_owned_finish_without_a_step_row() {
     let written = writer_bytes(&package);
     assert_eq!(written, canonical_indexed(&package));
     let written_read =
-        CheckedPackageV2::read(&written, CheckedPackageReadLimits::bounded(), &evidence);
+        crate::read_and_account(&written, CheckedPackageReadLimits::bounded(), &evidence);
     let CheckedPackageV2ReadResult::Admitted(round_trip) = written_read else {
         panic!("typed writer output must read back: {written_read:?}");
     };
@@ -8719,4 +8719,108 @@ fn process_and_machine_clause_signatures_use_declared_context() {
             );
         }
     }
+}
+
+/// The refinement step's row table, occurrence tables, lock-source list,
+/// memory-model set and protocol node lists are charged at refinement loci
+/// before they are made (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn refinement_tables_are_charged_to_the_read_budget() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    use quire_contract_model::{NativeJoinBudget, PackageReadStage};
+    let (mut package, evidence, position) = memory_catalog_package();
+    let rows = json!([
+        {"source_class":"memory drain", "target":{"kind":"stutter"}},
+        {"source_class":"memory flush", "target":{"kind":"any"}}
+    ]);
+    package["semantic_graph"]["nodes"][position]["body"]["steps"] = rows;
+    settle_refinement(&mut package, position);
+    keep_refinement_declaration_occurrence(&mut package, position);
+    let key = package["semantic_graph"]["nodes"][position]["node_id"].clone();
+    let source = package["lock"]["sources"][0].clone();
+    package["refinement_step_rows"] = json!((0..2)
+        .map(|ordinal| json!({
+            "node_id":key, "ordinal":ordinal,
+            "region":{"source":source,"start":31+ordinal,"end":32+ordinal}
+        }))
+        .collect::<Vec<_>>());
+    refresh_identity(&mut package);
+    assert!(
+        matches!(
+            read(&package, &evidence),
+            CheckedPackageV2ReadResult::Admitted(_)
+        ),
+        "the stepped refinement admits: {:?}",
+        read(&package, &evidence)
+    );
+    let bytes = canonical_indexed(&package);
+    let reader = |budget: &mut NativeJoinBudget| {
+        crate::qspec_read_proof::read_budget_and_account(
+            &bytes,
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+            budget,
+        )
+    };
+    let requests = stage_requests(&reader, PackageReadStage::Graph);
+    let refinement = requests
+        .iter()
+        .filter(|request| request.form == "refinement")
+        .count();
+    // Before the step charged its own tables it made no request at a
+    // refinement locus: its row table, occurrence tables, lock-source list,
+    // memory-model set and node lists were uncharged heap blocks.
+    assert!(
+        refinement > 0,
+        "the refinement step charges its tables at its nodes"
+    );
+    assert_exact_and_one_short(&reader, &requests);
+}
+
+/// A read of a refinement with population, object and history rows reaches
+/// its local-dependency vector (reference targets and application joins):
+/// every graph-stage request, that vector's among them, is denied one byte
+/// short and admitted at its exact allowance, and the refinement node makes
+/// requests. The row-empty refinement is the control the history package's
+/// extra requests are measured against. That vector's allocated == requested
+/// equality is the lib test `local_dependencies_allocate_exactly_what_they_charge`.
+/// The IDs an application reads out of Value members are charged only after
+/// they are parsed until the body migration lands.
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn refinement_local_dependencies_are_charged_exactly() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    use quire_contract_model::{NativeJoinBudget, PackageReadStage};
+    let graph_requests = |package: &Value, evidence: &CheckedPackageEvidence| {
+        let bytes = canonical_indexed(package);
+        let read = move |budget: &mut NativeJoinBudget| {
+            crate::qspec_read_proof::read_budget_and_account(
+                &bytes,
+                CheckedPackageReadLimits::bounded(),
+                evidence,
+                budget,
+            )
+        };
+        let requests = stage_requests(&read, PackageReadStage::Graph);
+        assert_exact_and_one_short(&read, &requests);
+        requests
+    };
+    let (mut empty, evidence) = machine_package();
+    row_empty_refinement(&mut empty);
+    let control = graph_requests(&empty, &evidence);
+    let (history, evidence, position, _, _, _) = ac5_history_package();
+    let rows = graph_requests(&history, &evidence);
+    assert!(
+        rows.iter().any(|request| request.index == position),
+        "the refinement node makes graph-stage requests"
+    );
+    assert!(
+        rows.len() > control.len(),
+        "history, population and object rows add requests to the dependency vector"
+    );
 }

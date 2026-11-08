@@ -22,22 +22,24 @@
 //! options.
 
 use super::{
-    ApplicationOperator, CheckedArtifactRef, LawRole, OperationConstraintKind, OperationMemberKind,
-    OperationModeKind,
+    ApplicationOperator, LawRole, OperationConstraintKind, OperationMemberKind, OperationModeKind,
 };
 use serde::Deserialize;
-use std::collections::BTreeMap;
-use std::sync::OnceLock;
+use std::sync::Arc;
+
+#[cfg(test)]
+use super::operation_catalog_index::OperationCatalogWire;
+pub(super) use super::operation_catalog_index::{read_catalog, OperationCatalog};
 
 /// The catalog, read from its home rather than copied here.
 ///
 /// `quire-verification-contracts` owns `quire.checked-operation-catalog/v1` and
-/// publishes the bytes and a digest over them; this crate owns the reader that
+/// publishes the bytes; this crate owns the reader that
 /// decides what they admit. That split is the point: one definition of the closed
 /// vocabulary, one implementation of the rules it drives. A copy of these bytes in
 /// this repository, under any name or path, is a defect — it is what left this
 /// module unable to compile at all.
-const CATALOG_BYTES: &str =
+pub(super) const CATALOG_BYTES: &str =
     quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -150,6 +152,7 @@ pub(super) struct OperationCatalogEntry {
     /// Required application `operator` class.
     pub(super) operator: ApplicationOperator,
     /// Fixed leading operand families or group names, in order.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub(super) operands: Vec<CatalogFamily>,
     /// The family or group name every operand past `operands` must fit, or
     /// `None` when no further operand is admitted.
@@ -158,12 +161,14 @@ pub(super) struct OperationCatalogEntry {
     /// (`check_inner_result`), the other forms are not.
     pub(super) result: CatalogResult,
     /// Required law roles, in order.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub(super) laws: Vec<LawRole>,
     /// Required mode kind, or `None` when the operation carries no mode.
     pub(super) mode: Option<OperationModeKind>,
     /// Required member kind, or `None` when the operation carries no member.
     pub(super) member: Option<OperationMemberKind>,
     /// Cross-operand constraints.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub(super) constraints: Vec<OperationConstraint>,
     /// The leaf source this operation compares, or `None` when it carries no
     /// leaves.
@@ -175,137 +180,52 @@ pub(super) struct OperationCatalogEntry {
 #[serde(deny_unknown_fields)]
 pub(super) struct OperationConstraint {
     pub(super) kind: OperationConstraintKind,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub(super) operands: Vec<u64>,
     #[allow(dead_code)]
     pub(super) family: Option<Box<str>>,
 }
 
-/// The full top-level `operation-catalog.json` shape. `deny_unknown_fields`
-/// requires every published key to be declared here even though
-/// [`OperationCatalog`] (built from this once, in [`operation_catalog`])
-/// keeps only the tables this reader's checks actually consult; the
-/// `#[allow(dead_code)]` fields below are parsed for that fidelity and then
-/// dropped, never read again.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OperationCatalogWire {
-    #[allow(dead_code)]
-    version: Box<str>,
-    #[allow(dead_code)]
-    families: Vec<Box<str>>,
-    groups: BTreeMap<Box<str>, Vec<Box<str>>>,
-    /// Each entry is exactly `{authority, identity}` (QSpec `DefinitionRef`).
-    law_roles: BTreeMap<LawRole, Vec<CheckedArtifactRef>>,
-    #[allow(dead_code)]
-    profile_law_roles: Vec<Box<str>>,
-    modes: BTreeMap<Box<str>, Vec<Box<str>>>,
-    type_pinned_modes: BTreeMap<OperationModeKind, Vec<Box<str>>>,
-    #[allow(dead_code)]
-    member_kinds: Vec<Box<str>>,
-    #[allow(dead_code)]
-    constraint_kinds: Vec<Box<str>>,
-    #[allow(dead_code)]
-    result_forms: Vec<Box<str>>,
-    #[allow(dead_code)]
-    leaf_sources: Vec<Box<str>>,
-    operations: Vec<OperationCatalogEntry>,
+/// Reads a fresh production catalog, owned by the caller.
+pub(super) fn production_catalog() -> Result<CatalogRef, CatalogReadError> {
+    read_catalog(CATALOG_BYTES).map(|catalog| CatalogRef(Arc::new(catalog)))
 }
 
-/// The parsed, indexed `quire.checked-operation-catalog/v1`.
-pub(super) struct OperationCatalog {
-    operations: BTreeMap<Box<str>, OperationCatalogEntry>,
-    groups: BTreeMap<Box<str>, Vec<Box<str>>>,
-    law_roles: BTreeMap<LawRole, Vec<CheckedArtifactRef>>,
-    modes: BTreeMap<Box<str>, Vec<Box<str>>>,
-    type_pinned_modes: BTreeMap<OperationModeKind, Vec<Box<str>>>,
+/// Reads a fresh production catalog through the read's caller budget.
+pub(super) fn read_catalog_budgeted(
+    budget: &mut super::NativeJoinBudget,
+) -> Result<CatalogRef, super::operation_catalog_index::CatalogStop> {
+    super::operation_catalog_index::read_catalog_budgeted(CATALOG_BYTES, budget)
 }
 
-impl OperationCatalog {
-    #[cfg(test)]
-    pub(super) fn known(&self, identity: &str) -> Option<super::KnownOperation> {
-        self.entry(identity).and_then(|entry| entry.known)
-    }
-    /// Whether `value` is one of the catalog's closed values for mode `kind`.
-    pub(super) fn mode_value_admitted(&self, kind: OperationModeKind, value: &str) -> bool {
-        self.modes
-            .get(kind.as_wire())
-            .is_some_and(|values| values.iter().any(|candidate| &**candidate == value))
-    }
-
-    /// Every catalogued entry, so a test reads a set of entries from the
-    /// catalog this build depends on rather than listing identities.
-    #[cfg(test)]
-    pub(super) fn entries(&self) -> impl Iterator<Item = &OperationCatalogEntry> {
-        self.operations.values()
-    }
-
-    /// The catalogued entry for an `operation.identity`, if it names one.
-    pub(super) fn entry(&self, identity: &str) -> Option<&OperationCatalogEntry> {
-        self.operations.get(identity)
-    }
-
-    /// Every catalogued definition of a value law role (e.g.
-    /// `integer_division`), if `role` names one.
-    pub(super) fn law_role_definitions(&self, role: LawRole) -> Option<&[CheckedArtifactRef]> {
-        self.law_roles.get(&role).map(Vec::as_slice)
-    }
-
-    /// Whether `actual` is `expected` itself or a member of the group
-    /// `expected` names.
-    pub(super) fn family_fits(&self, actual: &str, expected: &str) -> bool {
-        actual == expected
-            || self
-                .groups
-                .get(expected)
-                .is_some_and(|members| members.iter().any(|member| **member == *actual))
-    }
-
-    /// Whether a mode `kind` (`rounding`, `text_profile`) is one whose value
-    /// an operand or leaf's own type authoritatively pins.
-    pub(super) fn is_type_pinned_mode(&self, kind: OperationModeKind) -> bool {
-        self.type_pinned_modes.contains_key(&kind)
-    }
-}
-
-static CATALOG: OnceLock<Result<OperationCatalog, CatalogReadError>> = OnceLock::new();
-
-/// The result of reading the production catalog bytes, read once.
-pub(super) fn production_catalog() -> &'static Result<OperationCatalog, CatalogReadError> {
-    CATALOG.get_or_init(|| read_catalog(CATALOG_BYTES))
-}
-
-/// The catalog a read result stands for, or why it is unavailable. Every
-/// reader entry point obtains its catalog here and passes the reference down,
-/// so no check can run without a readable catalog.
+/// Owns a catalog supplied by a test that injects an unavailable catalog.
+#[cfg(test)]
 pub(super) fn available(
     read: &'static Result<OperationCatalog, CatalogReadError>,
-) -> Result<&'static OperationCatalog, CatalogReadError> {
-    read.as_ref().map_err(Clone::clone)
-}
-
-/// Reads the production operation catalog now, so a later read's first call
-/// pays nothing for it. Returns the catalog's read error when it is
-/// unreadable, which every package read then reports as `CatalogUnavailable`.
-///
-/// # Errors
-///
-/// [`CatalogReadError`] when the production catalog bytes cannot be read.
-pub fn initialize_operation_catalog() -> Result<(), CatalogReadError> {
-    production_catalog()
-        .as_ref()
-        .map(|_| ())
+) -> Result<CatalogRef, CatalogReadError> {
+    read.as_ref()
+        .map(|catalog| CatalogRef(Arc::new(catalog.clone())))
         .map_err(Clone::clone)
 }
 
-/// The catalog an admitted package was read against, kept so the package's
-/// own queries use it. Packages compare equal by content, not by catalog.
-#[derive(Clone, Copy)]
-pub(super) struct CatalogRef(pub(super) &'static OperationCatalog);
+/// Validates the published operation catalog now. Every package read still
+/// owns and charges its own catalog; this call creates no process cache.
+///
+/// # Errors
+/// [`CatalogReadError`] when the published catalog cannot be read.
+pub fn initialize_operation_catalog() -> Result<(), CatalogReadError> {
+    production_catalog().map(drop)
+}
+
+/// The owned catalog an admitted package was read against. Packages compare
+/// equal by content, not by catalog allocation.
+#[derive(Clone)]
+pub(super) struct CatalogRef(pub(super) Arc<OperationCatalog>);
 
 impl std::ops::Deref for CatalogRef {
     type Target = OperationCatalog;
     fn deref(&self) -> &OperationCatalog {
-        self.0
+        &self.0
     }
 }
 
@@ -320,15 +240,20 @@ impl PartialEq for CatalogRef {
         true
     }
 }
-
 impl Eq for CatalogRef {}
 
 /// The production catalog, for tests that read an operation's entry.
 #[cfg(test)]
 pub(super) fn operation_catalog() -> &'static OperationCatalog {
-    production_catalog()
-        .as_ref()
-        .expect("the production catalog reads")
+    Box::leak(Box::new(
+        read_catalog(CATALOG_BYTES).expect("the production catalog reads"),
+    ))
+}
+
+/// An owned catalog for admitted-package fixture construction.
+#[cfg(test)]
+pub(super) fn owned_operation_catalog() -> CatalogRef {
+    production_catalog().expect("the production catalog reads")
 }
 
 /// The production operation catalog could not be read: the member the bytes
@@ -337,8 +262,8 @@ pub(super) fn operation_catalog() -> &'static OperationCatalog {
 /// a package, so a package read reports it instead of a refusal.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CatalogReadError {
-    path: String,
-    message: String,
+    pub(super) path: String,
+    pub(super) message: String,
 }
 
 impl std::fmt::Display for CatalogReadError {
@@ -358,58 +283,6 @@ impl CatalogReadError {
     /// Why the entry could not be read.
     pub fn message(&self) -> &str {
         &self.message
-    }
-}
-
-/// Reads and indexes catalog bytes. Bytes the reader cannot read, such as a
-/// `law_roles` entry that is not exactly `{authority, identity}`, return an
-/// error naming the entry; nothing here panics on supplied bytes.
-pub(super) fn read_catalog(bytes: &str) -> Result<OperationCatalog, CatalogReadError> {
-    let value: serde_json::Value =
-        serde_json::from_str(bytes).map_err(|error| CatalogReadError {
-            path: ".".to_owned(),
-            message: error.to_string(),
-        })?;
-    let wire: OperationCatalogWire = serde_path_to_error::deserialize(&value).map_err(|error| {
-        // A closed vocabulary's decode error does not echo the word (the
-        // package reader classifies by message), so the catalog read names
-        // the offending word from the bytes it was given.
-        let mut at = Some(&value);
-        for segment in error.path() {
-            at = at.and_then(|current| match segment {
-                serde_path_to_error::Segment::Seq { index } => current.get(*index),
-                serde_path_to_error::Segment::Map { key } => current.get(key.as_str()),
-                serde_path_to_error::Segment::Enum { .. }
-                | serde_path_to_error::Segment::Unknown => None,
-            });
-        }
-        let word = at
-            .and_then(serde_json::Value::as_str)
-            .map(|word| format!(" (word `{word}`)"))
-            .unwrap_or_default();
-        CatalogReadError {
-            path: error.path().to_string(),
-            message: format!("{}{word}", error.inner()),
-        }
-    })?;
-    Ok(index_catalog(wire))
-}
-
-fn index_catalog(wire: OperationCatalogWire) -> OperationCatalog {
-    let operations = wire
-        .operations
-        .into_iter()
-        .map(|mut entry| {
-            entry.known = super::KnownOperation::from_wire(&entry.identity);
-            (entry.identity.clone(), entry)
-        })
-        .collect();
-    OperationCatalog {
-        operations,
-        groups: wire.groups,
-        law_roles: wire.law_roles,
-        modes: wire.modes,
-        type_pinned_modes: wire.type_pinned_modes,
     }
 }
 
@@ -644,6 +517,8 @@ mod tests {
 
     /// FR-038-AC-515: on the budgeted entry an unreadable catalog returns
     /// `CatalogUnavailable` before any charge, leaving every counter as it was.
+    // This injects an already-produced catalog error to check outcome dispatch.
+    // Fresh catalog allocation accounting is exercised by operation_catalog_index.
     #[trace("TC-472", "FR-038-AC-515")]
     #[test]
     fn tc_472_an_unreadable_catalog_leaves_the_budgeted_entrys_counters_unchanged() {
@@ -731,11 +606,13 @@ mod tests {
         let entries = supplied["law_roles"]["integer_division"]
             .as_array()
             .expect("integer_division is catalogued");
-        assert!(entries.iter().all(|entry| entry
-            .as_object()
-            .is_some_and(|members| members.len() == 2
-                && members.contains_key("authority")
-                && members.contains_key("identity"))));
+        assert!(entries.iter().all(|entry| {
+            entry.as_object().is_some_and(|members| {
+                members.len() == 2
+                    && members.contains_key("authority")
+                    && members.contains_key("identity")
+            })
+        }));
         for (member, value) in [
             (
                 "revision",
@@ -795,15 +672,15 @@ mod tests {
         );
         assert_eq!(
             wire.modes
-                .keys()
-                .map(|k| k.to_string())
+                .iter()
+                .map(|(k, _)| k.to_string())
                 .collect::<BTreeSet<_>>(),
             members(OperationModeKind::ALL.iter().map(|k| k.as_wire()).collect())
         );
         let value_roles: BTreeSet<String> = wire
             .law_roles
-            .keys()
-            .map(|role| role.as_wire().to_owned())
+            .iter()
+            .map(|(role, _)| role.as_wire().to_owned())
             .collect();
         let profile_roles = words(&wire.profile_law_roles);
         assert_eq!(

@@ -60,9 +60,29 @@ pub(super) struct LoweringNodeFacts {
 /// Assign SCCs from the exact lowering edges. Graph admission also validates
 /// extension-body targets, but lowering does not follow those targets; using
 /// the admission SCCs would add nodes to a lowering closure in that case.
+#[cfg(test)]
 pub(super) fn assign_components(facts: &mut [LoweringNodeFacts]) {
+    let mut meter = super::WorkMeter::new(u64::MAX);
+    assign_components_charged(facts, &mut meter).expect("unlimited lowering storage");
+}
+
+pub(super) fn assign_components_charged(
+    facts: &mut [LoweringNodeFacts],
+    meter: &mut super::WorkMeter<'_>,
+) -> Result<(), ValidationFailure> {
     let size = facts.len();
-    let mut reversed = vec![Vec::new(); size];
+    let mut incoming_counts = meter.filled(size, 0_usize)?;
+    for fact in facts.iter() {
+        for &(target, _) in &fact.successors {
+            if let Some(count) = incoming_counts.get_mut(target) {
+                *count = count.saturating_add(1);
+            }
+        }
+    }
+    let mut reversed: Vec<Vec<usize>> = meter.vec(size)?;
+    for &count in &incoming_counts {
+        reversed.push(meter.vec(count)?);
+    }
     for (source, fact) in facts.iter().enumerate() {
         for &(target, _) in &fact.successors {
             if let Some(incoming) = reversed.get_mut(target) {
@@ -70,14 +90,15 @@ pub(super) fn assign_components(facts: &mut [LoweringNodeFacts]) {
             }
         }
     }
-    let mut seen = vec![false; size];
-    let mut postorder = Vec::with_capacity(size);
+    let mut seen = meter.filled(size, false)?;
+    let mut postorder = meter.vec(size)?;
+    let mut pending: Vec<(usize, usize)> = meter.vec(size)?;
     for root in 0..size {
         if seen[root] {
             continue;
         }
         seen[root] = true;
-        let mut pending = vec![(root, 0)];
+        pending.push((root, 0));
         while let Some((vertex, edge)) = pending.last_mut() {
             if let Some(&(target, _)) = facts[*vertex].successors.get(*edge) {
                 *edge += 1;
@@ -91,14 +112,15 @@ pub(super) fn assign_components(facts: &mut [LoweringNodeFacts]) {
             }
         }
     }
-    let mut assigned = vec![false; size];
+    let mut assigned = meter.filled(size, false)?;
     let mut component = 0;
+    let mut pending: Vec<usize> = meter.vec(size)?;
     for root in postorder.into_iter().rev() {
         if assigned[root] {
             continue;
         }
         assigned[root] = true;
-        let mut pending = vec![root];
+        pending.push(root);
         while let Some(vertex) = pending.pop() {
             facts[vertex].component = component;
             for &source in &reversed[vertex] {
@@ -110,6 +132,7 @@ pub(super) fn assign_components(facts: &mut [LoweringNodeFacts]) {
         }
         component += 1;
     }
+    Ok(())
 }
 
 /// The admitted SCC condensation. Shared successor components retain their
@@ -726,20 +749,21 @@ impl CheckedPackageV2 {
                     Step::Key("body"),
                 ];
                 let body = serde_json::to_value(&node.body).expect("typed test body");
-                let terms = super::validate_body(
+                let terms = super::validate_value_body(
                     *kind,
                     &body,
                     &Trail::Base(&body_steps),
-                    &mut |target, site, _at| {
-                        if let Some(&resolved) = index.get(target) {
+                    &mut |target, site, _at, _sink, _charge_site| {
+                        if let Some(&resolved) = index.get(&target) {
                             let role = match site.member {
                                 ReferenceMember::Type => EdgeRole::Annotation,
-                                ReferenceMember::Target
-                                | ReferenceMember::ResultType
-                                | ReferenceMember::FrameEntry => EdgeRole::Typing,
+                                ReferenceMember::Target | ReferenceMember::ResultType => {
+                                    EdgeRole::Typing
+                                }
                             };
                             successors.push((resolved, role));
                         }
+                        Ok(())
                     },
                 );
                 LoweringNodeFacts {
@@ -969,7 +993,7 @@ impl CheckedPackageV2 {
                     limit_kind: CheckedPackageLimit::Bytes,
                     limit: ceiling,
                     consumed: required,
-                }
+                };
             }
         };
         CompleteLoweringRecordV2::Lowered {
@@ -1273,7 +1297,9 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => false,
     }
 }

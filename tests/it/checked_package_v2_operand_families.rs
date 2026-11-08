@@ -11,7 +11,7 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedLiteralValue, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageRefusalCode, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -298,7 +298,7 @@ fn change_literal_type(package: &mut Value, position: usize, ty: &str) {
 }
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -678,7 +678,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
         let middle = lower + (upper - lower) / 2;
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = middle;
-        match CheckedPackageV2::read(&canonical(&package), limits, &evidence_for(&package)) {
+        match crate::read_and_account(&canonical(&package), limits, &evidence_for(&package)) {
             CheckedPackageV2ReadResult::Admitted(_) => upper = middle,
             CheckedPackageV2ReadResult::Incomplete(_) => lower = middle,
             other => panic!("valid native package refused: {other:?}"),
@@ -698,7 +698,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
         let middle = low + (high - low) / 2;
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = middle;
-        match CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed)) {
+        match crate::read_and_account(&canonical(&malformed), limits, &evidence_for(&malformed)) {
             CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
             CheckedPackageV2ReadResult::Refused(_) => high = middle,
             other => panic!("malformed native package admitted: {other:?}"),
@@ -712,7 +712,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high - 1;
     let CheckedPackageV2ReadResult::Incomplete(incomplete) =
-        CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed))
+        crate::read_and_account(&canonical(&malformed), limits, &evidence_for(&malformed))
     else {
         panic!("malformed native package must exhaust work before its payload refusal");
     };
@@ -722,7 +722,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high;
     let CheckedPackageV2ReadResult::Refused(actual) =
-        CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed))
+        crate::read_and_account(&canonical(&malformed), limits, &evidence_for(&malformed))
     else {
         panic!("malformed native package did not refuse at its payload threshold");
     };
@@ -1478,6 +1478,193 @@ fn fold_and_reduce_admit_without_member_family_and_refuse_unequal_result() {
             &format!("/semantic_graph/nodes/{at}/body/result_type"),
         );
     }
+}
+
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-251")]
+#[test]
+fn nested_fold_and_reduce_binders_resolve_only_the_single_final_step() {
+    for identity in ["quire.op.collection.fold", "quire.op.collection.reduce"] {
+        let (mut package, _, boolean, integer, _, _) = fixture();
+        let set = "operand/type/set";
+        add_node(
+            &mut package,
+            set,
+            "composite_type",
+            "set",
+            set,
+            json!({"term":"aggregate","members":[reference(&integer)]}),
+        );
+        let step = json!({"term":"literal","type":node_id(&integer),
+            "value_kind":"integer","value":"1"});
+        let inner = json!({"term":"binding","name":"x","value":step});
+        let mut arguments = vec![
+            reference(set),
+            json!({"term":"binding","name":"acc",
+            "value":{"term":"aggregate","members":[inner.clone()]}}),
+        ];
+        if identity.ends_with("fold") {
+            arguments.push(step.clone());
+        }
+        let at = append_application(
+            &mut package,
+            "collection",
+            "collection",
+            operation(
+                identity,
+                Value::Null,
+                json!({"kind":"type_argument","declaration":node_id(&integer)}),
+            ),
+            &integer,
+            arguments,
+        );
+        admits(&package);
+        let path = format!("/semantic_graph/nodes/{at}");
+        for members in [
+            json!([]),
+            json!([inner.clone(), inner.clone()]),
+            json!([step]),
+            json!([{"term":"binding","name":"x","value":
+                {"term":"literal","type":node_id(&boolean),"value_kind":"boolean","value":true}}]),
+        ] {
+            let mut invalid = package.clone();
+            invalid["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"] =
+                members;
+            settle(&mut invalid);
+            refuses(
+                &invalid,
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+                &path,
+            );
+        }
+        let mut malformed = package.clone();
+        malformed["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"] = json!([{"term":"binding","name":"x","value":
+                {"term":"aggregate","members":[inner]}}]);
+        settle(&mut malformed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&malformed) else {
+            panic!("nested aggregate step must refuse");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(refusal.cause, None);
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(format!("{path}/body/arguments/1/value/members/0/value"))
+        );
+    }
+}
+
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-251")]
+#[test]
+fn genuine_integer_fold_with_both_authored_binders_is_admitted() {
+    let bytes = include_bytes!("../fixtures/fold-binders/integer-fold.json");
+    let mut evidence = quire_contract_model::CheckedPackageEvidence::new();
+    evidence.support_feature("quire.value.complete/v1");
+    let CheckedPackageV2ReadResult::Admitted(package) =
+        crate::read_and_account(bytes, CheckedPackageReadLimits::bounded(), &evidence)
+    else {
+        panic!("genuine Integer fold with accumulator and element binders must admit");
+    };
+    let fold = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.semantic_form.as_ref() == "collection")
+        .expect("emitted fold node");
+    let Some(quire_contract_model::CheckedTerm::Application {
+        arguments,
+        result_type,
+        ..
+    }) = package.term(&fold.node_id)
+    else {
+        panic!("typed fold application");
+    };
+    let quire_contract_model::CheckedTerm::Binding { name, value } = &arguments[1] else {
+        panic!("accumulator binder");
+    };
+    assert_eq!(name.as_ref(), "acc");
+    let quire_contract_model::CheckedTerm::Aggregate { members } = value.as_ref() else {
+        panic!("element binder wrapper");
+    };
+    let [quire_contract_model::CheckedTerm::Binding { name, value }] = members.as_slice() else {
+        panic!("single element binder");
+    };
+    assert_eq!(name.as_ref(), "x");
+    let quire_contract_model::CheckedTerm::Reference { target } = value.as_ref() else {
+        panic!("step reference");
+    };
+    let step = package
+        .resolved_graph()
+        .nodes
+        .iter()
+        .find(|node| &node.node_id == target)
+        .expect("resolved final step");
+    assert_eq!(&step.semantic_type, result_type);
+}
+
+#[trace("TC-048", "FR-038-AC-247", "FR-038-AC-251")]
+#[test]
+fn genuine_monitor_base_fold_is_admitted_without_removing_semantics() {
+    let bytes = include_bytes!("../fixtures/fold-binders/monitor-base.json");
+    let mut evidence = quire_contract_model::CheckedPackageEvidence::new();
+    evidence.support_feature("quire.value.complete/v1");
+    evidence
+        .insert_domain_package_document(
+            "example/config-version",
+            include_bytes!("../fixtures/fold-binders/monitor-model.json").to_vec(),
+        )
+        .expect("selected ConfigVersion model evidence");
+    // Match the producing monitor fixture's finite caller ceilings.
+    let limits = CheckedPackageReadLimits {
+        bytes: 1 << 26,
+        nodes: 1_000_000,
+        edges: 10_000_000,
+        occurrences: 10_000_000,
+        diagnostics: 10_000,
+        work: 1_000_000_000,
+    };
+    let package = match crate::read_and_account(bytes, limits, &evidence) {
+        CheckedPackageV2ReadResult::Admitted(package) => package,
+        other => panic!("complete genuine monitor-base fold must admit: {other:?}"),
+    };
+    assert_eq!(
+        package.graph().nodes.len(),
+        1114,
+        "retain the full emitted graph"
+    );
+    let fold = package
+        .document_held_id(359)
+        .expect("original monitor fold id");
+    let Some(quire_contract_model::CheckedTerm::Application {
+        operation,
+        arguments,
+        result_type,
+        ..
+    }) = package.term(fold)
+    else {
+        panic!("original monitor fold application");
+    };
+    assert_eq!(operation.identity(), Some("quire.op.collection.fold"));
+    let quire_contract_model::CheckedTerm::Binding { name, value } = &arguments[1] else {
+        panic!("monitor accumulator binder");
+    };
+    assert_eq!(name.as_ref(), "a");
+    let quire_contract_model::CheckedTerm::Aggregate { members } = value.as_ref() else {
+        panic!("monitor element wrapper");
+    };
+    let [quire_contract_model::CheckedTerm::Binding { name, value }] = members.as_slice() else {
+        panic!("monitor element binder");
+    };
+    assert_eq!(name.as_ref(), "x");
+    let quire_contract_model::CheckedTerm::Reference { target } = value.as_ref() else {
+        panic!("monitor final step reference");
+    };
+    let step = package
+        .resolved_graph()
+        .nodes
+        .iter()
+        .find(|node| &node.node_id == target)
+        .expect("monitor final step resolves");
+    assert_eq!(&step.semantic_type, result_type);
 }
 
 #[trace("TC-048", "TC-229", "FR-038-AC-247", "FR-038-AC-248", "FR-038-AC-305")]

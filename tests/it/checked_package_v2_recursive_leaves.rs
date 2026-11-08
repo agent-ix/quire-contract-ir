@@ -19,7 +19,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodePathSegment, CheckedNodeTag, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
     ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
 };
 use serde_json::{json, Value};
@@ -313,7 +313,7 @@ fn equality_package(types: Vec<Typed>, root: &str, leaves: Vec<Value>) -> (Value
 }
 
 fn read(package: &Value, limits: CheckedPackageReadLimits) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(&canonical(package), limits, &evidence_for(package))
+    crate::read_and_account(&canonical(package), limits, &evidence_for(package))
 }
 
 /// The pointer of `operation.leaves` of the application node keyed `id`.

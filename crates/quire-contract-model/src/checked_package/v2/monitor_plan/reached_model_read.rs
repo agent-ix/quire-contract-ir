@@ -804,7 +804,16 @@ impl CheckedMonitorPlanRef<'_> {
 #[cfg(test)]
 #[allow(unused_imports)]
 #[path = "../../../../../../tests/it/support/checked_package.rs"]
-mod fixture_support;
+pub(in crate::checked_package::v2) mod fixture_support;
+
+#[cfg(test)]
+fn fixture_read(
+    bytes: &[u8],
+    limits: crate::CheckedPackageReadLimits,
+    evidence: &crate::CheckedPackageEvidence,
+) -> crate::CheckedPackageV2ReadResult {
+    crate::CheckedPackageV2::read(bytes, limits, evidence)
+}
 
 #[cfg(test)]
 fn fixtures_dir() -> std::path::PathBuf {
@@ -1619,10 +1628,14 @@ mod tests {
                         base_node: node.node_id.clone(),
                         key_node: Some(key.clone()),
                         element_node: value.clone(),
-                        value_type: ValueType::map(quire_exact::MapType::new(
-                            ValueType::Integer,
-                            None,
-                        )),
+                        value_type: ValueType::map(
+                            quire_exact::MapType::new(
+                                quire_exact::ValueType::String,
+                                ValueType::Integer,
+                                None,
+                            )
+                            .expect("a string map key is a leaf"),
+                        ),
                     });
                 }
                 _ => {}
@@ -1656,7 +1669,10 @@ mod tests {
                     }
                 });
             row.value_type = if row.key_node.is_some() {
-                ValueType::map(quire_exact::MapType::new(value, None))
+                ValueType::map(
+                    quire_exact::MapType::new(quire_exact::ValueType::String, value, None)
+                        .expect("a string map key is a leaf"),
+                )
             } else {
                 ValueType::collection(CollectionType::new(CollectionKind::Sequence, value, None))
             };
@@ -2625,7 +2641,7 @@ mod tests {
         assert_eq!(shared.last_success_delta(), None);
     }
 
-    #[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
+    #[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5", "FR-352-AC-30")]
     #[test]
     fn reached_enum_shape_uses_the_same_budget_as_model_and_unit_reads() {
         use crate::SelectedModelEnumShapeCaseRow;
@@ -2707,6 +2723,76 @@ mod tests {
             NativeJoinChargeKind::Storage
         );
         assert!(exhausted.first_unpaid_locus().is_some());
+
+        // These are authored IR fixture identities, not QSL producer evidence.
+        let requested = &enum_shapes[0].structural_node;
+        let projected = package
+            .project_exact_type(requested, &complete.identities, &mut budget)
+            .expect("the installed selected model enum projects directly");
+        assert_eq!(
+            projected.value_type(),
+            &ValueType::Enum(enum_shapes[0].shape.clone())
+        );
+        assert_eq!(projected.type_node(), requested);
+        let total = budget.consumed();
+        assert!(total.work > used.work && total.storage > used.storage);
+        let mut exact = NativeJoinBudget::new(total.work, total.storage);
+        let exact_rows = read(&mut exact).expect("reached read fits cumulative budget");
+        assert_eq!(
+            package.project_exact_type(requested, &exact_rows.identities, &mut exact),
+            Ok(projected.clone())
+        );
+        assert_eq!(exact.consumed(), total);
+        assert_eq!(
+            package.clone().project_exact_type(
+                requested,
+                &complete.identities,
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            ),
+            Ok(projected)
+        );
+        for kind in [NativeJoinChargeKind::Work, NativeJoinChargeKind::Storage] {
+            let (work, storage) = match kind {
+                NativeJoinChargeKind::Work => (total.work - 1, u64::MAX),
+                NativeJoinChargeKind::Storage => (u64::MAX, total.storage - 1),
+            };
+            let mut short = NativeJoinBudget::new(work, storage);
+            let reached = read(&mut short).expect("prefix is affordable");
+            let error = package
+                .project_exact_type(requested, &reached.identities, &mut short)
+                .expect_err("projection cannot reset the shared allowance");
+            assert_eq!(error.denied, short.first_unpaid());
+            assert_eq!(error.denied.unwrap().kind, kind);
+            assert_eq!(
+                error.configured_bound,
+                Some(match kind {
+                    NativeJoinChargeKind::Work => work,
+                    NativeJoinChargeKind::Storage => storage,
+                })
+            );
+            assert!(short.first_unpaid_locus().is_some());
+            assert_eq!(short.last_success_delta(), None);
+        }
+        let missing = package
+            .project_exact_type(
+                requested,
+                &SelectedExactIdentities::empty(),
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .expect_err("declaration alone supplies no opaque enum shape");
+        assert_eq!(
+            missing.code,
+            ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+        );
+        let independently_admitted = admitted_monitor_with_variant(true);
+        let foreign = independently_admitted
+            .project_exact_type(
+                requested,
+                &complete.identities,
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .expect_err("an installed shape remains bound to its admission");
+        assert_eq!(foreign.code, ExactTypeProjectionErrorCode::ForeignNode);
     }
     #[trace("TC-470", "FR-357-AC-13", "FR-357-AC-14", "FR-360-AC-2")]
     #[test]
@@ -2814,10 +2900,15 @@ mod tests {
         let entry = plan.init().node_id().clone();
         let target = plan.state().clone();
         let (position, _) = single.node_with_position(&entry).unwrap();
-        std::sync::Arc::make_mut(&mut single.terms)[position] =
-            CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
+        std::sync::Arc::make_mut(&mut single.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
         let mut repeated = single.clone();
-        std::sync::Arc::make_mut(&mut repeated.terms)[position] = CheckedTerm::aggregate(vec![
+        std::sync::Arc::make_mut(&mut repeated.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::aggregate(vec![
             CheckedTerm::reference(target.clone()),
             CheckedTerm::reference(target),
         ]);
@@ -2880,10 +2971,14 @@ mod tests {
                     .position(|row| {
                         row.key_node.is_some()
                             && row.value_type
-                                == ValueType::map(quire_exact::MapType::new(
-                                    ValueType::Boolean,
-                                    None,
-                                ))
+                                == ValueType::map(
+                                    quire_exact::MapType::new(
+                                        quire_exact::ValueType::String,
+                                        ValueType::Boolean,
+                                        None,
+                                    )
+                                    .expect("a string map key is a leaf"),
+                                )
                     })
                     .expect("unrelated boolean map has no opaque record payload");
                 let unrelated = collections.remove(unrelated);
@@ -2967,10 +3062,14 @@ mod tests {
                 .expect("map value record reached");
             assert_eq!(
                 row.value_type,
-                ValueType::map(quire_exact::MapType::new(
-                    ValueType::Composite(record.record_key.clone()),
-                    None
-                ))
+                ValueType::map(
+                    quire_exact::MapType::new(
+                        quire_exact::ValueType::String,
+                        ValueType::Composite(record.record_key.clone()),
+                        None
+                    )
+                    .expect("a string map key is a leaf")
+                )
             );
             let projected = closure
                 .exact_types()

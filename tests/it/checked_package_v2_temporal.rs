@@ -29,13 +29,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // Reading
 // ---------------------------------------------------------------------------
 
-const ORDERS: &str = "acme/orders";
+pub(super) const ORDERS: &str = "acme/orders";
 const ORDERS_VERSION: &str = "1.0.0";
 /// A domain package identity the lock never selects.
 const OTHER_PACKAGE: &str = "acme/other";
-const ORDER_NODE: &str = "ix://acme/orders/Order";
-const SUB_NODE: &str = "ix://acme/orders/Sub";
-const LEFT_NODE: &str = "ix://acme/orders/Left";
+pub(super) const ORDER_NODE: &str = "ix://acme/orders/Order";
+pub(super) const SUB_NODE: &str = "ix://acme/orders/Sub";
+pub(super) const LEFT_NODE: &str = "ix://acme/orders/Left";
 const RIGHT_NODE: &str = "ix://acme/orders/Right";
 const BOTH_NODE: &str = "ix://acme/orders/Both";
 const NATIVE_INTEGER: &str = "ix://quire/native/Integer";
@@ -56,7 +56,7 @@ fn domain_type(node: &str, supertypes: &[&str], operations: Value) -> Value {
 
 /// `Order { scaled(Integer): Integer; reset() }`, `Sub: Order`, and
 /// `Both: Left, Right` where `Left` and `Right` each declare `act`.
-fn orders_document() -> Value {
+pub(super) fn orders_document() -> Value {
     let act = |owner: &str| json!([{"identity": format!("{owner}/act"), "params": []}]);
     json!({
         "contractVersion": "2.0.0",
@@ -84,12 +84,12 @@ fn model_key_in(identity: &str, node: &str) -> String {
     format!("{identity}/{node}")
 }
 
-fn model_key(node: &str) -> String {
+pub(super) fn model_key(node: &str) -> String {
     model_key_in(ORDERS, node)
 }
 
 /// Model-owned object types use the selected package and FCD identity in their ID.
-fn node_id(key: &str) -> Value {
+pub(super) fn node_id(key: &str) -> Value {
     if let Some((package, node)) = key.split_once("/ix://") {
         if package == ORDERS || package == OTHER_PACKAGE {
             return json!({
@@ -107,7 +107,7 @@ fn typed_node_id(key: &str) -> CheckedNodeId {
 }
 
 /// Reads `package` with [`orders_document`] supplied under its identity.
-fn read(package: &Value) -> CheckedPackageV2ReadResult {
+pub(super) fn read(package: &Value) -> CheckedPackageV2ReadResult {
     read_limited(package, CheckedPackageReadLimits::bounded())
 }
 
@@ -121,7 +121,7 @@ fn read_with_model(
     limits: CheckedPackageReadLimits,
 ) -> CheckedPackageV2ReadResult {
     let evidence = evidence_with_document(package, ORDERS, document);
-    CheckedPackageV2::read(&canonical(package), limits, &evidence)
+    crate::read_and_account(&canonical(package), limits, &evidence)
 }
 
 fn admitted(case: &str, package: &Value) -> CheckedPackageV2 {
@@ -254,7 +254,7 @@ fn fresh() -> String {
 }
 
 /// A node keyed `key` whose body is `body`.
-fn node_with_key(key: &str, tag: &str, form: &str, body: Value) -> Value {
+pub(super) fn node_with_key(key: &str, tag: &str, form: &str, body: Value) -> Value {
     json!({
         "node_id": node_id(key),
         "schema_version": "quire.checked-semantic-graph/v2",
@@ -298,7 +298,7 @@ fn formula(short: &str, member: Value, arguments: Vec<Value>) -> Value {
 }
 
 /// Appends `node`, returning its position.
-fn push(package: &mut Value, node: Value) -> usize {
+pub(super) fn push(package: &mut Value, node: Value) -> usize {
     let list = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
@@ -323,7 +323,7 @@ fn lower_bounded(lower: &str) -> Value {
 }
 
 const BOUNDED: &str = "quire.temporal.event-position.false-extension/v1";
-const INFINITE: &str = "quire.temporal.infinite-trace/v1";
+pub(super) const INFINITE: &str = "quire.temporal.infinite-trace/v1";
 const TIMED: &str = "quire.temporal.timed/v1";
 const FIVE_PROFILES: [&str; 5] = [
     BOUNDED,
@@ -395,7 +395,7 @@ fn with_root(
     (package, root)
 }
 
-fn clause(package: &Value) -> usize {
+pub(super) fn clause(package: &Value) -> usize {
     find_form(package, "temporal", "temporal_clause")
 }
 
@@ -405,7 +405,7 @@ fn at_node(position: usize, tail: &str) -> String {
 
 /// The model root selecting the domain package and its model declaration
 /// nodes, added to `package`.
-fn with_model(package: &mut Value) {
+pub(super) fn with_model(package: &mut Value) {
     select_model(package, ORDERS);
     for declared in [ORDER_NODE, SUB_NODE, LEFT_NODE, RIGHT_NODE, BOTH_NODE] {
         let key = model_key(declared);
@@ -2362,7 +2362,7 @@ fn tc_048_each_of_the_five_fr_250_profiles_admits_as_the_clause_profile() {
 /// The fixture with the clause's own law naming `identity` (the lock still
 /// selects the fixture's profile), and `lock_row` added to the lock's profile
 /// selections when given. The package and the clause's position.
-fn clause_law(identity: &str, lock_row: Option<(&str, &str)>) -> (Value, usize) {
+pub(super) fn clause_law(identity: &str, lock_row: Option<(&str, &str)>) -> (Value, usize) {
     let mut package = v2_all_families();
     let clause_at = clause(&package);
     package["semantic_graph"]["nodes"][clause_at]["body"]["operation"]["laws"][0]["definition"]
@@ -3976,4 +3976,221 @@ fn tc_346_a_subjects_or_finite_body_refusal_is_located_at_the_target_with_its_ke
             Some(target)
         )
     );
+}
+
+// ---------------------------------------------------------------------------
+// Window aggregate arguments (FR-038-AC-461, AC-462)
+// ---------------------------------------------------------------------------
+
+const POSITIONS: &str = "quire.temporal.event-position.false-extension/v1";
+const DURATION: &str = "quire.temporal.timestamped-event.finite-window/v1";
+
+fn typed(kind: &str, type_key: Value, value: &str) -> Value {
+    json!({"term": "literal", "type": type_key, "value_kind": kind, "value": value})
+}
+
+fn builtin(name: &str) -> Value {
+    json!({"package": "test/families", "path": [format!("builtin/{name}")], "ordinal": 0})
+}
+
+fn clock_unit(name: &str) -> Value {
+    json!({"package": "test/families", "path": ["scalar_type", "unit", name], "ordinal": 0})
+}
+
+fn scalar(kind: &str, value: &str) -> Value {
+    typed(kind, builtin(kind), value)
+}
+
+fn word(value: &str) -> Value {
+    typed("text", node_id(&family_key("a1a1")), value)
+}
+
+fn binding(name: &str, value: Value) -> Value {
+    json!({"term": "binding", "name": name, "value": value})
+}
+
+/// The all-families package with its `holds` formula rewritten to apply
+/// `quire.op.temporal.aggregate` to `members`, under `profile`. A duration
+/// window also declares the fixture's `tick` clock unit the quantity bounds are typed by.
+fn aggregate_package(profile: &str, members: Vec<Value>) -> (Value, usize) {
+    let mut package = v2_all_families();
+    select_profile(&mut package, profile);
+    if profile == DURATION {
+        let dimension = json!({"package": "test/families",
+                               "path": ["scalar_type", "dimension", "Time"], "ordinal": 0});
+        for node in [
+            json!({
+                "node_id": dimension, "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": "scalar_type", "semantic_form": "dimension",
+                "semantic_type": dimension,
+                "declaration": {"qualified_name": ["scalar_type", "dimension", "Time"]},
+                "dependencies": [],
+                "occurrences": [{"role": "declaration", "ordinal": 0}],
+                "owner": {"kind": "source", "authority": "agent-ix", "identity": "quire.fixture.source/v1"},
+                "body": {"term": "dimension", "base": true, "terms": []},
+            }),
+            json!({
+                "node_id": clock_unit("tick"), "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": "scalar_type", "semantic_form": "unit",
+                "semantic_type": dimension,
+                "declaration": {"qualified_name": ["scalar_type", "unit", "tick"]},
+                "dependencies": [dimension],
+                "occurrences": [{"role": "declaration", "ordinal": 0}],
+                "owner": {"kind": "source", "authority": "agent-ix", "identity": "quire.fixture.source/v1"},
+                "body": {"term": "unit", "dimension_node_id": dimension,
+                         "target_unit_node_id": null,
+                         "scale": {"numerator": "1", "denominator": "1"},
+                         "offset": {"numerator": "0", "denominator": "1"}},
+            }),
+        ] {
+            let row = json!({
+                "node_id": node["node_id"], "role": "declaration", "ordinal": 0,
+                "regions": [{"source": {"authority": "agent-ix", "identity": "quire.fixture.source/v1"},
+                             "start": 0, "end": 1}],
+            });
+            package["source_map"]
+                .as_array_mut()
+                .expect("rows")
+                .push(row);
+            push(&mut package, node);
+        }
+    }
+    let formula = find_identity(&package, &temporal_identity("holds"));
+    let body = &mut package["semantic_graph"]["nodes"][formula]["body"];
+    body["operation"]["identity"] = json!("quire.op.temporal.aggregate");
+    body["arguments"] = json!([{"term": "aggregate", "members": members}]);
+    package["semantic_graph"]["nodes"][formula]["dependencies"] =
+        json!([fixture_node_id(&family_key("eeee"))]);
+    settle(&mut package);
+    (package, formula)
+}
+
+fn count_members(window: &str, lower: Value, upper: Value, min_count: Value) -> Vec<Value> {
+    vec![
+        binding("kind", word("count")),
+        binding("filter", refer(&family_key("eeee"))),
+        binding("window_kind", word(window)),
+        binding("lower", lower),
+        binding("upper", upper),
+        binding("min_count", min_count),
+        binding("comparison", word("<=")),
+        binding("threshold", scalar("integer", "2")),
+    ]
+}
+
+/// Reads through the public reader without the whole-read allocation proof of
+/// `read`: that proof is red on every package holding an aggregate term at
+/// this base (IR-1404, the deferred AC-511 family), and these tests assert the
+/// reader's literal-kind behavior, not its storage accounting.
+fn read_aggregate(package: &Value) -> CheckedPackageV2ReadResult {
+    let document = orders_document();
+    let evidence = evidence_with_document(package, ORDERS, &document);
+    CheckedPackageV2::read(
+        &canonical(package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    )
+}
+
+/// The aggregate argument a package retains for `formula`, as JSON.
+fn retained_argument(package: &Value, formula: usize) -> Value {
+    let result = read_aggregate(package);
+    let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
+        panic!("the aggregate package admits");
+    };
+    let quire_contract_model::CheckedTerm::Application { arguments, .. } =
+        &admitted.graph().nodes[formula].body
+    else {
+        panic!("the formula body is an application");
+    };
+    serde_json::to_value(&arguments[0]).expect("typed aggregate argument")
+}
+
+/// A positions window reads its integer `lower`, `upper` and `min_count`
+/// literals as typed integer literals and keeps their values.
+#[trace("TC-048", "FR-038-AC-461")]
+#[test]
+fn tc_048_a_positions_aggregate_admits_integer_bounds_and_min_count() {
+    let members = count_members(
+        "positions",
+        scalar("integer", "0"),
+        scalar("integer", "9"),
+        scalar("integer", "1"),
+    );
+    let (package, formula) = aggregate_package(POSITIONS, members.clone());
+    let argument = retained_argument(&package, formula);
+    assert_eq!(argument["members"], json!(members));
+    assert_eq!(argument["members"][3]["value"]["value"], "0");
+    assert_eq!(argument["members"][4]["value"]["value"], "9");
+    assert_eq!(argument["members"][5]["value"]["value"], "1");
+}
+
+/// A duration window reads its quantity `lower` and `upper` typed by the
+/// clock unit, with an integer `min_count`, and keeps their values.
+#[trace("TC-048", "FR-038-AC-461")]
+#[test]
+fn tc_048_a_duration_aggregate_admits_quantity_bounds_and_integer_min_count() {
+    let members = count_members(
+        "duration",
+        typed("quantity", clock_unit("tick"), "0"),
+        typed("quantity", clock_unit("tick"), "300000"),
+        scalar("integer", "1"),
+    );
+    let (package, formula) = aggregate_package(DURATION, members.clone());
+    let argument = retained_argument(&package, formula);
+    assert_eq!(argument["members"], json!(members));
+    assert_eq!(argument["members"][3]["value"]["value_kind"], "quantity");
+    assert_eq!(argument["members"][4]["value"]["value"], "300000");
+}
+
+/// A literal of another kind than the member needs refuses typed, at the
+/// member's value: `lower` must match the window, `min_count` is an integer.
+#[trace("TC-048", "FR-038-AC-462")]
+#[test]
+fn tc_048_an_aggregate_literal_of_the_wrong_kind_refuses_at_its_member() {
+    let wrong_kind = |profile: &str,
+                      window: &str,
+                      lower: Value,
+                      upper: Value,
+                      min_count: Value,
+                      member: usize| {
+        let (package, formula) =
+            aggregate_package(profile, count_members(window, lower, upper, min_count));
+        let CheckedPackageV2ReadResult::Refused(refusal) = read_aggregate(&package) else {
+            panic!("a literal of the wrong kind refuses");
+        };
+        assert_eq!(
+            (refusal.code, refusal.cause),
+            (Code::InvalidPackage, Some(Cause::WrongValueKind))
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(at_node(
+                formula,
+                &format!("/body/arguments/0/members/{member}/value")
+            ))
+        );
+    };
+    let tick = |value: &str| typed("quantity", clock_unit("tick"), value);
+    let whole = |value: &str| scalar("integer", value);
+    wrong_kind(POSITIONS, "positions", tick("0"), whole("9"), whole("1"), 3);
+    wrong_kind(
+        POSITIONS,
+        "positions",
+        whole("0"),
+        scalar("rational", "9"),
+        whole("1"),
+        4,
+    );
+    wrong_kind(DURATION, "duration", whole("0"), tick("5"), whole("1"), 3);
+    wrong_kind(DURATION, "duration", tick("0"), whole("5"), whole("1"), 4);
+    wrong_kind(
+        POSITIONS,
+        "positions",
+        whole("0"),
+        whole("9"),
+        scalar("rational", "1"),
+        5,
+    );
+    wrong_kind(DURATION, "duration", tick("0"), tick("5"), word("1"), 5);
 }

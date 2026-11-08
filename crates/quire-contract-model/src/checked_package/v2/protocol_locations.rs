@@ -5,8 +5,8 @@
 use super::checked_term_data::CheckedProtocolSemanticLocation;
 use super::checked_term_data::{CheckedKeyOrdinal, CheckedProtocolLocationOrigin};
 use super::{
-    CheckedNodeKind, CheckedPackageV2, CheckedTerm, ExpressionForm, RawCheckedPackageWireV2,
-    RawSemanticNodeV2, WorkMeter,
+    CheckedNodeKind, CheckedPackageV2, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm,
+    ExpressionForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -40,8 +40,8 @@ fn invalid(path: JsonPointer) -> ValidationFailure {
 /// Validate retained row keys, canonical ordinal shapes and local graph joins.
 /// The envelope owner calls this after the typed node terms are available.
 /// No graph interpretation or source-location reconstruction occurs here.
-pub(super) fn validate(
-    wire: &RawCheckedPackageWireV2,
+pub(super) fn validate<Body>(
+    wire: &CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
     terms: &[CheckedTerm],
     meter: &mut WorkMeter,
@@ -60,9 +60,9 @@ pub(super) fn validate(
     )
 }
 
-fn validate_rows(
+fn validate_rows<Body>(
     name: &str,
-    nodes: &[RawSemanticNodeV2],
+    nodes: &[CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     terms: &[CheckedTerm],
     source_map: &[CheckedSourceMapEntry],
@@ -295,7 +295,7 @@ mod tests {
     #[trace("TC-048", "FR-038-AC-448")]
     fn every_value_form_and_reference_is_ineligible_for_a_location_row() {
         let id = json!({"package":"example","path":["value","literal","leaf"],"ordinal":0});
-        let node: RawSemanticNodeV2 = serde_json::from_value(json!({
+        let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
             "node_id": id, "schema_version":"quire.checked-semantic-graph/v2",
             "node_tag":"value", "semantic_form":"literal", "semantic_type":id,
             "dependencies":[], "occurrences":[{"role":"expression","ordinal":0}],

@@ -6,7 +6,7 @@ use super::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedOperationEffectRow, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedOperationEffectRow, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
@@ -204,7 +204,7 @@ fn read(case: &Value) -> CheckedPackageV2ReadResult {
     }
     evidence.support_feature("quire.value.complete/v1");
     fixture::settle(&mut package);
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &fixture::canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence,

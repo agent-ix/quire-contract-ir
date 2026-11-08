@@ -26,6 +26,7 @@ mod checked_package_evidence_insertion;
 mod checked_package_v2_abstraction_relation;
 mod checked_package_v2_adr002_members;
 mod checked_package_v2_artifact_refs;
+mod checked_package_v2_budgeted_equivalence;
 mod checked_package_v2_budgeted_read;
 mod checked_package_v2_canonical_encoding;
 mod checked_package_v2_catalog_words;
@@ -42,6 +43,8 @@ mod checked_package_v2_envelope;
 mod checked_package_v2_flat_wire;
 mod checked_package_v2_frame_bodies;
 mod checked_package_v2_frame_entries;
+mod checked_package_v2_graph_read_storage;
+mod checked_package_v2_guarantee_composition;
 mod checked_package_v2_identity_digests;
 mod checked_package_v2_ieee_admission;
 mod checked_package_v2_literal_bodies;
@@ -60,16 +63,19 @@ mod checked_package_v2_owners;
 mod checked_package_v2_parameters;
 mod checked_package_v2_protocol_body;
 mod checked_package_v2_protocol_reference;
+mod checked_package_v2_read_path_inspection;
 mod checked_package_v2_reader;
 mod checked_package_v2_recursive_leaves;
 mod checked_package_v2_refinement;
 mod checked_package_v2_require_bounds;
 mod checked_package_v2_schedulability;
+mod checked_package_v2_stage_read_storage;
 mod checked_package_v2_structural_keys;
 mod checked_package_v2_temporal;
 mod checked_package_v2_term_data_writer;
 mod checked_package_v2_typed_terms;
 mod checked_package_v2_union;
+mod checked_package_v2_wire_check_storage;
 mod complete_v1_checked_package;
 mod complete_v1_contract_package;
 #[cfg(feature = "conformance-cli")]
@@ -99,3 +105,26 @@ mod std001_code;
 mod string_edge_gate;
 
 mod nominal_reads;
+
+mod checked_package_v2_whole_read_accounting;
+
+#[path = "support/qspec_read_proof.rs"]
+mod qspec_read_proof;
+use qspec_read_proof::read_and_account;
+
+fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
+    allocation_counter::measure(read).bytes_total
+}
+
+fn without_qspec_instrumentation<T>(operation: impl FnOnce() -> T) -> T {
+    let mut result = None;
+    allocation_counter::opt_out(|| {
+        result = Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            operation,
+        )));
+    });
+    match result.expect("instrumentation runs once") {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}

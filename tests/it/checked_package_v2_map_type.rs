@@ -52,7 +52,7 @@ pub(crate) fn map_package() -> (Value, usize) {
 }
 
 pub(crate) fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -403,7 +403,10 @@ fn source_map_row(
         base_node: id.clone(),
         key_node: Some(target(0)),
         element_node: target(1),
-        value_type: quire_exact::ValueType::map(quire_exact::MapType::new(value, None)),
+        value_type: quire_exact::ValueType::map(
+            quire_exact::MapType::new(quire_exact::ValueType::String, value, None)
+                .expect("a string map key is a leaf"),
+        ),
     }
 }
 
@@ -443,10 +446,14 @@ fn source_map_rows_preserve_key_and_non_collection_refusals() {
             ..original.clone()
         },
         quire_contract_model::SelectedSourceCollectionRow {
-            value_type: quire_exact::ValueType::map(quire_exact::MapType::new(
-                quire_exact::ValueType::Integer,
-                Some(quire_exact::CardinalityBound::new(0, 3).expect("bound")),
-            )),
+            value_type: quire_exact::ValueType::map(
+                quire_exact::MapType::new(
+                    quire_exact::ValueType::String,
+                    quire_exact::ValueType::Integer,
+                    Some(quire_exact::CardinalityBound::new(0, 3).expect("bound")),
+                )
+                .expect("a string map key is a leaf"),
+            ),
             ..original.clone()
         },
     ] {
@@ -635,10 +642,14 @@ fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
     let outer = source_map_row(&package, &id(outer_position), inner.value_type.clone());
     let bounded = SelectedSourceCollectionRow {
         structural_node: id(bounded_position),
-        value_type: ValueType::map(MapType::new(
-            inner.value_type.clone(),
-            Some(CardinalityBound::new(1, 3).unwrap()),
-        )),
+        value_type: ValueType::map(
+            MapType::new(
+                ValueType::String,
+                inner.value_type.clone(),
+                Some(CardinalityBound::new(1, 3).unwrap()),
+            )
+            .expect("a string map key is a leaf"),
+        ),
         ..outer.clone()
     };
     let mut budget = NativeJoinBudget::new(1_000_000, 1_000_000);
@@ -914,7 +925,10 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
         .expect("cold numeric map projects");
     assert_eq!(
         projection.value_type(),
-        &ValueType::map(MapType::new(ValueType::Int(interval.clone()), None))
+        &ValueType::map(
+            MapType::new(ValueType::String, ValueType::Int(interval.clone()), None)
+                .expect("a string map key is a leaf")
+        )
     );
     let boundary = (0..join_storage)
         .rfind(|limit| {
@@ -1079,12 +1093,16 @@ fn append_refusal_map(wire: &mut Value, text: &Value, value: &Value) -> (usize, 
     (position, id)
 }
 
-fn nested_bounded_quantity_maps() -> (
-    CheckedPackageV2,
-    CheckedNodeId,
-    CheckedNodeId,
-    CheckedNodeId,
-) {
+pub fn nested_bounded_quantity_wire() -> (Value, usize, usize, usize) {
+    let (wire, maps, bounded_position) = map_chain_wire(2);
+    (wire, maps[1], maps[0], bounded_position)
+}
+
+/// The bounded-quantity fixture under `depth` nested maps, innermost first:
+/// the wire, each map's position and the bounded quantity's position. Each
+/// map's id holds the one before it, so the structural keys nest `depth`
+/// levels.
+pub fn map_chain_wire(depth: usize) -> (Value, Vec<usize>, usize) {
     use crate::support::checked_package::{nominal_fixture_members, nominal_package};
     let members = nominal_fixture_members();
     let unit = node_id(
@@ -1127,13 +1145,28 @@ fn nested_bounded_quantity_maps() -> (
             {"term":"binding","name":"max","value":{"term":"literal","type":rational,"value_kind":"rational","value":maximum}}
         ]}
     }));
-    let (inner_position, inner) = append_refusal_map(&mut wire, &text, &bounded);
-    let (outer_position, _) = append_refusal_map(&mut wire, &text, &inner);
+    let mut maps = Vec::with_capacity(depth);
+    let mut held = bounded;
+    for _ in 0..depth {
+        let (position, id) = append_refusal_map(&mut wire, &text, &held);
+        maps.push(position);
+        held = id;
+    }
     settle(&mut wire);
     index_fixture_node_ids(&mut wire);
     sort_map_fixture_dependencies(&mut wire);
     settle(&mut wire);
     crate::support::checked_package::rebuild_complete_source_map(&mut wire);
+    (wire, maps, bounded_position)
+}
+
+fn nested_bounded_quantity_maps() -> (
+    CheckedPackageV2,
+    CheckedNodeId,
+    CheckedNodeId,
+    CheckedNodeId,
+) {
+    let (wire, outer_position, inner_position, bounded_position) = nested_bounded_quantity_wire();
     let admitted = read(&wire);
     let CheckedPackageV2ReadResult::Admitted(package) = admitted else {
         panic!("genuine nested bounded quantity maps must strictly admit: {admitted:?}");
@@ -1226,7 +1259,10 @@ fn unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads(
         let outer_row = source_map_row(
             &package,
             &outer,
-            ValueType::map(MapType::new(outer_payload, None)),
+            ValueType::map(
+                MapType::new(ValueType::String, outer_payload, None)
+                    .expect("a string map key is a leaf"),
+            ),
         );
         [inner_row, outer_row]
     };
@@ -1427,7 +1463,14 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
                 &package,
                 [
                     source_map_row(&package, &inner, left),
-                    source_map_row(&package, &outer, ValueType::map(MapType::new(right, None))),
+                    source_map_row(
+                        &package,
+                        &outer,
+                        ValueType::map(
+                            MapType::new(ValueType::String, right, None)
+                                .expect("a string map key is a leaf"),
+                        ),
+                    ),
                 ],
                 &mut NativeJoinBudget::new(1_000_000, 1_000_000),
             )
@@ -1517,4 +1560,38 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
         ExactTypeProjectionErrorCode::MismatchedIdentityWitness
     );
     assert_eq!(error.at.as_deref(), Some(&node));
+}
+
+/// A bounded quantity whose bounds exceed 128 bits is parsed, compared and
+/// reduced by the exact-number library on the caller's budget, each limb block
+/// charged before it is requested at the node's own locus (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn bounded_quantity_bound_arithmetic_is_charged_to_the_read_budget() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    use quire_contract_model::{NativeJoinBudget, PackageReadStage};
+    let (wire, _, _, bounded) = nested_bounded_quantity_wire();
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let read = |budget: &mut NativeJoinBudget| {
+        crate::qspec_read_proof::with_designated_read_provider(
+            "checked_package_v2_map_type::bounded_quantity_bound_arithmetic_is_charged_to_the_read_budget",
+            &["exact_reservation"],
+            || crate::qspec_read_proof::read_budget_and_account(
+                &bytes, CheckedPackageReadLimits::bounded(), &evidence, budget,
+            ),
+        )
+    };
+    let requests = stage_requests(&read, PackageReadStage::Graph);
+    let exact: Vec<_> = requests
+        .iter()
+        .filter(|request| request.index == bounded && request.form == "exact_number")
+        .collect();
+    assert!(
+        exact.len() >= 4,
+        "two parses, two gcds and two products are charged at the node: {exact:?}"
+    );
+    assert_exact_and_one_short(&read, &requests);
 }

@@ -608,7 +608,7 @@ fn public_reader_keeps_the_one_operand_option_presence_form() {
             .push(node);
         wire["source_map"].as_array_mut().unwrap().push(source);
     }
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &fixture_support::canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &fixture_support::evidence_for(&wire),

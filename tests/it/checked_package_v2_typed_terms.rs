@@ -8,8 +8,8 @@ use quire_contract_model::{
     encode_checked_package_v2, CheckedApplicationOperation, CheckedBindingName,
     CheckedBindingNameKind, CheckedFairnessGranularity, CheckedFairnessKind, CheckedLiteralValue,
     CheckedOperationMember, CheckedOperationViewError, CheckedPackageReadLimits,
-    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedTerm, ExecutionPoint, ExecutionPointName, OperationMemberKind, StateClauseKind,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2ReadResult, CheckedTerm, ExecutionPoint,
+    ExecutionPointName, OperationMemberKind, StateClauseKind,
 };
 use serde_json::json;
 use std::collections::BTreeSet;
@@ -137,7 +137,7 @@ fn operation_equality_uses_record_and_execution_point_not_view_provenance() {
 #[test]
 fn admitted_v2_bodies_are_closed_typed_terms() {
     let fixture = v2_all_families();
-    let admitted = match CheckedPackageV2::read(
+    let admitted = match crate::read_and_account(
         &canonical(&fixture),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&fixture),
@@ -188,7 +188,7 @@ fn admitted_v2_bodies_are_closed_typed_terms() {
         "aggregate has a typed binding and literal"
     );
     let literal_fixture = positive_operation_identities();
-    let literal_package = match CheckedPackageV2::read(
+    let literal_package = match crate::read_and_account(
         &canonical(&literal_fixture),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&literal_fixture),
@@ -225,7 +225,7 @@ fn public_literal_and_binding_reads_preserve_exact_values() {
 
     let fixture = positive_operation_identities();
     let bytes = canonical(&fixture);
-    let admitted = match CheckedPackageV2::read(
+    let admitted = match crate::read_and_account(
         &bytes,
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&fixture),
@@ -300,7 +300,7 @@ fn public_literal_read_covers_the_closed_payload_vocabulary() {
             type_id: type_id.clone(),
             value_kind: quire_contract_model::LiteralKind::from_wire(kind)
                 .expect("closed literal kind"),
-            value,
+            value: quire_contract_model::CheckedJson::from_serializable(&value).expect("a literal"),
         };
         let read = term
             .literal_read()
@@ -357,7 +357,7 @@ fn public_literal_read_covers_the_closed_payload_vocabulary() {
 #[test]
 fn public_operation_read_exposes_admitted_records_and_rejects_forgery() {
     let fixture = positive_operation_identities();
-    let admitted = match CheckedPackageV2::read(
+    let admitted = match crate::read_and_account(
         &canonical(&fixture),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&fixture),

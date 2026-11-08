@@ -39,7 +39,7 @@ impl SelectedExactIdentities {
             .or_else(|| self.source_tuples.keys().next())
             .or_else(|| self.source_enums.keys().next())
             .or_else(|| self.source_collections.keys().next())
-            .or_else(|| package.node_index.keys().next())
+            .or_else(|| package.node_ids_ascending().next())
     }
 
     /// Join model-tuple and source-unit producer rows to their admitted facts.
@@ -611,7 +611,7 @@ impl SelectedExactIdentities {
         self.complete_selected_documents(package, budget)?;
         // Declarations, including model-owned units, share one ascending
         // structural order before any effective-field obligation.
-        for id in package.node_index.keys() {
+        for id in package.node_ids_ascending() {
             charge_native_work(budget, id, id, "complete_declaration_candidate", 1)?;
             if package
                 .models
@@ -689,7 +689,7 @@ impl SelectedExactIdentities {
                 )?;
             }
         }
-        for id in package.node_index.keys() {
+        for id in package.node_ids_ascending() {
             charge_native_work(budget, id, id, "complete_unit_candidate", 1)?;
             if package.node_kind(id) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)) {
                 charge_native_work(budget, id, id, "complete_declared_unit", 1)?;
@@ -708,13 +708,13 @@ impl SelectedExactIdentities {
                         return Err(witness_error(
                             id,
                             ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                        ))
+                        ));
                     }
                 }
             }
         }
         for family in 0..5 {
-            for id in package.node_index.keys() {
+            for id in package.node_ids_ascending() {
                 charge_native_work(budget, id, id, "complete_source_type", 1)?;
                 let node = package
                     .node(id)
@@ -769,8 +769,7 @@ impl SelectedExactIdentities {
     ) -> Result<(), ExactTypeProjectionError> {
         for (selection, model) in package.models.selected_models().iter().enumerate() {
             let at = package
-                .node_index
-                .keys()
+                .node_ids_ascending()
                 .next()
                 .expect("admitted graph is nonempty");
             charge_native_work(budget, at, at, "complete_selected_model_candidate", 1)?;
@@ -782,8 +781,7 @@ impl SelectedExactIdentities {
                 .ok_or_else(|| {
                     witness_error(
                         package
-                            .node_index
-                            .keys()
+                            .node_ids_ascending()
                             .next()
                             .expect("admitted graph is nonempty"),
                         ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration,
@@ -827,7 +825,7 @@ impl SelectedExactIdentities {
                     ));
                 }
                 if model.units.contains_key(original) {
-                    for id in package.node_index.keys() {
+                    for id in package.node_ids_ascending() {
                         charge_native_work(budget, root, id, "complete_selected_unit", 1)?;
                         if let Some(CheckedNodeOwner::Model { identity, node }) =
                             package.node(id).and_then(|node| node.owner.as_ref())
@@ -1051,7 +1049,7 @@ fn helper_collection_base(
     budget: &mut NativeJoinBudget,
 ) -> Result<bool, ExactTypeProjectionError> {
     let mut helper = false;
-    for other in package.node_index.keys() {
+    for other in package.node_ids_ascending() {
         charge_native_work(budget, id, other, "collection_base_wrapper", 1)?;
         helper |= package.node_kind(other)
             == Some(CheckedNodeKind::BoundedDomain(
@@ -1064,7 +1062,7 @@ fn helper_collection_base(
     if !helper {
         return Ok(false);
     }
-    for other in package.node_index.keys() {
+    for other in package.node_ids_ascending() {
         charge_native_work(budget, id, other, "collection_base_use", 1)?;
         let node = package
             .node(other)
@@ -1161,6 +1159,8 @@ fn term_uses_type(
             CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
             | CheckedTerm::Refinement { .. }
             | CheckedTerm::NominalBody(_) => {}
         }
@@ -1288,9 +1288,14 @@ mod tests {
         );
         for changed in 0..9 {
             let mut stale = package.clone();
-            let position = stale.node_index[object];
+            let position = stale.node_position(object).expect("indexed node");
             match changed {
-                0 => Arc::make_mut(&mut stale.wire).semantic_graph.nodes[position].owner = None,
+                0 => {
+                    std::sync::Arc::make_mut(&mut stale.wire)
+                        .semantic_graph
+                        .nodes[position]
+                        .owner = None
+                }
                 1 => {
                     *Arc::make_mut(&mut stale.models) = Default::default();
                 }
@@ -1299,22 +1304,31 @@ mod tests {
                         CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)
                 }
                 3 => {
-                    Arc::make_mut(&mut stale.terms)[position] = CheckedTerm::Reference {
+                    std::sync::Arc::make_mut(&mut stale.wire)
+                        .semantic_graph
+                        .nodes[position]
+                        .body = CheckedTerm::Reference {
                         target: ids[&'1'].clone(),
                     }
                 }
                 4 => {
-                    Arc::make_mut(&mut stale.node_index).remove(object);
+                    *Arc::make_mut(&mut stale.node_index) =
+                        crate::checked_package::PositionIndex::default();
                 }
-                5 => Arc::make_mut(&mut stale.source_index).clear(),
+                5 => {
+                    *Arc::make_mut(&mut stale.source_index) =
+                        crate::checked_package::PositionIndex::default()
+                }
                 6 => Arc::make_mut(&mut stale.selected_documents).clear(),
                 7 => {
                     Arc::make_mut(&mut stale.wire).lock.sources[0].identity =
                         "changed-source".into()
                 }
                 8 => {
-                    Arc::make_mut(&mut stale.wire).semantic_graph.nodes[position].semantic_type =
-                        ids[&'1'].clone()
+                    std::sync::Arc::make_mut(&mut stale.wire)
+                        .semantic_graph
+                        .nodes[position]
+                        .semantic_type = ids[&'1'].clone()
                 }
                 _ => unreachable!(),
             }

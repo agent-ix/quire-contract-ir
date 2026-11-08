@@ -10,7 +10,7 @@ use super::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeKind, CheckedNodePathSegment, CheckedNodeTag,
+    CheckedNodeId, CheckedNodeKind, CheckedNodePathSegment, CheckedNodeTag, CheckedOperandEntry,
     CheckedPackageReadLimits, CheckedPackageV2ReadResult, CheckedSemanticNodeV2, CheckedTerm,
     CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
     ContractPackageReadResult, ContractPackageWireV1, ExpressionForm, LoweringProfileRef,
@@ -19,30 +19,9 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-fn apply_patch(package: &mut Value, patch: &Value) {
-    let path = patch["path"].as_str().expect("published patch path");
-    let (parent, member) = path.rsplit_once('/').expect("published patch member");
-    let target = package.pointer_mut(parent).expect("published patch parent");
-    let operation = patch["op"].as_str().expect("published patch operation");
-    match (operation, target) {
-        ("replace", Value::Array(items)) => {
-            let index: usize = member.parse().expect("published array index");
-            *items.get_mut(index).expect("published replacement target") = patch["value"].clone();
-        }
-        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
-        ("remove", Value::Array(items)) => {
-            let index: usize = member.parse().expect("published array index");
-            items.remove(index);
-        }
-        ("add", Value::Array(items)) => {
-            let index: usize = member.parse().expect("published array index");
-            assert!(index <= items.len(), "{path}: published insertion target");
-            items.insert(index, patch["value"].clone());
-        }
-        _ => panic!("unsupported published patch {operation} at {path}"),
-    }
-}
+use super::qspec_inputs::apply_node_index_patch as apply_patch;
 
+/// Trace: FR-038-AC-377, FR-038-AC-378, FR-038-AC-520, FR-038-AC-521
 #[trace(
     "TC-048",
     "FR-038-AC-377",
@@ -79,22 +58,10 @@ fn published_operand_vectors_refuse_in_the_fr322_check_order() {
             // The operand checks (and, for NI-22, the duplicate check) pass:
             // a later semantic refusal is allowed, an operand or duplicate-id
             // refusal is not.
-            if let CheckedPackageV2ReadResult::Refused(refusal) = &actual {
-                assert_ne!(
-                    code_word(refusal.code),
-                    "malformed_wire",
-                    "{id}: operand check"
-                );
-                assert!(
-                    refusal
-                        .loci
-                        .iter()
-                        .all(|locus| locus.path.as_ref().is_none_or(
-                            |path| path.to_string() != "/semantic_graph/nodes/4/node_id"
-                        )),
-                    "{id}: duplicate-id check: {refusal:?}"
-                );
-            }
+            assert!(
+                super::qspec_inputs::operand_checks_pass(&actual),
+                "{id}: operand and duplicate-id stage checks: {actual:?}"
+            );
             continue;
         }
         let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
@@ -145,6 +112,7 @@ fn node_id_of(value: &Value) -> CheckedNodeId {
     serde_json::from_value(value.clone()).expect("published node id")
 }
 
+/// Trace: FR-038-AC-520, FR-038-AC-523
 #[trace("TC-048", "FR-038-AC-520", "FR-038-AC-523")]
 #[test]
 fn operand_slots_rebuild_structural_keys_through_the_rows() {
@@ -154,7 +122,12 @@ fn operand_slots_rebuild_structural_keys_through_the_rows() {
     let package = admitted_wire(&wire);
     assert_eq!(
         package.graph().operand_rows,
-        vec![vec![], vec![], vec![0], vec![0]]
+        vec![
+            vec![],
+            vec![],
+            vec![CheckedOperandEntry::Node(0)],
+            vec![CheckedOperandEntry::Node(0)]
+        ]
     );
     let integer = package.structural_key_at(0).expect("Integer key");
     let bounded = package.structural_key_at(2).expect("Int[0, 9] key");
@@ -200,6 +173,7 @@ fn operand_slots_rebuild_structural_keys_through_the_rows() {
     assert_eq!(resolved, wire);
 }
 
+/// Trace: FR-038-AC-523
 #[trace("TC-048", "FR-038-AC-523")]
 #[test]
 fn replace_node_id_replaces_slot_form_ids_as_written() {
@@ -227,6 +201,7 @@ fn replace_node_id_replaces_slot_form_ids_as_written() {
     );
 }
 
+/// Trace: FR-038-AC-522
 #[trace("TC-048", "FR-038-AC-522")]
 #[test]
 fn unrelated_nodes_leave_other_nodes_bytes_and_keys_unchanged() {
@@ -248,7 +223,12 @@ fn unrelated_nodes_leave_other_nodes_bytes_and_keys_unchanged() {
     let after = admitted_wire(&reversed);
     assert_eq!(
         after.graph().operand_rows,
-        vec![vec![3], vec![3], vec![], vec![]]
+        vec![
+            vec![CheckedOperandEntry::Node(3)],
+            vec![CheckedOperandEntry::Node(3)],
+            vec![],
+            vec![]
+        ]
     );
     for position in 0..4 {
         assert_eq!(
@@ -354,6 +334,9 @@ pub(super) fn fixture_structural_key_for_id(
                     )))
                 }
                 CheckedNodePathSegment::Node(node) => CheckedNodePathSegment::Node(node.clone()),
+                // A dependency position is already the resolved form of a
+                // foreign operand; it names a node of another graph.
+                CheckedNodePathSegment::Dependency { .. } => segment.clone(),
                 CheckedNodePathSegment::Operand(_) => {
                     panic!("resolve an operand slot through its row first")
                 }
@@ -382,7 +365,10 @@ pub(super) fn fixture_graph_ids(wire: &Value) -> Vec<CheckedNodeId> {
                 .as_array()
                 .expect("fixture operand row")
                 .iter()
-                .map(|entry| entry.as_u64().expect("fixture row entry"))
+                .map(|entry| {
+                    serde_json::from_value::<CheckedOperandEntry>(entry.clone())
+                        .expect("fixture row entry")
+                })
                 .collect::<Vec<_>>();
             resolve_slots(&id, &row)
         })
@@ -390,16 +376,24 @@ pub(super) fn fixture_graph_ids(wire: &Value) -> Vec<CheckedNodeId> {
 }
 
 /// An id with each operand slot replaced by the index segment its row names.
-pub(super) fn resolve_slots(id: &CheckedNodeId, row: &[u64]) -> CheckedNodeId {
+pub(super) fn resolve_slots(id: &CheckedNodeId, row: &[CheckedOperandEntry]) -> CheckedNodeId {
     CheckedNodeId {
         package: id.package.clone(),
         path: id
             .path
             .iter()
             .map(|segment| match segment {
-                CheckedNodePathSegment::Operand(slot) => CheckedNodePathSegment::Index(
-                    row[usize::try_from(*slot).expect("slot fits usize")],
-                ),
+                CheckedNodePathSegment::Operand(slot) => {
+                    match &row[usize::try_from(*slot).expect("slot fits usize")] {
+                        CheckedOperandEntry::Node(index) => CheckedNodePathSegment::Index(*index),
+                        CheckedOperandEntry::Dependency(operand) => {
+                            CheckedNodePathSegment::Dependency {
+                                package: operand.package.clone(),
+                                node: operand.node,
+                            }
+                        }
+                    }
+                }
                 other => other.clone(),
             })
             .collect(),
@@ -422,7 +416,7 @@ pub(super) fn sort_fixture_node_refs_with_ids(ids: &[CheckedNodeId], references:
 
 pub(super) fn fixture_structural_key<Body>(
     nodes: &[CheckedSemanticNodeV2<Body>],
-    operand_rows: &[Vec<u64>],
+    operand_rows: &[Vec<CheckedOperandEntry>],
     position: usize,
 ) -> CheckedNodeId {
     let ids = nodes

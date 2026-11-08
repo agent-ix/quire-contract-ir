@@ -1,9 +1,10 @@
 //! Closed FR-375 refinement body vocabulary and reader checks.
 
+use super::graph_storage::{GraphIndex, ResolvedKey, SortedTable};
 use super::protocol_body::ChannelDelivery;
 use super::CheckedTerm;
 use crate::checked_package::common::{
-    validate_term, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
+    validate_term, Ids, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry, CheckedSourceRef,
@@ -12,12 +13,13 @@ use crate::checked_package::shared::{
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
+use crate::checked_package::terms::TermSource;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
+#[cfg(test)]
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 
 /// Source region of one canonical refinement step row, outside package identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -760,17 +762,13 @@ fn class_kind(class: &str) -> Option<RefinementClassKind> {
     }
 }
 
-#[ix_trace_rs::string_edge]
-fn memory_class_kind(class: &str) -> bool {
-    matches!(class, "memory drain" | "memory flush")
-}
-
 /// Convert the untrusted argument-only special term before row admission.
 #[ix_trace_rs::string_edge]
 fn open_term_kind(term: &str) -> Option<RefinementOpenTerm> {
     (term == "open").then_some(RefinementOpenTerm::Open)
 }
 
+#[cfg(test)]
 fn member<'a>(
     value: &'a Value,
     name: &str,
@@ -779,6 +777,7 @@ fn member<'a>(
     value.get(name).ok_or_else(|| invalid(&at.key(name)))
 }
 
+#[cfg(test)]
 fn array<'a>(
     value: &'a Value,
     name: &str,
@@ -790,10 +789,12 @@ fn array<'a>(
         .ok_or_else(|| invalid(&at.key(name)))
 }
 
+#[cfg(test)]
 fn typed<T: DeserializeOwned>(value: &Value, at: &Trail<'_>) -> Result<T, ValidationFailure> {
     serde_json::from_value(value.clone()).map_err(|_| invalid(at))
 }
 
+#[cfg(test)]
 fn shape(
     value: &Value,
     required: &[&str],
@@ -815,14 +816,17 @@ fn shape(
     Ok(())
 }
 
+#[cfg(test)]
 fn text(value: &Value, at: &Trail<'_>) -> Result<Box<str>, ValidationFailure> {
     value.as_str().map(Into::into).ok_or_else(|| invalid(at))
 }
 
+#[cfg(test)]
 fn node(value: &Value, at: &Trail<'_>) -> Result<CheckedNodeId, ValidationFailure> {
     CheckedNodeId::from_value(value).ok_or_else(|| invalid(at))
 }
 
+#[cfg(test)]
 fn key(value: &Value, at: &Trail<'_>) -> Result<RefinementKey, ValidationFailure> {
     if value.get("node").is_some() {
         shape(value, &["package", "node"], &[], at)?;
@@ -837,11 +841,15 @@ fn key(value: &Value, at: &Trail<'_>) -> Result<RefinementKey, ValidationFailure
     }
 }
 
+#[cfg(test)]
 fn term(value: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure> {
-    super::flat_wire::check_refinement_term(value, at)?;
+    super::read_charge::with_unmetered_walk(|walk| {
+        super::flat_wire::check_refinement_term(value, at, walk)
+    })?;
     CheckedTerm::decode_admitted(value).map_err(|_| invalid(at))
 }
 
+#[cfg(test)]
 fn rows<T>(
     value: &Value,
     name: &str,
@@ -855,6 +863,7 @@ fn rows<T>(
         .collect()
 }
 
+#[cfg(test)]
 fn parse_argument(
     value: &Value,
     at: &Trail<'_>,
@@ -869,6 +878,7 @@ fn parse_argument(
     }
 }
 
+#[cfg(test)]
 #[ix_trace_rs::string_edge]
 fn parse_target(value: &Value, at: &Trail<'_>) -> Result<RefinementStepTarget, ValidationFailure> {
     let kind = member(value, "kind", at)?
@@ -911,6 +921,7 @@ fn parse_target(value: &Value, at: &Trail<'_>) -> Result<RefinementStepTarget, V
     }
 }
 
+#[cfg(test)]
 fn parse_concrete_class(
     value: &Value,
     at: &Trail<'_>,
@@ -926,6 +937,7 @@ fn parse_concrete_class(
     })
 }
 
+#[cfg(test)]
 fn parse_abstract_class(
     value: &Value,
     at: &Trail<'_>,
@@ -943,6 +955,7 @@ fn parse_abstract_class(
 
 /// Decode a refinement after the closed wire checks, without passing a
 /// structural node path through serde's recursive Value deserializer.
+#[cfg(test)]
 pub(super) fn decode_body(body: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure> {
     check_body_header(body, at)?;
     let populations = rows(body, "populations", at, |value, at| {
@@ -1059,59 +1072,79 @@ pub(super) fn decode_body(body: &Value, at: &Trail<'_>) -> Result<CheckedTerm, V
     })
 }
 
+/// The member `name` of an object the closed body check has passed.
+fn node_member<'a, V: TermSource<'a>>(
+    value: V,
+    name: &str,
+    at: &Trail<'_>,
+) -> Result<V, ValidationFailure> {
+    value.member(name).ok_or_else(|| invalid(&at.key(name)))
+}
+
+/// The elements of the array member `name`.
+fn node_items<'a, V: TermSource<'a>>(
+    value: V,
+    name: &str,
+    at: &Trail<'_>,
+) -> Result<impl Iterator<Item = V> + use<'a, V>, ValidationFailure> {
+    node_member(value, name, at)?
+        .items()
+        .ok_or_else(|| invalid(&at.key(name)))
+}
+
 /// Walk each actual semantic term in FR-375 row order. The special `open`
 /// argument is not a semantic term and is excluded here.
-fn row_terms(
-    body: &Value,
+fn row_terms<'a, V: TermSource<'a>>(
+    body: V,
     at: &Trail<'_>,
-    mut visit: impl FnMut(&Value, &Trail<'_>) -> Result<(), ValidationFailure>,
+    mut visit: impl FnMut(V, &Trail<'_>) -> Result<(), ValidationFailure>,
 ) -> Result<(), ValidationFailure> {
-    for (object_index, object) in array(body, "objects", at)?.iter().enumerate() {
+    for (object_index, object) in node_items(body, "objects", at)?.enumerate() {
         let objects_at = at.key("objects");
         let object_at = objects_at.index(object_index);
-        for (field_index, field) in array(object, "fields", &object_at)?.iter().enumerate() {
+        for (field_index, field) in node_items(object, "fields", &object_at)?.enumerate() {
             let fields_at = object_at.key("fields");
             let field_at = fields_at.index(field_index);
             visit(
-                member(field, "expression", &field_at)?,
+                node_member(field, "expression", &field_at)?,
                 &field_at.key("expression"),
             )?;
         }
     }
-    for (step_index, step) in array(body, "steps", at)?.iter().enumerate() {
+    for (step_index, step) in node_items(body, "steps", at)?.enumerate() {
         let steps_at = at.key("steps");
         let step_at = steps_at.index(step_index);
         let target_at = step_at.key("target");
-        let target = member(step, "target", &step_at)?;
-        let kind = member(target, "kind", &target_at)?.as_str();
+        let target = node_member(step, "target", &step_at)?;
+        let kind = node_member(target, "kind", &target_at)?.text();
         if kind == Some("operation") {
             visit(
-                member(target, "receiver", &target_at)?,
+                node_member(target, "receiver", &target_at)?,
                 &target_at.key("receiver"),
             )?;
         }
         if matches!(kind, Some("operation" | "protocol_step")) {
             for (argument_index, argument) in
-                array(target, "arguments", &target_at)?.iter().enumerate()
+                node_items(target, "arguments", &target_at)?.enumerate()
             {
-                if argument.get("term").and_then(Value::as_str) != Some("open") {
+                if argument.member("term").and_then(V::text) != Some("open") {
                     visit(argument, &target_at.key("arguments").index(argument_index))?;
                 }
             }
         }
     }
-    for (history_index, history) in array(body, "histories", at)?.iter().enumerate() {
+    for (history_index, history) in node_items(body, "histories", at)?.enumerate() {
         let histories_at = at.key("histories");
         let history_at = histories_at.index(history_index);
         visit(
-            member(history, "initial", &history_at)?,
+            node_member(history, "initial", &history_at)?,
             &history_at.key("initial"),
         )?;
-        for (update_index, update) in array(history, "updates", &history_at)?.iter().enumerate() {
+        for (update_index, update) in node_items(history, "updates", &history_at)?.enumerate() {
             let updates_at = history_at.key("updates");
             let update_at = updates_at.index(update_index);
             visit(
-                member(update, "expression", &update_at)?,
+                node_member(update, "expression", &update_at)?,
                 &update_at.key("expression"),
             )?;
         }
@@ -1121,19 +1154,19 @@ fn row_terms(
 
 /// Check the complete closed body before graph admission, including the
 /// nested flat-term rule that applies to each row expression independently.
-pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
-    check_body_header(body, at)?;
-    if let Some(catalog) = body.get("class_catalog") {
-        check_catalog_wire(catalog, &at.key("class_catalog"))?;
-    }
-    let typed = decode_body(body, at)?;
-    let CheckedTerm::Refinement {
+pub(super) fn check_wire<'a, V: TermSource<'a>>(
+    body: V,
+    typed: Option<&CheckedTerm>,
+    at: &Trail<'_>,
+    walk: &mut super::read_charge::WalkReservation<'_>,
+) -> Result<(), ValidationFailure> {
+    let Some(CheckedTerm::Refinement {
         steps,
         histories,
         abstract_internal,
         protocol,
         ..
-    } = typed
+    }) = typed
     else {
         return Err(invalid(at));
     };
@@ -1177,12 +1210,13 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
         }
     }
     row_terms(body, at, |term, term_at| {
-        super::flat_wire::check_refinement_term(term, term_at)
+        super::flat_wire::check_refinement_term(term, term_at, walk)
     })
 }
 
 /// Convert the outer raw object shape before typed semantic checks.
 #[ix_trace_rs::string_edge]
+#[cfg(test)]
 fn check_body_header(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
     let Some(object) = body.as_object() else {
         return Err(invalid(at));
@@ -1212,70 +1246,6 @@ fn check_body_header(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailu
     Ok(())
 }
 
-#[ix_trace_rs::string_edge]
-fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
-    let Some(object) = value.as_object() else {
-        return Err(invalid(at));
-    };
-    if object.len() != 2 || !object.contains_key("concrete") || !object.contains_key("abstract") {
-        return Err(invalid(at));
-    }
-    for side in ["concrete", "abstract"] {
-        let side_at = at.key(side);
-        for (index, entry) in array(value, side, at)?.iter().enumerate() {
-            let entry_at = side_at.index(index);
-            let Some(entry) = entry.as_object() else {
-                return Err(invalid(&entry_at));
-            };
-            let Some(class) = entry.get("class").and_then(Value::as_str) else {
-                return Err(invalid(&entry_at.key("class")));
-            };
-            let memory = class_kind(class) == Some(RefinementClassKind::Memory);
-            if memory {
-                let malformed = |at: Trail<'_>| {
-                    ValidationFailure::refused(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        at.pointer(),
-                    )
-                };
-                if !memory_class_kind(class) {
-                    return Err(malformed(entry_at.key("class")));
-                }
-                let Some(model) = entry.get("memory_model") else {
-                    return Err(malformed(entry_at.key("memory_model")));
-                };
-                let Ok(model) = serde_json::from_value::<RefinementMemoryModel>(model.clone())
-                else {
-                    return Err(malformed(entry_at.key("memory_model")));
-                };
-                if class == "memory flush" && model != RefinementMemoryModel::Tso {
-                    return Err(malformed(entry_at.key("memory_model")));
-                }
-                if class == "memory drain"
-                    && entry.get("drain").and_then(Value::as_str) != Some("store-buffer-flush")
-                {
-                    return Err(malformed(entry_at.key("drain")));
-                }
-                let allowed: &[&str] = if class == "memory drain" {
-                    &["class", "memory_model", "drain"]
-                } else {
-                    &["class", "memory_model"]
-                };
-                if let Some(extra) = entry.keys().find(|key| !allowed.contains(&key.as_str())) {
-                    return Err(malformed(entry_at.key(extra)));
-                }
-            } else if class.is_empty()
-                || entry.len() != 3
-                || !entry.contains_key("node")
-                || !entry.contains_key("binder_types")
-            {
-                return Err(invalid(&entry_at));
-            }
-        }
-    }
-    Ok(())
-}
-
 fn check_open_arguments(
     arguments: &[RefinementStepArgument],
     at: &Trail<'_>,
@@ -1291,20 +1261,23 @@ fn check_open_arguments(
 }
 
 /// Validate every row term and report its local node references to the graph.
-/// The whole body has already passed `check_wire`.
-pub(super) fn validate_body(
-    body: &Value,
-    at: &Trail<'_>,
+/// The whole body has already passed `check_wire`. Each term's allocations are
+/// charged to `ids`, and its node IDs are read through the node's operand row.
+pub(super) fn validate_body<'a, V: TermSource<'a>>(
+    body: V,
+    at: &Trail<'a>,
     visitor: &mut ReferenceVisitor<'_>,
+    mut ids: Ids<'_, '_>,
 ) -> Result<u64, ValidationFailure> {
     let mut work = 1_u64;
     row_terms(body, at, |term, term_at| {
         work = work.saturating_add(validate_term(
-            term,
+            term.shorter(),
             TermGrammar::V2,
             true,
             term_at,
             visitor,
+            ids.reborrow(),
         )?);
         Ok(())
     })?;
@@ -1332,6 +1305,7 @@ fn canonical_order(
     body: &CheckedTerm,
     position: usize,
     graph: &RefinementGraph<'_, '_>,
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let CheckedTerm::Refinement {
         populations,
@@ -1350,7 +1324,11 @@ fn canonical_order(
         ));
     };
     for (index, pair) in populations.windows(2).enumerate() {
-        if graph.resolved_key(&pair[0].r#abstract) >= graph.resolved_key(&pair[1].r#abstract) {
+        if graph
+            .resolved_key(&pair[0].r#abstract)
+            .order(&graph.resolved_key(&pair[1].r#abstract), meter)?
+            != std::cmp::Ordering::Less
+        {
             return Err(order_defect(position, "populations", index + 1));
         }
     }
@@ -1370,7 +1348,10 @@ fn canonical_order(
         }
     }
     for (index, pair) in objects.windows(2).enumerate() {
-        if graph.resolved_key(&pair[0].abstract_type) >= graph.resolved_key(&pair[1].abstract_type)
+        if graph
+            .resolved_key(&pair[0].abstract_type)
+            .order(&graph.resolved_key(&pair[1].abstract_type), meter)?
+            != std::cmp::Ordering::Less
         {
             return Err(order_defect(position, "objects", index + 1));
         }
@@ -1391,13 +1372,17 @@ fn canonical_order(
         }
     }
     for (index, pair) in histories.windows(2).enumerate() {
-        if (
-            super::structural_key(&pair[0].concrete_type, graph.index, graph.structural_keys),
-            pair[0].name.as_ref(),
-        ) >= (
-            super::structural_key(&pair[1].concrete_type, graph.index, graph.structural_keys),
-            pair[1].name.as_ref(),
-        ) {
+        let first = graph
+            .index
+            .resolved(&pair[0].concrete_type, graph.structural_keys);
+        let second = graph
+            .index
+            .resolved(&pair[1].concrete_type, graph.structural_keys);
+        if first
+            .order(&second, meter)?
+            .then_with(|| pair[0].name.as_ref().cmp(pair[1].name.as_ref()))
+            != std::cmp::Ordering::Less
+        {
             return Err(order_defect(position, "histories", index + 1));
         }
     }
@@ -1417,14 +1402,20 @@ fn canonical_order(
         fn key<'a>(
             row: &'a RefinementAssume,
             graph: &'a RefinementGraph<'_, '_>,
-        ) -> (&'a CheckedNodeId, &'static str, &'static str) {
+        ) -> (ResolvedKey<'a>, &'static str, &'static str) {
             (
-                super::structural_key(&row.operation, graph.index, graph.structural_keys),
+                graph.index.resolved(&row.operation, graph.structural_keys),
                 kind(row.kind),
                 granularity(row.granularity),
             )
         }
-        if key(&pair[0], graph) >= key(&pair[1], graph) {
+        let (first, second) = (key(&pair[0], graph), key(&pair[1], graph));
+        if first
+            .0
+            .order(&second.0, meter)?
+            .then_with(|| (first.1, first.2).cmp(&(second.1, second.2)))
+            != std::cmp::Ordering::Less
+        {
             return Err(order_defect(position, "assume", index + 1));
         }
     }
@@ -1444,14 +1435,20 @@ fn canonical_order(
         fn key<'a>(
             row: &'a RefinementEnsure,
             graph: &'a RefinementGraph<'_, '_>,
-        ) -> (&'a CheckedNodeId, &'static str, &'static str) {
+        ) -> (ResolvedKey<'a>, &'static str, &'static str) {
             (
                 graph.resolved_key(&row.operation),
                 kind(row.kind),
                 granularity(row.granularity),
             )
         }
-        if key(&pair[0], graph) >= key(&pair[1], graph) {
+        let (first, second) = (key(&pair[0], graph), key(&pair[1], graph));
+        if first
+            .0
+            .order(&second.0, meter)?
+            .then_with(|| (first.1, first.2).cmp(&(second.1, second.2)))
+            != std::cmp::Ordering::Less
+        {
             return Err(order_defect(position, "ensure", index + 1));
         }
     }
@@ -1495,7 +1492,7 @@ pub(super) struct RefinementGraph<'a, 'e> {
     nodes: &'a [super::RawSemanticNodeV2],
     kinds: &'a [super::CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
     dependencies: &'a super::SuppliedDependencies<'e>,
     package_name: &'a str,
@@ -1506,7 +1503,7 @@ impl<'a, 'e> RefinementGraph<'a, 'e> {
         nodes: &'a [super::RawSemanticNodeV2],
         kinds: &'a [super::CheckedNodeKind],
         terms: &'a [Option<CheckedTerm>],
-        index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+        index: &'a GraphIndex<'a>,
         structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
         dependencies: &'a super::SuppliedDependencies<'e>,
         package_name: &'a str,
@@ -1524,28 +1521,39 @@ impl<'a, 'e> RefinementGraph<'a, 'e> {
 }
 
 impl RefinementGraph<'_, '_> {
-    fn resolved_key<'a>(&'a self, key: &'a RefinementKey) -> &'a CheckedNodeId {
+    /// The graph key a reference names. A local key compares by its graph
+    /// rank; a key of a selected dependency package is another graph's and
+    /// compares by `CheckedNodeId::cmp`.
+    fn resolved_key<'a>(&'a self, key: &'a RefinementKey) -> ResolvedKey<'a> {
         match key {
-            RefinementKey::Local(id) => super::structural_key(id, self.index, self.structural_keys),
-            RefinementKey::External(external) => self
-                .dependencies
-                .selected_package(&external.package)
-                .and_then(|package| package.structural_key(&external.node))
-                .unwrap_or(&external.node),
+            RefinementKey::Local(id) => self.index.resolved(id, self.structural_keys),
+            RefinementKey::External(external) => ResolvedKey::foreign(
+                self.dependencies
+                    .selected_package(&external.package)
+                    .and_then(|package| package.structural_key(&external.node))
+                    .unwrap_or(&external.node),
+            ),
         }
     }
 
-    fn same_key(&self, actual: &RefinementKey, expected: &RefinementKey) -> bool {
-        match (actual, expected) {
-            (RefinementKey::Local(_), RefinementKey::Local(_)) => {
-                self.resolved_key(actual) == self.resolved_key(expected)
-            }
+    fn same_key(
+        &self,
+        actual: &RefinementKey,
+        expected: &RefinementKey,
+        meter: &mut super::WorkMeter,
+    ) -> Result<bool, ValidationFailure> {
+        let same = match (actual, expected) {
+            (RefinementKey::Local(_), RefinementKey::Local(_)) => true,
             (RefinementKey::External(actual_ref), RefinementKey::External(expected_ref)) => {
                 actual_ref.package == expected_ref.package
-                    && self.resolved_key(actual) == self.resolved_key(expected)
             }
             _ => false,
-        }
+        };
+        Ok(same
+            && self
+                .resolved_key(actual)
+                .order(&self.resolved_key(expected), meter)?
+                == std::cmp::Ordering::Equal)
     }
 
     fn local_term(&self, id: &CheckedNodeId) -> Option<&CheckedTerm> {
@@ -1585,7 +1593,7 @@ impl RefinementGraph<'_, '_> {
                 .term(&external.node)?,
         };
         let anchor = super::structural::typed_anchor_body(term)?;
-        Some((anchor.context, Box::from(anchor.operation)))
+        Some((anchor.context.clone(), Box::from(anchor.operation)))
     }
 
     fn local_kind(
@@ -2371,11 +2379,11 @@ fn check_headers(
     Ok(())
 }
 
-fn abstract_fields(
+fn abstract_fields<'a>(
     key: &RefinementKey,
-    owners: &super::model_members::ModelOwners<'_>,
-    dependencies: &super::SuppliedDependencies<'_>,
-) -> Option<BTreeSet<Box<str>>> {
+    owners: &'a super::model_members::ModelOwners<'_>,
+    dependencies: &'a super::SuppliedDependencies<'_>,
+) -> Option<&'a [Box<str>]> {
     match key {
         RefinementKey::Local(id) => owners.refinement_object_fields(id),
         RefinementKey::External(external) => dependencies
@@ -2416,12 +2424,13 @@ fn proof_eligible(
         meter.charge(u64::try_from(fields.len()).unwrap_or(u64::MAX), || {
             node_at(position).key("body").key("objects").index(index)
         })?;
-        let mapped: BTreeSet<&str> = object
-            .fields
+        let mut mapped: Vec<&str> = meter.vec(object.fields.len())?;
+        mapped.extend(object.fields.iter().map(|field| field.name.as_ref()));
+        mapped.sort_unstable();
+        if fields
             .iter()
-            .map(|field| field.name.as_ref())
-            .collect();
-        if fields.iter().any(|field| !mapped.contains(field.as_ref())) {
+            .any(|field| mapped.binary_search(&field.as_ref()).is_err())
+        {
             return Ok(Some(0));
         }
     }
@@ -2437,7 +2446,13 @@ pub(super) fn validate_step_rows(
     locked_sources: &[CheckedSourceRef],
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut expected = BTreeMap::new();
+    meter.at_node(0, "refinement");
+    let refinements = (0..nodes.len())
+        .filter(|&position| {
+            kinds[position] == super::CheckedNodeKind::Relation(super::RelationForm::Refinement)
+        })
+        .count();
+    let mut entries = meter.vec(refinements)?;
     for (position, node) in nodes.iter().enumerate() {
         if kinds[position] != super::CheckedNodeKind::Relation(super::RelationForm::Refinement) {
             continue;
@@ -2446,12 +2461,14 @@ pub(super) fn validate_step_rows(
             meter.charge(u64::try_from(steps.len()).unwrap_or(u64::MAX), || {
                 node_at(position).key("body").key("steps")
             })?;
-            expected.insert(node.node_id.clone(), steps.len());
+            entries.push((&node.node_id, steps.len()));
         }
     }
+    // Node ids are distinct, so each has its one step count.
+    let expected = SortedTable::from_vec(entries, |left, right| right.cmp(left));
     let count = expected
-        .values()
-        .try_fold(0usize, |total, len| total.checked_add(*len))
+        .iter()
+        .try_fold(0usize, |total, (_, len)| total.checked_add(*len))
         .ok_or_else(|| invalid_step_rows(None))?;
     if count == 0 && rows.is_none() {
         return Ok(());
@@ -2466,21 +2483,23 @@ pub(super) fn validate_step_rows(
         u64::try_from(locked_sources.len()).unwrap_or(u64::MAX),
         || JsonPointer::root().key("lock").key("sources"),
     )?;
-    let locked_sources = locked_sources.iter().collect::<BTreeSet<_>>();
+    let mut locked: Vec<&CheckedSourceRef> = meter.vec(locked_sources.len())?;
+    locked.extend(locked_sources.iter());
+    locked.sort_unstable();
     let mut previous: Option<(&CheckedNodeId, u64)> = None;
     for (index, row) in rows.iter().enumerate() {
         meter.charge(1, || {
             JsonPointer::root().key("refinement_step_rows").index(index)
         })?;
         let in_range = expected
-            .get(&row.node_id)
+            .get(&&row.node_id)
             .is_some_and(|len| usize::try_from(row.ordinal).is_ok_and(|ordinal| ordinal < *len));
         let ordered =
             previous.is_none_or(|(node, ordinal)| (node, ordinal) < (&row.node_id, row.ordinal));
         if !in_range || !ordered {
             return Err(invalid_step_rows(Some(index)));
         }
-        if !locked_sources.contains(&row.region.source) {
+        if locked.binary_search(&&row.region.source).is_err() {
             return Err(invalid_step_row_region(index, true));
         }
         if row.region.start >= row.region.end {
@@ -2524,34 +2543,44 @@ pub(super) fn validate_occurrences(
     owners: &super::model_members::ModelOwners<'_>,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut row_regions = BTreeMap::new();
+    meter.at_node(0, "refinement");
+    let mut row_entries = meter.vec(rows.map_or(0, <[_]>::len))?;
     if let Some(rows) = rows {
         for (index, row) in rows.iter().enumerate() {
             meter.charge(1, || {
                 JsonPointer::root().key("refinement_step_rows").index(index)
             })?;
-            row_regions.insert((&row.node_id, row.ordinal), &row.region);
+            row_entries.push(((&row.node_id, row.ordinal), &row.region));
         }
     }
-    let mut declarations = BTreeMap::new();
+    // Of two rows with one key the later is kept, as a map would hold.
+    let row_regions = SortedTable::from_vec(row_entries, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    });
+    let is_declaration = |entry: &&CheckedSourceMapEntry| {
+        entry.role == CheckedOccurrenceRole::Declaration && entry.ordinal == 0
+    };
+    let mut declaration_entries = meter.vec(source_map.iter().filter(is_declaration).count())?;
     for (index, entry) in source_map.iter().enumerate() {
         meter.charge(1, || JsonPointer::root().key("source_map").index(index))?;
-        if entry.role == CheckedOccurrenceRole::Declaration && entry.ordinal == 0 {
-            declarations.insert(&entry.node_id, entry.regions.as_slice());
+        if is_declaration(&entry) {
+            declaration_entries.push((&entry.node_id, entry.regions.as_slice()));
         }
     }
-    let mut refinement_positions: Vec<_> = graph
-        .nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(position, _)| {
-            (graph.kinds[position]
-                == super::CheckedNodeKind::Relation(super::RelationForm::Refinement))
-            .then_some(position)
-        })
-        .collect();
+    let declarations = SortedTable::from_vec(declaration_entries, |left, right| {
+        right.as_ptr().cmp(&left.as_ptr())
+    });
+    let is_refinement = |position: &usize| {
+        graph.kinds[*position] == super::CheckedNodeKind::Relation(super::RelationForm::Refinement)
+    };
+    let mut refinement_positions: Vec<usize> =
+        meter.vec((0..graph.nodes.len()).filter(is_refinement).count())?;
+    refinement_positions.extend((0..graph.nodes.len()).filter(is_refinement));
     refinement_positions.sort_unstable_by(|&left, &right| {
-        graph.structural_keys[left].cmp(&graph.structural_keys[right])
+        graph
+            .index
+            .resolved_at(left, graph.structural_keys)
+            .cmp(&graph.index.resolved_at(right, graph.structural_keys))
     });
     for position in refinement_positions {
         let node = &graph.nodes[position];
@@ -2563,8 +2592,8 @@ pub(super) fn validate_occurrences(
         else {
             continue;
         };
-        let declaration = declarations.get(&node.node_id);
-        let mut present = BTreeSet::new();
+        let declaration = declarations.get(&&node.node_id);
+        let mut present: Vec<(CheckedOccurrenceRole, u64)> = Vec::new();
         for (entry_index, entry) in source_map.iter().enumerate() {
             meter.charge(1, || {
                 JsonPointer::root().key("source_map").index(entry_index)
@@ -2597,12 +2626,15 @@ pub(super) fn validate_occurrences(
                     node.node_id.clone(),
                 ));
             }
-            present.insert((entry.role.clone(), entry.ordinal));
+            meter.insert_sorted(&mut present, (entry.role.clone(), entry.ordinal))?;
         }
-        if !present.contains(&(CheckedOccurrenceRole::Declaration, 0))
+        let has = |role: CheckedOccurrenceRole, ordinal: u64| {
+            present.binary_search(&(role, ordinal)).is_ok()
+        };
+        if !has(CheckedOccurrenceRole::Declaration, 0)
             || (0..generated_count).any(|ordinal| {
                 u64::try_from(ordinal).map_or(true, |ordinal| {
-                    !present.contains(&(CheckedOccurrenceRole::Generated, ordinal))
+                    !has(CheckedOccurrenceRole::Generated, ordinal)
                 })
             })
         {
@@ -2644,7 +2676,7 @@ pub(super) fn validate_refinements(
                 )
             })?;
         meter.charge(1, || node_at(position))?;
-        canonical_order(body, position, &graph)?;
+        canonical_order(body, position, &graph, meter)?;
         check_headers(node, body, position, &graph, lock)?;
         validate_catalog(
             body,
@@ -2683,7 +2715,8 @@ pub(super) fn validate_catalog_graph(
             continue;
         };
         let root = node_at(position).key("body").key("class_catalog");
-        let local = local_protocol_nodes(&graph);
+        meter.at_node(position, "refinement");
+        let local = local_protocol_nodes(&graph, meter)?;
         let mut concrete = protocol_classes(
             &local,
             &graph.nodes[position].semantic_type,
@@ -2698,18 +2731,8 @@ pub(super) fn validate_catalog_graph(
             .and_then(|node| node.owner.as_ref())
         {
             for operation in owners.operation_classes(identity, meter)? {
-                concrete.push(DeclaredGraphClass {
-                    class: format!("{}::{}", operation.object, operation.operation),
-                    node: RefinementKey::Local(operation.node),
-                    binder_types: operation.binder_types.map_or(
-                        BinderSignature::Unspecified,
-                        |types| {
-                            BinderSignature::Known(
-                                types.into_iter().map(RefinementKey::Local).collect(),
-                            )
-                        },
-                    ),
-                });
+                let class = operation_class(operation, None, meter)?;
+                meter.push(&mut concrete, class)?;
             }
             concrete.sort_unstable_by(|left, right| left.class.cmp(&right.class));
         }
@@ -2730,7 +2753,7 @@ pub(super) fn validate_catalog_graph(
         )?;
         compare_concrete_memory(
             &catalog.concrete,
-            &concrete_memory,
+            concrete_memory,
             root.clone().key("concrete"),
             &graph.nodes[position].node_id,
             meter,
@@ -2749,7 +2772,7 @@ pub(super) fn validate_catalog_graph(
                     )?,
                     protocol_memory_models(&local, model, Some(clause), &root, meter)?,
                 ),
-                RefinementKey::External(_) => (Vec::new(), BTreeSet::new()),
+                RefinementKey::External(_) => (Vec::new(), MemoryModels::default()),
             },
             Some(RefinementKey::External(clause)) => match abstract_key.as_ref() {
                 RefinementKey::External(model) if model.package == clause.package => {
@@ -2764,7 +2787,7 @@ pub(super) fn validate_catalog_graph(
                                 graph.nodes[position].node_id.clone(),
                             )
                         })?;
-                    let dependency = dependency_protocol_nodes(selected);
+                    let dependency = dependency_protocol_nodes(selected, meter)?;
                     (
                         protocol_classes(
                             &dependency,
@@ -2784,7 +2807,7 @@ pub(super) fn validate_catalog_graph(
                         )?,
                     )
                 }
-                _ => (Vec::new(), BTreeSet::new()),
+                _ => (Vec::new(), MemoryModels::default()),
             },
             None => {
                 let operations = match abstract_key.as_ref() {
@@ -2821,32 +2844,16 @@ pub(super) fn validate_catalog_graph(
                         .transpose()?
                         .unwrap_or_default(),
                 };
-                let mut classes = operations
-                    .into_iter()
-                    .map(|operation| {
-                        let key = |node| match abstract_key.as_ref() {
-                            RefinementKey::Local(_) => RefinementKey::Local(node),
-                            RefinementKey::External(model) => {
-                                RefinementKey::External(RefinementPackageNodeKey {
-                                    package: model.package.clone(),
-                                    node,
-                                })
-                            }
-                        };
-                        DeclaredGraphClass {
-                            class: format!("{}::{}", operation.object, operation.operation),
-                            node: key(operation.node),
-                            binder_types: operation.binder_types.map_or(
-                                BinderSignature::Unspecified,
-                                |types| {
-                                    BinderSignature::Known(types.into_iter().map(key).collect())
-                                },
-                            ),
-                        }
-                    })
-                    .collect::<Vec<_>>();
+                let package = match abstract_key.as_ref() {
+                    RefinementKey::Local(_) => None,
+                    RefinementKey::External(model) => Some(model.package.as_ref()),
+                };
+                let mut classes = meter.vec(operations.len())?;
+                for operation in operations {
+                    classes.push(operation_class(operation, package, meter)?);
+                }
                 classes.sort_unstable_by(|left, right| left.class.cmp(&right.class));
-                (classes, BTreeSet::new())
+                (classes, MemoryModels::default())
             }
         };
         compare_abstract_classes(
@@ -2859,7 +2866,7 @@ pub(super) fn validate_catalog_graph(
         )?;
         compare_abstract_memory(
             &catalog.r#abstract,
-            &abstract_memory,
+            abstract_memory,
             root.key("abstract"),
             &graph.nodes[position].node_id,
             meter,
@@ -2868,14 +2875,12 @@ pub(super) fn validate_catalog_graph(
     Ok(())
 }
 
-#[derive(Clone)]
 struct DeclaredGraphClass {
     class: String,
     node: RefinementKey,
     binder_types: BinderSignature<RefinementKey>,
 }
 
-#[derive(Clone)]
 enum BinderSignature<T> {
     Known(Vec<T>),
     Unspecified,
@@ -2883,13 +2888,92 @@ enum BinderSignature<T> {
 }
 
 impl<T> BinderSignature<T> {
-    fn map<U>(self, convert: impl FnMut(T) -> U) -> BinderSignature<U> {
-        match self {
-            Self::Known(types) => BinderSignature::Known(types.into_iter().map(convert).collect()),
+    fn map<U>(
+        self,
+        meter: &mut super::WorkMeter,
+        mut convert: impl FnMut(T, &mut super::WorkMeter) -> Result<U, ValidationFailure>,
+    ) -> Result<BinderSignature<U>, ValidationFailure> {
+        Ok(match self {
+            Self::Known(types) => {
+                let mut mapped = meter.vec(types.len())?;
+                for member in types {
+                    mapped.push(convert(member, meter)?);
+                }
+                BinderSignature::Known(mapped)
+            }
             Self::Unspecified => BinderSignature::Unspecified,
             Self::Ambiguous => BinderSignature::Ambiguous,
-        }
+        })
     }
+}
+
+impl BinderSignature<RefinementKey> {
+    fn duplicate(&self, meter: &mut super::WorkMeter) -> Result<Self, ValidationFailure> {
+        Ok(match self {
+            Self::Known(types) => {
+                let mut copied = meter.vec(types.len())?;
+                for key in types {
+                    let copied_key = match key {
+                        RefinementKey::Local(id) => copy_class_key(id, None, meter)?,
+                        RefinementKey::External(key) => {
+                            copy_class_key(&key.node, Some(&key.package), meter)?
+                        }
+                    };
+                    copied.push(copied_key);
+                }
+                Self::Known(copied)
+            }
+            Self::Unspecified => Self::Unspecified,
+            Self::Ambiguous => Self::Ambiguous,
+        })
+    }
+}
+
+fn owned_class_key(
+    node: CheckedNodeId,
+    package: Option<&str>,
+    meter: &mut super::WorkMeter,
+) -> Result<RefinementKey, ValidationFailure> {
+    Ok(match package {
+        Some(package) => RefinementKey::External(RefinementPackageNodeKey {
+            package: meter.boxed_str(package)?,
+            node,
+        }),
+        None => RefinementKey::Local(node),
+    })
+}
+
+fn copy_class_key(
+    node: &CheckedNodeId,
+    package: Option<&str>,
+    meter: &mut super::WorkMeter,
+) -> Result<RefinementKey, ValidationFailure> {
+    let node = meter.clone_id(node)?;
+    owned_class_key(node, package, meter)
+}
+
+fn operation_class(
+    operation: super::model_members::ModelOperationClass,
+    package: Option<&str>,
+    meter: &mut super::WorkMeter,
+) -> Result<DeclaredGraphClass, ValidationFailure> {
+    let class = meter
+        .formatted(format_args!(
+            "{}::{}",
+            operation.object, operation.operation
+        ))?
+        .into_string();
+    let node = owned_class_key(operation.node, package, meter)?;
+    let binder_types = match operation.binder_types {
+        Some(types) => BinderSignature::Known(types)
+            .map(meter, |id, meter| owned_class_key(id, package, meter))?,
+        None => BinderSignature::Unspecified,
+    };
+    Ok(DeclaredGraphClass {
+        class,
+        node,
+        binder_types,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -2902,13 +2986,21 @@ impl CatalogSignatures<'_, '_> {
     fn record_binder_types(
         &self,
         key: &CheckedNodeId,
-    ) -> Option<super::model_fields::RecordBinderTypes> {
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<super::model_fields::RecordBinderTypes>, ValidationFailure> {
         match self {
             Self::Local(owners) => {
-                let owner = owners.record_by_key(key)?;
-                owner.package.record_binder_types(owner.node)
+                let Some(owner) = owners.record_by_key(key) else {
+                    return Ok(None);
+                };
+                let mut budget = super::model_members::Budget::new(
+                    meter,
+                    owner.package.root,
+                    owner.package.bytes,
+                );
+                owner.package.record_binder_types(owner.node, &mut budget)
             }
-            Self::External(models) => models.record_binder_types(key),
+            Self::External(models) => models.record_binder_types(key, meter),
         }
     }
 
@@ -2954,41 +3046,48 @@ struct ProtocolCatalogNode<'a> {
     term: Option<&'a CheckedTerm>,
 }
 
-fn local_protocol_nodes<'a>(graph: &'a RefinementGraph<'_, '_>) -> Vec<ProtocolCatalogNode<'a>> {
-    graph
-        .index
-        .values()
-        .map(|&position| {
-            let node = &graph.nodes[position];
-            ProtocolCatalogNode {
-                id: &node.node_id,
-                kind: graph.kinds[position],
-                name: node.declaration.as_ref(),
-                owner: node.owner.as_ref(),
-                owner_model: node.owner_model.as_ref(),
-                semantic_type: &node.semantic_type,
-                term: graph.terms[position].as_ref(),
-            }
-        })
-        .collect()
-}
-
-fn dependency_protocol_nodes(package: &super::CheckedPackageV2) -> Vec<ProtocolCatalogNode<'_>> {
-    package
-        .resolved_graph()
-        .nodes
-        .iter()
-        .zip(package.node_kinds())
-        .map(|(node, &kind)| ProtocolCatalogNode {
+fn local_protocol_nodes<'a>(
+    graph: &'a RefinementGraph<'_, '_>,
+    meter: &mut super::WorkMeter,
+) -> Result<Vec<ProtocolCatalogNode<'a>>, ValidationFailure> {
+    let mut nodes = meter.vec(graph.index.len())?;
+    nodes.extend(graph.index.values().map(|&position| {
+        let node = &graph.nodes[position];
+        ProtocolCatalogNode {
             id: &node.node_id,
-            kind,
+            kind: graph.kinds[position],
             name: node.declaration.as_ref(),
             owner: node.owner.as_ref(),
             owner_model: node.owner_model.as_ref(),
             semantic_type: &node.semantic_type,
-            term: Some(&node.body),
-        })
-        .collect()
+            term: graph.terms[position].as_ref(),
+        }
+    }));
+    Ok(nodes)
+}
+
+fn dependency_protocol_nodes<'a>(
+    package: &'a super::CheckedPackageV2,
+    meter: &mut super::WorkMeter,
+) -> Result<Vec<ProtocolCatalogNode<'a>>, ValidationFailure> {
+    let graph = package.resolved_graph();
+    let mut nodes = meter.vec(graph.nodes.len())?;
+    nodes.extend(
+        graph
+            .nodes
+            .iter()
+            .zip(package.node_kinds())
+            .map(|(node, &kind)| ProtocolCatalogNode {
+                id: &node.node_id,
+                kind,
+                name: node.declaration.as_ref(),
+                owner: node.owner.as_ref(),
+                owner_model: node.owner_model.as_ref(),
+                semantic_type: &node.semantic_type,
+                term: Some(&node.body),
+            }),
+    );
+    Ok(nodes)
 }
 
 fn protocol_clause_prefix(member: &[Box<str>], path: &[Box<str>]) -> bool {
@@ -3019,25 +3118,27 @@ fn protocol_classes(
             None
         }
     });
-    let key = |id: &CheckedNodeId| match package {
-        Some(package) => RefinementKey::External(RefinementPackageNodeKey {
-            package: package.into(),
-            node: id.clone(),
-        }),
-        None => RefinementKey::Local(id.clone()),
-    };
     meter.charge(super::model_members::units(nodes.len()), || at.clone())?;
-    let clause_paths: Vec<_> = nodes
+    let clause_count = nodes
         .iter()
         .filter(|node| {
             node.kind == super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
+                && node.name.is_some()
         })
-        .filter_map(|node| {
-            node.name
-                .map(|name| (node.id, name.qualified_name.as_slice()))
-        })
-        .collect();
-    let mut closest_clauses = Vec::with_capacity(nodes.len());
+        .count();
+    let mut clause_paths = meter.vec(clause_count)?;
+    clause_paths.extend(
+        nodes
+            .iter()
+            .filter(|node| {
+                node.kind == super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
+            })
+            .filter_map(|node| {
+                node.name
+                    .map(|name| (node.id, name.qualified_name.as_slice()))
+            }),
+    );
+    let mut closest_clauses = meter.vec(nodes.len())?;
     for member in nodes {
         let closest = if matches!(member.kind, super::CheckedNodeKind::Protocol(_)) {
             if let Some(name) = member.name {
@@ -3096,12 +3197,20 @@ fn protocol_classes(
                         protocol_clause_path(&clause_name.qualified_name),
                         trigger_type,
                     ) {
-                        classes.push(DeclaredGraphClass {
-                            class: format!("activate {name}"),
-                            node: key(clause.id),
-                            binder_types: binder_signature(trigger_type, signatures)
-                                .map(|id| key(&id)),
-                        });
+                        let class = meter
+                            .formatted(format_args!("activate {name}"))?
+                            .into_string();
+                        let node = copy_class_key(clause.id, package, meter)?;
+                        let binder_types = binder_signature(trigger_type, signatures, meter)?
+                            .map(meter, |id, meter| owned_class_key(id, package, meter))?;
+                        meter.push(
+                            &mut classes,
+                            DeclaredGraphClass {
+                                class,
+                                node,
+                                binder_types,
+                            },
+                        )?;
                     }
                 }
             }
@@ -3126,11 +3235,7 @@ fn protocol_classes(
             else {
                 continue;
             };
-            let Some(operator) = operation
-                .get("member")
-                .and_then(|member| member.get("operator"))
-                .and_then(Value::as_str)
-            else {
+            let Some(operator) = operation.member_operator() else {
                 continue;
             };
             let Some(operator) = catalog_operator(member.kind, operator) else {
@@ -3141,26 +3246,32 @@ fn protocol_classes(
                 arguments,
                 &clause_name.qualified_name,
                 &name.qualified_name,
-            ) else {
+                meter,
+            )?
+            else {
                 continue;
             };
             let binder_types = if matches!(operator, CatalogOperator::Role) {
                 BinderSignature::Unspecified
             } else {
                 protocol_binder_types(operator, arguments, nodes, signatures, meter)?
-                    .map(|id| key(&id))
+                    .map(meter, |id, meter| owned_class_key(id, package, meter))?
             };
             for class in classes_for_node {
                 let class_binders = if class.empty_binders {
                     BinderSignature::Known(Vec::new())
                 } else {
-                    binder_types.clone()
+                    binder_types.duplicate(meter)?
                 };
-                classes.push(DeclaredGraphClass {
-                    class: class.name,
-                    node: key(member.id),
-                    binder_types: class_binders,
-                });
+                let node = copy_class_key(member.id, package, meter)?;
+                meter.push(
+                    &mut classes,
+                    DeclaredGraphClass {
+                        class: class.name,
+                        node,
+                        binder_types: class_binders,
+                    },
+                )?;
             }
         }
     }
@@ -3176,24 +3287,28 @@ fn protocol_memory_models(
     selected_clause: Option<&CheckedNodeId>,
     at: &JsonPointer,
     meter: &mut super::WorkMeter,
-) -> Result<BTreeSet<RefinementMemoryModel>, ValidationFailure> {
-    let mut by_id = BTreeMap::new();
+) -> Result<MemoryModels, ValidationFailure> {
+    let mut entries = meter.vec(nodes.len())?;
     for node in nodes {
         meter.charge(1, || at.clone())?;
-        by_id.insert(node.id, node);
+        entries.push((node.id, node));
     }
-    let selected_identity = by_id.get(model).and_then(|node| {
+    // Of two nodes with one id the later is kept, as a map would hold.
+    let by_id = SortedTable::from_vec(entries, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    });
+    let selected_identity = by_id.get(&model).and_then(|node| {
         if let Some(super::CheckedNodeOwner::ModelRoot { identity, .. }) = node.owner {
             Some(identity.as_ref())
         } else {
             None
         }
     });
-    let mut models = BTreeSet::new();
+    let mut models = MemoryModels::default();
     for clause in nodes {
         let clause_identity = clause
             .owner_model
-            .and_then(|owner| by_id.get(owner))
+            .and_then(|owner| by_id.get(&owner))
             .and_then(|owner| match owner.owner {
                 Some(super::CheckedNodeOwner::Model { identity, .. }) => Some(identity.as_ref()),
                 _ => None,
@@ -3227,12 +3342,7 @@ fn protocol_memory_models(
             else {
                 continue;
             };
-            if operation
-                .get("member")
-                .and_then(|member| member.get("operator"))
-                .and_then(Value::as_str)
-                != Some("parallel")
-            {
+            if operation.member_operator() != Some("parallel") {
                 continue;
             }
             let Some(CheckedTerm::Aggregate { members }) =
@@ -3255,7 +3365,7 @@ fn protocol_memory_models(
                     return Err(ValidationFailure::refused(
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
                         at.clone(),
-                    ))
+                    ));
                 }
             };
             let model = match selected {
@@ -3266,7 +3376,7 @@ fn protocol_memory_models(
                     return Err(ValidationFailure::refused(
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
                         at.clone(),
-                    ))
+                    ));
                 }
             };
             models.insert(model);
@@ -3275,31 +3385,53 @@ fn protocol_memory_models(
     Ok(models)
 }
 
-fn expected_memory_classes(
-    models: &BTreeSet<RefinementMemoryModel>,
-) -> BTreeSet<(&'static str, RefinementMemoryModel)> {
-    let mut expected = BTreeSet::new();
-    for model in models {
-        expected.insert(("memory drain", *model));
-        if *model == RefinementMemoryModel::Tso {
-            expected.insert(("memory flush", *model));
+/// The memory models a protocol selects, one bit per model. There are three,
+/// so the set holds no heap block.
+#[derive(Clone, Copy, Default)]
+struct MemoryModels(u8);
+
+impl MemoryModels {
+    fn bit(model: RefinementMemoryModel) -> u8 {
+        match model {
+            RefinementMemoryModel::Sc => 1,
+            RefinementMemoryModel::Tso => 2,
+            RefinementMemoryModel::Ra => 4,
         }
     }
-    expected
+
+    fn insert(&mut self, model: RefinementMemoryModel) {
+        self.0 |= Self::bit(model);
+    }
+
+    fn contains(self, model: RefinementMemoryModel) -> bool {
+        self.0 & Self::bit(model) != 0
+    }
+
+    /// Removes `model`, reporting whether it was present.
+    fn remove(&mut self, model: RefinementMemoryModel) -> bool {
+        let present = self.contains(model);
+        self.0 &= !Self::bit(model);
+        present
+    }
 }
 
 fn compare_memory<'a>(
     actual: impl Iterator<Item = (usize, &'a RefinementMemoryClass)>,
-    models: &BTreeSet<RefinementMemoryModel>,
+    models: MemoryModels,
     at: JsonPointer,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut expected = expected_memory_classes(models);
+    // Each selected model has a drain; the total-store-order model a flush.
+    let (mut drains, mut flush) = (models, models.contains(RefinementMemoryModel::Tso));
     for (index, memory) in actual {
         let entry_at = at.clone().index(index);
         meter.charge(1, || entry_at.clone())?;
-        if !expected.remove(&(memory.class(), memory.model())) {
+        let expected = match memory {
+            RefinementMemoryClass::Drain { memory_model, .. } => drains.remove(*memory_model),
+            RefinementMemoryClass::Flush { .. } => std::mem::take(&mut flush),
+        };
+        if !expected {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 entry_at,
@@ -3308,7 +3440,7 @@ fn compare_memory<'a>(
             ));
         }
     }
-    if !expected.is_empty() {
+    if drains.0 != 0 || flush {
         return Err(ValidationFailure::refused_at(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at,
@@ -3321,7 +3453,7 @@ fn compare_memory<'a>(
 
 fn compare_concrete_memory(
     actual: &[RefinementConcreteClass],
-    models: &BTreeSet<RefinementMemoryModel>,
+    models: MemoryModels,
     at: JsonPointer,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
@@ -3343,7 +3475,7 @@ fn compare_concrete_memory(
 
 fn compare_abstract_memory(
     actual: &[RefinementAbstractClass],
-    models: &BTreeSet<RefinementMemoryModel>,
+    models: MemoryModels,
     at: JsonPointer,
     locus: &CheckedNodeId,
     meter: &mut super::WorkMeter,
@@ -3420,7 +3552,7 @@ fn protocol_binder_types(
             return Ok(BinderSignature::Unspecified);
         };
         return Ok(signatures
-            .operation_binder_types(&anchor.context, anchor.operation, meter)?
+            .operation_binder_types(anchor.context, anchor.operation, meter)?
             .map_or(BinderSignature::Unspecified, BinderSignature::Known));
     }
     let binder_type = match operator {
@@ -3459,15 +3591,16 @@ fn protocol_binder_types(
         | CatalogOperator::Fence
         | CatalogOperator::TimeoutFromAwait => return Ok(BinderSignature::Known(Vec::new())),
     };
-    Ok(binder_signature(binder_type, signatures))
+    binder_signature(binder_type, signatures, meter)
 }
 
 fn binder_signature(
     binder_type: &CheckedNodeId,
     signatures: CatalogSignatures<'_, '_>,
-) -> BinderSignature<CheckedNodeId> {
-    if signatures.is_record(binder_type) {
-        match signatures.record_binder_types(binder_type) {
+    meter: &mut super::WorkMeter,
+) -> Result<BinderSignature<CheckedNodeId>, ValidationFailure> {
+    Ok(if signatures.is_record(binder_type) {
+        match signatures.record_binder_types(binder_type, meter)? {
             Some(super::model_fields::RecordBinderTypes::Known(types)) => {
                 BinderSignature::Known(types)
             }
@@ -3475,8 +3608,10 @@ fn binder_signature(
             None => BinderSignature::Unspecified,
         }
     } else {
-        BinderSignature::Known(vec![binder_type.clone()])
-    }
+        let mut types = meter.vec(1)?;
+        types.push(meter.clone_id(binder_type)?);
+        BinderSignature::Known(types)
+    })
 }
 
 fn bound_reference<'a>(arguments: &'a [CheckedTerm], field: &str) -> Option<&'a CheckedNodeId> {
@@ -3502,73 +3637,84 @@ fn protocol_member_classes(
     arguments: &[CheckedTerm],
     clause_name: &[Box<str>],
     name: &[Box<str>],
-) -> Option<Vec<ProtocolMemberClass>> {
-    let path = format!("{}::{}", protocol_clause_path(clause_name)?, name.last()?);
-    let inherited = |name| ProtocolMemberClass {
-        name,
-        empty_binders: false,
+    meter: &mut super::WorkMeter,
+) -> Result<Option<Vec<ProtocolMemberClass>>, ValidationFailure> {
+    let Some(path) = protocol_clause_path(clause_name) else {
+        return Ok(None);
     };
-    let classes = match operator {
-        CatalogOperator::Parallel => Some(vec![format!("fork {path}"), format!("join {path}")]),
-        CatalogOperator::Compensation => {
-            return Some(vec![
-                inherited(path.clone()),
-                ProtocolMemberClass {
-                    name: format!("cend {path}"),
-                    empty_binders: true,
-                },
-            ]);
-        }
+    let Some(member) = name.last() else {
+        return Ok(None);
+    };
+    let prefixes: &[(&str, bool)] = match operator {
+        CatalogOperator::Parallel => &[("fork ", false), ("join ", false)],
+        CatalogOperator::Compensation => &[("", false), ("cend ", true)],
         CatalogOperator::Attempt
         | CatalogOperator::Event
         | CatalogOperator::Send
         | CatalogOperator::Receive
         | CatalogOperator::Fence
         | CatalogOperator::TimeoutFromAwait
-        | CatalogOperator::Finish => Some(vec![path]),
+        | CatalogOperator::Finish => &[("", false)],
         CatalogOperator::Channel => {
-            let delivery = super::protocol_body::binding_value(arguments, "delivery")
+            let Some(delivery) = super::protocol_body::binding_value(arguments, "delivery")
                 .and_then(super::protocol_body::text_value)
-                .and_then(ChannelDelivery::parse)?;
-            // An interval enables neither `duplicate` nor `lose` (FR-465).
-            Some(match delivery {
-                ChannelDelivery::Unknown => {
-                    vec![format!("duplicate {path}"), format!("lose {path}")]
-                }
-                ChannelDelivery::AtLeastOnce => vec![format!("duplicate {path}")],
-                ChannelDelivery::AtMostOnce => vec![format!("lose {path}")],
-                ChannelDelivery::ExactlyOncePremise | ChannelDelivery::Between { .. } => Vec::new(),
-            })
+                .and_then(ChannelDelivery::parse)
+            else {
+                return Ok(None);
+            };
+            match delivery {
+                ChannelDelivery::Unknown => &[("duplicate ", false), ("lose ", false)],
+                ChannelDelivery::AtLeastOnce => &[("duplicate ", false)],
+                ChannelDelivery::AtMostOnce => &[("lose ", false)],
+                ChannelDelivery::ExactlyOncePremise | ChannelDelivery::Between { .. } => &[],
+            }
         }
         CatalogOperator::Role => {
-            let replication = super::protocol_body::binding_value(arguments, "replication")?;
-            let CheckedTerm::Aggregate { members } = replication else {
-                return None;
+            let Some(replication @ CheckedTerm::Aggregate { members }) =
+                super::protocol_body::binding_value(arguments, "replication")
+            else {
+                return Ok(None);
             };
             if members.is_empty() {
-                return Some(Vec::new());
-            }
-            let mut classes = vec![format!("spawn {path}")];
-            if super::protocol_body::group_value(replication, "lifetime")
+                &[]
+            } else if super::protocol_body::group_value(replication, "lifetime")
                 .and_then(super::protocol_body::text_value)
                 == Some("until")
             {
-                classes.push(format!("retire {path}"));
+                &[("spawn ", false), ("retire ", false)]
+            } else {
+                &[("spawn ", false)]
             }
-            Some(classes)
         }
-    }?;
-    Some(classes.into_iter().map(inherited).collect())
+    };
+    let mut classes = meter.vec(prefixes.len())?;
+    for (prefix, empty_binders) in prefixes {
+        let name = meter
+            .formatted(format_args!("{prefix}{path}::{member}"))?
+            .into_string();
+        classes.push(ProtocolMemberClass {
+            name,
+            empty_binders: *empty_binders,
+        });
+    }
+    Ok(Some(classes))
 }
 
-/// Preserve every authored clause segment in the class identity.
-fn protocol_clause_path(name: &[Box<str>]) -> Option<String> {
-    (!name.is_empty()).then(|| {
-        name.iter()
-            .map(AsRef::as_ref)
-            .collect::<Vec<&str>>()
-            .join("::")
-    })
+/// A clause name rendered from its borrowed segments without an intermediate list or string.
+struct ProtocolClausePath<'a>(&'a [Box<str>]);
+impl std::fmt::Display for ProtocolClausePath<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (index, segment) in self.0.iter().enumerate() {
+            if index != 0 {
+                formatter.write_str("::")?;
+            }
+            formatter.write_str(segment)?;
+        }
+        Ok(())
+    }
+}
+fn protocol_clause_path(name: &[Box<str>]) -> Option<ProtocolClausePath<'_>> {
+    (!name.is_empty()).then_some(ProtocolClausePath(name))
 }
 
 fn compare_declared_classes(
@@ -3625,11 +3771,21 @@ fn compare_declared_classes(
                         locus.clone(),
                     ));
                 }
-                if found.node.local() != Some(node)
-                    || matches!(&found.binder_types, BinderSignature::Known(expected)
-                        if binder_types.iter().map(|id| super::structural_key(id, graph.index, graph.structural_keys))
-                            .ne(expected.iter().map(|key| graph.resolved_key(key))))
-                {
+                let mut same = found.node.local() == Some(node);
+                if let (true, BinderSignature::Known(expected)) = (same, &found.binder_types) {
+                    same = binder_types.len() == expected.len();
+                    for (id, key) in binder_types.iter().zip(expected) {
+                        if !same {
+                            break;
+                        }
+                        same = graph
+                            .index
+                            .resolved(id, graph.structural_keys)
+                            .order(&graph.resolved_key(key), meter)?
+                            == std::cmp::Ordering::Equal;
+                    }
+                }
+                if !same {
                     return Err(wrong_binding(entry_at, locus));
                 }
             }
@@ -3701,12 +3857,17 @@ fn compare_abstract_classes(
                         locus.clone(),
                     ));
                 }
-                if node != &found.node
-                    || matches!(&found.binder_types, BinderSignature::Known(expected)
-                        if binder_types.len() != expected.len()
-                            || binder_types.iter().zip(expected).any(|(actual, expected)|
-                                !graph.same_key(actual, expected)))
-                {
+                let mut same = node == &found.node;
+                if let (true, BinderSignature::Known(expected)) = (same, &found.binder_types) {
+                    same = binder_types.len() == expected.len();
+                    for (actual, expected) in binder_types.iter().zip(expected) {
+                        if !same {
+                            break;
+                        }
+                        same = graph.same_key(actual, expected, meter)?;
+                    }
+                }
+                if !same {
                     return Err(wrong_binding(entry_at, locus));
                 }
             }
@@ -3724,20 +3885,52 @@ fn compare_abstract_classes(
     Ok(())
 }
 
-fn add_key(targets: &mut BTreeSet<CheckedNodeId>, key: &RefinementKey) {
+fn add_key(
+    targets: &mut Vec<CheckedNodeId>,
+    key: &RefinementKey,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
     if let Some(local) = key.local() {
-        targets.insert(local.clone());
+        meter.insert_id(targets, local)?;
     }
+    Ok(())
 }
 
-fn add_term(targets: &mut BTreeSet<CheckedNodeId>, term: &CheckedTerm) {
-    targets.extend(term.reference_targets().into_iter().cloned());
-    if let Some(application) = super::structural::application_dependencies(term) {
-        targets.extend(application);
+fn add_term(
+    targets: &mut Vec<CheckedNodeId>,
+    term: &CheckedTerm,
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut failure = None;
+    let mut found: Vec<&CheckedNodeId> = Vec::new();
+    // The targets are borrowed from the term; the walk allocates nothing
+    // itself, so the borrowed list is charged as it grows.
+    term.visit_reference_targets(&mut |target| {
+        if failure.is_none() {
+            if let Err(refusal) = meter.push(&mut found, target) {
+                failure = Some(refusal);
+            }
+        }
+    });
+    if let Some(refusal) = failure {
+        return Err(refusal);
     }
+    for target in found {
+        meter.insert_id(targets, target)?;
+    }
+    let mut application = Vec::new();
+    if super::structural::collect_application_dependencies(term, &mut application, meter)? {
+        for id in application {
+            meter.insert_owned_id(targets, id)?;
+        }
+    }
+    Ok(())
 }
 
-fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
+fn local_dependencies(
+    body: &CheckedTerm,
+    meter: &mut super::WorkMeter,
+) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
     let CheckedTerm::Refinement {
         abstract_key,
         protocol,
@@ -3751,27 +3944,27 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
         ..
     } = body
     else {
-        return None;
+        return Ok(None);
     };
-    let mut targets = BTreeSet::new();
-    add_key(&mut targets, abstract_key);
+    let mut targets: Vec<CheckedNodeId> = Vec::new();
+    add_key(&mut targets, abstract_key, meter)?;
     if let Some(protocol) = protocol {
-        add_key(&mut targets, protocol);
+        add_key(&mut targets, protocol, meter)?;
     }
     for row in populations {
-        add_key(&mut targets, &row.r#abstract);
-        targets.insert(row.concrete.clone());
+        add_key(&mut targets, &row.r#abstract, meter)?;
+        meter.insert_id(&mut targets, &row.concrete)?;
     }
     for row in objects {
-        add_key(&mut targets, &row.abstract_type);
-        targets.insert(row.concrete_type.clone());
+        add_key(&mut targets, &row.abstract_type, meter)?;
+        meter.insert_id(&mut targets, &row.concrete_type)?;
         for field in &row.fields {
-            add_term(&mut targets, &field.expression);
+            add_term(&mut targets, &field.expression, meter)?;
         }
     }
     for row in steps {
         if let Some(node) = &row.source_node {
-            targets.insert(node.clone());
+            meter.insert_id(&mut targets, node)?;
         }
         match &row.target {
             RefinementStepTarget::Operation {
@@ -3779,11 +3972,11 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
                 receiver,
                 arguments,
             } => {
-                add_key(&mut targets, operation);
-                add_term(&mut targets, receiver);
+                add_key(&mut targets, operation, meter)?;
+                add_term(&mut targets, receiver, meter)?;
                 for argument in arguments {
                     if let RefinementStepArgument::Term(term) = argument {
-                        add_term(&mut targets, term);
+                        add_term(&mut targets, term, meter)?;
                     }
                 }
             }
@@ -3791,11 +3984,11 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
                 node, arguments, ..
             } => {
                 if let Some(node) = node {
-                    add_key(&mut targets, node);
+                    add_key(&mut targets, node, meter)?;
                 }
                 for argument in arguments {
                     if let RefinementStepArgument::Term(term) = argument {
-                        add_term(&mut targets, term);
+                        add_term(&mut targets, term, meter)?;
                     }
                 }
             }
@@ -3803,19 +3996,19 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
         }
     }
     for row in histories {
-        targets.insert(row.concrete_type.clone());
-        targets.insert(row.type_id.clone());
-        add_term(&mut targets, &row.initial);
+        meter.insert_id(&mut targets, &row.concrete_type)?;
+        meter.insert_id(&mut targets, &row.type_id)?;
+        add_term(&mut targets, &row.initial, meter)?;
         for update in &row.updates {
-            targets.insert(update.operation.clone());
-            add_term(&mut targets, &update.expression);
+            meter.insert_id(&mut targets, &update.operation)?;
+            add_term(&mut targets, &update.expression, meter)?;
         }
     }
     for row in assume {
-        targets.insert(row.operation.clone());
+        meter.insert_id(&mut targets, &row.operation)?;
     }
     for row in ensure {
-        add_key(&mut targets, &row.operation);
+        add_key(&mut targets, &row.operation, meter)?;
     }
     if let Some(catalog) = class_catalog {
         for entry in &catalog.concrete {
@@ -3823,8 +4016,10 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
                 node, binder_types, ..
             } = entry
             {
-                targets.insert(node.clone());
-                targets.extend(binder_types.iter().cloned());
+                meter.insert_id(&mut targets, node)?;
+                for binder in binder_types {
+                    meter.insert_id(&mut targets, binder)?;
+                }
             }
         }
         for entry in &catalog.r#abstract {
@@ -3832,14 +4027,14 @@ fn local_dependencies(body: &CheckedTerm) -> Option<Vec<CheckedNodeId>> {
                 node, binder_types, ..
             } = entry
             {
-                add_key(&mut targets, node);
+                add_key(&mut targets, node, meter)?;
                 for binder in binder_types {
-                    add_key(&mut targets, binder);
+                    add_key(&mut targets, binder, meter)?;
                 }
             }
         }
     }
-    Some(targets.into_iter().collect())
+    Ok(Some(targets))
 }
 
 /// Check the exact local dependency vector at the graph-shape stage.
@@ -3847,28 +4042,38 @@ pub(super) fn validate_dependencies(
     nodes: &[super::RawSemanticNodeV2],
     kinds: &[super::CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (position, ((node, kind), term)) in nodes.iter().zip(kinds).zip(terms).enumerate() {
         if *kind != super::CheckedNodeKind::Relation(super::RelationForm::Refinement) {
             continue;
         }
-        let expected = term.as_ref().and_then(local_dependencies).ok_or_else(|| {
+        meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
+        let expected = match term {
+            Some(term) => local_dependencies(term, meter)?,
+            None => None,
+        }
+        .ok_or_else(|| {
             ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 crate::checked_package::common::node_pointer(position).key("body"),
             )
         })?;
-        let expected = expected
-            .iter()
-            .map(|id| super::structural_key(id, index, structural_keys))
-            .collect::<BTreeSet<_>>();
+        let mut keys = meter.vec(expected.len())?;
+        keys.extend(
+            expected
+                .iter()
+                .map(|id| index.resolved(id, structural_keys)),
+        );
+        keys.sort_unstable();
+        keys.dedup();
         if !node
             .dependencies
             .iter()
-            .map(|id| super::structural_key(id, index, structural_keys))
-            .eq(expected)
+            .map(|id| index.resolved(id, structural_keys))
+            .eq(keys)
         {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -3929,6 +4134,70 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
+    #[trace("TC-472", "FR-038-AC-500", "FR-038-AC-511")]
+    #[test]
+    fn refinement_row_walks_charge_the_callers_budget() {
+        let id = |name| json!({"package":"refinement-test","path":[name],"ordinal":0});
+        let wire = json!({
+            "term":"refinement", "abstract":id("a"),
+            "profile":{"authority":"test","identity":"quire.temporal.infinite-trace/v1"},
+            "populations":[], "objects":[], "steps":[],
+            "histories":[{"concrete_type":id("b"),"name":"past","type":id("c"),
+                "initial":{"term":"reference","target":id("d")},
+                "updates":[{"operation":id("e"),"expression":{
+                    "term":"aggregate","members":[{"term":"aggregate","members":[
+                        {"term":"reference","target":id("a")}
+                    ]}]
+                }}]}], "assume":[], "ensure":[]
+        });
+        let typed = CheckedTerm::decode_admitted(&wire).expect("closed refinement");
+        let document = super::super::CheckedJson::from_value(&wire).expect("document");
+        let run = |limit| {
+            let mut budget =
+                super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let measured = allocation_counter::measure(|| {
+                let meter = super::super::read_charge::Meter::new(&mut budget);
+                let site = super::super::read_charge::Site::new(
+                    super::super::PackageReadStage::WireChecks,
+                    7,
+                    "refinement",
+                );
+                outcome = Some(check_wire(
+                    super::super::TermNode::of(&document),
+                    Some(&typed),
+                    &Trail::Base(&[]),
+                    &mut meter.reservation(site),
+                ));
+            });
+            (
+                outcome.expect("ran"),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+                budget.first_unpaid_locus(),
+            )
+        };
+        let (outcome, allocated, charged, _) = run(u64::MAX);
+        outcome.expect("refinement rows admitted");
+        assert!(allocated > 0);
+        assert_eq!(allocated, charged);
+        let (outcome, allocated, paid, _) = run(charged);
+        outcome.expect("exact budget admits");
+        assert_eq!(allocated, paid);
+        let (outcome, allocated, paid, locus) = run(charged - 1);
+        assert!(matches!(outcome, Err(ValidationFailure::Budget(_))));
+        assert_eq!(allocated, paid, "denied request allocates nothing");
+        let locus = locus.expect("unpaid row walk locus");
+        assert_eq!(
+            locus.source,
+            super::super::NativeJoinLocusSource::PackageRead(
+                super::super::PackageReadStage::WireChecks,
+                7
+            )
+        );
+        assert!(matches!(locus.form, "refinement" | "walk"));
+    }
+
     fn channel_classes(delivery: &str) -> Option<Vec<String>> {
         let argument = CheckedTerm::decode_admitted(&json!({
             "term": "binding", "name": "delivery", "value": {
@@ -3939,8 +4208,15 @@ mod tests {
         .expect("valid delivery binding");
         let clause: Vec<Box<str>> = vec!["Example".into(), "OrderFlow".into()];
         let name: Vec<Box<str>> = vec!["Charges".into()];
-        protocol_member_classes(CatalogOperator::Channel, &[argument], &clause, &name)
-            .map(|classes| classes.into_iter().map(|class| class.name).collect())
+        protocol_member_classes(
+            CatalogOperator::Channel,
+            &[argument],
+            &clause,
+            &name,
+            &mut super::super::WorkMeter::new(u64::MAX),
+        )
+        .expect("unmetered class derivation")
+        .map(|classes| classes.into_iter().map(|class| class.name).collect())
     }
 
     /// QSpec FR-465 and FR-426: a delivery count interval enables neither the
@@ -3967,5 +4243,178 @@ mod tests {
         assert_eq!(channel_classes("[0,1]"), Some(Vec::new()));
         assert_eq!(channel_classes("[2,2]"), Some(Vec::new()));
         assert_eq!(channel_classes("[2,1]"), None);
+    }
+
+    /// The refinement's local-dependency vector is built from charged blocks
+    /// only: the bytes the allocator is asked for equal the bytes charged, the
+    /// measured requirement admits and one byte below is denied
+    /// (FR-038-AC-504). Reference targets and member IDs are flat wire IDs.
+    /// An application's member IDs are read out of Value members and charged
+    /// only after they are parsed until the body migration lands.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn local_dependencies_allocate_exactly_what_they_charge() {
+        let id = |fill: char| json!({"package": "refinement-test", "path": [fill.to_string()], "ordinal": 0});
+        let profile = json!({"authority": "test", "identity": "quire.temporal.infinite-trace/v1"});
+        let body = CheckedTerm::decode_admitted(&json!({
+            "term": "refinement", "abstract": id('a'), "profile": profile,
+            "populations": [{"abstract": id('b'), "concrete": id('c')}],
+            "objects": [{"abstract_type": id('d'), "concrete_type": id('e'), "fields": []}],
+            "steps": [],
+            "histories": [{
+                "concrete_type": id('e'), "name": "past", "type": id('f'),
+                "initial": {"term": "reference", "target": id('g')},
+                "updates": [{"operation": id('h'),
+                    "expression": {"term": "reference", "target": id('a')}}]
+            }],
+            "assume": [{"operation": id('h'), "kind": "weak", "granularity": "whole"}],
+            "ensure": []
+        }))
+        .expect("closed refinement");
+        let run = |limit: u64| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut found = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = super::super::WorkMeter::over(&mut budget);
+                found = Some(local_dependencies(&body, &mut meter));
+            });
+            (
+                found.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (found, allocated, charged) = run(u64::MAX);
+        let expected: Vec<CheckedNodeId> = "abcdefgh"
+            .chars()
+            .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
+            .collect();
+        let found = found.expect("ran").expect("a refinement body");
+        assert_eq!(
+            found, expected,
+            "abstract, rows, types, history and operations"
+        );
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(
+            run(charged).0,
+            Some(Some(found)),
+            "the measured limit admits"
+        );
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
+    /// The live graph-to-class traversal pays its temporary indexes, rendered
+    /// class names, output rows and dependency-qualified node copies.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn protocol_classes_allocate_exactly_what_they_charge() {
+        let id = |name: &str| {
+            CheckedNodeId::from_value(&json!({
+                "package":"test/protocol", "path":[name], "ordinal":0
+            }))
+            .expect("node ID")
+        };
+        let root = id("root");
+        let object = id("object");
+        let clause = id("clause");
+        let member = id("parallel");
+        let root_owner = super::super::CheckedNodeOwner::ModelRoot {
+            identity: "example".into(),
+        };
+        let object_owner = super::super::CheckedNodeOwner::Model {
+            identity: "example".into(),
+            node: "Object".into(),
+        };
+        let clause_name = super::super::CheckedDeclaration {
+            qualified_name: vec!["Example".into(), "Flow".into()],
+        };
+        let member_name = super::super::CheckedDeclaration {
+            qualified_name: vec!["Example".into(), "Flow".into(), "run".into(), "Fork".into()],
+        };
+        let body = CheckedTerm::decode_admitted(&json!({
+            "term":"application", "operator":"protocol_control",
+            "operation":{"identity":"quire.op.protocol.control", "laws":[], "mode":null,
+                "member":{"kind":"profile_operator", "operator":"parallel"}, "leaves":[]},
+            "result_type":root, "arguments":[]
+        }))
+        .expect("admitted parallel operation");
+        use super::super::{CheckedNodeKind as Kind, ModelForm, ProtocolForm};
+        let nodes = [
+            ProtocolCatalogNode {
+                id: &root,
+                kind: Kind::Model(ModelForm::ObjectType),
+                name: None,
+                owner: Some(&root_owner),
+                owner_model: None,
+                semantic_type: &root,
+                term: None,
+            },
+            ProtocolCatalogNode {
+                id: &object,
+                kind: Kind::Model(ModelForm::ObjectType),
+                name: None,
+                owner: Some(&object_owner),
+                owner_model: None,
+                semantic_type: &root,
+                term: None,
+            },
+            ProtocolCatalogNode {
+                id: &clause,
+                kind: Kind::Protocol(ProtocolForm::ProtocolClause),
+                name: Some(&clause_name),
+                owner: None,
+                owner_model: Some(&object),
+                semantic_type: &root,
+                term: None,
+            },
+            ProtocolCatalogNode {
+                id: &member,
+                kind: Kind::Protocol(ProtocolForm::Control),
+                name: Some(&member_name),
+                owner: None,
+                owner_model: None,
+                semantic_type: &root,
+                term: Some(&body),
+            },
+        ];
+        let retained = super::super::model_fields::RetainedModels::default();
+        let at = JsonPointer::root();
+        for package in [None, Some("dependency/package")] {
+            let run = |limit| {
+                let mut budget =
+                    crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    result = Some(protocol_classes(
+                        &nodes,
+                        &root,
+                        None,
+                        package,
+                        CatalogSignatures::External(&retained),
+                        &at,
+                        &mut super::super::WorkMeter::over(&mut budget),
+                    ));
+                });
+                (
+                    result.expect("ran"),
+                    measured.bytes_total,
+                    budget.read_storage_consumed(),
+                )
+            };
+            let (result, allocated, charged) = run(u64::MAX);
+            let classes = result.expect("classes");
+            assert_eq!(
+                classes
+                    .iter()
+                    .map(|class| class.class.as_str())
+                    .collect::<Vec<_>>(),
+                ["fork Example::Flow::Fork", "join Example::Flow::Fork"]
+            );
+            assert!(charged > 0);
+            assert_eq!(allocated, charged);
+            assert!(run(charged).0.is_ok(), "exact allowance admits");
+            assert!(run(charged - 1).0.is_err(), "one byte short refuses");
+        }
     }
 }

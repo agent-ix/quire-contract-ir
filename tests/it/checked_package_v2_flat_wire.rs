@@ -20,15 +20,15 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
-    CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    CheckedPackageRefusalCode, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
+    CompleteLoweringRecordV2,
 };
 use serde_json::{json, Value};
 
 use CheckedPackageRefusalCode as Code;
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -340,7 +340,7 @@ fn deepest_admitted_typed_term_obeys_the_exact_byte_limit_on_a_small_stack() {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.bytes = u64::try_from(bytes.len()).expect("fixture length");
     on_small_stack(move || {
-        let admitted = match CheckedPackageV2::read(&bytes, limits, &evidence) {
+        let admitted = match crate::read_and_account(&bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Admitted(package) => package,
             other => panic!("exact bytes must admit: {other:?}"),
         };
@@ -353,7 +353,7 @@ fn deepest_admitted_typed_term_obeys_the_exact_byte_limit_on_a_small_stack() {
             bytes: limits.bytes - 1,
             ..limits
         };
-        match CheckedPackageV2::read(&bytes, over_limit, &evidence) {
+        match crate::read_and_account(&bytes, over_limit, &evidence) {
             CheckedPackageV2ReadResult::Incomplete(incomplete) => {
                 assert_eq!(incomplete.limit_kind, CheckedPackageLimit::Bytes);
                 assert_eq!(incomplete.limit, over_limit.bytes);
@@ -620,7 +620,7 @@ fn tc_048_a_hundred_thousand_node_chain_is_admitted_and_lowered_on_a_small_stack
     drop(base);
     let last = typed(&last);
     on_small_stack(move || {
-        let read = CheckedPackageV2::read(&bytes, generous_limits(total), &evidence);
+        let read = crate::read_and_account(&bytes, generous_limits(total), &evidence);
         let CheckedPackageV2ReadResult::Admitted(package) = read else {
             panic!("the chain admits, read {read:?}");
         };
@@ -784,7 +784,7 @@ fn read_on_small_stack(
     evidence: CheckedPackageEvidence,
 ) -> CheckedPackageV2ReadResult {
     on_small_stack(move || {
-        CheckedPackageV2::read(
+        crate::read_and_account(
             &bytes,
             CheckedPackageReadLimits {
                 bytes: 1 << 30,
@@ -915,7 +915,7 @@ fn tc_048_a_syntax_or_duplicate_defect_is_refused_before_the_parse_limit() {
     let deep = nested(200);
     on_small_stack(move || {
         let read = |text: &str| {
-            CheckedPackageV2::read(
+            crate::read_and_account(
                 text.as_bytes(),
                 CheckedPackageReadLimits::bounded(),
                 &evidence,

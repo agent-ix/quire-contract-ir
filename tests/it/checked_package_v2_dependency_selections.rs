@@ -59,7 +59,7 @@ fn with_selections(mut package: Value, entries: Vec<Value>) -> Value {
 }
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),

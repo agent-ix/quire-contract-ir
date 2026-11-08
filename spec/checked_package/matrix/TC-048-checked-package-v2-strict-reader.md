@@ -241,6 +241,8 @@ these admission claims until FR-322 defines their family behavior.
 
 Dispatch unknown, empty, absent and malformed `contract_version` values, duplicate members, malformed JSON and noncanonical bytes before version-specific checks. Admit every current in-repo positive V2 fixture. Apply every authored adverse structural mutation and compare exact code, cause, pointer and locus. Separately inject unknown members, unsupported capabilities, dangling references and incomplete source maps. Admit at exact byte, node, edge, occurrence, diagnostic and work limits, and refuse or return incomplete one unit below each exact boundary.
 
+For the reserved parse/GCD exception in FR-038-AC-508, verify the operand-size bounds in former 32-bit-limb work units are at least the recorded former totals (including 132 for 18446744073709551617 over 1), without running a shadow parse or GCD. Measure the new exact requirement and check exact/one-below work, the same operand/stage order, semantic first faults and active work locus, and affordable or unaffordable denial pointers. Exercise coprime and noncoprime values above 128 bits through the actual reserved SDK parse and reduction entries, replaying each actual limb request at its exact and one-below storage allowance. Heap charges remain exact, with form `exact_number`; multiplication and unrelated visit work retain their existing units.
+
 For AC-18, use a self-typed body-root literal and nested or other references to the same structural node id. The body-root exemption applies only where QSpec defines it; all other targets must be declared dependencies and resolve. A valid body edit under a retained id is judged by independent body and graph rules.
 
 For AC-45, read a model-owned declaration with owner `{kind: model, identity, node}` and no version. Its selected model-root identity and declaration node join admit; a foreign owner, missing selected document, empty owner value or extra owner member returns the exact owner or wire refusal. Replacing a selected document with a different body under the same name reaches its independent model and member validation rather than a content-key check.
@@ -454,6 +456,14 @@ same-width and mismatched pairs and the count, sum, convert and narrow
 mismatched-result cases. Verify that selecting by member kind alone breaks the
 lookup/all-instances admitted controls, and that selecting an IEEE-only identity
 allow-list breaks a non-IEEE mismatched-result control.
+For fold and reduce, also read the accumulator binding whose aggregate holds
+one element binding and resolve the final step's type. Admit Integer steps
+and both the genuine QSL Integer fold fixture and the original complete
+monitor-base fixture with its selected model document. Refuse empty or multiple-member
+aggregates, non-binding members and a Boolean step when the member is Integer,
+at the application node. A further aggregate step retains its earlier
+malformed-wire refusal at its value. Keep direct binder controls.
+
 For fold and reduce, an unequal result must refuse at `result_type`. A wire
 member kind that disagrees with the current entry still refuses earlier at
 `operation.member` (AC-69 and AC-98; AC-65 defines the closed member-kind vocabulary).

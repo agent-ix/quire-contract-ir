@@ -59,11 +59,16 @@
 //! The stage charges no work of its own: every body term it walks was
 //! parsed, shape-validated and charged once by the per-node body loop.
 
+use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{DomainModel, MemberType, ValueBounds};
+use super::native_join_budget::PackageReadStage;
+use super::node_index::resolve_id_charged;
+use super::stage_storage::{self, Path, Refusal, Site};
+use super::term_view::{TermNode, TermView};
 use super::{
-    ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
-    OperationMemberKind, StateClauseKind,
+    ApplicationOperator, CheckedTerm, ExecutionPoint, LiteralKind, OperationMemberKind,
+    StateClauseKind, WorkMeter,
 };
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, ClaimForm, CompositeTypeForm,
@@ -71,18 +76,13 @@ use super::{
     RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateForm,
     TemporalForm, ValueForm,
 };
-use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{
-    rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole,
-    CheckedPackageRefusalCode, JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole, CheckedPackageRefusalCode,
 };
-use num_bigint::BigInt;
-use num_integer::Integer;
-use num_traits::One;
 use quire_exact::TextProfile;
-use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// The member of one node a structural defect is about.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -100,8 +100,11 @@ enum Defect {
 }
 
 impl Defect {
-    fn pointer(self, position: usize) -> JsonPointer {
-        let node = node_pointer(position);
+    fn path(self, position: usize) -> Path<'static> {
+        let node = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position);
         match self {
             Self::SemanticType => node.key("semantic_type"),
             Self::Dependencies => node.key("dependencies"),
@@ -118,11 +121,34 @@ impl Defect {
     }
 }
 
+/// Prepay the structural diagnostic before constructing its pointer, node
+/// identity, location and boxed record. The optional node locus preserves the
+/// distinct payloads of structural defects and malformed raw bodies.
+fn structural_refusal(
+    meter: &mut WorkMeter,
+    position: usize,
+    form: &'static str,
+    code: CheckedPackageRefusalCode,
+    defect: Defect,
+    locus: Option<&CheckedNodeId>,
+) -> ValidationFailure {
+    let at = defect.path(position);
+    let mut refusal = Refusal::new(code, at);
+    if let Some(locus) = locus {
+        refusal = refusal.at_node(locus);
+    }
+    stage_storage::refuse(
+        meter,
+        &Site::new(PackageReadStage::Graph, position, form, at),
+        refusal,
+    )
+}
+
 /// The graph one stage reads: each node with its decoded kind, by key.
 struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     models: Option<&'a [super::model_members::DomainModel]>,
 }
 
@@ -130,6 +156,19 @@ impl Graph<'_> {
     fn node(&self, id: &CheckedNodeId) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
         let position = *self.index.get(id)?;
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
+    }
+
+    /// The node, its kind and its position.
+    fn node_at(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<(usize, &CheckedSemanticNodeV2, CheckedNodeKind)> {
+        let position = *self.index.get(id)?;
+        Some((
+            position,
+            self.nodes.get(position)?,
+            *self.kinds.get(position)?,
+        ))
     }
 
     fn kind(&self, id: &CheckedNodeId) -> Option<CheckedNodeKind> {
@@ -329,9 +368,11 @@ impl StructuralForm {
                 | ClaimForm::Schedulability
                 | ClaimForm::ProbabilisticClaim,
             ) => None,
-            K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
-                Some(Self::AbstractionRelation)
-            }
+            K::Correspondence(
+                CorrespondenceForm::AbstractionRelation
+                | CorrespondenceForm::ImplementationGuarantee
+                | CorrespondenceForm::ComponentComposition,
+            ) => Some(Self::AbstractionRelation),
             K::Correspondence(
                 CorrespondenceForm::SourceLocus
                 | CorrespondenceForm::ModelCorrespondence
@@ -349,162 +390,208 @@ pub(super) fn validate_structural_nodes(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[], None)
+    validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[], None, meter)
 }
 
+/// The key a listed dependency ID stands for when the graph holds no such
+/// node, with its blocks charged first. An ID that already holds operand keys
+/// is its own key; an index-form ID resolves against the graph keys.
 fn resolve_unlisted_dependency(
     id: &CheckedNodeId,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
-) -> Option<std::sync::Arc<CheckedNodeId>> {
-    if id
+    meter: &mut WorkMeter,
+) -> Result<Option<std::sync::Arc<CheckedNodeId>>, ValidationFailure> {
+    let resolved = if id
         .path
         .iter()
         .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
     {
-        return (!id
+        if id
             .path
             .iter()
-            .any(|segment| matches!(segment, CheckedNodePathSegment::Index(_))))
-        .then(|| std::sync::Arc::new(id.clone()));
-    }
-    super::node_index::resolve_id(id, structural_keys).map(std::sync::Arc::new)
+            .any(|segment| matches!(segment, CheckedNodePathSegment::Index(_)))
+        {
+            return Ok(None);
+        }
+        Some(meter.clone_id(id)?)
+    } else {
+        resolve_id_charged(id, structural_keys, meter)?
+    };
+    let Some(resolved) = resolved else {
+        return Ok(None);
+    };
+    // The `Arc` block holds the counts beside the id.
+    meter.reserve(
+        std::mem::size_of::<CheckedNodeId>().saturating_add(2 * std::mem::size_of::<usize>()),
+    )?;
+    Ok(Some(std::sync::Arc::new(resolved)))
 }
 
-/// One graph-wide ordering table for both present and absent dependency IDs.
-/// Missing IDs are still compared here; their body join owns the typed refusal.
-struct DependencyKeyOrder {
-    interner: super::node_index::StructuralInterner,
-    tokens: HashMap<*const CheckedNodeId, usize>,
-    ranks: HashMap<*const CheckedNodeId, usize>,
-    absent: HashMap<*const CheckedNodeId, std::sync::Arc<CheckedNodeId>>,
-    expected_roots: Vec<std::sync::Arc<CheckedNodeId>>,
+/// The keys the graph-wide order covers: every graph key, then the key of each
+/// listed dependency ID absent from the graph, with the address of each listed
+/// ID beside its position among the keys.
+struct DependencyKeys {
+    keys: Vec<std::sync::Arc<CheckedNodeId>>,
+    /// `(address of the listed ID, position of its key in keys)`, by address.
+    absent: Vec<(*const CheckedNodeId, usize)>,
 }
 
-impl DependencyKeyOrder {
+impl DependencyKeys {
     fn new<'a>(
         dependencies: impl IntoIterator<Item = &'a [CheckedNodeId]>,
-        index: &BTreeMap<&CheckedNodeId, usize>,
+        index: &GraphIndex<'_>,
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
-    ) -> Self {
-        let mut order = Self {
-            interner: super::node_index::StructuralInterner::new(),
-            tokens: HashMap::new(),
-            ranks: HashMap::new(),
-            absent: HashMap::new(),
-            expected_roots: Vec::new(),
-        };
+        meter: &mut WorkMeter,
+    ) -> Result<Self, ValidationFailure> {
+        let mut keys = meter.vec(structural_keys.len())?;
+        let mut absent: Vec<(*const CheckedNodeId, usize)> = Vec::new();
         if structural_keys.is_empty() {
-            return order;
+            return Ok(Self { keys, absent });
         }
-        let mut ranked_keys = structural_keys.to_vec();
+        keys.extend(structural_keys.iter().cloned());
         for listed in dependencies {
             for id in listed {
                 if index.contains_key(id) {
                     continue;
                 }
-                if let Some(key) = resolve_unlisted_dependency(id, structural_keys) {
-                    ranked_keys.push(std::sync::Arc::clone(&key));
-                    order.absent.insert(std::ptr::from_ref(id), key);
+                if let Some(key) = resolve_unlisted_dependency(id, structural_keys, meter)? {
+                    meter.push(&mut absent, (std::ptr::from_ref(id), keys.len()))?;
+                    meter.push(&mut keys, key)?;
                 }
             }
         }
-        let tokens = order
-            .interner
-            .tokens(&ranked_keys)
-            .expect("reader-rebuilt graph keys contain only resolved operands");
-        let ranks = rank_checked_node_ids(&ranked_keys);
-        for ((key, token), rank) in ranked_keys.iter().zip(tokens).zip(ranks) {
-            order.tokens.insert(std::sync::Arc::as_ptr(key), token);
-            order.ranks.insert(std::sync::Arc::as_ptr(key), rank);
+        absent.sort_unstable_by_key(|(address, _)| *address);
+        Ok(Self { keys, absent })
+    }
+
+    /// The key of a listed dependency ID: the graph's for a node it holds,
+    /// the resolved one for an absent ID, none for an unresolvable one.
+    fn key_of<'s>(
+        &'s self,
+        id: &CheckedNodeId,
+        index: &GraphIndex<'_>,
+        structural_keys: &'s [std::sync::Arc<CheckedNodeId>],
+    ) -> Option<&'s std::sync::Arc<CheckedNodeId>> {
+        if let Ok(at) = self
+            .absent
+            .binary_search_by_key(&std::ptr::from_ref(id), |(address, _)| *address)
+        {
+            return self.keys.get(self.absent[at].1);
         }
-        order
+        structural_keys.get(*index.get(id)?)
+    }
+}
+
+/// One graph-wide ordering table for both present and absent dependency IDs,
+/// built once through the caller's budget by `StructuralOrder`. Missing IDs are
+/// still compared here; their body join owns the typed refusal.
+struct DependencyKeyOrder<'k> {
+    keys: &'k DependencyKeys,
+    order: Option<super::StructuralOrder<'k>>,
+}
+
+impl<'k> DependencyKeyOrder<'k> {
+    fn new(keys: &'k DependencyKeys, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+        let order = if keys.keys.is_empty() {
+            None
+        } else {
+            meter.structural_order(&[keys.keys.as_slice()])?
+        };
+        Ok(Self { keys, order })
     }
 
     fn matches(
-        &mut self,
+        &self,
         actual: &[CheckedNodeId],
-        expected: BTreeSet<&CheckedNodeId>,
-        index: &BTreeMap<&CheckedNodeId, usize>,
+        expected: &[&CheckedNodeId],
+        index: &GraphIndex<'_>,
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
-    ) -> bool {
-        let expected = expected.into_iter().collect::<Vec<_>>();
-        let expected_keys = expected
-            .iter()
-            .map(|id| super::structural_key(id, index, structural_keys));
+        meter: &mut WorkMeter,
+    ) -> Result<bool, ValidationFailure> {
         if structural_keys.is_empty() {
-            let expected = expected_keys.collect::<BTreeSet<_>>();
-            return actual.len() == expected.len()
+            // No structural keys: the IDs are the document's own flat IDs,
+            // whose order allocates nothing.
+            let mut expected_keys = meter.vec(expected.len())?;
+            expected_keys.extend(
+                expected
+                    .iter()
+                    .map(|id| super::structural_key(id, index, structural_keys)),
+            );
+            expected_keys.sort_unstable();
+            expected_keys.dedup();
+            return Ok(actual.len() == expected_keys.len()
                 && actual
                     .iter()
                     .map(|id| super::structural_key(id, index, structural_keys))
-                    .zip(expected)
-                    .all(|(left, right)| left == right);
+                    .zip(expected_keys)
+                    .all(|(left, right)| left == right));
         }
-        let mut expected_tokens = HashSet::new();
-        for (raw, key) in expected.iter().zip(expected_keys) {
-            let token = if let Some(&token) = self.tokens.get(&std::ptr::from_ref(key)) {
-                token
-            } else if let Some(resolved) = resolve_unlisted_dependency(raw, structural_keys) {
-                // The interner uses Arc pointers as its cache keys. Retain
-                // each root for the whole validation pass so an allocator
-                // cannot reuse an address for a different expected key.
-                self.expected_roots.push(resolved);
-                let Some(tokens) = self.interner.tokens(std::slice::from_ref(
-                    self.expected_roots
-                        .last()
-                        .expect("just pushed expected key"),
-                )) else {
-                    return false;
-                };
-                tokens[0]
+        let Some(order) = self.order.as_ref() else {
+            return Ok(false);
+        };
+        let mut expected_tokens = meter.vec(expected.len())?;
+        for &raw in expected {
+            let token = if let Some(&position) = index.get(raw) {
+                structural_keys
+                    .get(position)
+                    .and_then(|key| order.token(key))
             } else {
-                return false;
+                // An expected key outside the graph is found by its resolved
+                // ID; one that equals no listed key cannot match.
+                match resolve_unlisted_dependency(raw, structural_keys, meter)? {
+                    Some(resolved) => order.find(&resolved),
+                    None => None,
+                }
             };
-            expected_tokens.insert(token);
+            let Some(token) = token else {
+                return Ok(false);
+            };
+            expected_tokens.push(token);
         }
+        expected_tokens.sort_unstable();
+        expected_tokens.dedup();
         if actual.len() != expected_tokens.len() {
-            return false;
+            return Ok(false);
         }
         let mut previous_rank = None;
-        let mut actual_tokens = HashSet::with_capacity(actual.len());
+        let mut actual_tokens = meter.vec(actual.len())?;
         for id in actual {
-            let pointer = if let Some(key) = self.absent.get(&std::ptr::from_ref(id)) {
-                std::sync::Arc::as_ptr(key)
-            } else {
-                let key = super::structural_key(id, index, structural_keys);
-                std::ptr::from_ref(key)
+            let Some(key) = self.keys.key_of(id, index, structural_keys) else {
+                return Ok(false);
             };
-            let (Some(&token), Some(&rank)) = (self.tokens.get(&pointer), self.ranks.get(&pointer))
-            else {
-                return false;
+            let (Some(token), Some(rank)) = (order.token(key), order.rank(key)) else {
+                return Ok(false);
             };
             if previous_rank.is_some_and(|previous| previous >= rank) {
-                return false;
+                return Ok(false);
             }
             previous_rank = Some(rank);
-            actual_tokens.insert(token);
+            actual_tokens.push(token);
         }
-        actual_tokens == expected_tokens
+        actual_tokens.sort_unstable();
+        actual_tokens.dedup();
+        Ok(actual_tokens == expected_tokens)
     }
 
     fn ordered(
         &self,
         actual: &[CheckedNodeId],
-        index: &BTreeMap<&CheckedNodeId, usize>,
+        index: &GraphIndex<'_>,
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
     ) -> bool {
         if structural_keys.is_empty() {
             return actual.windows(2).all(|pair| pair[0] < pair[1]);
         }
+        let Some(order) = self.order.as_ref() else {
+            return false;
+        };
         let rank = |id: &CheckedNodeId| {
-            let pointer = if let Some(key) = self.absent.get(&std::ptr::from_ref(id)) {
-                std::sync::Arc::as_ptr(key)
-            } else {
-                std::ptr::from_ref(super::structural_key(id, index, structural_keys))
-            };
-            self.ranks.get(&pointer)
+            self.keys
+                .key_of(id, index, structural_keys)
+                .and_then(|key| order.rank(key))
         };
         actual
             .windows(2)
@@ -519,9 +606,10 @@ pub(super) fn validate_structural_nodes_with_keys(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<super::CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     models: Option<&[super::model_members::DomainModel]>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
@@ -531,62 +619,72 @@ pub(super) fn validate_structural_nodes_with_keys(
     };
     // Rank once for this graph, including listed IDs absent from its nodes.
     // All later comparisons use shallow tokens and ranks, not deep key walks.
-    let mut dependency_order = DependencyKeyOrder::new(
+    meter.at_node(0, "dependency_order");
+    let dependency_keys = DependencyKeys::new(
         nodes.iter().map(|node| node.dependencies.as_slice()),
         index,
         structural_keys,
-    );
+        meter,
+    )?;
+    let dependency_order = DependencyKeyOrder::new(&dependency_keys, meter)?;
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
         };
-        let refuse = |defect: Defect| {
-            ValidationFailure::refused_at(
+        let node_form = super::graph_storage::node_form(&node.node_tag);
+        let refuse = |meter: &mut WorkMeter, defect: Defect| {
+            structural_refusal(
+                meter,
+                position,
+                node_form,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                defect.pointer(position),
-                None,
-                node_id.clone(),
+                defect,
+                Some(node_id),
             )
         };
+        let malformed = |meter: &mut WorkMeter| {
+            structural_refusal(
+                meter,
+                position,
+                node_form,
+                CheckedPackageRefusalCode::MalformedWire,
+                Defect::Body,
+                None,
+            )
+        };
+        meter.at_node(position, node_form);
         let form = StructuralForm::of(kind);
         let term = terms.get(position).and_then(Option::as_ref);
         let defect = match form {
             Some(StructuralForm::Extension) => {
                 let Some(super::CheckedTerm::ExtensionForm { clauses, .. }) = term else {
-                    return Err(ValidationFailure::refused(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    ));
+                    return Err(malformed(meter));
                 };
                 if clauses.iter().any(|clause| {
                     !matches!(clause, super::CheckedTerm::Binding { value, .. }
                         if matches!(value.as_ref(), super::CheckedTerm::Reference { .. }))
                 }) {
-                    return Err(ValidationFailure::refused(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    ));
+                    return Err(malformed(meter));
                 }
-                let expected = clauses
-                    .iter()
-                    .filter_map(|clause| match clause {
-                        super::CheckedTerm::Binding { value, .. } => match value.as_ref() {
-                            super::CheckedTerm::Reference { target } => Some(target),
-                            _ => None,
-                        },
+                let mut expected: Vec<&CheckedNodeId> = meter.vec(clauses.len())?;
+                expected.extend(clauses.iter().filter_map(|clause| match clause {
+                    super::CheckedTerm::Binding { value, .. } => match value.as_ref() {
+                        super::CheckedTerm::Reference { target } => Some(target),
                         _ => None,
-                    })
-                    .collect::<BTreeSet<_>>();
+                    },
+                    _ => None,
+                }));
                 if node.semantic_type != node.node_id {
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
                 } else if !dependency_order.matches(
                     &node.dependencies,
-                    expected,
+                    &expected,
                     index,
                     structural_keys,
-                ) {
+                    meter,
+                )? {
                     Some(Defect::Dependencies)
                 } else {
                     None
@@ -594,22 +692,25 @@ pub(super) fn validate_structural_nodes_with_keys(
             }
             Some(StructuralForm::Hybrid | StructuralForm::TimedModel) => {
                 let Some(term) = term else {
-                    return Err(ValidationFailure::refused(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    ));
+                    return Err(malformed(meter));
                 };
-                let mut pending = vec![term];
-                let mut targets = BTreeSet::new();
+                let mut pending = meter.vec(1)?;
+                pending.push(term);
+                let mut targets: Vec<&CheckedNodeId> = Vec::new();
                 while let Some(next) = pending.pop() {
                     match next {
                         super::CheckedTerm::Reference { target } => {
-                            targets.insert(target);
+                            meter.push(&mut targets, target)?;
                         }
-                        super::CheckedTerm::Aggregate { members } => pending.extend(members),
-                        super::CheckedTerm::Binding { value, .. } => pending.push(value),
+                        super::CheckedTerm::Aggregate { members } => {
+                            meter.room(&mut pending, members.len())?;
+                            pending.extend(members);
+                        }
+                        super::CheckedTerm::Binding { value, .. } => {
+                            meter.push(&mut pending, value.as_ref())?;
+                        }
                         super::CheckedTerm::Literal { .. } => {}
-                        _ => return Err(refuse(Defect::Body)),
+                        _ => return Err(refuse(meter, Defect::Body)),
                     }
                 }
                 if node.semantic_type != node.node_id {
@@ -618,10 +719,11 @@ pub(super) fn validate_structural_nodes_with_keys(
                     Some(Defect::RecursionGroup)
                 } else if !dependency_order.matches(
                     &node.dependencies,
-                    targets,
+                    &targets,
                     index,
                     structural_keys,
-                ) {
+                    meter,
+                )? {
                     Some(Defect::Dependencies)
                 } else {
                     None
@@ -629,7 +731,7 @@ pub(super) fn validate_structural_nodes_with_keys(
             }
             Some(StructuralForm::Parameter) => parameter_defect(node, term, &graph),
             Some(StructuralForm::CompoundUnit) => {
-                compound_unit_dependencies_defect(node, term, &graph)
+                compound_unit_dependencies_defect(node, term, &graph, meter)?
             }
             Some(StructuralForm::CarriedQuantity) => None,
             Some(StructuralForm::BoundedQuantity) => None,
@@ -638,10 +740,12 @@ pub(super) fn validate_structural_nodes_with_keys(
                 .is_none()
                 .then_some(Defect::Body),
             Some(StructuralForm::StateClause) => {
-                if node
-                    .body
-                    .pointer("/operation/member/execution_point")
-                    .is_some_and(|point| ExecutionPoint::from_wire(point).is_none())
+                if meter
+                    .body(position)
+                    .and_then(|(body, _)| body.get("operation"))
+                    .and_then(|operation| operation.get("member"))
+                    .and_then(|member| member.get("execution_point"))
+                    .is_some_and(|point| !is_closed_execution_point(point))
                 {
                     Some(Defect::ClausePoint)
                 } else {
@@ -654,26 +758,28 @@ pub(super) fn validate_structural_nodes_with_keys(
                 .and_then(typed_transition_body)
                 .is_none()
                 .then_some(Defect::Body),
-            Some(StructuralForm::UnionType) => term
-                .and_then(typed_union_type_body)
-                .is_none()
-                .then_some(Defect::Body),
+            Some(StructuralForm::UnionType) => match term {
+                Some(term) => typed_union_type_body(term, meter)?.is_none(),
+                None => true,
+            }
+            .then_some(Defect::Body),
             Some(StructuralForm::MapType) => {
                 let Some([key, value]) = term.and_then(typed_aggregate) else {
-                    return Err(refuse(Defect::Body));
+                    return Err(refuse(meter, Defect::Body));
                 };
                 let Some(key) = typed_binding(key, "key").and_then(typed_reference) else {
-                    return Err(refuse(Defect::Body));
+                    return Err(refuse(meter, Defect::Body));
                 };
                 let Some(value) = typed_binding(value, "value").and_then(typed_reference) else {
-                    return Err(refuse(Defect::Body));
+                    return Err(refuse(meter, Defect::Body));
                 };
                 (!dependency_order.matches(
                     &node.dependencies,
-                    BTreeSet::from([key, value]),
+                    &[key, value],
                     index,
                     structural_keys,
-                ))
+                    meter,
+                )?)
                 .then_some(Defect::Dependencies)
             }
             Some(StructuralForm::UnionValue) => term
@@ -693,36 +799,48 @@ pub(super) fn validate_structural_nodes_with_keys(
                 .map(Defect::Role)
         });
         if let Some(defect) = defect.or(role) {
-            return Err(refuse(defect));
+            return Err(refuse(meter, defect));
         }
         if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             if let Some(owner_model) = node.owner_model.as_ref() {
                 let ordered = dependency_order.ordered(&node.dependencies, index, structural_keys);
                 if !ordered || !node.dependencies.contains(owner_model) {
-                    return Err(refuse(Defect::Dependencies));
+                    return Err(refuse(meter, Defect::Dependencies));
                 }
-                if let Some(mut expected) = term.and_then(application_dependencies) {
-                    expected.insert(owner_model.clone());
+                if let Some(mut expected) = match term {
+                    Some(_) => application_dependencies_at(position, meter)?,
+                    None => None,
+                } {
+                    meter.insert_id(&mut expected, owner_model)?;
+                    let mut listed: Vec<&CheckedNodeId> = meter.vec(expected.len())?;
+                    listed.extend(expected.iter());
                     if !dependency_order.matches(
                         &node.dependencies,
-                        expected.iter().collect(),
+                        &listed,
                         index,
                         structural_keys,
-                    ) {
-                        return Err(refuse(Defect::Dependencies));
+                        meter,
+                    )? {
+                        return Err(refuse(meter, Defect::Dependencies));
                     }
                 }
             }
             continue;
         }
-        if let Some(expected) = term.and_then(application_dependencies) {
+        if let Some(expected) = match term {
+            Some(_) => application_dependencies_at(position, meter)?,
+            None => None,
+        } {
+            let mut listed: Vec<&CheckedNodeId> = meter.vec(expected.len())?;
+            listed.extend(expected.iter());
             if !dependency_order.matches(
                 &node.dependencies,
-                expected.iter().collect(),
+                &listed,
                 index,
                 structural_keys,
-            ) {
-                return Err(refuse(Defect::Dependencies));
+                meter,
+            )? {
+                return Err(refuse(meter, Defect::Dependencies));
             }
         }
     }
@@ -769,14 +887,16 @@ fn text_bounds_shape(term: Option<&CheckedTerm>, graph: &Graph<'_>) -> bool {
 
 /// FR-038-AC-124/125: validate the closed bodies of the ten derived type
 /// forms independently of their producer-assigned structural node IDs.
+#[ix_trace_rs::string_edge]
 pub(super) fn validate_derived_type_shapes(
     catalog: &super::operation_catalog::OperationCatalog,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     models: &[super::model_members::DomainModel],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = Graph {
         nodes,
@@ -788,6 +908,7 @@ pub(super) fn validate_derived_type_shapes(
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
         };
+        meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
         let term = terms.get(position).and_then(Option::as_ref);
         let valid = match kind {
             CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean | ScalarTypeForm::Integer) => {
@@ -828,7 +949,7 @@ pub(super) fn validate_derived_type_shapes(
                         typed_reference(typed_binding(value, "value")?)?,
                     ))
                 });
-                node.semantic_type == node.node_id
+                let shaped = node.semantic_type == node.node_id
                     && operands.is_some_and(|(key, value)| {
                         matches!(graph.kind(key), Some(CheckedNodeKind::ScalarType(
                             ScalarTypeForm::Boolean | ScalarTypeForm::Integer
@@ -852,20 +973,28 @@ pub(super) fn validate_derived_type_shapes(
                             && !matches!(graph.kind(value), Some(CheckedNodeKind::ScalarType(
                                 ScalarTypeForm::Dimension | ScalarTypeForm::DimensionEquivalence
                             )))
-                            && structural_keys.get(position).is_some_and(|id| {
-                                matches!(id.path.as_slice(),
-                                    [CheckedNodePathSegment::Name(tag),
-                                     CheckedNodePathSegment::Name(form),
-                                     CheckedNodePathSegment::Node(key_id),
-                                     CheckedNodePathSegment::Node(value_id)]
-                                        if tag.as_ref() == "composite_type"
-                                            && form.as_ref() == "map"
-                                            && key_id.as_ref()
-                                                == super::structural_key(key, index, structural_keys)
-                                            && value_id.as_ref()
-                                                == super::structural_key(value, index, structural_keys))
-                            })
-                    })
+                    });
+                // The key's identity holds the key and value nodes it names.
+                // Comparing them is charged: a rebuilt key nests as deep as
+                // its operand chain.
+                match (shaped, operands, structural_keys.get(position)) {
+                    (true, Some((key, value)), Some(id)) => match id.path.as_slice() {
+                        [CheckedNodePathSegment::Name(tag), CheckedNodePathSegment::Name(form), CheckedNodePathSegment::Node(key_id), CheckedNodePathSegment::Node(value_id)]
+                            if tag.as_ref() == "composite_type" && form.as_ref() == "map" =>
+                        {
+                            meter.compare_ids(
+                                key_id,
+                                super::structural_key(key, index, structural_keys),
+                            )? == std::cmp::Ordering::Equal
+                                && meter.compare_ids(
+                                    value_id,
+                                    super::structural_key(value, index, structural_keys),
+                                )? == std::cmp::Ordering::Equal
+                        }
+                        _ => false,
+                    },
+                    _ => false,
+                }
             }
             CheckedNodeKind::BoundedDomain(BoundedDomainForm::TextBounds) => {
                 // A bound's form selects its own base, regardless of its authored identity.
@@ -946,31 +1075,22 @@ pub(super) fn validate_derived_type_shapes(
             CheckedNodeKind::ScalarType(ScalarTypeForm::CompoundUnit) => {
                 node.semantic_type == node.node_id
                     && node.recursion_group.is_none()
-                    && term.and_then(typed_aggregate).is_some_and(|members| {
-                        let mut previous: Option<CheckedNodeId> = None;
-                        for member in members {
-                            let Some(unit) = typed_compound_unit_term(member, &graph) else {
-                                return false;
-                            };
-                            if previous.as_ref().is_some_and(|last| last >= &unit) {
-                                return false;
-                            }
-                            previous = Some(unit);
-                        }
-                        true
-                    })
+                    && match term.and_then(typed_aggregate) {
+                        Some(members) => compound_units_ascend(members, &graph, meter)?,
+                        None => false,
+                    }
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::CarriedQuantity) => {
-                carried_quantity_shape(catalog, node, term, &graph, terms, structural_keys)
+                carried_quantity_shape(catalog, node, term, &graph, terms, structural_keys, meter)?
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity) => {
-                bounded_quantity_shape(node, term, &graph, structural_keys)
+                bounded_quantity_shape(node, term, &graph, structural_keys, meter)?
             }
             _ => continue,
         };
         if !valid {
             let at = if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity) {
-                noncanonical_bounded_endpoint(term)
+                noncanonical_bounded_endpoint(term, meter)?
                     .map(|member| {
                         node_pointer(position)
                             .key("body")
@@ -1025,18 +1145,19 @@ fn carried_quantity_shape(
     graph: &Graph<'_>,
     terms: &[Option<CheckedTerm>],
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
-) -> bool {
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
     let Some([unit_term, carrier_term, rounding_term]) = term
         .and_then(typed_aggregate)
         .and_then(|members| <&[CheckedTerm; 3]>::try_from(members).ok())
     else {
-        return false;
+        return Ok(false);
     };
     let Some(unit) = typed_binding(unit_term, "unit").and_then(typed_reference) else {
-        return false;
+        return Ok(false);
     };
     let Some(carrier) = typed_binding(carrier_term, "carrier").and_then(typed_reference) else {
-        return false;
+        return Ok(false);
     };
     let Some(CheckedTerm::Literal {
         type_id: text_type,
@@ -1044,16 +1165,16 @@ fn carried_quantity_shape(
         value,
     }) = typed_binding(rounding_term, "rounding")
     else {
-        return false;
+        return Ok(false);
     };
     let Some(rounding) = value.as_str() else {
-        return false;
+        return Ok(false);
     };
     let Some(rounding_mode) = CheckedRoundingMode::from_literal(catalog, rounding) else {
-        return false;
+        return Ok(false);
     };
     let Some(carrier_kind) = graph.kind(carrier) else {
-        return false;
+        return Ok(false);
     };
     let carrier_valid = match carrier_kind {
         CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) => true,
@@ -1082,60 +1203,72 @@ fn carried_quantity_shape(
         || !carrier_valid
         || !graph.type_matches(text_type, ScalarTypeForm::Text)
     {
-        return false;
+        return Ok(false);
     }
     let (Some(unit), Some(carrier), Some(text_type), Some(actual)) = (
-        super::node_index::resolve_id(unit, structural_keys),
-        super::node_index::resolve_id(carrier, structural_keys),
-        super::node_index::resolve_id(text_type, structural_keys),
-        super::node_index::resolve_id(&node.node_id, structural_keys),
+        resolve_id_charged(unit, structural_keys, meter)?,
+        resolve_id_charged(carrier, structural_keys, meter)?,
+        resolve_id_charged(text_type, structural_keys, meter)?,
+        resolve_id_charged(&node.node_id, structural_keys, meter)?,
     ) else {
-        return false;
+        return Ok(false);
     };
-    let expected_dependencies = if unit <= carrier {
-        vec![unit.clone(), carrier.clone()]
+    let expected = if meter.compare_ids(&unit, &carrier)? != std::cmp::Ordering::Greater {
+        [&unit, &carrier]
     } else {
-        vec![carrier.clone(), unit.clone()]
+        [&carrier, &unit]
     };
-    let actual_dependencies = node
-        .dependencies
-        .iter()
-        .map(|dependency| super::node_index::resolve_id(dependency, structural_keys))
-        .collect::<Option<Vec<_>>>();
-    if actual_dependencies.as_deref() != Some(expected_dependencies.as_slice()) {
-        return false;
-    }
-    actual.path
-        == vec![
-            CheckedNodePathSegment::Name("scalar_type".into()),
-            CheckedNodePathSegment::Name("carried_quantity".into()),
-            CheckedNodePathSegment::Node(unit.into()),
-            CheckedNodePathSegment::Node(carrier.into()),
-            CheckedNodePathSegment::Name("rounding".into()),
-            CheckedNodePathSegment::Node(text_type.into()),
-            CheckedNodePathSegment::Name(rounding.into()),
-        ]
-}
-
-pub(super) fn canonical_rational(value: &str) -> Option<(BigInt, BigInt)> {
-    let integer = |text: &str| {
-        text.parse::<BigInt>()
-            .ok()
-            .filter(|number| number.to_string() == text)
-    };
-    match value.split_once('/') {
-        None => Some((integer(value)?, BigInt::one())),
-        Some((numerator, denominator)) => {
-            let numerator = integer(numerator)?;
-            let denominator = integer(denominator)?;
-            (denominator > BigInt::one() && numerator.gcd(&denominator).is_one())
-                .then_some((numerator, denominator))
+    // Each listed dependency is resolved and compared in turn, not collected.
+    let mut dependencies = node.dependencies.iter();
+    for expected in expected {
+        let Some(dependency) = dependencies.next() else {
+            return Ok(false);
+        };
+        let Some(listed) = resolve_id_charged(dependency, structural_keys, meter)? else {
+            return Ok(false);
+        };
+        if meter.compare_ids(&listed, expected)? != std::cmp::Ordering::Equal {
+            return Ok(false);
         }
     }
+    if dependencies.next().is_some() {
+        return Ok(false);
+    }
+    let names = |at: usize, name: &str| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Name(found)) if found.as_ref() == name);
+    let named = actual.path.len() == 7
+        && names(0, "scalar_type")
+        && names(1, "carried_quantity")
+        && names(4, "rounding")
+        && names(6, rounding);
+    Ok(named
+        && names_node(&actual, 2, &unit, meter)?
+        && names_node(&actual, 3, &carrier, meter)?
+        && names_node(&actual, 5, &text_type, meter)?)
 }
 
-fn noncanonical_bounded_endpoint(term: Option<&CheckedTerm>) -> Option<usize> {
-    let members = term.and_then(typed_aggregate)?;
+/// Whether the operand at `at` of `actual` is the node `id`, compared through
+/// the meter: both sides are rebuilt keys that may nest deeply.
+fn names_node(
+    actual: &CheckedNodeId,
+    at: usize,
+    id: &CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    match actual.path.get(at) {
+        Some(CheckedNodePathSegment::Node(found)) => {
+            Ok(meter.compare_ids(found, id)? == std::cmp::Ordering::Equal)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn noncanonical_bounded_endpoint(
+    term: Option<&CheckedTerm>,
+    meter: &mut WorkMeter,
+) -> Result<Option<usize>, ValidationFailure> {
+    let Some(members) = term.and_then(typed_aggregate) else {
+        return Ok(None);
+    };
     for (position, name) in [(1, "min"), (2, "max")] {
         let Some(CheckedTerm::Literal { value, .. }) = members
             .get(position)
@@ -1143,11 +1276,15 @@ fn noncanonical_bounded_endpoint(term: Option<&CheckedTerm>) -> Option<usize> {
         else {
             continue;
         };
-        if value.as_str().and_then(canonical_rational).is_none() {
-            return Some(position);
+        let canonical = match value.as_str() {
+            Some(text) => meter.canonical_rational(text)?.is_some(),
+            None => false,
+        };
+        if !canonical {
+            return Ok(Some(position));
         }
     }
-    None
+    Ok(None)
 }
 
 fn rational_bound<'a>(
@@ -1174,28 +1311,32 @@ fn bounded_quantity_shape(
     term: Option<&CheckedTerm>,
     graph: &Graph<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
-) -> bool {
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
     let Some([unit_term, min_term, max_term]) = term
         .and_then(typed_aggregate)
         .and_then(|members| <&[CheckedTerm; 3]>::try_from(members).ok())
     else {
-        return false;
+        return Ok(false);
     };
     let Some(unit) = typed_binding(unit_term, "unit").and_then(typed_reference) else {
-        return false;
+        return Ok(false);
     };
     let (Some((rational_type, min)), Some((max_type, max))) = (
         rational_bound(min_term, "min", graph),
         rational_bound(max_term, "max", graph),
     ) else {
-        return false;
+        return Ok(false);
     };
-    let (Some((min_num, min_den)), Some((max_num, max_den))) =
-        (canonical_rational(min), canonical_rational(max))
-    else {
-        return false;
+    let (Some((min_num, min_den)), Some((max_num, max_den))) = (
+        meter.canonical_rational(min)?,
+        meter.canonical_rational(max)?,
+    ) else {
+        return Ok(false);
     };
-    if min_num * max_den > max_num * min_den
+    let low = meter.exact_mul(&min_num, &max_den)?;
+    let high = meter.exact_mul(&max_num, &min_den)?;
+    if low > high
         || rational_type != max_type
         || node.semantic_type != node.node_id
         || node.declaration.is_some()
@@ -1203,35 +1344,51 @@ fn bounded_quantity_shape(
         || node.recursion_group.is_some()
         || !graph.type_matches(unit, ScalarTypeForm::Unit)
     {
-        return false;
+        return Ok(false);
     }
     let (Some(unit), Some(rational_type), Some(actual)) = (
-        super::node_index::resolve_id(unit, structural_keys),
-        super::node_index::resolve_id(rational_type, structural_keys),
-        super::node_index::resolve_id(&node.node_id, structural_keys),
+        resolve_id_charged(unit, structural_keys, meter)?,
+        resolve_id_charged(rational_type, structural_keys, meter)?,
+        resolve_id_charged(&node.node_id, structural_keys, meter)?,
     ) else {
-        return false;
+        return Ok(false);
     };
-    let mut expected_dependencies = vec![unit.clone(), rational_type.clone()];
-    expected_dependencies.sort();
-    let actual_dependencies = node
-        .dependencies
-        .iter()
-        .map(|dependency| super::node_index::resolve_id(dependency, structural_keys))
-        .collect::<Option<Vec<_>>>();
-    actual_dependencies.as_deref() == Some(expected_dependencies.as_slice())
-        && actual.path
-            == vec![
-                CheckedNodePathSegment::Name("scalar_type".into()),
-                CheckedNodePathSegment::Name("bounded_quantity".into()),
-                CheckedNodePathSegment::Node(unit.into()),
-                CheckedNodePathSegment::Name("min".into()),
-                CheckedNodePathSegment::Node(rational_type.clone().into()),
-                CheckedNodePathSegment::Name(min.into()),
-                CheckedNodePathSegment::Name("max".into()),
-                CheckedNodePathSegment::Node(rational_type.into()),
-                CheckedNodePathSegment::Name(max.into()),
-            ]
+    let (first, second) =
+        if meter.compare_ids(&unit, &rational_type)? != std::cmp::Ordering::Greater {
+            (&unit, &rational_type)
+        } else {
+            (&rational_type, &unit)
+        };
+    let mut dependencies = node.dependencies.iter();
+    let mut listed = true;
+    for expected in [first, second] {
+        let Some(dependency) = dependencies.next() else {
+            listed = false;
+            break;
+        };
+        let Some(held) = resolve_id_charged(dependency, structural_keys, meter)? else {
+            listed = false;
+            break;
+        };
+        if meter.compare_ids(&held, expected)? != std::cmp::Ordering::Equal {
+            listed = false;
+            break;
+        }
+    }
+    listed = listed && dependencies.next().is_none();
+    let names = |at: usize, name: &str| matches!(actual.path.get(at), Some(CheckedNodePathSegment::Name(found)) if found.as_ref() == name);
+    let named = listed
+        && actual.path.len() == 9
+        && names(0, "scalar_type")
+        && names(1, "bounded_quantity")
+        && names(3, "min")
+        && names(5, min)
+        && names(6, "max")
+        && names(8, max);
+    Ok(named
+        && names_node(&actual, 2, &unit, meter)?
+        && names_node(&actual, 4, &rational_type, meter)?
+        && names_node(&actual, 7, &rational_type, meter)?)
 }
 
 /// Join an admitted bounded type's actual members to the selected Semantic IR
@@ -1242,6 +1399,7 @@ pub(super) fn validate_selected_type_bounds(
     models: &[DomainModel],
     terms: &[Option<CheckedTerm>],
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut selected = Vec::new();
     for model in models {
@@ -1251,10 +1409,15 @@ pub(super) fn validate_selected_type_bounds(
                 ValueBounds::Rational(expected, _) => MemberType::RationalRange(*expected),
                 ValueBounds::Text(_) => continue,
             };
-            let Some(id) = member_type.node_id(&model.checked_package) else {
+            let Some(id) = member_type.node_id_in(
+                &model.checked_package,
+                &mut super::model_members::Budget::new(meter, model.root, model.bytes),
+            )?
+            else {
                 continue;
             };
-            selected.push((bounds.clone(), std::sync::Arc::new(id)));
+            meter.reserve(super::budgeted_read::arc_bytes::<CheckedNodeId>())?;
+            meter.push(&mut selected, (bounds, std::sync::Arc::new(id)))?;
         }
     }
     if selected.is_empty() {
@@ -1263,23 +1426,39 @@ pub(super) fn validate_selected_type_bounds(
 
     // Tokens compare one path segment at a time. Comparing every rebuilt key
     // structurally would repeatedly descend a long operand chain.
-    let mut interner = super::node_index::StructuralInterner::new();
-    let graph_tokens = interner
-        .tokens(structural_keys)
-        .expect("reader-rebuilt graph keys contain only resolved operands");
-    let selected_keys = selected
-        .iter()
-        .map(|(_, id)| std::sync::Arc::clone(id))
-        .collect::<Vec<_>>();
-    let selected_tokens = interner
-        .tokens(&selected_keys)
-        .expect("selected member keys contain only resolved operands");
-    let mut index = Vec::new();
-    for (position, token) in graph_tokens.into_iter().enumerate() {
-        if token >= index.len() {
-            index.resize(token + 1, None);
+    let mut selected_keys = meter.vec(selected.len())?;
+    selected_keys.extend(selected.iter().map(|(_, id)| std::sync::Arc::clone(id)));
+    // The order wants every operand of a listed key listed too: the selected
+    // keys' own operands follow them, each allocation once.
+    let mut listed: Vec<*const CheckedNodeId> = Vec::new();
+    let mut pending: Vec<std::sync::Arc<CheckedNodeId>> = Vec::new();
+    for initial in 0..selected.len() {
+        let key = std::sync::Arc::clone(&selected_keys[initial]);
+        meter.push(&mut pending, key)?;
+        while let Some(key) = pending.pop() {
+            if !meter.insert_sorted(&mut listed, std::sync::Arc::as_ptr(&key))? {
+                continue;
+            }
+            for segment in &key.path {
+                if let CheckedNodePathSegment::Node(operand) = segment {
+                    meter.push(&mut pending, std::sync::Arc::clone(operand))?;
+                    meter.push(&mut selected_keys, std::sync::Arc::clone(operand))?;
+                }
+            }
         }
+    }
+    let order = meter
+        .structural_order(&[structural_keys, selected_keys.as_slice()])?
+        .expect("reader-rebuilt keys and selected member keys contain only resolved operands");
+    // A token is at most the number of keys the order was built over.
+    let mut index = meter.filled(structural_keys.len() + selected_keys.len(), None)?;
+    for (position, key) in structural_keys.iter().enumerate() {
+        let token = order.token(key).expect("graph keys are in the order");
         index[token] = Some(position);
+    }
+    let mut selected_tokens = meter.vec(selected.len())?;
+    for key in selected_keys.iter().take(selected.len()) {
+        selected_tokens.push(order.token(key).expect("selected keys are in the order"));
     }
     for ((expected, id), token) in selected.into_iter().zip(selected_tokens) {
         let Some(&Some(position)) = index.get(token) else {
@@ -1300,25 +1479,31 @@ pub(super) fn validate_selected_type_bounds(
                 };
                 match (&expected, members) {
                     (ValueBounds::Integer(_), [minimum, maximum]) => {
-                        Some(vec![bound(minimum, "min")?, bound(maximum, "max")?])
+                        Some(([bound(minimum, "min")?, bound(maximum, "max")?, 0, 0], 2))
                     }
-                    (ValueBounds::Rational(..), [nmin, nmax, dmin, dmax]) => Some(vec![
-                        bound(nmin, "numerator_min")?,
-                        bound(nmax, "numerator_max")?,
-                        bound(dmin, "denominator_min")?,
-                        bound(dmax, "denominator_max")?,
-                    ]),
+                    (ValueBounds::Rational(..), [nmin, nmax, dmin, dmax]) => Some((
+                        [
+                            bound(nmin, "numerator_min")?,
+                            bound(nmax, "numerator_max")?,
+                            bound(dmin, "denominator_min")?,
+                            bound(dmax, "denominator_max")?,
+                        ],
+                        4,
+                    )),
                     _ => None,
                 }
             });
         let expected_values = match expected {
-            ValueBounds::Integer(bounds) => vec![bounds.lower, bounds.upper],
-            ValueBounds::Rational(bounds, _) => vec![
-                bounds.numerator_min,
-                bounds.numerator_max,
-                bounds.denominator_min,
-                bounds.denominator_max,
-            ],
+            ValueBounds::Integer(bounds) => ([bounds.lower, bounds.upper, 0, 0], 2),
+            ValueBounds::Rational(bounds, _) => (
+                [
+                    bounds.numerator_min,
+                    bounds.numerator_max,
+                    bounds.denominator_min,
+                    bounds.denominator_max,
+                ],
+                4,
+            ),
             ValueBounds::Text(_) => continue,
         };
         if actual != Some(expected_values) {
@@ -1423,12 +1608,22 @@ pub(super) fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeI
     }
 }
 
+/// Borrow a reference from the strict reader's authenticated term table.
+/// Its node ID was already checked by the retained-document decoder. Unlike
+/// `typed_reference`, this must not be used for arbitrary caller-built terms.
+pub(super) fn typed_admitted_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
+    match term {
+        super::CheckedTerm::Reference { target } => Some(target),
+        _ => None,
+    }
+}
+
 fn typed_literal<'a>(
     term: &'a super::CheckedTerm,
     value_kind: LiteralKind,
     type_form: ScalarTypeForm,
     type_matches: &impl Fn(&CheckedNodeId, ScalarTypeForm) -> bool,
-) -> Option<&'a Value> {
+) -> Option<&'a super::CheckedJson> {
     match term {
         super::CheckedTerm::Literal {
             type_id,
@@ -1459,7 +1654,7 @@ fn typed_parameter_binding_with<'a>(
         .and_then(|value| {
             typed_literal(value, LiteralKind::Text, ScalarTypeForm::Text, type_matches)
         })
-        .and_then(Value::as_str)
+        .and_then(super::CheckedJson::as_str)
         .filter(|name| is_identifier(name))?;
     let level = typed_binding(level, "level")
         .and_then(|value| {
@@ -1470,7 +1665,7 @@ fn typed_parameter_binding_with<'a>(
                 type_matches,
             )
         })
-        .and_then(Value::as_str)
+        .and_then(super::CheckedJson::as_str)
         .filter(|level| is_non_negative_integer(level))?;
     Some((name, level))
 }
@@ -1481,39 +1676,78 @@ fn compound_unit_dependencies_defect(
     node: &CheckedSemanticNodeV2,
     term: Option<&super::CheckedTerm>,
     graph: &Graph<'_>,
-) -> Option<Defect> {
-    let terms = term.and_then(typed_aggregate)?;
-    let mut units: Vec<CheckedNodeId> = Vec::with_capacity(terms.len());
+    meter: &mut WorkMeter,
+) -> Result<Option<Defect>, ValidationFailure> {
+    let Some(terms) = term.and_then(typed_aggregate) else {
+        return Ok(None);
+    };
+    let mut units: Vec<&CheckedNodeId> = meter.vec(terms.len())?;
     for term in terms {
-        units.push(typed_compound_unit_term(term, graph)?);
+        match typed_compound_unit_term(term, graph, meter)? {
+            Some(unit) => units.push(unit),
+            None => return Ok(None),
+        }
     }
-    if node.dependencies != units {
-        return Some(Defect::Dependencies);
+    let mut same = node.dependencies.len() == units.len();
+    for (listed, unit) in node.dependencies.iter().zip(&units) {
+        if !same {
+            break;
+        }
+        same = meter.compare_ids(listed, unit)?.is_eq();
     }
-    None
+    Ok((!same).then_some(Defect::Dependencies))
 }
 
-fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
-    let [unit, exponent] = typed_aggregate(term)? else {
-        return None;
+/// Whether the members of a compound unit name root units in strictly
+/// ascending order of their IDs.
+fn compound_units_ascend(
+    members: &[super::CheckedTerm],
+    graph: &Graph<'_>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let mut previous: Option<&CheckedNodeId> = None;
+    for member in members {
+        let Some(unit) = typed_compound_unit_term(member, graph, meter)? else {
+            return Ok(false);
+        };
+        if let Some(last) = previous {
+            if !meter.compare_ids(last, unit)?.is_lt() {
+                return Ok(false);
+            }
+        }
+        previous = Some(unit);
+    }
+    Ok(true)
+}
+
+/// The unit a compound-unit member names, when the member is a unit of
+/// exponent other than zero whose dimension has it as the canonical root.
+fn typed_compound_unit_term<'t>(
+    term: &'t super::CheckedTerm,
+    graph: &Graph<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<&'t CheckedNodeId>, ValidationFailure> {
+    let Some([unit, exponent]) = typed_aggregate(term) else {
+        return Ok(None);
     };
-    let unit = typed_binding(unit, "unit").and_then(typed_reference)?;
+    let Some(unit) = typed_binding(unit, "unit").and_then(typed_reference) else {
+        return Ok(None);
+    };
     // A dimension's canonical root has no target. Source units carry that
     // fact in their nominal body; model units carry it in the selected model.
-    let is_root_unit = graph.node(unit).is_some_and(|(node, kind)| {
-        kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
-            && match node.owner.as_ref() {
+    let is_root_unit = match graph.node_at(unit) {
+        Some((position, node, CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))) => {
+            match node.owner.as_ref() {
                 Some(super::CheckedNodeOwner::Source { .. }) => {
-                    super::identity::NominalBody::from_value(&node.body, JsonPointer::root())
-                        .is_ok_and(|body| {
-                            matches!(
-                                body.kind(),
-                                super::identity::NominalBodyKind::Unit {
-                                    target_unit_node_id: None,
-                                    ..
-                                }
-                            )
-                        })
+                    super::identity::nominal_body_if_closed(position, meter)?.is_some_and(|body| {
+                        matches!(
+                            body.kind(),
+                            super::identity::NominalBodyKind::Unit {
+                                target_unit_node_id: None,
+                                ..
+                            }
+                        )
+                    })
                 }
                 Some(super::CheckedNodeOwner::Model {
                     identity,
@@ -1529,7 +1763,9 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
                 }),
                 _ => false,
             }
-    });
+        }
+        _ => false,
+    };
     let exponent_ok = typed_binding(exponent, "exponent")
         .and_then(|value| {
             typed_literal(
@@ -1539,28 +1775,47 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
                 &|id, form| graph.type_matches(id, form),
             )
         })
-        .and_then(Value::as_str)
+        .and_then(super::CheckedJson::as_str)
         .is_some_and(is_nonzero_integer);
-    (is_root_unit && exponent_ok).then(|| unit.clone())
+    Ok((is_root_unit && exponent_ok).then_some(unit))
 }
 
-/// A `state`/`operation_anchor` body (QSpec FR-342).
+/// Whether a state clause's `execution_point` is a closed point: a `kind`
+/// and the one nonempty name its variant carries, and nothing else.
+#[ix_trace_rs::string_edge]
+fn is_closed_execution_point(point: TermNode<'_>) -> bool {
+    let Some(kind) = point.get("kind").and_then(TermNode::as_str) else {
+        return false;
+    };
+    let field = match kind {
+        "initialization" | "handler" => "name",
+        "pre" | "post" => "operation",
+        _ => return false,
+    };
+    point.exact_members(&["kind", field])
+        && point
+            .get(field)
+            .and_then(TermNode::as_str)
+            .is_some_and(|name| !name.is_empty())
+}
+
+/// A `state`/`operation_anchor` body (QSpec FR-342), borrowed from its term.
 pub(super) struct AnchorBody<'a> {
     /// The object type declaring the operation.
-    pub(super) context: CheckedNodeId,
+    pub(super) context: &'a CheckedNodeId,
     /// The operation's name.
     pub(super) operation: &'a str,
     /// The operation's frame node.
-    pub(super) frame: CheckedNodeId,
+    pub(super) frame: &'a CheckedNodeId,
     /// Optional point, retained separately from the three expression terms.
-    pub(super) execution_point: Option<ExecutionPoint>,
+    pub(super) execution_point: Option<&'a ExecutionPoint>,
 }
 
 /// The admitted anchor body, or `None` for any other typed shape.
 pub(super) fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<'_>> {
     let (members, execution_point) = match body {
         CheckedTerm::OperationAnchorBody(anchor) => {
-            (&anchor.members[..], anchor.execution_point.clone())
+            (&anchor.members[..], anchor.execution_point.as_ref())
         }
         _ => (typed_aggregate(body)?, None),
     };
@@ -1577,47 +1832,64 @@ pub(super) fn typed_anchor_body(body: &super::CheckedTerm) -> Option<AnchorBody<
         return None;
     };
     Some(AnchorBody {
-        context: typed_binding(context, "context")
-            .and_then(typed_reference)?
-            .clone(),
+        context: typed_binding(context, "context").and_then(typed_reference)?,
         operation: value.as_str().filter(|name| is_identifier(name))?,
-        frame: typed_binding(frame, "frame")
-            .and_then(typed_reference)?
-            .clone(),
+        frame: typed_binding(frame, "frame").and_then(typed_reference)?,
         execution_point,
     })
 }
 
 /// The catalogued identity of the state clause operation.
-/// A `state`/`state_clause` body (QSpec FR-341).
-pub(super) struct ClauseBody {
+/// A `state`/`state_clause` body (QSpec FR-341), borrowed from its term.
+pub(super) struct ClauseBody<'a> {
     /// The clause kind its `state_clause` member names.
     pub(super) clause: StateClauseKind,
-    /// The parameter aggregate's reference targets, in order.
-    pub(super) parameters: Vec<CheckedNodeId>,
+    /// The parameter aggregate, every member a reference.
+    parameters: &'a [super::CheckedTerm],
     /// The anchor reference's target.
-    pub(super) anchor: CheckedNodeId,
+    pub(super) anchor: &'a CheckedNodeId,
     /// Optional closed point of the clause application member.
-    pub(super) execution_point: Option<ExecutionPoint>,
+    pub(super) execution_point: Option<&'a ExecutionPoint>,
 }
 
-/// The five identity-bearing references of a Boolean state transition.
-pub(super) struct TransitionBody {
-    pub(super) anchor: CheckedNodeId,
-    pub(super) subject: CheckedNodeId,
-    pub(super) inputs: Vec<CheckedNodeId>,
-    pub(super) pre: Option<CheckedNodeId>,
-    pub(super) post: CheckedNodeId,
+impl<'a> ClauseBody<'a> {
+    /// The number of parameters.
+    pub(super) fn parameter_count(&self) -> usize {
+        self.parameters.len()
+    }
+
+    /// The parameter aggregate's reference targets, in order.
+    pub(super) fn parameters(&self) -> impl Iterator<Item = &'a CheckedNodeId> + '_ {
+        self.parameters
+            .iter()
+            .filter_map(|term| typed_reference(term))
+    }
 }
 
-/// Whether a raw term is the catalogued state-transition application.
-pub(super) fn is_state_transition_application(term: &Value) -> bool {
-    matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
-        if operation.get("identity").and_then(Value::as_str).and_then(super::KnownOperation::from_wire) == Some(super::KnownOperation::StateTransition))
+/// The five identity-bearing references of a Boolean state transition,
+/// borrowed from its term.
+pub(super) struct TransitionBody<'a> {
+    pub(super) anchor: &'a CheckedNodeId,
+    pub(super) subject: &'a CheckedNodeId,
+    inputs: &'a [super::CheckedTerm],
+    pub(super) pre: Option<&'a CheckedNodeId>,
+    pub(super) post: &'a CheckedNodeId,
+}
+
+impl<'a> TransitionBody<'a> {
+    /// The number of inputs.
+    pub(super) fn input_count(&self) -> usize {
+        self.inputs.len()
+    }
+
+    /// The input reference targets, in order.
+    pub(super) fn inputs(&self) -> impl Iterator<Item = &'a CheckedNodeId> + '_ {
+        self.inputs.iter().filter_map(|term| typed_reference(term))
+    }
 }
 
 /// Decode the closed transition argument shape without doing its semantic joins.
-pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<TransitionBody> {
+pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<TransitionBody<'_>> {
     let super::CheckedTerm::Application {
         operator: ApplicationOperator::StateTransition,
         operation,
@@ -1627,7 +1899,7 @@ pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<Transit
     else {
         return None;
     };
-    if super::KnownOperation::from_wire(operation.get("identity")?.as_str()?)
+    if super::KnownOperation::from_wire(operation.identity()?)
         != Some(super::KnownOperation::StateTransition)
     {
         return None;
@@ -1635,25 +1907,19 @@ pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<Transit
     let [anchor, subject, inputs, pre, post] = arguments.as_slice() else {
         return None;
     };
-    let anchor = typed_binding(anchor, "anchor")
-        .and_then(typed_reference)?
-        .clone();
-    let subject = typed_binding(subject, "subject")
-        .and_then(typed_reference)?
-        .clone();
-    let inputs = typed_aggregate(typed_binding(inputs, "inputs")?)?
-        .iter()
-        .map(|term| typed_reference(term).cloned())
-        .collect::<Option<Vec<_>>>()?;
+    let anchor = typed_binding(anchor, "anchor").and_then(typed_reference)?;
+    let subject = typed_binding(subject, "subject").and_then(typed_reference)?;
+    let inputs = typed_aggregate(typed_binding(inputs, "inputs")?)?;
+    if !inputs.iter().all(|term| typed_reference(term).is_some()) {
+        return None;
+    }
     let pre = typed_aggregate(typed_binding(pre, "pre")?)?;
     let pre = match pre {
         [] => None,
-        [one] => Some(typed_reference(one)?.clone()),
+        [one] => Some(typed_reference(one)?),
         _ => return None,
     };
-    let post = typed_binding(post, "post")
-        .and_then(typed_reference)?
-        .clone();
+    let post = typed_binding(post, "post").and_then(typed_reference)?;
     Some(TransitionBody {
         anchor,
         subject,
@@ -1663,20 +1929,13 @@ pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<Transit
     })
 }
 
-/// Whether `term` is an application of `quire.op.state.clause`.
-// Reads an application's operation identity.
-pub(super) fn is_state_clause_application(term: &Value) -> bool {
-    matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
-        if operation.get("identity").and_then(Value::as_str).and_then(super::KnownOperation::from_wire) == Some(super::KnownOperation::StateClause))
-}
-
 /// The admitted state clause body, or `None` for any other shape: an
 /// application of `quire.op.state.clause` with operator class
 /// `state_clause`, member exactly `{kind: "state_clause", clause}`, and
 /// arguments an `aggregate` of one or more `reference` terms, a `reference`
 /// and the condition.
 // Decodes a state clause member's kind and clause.
-pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody> {
+pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody<'_>> {
     let super::CheckedTerm::Application {
         operator: ApplicationOperator::StateClause,
         operation,
@@ -1686,53 +1945,56 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody>
     else {
         return None;
     };
-    if super::KnownOperation::from_wire(operation.get("identity")?.as_str()?)
+    if super::KnownOperation::from_wire(operation.identity()?)
         != Some(super::KnownOperation::StateClause)
     {
         return None;
     }
-    let member = operation.get("member")?.as_object()?;
-    if !exact_members(member, &["kind", "clause"]) {
+    let member = operation.member_node()?;
+    if !(member.exact_members(&["kind", "clause"])
+        || member.exact_members(&["kind", "clause", "execution_point"]))
+    {
         return None;
     }
     if member
         .get("kind")
-        .and_then(Value::as_str)
+        .and_then(super::TermNode::as_str)
         .and_then(OperationMemberKind::from_wire)
         != Some(OperationMemberKind::StateClause)
     {
         return None;
     }
-    let execution_point = operation.execution_point().cloned();
+    let execution_point = operation.execution_point();
     let clause = StateClauseKind::from_wire(member.get("clause")?.as_str()?)?;
     let [parameters, anchor, _condition] = arguments.as_slice() else {
         return None;
     };
-    let parameters = typed_aggregate(parameters)?
-        .iter()
-        .map(typed_reference)
-        .collect::<Option<Vec<_>>>()?
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    if parameters.is_empty() {
+    let parameters = typed_aggregate(parameters)?;
+    if parameters.is_empty()
+        || !parameters
+            .iter()
+            .all(|term| typed_reference(term).is_some())
+    {
         return None;
     }
     Some(ClauseBody {
         clause,
         parameters,
-        anchor: typed_reference(anchor)?.clone(),
+        anchor: typed_reference(anchor)?,
         execution_point,
     })
 }
 
-/// A `composite_type`/`reference` type node's target: its body is exactly
-/// `aggregate{[reference(target)]}`.
-pub(super) fn reference_type_target(node: &CheckedSemanticNodeV2) -> Option<CheckedNodeId> {
-    let Some([target]) = aggregate_members(&node.body) else {
+/// A `composite_type`/`reference` type node's target, borrowed from its typed
+/// body: exactly `aggregate{[reference(target)]}`.
+pub(super) fn reference_type_target_ref(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
+    let super::CheckedTerm::Aggregate { members } = term else {
         return None;
     };
-    reference_target(target)
+    let [one] = members.as_slice() else {
+        return None;
+    };
+    typed_reference(one)
 }
 
 pub(super) fn reference_type_target_typed(
@@ -1759,27 +2021,45 @@ pub(super) struct UnionMember<'a> {
 /// named by an identifier and valued by an `aggregate` of `reference` terms
 /// (QSpec's `UnionTypeBody`). A repeated name is not a shape defect here: it
 /// is the operation step's `duplicate-member`.
-pub(super) fn typed_union_type_body(body: &super::CheckedTerm) -> Option<Vec<UnionMember<'_>>> {
-    let members = typed_aggregate(body)?
-        .iter()
-        .map(|member| {
-            let super::CheckedTerm::Binding { name, value } = member else {
-                return None;
-            };
-            if !is_identifier(name) {
-                return None;
-            }
-            let payload = typed_aggregate(value)?
-                .iter()
-                .map(typed_reference)
-                .collect::<Option<Vec<_>>>()?
-                .into_iter()
-                .cloned()
-                .collect();
-            Some(UnionMember { name, payload })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    (!members.is_empty()).then_some(members)
+pub(super) fn typed_union_type_body<'a>(
+    body: &'a super::CheckedTerm,
+    meter: &mut WorkMeter,
+) -> Result<Option<Vec<UnionMember<'a>>>, ValidationFailure> {
+    let Some(members) = typed_aggregate(body).filter(|members| !members.is_empty()) else {
+        return Ok(None);
+    };
+    // Establish the closed shape without allocating partial output.
+    for member in members {
+        let super::CheckedTerm::Binding { name, value } = member else {
+            return Ok(None);
+        };
+        if !is_identifier(name) {
+            return Ok(None);
+        }
+        let Some(payload) = typed_aggregate(value) else {
+            return Ok(None);
+        };
+        if payload
+            .iter()
+            .any(|term| typed_admitted_reference(term).is_none())
+        {
+            return Ok(None);
+        }
+    }
+    let mut output = meter.vec(members.len())?;
+    for member in members {
+        let super::CheckedTerm::Binding { name, value } = member else {
+            unreachable!("shape checked above")
+        };
+        let entries = typed_aggregate(value).expect("shape checked above");
+        let mut payload = meter.vec(entries.len())?;
+        for entry in entries {
+            let id = typed_admitted_reference(entry).expect("shape checked above");
+            payload.push(meter.clone_id(id)?);
+        }
+        output.push(UnionMember { name, payload });
+    }
+    Ok(Some(output))
 }
 
 /// The active member and payload terms a `value`/`union_value` body holds, or
@@ -1806,17 +2086,32 @@ pub(super) fn typed_union_value_body(
 /// `population` of a reaches or navigate application. A member `declaration` or
 /// `population` that is not a node key is skipped here: the operation stage
 /// owns that refusal and its path.
+#[cfg(test)]
 pub(super) fn application_dependencies(
     body: &super::CheckedTerm,
-) -> Option<BTreeSet<CheckedNodeId>> {
+    meter: &mut WorkMeter,
+) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+    let mut join = Vec::new();
+    Ok(collect_application_dependencies(body, &mut join, meter)?.then_some(join))
+}
+
+/// Adds the join of [`application_dependencies`] to the sorted `join` and
+/// says whether `body` holds an application. Every table is charged before
+/// it is made; an ID read out of an operation member is charged as soon as it
+/// is parsed (the parse itself is the document-value bridge).
+pub(super) fn collect_application_dependencies(
+    body: &super::CheckedTerm,
+    join: &mut Vec<CheckedNodeId>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
     use super::CheckedTerm;
     let mut contains_application = false;
-    let mut join = BTreeSet::new();
-    let mut pending = vec![body];
+    let mut pending: Vec<&super::CheckedTerm> = meter.vec(1)?;
+    pending.push(body);
     while let Some(term) = pending.pop() {
         match term {
             CheckedTerm::Reference { target } => {
-                join.insert(target.clone());
+                meter.insert_id(join, target)?;
             }
             CheckedTerm::Application {
                 operation,
@@ -1824,25 +2119,115 @@ pub(super) fn application_dependencies(
                 ..
             } => {
                 contains_application = true;
+                meter.room(&mut pending, arguments.len())?;
+                pending.extend(arguments);
+                let member_id = |key: &str| operation.member_key(key);
+                if let Some(id) = member_id("declaration") {
+                    meter.insert_id(join, id)?;
+                }
+                if operation.member_kind() == Some(OperationMemberKind::Fairness) {
+                    let ids = &operation.record().member_ids;
+                    for id in [
+                        ids.target_declaration.as_ref(),
+                        ids.target_node.as_ref(),
+                        ids.target_parallel.as_ref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        meter.insert_id(join, id)?;
+                    }
+                }
+                // Only a relationship application names a population.
+                let relationship = operation.identity().is_some_and(|identity| {
+                    matches!(
+                        super::KnownOperation::from_wire(identity),
+                        Some(
+                            super::KnownOperation::ModelReaches
+                                | super::KnownOperation::ModelNavigate
+                        )
+                    )
+                });
+                if relationship {
+                    if let Some(id) = member_id("population") {
+                        meter.insert_id(join, id)?;
+                    }
+                }
+            }
+            CheckedTerm::Aggregate { members } => {
+                meter.room(&mut pending, members.len())?;
+                pending.extend(members);
+            }
+            CheckedTerm::OperationAnchorBody(body) => {
+                meter.room(&mut pending, body.members.len())?;
+                pending.extend(&body.members);
+            }
+            CheckedTerm::Binding { value, .. } => meter.push(&mut pending, value.as_ref())?,
+            // These bodies do not contribute local application dependencies.
+            CheckedTerm::Literal { .. }
+            | CheckedTerm::DependencyReference { .. }
+            | CheckedTerm::Frame { .. }
+            | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
+            | CheckedTerm::Refinement { .. }
+            | CheckedTerm::ExtensionForm { .. }
+            | CheckedTerm::NominalBody(_) => {}
+        }
+    }
+    Ok(contains_application)
+}
+
+/// [`application_dependencies`] for the body of graph node `position`, read
+/// from the retained document: every ID is charged by the node view before
+/// it is allocated, with the node's operand slots read through its row.
+pub(super) fn application_dependencies_at(
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+    let Some((body, row)) = meter.body(position) else {
+        return Ok(None);
+    };
+    let mut join = Vec::new();
+    let mut pending: Vec<TermNode<'_>> = meter.vec(1)?;
+    pending.push(body);
+    let mut contains_application = false;
+    while let Some(term) = pending.pop() {
+        match term.view() {
+            Some(TermView::Reference { target }) => {
+                if let Some(id) = meter.read_id(target, row)?.valid() {
+                    meter.insert_owned_id(&mut join, id)?;
+                }
+            }
+            Some(TermView::Application {
+                operation,
+                arguments,
+                ..
+            }) => {
+                contains_application = true;
+                meter.room(&mut pending, arguments.len())?;
                 pending.extend(arguments);
                 let member = operation.get("member");
-                let member_id = |key: &str| {
-                    member
-                        .and_then(|member| member.get(key))
-                        .and_then(CheckedNodeId::from_value)
-                };
-                join.extend(member_id("declaration"));
-                if member.and_then(|m| m.get("kind")).and_then(Value::as_str) == Some("fairness") {
-                    if let Some(target) = member.and_then(|m| m.get("target")) {
+                if let Some(id) = member_id(member, "declaration", row, meter)? {
+                    meter.insert_owned_id(&mut join, id)?;
+                }
+                if member
+                    .and_then(|member| member.get("kind"))
+                    .and_then(TermNode::as_str)
+                    == Some("fairness")
+                {
+                    if let Some(target) = member.and_then(|member| member.get("target")) {
                         for field in ["declaration", "node", "parallel"] {
-                            join.extend(target.get(field).and_then(CheckedNodeId::from_value));
+                            if let Some(id) = member_id(Some(target), field, row, meter)? {
+                                meter.insert_owned_id(&mut join, id)?;
+                            }
                         }
                     }
                 }
                 // Only a relationship application names a population.
                 let relationship = operation
                     .get("identity")
-                    .and_then(Value::as_str)
+                    .and_then(TermNode::as_str)
                     .is_some_and(|identity| {
                         matches!(
                             super::KnownOperation::from_wire(identity),
@@ -1853,45 +2238,32 @@ pub(super) fn application_dependencies(
                         )
                     });
                 if relationship {
-                    join.extend(member_id("population"));
+                    if let Some(id) = member_id(member, "population", row, meter)? {
+                        meter.insert_owned_id(&mut join, id)?;
+                    }
                 }
             }
-            CheckedTerm::Aggregate { members } => pending.extend(members),
-            CheckedTerm::OperationAnchorBody(body) => pending.extend(&body.members),
-            CheckedTerm::Binding { value, .. } => pending.push(value),
-            // These bodies do not contribute local application dependencies.
-            CheckedTerm::Literal { .. }
-            | CheckedTerm::DependencyReference { .. }
-            | CheckedTerm::Frame { .. }
-            | CheckedTerm::AbstractionRelation { .. }
-            | CheckedTerm::Refinement { .. }
-            | CheckedTerm::ExtensionForm { .. }
-            | CheckedTerm::NominalBody(_) => {}
+            Some(TermView::Aggregate { members }) => {
+                meter.room(&mut pending, members.len())?;
+                pending.extend(members);
+            }
+            Some(TermView::Binding { value, .. }) => meter.push(&mut pending, value)?,
+            Some(TermView::Literal { .. }) | None => {}
         }
     }
-    contains_application.then_some(join)
+    Ok(contains_application.then_some(join))
 }
 
-/// An `aggregate` term's members.
-pub(super) fn aggregate_members(term: &Value) -> Option<&[Value]> {
-    match CheckedTerm::view(term)? {
-        CheckedTermView::Aggregate { members } => Some(members),
-        _ => None,
-    }
-}
-
-/// A `reference` term's target.
-pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
-    let target = reference_selector(term)?;
-    target.is_well_formed().then_some(target)
-}
-
-/// A typed draft `reference` target before its provisional selector is replaced.
-/// The reader retains the exact structural target through [`reference_target`].
-pub(super) fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
-    match CheckedTerm::view(term)? {
-        CheckedTermView::Reference { target } => CheckedNodeId::from_value(target),
-        _ => None,
+/// The valid node ID in member `key` of `holder`, charged by the node view.
+fn member_id(
+    holder: Option<TermNode<'_>>,
+    key: &str,
+    row: &[CheckedOperandEntry],
+    meter: &mut WorkMeter,
+) -> Result<Option<CheckedNodeId>, ValidationFailure> {
+    match holder.and_then(|holder| holder.get(key)) {
+        Some(value) => Ok(meter.read_id(value, row)?.valid()),
+        None => Ok(None),
     }
 }
 
@@ -1927,7 +2299,182 @@ mod tests {
     use super::*;
     use crate::checked_package::shared::checked_node_comparisons;
     use ix_trace_rs::trace;
-    use serde_json::json;
+    use serde_json::{json, Value};
+    use std::collections::BTreeSet;
+
+    #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+    #[test]
+    fn structural_defects_prepay_their_exact_payload_and_preserve_loci() {
+        use crate::checked_package::v2::budgeted_read::{
+            CheckedPackagePendingOutcome, PackageReadResource,
+        };
+        use crate::{NativeJoinBudget, NativeJoinLocusSource, PackageReadStage};
+        let id: CheckedNodeId = serde_json::from_value(super::super::test_support::id('a'))
+            .expect("the original fixture node identity");
+        for (defect, expected) in [
+            (
+                Defect::SemanticType,
+                "/semantic_graph/nodes/3/semantic_type",
+            ),
+            (Defect::Dependencies, "/semantic_graph/nodes/3/dependencies"),
+            (
+                Defect::RecursionGroup,
+                "/semantic_graph/nodes/3/recursion_group",
+            ),
+            (Defect::Occurrences, "/semantic_graph/nodes/3/occurrences"),
+            (Defect::Body, "/semantic_graph/nodes/3/body"),
+            (
+                Defect::ClausePoint,
+                "/semantic_graph/nodes/3/body/operation/member/execution_point",
+            ),
+            (
+                Defect::Role(12),
+                "/semantic_graph/nodes/3/occurrences/12/role",
+            ),
+        ] {
+            let observe = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let requested = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut budget);
+                    result = Some(structural_refusal(
+                        &mut meter,
+                        3,
+                        "expression",
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        defect,
+                        Some(&id),
+                    ));
+                })
+                .bytes_total;
+                (
+                    result.expect("structural diagnostic ran"),
+                    budget,
+                    requested,
+                )
+            };
+            let (ample, budget, requested) = observe(u64::MAX);
+            assert_eq!(
+                requested,
+                budget.read_storage_consumed(),
+                "{defect:?}: entire diagnostic prepaid"
+            );
+            let ValidationFailure::Refused(refusal) = &ample else {
+                panic!("{defect:?}: semantic refusal: {ample:?}");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::InvalidSemanticGraph
+            );
+            assert_eq!(refusal.cause, None);
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+                Some(expected)
+            );
+            assert_eq!(refusal.locus.as_ref(), Some(&id));
+            let (exact, exact_budget, exact_requested) = observe(requested);
+            assert_eq!(exact, ample);
+            assert_eq!(exact_requested, requested);
+            assert_eq!(exact_budget.read_storage_consumed(), requested);
+            let (short, mut short_budget, short_requested) = observe(requested - 1);
+            let (repeat, repeat_budget, repeat_requested) = observe(requested - 1);
+            assert_eq!(short, repeat);
+            assert_eq!(short_budget, repeat_budget);
+            assert_eq!(short_requested, repeat_requested);
+            assert_eq!(short_requested, short_budget.read_storage_consumed());
+            let ValidationFailure::Budget(stop) = short else {
+                panic!("{defect:?}: denied diagnostic: {short:?}");
+            };
+            assert_eq!(stop.resource, PackageReadResource::ReadStorage);
+            assert!(
+                stop.path.is_none(),
+                "the unpaid diagnostic builds no pointer"
+            );
+            let locus = short_budget.first_unpaid_locus().expect("diagnostic locus");
+            assert_eq!(
+                (locus.source, locus.form),
+                (
+                    NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 3),
+                    "diagnostic"
+                )
+            );
+            assert_eq!(
+                short_budget.take_pending(),
+                Some(CheckedPackagePendingOutcome::Refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph
+                ))
+            );
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn union_member_projection_prepays_exact_tables_and_ids() {
+        let id = super::super::test_support::id('a');
+        let body = super::super::CheckedTerm::decode_admitted(&json!({
+            "term":"aggregate", "members":[
+                {"term":"binding","name":"One","value":{"term":"aggregate","members":[
+                    {"term":"reference","target":id}
+                ]}},
+                {"term":"binding","name":"Empty","value":{"term":"aggregate","members":[]}}
+            ]
+        }))
+        .expect("closed union body");
+        let mut body = body;
+        let mut target = CheckedNodeId {
+            package: "deep-union".into(),
+            path: vec![CheckedNodePathSegment::Name("base".into())],
+            ordinal: 0,
+        };
+        for _ in 0..512 {
+            target = CheckedNodeId {
+                package: "deep-union".into(),
+                path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(target))],
+                ordinal: 0,
+            };
+        }
+        assert!(target.is_well_formed());
+        let super::super::CheckedTerm::Aggregate { members } = &mut body else {
+            unreachable!()
+        };
+        let super::super::CheckedTerm::Binding { value, .. } = &mut members[0] else {
+            unreachable!()
+        };
+        let super::super::CheckedTerm::Aggregate { members } = value.as_mut() else {
+            unreachable!()
+        };
+        members[0] = super::super::CheckedTerm::Reference { target };
+        let run = |limit| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(3, "union");
+                result = Some(typed_union_type_body(&body, &mut meter));
+            });
+            (
+                result.expect("ran"),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (result, allocated, charged) = run(u64::MAX);
+        assert_eq!(allocated, charged);
+        let members = result.expect("ample").expect("closed union");
+        assert_eq!(
+            members.iter().map(|member| member.name).collect::<Vec<_>>(),
+            ["One", "Empty"]
+        );
+        assert_eq!(members[0].payload.len(), 1);
+        assert!(members[1].payload.is_empty());
+        let (exact, allocated, consumed) = run(charged);
+        assert_eq!(allocated, consumed);
+        assert!(exact.expect("exact").is_some());
+        let (short, allocated, consumed) = run(charged - 1);
+        assert_eq!(allocated, consumed);
+        assert!(short.is_err());
+    }
 
     #[trace("TC-048", "FR-038-AC-380")]
     #[test]
@@ -1975,17 +2522,40 @@ mod tests {
         };
         let mut actual = wire.clone();
         actual.push(absent.clone());
-        let expected = wire.iter().chain(std::iter::once(&absent)).collect();
+        let expected: Vec<&CheckedNodeId> = wire.iter().chain(std::iter::once(&absent)).collect();
         checked_node_comparisons::reset();
-        let mut order =
-            DependencyKeyOrder::new(std::iter::once(actual.as_slice()), &index, &structural);
-        assert!(order.matches(&actual, expected, &index, &structural,));
+        let mut meter = WorkMeter::new(u64::MAX);
+        let keys = DependencyKeys::new(
+            std::iter::once(actual.as_slice()),
+            &index,
+            &structural,
+            &mut meter,
+        )
+        .expect("keys build");
+        let order = DependencyKeyOrder::new(&keys, &mut meter).expect("order builds");
+        assert_eq!(
+            order
+                .matches(&actual, &expected, &index, &structural, &mut meter)
+                .ok(),
+            Some(true)
+        );
         assert!(
             checked_node_comparisons::count() < 64 * LENGTH as u64,
             "one missing target must not compare the shared chain repeatedly: {}",
             checked_node_comparisons::count()
         );
-        assert!(!order.matches(&actual, wire.iter().collect(), &index, &structural,));
+        assert_eq!(
+            order
+                .matches(
+                    &actual,
+                    &wire.iter().collect::<Vec<_>>(),
+                    &index,
+                    &structural,
+                    &mut meter
+                )
+                .ok(),
+            Some(false)
+        );
         let wrong = CheckedNodeId {
             package: "structural-test".into(),
             path: vec![
@@ -1994,12 +2564,21 @@ mod tests {
             ],
             ordinal: 0,
         };
-        assert!(!order.matches(
-            &actual,
-            wire.iter().chain(std::iter::once(&wrong)).collect(),
-            &index,
-            &structural,
-        ));
+        assert_eq!(
+            order
+                .matches(
+                    &actual,
+                    &wire
+                        .iter()
+                        .chain(std::iter::once(&wrong))
+                        .collect::<Vec<_>>(),
+                    &index,
+                    &structural,
+                    &mut meter,
+                )
+                .ok(),
+            Some(false)
+        );
     }
 
     #[trace("TC-048", "FR-038-AC-22")]
@@ -2019,6 +2598,13 @@ mod tests {
 
     fn id(fill: char) -> Value {
         json!({"package": "structural-test", "path": [fill.to_string()], "ordinal": 0})
+    }
+
+    fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
+        match CheckedTerm::decode_admitted(term).ok()? {
+            CheckedTerm::Reference { target } => Some(target),
+            _ => None,
+        }
     }
 
     #[trace("TC-048", "FR-038-AC-22")]
@@ -2054,30 +2640,157 @@ mod tests {
             ],
         });
         let term = super::super::CheckedTerm::decode_admitted(&body).expect("closed application");
-        let join = application_dependencies(&term).expect("the body holds an application");
-        let expected: BTreeSet<CheckedNodeId> = ['a', 'b', 'c']
+        let mut meter = WorkMeter::new(u64::MAX);
+        let join = application_dependencies(&term, &mut meter)
+            .ok()
+            .flatten()
+            .expect("the body holds an application");
+        let expected: Vec<CheckedNodeId> = ['a', 'b', 'c']
             .into_iter()
             .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .collect();
         assert_eq!(join, expected);
+        // The join's blocks are requested before they are made: the measured
+        // requirement admits and one byte below is denied.
+        let measure = |limit: u64| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            let joined = application_dependencies(&term, &mut meter);
+            (joined.ok(), budget.read_storage_consumed())
+        };
+        let (found, spent) = measure(u64::MAX);
+        assert_eq!(found, Some(Some(expected.clone())));
+        assert!(spent > 0);
+        assert_eq!(measure(spent).0, found, "the measured limit admits");
+        assert_eq!(measure(spent - 1).0, None, "one byte short is denied");
         assert_eq!(
             application_dependencies(
                 &super::super::CheckedTerm::decode_admitted(
                     &json!({"term": "reference", "target": id('a')}),
                 )
                 .expect("closed reference"),
-            ),
-            None
+                &mut meter,
+            )
+            .ok(),
+            Some(None)
         );
         // An unparseable member declaration is left to the operation stage.
         let mut malformed = body.clone();
         malformed["operation"]["member"]["declaration"] = json!("not a node key");
-        let expected: BTreeSet<CheckedNodeId> = ['a', 'b']
+        let expected: Vec<CheckedNodeId> = ['a', 'b']
             .into_iter()
             .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .collect();
         let malformed =
             super::super::CheckedTerm::decode_admitted(&malformed).expect("closed application");
-        assert_eq!(application_dependencies(&malformed), Some(expected));
+        assert_eq!(
+            application_dependencies(&malformed, &mut meter).ok(),
+            Some(Some(expected))
+        );
+    }
+
+    /// The join of a node body, read from the retained document, is the join
+    /// the typed term gives on the same body with its operand slots resolved,
+    /// and is charged to the byte: the allocator is asked for what the
+    /// budget is charged, the measured limit admits and one byte below is
+    /// denied (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn application_join_reads_the_document_and_allocates_what_it_charges() {
+        let slot = |k: u64, fill: char| json!({"package": "structural-test", "path": [fill.to_string(), {"operand": k}], "ordinal": 0});
+        let node = |index: u64, fill: char| json!({"package": "structural-test", "path": [fill.to_string(), {"node": index}], "ordinal": 0});
+        let body = |slotted: bool| {
+            let at = |k: u64, fill: char| {
+                if slotted {
+                    slot(k, fill)
+                } else {
+                    node(10 + k, fill)
+                }
+            };
+            json!({
+                "term": "application",
+                "operator": "query",
+                "operation": {"identity": "quire.op.model.reaches", "laws": [], "mode": null,
+                    "member": {"kind": "field", "declaration": at(0, 'c'), "name": "f",
+                        "population": id('p')}, "leaves": []},
+                "result_type": id('d'),
+                "arguments": [
+                    {"term": "reference", "target": at(1, 'b')},
+                    {"term": "aggregate", "members": [
+                        {"term": "binding", "name": "x", "value": {"term": "reference", "target": id('a')}},
+                        {"term": "reference", "target": at(1, 'b')},
+                    ]},
+                ],
+            })
+        };
+        let slotted = body(true);
+        let resolved = body(false);
+        let table = super::super::graph_storage::OwnedBodies::of_values(
+            std::slice::from_ref(&slotted),
+            vec![vec![
+                crate::CheckedOperandEntry::Node(10),
+                crate::CheckedOperandEntry::Node(11),
+            ]],
+        );
+        let typed =
+            super::super::CheckedTerm::decode_admitted(&resolved).expect("closed application");
+        let expected = application_dependencies(&typed, &mut WorkMeter::new(u64::MAX))
+            .ok()
+            .flatten()
+            .expect("the body holds an application");
+        let run = |limit: u64| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut joined = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                table.attach(&mut meter);
+                meter.at_node(0, "scalar_type");
+                joined = Some(application_dependencies_at(0, &mut meter));
+            });
+            (
+                joined.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (found, allocated, charged) = run(u64::MAX);
+        assert_eq!(found, Some(Some(expected)));
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, found, "the measured limit admits");
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
+
+    /// A state clause's execution point is closed for the node view exactly
+    /// when the typed decoder admits it.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn closed_execution_point_agrees_with_the_decoder() {
+        for point in [
+            json!({"kind": "initialization", "name": "boot"}),
+            json!({"kind": "handler", "name": ""}),
+            json!({"kind": "pre", "operation": "run"}),
+            json!({"kind": "post", "operation": "run", "name": "x"}),
+            json!({"kind": "pre", "name": "run"}),
+            json!({"kind": "after", "operation": "run"}),
+            json!({"kind": 3, "operation": "run"}),
+            json!({"operation": "run"}),
+            json!({"kind": "post", "operation": 4}),
+            json!([]),
+            json!("pre"),
+        ] {
+            let handle = super::super::CheckedJson::from_serializable(&point).expect("canonical");
+            assert_eq!(
+                is_closed_execution_point(TermNode::of(&handle)),
+                ExecutionPoint::from_wire(&point).is_some(),
+                "{point}"
+            );
+        }
     }
 }

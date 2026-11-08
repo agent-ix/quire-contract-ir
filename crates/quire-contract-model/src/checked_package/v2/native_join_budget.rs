@@ -130,9 +130,55 @@ pub struct NativeJoinBudget {
     exact_diagnostics: bool,
     active_locus: Option<NativeJoinLocus>,
     denied_locus: Option<NativeJoinLocus>,
+    /// Whether the diagnostic of the read's first denial was paid for before
+    /// it was built: `Some(true)` when admitted, `Some(false)` when denied.
+    prepaid_diagnostic: Option<bool>,
+    /// The outcome whose owned diagnostic the read's first denial is.
+    pending_outcome: Option<super::CheckedPackagePendingOutcome>,
+    /// The refusal or `incomplete` outcome whose diagnostic a stage has paid.
+    paid_outcome: Option<super::CheckedPackagePendingOutcome>,
 }
 
 impl NativeJoinBudget {
+    /// Exact test-only capture of every caller-budget field, without a
+    /// production Clone contract or reconstructed accounting state.
+    #[cfg(feature = "test-support")]
+    pub fn read_proof_snapshot(&self) -> Self {
+        Self {
+            work_limit: self.work_limit,
+            storage_limit: self.storage_limit,
+            consumed: self.consumed,
+            last_success_delta: self.last_success_delta,
+            first_unpaid: self.first_unpaid,
+            read_storage_limit: self.read_storage_limit,
+            read_storage_consumed: self.read_storage_consumed,
+            last_read_storage_delta: self.last_read_storage_delta,
+            first_unpaid_read_storage: self.first_unpaid_read_storage,
+            unlimited: self.unlimited,
+            exact_diagnostics: self.exact_diagnostics,
+            active_locus: self.active_locus,
+            denied_locus: self.denied_locus,
+            prepaid_diagnostic: self.prepaid_diagnostic,
+            pending_outcome: self.pending_outcome,
+            paid_outcome: self.paid_outcome,
+        }
+    }
+
+    /// Replays the captured caller state under explicitly selected work and
+    /// read-storage ceilings. Every other field is retained unchanged.
+    #[cfg(feature = "test-support")]
+    pub fn read_proof_rebound(
+        mut self,
+        work_limit: u64,
+        read_storage_limit: u64,
+        unlimited: bool,
+    ) -> Self {
+        self.work_limit = work_limit;
+        self.read_storage_limit = read_storage_limit;
+        self.unlimited = unlimited;
+        self
+    }
+
     /// Construct a caller-owned finite allowance.
     pub fn new(work_limit: u64, storage_limit: u64) -> Self {
         Self {
@@ -149,6 +195,9 @@ impl NativeJoinBudget {
             exact_diagnostics: false,
             active_locus: None,
             denied_locus: None,
+            prepaid_diagnostic: None,
+            pending_outcome: None,
+            paid_outcome: None,
         }
     }
 
@@ -306,6 +355,9 @@ impl NativeJoinBudget {
         self.first_unpaid = None;
         self.first_unpaid_read_storage = None;
         self.denied_locus = None;
+        self.prepaid_diagnostic = None;
+        self.pending_outcome = None;
+        self.paid_outcome = None;
         self.consumed
     }
 
@@ -338,6 +390,22 @@ impl NativeJoinBudget {
     /// active locus. A denial records the first unpaid read-storage charge
     /// once and increments no counter.
     pub(super) fn charge_read_storage(&mut self, bytes: u128) -> bool {
+        #[cfg(feature = "test-support")]
+        let before = self.read_storage_consumed;
+        let admitted = self.charge_read_storage_inner(bytes);
+        #[cfg(feature = "test-support")]
+        super::native_budget_observer::emit(super::NativeBudgetEvent {
+            resource: super::NativeBudgetResource::ReadStorage,
+            amount: bytes,
+            consumed_before: before,
+            admitted,
+            locus: self.active_locus,
+            allocation_class: None,
+        });
+        admitted
+    }
+
+    fn charge_read_storage_inner(&mut self, bytes: u128) -> bool {
         if self.unlimited {
             let add = u64::try_from(bytes).unwrap_or(u64::MAX);
             self.read_storage_consumed = self.read_storage_consumed.saturating_add(add);
@@ -357,6 +425,46 @@ impl NativeJoinBudget {
         }
     }
 
+    /// Pays, before it is built, for the pointer diagnostic of the first
+    /// denial just recorded, at that denial's locus with form `"diagnostic"`.
+    /// The outcome's own charge then finds it paid.
+    pub(super) fn prepay_diagnostic(&mut self, bytes: u128) -> bool {
+        let previous = self.active_locus;
+        self.active_locus = self.denied_locus.map(|locus| NativeJoinLocus {
+            source: locus.source,
+            form: "diagnostic",
+        });
+        let admitted = self.charge_read_storage(bytes);
+        self.active_locus = previous;
+        self.prepaid_diagnostic = Some(admitted);
+        admitted
+    }
+
+    /// The prepayment of the first denial's diagnostic, taken once.
+    pub(super) fn take_prepaid_diagnostic(&mut self) -> Option<bool> {
+        self.prepaid_diagnostic.take()
+    }
+
+    /// Records the outcome whose diagnostic could not be paid for.
+    pub(super) fn set_pending(&mut self, pending: Option<super::CheckedPackagePendingOutcome>) {
+        self.pending_outcome = pending;
+    }
+
+    /// Records the outcome whose owned diagnostic a stage has paid for.
+    pub(super) fn set_paid(&mut self, paid: super::CheckedPackagePendingOutcome) {
+        self.paid_outcome = Some(paid);
+    }
+
+    /// The outcome recorded by [`Self::set_paid`], taken once.
+    pub(super) fn take_paid(&mut self) -> Option<super::CheckedPackagePendingOutcome> {
+        self.paid_outcome.take()
+    }
+
+    /// The outcome recorded by [`Self::set_pending`], taken once.
+    pub(super) fn take_pending(&mut self) -> Option<super::CheckedPackagePendingOutcome> {
+        self.pending_outcome.take()
+    }
+
     /// The first unpaid charge of the current read, either resource, with the
     /// original amount.
     pub(super) fn first_unpaid_resource(&self) -> Option<(super::PackageReadResource, u128)> {
@@ -368,6 +476,28 @@ impl NativeJoinBudget {
     }
 
     pub(super) fn charge(&mut self, kind: NativeJoinChargeKind, amount: u128) -> bool {
+        #[cfg(feature = "test-support")]
+        let before = match kind {
+            NativeJoinChargeKind::Work => self.consumed.work,
+            NativeJoinChargeKind::Storage => self.consumed.storage,
+        };
+        let admitted = self.charge_inner(kind, amount);
+        #[cfg(feature = "test-support")]
+        super::native_budget_observer::emit(super::NativeBudgetEvent {
+            resource: match kind {
+                NativeJoinChargeKind::Work => super::NativeBudgetResource::Work,
+                NativeJoinChargeKind::Storage => super::NativeBudgetResource::LogicalStorage,
+            },
+            amount,
+            consumed_before: before,
+            admitted,
+            locus: self.active_locus,
+            allocation_class: None,
+        });
+        admitted
+    }
+
+    fn charge_inner(&mut self, kind: NativeJoinChargeKind, amount: u128) -> bool {
         let (consumed, limit) = match kind {
             NativeJoinChargeKind::Work => (&mut self.consumed.work, self.work_limit),
             NativeJoinChargeKind::Storage => (&mut self.consumed.storage, self.storage_limit),
@@ -572,5 +702,62 @@ mod tests {
             budget.first_unpaid().unwrap().kind,
             NativeJoinChargeKind::Work
         );
+    }
+}
+
+#[cfg(all(test, feature = "test-support"))]
+mod proof_snapshot_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    #[test]
+    #[trace("TC-472", "FR-038-AC-511")]
+    fn proof_snapshot_and_rebound_retain_all_prior_caller_state() {
+        let mut original = NativeJoinBudget::new(13, 17).with_read_storage_limit(23);
+        original.consumed = NativeJoinCharge {
+            work: 3,
+            storage: 5,
+        };
+        original.last_success_delta = Some(NativeJoinCharge {
+            work: 1,
+            storage: 2,
+        });
+        original.first_unpaid = Some(NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Work,
+            amount: 29,
+        });
+        original.read_storage_consumed = 7;
+        original.last_read_storage_delta = Some(4);
+        original.first_unpaid_read_storage = Some(31);
+        original.unlimited = true;
+        original.exact_diagnostics = true;
+        original.active_locus = Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 11),
+            form: "active",
+        });
+        original.denied_locus = Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Lock, 19),
+            form: "denied",
+        });
+        original.prepaid_diagnostic = Some(false);
+        original.pending_outcome = Some(super::super::CheckedPackagePendingOutcome::Incomplete(
+            super::super::CheckedPackageLimit::Work,
+        ));
+        original.paid_outcome = Some(super::super::CheckedPackagePendingOutcome::Refused(
+            super::super::CheckedPackageRefusalCode::MalformedWire,
+        ));
+        assert_eq!(original.read_proof_snapshot(), original);
+        let mut expected = original.read_proof_snapshot();
+        expected.work_limit = 37;
+        expected.read_storage_limit = 41;
+        expected.unlimited = false;
+        assert_eq!(
+            original
+                .read_proof_snapshot()
+                .read_proof_rebound(37, 41, false),
+            expected
+        );
+        assert!(original.unlimited);
+        assert_eq!(original.work_limit, 13);
+        assert_eq!(original.read_storage_limit, 23);
     }
 }

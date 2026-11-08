@@ -637,7 +637,7 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
 }
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -742,7 +742,7 @@ fn read_with_selected_model(
     document: &Value,
 ) -> CheckedPackageV2ReadResult {
     let evidence = evidence_with_document(package, identity, document);
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -1501,7 +1501,7 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
 
     let mut missing = CheckedPackageEvidence::new();
     missing.support_feature(crate::support::checked_package::COMPLETE_VALUE_FEATURE);
-    let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Refused(refusal) = crate::read_and_account(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &missing,
@@ -1536,6 +1536,145 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
     );
 }
 
+pub(super) struct PopulationReferenceFixture {
+    pub package: Value,
+    pub document: Value,
+    pub population: Value,
+    pub operation: String,
+}
+
+/// The actual published population-case construction, shared with the
+/// allocation registry; the conformance test retains its original oracles.
+pub(super) fn population_reference_fixture(
+    case: &Value,
+    cases: &Value,
+    mut package: Value,
+    mut document: Value,
+) -> PopulationReferenceFixture {
+    let id = case["id"].as_str().expect("case id");
+    document["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind": {"module": "acme/orders", "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
+        }));
+    document["populations"] = cases["selected_document_populations"].clone();
+    match case["document_populations"].as_str() {
+        Some("node-only") => {
+            document["populations"] = Value::Array(
+                cases["selected_document_populations"]
+                    .as_array()
+                    .expect("QSpec selected populations")
+                    .iter()
+                    .map(|entry| json!({"node": entry["identity"]}))
+                    .collect(),
+            );
+        }
+        Some("with-node-member") => {
+            document["populations"][0]["node"] = document["populations"][0]["identity"].clone();
+        }
+        Some("without-identity") => {
+            document["populations"][0]
+                .as_object_mut()
+                .expect("QSpec population")
+                .remove("identity");
+        }
+        None => {}
+        Some(other) => panic!("unknown QSpec population document variant: {other}"),
+    }
+    let owner = case["owner_node"]
+        .as_str()
+        .map(|node| json!({"kind":"model","identity":"acme/orders","node":node}));
+    let population = if let Some(owner) = &owner {
+        json!({
+            "package": owner["identity"],
+            "path": ["relation", "population", owner["node"]],
+            "ordinal": 0,
+        })
+    } else {
+        let mut id = node_id(&format!("relation/population/{id}"));
+        id["package"] = package["name"].clone();
+        id
+    };
+    let mut population_node = json!({
+        "node_id":population,"schema_version":"quire.checked-semantic-graph/v2",
+        "node_tag":"relation","semantic_form":"population",
+        "semantic_type":population,"dependencies":[],
+        "occurrences":[{"role":"generated","ordinal":0}],
+        "body":{"term":"aggregate","members":[]}
+    });
+    if let Some(owner) = owner {
+        population_node["owner"] = owner;
+    }
+    // The published package holds the wire; the edits below add nodes by
+    // index segment and the harness writes the rows back.
+    resolve_operands(&mut package);
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(population_node);
+    let operation = format!(
+        "quire.op.{}",
+        case["operation"].as_str().expect("operation")
+    );
+    let application = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|node| node["body"]["operation"]["identity"] == operation)
+        .unwrap_or_else(|| panic!("{id}: published operation {operation}"));
+    if case["member_declaration"] == true {
+        application["body"]["operation"]["member"]["declaration"] = population.clone();
+    } else if case["member_population"] == true {
+        application["body"]["operation"]["member"]["population"] = population.clone();
+    } else {
+        retarget_qspec_application_argument(&mut package, &operation, &population);
+    }
+    if let Some(also) = case["also"].as_str() {
+        let also = format!("quire.op.{also}");
+        retarget_qspec_application_argument(&mut package, &also, &population);
+    }
+    settle(&mut package);
+    // Model-owned population IDs gain their package during projection.
+    // Order dependencies by those final structural IDs.
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("graph nodes")
+        .clone();
+    for node in package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("graph nodes")
+    {
+        node["dependencies"]
+            .as_array_mut()
+            .expect("node dependencies")
+            .sort_by_cached_key(|dependency| resolved_fixture_id(dependency, &nodes));
+    }
+    refresh_identity(&mut package);
+    let source = package["lock"]["sources"][0].clone();
+    package["source_map"] = Value::Array(
+        package["semantic_graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(position, node)| {
+                json!({"node_id":node["node_id"],
+                "role":node["occurrences"][0]["role"],
+                "ordinal":node["occurrences"][0]["ordinal"],
+                "regions":[{"source":source,"start":position,"end":position+1}]})
+            })
+            .collect(),
+    );
+    PopulationReferenceFixture {
+        package,
+        document,
+        population,
+        operation,
+    }
+}
+
 #[trace(
     "TC-229",
     "FR-038-AC-304",
@@ -1568,122 +1707,16 @@ fn tc_229_qspec_population_reference_cases_match_reader() {
             assert_eq!(id, "parameter-operand-admitted");
             continue;
         }
-        let mut package = read("fixtures/positive-operation-identities.json");
-        let mut document = read("domain-package-acme-orders.json");
-        document["constructs"]
-            .as_array_mut()
-            .expect("constructs")
-            .push(json!({
-                "kind": {"module": "acme/orders", "name": "population"},
-                "construct": {"meaning": "quire.meaning.model.population/v1"},
-            }));
-        document["populations"] = cases["selected_document_populations"].clone();
-        match case["document_populations"].as_str() {
-            Some("node-only") => {
-                document["populations"] = Value::Array(
-                    cases["selected_document_populations"]
-                        .as_array()
-                        .expect("QSpec selected populations")
-                        .iter()
-                        .map(|entry| json!({"node": entry["identity"]}))
-                        .collect(),
-                );
-            }
-            Some("with-node-member") => {
-                document["populations"][0]["node"] = document["populations"][0]["identity"].clone();
-            }
-            Some("without-identity") => {
-                document["populations"][0]
-                    .as_object_mut()
-                    .expect("QSpec population")
-                    .remove("identity");
-            }
-            None => {}
-            Some(other) => panic!("unknown QSpec population document variant: {other}"),
-        }
-        let owner = case["owner_node"]
-            .as_str()
-            .map(|node| json!({"kind":"model","identity":"acme/orders","node":node}));
-        let population = if let Some(owner) = &owner {
-            json!({
-                "package": owner["identity"],
-                "path": ["relation", "population", owner["node"]],
-                "ordinal": 0,
-            })
-        } else {
-            let mut id = node_id(&format!("relation/population/{id}"));
-            id["package"] = package["name"].clone();
-            id
-        };
-        let mut population_node = json!({
-            "node_id":population,"schema_version":"quire.checked-semantic-graph/v2",
-            "node_tag":"relation","semantic_form":"population",
-            "semantic_type":population,"dependencies":[],
-            "occurrences":[{"role":"generated","ordinal":0}],
-            "body":{"term":"aggregate","members":[]}
-        });
-        if let Some(owner) = owner {
-            population_node["owner"] = owner;
-        }
-        // The published package holds the wire; the edits below add nodes by
-        // index segment and the harness writes the rows back.
-        resolve_operands(&mut package);
-        package["semantic_graph"]["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .push(population_node);
-        let operation = format!(
-            "quire.op.{}",
-            case["operation"].as_str().expect("operation")
-        );
-        let application = package["semantic_graph"]["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|node| node["body"]["operation"]["identity"] == operation)
-            .unwrap_or_else(|| panic!("{id}: published operation {operation}"));
-        if case["member_declaration"] == true {
-            application["body"]["operation"]["member"]["declaration"] = population.clone();
-        } else if case["member_population"] == true {
-            application["body"]["operation"]["member"]["population"] = population.clone();
-        } else {
-            retarget_qspec_application_argument(&mut package, &operation, &population);
-        }
-        if let Some(also) = case["also"].as_str() {
-            let also = format!("quire.op.{also}");
-            retarget_qspec_application_argument(&mut package, &also, &population);
-        }
-        settle(&mut package);
-        // Model-owned population IDs gain their package during projection.
-        // Order dependencies by those final structural IDs.
-        let nodes = package["semantic_graph"]["nodes"]
-            .as_array()
-            .expect("graph nodes")
-            .clone();
-        for node in package["semantic_graph"]["nodes"]
-            .as_array_mut()
-            .expect("graph nodes")
-        {
-            node["dependencies"]
-                .as_array_mut()
-                .expect("node dependencies")
-                .sort_by_cached_key(|dependency| resolved_fixture_id(dependency, &nodes));
-        }
-        refresh_identity(&mut package);
-        let source = package["lock"]["sources"][0].clone();
-        package["source_map"] = Value::Array(
-            package["semantic_graph"]["nodes"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .enumerate()
-                .map(|(position, node)| {
-                    json!({"node_id":node["node_id"],
-                    "role":node["occurrences"][0]["role"],
-                    "ordinal":node["occurrences"][0]["ordinal"],
-                    "regions":[{"source":source,"start":position,"end":position+1}]})
-                })
-                .collect(),
+        let PopulationReferenceFixture {
+            package,
+            document,
+            population,
+            operation,
+        } = population_reference_fixture(
+            case,
+            &cases,
+            read("fixtures/positive-operation-identities.json"),
+            read("domain-package-acme-orders.json"),
         );
         match read_with_selected_model(&package, "acme/orders", &document) {
             CheckedPackageV2ReadResult::Admitted(_) if case["outcome"] == "admitted" => {
@@ -2313,7 +2346,7 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
     for work in 0..4096 {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
-        let outcome = CheckedPackageV2::read(&bytes, limits, &evidence);
+        let outcome = crate::read_and_account(&bytes, limits, &evidence);
         let CheckedPackageV2ReadResult::Incomplete(incomplete) = outcome else {
             continue;
         };
@@ -2324,7 +2357,7 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
         {
             assert_eq!(incomplete.consumed, work + 1);
             limits.work = work + 1;
-            let next = CheckedPackageV2::read(&bytes, limits, &evidence);
+            let next = crate::read_and_account(&bytes, limits, &evidence);
             // The next visit is independent of the selected-document lookup.
             assert!(
                 !matches!(next, CheckedPackageV2ReadResult::Incomplete(ref later)
@@ -2563,7 +2596,7 @@ fn native_source_family_fixture_with_authority(
         || evidence_for(&wire),
         |document| evidence_with_document(&wire, "acme/orders", document),
     );
-    let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(package) = crate::read_and_account(
         &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &evidence,

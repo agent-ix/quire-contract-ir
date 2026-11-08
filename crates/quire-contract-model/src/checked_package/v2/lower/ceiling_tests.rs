@@ -32,18 +32,13 @@ fn complete_node() -> CompleteContractNodeV2 {
 
 fn retain_graph_indices(package: &mut CheckedPackageV2) {
     package.node_index = super::super::retained_node_index(&package.wire).into();
-    let ids = package
-        .wire
-        .semantic_graph
-        .nodes
-        .iter()
-        .map(|node| &node.node_id)
-        .collect::<Vec<_>>();
+    let nodes = &package.wire.semantic_graph.nodes;
     package.structural_keys = super::super::node_index::rebuild_keys(
-        &ids,
-        None,
+        nodes.len(),
+        |position| &nodes[position].node_id,
         |_, _| unreachable!("fixture graph has only valid node IDs"),
         |_| unreachable!("fixture graph has only valid node IDs"),
+        &mut super::super::native_join_budget::NativeJoinBudget::unlimited(),
     )
     .expect("fixture structural keys");
 }
@@ -70,19 +65,29 @@ fn tc_048_complete_node_measures_exact_canonical_bytes_without_an_identity() {
 #[trace("TC-048", "FR-038-AC-95")]
 #[test]
 fn tc_048_non_byte_encoder_failure_reports_one_above_the_limit() {
-    let mut node = complete_node();
-    node.node.body = super::super::CheckedTerm::Literal {
-        type_id: node.semantic_type.clone(),
-        value_kind: super::super::LiteralKind::Integer,
-        value: json!(9_007_199_254_740_993_i64),
-    };
-    let ceiling = 1 << 20;
-    assert!(matches!(
-        quire_canonical::to_vec(&node, Limits::new(ceiling)),
-        Err(error) if !matches!(error, Error::Limit(_))
-    ));
-    assert_eq!(measure_node(&node, ceiling), Err(ceiling + 1));
-    assert_eq!(measure_node(&node, u64::MAX), Err(u64::MAX));
+    struct RefusingWriter;
+
+    impl std::io::Write for RefusingWriter {
+        fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let node = complete_node();
+    for ceiling in [1 << 20, u64::MAX] {
+        let mut sink = quire_canonical::WriteSink(RefusingWriter);
+        let error = quire_canonical::encode(&mut sink, &node, Limits::new(ceiling))
+            .expect_err("the complete node encounters the failing writer");
+        assert!(matches!(
+            &error,
+            Error::Sink(error) if error.kind() == std::io::ErrorKind::BrokenPipe
+        ));
+        assert_eq!(required_bytes(&error, ceiling), ceiling.saturating_add(1));
+    }
 }
 
 fn package(bytes: u64) -> CheckedPackageV2 {
@@ -142,15 +147,15 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
         lowering_facts: Vec::new(),
         wire: std::sync::Arc::new(wire),
-        terms: std::sync::Arc::new(Vec::new()),
         kinds: std::sync::Arc::new(kinds),
         bytes,
         models: std::sync::Arc::new(Default::default()),
         selected_documents: std::sync::Arc::new(Vec::new()),
         direct_dependencies: Vec::new(),
         closure_index: Default::default(),
-        catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+        catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
         admission_binding: Default::default(),
+        body_documents: Vec::new(),
     }
     .retain_original_admission();
     retain_graph_indices(&mut package);

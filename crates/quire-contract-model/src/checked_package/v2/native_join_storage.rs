@@ -50,7 +50,8 @@ pub(super) fn node(value: &CheckedNodeId) -> u128 {
                     CheckedNodePathSegment::Name(name) => text(name),
                     CheckedNodePathSegment::Node(_)
                     | CheckedNodePathSegment::Index(_)
-                    | CheckedNodePathSegment::Operand(_) => 1,
+                    | CheckedNodePathSegment::Operand(_)
+                    | CheckedNodePathSegment::Dependency { .. } => 1,
                 },
             )
         })
@@ -549,7 +550,10 @@ mod map_copy_tests {
                     .unwrap();
             // Integer's clone uses its fallible owned-copy representation, leaving
             // a cold lazy image even when interval construction compared endpoints.
-            let cold = ValueType::map(MapType::new(ValueType::Int(endpoints.clone()), None));
+            let cold = ValueType::map(
+                MapType::new(ValueType::String, ValueType::Int(endpoints.clone()), None)
+                    .expect("a string map key is a leaf"),
+            );
             let ValueType::Map(map) = &cold else {
                 panic!("map")
             };

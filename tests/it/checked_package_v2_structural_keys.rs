@@ -13,8 +13,8 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedFieldReadForm, CheckedMemberType, CheckedNodeId, CheckedOperationMember,
     CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2,
-    CheckedPackageV2ReadResult, CheckedTerm, ContractBodyRefusalV1, ContractFeatureRecordV1,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageV2ReadResult, CheckedTerm,
+    ContractBodyRefusalV1, ContractFeatureRecordV1,
 };
 use serde_json::{json, Value};
 
@@ -35,7 +35,7 @@ fn local_package() -> Value {
 }
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -45,7 +45,7 @@ fn read(package: &Value) -> CheckedPackageV2ReadResult {
 fn read_with_work(package: &Value, work: u64) -> CheckedPackageV2ReadResult {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
-    CheckedPackageV2::read(&canonical(package), limits, &evidence_for(package))
+    crate::read_and_account(&canonical(package), limits, &evidence_for(package))
 }
 
 fn minimum_work(package: &Value) -> u64 {
@@ -84,7 +84,7 @@ fn chain_work_result(
         diagnostics: 1 << 20,
         work,
     };
-    CheckedPackageV2::read(bytes, limits, evidence)
+    crate::read_and_account(bytes, limits, evidence)
 }
 
 fn minimum_chain_work(length: usize, evidence: &CheckedPackageEvidence, base_nodes: usize) -> u64 {
@@ -634,7 +634,7 @@ fn selected_model_field_range_joins_exact_body_members() {
         let mut wire = package.clone();
         index_fixture_node_ids(&mut wire);
         let evidence = evidence_with_document(&wire, identity, &document);
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence,
@@ -670,7 +670,7 @@ fn selected_model_field_range_joins_exact_body_members() {
         let mut altered = wire.clone();
         altered["semantic_graph"]["nodes"][range]["body"]["members"][1]["value"]["value"] =
             json!("1");
-        let refusal = CheckedPackageV2::read(
+        let refusal = crate::read_and_account(
             &canonical(&altered),
             CheckedPackageReadLimits::bounded(),
             &evidence_with_document(&altered, identity, &document),

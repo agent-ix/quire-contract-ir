@@ -36,8 +36,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
 #[path = "protocol_ports.rs"]
-mod protocol_ports;
-pub use protocol_ports::role_port_fixture;
+pub mod protocol_ports;
 
 pub fn retention_definition() -> CheckedExtensionDefinition {
     CheckedExtensionDefinition {
@@ -189,7 +188,7 @@ pub fn all_families_read_work() -> u64 {
         let mid = lo + (hi - lo) / 2;
         let mut limits = bounded;
         limits.work = mid;
-        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+        match super::fixture_read(&bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Admitted(_) => hi = mid,
             _ => lo = mid,
         }
@@ -309,6 +308,13 @@ fn is_id_object(object: &serde_json::Map<String, Value>) -> bool {
         && object.contains_key("ordinal")
 }
 
+/// Whether `member` is a `{package, node}` position in a dependency's graph.
+fn is_dependency_position(member: &serde_json::Map<String, Value>) -> bool {
+    member.len() == 2
+        && member.get("package").is_some_and(Value::is_string)
+        && member.get("node").is_some_and(Value::is_u64)
+}
+
 /// Applies `rewrite` to every operand segment of every node id under `value`,
 /// in the order of the value's canonical serialization. The `node` of a foreign
 /// `{package, node}` key names a dependency's graph and is left alone.
@@ -330,8 +336,9 @@ fn for_each_segment(value: &mut Value, rewrite: &mut impl FnMut(&mut Value)) {
                 if let Some(Value::Array(path)) = object.get_mut("path") {
                     for segment in path {
                         let is_operand = segment.as_object().is_some_and(|member| {
-                            member.len() == 1
-                                && (member.contains_key("node") || member.contains_key("operand"))
+                            (member.len() == 1
+                                && (member.contains_key("node") || member.contains_key("operand")))
+                                || is_dependency_position(member)
                         });
                         if is_operand {
                             rewrite(segment);
@@ -367,16 +374,20 @@ pub fn wire_operands(package: &mut Value) {
         .as_array_mut()
         .expect("semantic graph nodes")
     {
-        let mut row: Vec<u64> = Vec::new();
+        let mut row: Vec<Value> = Vec::new();
         for_each_segment(node, &mut |segment| {
-            let Some(index) = segment.get("node").and_then(Value::as_u64) else {
-                return;
+            // A local index is a bare integer entry; a dependency position
+            // is its `{package, node}` object.
+            let entry = match (segment.get("package"), segment.get("node")) {
+                (None, Some(index)) if index.is_u64() => index.clone(),
+                (Some(_), Some(_)) => segment.clone(),
+                _ => return,
             };
             let slot = row
                 .iter()
-                .position(|entry| *entry == index)
+                .position(|held| *held == entry)
                 .unwrap_or_else(|| {
-                    row.push(index);
+                    row.push(entry);
                     row.len() - 1
                 });
             *segment = json!({"operand": slot});
@@ -386,14 +397,24 @@ pub fn wire_operands(package: &mut Value) {
     package["semantic_graph"]["operand_rows"] = Value::Array(rows);
 }
 
+/// The resolved-form segment a row entry names: an index segment for a local
+/// entry, the entry itself for a dependency position.
+fn row_entry_segment(entry: &Value) -> Value {
+    if entry.is_object() {
+        entry.clone()
+    } else {
+        json!({"node": entry})
+    }
+}
+
 /// Resolves one published node held beside its operand row: each operand slot
 /// becomes the index segment the row names.
 pub fn resolve_node_row(node: &mut Value, row: &Value) {
-    let row: Vec<u64> = serde_json::from_value(row.clone()).expect("operand row");
+    let row: Vec<Value> = serde_json::from_value(row.clone()).expect("operand row");
     for_each_segment(node, &mut |segment| {
         if let Some(slot) = segment.get("operand").and_then(Value::as_u64) {
             let slot = usize::try_from(slot).expect("slot fits usize");
-            *segment = json!({"node": row[slot]});
+            *segment = row_entry_segment(&row[slot]);
         }
     });
 }
@@ -458,7 +479,7 @@ pub fn resolve_operands(package: &mut Value) {
     else {
         return;
     };
-    let rows: Vec<Vec<u64>> = serde_json::from_value(rows).expect("operand rows");
+    let rows: Vec<Vec<Value>> = serde_json::from_value(rows).expect("operand rows");
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("semantic graph nodes");
@@ -466,7 +487,7 @@ pub fn resolve_operands(package: &mut Value) {
         for_each_segment(node, &mut |segment| {
             if let Some(slot) = segment.get("operand").and_then(Value::as_u64) {
                 let slot = usize::try_from(slot).expect("slot fits usize");
-                *segment = json!({"node": row[slot]});
+                *segment = row_entry_segment(&row[slot]);
             }
         });
     }
@@ -554,9 +575,10 @@ pub fn index_fixture_node_ids(package: &mut Value) {
             for segment in path {
                 if segment.is_object() {
                     if segment.as_object().is_some_and(|object| {
-                        object.len() == 1
+                        (object.len() == 1
                             && (object.get("node").and_then(Value::as_u64).is_some()
-                                || object.get("operand").and_then(Value::as_u64).is_some())
+                                || object.get("operand").and_then(Value::as_u64).is_some()))
+                            || is_dependency_position(object)
                     }) {
                         continue;
                     }
@@ -724,7 +746,7 @@ pub fn evidence_with_document(
 
 /// Reads `package` with only its own evidence.
 fn read_admitting(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    super::fixture_read(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -750,7 +772,7 @@ pub fn read_with_dependencies(
             .insert_dependency_package(*identity, (*dependency).clone())
             .expect("dependency evidence declarations agree on admitted content");
     }
-    CheckedPackageV2::read(
+    super::fixture_read(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
