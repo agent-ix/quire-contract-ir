@@ -18,7 +18,7 @@ use super::budgeted_read::denial;
 use super::checked_json::CheckedJson;
 use super::document_de::DecodeContext;
 use super::native_join_budget::NativeJoinBudget;
-use super::read_charge::{self, Site};
+use super::read_charge::{Denied, ReadStorage, Site};
 use super::typed_terms::TermConversionCause;
 use super::{
     ApplicationOperator, BodyTerm, CheckedNodeId, CheckedNodePathSegment, CheckedTerm, LiteralKind,
@@ -28,6 +28,36 @@ use quire_canonical::{Document, Items, Members, Node, NodeRef};
 use serde::Deserialize;
 use serde_json::error::Category;
 use std::sync::Arc;
+
+/// What a value read as a node ID turned out to be.
+#[derive(Debug, Eq, PartialEq)]
+pub(in crate::checked_package) enum NodeIdRead {
+    /// A valid node ID.
+    Id(CheckedNodeId),
+    /// The shape of a node ID whose package or path is empty or whose ordinal
+    /// exceeds 2^53 - 1, with the ID it spells.
+    Invalid(CheckedNodeId),
+    /// Not the shape of a node ID.
+    Malformed,
+}
+
+impl NodeIdRead {
+    /// The valid ID, if there is one.
+    pub(in crate::checked_package) fn valid(self) -> Option<CheckedNodeId> {
+        match self {
+            Self::Id(id) => Some(id),
+            Self::Invalid(_) | Self::Malformed => None,
+        }
+    }
+
+    /// The ID the value spells, valid or not.
+    pub(in crate::checked_package) fn spelled(self) -> Option<CheckedNodeId> {
+        match self {
+            Self::Id(id) | Self::Invalid(id) => Some(id),
+            Self::Malformed => None,
+        }
+    }
+}
 
 /// One value of the package document, read as a term.
 #[derive(Clone, Copy)]
@@ -236,32 +266,30 @@ impl<'d> TermNode<'d> {
         }
     }
 
-    /// The node ID this value holds as a V2 wire ID, or `None` when it is not
-    /// one: an object of exactly a `package` string, a `path` of names and
-    /// `{"node": i}` / `{"operand": k}` segments no larger than 2^53 - 1, and an
-    /// `ordinal`. With `well_formed`, the package and path are also nonempty
-    /// and the ordinal no larger than 2^53 - 1. The ID's package, path and
-    /// names are charged at `site` before each is allocated.
-    pub(in crate::checked_package) fn node_id(
+    /// Reads this value as a V2 wire node ID: an object of exactly a
+    /// `package` string, a `path` of names and `{"node": i}` /
+    /// `{"operand": k}` segments no larger than 2^53 - 1, and an `ordinal`.
+    /// A value of another shape is [`NodeIdRead::Malformed`]; one of that shape
+    /// whose package or path is empty or whose ordinal is above 2^53 - 1 is
+    /// [`NodeIdRead::Invalid`], carrying the ID it spells. The ID's package,
+    /// path and names are charged to `sink` at `site` before each is
+    /// allocated.
+    pub(in crate::checked_package) fn node_id<S: ReadStorage + ?Sized>(
         self,
-        budget: &mut NativeJoinBudget,
+        sink: &mut S,
         site: Site,
-        well_formed: bool,
-    ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
+    ) -> Result<NodeIdRead, Denied> {
         const MAXIMUM: u64 = 9_007_199_254_740_991;
         if !self.exact_members(&["package", "path", "ordinal"]) {
-            return Ok(None);
+            return Ok(NodeIdRead::Malformed);
         }
         let (Some(package), Some(path), Some(ordinal)) = (
             self.get("package").and_then(TermNode::as_str),
             self.array_member("path"),
             self.get("ordinal").and_then(TermNode::as_u64),
         ) else {
-            return Ok(None);
+            return Ok(NodeIdRead::Malformed);
         };
-        if well_formed && (package.is_empty() || path.len() == 0 || ordinal > MAXIMUM) {
-            return Ok(None);
-        }
         // Check every segment before the first allocation.
         for segment in path.clone() {
             let valid = match segment.segment_form() {
@@ -270,26 +298,39 @@ impl<'d> TermNode<'d> {
                 None => false,
             };
             if !valid {
-                return Ok(None);
+                return Ok(NodeIdRead::Malformed);
             }
         }
-        let package = read_charge::boxed_str(budget, site, package)?;
-        let mut segments = read_charge::with_capacity(budget, site, path.len())?;
+        let valid = !package.is_empty() && path.len() != 0 && ordinal <= MAXIMUM;
+        sink.reserve(package.len() as u128, site)?;
+        let package: Box<str> = package.into();
+        sink.reserve(
+            (path.len() as u128)
+                .saturating_mul(std::mem::size_of::<CheckedNodePathSegment>() as u128),
+            site,
+        )?;
+        let mut segments = Vec::with_capacity(path.len());
         for segment in path {
             segments.push(match segment.segment_form() {
                 Some(SegmentForm::Name(name)) => {
-                    CheckedNodePathSegment::Name(read_charge::boxed_str(budget, site, name)?)
+                    sink.reserve(name.len() as u128, site)?;
+                    CheckedNodePathSegment::Name(name.into())
                 }
                 Some(SegmentForm::Node(index)) => CheckedNodePathSegment::Index(index),
                 Some(SegmentForm::Operand(slot)) => CheckedNodePathSegment::Operand(slot),
-                None => return Ok(None),
+                None => return Ok(NodeIdRead::Malformed),
             });
         }
-        Ok(Some(CheckedNodeId {
+        let id = CheckedNodeId {
             package,
             path: segments,
             ordinal,
-        }))
+        };
+        Ok(if valid {
+            NodeIdRead::Id(id)
+        } else {
+            NodeIdRead::Invalid(id)
+        })
     }
 
     /// Decodes this term, which the reader's flat and closed-shape checks
@@ -663,49 +704,75 @@ mod tests {
     }
 
     /// A node ID is read from the document as the `Value` parse reads it, in
-    /// both its strict and lenient forms, and its allocations are charged.
+    /// its valid and spelled forms, its shape and bounds failures are told
+    /// apart, and its allocations are charged to the byte.
     ///
     /// Trace: TC-472, FR-038-AC-499.
     #[test]
     fn node_ids_parse_like_the_value_parse_and_are_charged() {
         use crate::checked_package::v2::native_join_budget::{NativeJoinBudget, PackageReadStage};
         use crate::checked_package::v2::read_charge::{node_id_from_value, Site};
+        use crate::checked_package::v2::term_view::NodeIdRead;
         let site = Site::new(PackageReadStage::WireChecks, 0, "owner_schema");
-        let ids = [
-            json!({"package": "p", "path": ["a", {"node": 1}, {"operand": 2}], "ordinal": 4}),
-            json!({"package": "", "path": ["a"], "ordinal": 0}),
-            json!({"package": "p", "path": [], "ordinal": 0}),
-            json!({"package": "p", "path": ["a"], "ordinal": 9007199254740992u64}),
-            json!({"package": "p", "path": [{"node": 9007199254740992u64}], "ordinal": 0}),
-            json!({"package": "p", "path": [{"node": 1, "operand": 2}], "ordinal": 0}),
-            json!({"package": "p", "path": ["a"]}),
-            json!({"package": "p", "path": ["a"], "ordinal": 0, "extra": 1}),
-            json!("text"),
+        let cases = [
+            (
+                json!({"package": "p", "path": ["a", {"node": 1}, {"operand": 2}], "ordinal": 4}),
+                "id",
+            ),
+            (
+                json!({"package": "", "path": ["a"], "ordinal": 0}),
+                "invalid",
+            ),
+            (json!({"package": "p", "path": [], "ordinal": 0}), "invalid"),
+            (
+                json!({"package": "p", "path": ["a"], "ordinal": 9007199254740992u64}),
+                "invalid",
+            ),
+            (
+                json!({"package": "p", "path": [{"node": 9007199254740992u64}], "ordinal": 0}),
+                "malformed",
+            ),
+            (
+                json!({"package": "p", "path": [{"node": 1, "operand": 2}], "ordinal": 0}),
+                "malformed",
+            ),
+            (json!({"package": "p", "path": ["a"]}), "malformed"),
+            (
+                json!({"package": "p", "path": ["a"], "ordinal": 0, "extra": 1}),
+                "malformed",
+            ),
+            (json!("text"), "malformed"),
         ];
-        for id in ids {
+        for (id, expected) in cases {
+            let json = CheckedJson::from_value(&id).expect("sample");
+            let mut budget = NativeJoinBudget::unlimited();
+            let read = TermNode::of(&json)
+                .node_id(&mut budget, site)
+                .expect("unlimited");
+            let class = match &read {
+                NodeIdRead::Id(_) => "id",
+                NodeIdRead::Invalid(_) => "invalid",
+                NodeIdRead::Malformed => "malformed",
+            };
+            assert_eq!(class, expected, "{id}");
             for well_formed in [true, false] {
-                let json = CheckedJson::from_value(&id).expect("sample");
-                let mut budget = NativeJoinBudget::unlimited();
-                let from_node = TermNode::of(&json)
-                    .node_id(&mut budget, site, well_formed)
-                    .expect("unlimited");
-                let from_value =
+                let old =
                     node_id_from_value(&mut NativeJoinBudget::unlimited(), site, &id, well_formed)
                         .expect("unlimited");
-                assert_eq!(from_node, from_value, "{id} {well_formed}");
-                if from_node.is_some() {
-                    assert!(budget.read_storage_consumed() > 0);
-                    let mut exact = NativeJoinBudget::new(u64::MAX, 0)
-                        .with_read_storage_limit(budget.read_storage_consumed());
-                    assert!(TermNode::of(&json)
-                        .node_id(&mut exact, site, well_formed)
-                        .is_ok());
-                    let mut short = NativeJoinBudget::new(u64::MAX, 0)
-                        .with_read_storage_limit(budget.read_storage_consumed() - 1);
-                    assert!(TermNode::of(&json)
-                        .node_id(&mut short, site, well_formed)
-                        .is_err());
-                }
+                let new = match (&read, well_formed) {
+                    (NodeIdRead::Id(id), _) | (NodeIdRead::Invalid(id), false) => Some(id.clone()),
+                    _ => None,
+                };
+                assert_eq!(new, old, "{id} {well_formed}");
+            }
+            let required = budget.read_storage_consumed();
+            if required > 0 {
+                let mut exact =
+                    NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+                assert!(TermNode::of(&json).node_id(&mut exact, site).is_ok());
+                let mut short =
+                    NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required - 1);
+                assert!(TermNode::of(&json).node_id(&mut short, site).is_err());
             }
         }
     }
