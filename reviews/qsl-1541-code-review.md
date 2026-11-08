@@ -131,6 +131,8 @@ scope:
 | FND-005 | fixed | Round 1: Composition environments validate predicate targets before member checks and reject repeated names. |
 | FND-006 | fixed | Round 1: Operation resolution first compares the context model identity to the temporal clause model subject, including reference-type recovery. |
 | FND-007 | still-open | Round 1: New duplicate kind_spelling/granularity_spelling mappings exist in guarantee_composition.rs and guarantee_terms.rs; reuse one authoritative conversion for encoding and order. |
+| FND-007 | fixed | Round 2: guarantee_composition imports the single kind/granularity spelling conversions from guarantee_terms; no duplicated mapping remains. |
+
 
 ## Disposition verdict
 
@@ -139,3 +141,7 @@ FAIL: original reader findings resolved or rejected on owning-spec evidence, but
 ## Disposition validation
 
 Reviewed real test setups and exact refusal oracles; no mocks or admission bypasses. Coder log /tmp/qsl1541-fix-focused4.log records 15 passing TC474 tests, the exactly-one-abstraction-kind regression and warnings-denied workspace checks. Scoped Quire validation exits 0; its sole grammar warning concerns pre-existing criterion outside this review. No aggregate gate was run. Matrix output: /tmp/titan-codex2-958-matrix.json.
+
+## Disposition pass 2 verdict
+
+PASS. The shared spelling conversions now serve both canonical ordering and typed encoding. Inspected the entire fix diff and found no new regression. All findings have a latest outcome of fixed or rejected; PR #958 is mergeable from review, subject to the lead’s final aggregate gate and merge policy. Historical round 1 findings, outcomes and verdict remain unchanged above. Coder log /tmp/qsl1541-fix-round2.log records 15 passing TC474 tests, formatter and Quire validation; no unaffected checks were repeated by this reviewer.
