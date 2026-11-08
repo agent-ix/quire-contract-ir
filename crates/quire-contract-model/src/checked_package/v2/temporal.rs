@@ -1091,6 +1091,24 @@ fn selected_under_another_role(
         })
 }
 
+/// An owned temporal fault, paid at its original holder before materialization.
+fn temporal_fault(
+    meter: &mut WorkMeter,
+    position: usize,
+    code: CheckedPackageRefusalCode,
+    cause: CheckedPackageRefusalCause,
+    at: super::stage_storage::Path<'_>,
+    locus: &CheckedNodeId,
+) -> ValidationFailure {
+    super::stage_storage::refuse(
+        meter,
+        &super::stage_storage::Site::new(super::PackageReadStage::Graph, position, "temporal", at),
+        super::stage_storage::Refusal::new(code, at)
+            .because(cause)
+            .at_node(locus),
+    )
+}
+
 /// One clause's checks, in order: profile identity, `over`, fairness
 /// resolution, profile fit, interval bounds, aggregate arguments. A part of the clause the
 /// operation step refuses (an unreadable `operation`, a missing law, a
@@ -1119,8 +1137,11 @@ fn check_clause(
     {
         return Ok(());
     }
-    let at_node = || node_pointer(position);
-    let at_body = || node_pointer(position).key("body");
+    let at_node = super::stage_storage::Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(position);
+    let at_body = at_node.key("body");
     let arguments: &[CheckedTerm] = match terms.get(position).and_then(Option::as_ref) {
         Some(CheckedTerm::Application { arguments, .. }) => arguments,
         _ => &[],
@@ -1154,15 +1175,17 @@ fn check_clause(
                 } else {
                     CheckedPackageRefusalCause::UnsupportedSelection
                 };
-                return Err(ValidationFailure::refused_at(
+                return Err(temporal_fault(
+                    meter,
+                    position,
                     CheckedPackageRefusalCode::UnknownProfile,
-                    at_body()
+                    cause,
+                    at_body
                         .key("operation")
                         .key("laws")
                         .index(0)
                         .key("definition"),
-                    Some(cause),
-                    node.node_id.clone(),
+                    &node.node_id,
                 ));
             }
         }
@@ -1174,20 +1197,22 @@ fn check_clause(
     // node has none, so the clause's key stands.
     if let Some(over) = arguments.first().and_then(typed_reference) {
         let refusal = match graph.node(&over) {
-            None => Some((ModelRefusal::missing_name(), node.node_id.clone())),
+            None => Some((ModelRefusal::missing_name(), &node.node_id)),
             Some(_) if !node.dependencies.contains(&over) => {
-                Some((ModelRefusal::missing_name(), over.clone()))
+                Some((ModelRefusal::missing_name(), over))
             }
             Some((_, kind)) if kind != CheckedNodeKind::Value(ValueForm::Parameter) => {
-                Some((ModelRefusal::malformed(), over.clone()))
+                Some((ModelRefusal::malformed(), over))
             }
             Some(_) => None,
         };
         if let Some((refusal, locus)) = refusal {
-            return Err(ValidationFailure::refused_at(
+            return Err(temporal_fault(
+                meter,
+                position,
                 refusal.code,
-                at_body().key("arguments").index(0),
-                Some(refusal.cause),
+                refusal.cause,
+                at_body.key("arguments").index(0),
                 locus,
             ));
         }
@@ -1226,34 +1251,44 @@ fn check_clause(
                     super::CheckedFairnessTarget::HybridTransition { .. }
                 )
             {
-                return Err(ValidationFailure::refused_at(
+                return Err(temporal_fault(
+                    meter,
+                    fair,
                     CheckedPackageRefusalCode::InvalidModelBinding,
-                    node_pointer(fair)
+                    CheckedPackageRefusalCause::MalformedDeclaration,
+                    super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(fair)
                         .key("body")
                         .key("operation")
                         .key("member")
                         .key("target")
                         .key("declaration"),
-                    Some(CheckedPackageRefusalCause::MalformedDeclaration),
-                    graph.nodes[fair].node_id.clone(),
+                    &graph.nodes[fair].node_id,
                 ));
             }
             continue;
         };
         if let Err(failure) = resolve_fairness(declaration, name, graph, meter)? {
-            return Err(ValidationFailure::refused_at(
+            return Err(temporal_fault(
+                meter,
+                fair,
                 failure.refusal.code,
-                node_pointer(fair)
+                failure.refusal.cause,
+                super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(fair)
                     .key("body")
                     .key("operation")
                     .key("member")
                     .key("target")
                     .key(failure.member),
-                Some(failure.refusal.cause),
                 if failure.locus_is_target {
-                    declaration.clone()
+                    declaration
                 } else {
-                    graph.nodes[fair].node_id.clone()
+                    &graph.nodes[fair].node_id
                 },
             ));
         }
@@ -1267,7 +1302,12 @@ fn check_clause(
         graph,
         terms,
         meter,
-        &at_node,
+        super::stage_storage::Site::new(
+            super::PackageReadStage::Graph,
+            position,
+            "temporal",
+            at_node,
+        ),
         covered,
         stamps,
     )?;
@@ -1277,20 +1317,28 @@ fn check_clause(
             if !interval_fits(fit, interval)
                 || matches!(interval, Interval::Timed { upper: None, .. }) && !hybrid_claim
             {
-                return Err(ValidationFailure::refused_at(
+                return Err(temporal_fault(
+                    meter,
+                    *formula,
                     CheckedPackageRefusalCode::InvalidPackage,
-                    node_pointer(*formula).key("body"),
-                    Some(CheckedPackageRefusalCause::OperationMemberMismatch),
-                    graph.nodes[*formula].node_id.clone(),
+                    CheckedPackageRefusalCause::OperationMemberMismatch,
+                    super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(*formula)
+                        .key("body"),
+                    &graph.nodes[*formula].node_id,
                 ));
             }
         }
         if !fairness.is_empty() && !profile.admits_fairness() {
-            return Err(ValidationFailure::refused_at(
+            return Err(temporal_fault(
+                meter,
+                position,
                 CheckedPackageRefusalCode::InvalidPackage,
-                at_body(),
-                Some(CheckedPackageRefusalCause::OperationMemberMismatch),
-                node.node_id.clone(),
+                CheckedPackageRefusalCause::OperationMemberMismatch,
+                at_body,
+                &node.node_id,
             ));
         }
     }
@@ -2528,7 +2576,7 @@ fn formula_intervals(
     graph: &StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
     meter: &mut WorkMeter,
-    at: &dyn Fn() -> JsonPointer,
+    at: super::stage_storage::Site<'_>,
     covered: &mut [bool],
     stamps: &mut Stamps,
 ) -> Result<FormulaReach, ValidationFailure> {
@@ -2548,7 +2596,7 @@ fn formula_intervals(
         {
             continue;
         }
-        meter.charge(1, at)?;
+        super::natural::work_at(meter, at, 1)?;
         meter.push(&mut reached, position)?;
         if let Some(mark) = covered.get_mut(position) {
             *mark = true;
@@ -2591,7 +2639,7 @@ mod tests {
     #[trace("TC-472", "FR-038-AC-516", "FR-038-AC-5")]
     #[test]
     fn invalid_reference_id_refuses_in_the_graph_term_pass_before_temporal_views() {
-        use crate::checked_package::common::{validate_term, TermGrammar};
+        use crate::checked_package::common::{validate_term, Step, TermGrammar, Trail};
         let body = CheckedJson::from_value(&json!({"term":"reference","target":{
             "package":"", "path":[], "ordinal":0
         }}))
@@ -2634,6 +2682,73 @@ mod tests {
             visited, 0,
             "invalid IDs never enter the authenticated target table"
         );
+    }
+
+    #[trace("TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn profile_fault_contexts_are_paid_at_exact_and_short_storage() {
+        use super::super::stage_storage::Path;
+        let node: CheckedNodeId = serde_json::from_value(id('a')).unwrap();
+        let body = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(7)
+            .key("body");
+        for (code, cause, at) in [
+            (
+                CheckedPackageRefusalCode::UnknownProfile,
+                CheckedPackageRefusalCause::UnsupportedSelection,
+                body.key("operation").key("laws").index(0).key("definition"),
+            ),
+            (
+                CheckedPackageRefusalCode::UnknownProfile,
+                CheckedPackageRefusalCause::WrongSelectionRole,
+                body.key("operation").key("laws").index(0).key("definition"),
+            ),
+            (
+                CheckedPackageRefusalCode::InvalidPackage,
+                CheckedPackageRefusalCause::OperationMemberMismatch,
+                body,
+            ),
+        ] {
+            let run = |limit| {
+                let mut budget =
+                    super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    result = Some(temporal_fault(
+                        &mut WorkMeter::over(&mut budget),
+                        7,
+                        code,
+                        cause,
+                        at,
+                        &node,
+                    ));
+                });
+                (result.unwrap(), allocated.bytes_total, budget)
+            };
+            let (result, allocated, budget) = run(u64::MAX);
+            let ValidationFailure::Refused(refusal) = &result else {
+                panic!("profile fault")
+            };
+            assert_eq!(refusal.code, code);
+            assert_eq!(refusal.cause, Some(cause));
+            assert_eq!(refusal.loci[0].path.as_ref().unwrap(), &at.build());
+            assert_eq!(allocated, budget.read_storage_consumed());
+            assert_eq!(run(allocated).0, result);
+            let (short, allocated, budget) = run(allocated - 1);
+            assert!(matches!(short, ValidationFailure::Budget(_)));
+            assert_eq!(allocated, budget.read_storage_consumed());
+            let locus = budget.first_unpaid_locus().unwrap();
+            assert_eq!(locus.form, "diagnostic");
+            assert_eq!(
+                locus.source,
+                super::super::NativeJoinLocusSource::PackageRead(
+                    super::super::PackageReadStage::Graph,
+                    7
+                )
+            );
+        }
     }
 
     fn id(fill: char) -> Value {
