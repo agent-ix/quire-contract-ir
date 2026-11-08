@@ -802,7 +802,6 @@ fn tc_048_an_integer_past_2_pow_53_a_whole_float_and_a_utf8_ordered_name_are_non
 /// ACs: FR-038-AC-79
 #[trace("TC-048", "FR-038-AC-79")]
 #[test]
-#[ignore = "IR-1404: deferred AC-511 whole-read allocation proof"]
 fn tc_048_an_integer_spelled_past_the_64_bit_range_is_noncanonical() {
     // serde_json reads these as floats whose RFC 8785 text is the same
     // digits, so the byte comparison alone would admit them; they are still
