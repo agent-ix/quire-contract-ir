@@ -1519,6 +1519,25 @@ impl<'w, 'b> Budget<'w, 'b> {
         self.meter.charge(work, at)
     }
 
+    /// Charges work at a borrowed position, paying a denial's pointer before
+    /// constructing it. The work request and this budget's original locus stay unchanged.
+    pub(super) fn charge_at_position<'p>(
+        &mut self,
+        work: u64,
+        form: &'static str,
+        at: impl Into<super::stage_storage::Position<'p>>,
+    ) -> Result<(), ValidationFailure> {
+        let locus = self.locus(form);
+        if let Some(budget) = self.meter.budget_mut() {
+            budget.set_active_locus(Some(locus));
+        }
+        super::stage_storage::work(
+            self.meter,
+            &super::stage_storage::Site::new(self.stage, self.index, form, at),
+            work,
+        )
+    }
+
     /// Admits a request for `bytes` of heap at this budget's locus under
     /// `form`, before the request is made. A budget with a work limit of its
     /// own (lowering, unit tests) holds no read storage and admits it.
@@ -6274,5 +6293,63 @@ mod structural_member_type_tests {
                 format!("/types/0/constraints/{constraint}/operands/value")
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod model_work_position_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    #[test]
+    #[trace("TC-472", "FR-038-AC-511")]
+    fn model_owner_work_denial_prepays_exact_pointer_before_construction() {
+        let path = super::super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(4)
+            .key("owner");
+        let length = "/semantic_graph/nodes/4/owner".len() as u64;
+        let run = |work, storage| {
+            let mut caller = NativeJoinBudget::new(work, 0).with_read_storage_limit(storage);
+            let mut stop = None;
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut caller);
+                stop = Some(Budget::node(&mut meter, 4).charge_at_position(1, "model", path));
+            });
+            (stop.expect("charge"), caller, allocated.bytes_total)
+        };
+        let (result, caller, allocated) = run(1, 0);
+        assert!(result.is_ok());
+        assert_eq!(allocated, 0);
+        assert_eq!(caller.consumed().work, 1);
+        let (result, mut caller, allocated) = run(0, length);
+        let Err(ValidationFailure::Budget(stop)) = result else {
+            panic!("work denial");
+        };
+        assert_eq!(stop.resource, super::super::PackageReadResource::Work);
+        assert_eq!(stop.amount, 1);
+        assert_eq!(
+            stop.path.as_ref().map(JsonPointer::as_str),
+            Some("/semantic_graph/nodes/4/owner")
+        );
+        assert_eq!(allocated, length);
+        assert_eq!(caller.read_storage_consumed(), length);
+        assert_eq!(
+            caller.first_unpaid_locus(),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 4),
+                form: "model"
+            })
+        );
+        assert_eq!(caller.take_prepaid_diagnostic(), Some(true));
+        let (result, mut caller, allocated) = run(0, length - 1);
+        let Err(ValidationFailure::Budget(stop)) = result else {
+            panic!("work denial without affordable pointer");
+        };
+        assert!(stop.path.is_none());
+        assert_eq!(stop.amount, 1);
+        assert_eq!(allocated, 0);
+        assert_eq!(caller.read_storage_consumed(), 0);
+        assert_eq!(caller.take_prepaid_diagnostic(), Some(false));
     }
 }

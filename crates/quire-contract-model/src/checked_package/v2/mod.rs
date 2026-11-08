@@ -3772,7 +3772,17 @@ fn validate_graph(
         models,
         &graph.nodes,
         &mut Budget::node(meter, 0),
-        |budget, root| budget.charge_at(1, "model", || node_pointer(root).key("owner")),
+        |budget, root| {
+            budget.charge_at_position(
+                1,
+                "model",
+                stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(root)
+                    .key("owner"),
+            )
+        },
     )?;
     extension::validate(wire, &kinds, &terms, &index, evidence, &owners, meter)?;
     let declarations = owners.index_charged(&mut Budget::node(meter, 0))?;
