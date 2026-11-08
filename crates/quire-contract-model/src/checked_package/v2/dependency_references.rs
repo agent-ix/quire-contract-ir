@@ -279,7 +279,7 @@ struct SelectionPath {
     root: usize,
 }
 
-fn selection_pointer(root: &JsonPointer, paths: &[SelectionPath], path: usize) -> JsonPointer {
+fn selection_pointer(root: &Path<_>, paths: &[SelectionPath], path: usize) -> JsonPointer {
     let mut indices = Vec::new();
     let mut cursor = Some(path);
     while let Some(position) = cursor {
@@ -287,7 +287,7 @@ fn selection_pointer(root: &JsonPointer, paths: &[SelectionPath], path: usize) -
         indices.push(node.index);
         cursor = node.parent;
     }
-    indices.into_iter().rev().fold(root.clone(), |at, index| {
+    indices.into_iter().rev().fold(root.build(), |at, index| {
         at.key("lock").key("dependency_selections").index(index)
     })
 }
@@ -297,7 +297,7 @@ fn selection_pointer(root: &JsonPointer, paths: &[SelectionPath], path: usize) -
 pub(super) fn check_derived_closure<'a>(
     selections: &'a [CheckedDependencySelection],
     packages: &[&'a CheckedPackageV2],
-    root: JsonPointer,
+    root: Path<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut budget = Budget::lock(meter, "dependency_selections");
@@ -309,12 +309,11 @@ pub(super) fn check_derived_closure<'a>(
         {
             // The admitted child already checked its closure. One new identity
             // cannot conflict when it is absent there or has the same ID.
-            budget.charge_at(1, F, || {
-                root.clone()
-                    .key("lock")
-                    .key("dependency_selections")
-                    .index(0)
-            })?;
+            budget.charge_at_position(
+                1,
+                F,
+                root.key("lock").key("dependency_selections").index(0),
+            )?;
             return Ok(());
         }
     }
@@ -1073,8 +1072,76 @@ mod tests {
                 .index(8)
         });
         assert_exact(lock_locus, denial, |meter| {
-            check_derived_closure(&selections, &packages, JsonPointer::root(), meter)
+            check_derived_closure(&selections, &packages, Path::root(), meter)
         });
+    }
+
+    /// The same fast path retains the contract-package caller's nonempty root.
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn derived_closure_work_denial_preserves_nonempty_root_and_first_charge() {
+        let dependency = package();
+        let selections = [selection(dependency.name())];
+        let packages = [&dependency];
+        let root = Path::root().key("package").key("source");
+        let observe = |storage| {
+            let mut budget = NativeJoinBudget::new(0, 0).with_read_storage_limit(storage);
+            let mut result = None;
+            let requested = allocation_counter::measure(|| {
+                result = Some(check_derived_closure(
+                    &selections,
+                    &packages,
+                    root,
+                    &mut WorkMeter::over(&mut budget),
+                ));
+            })
+            .bytes_total;
+            assert_eq!(requested, budget.read_storage_consumed());
+            (
+                result
+                    .expect("closure probe ran")
+                    .expect_err("first Work is denied"),
+                budget,
+                requested,
+            )
+        };
+        let (ample, budget, requested) = observe(u64::MAX);
+        let ValidationFailure::Budget(stop) = &ample else {
+            panic!("Work stop: {ample:?}");
+        };
+        assert_eq!((stop.resource, stop.amount), (PackageReadResource::Work, 1));
+        assert_eq!(
+            stop.path.as_ref().map(JsonPointer::as_str),
+            Some("/package/source/lock/dependency_selections/0")
+        );
+        let first = budget.first_unpaid().expect("first Work");
+        assert_eq!((first.kind, first.amount), (NativeJoinChargeKind::Work, 1));
+        let locus = budget.first_unpaid_locus().expect("original lock locus");
+        assert_eq!(
+            locus.source,
+            NativeJoinLocusSource::PackageRead(PackageReadStage::Lock, 0)
+        );
+        assert_eq!(locus.form, F);
+        let (exact, exact_budget, exact_requested) = observe(requested);
+        assert_eq!(exact, ample);
+        assert_eq!(exact_requested, requested);
+        assert_eq!(exact_budget, budget);
+        for storage in [0, requested - 1] {
+            let (short, short_budget, short_requested) = observe(storage);
+            let (repeated, repeated_budget, repeated_requested) = observe(storage);
+            assert_eq!(short, repeated);
+            assert_eq!(short_budget, repeated_budget);
+            assert_eq!(short_requested, repeated_requested);
+            assert_eq!(short_requested, 0);
+            assert_eq!(short_budget.first_unpaid(), Some(first));
+            assert_eq!(short_budget.first_unpaid_locus(), Some(locus));
+            assert!(short_budget.first_unpaid_read_storage().is_none());
+            let ValidationFailure::Budget(stop) = short else {
+                panic!("original Work remains first");
+            };
+            assert_eq!((stop.resource, stop.amount), (PackageReadResource::Work, 1));
+            assert!(stop.path.is_none());
+        }
     }
 
     /// The signature closure's worklist and flags are requested at the
