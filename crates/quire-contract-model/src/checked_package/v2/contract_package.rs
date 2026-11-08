@@ -879,6 +879,7 @@ impl ContractPackageV1 {
                         Ok(())
                     },
                     ids,
+                    None,
                 )
             })?;
             work.charge(body_work.saturating_mul(4))
@@ -2930,6 +2931,7 @@ impl ContractPackageWireV1 {
                     &Trail::Base(&steps),
                     &mut |_, _, _, _, _| Ok(()),
                     ids,
+                    None,
                 )
             })?;
             work_meter.charge(work, || at.clone().key("body"))?;
@@ -3398,6 +3400,7 @@ impl ContractPackageWireV1 {
                         Ok(())
                     },
                     ids,
+                    None,
                 )
             })?;
             if let Some(pointer) = missing {
@@ -3443,7 +3446,7 @@ impl ContractPackageWireV1 {
             for (reference_index, (target, site)) in body_references.iter().enumerate() {
                 let Some(&target) = positions.get(target) else {
                     return Err(malformed(
-                        super::body_reference_pointer(node, kind, index, reference_index, &[]),
+                        body_reference_pointer(node, kind, index, reference_index, &[]),
                         CheckedPackageRefusalCause::InvalidValue,
                     ));
                 };
@@ -3518,7 +3521,7 @@ impl ContractPackageWireV1 {
             kinds.get(position),
         ) {
             (Some(node), Some(kind)) => {
-                super::body_reference_pointer(node, *kind, position, reference, &[])
+                body_reference_pointer(node, *kind, position, reference, &[])
             }
             _ => JsonPointer::root()
                 .key("semantic_graph")
@@ -3526,19 +3529,41 @@ impl ContractPackageWireV1 {
                 .index(position)
                 .key("body"),
         };
+        let recorded_paths: Vec<Vec<JsonPointer>> = self
+            .semantic_graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, _)| {
+                (0..adjacency[position]
+                    .iter()
+                    .filter_map(|(_, site)| match site {
+                        super::EdgeSite::Reference(reference) => Some(reference + 1),
+                        _ => None,
+                    })
+                    .max()
+                    .unwrap_or(0))
+                    .map(|reference| reference_pointer(position, reference))
+                    .collect()
+            })
+            .collect();
         let edge_pointer = |vertex: usize, site: super::EdgeSite| match site {
-            super::EdgeSite::SemanticType => JsonPointer::root()
+            super::EdgeSite::SemanticType => super::stage_storage::Path::root()
                 .key("semantic_graph")
                 .key("nodes")
                 .index(vertex)
-                .key("semantic_type"),
-            super::EdgeSite::Dependency(dependency) => JsonPointer::root()
+                .key("semantic_type")
+                .into(),
+            super::EdgeSite::Dependency(dependency) => super::stage_storage::Path::root()
                 .key("semantic_graph")
                 .key("nodes")
                 .index(vertex)
                 .key("dependencies")
-                .index(dependency),
-            super::EdgeSite::Reference(reference) => reference_pointer(vertex, reference),
+                .index(dependency)
+                .into(),
+            super::EdgeSite::Reference(reference) => {
+                super::stage_storage::Position::Recorded(&recorded_paths[vertex][reference])
+            }
         };
         super::validate_recursion(
             &self.semantic_graph.nodes,
@@ -3586,4 +3611,42 @@ impl ContractPackageWireV1 {
         }
         Ok(terms)
     }
+}
+
+// V1 retains its existing diagnostic replay; V2 records paths during intake.
+fn body_reference_pointer(
+    node: &CheckedSemanticNodeV2,
+    kind: CheckedNodeKind,
+    position: usize,
+    reference: usize,
+    row: &[u64],
+) -> JsonPointer {
+    let body_steps = [
+        Step::Key("semantic_graph"),
+        Step::Key("nodes"),
+        Step::Index(position),
+        Step::Key("body"),
+    ];
+    let mut seen = 0_usize;
+    let mut found = None;
+    // The walk already succeeded once; a failure here only means no pointer.
+    let body = super::TermNode::of(&node.body);
+    let _ = crate::checked_package::common::with_unmetered_ids_row(row, |ids| {
+        super::validate_body(
+            kind,
+            body,
+            body,
+            &Trail::Base(&body_steps),
+            &mut |_target, _site, target_at, _sink, _charge_site| {
+                if seen == reference && found.is_none() {
+                    found = Some(target_at.pointer());
+                }
+                seen = seen.saturating_add(1);
+                Ok(())
+            },
+            ids,
+            None,
+        )
+    });
+    found.unwrap_or_else(|| super::node_pointer(position).key("body"))
 }

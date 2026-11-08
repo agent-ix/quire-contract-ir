@@ -256,7 +256,7 @@ fn read_package_with_document_override(
         document_override,
         &fixtures_dir(),
     )?;
-    Ok(CheckedPackageV2::read(&bytes, limits, &evidence))
+    Ok(crate::read_and_account(&bytes, limits, &evidence))
 }
 
 /// What the production reader makes of `package`: `admitted`, `incomplete`, or
@@ -389,14 +389,7 @@ struct ExpectedFailure {
 /// rule of AC-112 holds for it.
 const EXPECTED_FAILURES: &[ExpectedFailure] = &[];
 
-/// The replacement of `package` at `pointer`, or why it cannot be made.
-fn replace_at(package: &mut Value, pointer: &str, replacement: &Value) -> Result<(), String> {
-    let slot = package
-        .pointer_mut(pointer)
-        .ok_or_else(|| format!("pointer {pointer} resolves to nothing in the package"))?;
-    *slot = replacement.clone();
-    Ok(())
-}
+use qspec_inputs::replace_at;
 
 /// Sort fixture-authored structural ids by their typed wire order.
 fn typed_node_id(value: &Value) -> CheckedNodeId {
@@ -455,7 +448,7 @@ fn adverse_problems(base: &Value, adverse: &Value, expected: &[ExpectedFailure])
                 let flattened = entry.get("flattened").ok_or("no flattened member")?;
                 let mut control = base.clone();
                 replace_at(&mut control, pointer, flattened)?;
-                if reading_of(&control)?.starts_with("refused:malformed_wire") {
+                if !qspec_inputs::flat_body_control_passes(&read_package(&control)?) {
                     return Err("the flattened positive control is refused malformed_wire".into());
                 }
             }
@@ -1826,4 +1819,26 @@ fn tc_048_qspec_adverse_run_fails_closed() {
         neither.iter().any(|problem| problem.contains("neither")),
         "{neither:?}"
     );
+}
+
+#[path = "../it/support/qspec_read_proof.rs"]
+mod qspec_read_proof;
+use qspec_read_proof::read_and_account;
+use qspec_read_proof::read_and_account as fixture_read;
+
+fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
+    allocation_counter::measure(read).bytes_total
+}
+
+fn without_qspec_instrumentation<T>(operation: impl FnOnce() -> T) -> T {
+    let mut result = None;
+    allocation_counter::opt_out(|| {
+        result = Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            operation,
+        )));
+    });
+    match result.expect("instrumentation runs once") {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }

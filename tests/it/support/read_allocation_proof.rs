@@ -10,21 +10,15 @@ use quire_contract_model::{
     CheckedPackageV2ReadResult, NativeJoinBudget, NativeJoinLocusSource,
 };
 
-pub(crate) trait Counter {
-    fn measure(read: impl FnOnce()) -> u64;
-}
+#[path = "read_observation.rs"]
+mod observation;
+pub(crate) use observation::{accounted, drop_without_request, measure_at, Counter, Observation};
+
 #[derive(Clone, Copy)]
 pub(crate) enum Expected {
     Admitted,
     Refused(CheckedPackageRefusalCode),
-}
-
-/// One complete public read. Fixtures, budget construction and comparison
-/// live outside the counter; the returned outcome remains owned by the caller.
-pub(crate) struct Observation {
-    pub(crate) result: CheckedPackageV2BudgetedReadResult,
-    pub(crate) budget: NativeJoinBudget,
-    pub(crate) requested: u64,
+    OriginalOracle(fn(&CheckedPackageV2ReadResult) -> bool),
 }
 
 pub(crate) fn measure_read<C: Counter>(
@@ -36,31 +30,6 @@ pub(crate) fn measure_read<C: Counter>(
     measure_at::<C>(bytes, evidence, limits, u64::MAX, limit)
 }
 
-pub(crate) fn measure_at<C: Counter>(
-    bytes: &[u8],
-    evidence: &CheckedPackageEvidence,
-    limits: CheckedPackageReadLimits,
-    work: u64,
-    read_storage: u64,
-) -> Observation {
-    let mut budget = NativeJoinBudget::new(work, 0).with_read_storage_limit(read_storage);
-
-    let mut result = None;
-    let requested = C::measure(|| {
-        result = Some(CheckedPackageV2::read_with_budget(
-            bytes,
-            limits,
-            evidence,
-            &mut budget,
-        ))
-    });
-    Observation {
-        result: result.expect("read ran"),
-        budget,
-        requested,
-    }
-}
-
 pub(crate) fn generous_limits() -> CheckedPackageReadLimits {
     CheckedPackageReadLimits {
         bytes: 1 << 30,
@@ -70,28 +39,6 @@ pub(crate) fn generous_limits() -> CheckedPackageReadLimits {
         diagnostics: 1 << 24,
         work: 1 << 50,
     }
-}
-
-pub(crate) fn accounted(label: &str, observation: &Observation) {
-    let outcome = match &observation.result {
-        CheckedPackageV2BudgetedReadResult::Admitted(_) => "admitted",
-        CheckedPackageV2BudgetedReadResult::Refused(_) => "refused",
-        CheckedPackageV2BudgetedReadResult::Incomplete(_) => "incomplete",
-        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_) => "budget incomplete",
-        CheckedPackageV2BudgetedReadResult::Exhausted(_) => "exhausted",
-        CheckedPackageV2BudgetedReadResult::CatalogUnavailable(_) => "catalog unavailable",
-    };
-    assert_eq!(observation.requested,observation.budget.read_storage_consumed(),"{label}: actual during-call allocation requests equal admitted read storage; outcome {outcome}; first unpaid {:?}/{:?}",observation.budget.first_unpaid_read_storage(),observation.budget.first_unpaid_locus());
-}
-
-/// Destruction is measured separately from AC-511's during-call total. A
-/// destructor must not hide a further heap request after the read returns.
-pub(crate) fn drop_without_request<C: Counter>(observation: Observation) {
-    let requested = C::measure(|| drop(observation.result));
-    assert_eq!(
-        requested, 0,
-        "dropping the returned outcome allocates nothing"
-    );
 }
 
 pub(crate) fn assert_read<C: Counter>(
@@ -122,6 +69,26 @@ pub(crate) fn assert_read<C: Counter>(
                 "{label}: genuine refusal input has its claimed code"
             );
             assert_eq!(left, right, "{label}: complete refusal/first fault");
+        }
+        (plain, measured, Expected::OriginalOracle(predicate)) => {
+            assert!(predicate(plain), "{label}: original driver predicate");
+            match (plain, measured) {
+                (
+                    CheckedPackageV2ReadResult::Admitted(a),
+                    CheckedPackageV2BudgetedReadResult::Admitted(b),
+                ) => assert_eq!(a, b, "{label}: original admitted full value"),
+                (
+                    CheckedPackageV2ReadResult::Refused(a),
+                    CheckedPackageV2BudgetedReadResult::Refused(b),
+                ) => assert_eq!(a, b, "{label}: original refused full value"),
+                (
+                    CheckedPackageV2ReadResult::Incomplete(a),
+                    CheckedPackageV2BudgetedReadResult::Incomplete(b),
+                ) => assert_eq!(a, b, "{label}: original incomplete full value"),
+                (plain, measured) => {
+                    panic!("{label}: original driver outcome differs: {plain:?}/{measured:?}")
+                }
+            }
         }
         (plain, measured, _) => panic!(
             "{label}: fixture outcome differs from its required class: {plain:?}/{measured:?}"

@@ -1963,7 +1963,7 @@ pub(super) fn group_value<'a>(term: &'a CheckedTerm, name: &str) -> Option<&'a C
 fn check_member_targets(
     check: &MemberCheck<'_>,
     term: &CheckedTerm,
-    path: JsonPointer,
+    path: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
     match term {
         CheckedTerm::Reference { target } => {
@@ -1971,16 +1971,16 @@ fn check_member_targets(
                 return Err(check.refuse(
                     Code::MissingDeclaration,
                     Some(Cause::MissingName),
-                    path.key("target"),
+                    path().key("target"),
                 ));
             }
         }
         CheckedTerm::Binding { value, .. } => {
-            check_member_targets(check, value, path.key("value"))?
+            check_member_targets(check, value, &|| path().key("value"))?
         }
         CheckedTerm::Aggregate { members } => {
             for (position, member) in members.iter().enumerate() {
-                check_member_targets(check, member, path.clone().key("members").index(position))?;
+                check_member_targets(check, member, &|| path().key("members").index(position))?;
             }
         }
         _ => {}
@@ -2852,14 +2852,12 @@ fn check_member(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (ordinal, term) in arguments.iter().enumerate() {
-        check_member_targets(
-            check,
-            term,
+        check_member_targets(check, term, &|| {
             node_pointer(check.position)
                 .key("body")
                 .key("arguments")
-                .index(ordinal),
-        )?;
+                .index(ordinal)
+        })?;
     }
     let role = |position| check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role));
     let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
@@ -4024,7 +4022,7 @@ fn check_clause_slots(
     let activation = check.at(arguments, 1);
     if let Some(guard) = group_value(activation, "guard") {
         let path = check.argument_path(1).key("members").index(2).key("value");
-        check_member_targets(check, guard, path.clone())?;
+        check_member_targets(check, guard, &|| path.clone())?;
         let triggers: &[usize] = match &scope.activation {
             Some(trigger) => std::slice::from_ref(trigger),
             None => &[],
@@ -4052,7 +4050,7 @@ fn check_clause_slots(
             .key("members")
             .index(1)
             .key("value");
-        check_member_targets(check, initializer, path)?;
+        check_member_targets(check, initializer, &|| path.clone())?;
         let allowed = PositionSet::of(
             &[
                 &scope.c0[..1 + usize::from(scope.activation.is_some())],
@@ -6295,11 +6293,11 @@ pub(super) fn validate_protocol_nodes(
                 node_pointer(position),
             ));
         };
-        let owner_at = node_pointer(position).key("owner_model");
+        let owner_at = || node_pointer(position).key("owner_model");
         let owner_position = index.get(owner_model).copied().ok_or_else(|| {
             ValidationFailure::refused_at(
                 Code::MissingDeclaration,
-                owner_at.clone(),
+                owner_at(),
                 Some(Cause::MissingName),
                 node.node_id.clone(),
             )
@@ -6308,7 +6306,7 @@ pub(super) fn validate_protocol_nodes(
         if kinds[owner_position] != CheckedNodeKind::Model(ModelForm::ObjectType) {
             return Err(ValidationFailure::refused_at(
                 Code::InvalidModelBinding,
-                owner_at,
+                owner_at(),
                 Some(Cause::MalformedDeclaration),
                 node.node_id.clone(),
             ));
@@ -6316,7 +6314,7 @@ pub(super) fn validate_protocol_nodes(
         let owner = owners.recover(target).map_err(|failure| {
             ValidationFailure::refused_at(
                 failure.code,
-                owner_at.clone(),
+                owner_at(),
                 Some(failure.cause),
                 node.node_id.clone(),
             )
@@ -6324,7 +6322,7 @@ pub(super) fn validate_protocol_nodes(
         if owner.form != super::model_members::DeclarationForm::ObjectType {
             return Err(ValidationFailure::refused_at(
                 Code::InvalidModelBinding,
-                owner_at,
+                owner_at(),
                 Some(Cause::MalformedDeclaration),
                 node.node_id.clone(),
             ));
@@ -6408,6 +6406,7 @@ mod tests {
                     .copied()
                     .collect::<Vec<_>>()
             );
+            drop(meter);
             Some(budget.read_storage_consumed())
         };
         let spent = run(u64::MAX).expect("unbounded run completes");

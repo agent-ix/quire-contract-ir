@@ -621,7 +621,9 @@ pub(in crate::checked_package) fn read_envelope(
         }
         Err(ReadError::ReservationDenied { .. }) => return Err(denial(budget)),
         Err(_) => {
-            return Err(ValidationFailure::refused_bytes(
+            return Err(prepaid_bytes_refusal(
+                budget,
+                PackageReadStage::Envelope,
                 CheckedPackageRefusalCode::MalformedWire,
             ));
         }
@@ -629,7 +631,9 @@ pub(in crate::checked_package) fn read_envelope(
     // The typed decode below reads term bodies with serde_json, which this
     // read keeps to its 128-level recursion bound.
     if nesting_depth(bytes) >= SERDE_JSON_RECURSION_LIMIT {
-        return Err(ValidationFailure::refused_bytes(
+        return Err(prepaid_bytes_refusal(
+            budget,
+            PackageReadStage::Envelope,
             CheckedPackageRefusalCode::MalformedWire,
         ));
     }
@@ -653,8 +657,28 @@ pub(in crate::checked_package) fn read_envelope(
             budget.set_active_locus(None);
             Ok(document)
         }
-        _ => Err(ValidationFailure::refused_bytes(
+        _ => Err(prepaid_bytes_refusal(
+            budget,
+            PackageReadStage::Canonical,
             CheckedPackageRefusalCode::NoncanonicalWire,
         )),
     }
+}
+
+fn prepaid_bytes_refusal(
+    budget: &mut NativeJoinBudget,
+    stage: PackageReadStage,
+    code: CheckedPackageRefusalCode,
+) -> ValidationFailure {
+    let mut meter = super::WorkMeter::over(budget);
+    super::stage_storage::refuse_bytes(
+        &mut meter,
+        &super::stage_storage::Site::new(
+            stage,
+            0,
+            "package_bytes",
+            super::stage_storage::Path::root(),
+        ),
+        code,
+    )
 }

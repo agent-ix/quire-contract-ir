@@ -8,8 +8,8 @@
 use crate::support::checked_package::{canonical, evidence_for, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2BudgetedReadResult,
-    NativeJoinBudget, NativeJoinLocusSource, PackageReadStage,
+    CheckedPackageReadLimits, CheckedPackageV2BudgetedReadResult, NativeJoinBudget,
+    NativeJoinLocusSource, PackageReadStage,
 };
 
 /// One heap request of the read, in the order it was made.
@@ -28,7 +28,7 @@ pub type Reader<'a> = &'a dyn Fn(&mut NativeJoinBudget) -> CheckedPackageV2Budge
 
 fn all_families(budget: &mut NativeJoinBudget) -> CheckedPackageV2BudgetedReadResult {
     let value = v2_all_families();
-    CheckedPackageV2::read_with_budget(
+    crate::qspec_read_proof::read_budget_and_account(
         &canonical(&value),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&value),
@@ -225,7 +225,7 @@ fn node_id_order_equals_canonical_key_byte_order_on_real_packages() {
         crate::checked_package_v2_map_type::nested_bounded_quantity_wire().0,
     ];
     for value in &wires {
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &canonical(value),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(value),
@@ -279,7 +279,7 @@ fn deeply_nested_keys_read_without_a_plain_comparison_spill() {
     // past the inline stack, and the plain comparison panics on this thread.
     let (wire, maps, _) = crate::checked_package_v2_map_type::map_chain_wire(40);
     let read_key = || {
-        let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
+        let CheckedPackageV2ReadResult::Admitted(package) = crate::read_and_account(
             &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&wire),
@@ -301,7 +301,7 @@ fn deeply_nested_keys_read_without_a_plain_comparison_spill() {
         assert_eq!(maps.len(), depth);
         std::env::set_var("QUIRE_FORBID_PLAIN_CMP_SPILL_ON", &name);
         let _guard = Guard;
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&wire),

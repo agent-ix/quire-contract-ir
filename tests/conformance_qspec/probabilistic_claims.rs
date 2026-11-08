@@ -8,9 +8,9 @@ use quire_contract_model::{
     encode_checked_package_v2, CheckedCapability, CheckedDiagnosticsV2, CheckedNodeId,
     CheckedOccurrenceRole, CheckedPackageLimit, CheckedPackageLockV2, CheckedPackageReadLimits,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedPackageSidecarsRef,
-    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedProbabilisticClaim, CheckedRefinementStepRowRegion, CheckedSemanticGraphV2,
-    CheckedSourceMapEntry, CheckedTermDataV2, TemporalBinding,
+    CheckedPackageSourceCorrespondenceRef, CheckedPackageV2ReadResult, CheckedProbabilisticClaim,
+    CheckedRefinementStepRowRegion, CheckedSemanticGraphV2, CheckedSourceMapEntry,
+    CheckedTermDataV2, TemporalBinding,
 };
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf};
@@ -157,7 +157,7 @@ fn fixture(rows: Vec<Value>, vectors: &Value) -> Value {
 fn read_at(wire: &Value, work: u64) -> CheckedPackageV2ReadResult {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
-    CheckedPackageV2::read(&canonical(wire), limits, &evidence_for(wire))
+    crate::read_and_account(&canonical(wire), limits, &evidence_for(wire))
 }
 
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
@@ -233,7 +233,7 @@ fn typed_pc_rows_encode_then_strictly_read() {
     let wire = fixture(rows, &all);
     let bytes = encode_producer(&wire, Some(&sidecar));
     assert_eq!(bytes, canonical(&wire));
-    let CheckedPackageV2ReadResult::Admitted(admitted) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(admitted) = crate::read_and_account(
         &bytes,
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&wire),
@@ -257,14 +257,14 @@ fn absent_and_four_empty_arrays_remain_distinct_after_write_and_read() {
     let empty = CheckedTermDataV2::default();
     let present = encode_producer(&base, Some(&empty));
     assert_ne!(absent, present);
-    let CheckedPackageV2ReadResult::Admitted(absent_read) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(absent_read) = crate::read_and_account(
         &absent,
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&base),
     ) else {
         panic!("absent sidecar must admit");
     };
-    let CheckedPackageV2ReadResult::Admitted(present_read) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(present_read) = crate::read_and_account(
         &present,
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&base),

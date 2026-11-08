@@ -930,7 +930,10 @@ pub(super) fn validate_claims(
         else {
             continue;
         };
-        let Some(over) = arguments.first().and_then(reference_target) else {
+        let Some(over) = arguments
+            .first()
+            .and_then(super::structural::typed_reference)
+        else {
             continue;
         };
         let Some((_, over_node)) = node_at(&over, nodes, index) else {
@@ -1254,7 +1257,8 @@ fn aggregate<'d>(
         return Err(malformed(at.clone()));
     }
     value
-        .items()
+        .get("members")
+        .and_then(TermNode::items)
         .ok_or_else(|| malformed(at.clone().key("members")))
 }
 

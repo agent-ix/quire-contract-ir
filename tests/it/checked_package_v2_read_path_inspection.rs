@@ -456,3 +456,95 @@ fn implicit_drop_and_overloaded_operators_cannot_escape_reachability() {
         );
     }
 }
+
+/// A local binding shadows a same-named function; callbacks cannot silently
+/// disappear merely because they have no locally declared method name.
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn function_pointer_shadowing_and_escaped_callbacks_remain_proof_edges() {
+    let graph = root_graph::Graph::from_source(
+        r#"
+        fn callback() { let _ = serde_json::from_slice::<()>(b"{}"); }
+        fn shadowed(callback: fn()) { callback(); }
+        fn escaped() { external::invoke(callback); }
+        fn direct() { callback(); }
+        fn clean() {}
+    "#,
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["shadowed"]);
+    assert!(
+        hits.is_empty(),
+        "the lexical parameter is not the same-named function"
+    );
+    assert!(
+        unresolved
+            .iter()
+            .any(|edge| edge.contains("lexical callable callback")),
+        "{unresolved:?}"
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["escaped"]);
+    assert!(
+        hits.is_empty(),
+        "escaping a function does not prove it was invoked"
+    );
+    assert!(
+        unresolved
+            .iter()
+            .any(|edge| edge.contains("function value callback")),
+        "{unresolved:?}"
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["direct"]);
+    assert!(
+        hits.iter().any(|hit| hit.starts_with("callback:")),
+        "{hits:?}"
+    );
+    assert!(
+        unresolved.is_empty(),
+        "a direct call resolves: {unresolved:?}"
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["clean"]);
+    assert!(hits.is_empty() && unresolved.is_empty());
+}
+
+/// Block-local function names are hoisted and must not resolve to a same-named
+/// module helper, even when the declaration follows the call.
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn block_local_functions_do_not_reach_unrelated_module_helpers() {
+    let graph = root_graph::Graph::from_source(
+        r#"
+        fn helper() { let _ = serde_json::from_slice::<()>(b"{}"); }
+        fn read() { helper(); fn helper() {} }
+    "#,
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["read"]);
+    assert!(hits.is_empty(), "the module helper is shadowed: {hits:?}");
+    assert!(
+        unresolved.is_empty(),
+        "the block-local helper resolves: {unresolved:?}"
+    );
+}
+
+/// Mutually visible block-local declarations keep their own scope when their
+/// bodies are visited; an outer same-named function is unrelated.
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn block_local_sibling_calls_resolve_in_the_declaring_scope() {
+    let graph = root_graph::Graph::from_source(
+        r#"
+        fn second() {}
+        fn read() {
+            first();
+            fn first() { second(); }
+            fn second() { let _ = serde_json::from_slice::<()>(b"{}"); }
+        }
+    "#,
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["read"]);
+    assert!(unresolved.is_empty(), "{unresolved:?}");
+    assert!(
+        hits.iter()
+            .any(|hit| hit.starts_with("read::__block_0::second:")),
+        "{hits:?}"
+    );
+}

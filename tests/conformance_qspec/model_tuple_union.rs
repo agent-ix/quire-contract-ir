@@ -16,6 +16,11 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
 
+#[path = "../it/support/qspec_tuple_inputs.rs"]
+mod inputs;
+pub(super) use inputs::apply_wire_patch;
+use inputs::selected_evidence;
+
 fn selected_document(proposal: &Path) -> Value {
     let documents = super::vector_selected_documents(proposal).expect("selected documents");
     read_json(&proposal.join(super::positive_document(
@@ -27,7 +32,7 @@ fn selected_document(proposal: &Path) -> Value {
 
 fn read_selected_variant_package(package: &Value, document: &Value) -> Box<CheckedPackageV2> {
     let evidence = selected_evidence(document);
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &super::fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -35,20 +40,6 @@ fn read_selected_variant_package(package: &Value, document: &Value) -> Box<Check
         CheckedPackageV2ReadResult::Admitted(package) => package,
         result => panic!("selected model package must admit: {result:?}"),
     }
-}
-
-fn selected_evidence(document: &Value) -> CheckedPackageEvidence {
-    let mut evidence = CheckedPackageEvidence::new();
-    evidence
-        .insert_domain_package_document(
-            document["package"]["identity"]
-                .as_str()
-                .expect("document identity"),
-            super::fixture_support::canonical(document),
-        )
-        .expect("selected document evidence");
-    evidence.support_feature("quire.value.complete/v1");
-    evidence
 }
 
 fn variant_node(package: &Value, identity: &str) -> (usize, CheckedNodeId) {
@@ -514,39 +505,6 @@ fn assert_tk36_resolved(
 
 /// Apply one published RFC 6902 operation. The vector's patch is the source of
 /// both the mutation and its expected package identity.
-pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
-    // Published patches address the wire: operand rows and operand slots.
-    super::fixture_support::wire_operands(package);
-    let path = patch["path"].as_str().expect("published patch path");
-    let (parent, member) = path.rsplit_once('/').expect("patch member");
-    let target = package.pointer_mut(parent).expect("published patch parent");
-    let operation = patch["op"].as_str().expect("published patch operation");
-    match (operation, target) {
-        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
-        ("replace", Value::Object(map)) => {
-            *map.get_mut(member).expect("published replacement target") = patch["value"].clone();
-        }
-        ("replace", Value::Array(items)) => {
-            let index = member.parse::<usize>().expect("published array index");
-            *items.get_mut(index).expect("published replacement target") = patch["value"].clone();
-        }
-        ("add", Value::Object(map)) => {
-            assert!(map
-                .insert(member.to_owned(), patch["value"].clone())
-                .is_none());
-        }
-        ("remove", Value::Object(map)) => {
-            assert!(map.remove(member).is_some(), "published removal target");
-        }
-        ("remove", Value::Array(items)) => {
-            let index = member.parse::<usize>().expect("published array index");
-            assert!(index < items.len(), "published removal target");
-            items.remove(index);
-        }
-        _ => panic!("unsupported published patch {operation} at {path}"),
-    }
-}
-
 /// Replay every published wire row, including rows added after this test.
 #[trace("TC-048", "FR-069-AC-3", "FR-069-AC-5", "FR-069-AC-8")]
 #[test]
@@ -581,7 +539,7 @@ fn published_model_tuple_union_wire_cases_match_reader_refusals() {
         for patch in row["patch"].as_array().expect("published patch list") {
             apply_wire_patch(&mut package, patch);
         }
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &super::fixture_support::canonical(&package),
             CheckedPackageReadLimits::bounded(),
             &evidence,
@@ -880,7 +838,7 @@ fn published_model_tuple_union_intake_cases_refuse_at_exact_member() {
             )
             .expect("selected document evidence");
         evidence.support_feature("quire.value.complete/v1");
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &super::fixture_support::canonical(&package),
             CheckedPackageReadLimits::bounded(),
             &evidence,
@@ -1152,7 +1110,7 @@ fn duration_projection_control(scenario: DurationCase) {
         .expect("selected evidence");
     evidence.support_feature("quire.value.complete/v1");
     let expected_locus = package["semantic_graph"]["nodes"][11]["node_id"].clone();
-    let read = CheckedPackageV2::read(
+    let read = crate::read_and_account(
         &super::fixture_support::canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -1358,7 +1316,7 @@ fn combined_tuple_and_variant_defects_keep_published_intake_order() {
             )
             .expect("selected document evidence");
         evidence.support_feature("quire.value.complete/v1");
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &super::fixture_support::canonical(&package),
             CheckedPackageReadLimits::bounded(),
             &evidence,
@@ -1412,7 +1370,7 @@ fn published_model_tuple_union_fixture_admits() {
         )
         .expect("selected document evidence");
     evidence.support_feature("quire.value.complete/v1");
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &super::fixture_support::canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -1629,7 +1587,7 @@ fn published_tuple_union_typed_writer_round_trips() {
     assert_eq!(encoded, super::fixture_support::canonical(&package));
     let evidence = selected_evidence(&document);
     let reread =
-        match CheckedPackageV2::read(&encoded, CheckedPackageReadLimits::bounded(), &evidence) {
+        match crate::read_and_account(&encoded, CheckedPackageReadLimits::bounded(), &evidence) {
             CheckedPackageV2ReadResult::Admitted(value) => value,
             other => panic!("typed tuple and union readback: {other:?}"),
         };
@@ -1664,7 +1622,7 @@ fn published_tuple_union_typed_writer_round_trips() {
     ] {
         let mut malformed = package.clone();
         malformed["semantic_graph"]["nodes"][1]["node_id"] = invalid;
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &super::fixture_support::canonical(&malformed),
             CheckedPackageReadLimits::bounded(),
             &evidence,
@@ -1720,7 +1678,7 @@ fn unsupported_selected_variant_payloads_refuse_at_document_member() {
             )
             .expect("selected document evidence");
         evidence.support_feature("quire.value.complete/v1");
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &super::fixture_support::canonical(&package),
             CheckedPackageReadLimits::bounded(),
             &evidence,
@@ -1841,7 +1799,7 @@ fn published_tuple_positions_execute_the_reader_application_join() {
         }
         nodes.push(application);
         super::fixture_support::settle(&mut package);
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &super::fixture_support::canonical(&package),
             CheckedPackageReadLimits::bounded(),
             &selected_evidence(&document),
@@ -1989,7 +1947,7 @@ fn published_tuple_positions_execute_the_reader_application_join() {
         let application_position = nodes.len();
         nodes.push(application);
         super::fixture_support::settle(&mut package);
-        let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+        let CheckedPackageV2ReadResult::Refused(refusal) = crate::read_and_account(
             &super::fixture_support::canonical(&package),
             CheckedPackageReadLimits::bounded(),
             &selected_evidence(&document),

@@ -78,7 +78,7 @@ impl<'a> Path<'a> {
         self
     }
 
-    fn steps(&self) -> &[Step<'a>] {
+    pub(super) fn steps(&self) -> &[Step<'a>] {
         &self.steps[..self.len]
     }
 
@@ -217,6 +217,8 @@ fn build_trail_pointer(trail: &Trail<'_>) -> JsonPointer {
 pub(super) enum Position<'a> {
     Path(Path<'a>),
     Trail(Trail<'a>),
+    /// A path already recorded during the charged reference walk.
+    Recorded(&'a JsonPointer),
 }
 
 impl<'a> From<Path<'a>> for Position<'a> {
@@ -237,6 +239,7 @@ impl Position<'_> {
         match self {
             Self::Path(path) => path.pointer_len(),
             Self::Trail(trail) => trail_pointer_len(trail),
+            Self::Recorded(pointer) => pointer.as_str().len(),
         }
     }
 
@@ -246,6 +249,7 @@ impl Position<'_> {
         match self {
             Self::Path(path) => path.build(),
             Self::Trail(trail) => build_trail_pointer(trail),
+            Self::Recorded(pointer) => (*pointer).clone(),
         }
     }
 }
@@ -985,4 +989,21 @@ mod tests {
         });
         assert_eq!(measured.bytes_total, budget.read_storage_consumed());
     }
+}
+
+/// Pays the boxed byte-stream refusal before constructing it, without a path.
+pub(super) fn refuse_bytes(
+    meter: &mut WorkMeter<'_>,
+    site: &Site<'_>,
+    code: CheckedPackageRefusalCode,
+) -> ValidationFailure {
+    if let Err(stop) = diagnostic(
+        meter,
+        site,
+        size_of::<CheckedPackageRefusal>() + size_of::<CheckedPackageRefusalLocation>(),
+        CheckedPackagePendingOutcome::Refused(code),
+    ) {
+        return stop;
+    }
+    ValidationFailure::refused_bytes(code)
 }

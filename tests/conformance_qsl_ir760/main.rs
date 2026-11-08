@@ -12,3 +12,24 @@ mod support;
 
 #[path = "../it/selected_population.rs"]
 mod selected_population;
+
+#[path = "../it/support/qspec_read_proof.rs"]
+mod qspec_read_proof;
+use qspec_read_proof::read_and_account;
+
+fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
+    allocation_counter::measure(read).bytes_total
+}
+
+fn without_qspec_instrumentation<T>(operation: impl FnOnce() -> T) -> T {
+    let mut result = None;
+    allocation_counter::opt_out(|| {
+        result = Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            operation,
+        )));
+    });
+    match result.expect("instrumentation runs once") {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
