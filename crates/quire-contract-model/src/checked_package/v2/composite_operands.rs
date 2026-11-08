@@ -1130,6 +1130,7 @@ fn closed_narrow(
             super::ExpressionForm::Conversion,
         ))
         || *operator != super::ApplicationOperator::Convert
+        || record.malformed.is_some()
         || !record.laws.is_empty()
         || !record.leaves.is_empty()
         || record.mode.is_some()

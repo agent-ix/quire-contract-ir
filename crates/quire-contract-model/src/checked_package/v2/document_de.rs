@@ -572,8 +572,16 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
     ) -> Result<V::Value, Error> {
         if name == super::typed_terms::OPERATION_TOKEN {
             let context = self.context;
-            let mut record =
-                super::typed_terms::CheckedApplicationOperationRecord::deserialize(self)?;
+            let mut record = if super::typed_terms::CheckedApplicationOperationRecord::wire_shape(
+                super::TermNode::from_ref(self.node),
+            ) {
+                super::typed_terms::CheckedApplicationOperationRecord::deserialize(self)?
+            } else {
+                super::typed_terms::CheckedApplicationOperationRecord::malformed(CheckedJson::new(
+                    Arc::clone(context.document),
+                    self.node.id(),
+                ))
+            };
             record.decode_member_ids(context);
             let point = if record.identity.as_deref() == Some("quire.op.state.clause") {
                 record.member.as_ref().and_then(|member| {

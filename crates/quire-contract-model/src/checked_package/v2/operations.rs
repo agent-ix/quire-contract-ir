@@ -1263,6 +1263,12 @@ fn operation_defect(
     else {
         return Ok(None);
     };
+    if operation_value.record().malformed.is_some() {
+        return Ok(Some(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            application.body(&["operation"]),
+        )));
+    }
     let Some(operation) = OperationWire::from_record(operation_value.record(), meter)? else {
         return Ok(Some(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
