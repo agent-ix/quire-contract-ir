@@ -4137,10 +4137,15 @@ fn check_place_presence(
         if option {
             return Ok(false);
         }
-        return Err(application.refuse(
+        return Err(application.refuse_read(
             CheckedPackageRefusalCode::IllTyped,
-            application.body(&["arguments"]).index(0),
+            application
+                .read_node()
+                .key("body")
+                .key("arguments")
+                .index(0),
             CheckedPackageRefusalCause::OperatorIneligible,
+            meter,
         ));
     };
     let Some(place_body) = graph.terms.get(place).and_then(Option::as_ref) else {
@@ -4149,12 +4154,17 @@ fn check_place_presence(
     let Some((model, selectors)) = super::timed_model::place_template(place_body) else {
         return Ok(false);
     };
-    meter.charge(units(selectors.len()), || application.body(&["arguments"]))?;
+    work_at_path(
+        meter,
+        &OperationPath::Read(application.read_node().key("body").key("arguments")),
+        units(selectors.len()),
+    )?;
     if arguments.len() != selectors.len() + 2 {
-        return Err(application.refuse(
+        return Err(application.refuse_read(
             CheckedPackageRefusalCode::IllTyped,
-            application.body(&["arguments"]),
+            application.read_node().key("body").key("arguments"),
             CheckedPackageRefusalCause::OperatorIneligible,
+            meter,
         ));
     }
     let result_type = graph
@@ -4169,31 +4179,42 @@ fn check_place_presence(
         .and_then(|id| graph.index.get(id).copied())
         .and_then(|position| graph.kinds.get(position))
         != Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
-        || result_type != Some(&application.node.semantic_type)
+        || !same_key(result_type, &application.node.semantic_type, meter)?
     {
-        return Err(application.refuse(
+        return Err(application.refuse_read(
             CheckedPackageRefusalCode::IllTyped,
-            application.body(&["result_type"]),
+            application.read_node().key("body").key("result_type"),
             CheckedPackageRefusalCause::OperatorIneligible,
+            meter,
         ));
     }
     let owner_type = presence_value_type(&arguments[1], graph)
         .and_then(|type_id| reference_target(type_id, graph).or(Some(type_id)));
-    if owner_type != Some(model) {
-        return Err(application.refuse(
+    if !same_key(owner_type, model, meter)? {
+        return Err(application.refuse_read(
             CheckedPackageRefusalCode::IllTyped,
-            application.body(&["arguments"]).index(1),
+            application
+                .read_node()
+                .key("body")
+                .key("arguments")
+                .index(1),
             CheckedPackageRefusalCause::TypeMismatch,
+            meter,
         ));
     }
     for (offset, selector) in selectors.iter().enumerate() {
         let argument_index = offset + 2;
         let actual = presence_value_type(&arguments[argument_index], graph);
-        if actual != Some(selector) {
-            return Err(application.refuse(
+        if !same_key(actual, selector, meter)? {
+            return Err(application.refuse_read(
                 CheckedPackageRefusalCode::IllTyped,
-                application.body(&["arguments"]).index(argument_index),
+                application
+                    .read_node()
+                    .key("body")
+                    .key("arguments")
+                    .index(argument_index),
                 CheckedPackageRefusalCause::TypeMismatch,
+                meter,
             ));
         }
     }
@@ -5822,6 +5843,62 @@ mod tests {
     };
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn presence_refusal_prepays_the_pointer_and_owned_node_locus() {
+        let id = super::super::test_support::id('a');
+        let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
+            "node_tag":"expression","semantic_form":"query","semantic_type":id,
+            "dependencies":[],"occurrences":[{"role":"expression","ordinal":0}],
+            "body":{"term":"aggregate","members":[]}
+        }))
+        .expect("typed metadata fixture");
+        let application = Application {
+            node: &node,
+            position: 13,
+        };
+        let run = |limit| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                outcome = Some(
+                    application.refuse_read(
+                        CheckedPackageRefusalCode::IllTyped,
+                        application
+                            .read_node()
+                            .key("body")
+                            .key("arguments")
+                            .index(3),
+                        CheckedPackageRefusalCause::TypeMismatch,
+                        &mut meter,
+                    ),
+                );
+            });
+            (outcome.expect("ran"), measured.bytes_total, budget)
+        };
+        let (refused, allocated, budget) = run(u64::MAX);
+        let charged = budget.read_storage_consumed();
+        assert_eq!(allocated, charged);
+        assert!(matches!(&refused, ValidationFailure::Refused(failure)
+            if failure.code == CheckedPackageRefusalCode::IllTyped
+                && failure.cause == Some(CheckedPackageRefusalCause::TypeMismatch)
+                && failure.primary_path().is_some_and(|path| path.as_str() == "/semantic_graph/nodes/13/body/arguments/3")
+                && failure.locus.as_ref() == Some(&node.node_id)));
+        let (exact, allocated, budget) = run(charged);
+        assert_eq!(exact, refused);
+        assert_eq!(allocated, budget.read_storage_consumed());
+        let (short, allocated, budget) = run(charged - 1);
+        assert!(matches!(short, ValidationFailure::Budget(_)));
+        assert_eq!((allocated, budget.read_storage_consumed()), (0, 0));
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some(u128::from(charged))
+        );
+    }
 
     fn edit_body(node: &mut CheckedSemanticNodeV2, edit: impl FnOnce(&mut Value)) {
         let mut body = node.body.to_value();
