@@ -637,7 +637,7 @@ fn selected_source_record_requires_complete_ordered_producer_rows() {
 }
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -742,7 +742,7 @@ fn read_with_selected_model(
     document: &Value,
 ) -> CheckedPackageV2ReadResult {
     let evidence = evidence_with_document(package, identity, document);
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -1501,7 +1501,7 @@ fn tc_229_qspec_published_population_binding_fixture_admits() {
 
     let mut missing = CheckedPackageEvidence::new();
     missing.support_feature(crate::support::checked_package::COMPLETE_VALUE_FEATURE);
-    let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Refused(refusal) = crate::read_and_account(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &missing,
@@ -2346,7 +2346,7 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
     for work in 0..4096 {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
-        let outcome = CheckedPackageV2::read(&bytes, limits, &evidence);
+        let outcome = crate::read_and_account(&bytes, limits, &evidence);
         let CheckedPackageV2ReadResult::Incomplete(incomplete) = outcome else {
             continue;
         };
@@ -2357,7 +2357,7 @@ fn tc_228_one_model_owner_lookup_consumes_one_validation_visit() {
         {
             assert_eq!(incomplete.consumed, work + 1);
             limits.work = work + 1;
-            let next = CheckedPackageV2::read(&bytes, limits, &evidence);
+            let next = crate::read_and_account(&bytes, limits, &evidence);
             // The next visit is independent of the selected-document lookup.
             assert!(
                 !matches!(next, CheckedPackageV2ReadResult::Incomplete(ref later)
@@ -2596,7 +2596,7 @@ fn native_source_family_fixture_with_authority(
         || evidence_for(&wire),
         |document| evidence_with_document(&wire, "acme/orders", document),
     );
-    let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(package) = crate::read_and_account(
         &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &evidence,

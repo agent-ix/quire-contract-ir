@@ -9,9 +9,9 @@ use super::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2,
-    CompleteLoweringRecordV2, ContractDependencies, ContractDependencyInput,
-    ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
+    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
+    ContractDependencies, ContractDependencyInput, ContractPackageReadResult,
+    ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
 };
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -44,7 +44,7 @@ fn without_dependency(package: &Value) -> CheckedPackageV2ReadResult {
     {
         evidence.support_feature(feature.as_str().expect("feature"));
     }
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &crate::fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,

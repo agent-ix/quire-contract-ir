@@ -169,7 +169,7 @@ fn read(wire: &Value, imports: &[(&str, Arc<CheckedPackageV2>)]) -> CheckedPacka
             .insert_dependency_package(*name, Arc::clone(dependency))
             .expect("distinct dependency names");
     }
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &crate::fixture_support::canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &evidence,

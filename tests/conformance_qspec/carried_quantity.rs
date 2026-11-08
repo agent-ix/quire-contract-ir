@@ -493,7 +493,7 @@ impl Package {
             })
             .collect::<Vec<_>>();
         self.wire["source_map"] = json!(entries);
-        CheckedPackageV2::read(
+        crate::read_and_account(
             &canonical(&self.wire),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&self.wire),

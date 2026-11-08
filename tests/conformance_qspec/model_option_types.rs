@@ -5,7 +5,7 @@ use super::{fixture_support as fixture, fixtures_dir, proposal_dir_of, read_json
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCollectionKind, CheckedMemberType, CheckedNodeId, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,7 +21,7 @@ use inputs::{apply, document, model_id, Input};
 
 fn read(input: &Input) -> CheckedPackageV2ReadResult {
     let (package, evidence) = inputs::prepare(input);
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &fixture::canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence,

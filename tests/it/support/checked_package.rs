@@ -188,7 +188,7 @@ pub fn all_families_read_work() -> u64 {
         let mid = lo + (hi - lo) / 2;
         let mut limits = bounded;
         limits.work = mid;
-        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+        match crate::read_and_account(&bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Admitted(_) => hi = mid,
             _ => lo = mid,
         }
@@ -723,7 +723,7 @@ pub fn evidence_with_document(
 
 /// Reads `package` with only its own evidence.
 fn read_admitting(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -749,7 +749,7 @@ pub fn read_with_dependencies(
             .insert_dependency_package(*identity, (*dependency).clone())
             .expect("dependency evidence declarations agree on admitted content");
     }
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,

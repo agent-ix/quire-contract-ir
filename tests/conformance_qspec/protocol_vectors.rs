@@ -8,9 +8,7 @@ use super::{
     DOMAIN_DOCUMENT,
 };
 use ix_trace_rs::trace;
-use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
-};
+use quire_contract_model::{CheckedPackageReadLimits, CheckedPackageV2ReadResult};
 use serde_json::{json, Value};
 
 fn vector(id: &str) -> Value {
@@ -26,7 +24,7 @@ fn vector(id: &str) -> Value {
 }
 
 fn read_authored(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &fixture_support::evidence_for(package),
@@ -380,7 +378,7 @@ fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
         assert_eq!(row["test_case"], "TC-947");
         let (base, document, role) = fixture_support::protocol_ports::role_port_fixture();
         let read = |package: &Value| {
-            CheckedPackageV2::read(
+            crate::read_and_account(
                 &fixture_support::canonical(package),
                 CheckedPackageReadLimits::bounded(),
                 &fixture_support::evidence_with_document(package, "test/families", &document),

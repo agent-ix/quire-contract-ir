@@ -1130,3 +1130,120 @@ fn repeated_reads_preserve_the_callers_storage_delta_with_the_integration_counte
     let value = v2_all_families();
     proof::shared_budget_reads::<IntegrationCounter>(&canonical(&value), &evidence_for(&value));
 }
+
+/// Instrumentation returns the original structural and finite-work outcomes;
+/// it never substitutes generous limits before the driver's oracle sees them.
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[test]
+fn original_read_boundary_preserves_structural_and_work_limits() {
+    let wire = v2_all_families();
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let mut limits = quire_contract_model::CheckedPackageReadLimits::bounded();
+    limits.bytes = 0;
+    let CheckedPackageV2ReadResult::Incomplete(bytes_stop) =
+        crate::read_and_account(&bytes, limits, &evidence)
+    else {
+        panic!("the original byte cap must remain observable");
+    };
+    assert_eq!(
+        bytes_stop.limit_kind,
+        quire_contract_model::CheckedPackageLimit::Bytes
+    );
+    assert_eq!(bytes_stop.limit, 0);
+    assert_eq!(
+        bytes_stop.consumed,
+        u64::try_from(bytes.len()).expect("fixture byte count")
+    );
+
+    limits = quire_contract_model::CheckedPackageReadLimits::bounded();
+    limits.work = 0;
+    let CheckedPackageV2ReadResult::Incomplete(work_stop) =
+        crate::read_and_account(&bytes, limits, &evidence)
+    else {
+        panic!("the original zero work cap must remain observable");
+    };
+    assert_eq!(
+        work_stop.limit_kind,
+        quire_contract_model::CheckedPackageLimit::Work
+    );
+    assert_eq!(work_stop.limit, 0);
+    assert!(
+        work_stop.consumed > 0,
+        "the first attempted work charge is retained"
+    );
+
+    let CheckedPackageV2ReadResult::Refused(malformed) = crate::read_and_account(
+        b"not json",
+        quire_contract_model::CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) else {
+        panic!("a malformed original byte stream must refuse");
+    };
+    assert_eq!(malformed.code, Code::MalformedWire);
+}
+
+/// The proof's extra reads and logging must not change an original driver's
+/// enclosing allocation oracle: it still observes precisely one public read.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn original_enclosing_allocator_observes_only_its_original_read() {
+    let wire = v2_all_families();
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let limits = quire_contract_model::CheckedPackageReadLimits::bounded();
+    let mut wrapped = None;
+    let accounted = allocation_counter::measure(|| {
+        wrapped = Some(crate::read_and_account(&bytes, limits, &evidence));
+    });
+    let mut original = None;
+    let ordinary = allocation_counter::measure(|| {
+        original = Some(CheckedPackageV2::read(&bytes, limits, &evidence));
+    });
+    assert_eq!(
+        wrapped, original,
+        "the original semantic oracle sees the same result"
+    );
+    assert_eq!(
+        accounted.count_total, ordinary.count_total,
+        "no extra caller allocations"
+    );
+    assert_eq!(
+        accounted.bytes_total, ordinary.bytes_total,
+        "no extra caller requested bytes"
+    );
+    assert_eq!(
+        accounted.count_current, ordinary.count_current,
+        "no cross-thread proof drops charged to caller"
+    );
+    assert_eq!(
+        accounted.bytes_current, ordinary.bytes_current,
+        "only original returned storage remains"
+    );
+    assert_eq!(
+        accounted.bytes_max, ordinary.bytes_max,
+        "the original peak oracle is preserved"
+    );
+    let wrapped_drop = allocation_counter::measure(|| {
+        drop(crate::read_and_account(&bytes, limits, &evidence));
+    });
+    let ordinary_drop = allocation_counter::measure(|| {
+        drop(CheckedPackageV2::read(&bytes, limits, &evidence));
+    });
+    assert_eq!(
+        wrapped_drop.bytes_total, ordinary_drop.bytes_total,
+        "result drop included: original requested bytes preserved"
+    );
+    assert_eq!(
+        wrapped_drop.count_total, ordinary_drop.count_total,
+        "result drop included: original allocation count preserved"
+    );
+    assert_eq!(
+        wrapped_drop.bytes_current, ordinary_drop.bytes_current,
+        "result drop included: original retained bytes preserved"
+    );
+    assert_eq!(
+        wrapped_drop.count_current, ordinary_drop.count_current,
+        "result drop included: original retained allocation count preserved"
+    );
+}

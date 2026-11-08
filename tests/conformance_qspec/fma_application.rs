@@ -6,8 +6,7 @@
 use super::{cause_word, code_word, fixture_support, fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    ApplicationOperator, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
-    CheckedTerm,
+    ApplicationOperator, CheckedPackageReadLimits, CheckedPackageV2ReadResult, CheckedTerm,
 };
 use std::collections::BTreeSet;
 
@@ -27,7 +26,7 @@ fn tc_048_fma_applications_follow_published_qspec_cases() {
         let id = case["id"].as_str().expect("case id");
         assert!(seen.insert(id), "duplicate {id}");
         let (package, position) = package_for(case);
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &fixture_support::canonical(&package),
             CheckedPackageReadLimits::bounded(),
             &fixture_support::evidence_for(&package),
