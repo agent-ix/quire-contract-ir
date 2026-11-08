@@ -21,6 +21,7 @@ use syn::visit::{self, Visit};
 const READ_PATH: &[&str] = &[
     "budgeted_read.rs",
     "read_charge.rs",
+    "graph_storage.rs",
     "checked_json.rs",
     "document_de.rs",
     "raw_body.rs",
