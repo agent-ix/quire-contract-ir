@@ -170,7 +170,11 @@ impl CheckedApplicationOperationRecord {
             };
             match CheckedNodeId::deserialize(value) {
                 Ok(id) if id.is_well_formed() => Ok(Some(id)),
-                Ok(_) | Err(super::document_de::Error::Decode(_)) => Ok(None),
+                Ok(_)
+                | Err(
+                    super::document_de::Error::Invalid
+                    | super::document_de::Error::UnknownMember,
+                ) => Ok(None),
                 Err(error @ super::document_de::Error::Denied) => Err(error),
             }
         };
@@ -2962,9 +2966,22 @@ impl CheckedTerm {
                 value_kind: field(wire, TermField::ValueKind)?,
                 value: field(wire, TermField::Value)?,
             }),
-            TermTag::Known(BodyTerm::Reference) => Ok(Self::Reference {
-                target: field(wire, TermField::Target)?,
-            }),
+            TermTag::Known(BodyTerm::Reference) => {
+                let target = field(wire, TermField::Target)?;
+                if wire
+                    .object()
+                    .is_some_and(|object| !crate::checked_package::common::exact_members(
+                        object,
+                        &["term", "target"],
+                    ))
+                {
+                    return Err(TermConversionCause::MalformedMember {
+                        member: "members",
+                        category: Category::Data,
+                    });
+                }
+                Ok(Self::Reference { target })
+            }
             TermTag::Known(BodyTerm::Application) => Ok(Self::Application {
                 operator: field(wire, TermField::Operator)?,
                 operation: field(wire, TermField::Operation)?,
@@ -3973,6 +3990,17 @@ mod tests {
                 json!({"term":"reference","target":0}),
                 TermConversionCause::MalformedMember {
                     member: "target",
+                    category: Category::Data,
+                },
+            ),
+            (
+                json!({
+                    "term":"reference",
+                    "target":{"package":"p","path":["n"],"ordinal":0},
+                    "members":[]
+                }),
+                TermConversionCause::MalformedMember {
+                    member: "members",
                     category: Category::Data,
                 },
             ),
