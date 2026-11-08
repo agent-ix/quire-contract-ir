@@ -43,11 +43,11 @@ mod frame;
 mod hybrid;
 mod identity;
 mod intake;
+mod lock_tables;
 mod lossless;
 mod lower;
 mod model_enum_witness;
 mod model_fields;
-mod lock_tables;
 mod model_members;
 mod model_population_catalog;
 mod model_root;
@@ -4129,9 +4129,7 @@ mod tests {
             ),
         ];
         for (rows, expected) in invalid {
-            let Err(ValidationFailure::Refused(refusal)) =
-                refinement_internals(Some(&rows))
-            else {
+            let Err(ValidationFailure::Refused(refusal)) = refinement_internals(Some(&rows)) else {
                 panic!("expected lock refusal");
             };
             assert_eq!(refusal.code, expected);
@@ -4167,9 +4165,8 @@ mod tests {
             refinement: refinement.into(),
             internal: internal.iter().map(|name| (*name).into()).collect(),
         };
-        let repeated_row =
-            refinement_internals(Some(&[row("R", &["a"]), row("R", &["b"])]))
-                .expect_err("repeated refinement");
+        let repeated_row = refinement_internals(Some(&[row("R", &["a"]), row("R", &["b"])]))
+            .expect_err("repeated refinement");
         assert_eq!(
             paths(repeated_row),
             [
@@ -4179,9 +4176,8 @@ mod tests {
             .map(str::to_owned)
             .to_vec()
         );
-        let repeated_spelling =
-            refinement_internals(Some(&[row("R", &["a", "a"])]))
-                .expect_err("repeated internal spelling");
+        let repeated_spelling = refinement_internals(Some(&[row("R", &["a", "a"])]))
+            .expect_err("repeated internal spelling");
         assert_eq!(
             paths(repeated_spelling),
             [
@@ -4209,8 +4205,8 @@ mod tests {
             .map(str::to_owned)
             .to_vec()
         );
-        let one_location = refinement_internals(Some(&[row("R", &[])]))
-            .expect_err("empty internal list");
+        let one_location =
+            refinement_internals(Some(&[row("R", &[])])).expect_err("empty internal list");
         assert_eq!(
             paths(one_location),
             ["/lock/refinement_internals/0"].map(str::to_owned).to_vec()
