@@ -16,11 +16,10 @@ quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main"
 quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main" }
 quire-observation = { git = "https://github.com/agent-ix/quire-observation", branch = "main" }
 serde_json = "1"
-# STACK: drop the branch override when QSL #2489 (IR-1383) merges.
-qsl-analyze = { git = "https://github.com/agent-ix/quire-spec-language", branch = "peter/IR-1383-plan-authority" }
-qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "peter/IR-1383-plan-authority" }
-qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "peter/IR-1383-plan-authority" }
-qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "peter/IR-1383-plan-authority" }
+qsl-analyze = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 
 # The producer and the consumer must share this checkout's model crate.
 [patch."https://github.com/agent-ix/quire-contract-ir"]
