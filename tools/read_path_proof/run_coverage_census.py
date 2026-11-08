@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import time
 
 import coverage_census as census
@@ -263,23 +264,38 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
                    LLVM_PROFILE_FILE=str(profiles / "driver-%p-%m.profraw"))
     # Exact one-test processes give custom/scoped reader threads an unambiguous
     # original test identity and retain first-read startup as observable work.
-    command = LOCKED + [str(binary), "--exact", name, "--test-threads=1", "--nocapture"]
+    marker=output/"native-exec.json"
+    launch = ("import os,sys,time,json; "
+              "open(sys.argv[1],'w').write(json.dumps({'pid':os.getpid(),'started_monotonic':time.monotonic()})); "
+              "os.execv(sys.argv[2],sys.argv[2:])")
+    command = LOCKED + [sys.executable,"-c",launch,str(marker),str(binary),"--exact",name,"--test-threads=1","--nocapture"]
     start = time.monotonic()
+    native_start=None
     with (output / "run.log").open("w") as log_output:
         process = subprocess.Popen(command, cwd=args.repo, env=run_env,
                                    stdout=log_output, stderr=subprocess.STDOUT)
         timed_out = False
         timeout = getattr(args, "test_timeout_seconds", None)
-        try:
-            code = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            process.terminate()
-            try:
-                code = process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                code = process.wait()
+        while process.poll() is None:
+            if native_start is None and marker.exists():
+                try:
+                    acquired=json.loads(marker.read_text())
+                except json.JSONDecodeError:
+                    acquired=None
+                if acquired is not None:
+                    if acquired["pid"]!=process.pid:
+                        raise RunError("lock exec chain changed the tested process identity")
+                    native_start=acquired["started_monotonic"]
+            if timeout is not None and native_start is not None and time.monotonic()-native_start>=timeout:
+                timed_out=True
+                process.terminate()
+                try: process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill();process.wait()
+                break
+            try:process.wait(timeout=0.1)
+            except subprocess.TimeoutExpired:pass
+        code=process.returncode
         pid = process.pid
     if timed_out:
         write_json(output / "timeout.json", {"pid":pid,"test":name,"timeout_seconds":timeout,
@@ -295,6 +311,8 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
     report = {"intended_tests": [name], **outcomes, "exit_code": code, "test_threads": 1,
               "command": command, "pid": pid, "elapsed_seconds": time.monotonic() - start,
               "timeout_seconds": timeout, "timed_out": timed_out,
+              "native_started":native_start is not None,
+              "lock_wait_seconds":(native_start-start) if native_start is not None else None,
               "source_head": config["source_head"]}
     write_json(output / "test-report.json", report)
     errors = list(parse_errors)
@@ -373,6 +391,118 @@ def run_original_corpus(args, binary, config, env, intended):
     return [result]
 
 
+
+def run_class_controls(args,binary,config,env,compiled_tests):
+    """Only per-class execution binding; not AC513 or general provider coverage."""
+    manifests=[]
+    for line in (args.out/"build.log").read_text().splitlines():
+        try: item=json.loads(line)
+        except ValueError: continue
+        if item.get("reason")=="compiler-artifact" and item.get("target",{}).get("name")=="quire_canonical":
+            manifests.append(Path(item["manifest_path"]))
+    if len(set(manifests))!=1: raise RunError("actual canonical dependency source identity missing/ambiguous")
+    source=manifests[0].parent/"src/read.rs"
+    completed={}; cases=[]
+    reused={}
+    if args.reuse_class_kernel:
+        previous=args.reuse_class_kernel.resolve()
+        old_config=json.loads((previous/"config.json").read_text())
+        # Only the kernel is reused: actual reader/model production fixes must
+        # always receive fresh whole-V2 runs. Preserve both cohort identities.
+        protected=["tests/read_storage_alloc.rs","tests/it/support/canonical_class_denial.rs","Cargo.toml","Cargo.lock"]
+        if git(args.repo,"diff",old_config["source_head"],config["source_head"],"--",*protected):
+            raise RunError("kernel source/counter/dependency selection changed; cannot reuse old kernel evidence")
+        if any(old_config.get(key)!=config.get(key) for key in ["rustc","llvm","features","environment"]):
+            raise RunError("kernel compiler/tool configuration changed; cannot reuse cohort")
+        old=json.loads((previous/"class-proof.json").read_text())
+        if Path(old["canonical_source"]).resolve()!=source.resolve():
+            raise RunError("canonical source instance changed; cannot reuse kernel cohort")
+        for item in old["classes"]:
+            for phase in ["allow","deny"]:
+                evidence=item.get("kernel_"+phase)
+                if evidence:reused["kernel_"+item["class"]+"_"+phase]=evidence
+        needed=["kernel_empty","negative_empty_string_is_not_text_growth","negative_empty_array_is_not_retained_children","negative_scratch_child_is_not_retained_children"]
+        for name in needed:
+            matches=[run for run in old["runs"] if run["test"]=="canonical_class_denial::"+name and run["rust_oracle_passed"]]
+            if len(matches)!=1:continue
+            directory=Path(matches[0]["directory"])
+            with gzip.open(directory/"coverage.json.gz","rt") as data:export=json.load(data)
+            facts=[json.loads(row) for row in (directory/"driver-sites.jsonl").read_text().splitlines() if row.strip()]
+            if len(facts)!=1:raise RunError("reused kernel fact record missing/ambiguous")
+            reused[name]={"facts":facts[0],"counts":census.canonical_path_counts(export,source),"directory":str(directory)}
+        config["kernel_evidence_reuse"]={"directory":str(previous),"source_head":old_config["source_head"],
+             "basis":"identical protected kernel/counter/Cargo sources and compiler configuration; canonical source instance unchanged"}
+        write_json(args.out/"config.json",config)
+    def execute(name,reference=None):
+        if name in reused:
+            result=dict(reused[name],reused_from_source=old_config["source_head"])
+            cases.append({"test":"canonical_class_denial::"+name,"directory":result["directory"],
+                          "rust_oracle_passed":True,"reused":True,"source_head":old_config["source_head"]})
+            return result
+        full="canonical_class_denial::"+name
+        if full not in compiled_tests: raise RunError("missing compiled class control "+full)
+        child=dict(env)
+        if reference: child["IR1404_CANONICAL_REFERENCE_LOG"]=str(reference)
+        output,report,profiles,records=execute_one(args,binary,config,child,full,len(cases),preserve_failure=True)
+        row={"test":full,"directory":str(output),"rust_oracle_passed":not report["evidence_errors"],"report":report}
+        cases.append(row)
+        if report["evidence_errors"]: return None
+        if len(records)!=1: raise RunError("class control must emit exactly one actual fact record")
+        export=merge_export(args,output,profiles,binary,env)
+        counts=census.canonical_path_counts(export,source)
+        archive_export(output)
+        result={"facts":records[0],"counts":counts,"directory":str(output)}
+        completed[name]=result
+        return result
+    kernel_empty=execute("kernel_empty")
+    whole_empty=execute("whole_empty")
+    classes=[]
+    for name in census.CANONICAL_CLASS_SITES:
+        allowed=execute("kernel_"+name+"_allow")
+        denied=execute("kernel_"+name+"_deny")
+        whole=execute("whole_"+name+"_allow")
+        reference=Path(whole["directory"])/"driver-sites.jsonl" if whole else None
+        short=execute("whole_"+name+"_deny",reference)
+        exact=execute("whole_"+name+"_exact",reference)
+        result={"class":name,"qualified":False,"kernel_allow":allowed,"kernel_deny":denied,
+                "whole_allow":whole,"whole_deny":short,"whole_exact":exact}
+        if denied:
+            try:
+                result["source_binding"]=census.bind_canonical_denial(name,denied["counts"],denied["facts"],source)
+                result["kernel_bound"]=True
+            except census.CensusError as error:result["binding_error"]=str(error)
+        if result.get("kernel_bound") and all(x is not None for x in (kernel_empty,whole_empty,allowed,denied,whole,short,exact)):
+            try:
+                for kernel,actual in ((allowed,whole),(denied,short)):
+                    for function in census.CANONICAL_PATH_FUNCTIONS:
+                        # Three whole reads: OFF/count/record. The identical
+                        # owned-catalog Parser instance cancels against empty.
+                        left=actual["counts"][function]-whole_empty["counts"][function]
+                        right=3*(kernel["counts"][function]-kernel_empty["counts"][function])
+                        if left!=right: raise census.CensusError("whole/package Parser instance contrast disagrees with kernel at "+function)
+                result["qualified"]=True
+            except census.CensusError as error:result["binding_error"]=str(error)
+        classes.append(result)
+    negatives=[]
+    for test,claim in [("negative_empty_string_is_not_text_growth","text"),
+                       ("negative_empty_array_is_not_retained_children","children"),
+                       ("negative_scratch_child_is_not_retained_children","children")]:
+        actual=execute(test)
+        row={"test":test,"claimed_class":claim,"rejected":False,"rust_oracle_passed":actual is not None}
+        if actual:
+            try:census.bind_canonical_denial(claim,actual["counts"],actual["facts"],source)
+            except census.CensusError as error:row.update(rejected=True,reason=str(error))
+        negatives.append(row)
+    qualified=census.canonical_classes_complete(classes,negatives)
+    result={"schema":"canonical-class-denial/v1","qualified":qualified,
+            "scope":"minimal canonical class-denial controls only; not positive/adverse corpus completeness or AC513",
+            "configuration":"config.json","canonical_source":str(source),"classes":classes,
+            "negative_controls":negatives,"runs":cases,"static_ac513_proven":False}
+    write_json(args.out/"class-proof.json",result)
+    if not qualified: raise RunError("class denial proof incomplete/RED; preserve individual run and binding results")
+    return [result]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, required=True)
@@ -382,6 +512,8 @@ def main():
     parser.add_argument("--llvm-bin", type=Path, required=True)
     parser.add_argument("--mode", choices=["sample", "full"], default="sample")
     parser.add_argument("--controls", action="store_true")
+    parser.add_argument("--class-controls",action="store_true")
+    parser.add_argument("--reuse-class-kernel",type=Path)
     parser.add_argument("--corpus", choices=["qspec", "tc048"], default="qspec")
     parser.add_argument("--features", action="append", default=[])
     parser.add_argument("--qspec-dir", type=Path, required=True)
@@ -428,20 +560,21 @@ def main():
                    CARGO=str(args.toolchain_bin / "cargo"), QUIRE_SPECIFICATION_DIR=str(args.qspec_dir))
         env["PATH"] = str(args.toolchain_bin) + os.pathsep + env["PATH"]
         config = {"source_head": git(args.repo, "rev-parse", "HEAD"), "rustc": rustc, "llvm": llvm,
-                  "mode": args.mode, "controls": args.controls, "corpus": args.corpus, "features": args.features,
+                  "mode": args.mode, "controls": args.controls, "class_controls":args.class_controls, "corpus": args.corpus, "features": args.features,
                   "test_timeout_seconds":args.test_timeout_seconds,
                   "qspec": {"path": str(args.qspec_dir), "head": git(args.qspec_dir, "rev-parse", "HEAD")},
                   "environment": safe_environment(env)}
-        target = ("read_entry_census_controls" if args.controls else
+        target = ("read_storage_alloc" if args.class_controls else "read_entry_census_controls" if args.controls else
                   "it" if args.corpus == "tc048" else "conformance_qspec")
         binary = build(args, target, env, config)
         intended = discover_tests(args, binary, env)
         if not args.controls and args.corpus == "tc048":
             intended = select_tc048(args, intended)
-        results = (run_controls(args, binary, config, env, intended) if args.controls
+        results = (run_class_controls(args,binary,config,env,intended) if args.class_controls else
+                   run_controls(args, binary, config, env, intended) if args.controls
                    else run_original_corpus(args, binary, config, env, intended))
         write_json(args.out / "result.json", {"passed": True, "results": results,
-                   "normative_boundary_proof": args.mode == "full" and not args.controls,
+                   "normative_boundary_proof": args.mode == "full" and not args.controls and not args.class_controls,
                    "static_ac513_proven": False})
     except (RunError, census.CensusError, OSError, ValueError, subprocess.CalledProcessError) as error:
         write_json(args.out / "result.json", {"passed": False, "error": str(error)})

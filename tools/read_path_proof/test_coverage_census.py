@@ -154,7 +154,12 @@ class DesignatedGrowthEvidence(unittest.TestCase):
                       "test": "actual::case", "driver": "actual.rs", "line": 17,
                       "designated_growth_case": {"test": "actual::case", "driver": "actual.rs", "line": 17,
                            "provider": "original_source_builder", "classes": {"actual_source_class": role}},
-                      "native_budget_events": events}
+                      "native_budget_events": events,
+                      "original_context_outcome":"budget-incomplete",
+                      "complete_reference":{"native_budget":"unlimited","outcome":"admitted",
+                        "prior_work":0,"prior_read_storage":0,"work":0,"read_storage":24,"requested":24,
+                        "logical_storage_delta":0,"exact_work_limit":0,"exact_read_storage_limit":24,
+                        "exact_outcome_equal":True,"exact_counts_equal":True,"complete_repeat_equal":True}}
             def result(i):
                 e = events[i]
                 return {"event_index": i, "exact_bound": (i+1)*8, "one_below_bound": (i+1)*8-1,
@@ -170,3 +175,40 @@ class DesignatedGrowthEvidence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CanonicalClassSafety(unittest.TestCase):
+    def source(self, directory):
+        source=Path(directory)/"read.rs"
+        source.write_text("impl Parser {\n"+"\n".join(" fn "+name+"() {}" for name in census.CANONICAL_PATH_FUNCTIONS)+"\n"+"\n".join(expr for _,expr in census.CANONICAL_CLASS_SITES.values())+"\n}")
+        return source
+
+    def test_empty_text_candidate_cannot_be_bound_by_positive_append_coverage(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            counts=dict.fromkeys(census.CANONICAL_PATH_FUNCTIONS,0)
+            counts.update(value=1,append=1,node=1)
+            with self.assertRaisesRegex(census.CensusError,"before-denial Parser path"):
+                census.bind_canonical_denial("text",counts,{"outcome":"reservation-denied","calls":1},self.source(directory))
+
+    def test_retained_children_require_actual_predecessors_and_close_before_parent_node(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            counts=dict.fromkeys(census.CANONICAL_PATH_FUNCTIONS,0)
+            counts.update(value=2,node=1,complete=1,close=1)
+            result=census.bind_canonical_denial("children",counts,{"outcome":"reservation-denied","calls":4},self.source(directory))
+            self.assertEqual(result["granted_predecessor_callbacks"],3)
+            for change in ({"close":0},{"node":2}):
+                bad=dict(counts,**change)
+                with self.assertRaises(census.CensusError):
+                    census.bind_canonical_denial("children",bad,{"outcome":"reservation-denied","calls":4},self.source(directory))
+
+    def test_completion_rejects_empty_omitted_unverified_or_unrun_negative_controls(self):
+        self.assertFalse(census.canonical_classes_complete([],[]))
+        classes=[{"class":name,"qualified":True} for name in census.CANONICAL_CLASS_SITES]
+        negatives=[{"test":name,"rejected":True,"rust_oracle_passed":True} for name in
+                   ["negative_empty_string_is_not_text_growth","negative_empty_array_is_not_retained_children","negative_scratch_child_is_not_retained_children"]]
+        self.assertTrue(census.canonical_classes_complete(classes,negatives))
+        self.assertFalse(census.canonical_classes_complete(classes[:-1],negatives))
+        self.assertFalse(census.canonical_classes_complete(classes,negatives[:-1]))
+        negatives[0]["rust_oracle_passed"]=False
+        self.assertFalse(census.canonical_classes_complete(classes,negatives))

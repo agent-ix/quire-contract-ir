@@ -251,6 +251,9 @@ mod read_storage_inputs;
 #[test]
 fn whole_read_chain_100000() {
     let input = read_storage_inputs::chain_100000();
+    // A large graph of shallow reference terms is not a single deep term
+    // walk. Keep its normal stage/class endpoint proof; it does not designate
+    // every per-node initial walker reservation as repeated stack growth.
     whole_read("chain_100000", &input.bytes, &input.evidence);
 }
 
@@ -459,3 +462,7 @@ fn original_dedicated_counter_observes_only_its_original_read() {
         "original requested bytes preserved including result drop"
     );
 }
+
+#[cfg(feature = "test-support")]
+#[path = "it/support/canonical_class_denial.rs"]
+mod canonical_class_denial;
