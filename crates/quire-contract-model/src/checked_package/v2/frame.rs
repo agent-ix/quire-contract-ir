@@ -46,16 +46,12 @@ use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::{
     BodyTerm, CheckedFieldScope, CheckedFrameModification, CheckedNodeKind, CheckedScopedDeletion,
     CheckedTerm, FrameEntryKind, ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
-    RelationForm, WorkMeter,
+    RelationForm, TermNode, WorkMeter,
 };
-use crate::checked_package::common::{
-    body_term, exact_members, node_pointer, visit_reference, ReferenceMember, Trail,
-    ValidationFailure,
-};
+use crate::checked_package::common::{node_pointer, Trail, ValidationFailure};
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
-use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// One `modifies` entry.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -132,49 +128,60 @@ pub(super) struct FrameBody {
 impl FrameBody {
     /// Retains the already validated frame as the public typed term. This
     /// avoids a second generic JSON decode of nested structural node IDs.
-    pub(super) fn into_checked_term(self) -> CheckedTerm {
-        let modifies = self
-            .modifies
-            .into_iter()
-            .map(|entry| match entry {
-                ModifiesEntry::Relationship { declaration } => {
-                    CheckedFrameModification::Relationship { declaration }
-                }
-                ModifiesEntry::Field {
-                    declaration,
-                    name,
-                    scope,
-                } => CheckedFrameModification::Field {
-                    declaration,
-                    name,
-                    scope: match scope {
-                        FieldScope::EveryObject => CheckedFieldScope::EveryObject,
-                        FieldScope::Receiver => CheckedFieldScope::Receiver,
+    pub(super) fn into_checked_term(
+        self,
+        meter: &mut WorkMeter,
+    ) -> Result<CheckedTerm, ValidationFailure> {
+        let mut modifies = meter.vec(self.modifies.len())?;
+        for entry in self.modifies {
+            meter.push(
+                &mut modifies,
+                match entry {
+                    ModifiesEntry::Relationship { declaration } => {
+                        CheckedFrameModification::Relationship { declaration }
+                    }
+                    ModifiesEntry::Field {
+                        declaration,
+                        name,
+                        scope,
+                    } => CheckedFrameModification::Field {
+                        declaration,
+                        name,
+                        scope: match scope {
+                            FieldScope::EveryObject => CheckedFieldScope::EveryObject,
+                            FieldScope::Receiver => CheckedFieldScope::Receiver,
+                        },
                     },
                 },
-            })
-            .collect();
-        let deletes_scoped = self
-            .deletes_scoped
-            .into_iter()
-            .map(|entry| match entry {
-                DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
-                DeletesScopedEntry::Parameter { name } => CheckedScopedDeletion::Parameter { name },
-            })
-            .collect();
-        CheckedTerm::Frame {
+            )?;
+        }
+        let mut deletes_scoped = meter.vec(self.deletes_scoped.len())?;
+        for entry in self.deletes_scoped {
+            meter.push(
+                &mut deletes_scoped,
+                match entry {
+                    DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
+                    DeletesScopedEntry::Parameter { name } => {
+                        CheckedScopedDeletion::Parameter { name }
+                    }
+                },
+            )?;
+        }
+        Ok(CheckedTerm::Frame {
             modifies,
             creates: self.creates,
             deletes: self.deletes,
             deletes_scoped,
-        }
+        })
     }
 }
 
 /// Reads a `state`/`frame` node's body at `at`, returning it and its work:
 /// one unit for the body and one per entry.
 pub(super) fn read_frame_body(
-    body: &Value,
+    body: TermNode<'_>,
+    row: &[u64],
+    meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<(FrameBody, u64), ValidationFailure> {
     let invalid = |position: &Trail<'_>| {
@@ -183,43 +190,42 @@ pub(super) fn read_frame_body(
             position.pointer(),
         )
     };
-    let Value::Object(object) = body else {
-        return Err(invalid(at));
-    };
-    if !exact_members(
-        object,
-        &["term", "modifies", "creates", "deletes", "deletes_scoped"],
-    ) {
+    if !body.is_object() {
         return Err(invalid(at));
     }
-    if body_term(body) != Some(BodyTerm::Frame) {
+    if !body.exact_members(&["term", "modifies", "creates", "deletes", "deletes_scoped"]) {
+        return Err(invalid(at));
+    }
+    if body.kind() != Some(BodyTerm::Frame) {
         return Err(invalid(&at.key("term")));
     }
-    let entries = |key: &str| -> Result<&[Value], ValidationFailure> {
-        match object.get(key) {
-            Some(Value::Array(values)) => Ok(values.as_slice()),
-            _ => Err(invalid(&at.key(key))),
-        }
-    };
+    let entries =
+        |key: &str| -> Result<crate::checked_package::v2::TermItems<'_>, ValidationFailure> {
+            body.get(key)
+                .and_then(TermNode::items)
+                .ok_or_else(|| invalid(&at.key(key)))
+        };
     let modifies_at = at.key("modifies");
-    let modifies = entries("modifies")?
-        .iter()
-        .enumerate()
-        .map(|(index, entry)| read_modifies_entry(entry, &modifies_at.index(index)))
-        .collect::<Result<Vec<_>, _>>()?;
+    let modifies_items = entries("modifies")?;
+    let mut modifies = meter.vec(modifies_items.len())?;
+    for (index, entry) in modifies_items.enumerate() {
+        let parsed = read_modifies_entry(entry, row, meter, &modifies_at.index(index))?;
+        meter.push(&mut modifies, parsed)?;
+    }
     reject_repeat(&modifies, &modifies_at)?;
     let creates_at = at.key("creates");
-    let creates = read_node_keys(entries("creates")?, &creates_at)?;
+    let creates = read_node_keys(entries("creates")?, row, meter, &creates_at)?;
     reject_repeat(&creates, &creates_at)?;
     let deletes_at = at.key("deletes");
-    let deletes = read_node_keys(entries("deletes")?, &deletes_at)?;
+    let deletes = read_node_keys(entries("deletes")?, row, meter, &deletes_at)?;
     reject_repeat(&deletes, &deletes_at)?;
     let deletes_scoped_at = at.key("deletes_scoped");
-    let deletes_scoped = entries("deletes_scoped")?
-        .iter()
-        .enumerate()
-        .map(|(index, entry)| read_deletes_scoped_entry(entry, &deletes_scoped_at.index(index)))
-        .collect::<Result<Vec<_>, _>>()?;
+    let deletes_items = entries("deletes_scoped")?;
+    let mut deletes_scoped = meter.vec(deletes_items.len())?;
+    for (index, entry) in deletes_items.enumerate() {
+        let parsed = read_deletes_scoped_entry(entry, meter, &deletes_scoped_at.index(index))?;
+        meter.push(&mut deletes_scoped, parsed)?;
+    }
     reject_repeat(&deletes_scoped, &deletes_scoped_at)?;
     let count = |len: usize| u64::try_from(len).unwrap_or(u64::MAX);
     let work = 1_u64
@@ -240,8 +246,11 @@ pub(super) fn read_frame_body(
 
 /// A repeated entry refuses at its second occurrence.
 fn reject_repeat<T: Ord>(entries: &[T], at: &Trail<'_>) -> Result<(), ValidationFailure> {
-    let mut seen = BTreeSet::new();
-    match entries.iter().position(|entry| !seen.insert(entry)) {
+    match entries
+        .iter()
+        .enumerate()
+        .find_map(|(index, entry)| entries.get(..index)?.contains(entry).then_some(index))
+    {
         Some(index) => Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.index(index).pointer(),
@@ -251,18 +260,13 @@ fn reject_repeat<T: Ord>(entries: &[T], at: &Trail<'_>) -> Result<(), Validation
 }
 
 /// One node key, located at the entry that holds it.
-fn read_node_key(value: &Value, at: &Trail<'_>) -> Result<CheckedNodeId, ValidationFailure> {
-    let mut target = None;
-    visit_reference(
-        value,
-        ReferenceMember::FrameEntry,
-        false,
-        at,
-        &mut |id, _, _| {
-            target = Some(id.clone());
-        },
-    )?;
-    target.ok_or_else(|| {
+fn read_node_key(
+    value: TermNode<'_>,
+    row: &[u64],
+    meter: &mut WorkMeter,
+    at: &Trail<'_>,
+) -> Result<CheckedNodeId, ValidationFailure> {
+    meter.read_id(value, row)?.valid().ok_or_else(|| {
         ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.pointer(),
@@ -271,57 +275,71 @@ fn read_node_key(value: &Value, at: &Trail<'_>) -> Result<CheckedNodeId, Validat
 }
 
 fn read_node_keys(
-    values: &[Value],
+    values: crate::checked_package::v2::TermItems<'_>,
+    row: &[u64],
+    meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
-    values
-        .iter()
-        .enumerate()
-        .map(|(index, value)| read_node_key(value, &at.index(index)))
-        .collect()
+    let count = values.len();
+    let mut keys = meter.vec(count)?;
+    for (index, value) in values.enumerate() {
+        let key = read_node_key(value, row, meter, &at.index(index))?;
+        meter.push(&mut keys, key)?;
+    }
+    Ok(keys)
 }
 
 /// One `FrameModifiesEntry` at `at`; any other shape refuses at the entry.
 // Decodes a modifies entry's `kind`.
-fn read_modifies_entry(entry: &Value, at: &Trail<'_>) -> Result<ModifiesEntry, ValidationFailure> {
+fn read_modifies_entry(
+    entry: TermNode<'_>,
+    row: &[u64],
+    meter: &mut WorkMeter,
+    at: &Trail<'_>,
+) -> Result<ModifiesEntry, ValidationFailure> {
     let invalid = || {
         ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.pointer(),
         )
     };
-    let Value::Object(object) = entry else {
+    if !entry.is_object() {
         return Err(invalid());
-    };
-    let kind = object
+    }
+    let kind = entry
         .get("kind")
-        .and_then(Value::as_str)
+        .and_then(TermNode::as_str)
         .unwrap_or_default();
     let kind = FrameEntryKind::from_wire(kind).ok_or_else(invalid)?;
     let members: &[&str] = match kind {
         FrameEntryKind::Relationship => &["kind", "declaration"],
         FrameEntryKind::Field => &["kind", "declaration", "name", "scope"],
     };
-    if !exact_members(object, members) {
+    if !entry.exact_members(members) {
         return Err(invalid());
     }
-    let declaration = read_node_key(object.get("declaration").unwrap_or(&Value::Null), at)?;
+    let declaration = read_node_key(
+        entry.get("declaration").ok_or_else(invalid)?,
+        row,
+        meter,
+        at,
+    )?;
     Ok(match kind {
         FrameEntryKind::Relationship => ModifiesEntry::Relationship { declaration },
         FrameEntryKind::Field => {
-            let name = object
+            let name = entry
                 .get("name")
-                .and_then(Value::as_str)
+                .and_then(TermNode::as_str)
                 .filter(|name| is_identifier(name))
                 .ok_or_else(invalid)?;
-            let scope = object
+            let scope = entry
                 .get("scope")
-                .and_then(Value::as_str)
+                .and_then(TermNode::as_str)
                 .and_then(FieldScope::from_wire)
                 .ok_or_else(invalid)?;
             ModifiesEntry::Field {
                 declaration,
-                name: name.into(),
+                name: meter.boxed_str(name)?,
                 scope,
             }
         }
@@ -330,7 +348,8 @@ fn read_modifies_entry(entry: &Value, at: &Trail<'_>) -> Result<ModifiesEntry, V
 
 /// One closed scoped-deletion entry at `at`.
 fn read_deletes_scoped_entry(
-    entry: &Value,
+    entry: TermNode<'_>,
+    meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<DeletesScopedEntry, ValidationFailure> {
     let invalid = || {
@@ -339,18 +358,20 @@ fn read_deletes_scoped_entry(
             at.pointer(),
         )
     };
-    let Value::Object(object) = entry else {
+    if !entry.is_object() {
         return Err(invalid());
-    };
-    match object.get("kind").and_then(Value::as_str) {
-        Some("receiver") if exact_members(object, &["kind"]) => Ok(DeletesScopedEntry::Receiver),
-        Some("parameter") if exact_members(object, &["kind", "name"]) => {
-            let name = object
+    }
+    match entry.get("kind").and_then(TermNode::as_str) {
+        Some("receiver") if entry.exact_members(&["kind"]) => Ok(DeletesScopedEntry::Receiver),
+        Some("parameter") if entry.exact_members(&["kind", "name"]) => {
+            let name = entry
                 .get("name")
-                .and_then(Value::as_str)
+                .and_then(TermNode::as_str)
                 .filter(|name| is_identifier(name))
                 .ok_or_else(invalid)?;
-            Ok(DeletesScopedEntry::Parameter { name: name.into() })
+            Ok(DeletesScopedEntry::Parameter {
+                name: meter.boxed_str(name)?,
+            })
         }
         _ => Err(invalid()),
     }

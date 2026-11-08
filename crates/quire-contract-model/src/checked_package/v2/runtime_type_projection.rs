@@ -314,7 +314,9 @@ impl SelectedTypeDeclarations {
 
 /// A typed refusal with the first failing admitted node and charged work.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-#[error("selected runtime type projection refused: {code:?} at {form:?} (native locus {denied_locus:?})")]
+#[error(
+    "selected runtime type projection refused: {code:?} at {form:?} (native locus {denied_locus:?})"
+)]
 pub struct SelectedTypeDeclarationsError {
     /// Stable refusal category shared with Exact type projection.
     pub code: ExactTypeProjectionErrorCode,

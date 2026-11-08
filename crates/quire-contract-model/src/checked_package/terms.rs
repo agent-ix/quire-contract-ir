@@ -15,6 +15,7 @@ use super::v2::read_charge::{Denied, ReadStorage, Site};
 use super::v2::{
     ApplicationOperator, BodyTerm, CheckedTerm, CheckedTermView, NodeIdRead, TermNode,
 };
+use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -41,24 +42,15 @@ pub(super) fn subterms(term: &Value) -> impl Iterator<Item = Subterm<'_>> {
 pub(super) fn subterms_of(wire: WireTerm<'_>) -> impl Iterator<Item = Subterm<'_>> {
     let (key, listed, valued) = match wire.kind() {
         Some(BodyTerm::Application) => {
-            let arguments = match CheckedTerm::view_from_wire(wire) {
-                Some(CheckedTermView::Application { arguments, .. }) => arguments,
-                _ => wire.array(TermField::Arguments).unwrap_or(&[]),
-            };
+            let arguments = wire.array(TermField::Arguments).unwrap_or(&[]);
             ("arguments", arguments, None)
         }
         Some(BodyTerm::Aggregate) => {
-            let members = match CheckedTerm::view_from_wire(wire) {
-                Some(CheckedTermView::Aggregate { members }) => members,
-                _ => wire.array(TermField::Members).unwrap_or(&[]),
-            };
+            let members = wire.array(TermField::Members).unwrap_or(&[]);
             ("members", members, None)
         }
         Some(BodyTerm::Binding) => {
-            let value = match CheckedTerm::view_from_wire(wire) {
-                Some(CheckedTermView::Binding { value, .. }) => Some(value),
-                _ => wire.field(TermField::Value),
-            };
+            let value = wire.field(TermField::Value);
             ("value", &[][..], value)
         }
         Some(
@@ -138,6 +130,8 @@ pub(super) trait TermSource<'a>: Copy {
         site: Site,
         row: &[u64],
     ) -> Result<NodeIdRead, Denied>;
+    /// Borrow a legacy materialized value when this source is one.
+    fn value(self) -> Option<&'a Value>;
 }
 
 impl<'a> TermSource<'a> for &'a Value {
@@ -235,6 +229,10 @@ impl<'a> TermSource<'a> for &'a Value {
             Err(_) => NodeIdRead::Malformed,
         })
     }
+
+    fn value(self) -> Option<&'a Value> {
+        Some(self)
+    }
 }
 
 impl<'a> TermSource<'a> for TermNode<'a> {
@@ -318,6 +316,10 @@ impl<'a> TermSource<'a> for TermNode<'a> {
     ) -> Result<NodeIdRead, Denied> {
         self.node_id_in(sink, site, row)
     }
+
+    fn value(self) -> Option<&'a Value> {
+        None
+    }
 }
 
 /// A node a walk will enter: the value, the steps that lead to it from its
@@ -397,6 +399,17 @@ impl<'a> Cursor<'a> {
     /// The node `subterm` of the entered node, with `extra`.
     pub(super) fn subterm<X>(&self, subterm: Subterm<'a>, extra: X) -> At<'a, X> {
         self.child(subterm.value, Some(subterm.key), subterm.index, extra)
+    }
+
+    /// The node `subterm` of a document-backed term, with `extra`.
+    pub(super) fn term_subterm<X>(
+        &self,
+        value: crate::checked_package::v2::TermNode<'a>,
+        key: &'static str,
+        index: Option<usize>,
+        extra: X,
+    ) -> At<'a, X, crate::checked_package::v2::TermNode<'a>> {
+        self.child(value, Some(key), index, extra)
     }
 
     /// Moves the cursor to `node`, the next node the walk enters.

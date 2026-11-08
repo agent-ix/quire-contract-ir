@@ -1360,7 +1360,6 @@ fn closed_literal(
 
 #[cfg(test)]
 pub(in crate::checked_package::v2) mod tests {
-    use std::collections::BTreeMap;
     use super::super::CheckedOccurrenceRole;
     use super::*;
     use crate::{
@@ -1369,6 +1368,7 @@ pub(in crate::checked_package::v2) mod tests {
     };
     use ix_trace_rs::trace;
     use serde_json::json;
+    use std::collections::BTreeMap;
     use std::sync::OnceLock;
 
     fn raw_id(digit: char) -> CheckedNodeId {
@@ -4005,7 +4005,10 @@ pub(in crate::checked_package::v2) mod tests {
 
     fn application_arguments(package: &mut CheckedPackageV2) -> &mut Vec<CheckedTerm> {
         let CheckedTerm::Application { arguments, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[5].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[5]
+                .body
         else {
             panic!("admitted composite application term");
         };
@@ -4016,7 +4019,10 @@ pub(in crate::checked_package::v2) mod tests {
         package: &mut CheckedPackageV2,
     ) -> super::super::typed_terms::OperationRecordEdit<'_> {
         let CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[5].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[5]
+                .body
         else {
             panic!("admitted composite application term");
         };
@@ -4024,8 +4030,10 @@ pub(in crate::checked_package::v2) mod tests {
     }
 
     fn sync_term(package: &mut CheckedPackageV2, position: usize) {
-        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body =
-            package.wire.semantic_graph.nodes[position].body.clone();
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = package.wire.semantic_graph.nodes[position].body.clone();
     }
 
     fn edit_body(package: &mut CheckedPackageV2, position: usize, edit: impl FnOnce(&mut Value)) {
@@ -4038,8 +4046,6 @@ pub(in crate::checked_package::v2) mod tests {
             .body =
             CheckedTerm::decode_admitted(&body).expect("edited fixture body remains a closed term");
     }
-
-
 
     #[trace("TC-048", "FR-038-AC-180")]
     #[test]

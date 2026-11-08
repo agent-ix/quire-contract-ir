@@ -9,7 +9,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    BoundedDomainForm, CheckedNodeId, CheckedNodeTag, CheckedOccurrenceRole,
+    BoundedDomainForm, CheckedJson, CheckedNodeId, CheckedNodeTag, CheckedOccurrenceRole,
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
     CheckedPackageV2, CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
     ContractFeatureRecordV1, ContractOccurrenceKeyV1, ContractPackageReadResult, ContractPackageV1,
@@ -20,6 +20,10 @@ use serde_json::{json, Value};
 
 fn body_at(term: &quire_contract_model::CheckedTerm, path: &str) -> Option<Value> {
     serde_json::to_value(term).ok()?.pointer(path).cloned()
+}
+
+fn checked_body(value: Value) -> CheckedJson {
+    CheckedJson::from_serializable(&value).expect("test body is canonical JSON")
 }
 
 fn provisional(letter: char) -> String {
@@ -335,7 +339,7 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
         sources_for(&contextual, &narrow.node_id)
     );
     assert_eq!(bound.node.semantic_form.as_ref(), "integer_range");
-    assert_eq!(bound.node.body, bounds_body("0", "10"));
+    assert_eq!(bound.node.body, checked_body(bounds_body("0", "10")));
     assert_eq!(bound.sources, sources_for(&contextual, &bound.node.node_id));
     assert!(bound
         .sources
@@ -351,7 +355,7 @@ fn tc_447_context_root_selects_authored_result_interval_without_rewriting_forwar
         .reached
         .nodes
         .iter()
-        .any(|entry| entry.node.body == bounds_body("0", "9")));
+        .any(|entry| entry.node.body == checked_body(bounds_body("0", "9"))));
     let expected = contextual
         .result_context(
             &source_key(&add.node_id),
@@ -485,7 +489,7 @@ fn tc_447_none_and_invalid_occurrences_have_distinct_typed_outcomes() {
     let ContractResultContextV1::DirectBounded { bound } = own_view.context else {
         panic!("the author's Int[0, 9] is the direct result");
     };
-    assert_eq!(bound.node.body, bounds_body("0", "9"));
+    assert_eq!(bound.node.body, checked_body(bounds_body("0", "9")));
 
     let not_requested = ContractOccurrenceKeyV1 {
         node_id: parameter.node_id.clone(),
@@ -874,7 +878,7 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
         bound.node.node_id,
         serde_json::from_value::<CheckedNodeId>(node_id(&input_bound)).expect("bound id")
     );
-    assert_eq!(bound.node.body, bounds_body("0", "9"));
+    assert_eq!(bound.node.body, checked_body(bounds_body("0", "9")));
     assert!(matches!(
         outcome(None, BoundedDomainForm::RationalRange),
         ContractResultContextV1::MissingBound { type_key }
@@ -889,7 +893,7 @@ fn tc_447_direct_bounded_expression_keeps_own_result_until_its_narrow_is_selecte
         bound.node.node_id,
         serde_json::from_value::<CheckedNodeId>(node_id(&result_bound)).expect("bound id")
     );
-    assert_eq!(bound.node.body, bounds_body("0", "10"));
+    assert_eq!(bound.node.body, checked_body(bounds_body("0", "10")));
 }
 
 #[trace("TC-447", "FR-049-AC-3", "FR-049-AC-5", "FR-049-AC-6")]
@@ -1028,8 +1032,10 @@ fn tc_447_shared_expression_uses_each_supplied_occurrence_and_direct_narrow() {
     let second_result = result(&application_one, &second);
     assert_ne!(first_result.0, second_result.0);
     assert_ne!(first_result.1, second_result.1);
-    assert!([first_result.1.clone(), second_result.1.clone()].contains(&bounds_body("0", "10")));
-    assert!([first_result.1.clone(), second_result.1.clone()].contains(&bounds_body("0", "1000")));
+    assert!([first_result.1.clone(), second_result.1.clone()]
+        .contains(&checked_body(bounds_body("0", "10"))));
+    assert!([first_result.1.clone(), second_result.1.clone()]
+        .contains(&checked_body(bounds_body("0", "1000"))));
     assert_eq!(result(&add, &second), second_result);
     assert_eq!(result(&application_one, &first), first_result);
 }
@@ -1141,7 +1147,7 @@ fn scalar_and_result_views_and_work_boundaries_hold_on_the_admitted_fixture() {
     };
     assert_eq!(conversion.node_id, narrow.node_id);
     assert_eq!(conversion_sources, sources_for(&contract, &narrow.node_id));
-    assert_eq!(bound.node.body, bounds_body("0", "10"));
+    assert_eq!(bound.node.body, checked_body(bounds_body("0", "10")));
     assert_eq!(bound.sources, sources_for(&contract, &bound.node.node_id));
     let missing_conversion = ContractOccurrenceKeyV1 {
         ordinal: 99,

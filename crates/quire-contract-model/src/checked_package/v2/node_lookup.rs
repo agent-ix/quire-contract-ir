@@ -20,6 +20,12 @@ impl NodeLookup for [(&CheckedNodeId, usize)] {
     }
 }
 
+impl NodeLookup for Vec<(&CheckedNodeId, usize)> {
+    fn position(&self, id: &CheckedNodeId) -> Option<&usize> {
+        self.as_slice().position(id)
+    }
+}
+
 /// The graph validator's charged index uses the same node-position lookup.
 impl NodeLookup for super::graph_storage::GraphIndex<'_> {
     fn position(&self, id: &CheckedNodeId) -> Option<&usize> {

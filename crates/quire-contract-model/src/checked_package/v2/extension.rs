@@ -678,7 +678,7 @@ mod tests {
             &self,
             owners: &ModelOwners<'_>,
         ) -> (Result<(), ValidationFailure>, u64) {
-            let index: std::collections::BTreeMap<&CheckedNodeId, usize> = self
+            let mut index: Vec<(&CheckedNodeId, usize)> = self
                 .wire
                 .semantic_graph
                 .nodes
@@ -686,6 +686,7 @@ mod tests {
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
+            index.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
             let mut meter = WorkMeter::new(100_000);
             let result = validate(
                 &self.wire,
@@ -703,7 +704,7 @@ mod tests {
         fn run_budgeted(&self, limit: u64) -> (Result<(), ValidationFailure>, NativeJoinBudget) {
             let owners = ModelOwners::new(&[], &self.wire.semantic_graph.nodes, |_| Ok(()))
                 .expect("empty selected-model owners");
-            let index: std::collections::BTreeMap<&CheckedNodeId, usize> = self
+            let mut index: Vec<(&CheckedNodeId, usize)> = self
                 .wire
                 .semantic_graph
                 .nodes
@@ -711,6 +712,7 @@ mod tests {
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
+            index.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let result = validate(
                 &self.wire,

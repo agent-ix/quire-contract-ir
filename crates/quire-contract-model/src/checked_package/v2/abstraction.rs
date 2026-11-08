@@ -51,76 +51,50 @@ use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::rust_spelling::{is_rust_field, is_rust_identifier, is_rust_path, is_rust_receiver};
 use super::state::resolve_operation;
 use super::{
-    BodyTerm, CheckedNodeKind, CorrespondenceForm, ModelForm,
+    BodyTerm, CheckedAbstractionFrame, CheckedAbstractionObject, CheckedAbstractionPopulation,
+    CheckedNodeKind, CheckedTerm, CorrespondenceForm, ModelForm,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, WorkMeter,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, node_pointer, validate_term, Ids, ReferenceVisitor, TermGrammar,
-    Trail, ValidationFailure,
+    exact_members, node_pointer, validate_term, Ids, ReferenceVisitor, TermGrammar, Trail,
+    ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use crate::checked_package::terms::TermSource;
 use serde_json::{Map, Value};
-use std::collections::BTreeSet;
 
 /// One `{name, rust_*}` binding: a `fields` entry (`rust_field`) or a
 /// `parameters` entry (`rust_parameter`).
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Binding {
-    name: Box<str>,
-    rust: Box<str>,
-}
-
-/// An `objects` entry.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ObjectEntry {
-    type_id: CheckedNodeId,
-    rust_type: Vec<Box<str>>,
-    fields: Vec<Binding>,
-}
-
-/// A `populations` entry.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct PopulationEntry {
-    population: CheckedNodeId,
-    collection: Vec<Box<str>>,
-}
-
-/// A `frames` entry.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct FrameEntry {
-    context: CheckedNodeId,
-    operation: Box<str>,
-    function: Vec<Box<str>>,
-    receiver: Box<str>,
-    parameters: Vec<Binding>,
-}
-
 /// An abstraction relation body as the wire carries it, entries in wire
 /// order.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct AbstractionBody {
-    objects: Vec<ObjectEntry>,
-    populations: Vec<PopulationEntry>,
-    frames: Vec<FrameEntry>,
+    objects: Vec<CheckedAbstractionObject>,
+    populations: Vec<CheckedAbstractionPopulation>,
+    frames: Vec<CheckedAbstractionFrame>,
 }
 
 impl AbstractionBody {
     /// Every `type`, `population` and `context` target: the unique,
     /// structural-ID-ascending set a node's `dependencies` must equal.
-    fn targets(&self) -> Vec<CheckedNodeId> {
-        let objects = self.objects.iter().map(|entry| &entry.type_id);
-        let populations = self.populations.iter().map(|entry| &entry.population);
-        let contexts = self.frames.iter().map(|entry| &entry.context);
-        objects
-            .chain(populations)
-            .chain(contexts)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .cloned()
-            .collect()
+    fn targets(&self, meter: &mut WorkMeter) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
+        let count = self.objects.len() + self.populations.len() + self.frames.len();
+        let mut targets = meter.vec(count)?;
+        for id in self
+            .objects
+            .iter()
+            .map(|entry| &entry.type_id)
+            .chain(self.populations.iter().map(|entry| &entry.population))
+            .chain(self.frames.iter().map(|entry| &entry.context))
+        {
+            if let Err(position) = targets.binary_search(id) {
+                let id = meter.clone_id(id)?;
+                targets.insert(position, id);
+            }
+        }
+        Ok(targets)
     }
 }
 
@@ -148,15 +122,13 @@ pub(super) fn scan_body<'a, V: TermSource<'a>>(
     scan_members(body, at, &mut cell.reservation(site))
 }
 
-/// A shape defect of the body: the code it refuses with and the path of the
-/// value at fault.
+/// Shared shape helpers used by other flat correspondence readers.
 pub(super) struct Defect {
     pub(super) code: CheckedPackageRefusalCode,
     pub(super) path: JsonPointer,
 }
 
 impl Defect {
-    /// `invalid_semantic_graph` at `path`.
     pub(super) fn invalid(path: &JsonPointer) -> Self {
         Self {
             code: CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -165,10 +137,6 @@ impl Defect {
     }
 }
 
-/// The node key held in `object[key]` of the entry at `at`. A value that is
-/// not a node key object at all is an entry of the wrong shape; a malformed
-/// structural node key is refused at the key itself, as every other node
-/// reference the reader reads (FR-038 "Frame bodies").
 #[ix_trace_rs::string_edge]
 pub(super) fn node_key(
     object: &Map<String, Value>,
@@ -187,7 +155,6 @@ pub(super) fn node_key(
     }
 }
 
-/// A non-empty string member.
 pub(super) fn text(object: &Map<String, Value>, key: &str) -> Option<Box<str>> {
     object
         .get(key)
@@ -196,13 +163,10 @@ pub(super) fn text(object: &Map<String, Value>, key: &str) -> Option<Box<str>> {
         .map(Box::from)
 }
 
-/// An `Identifier` member.
 pub(super) fn identifier(object: &Map<String, Value>, key: &str) -> Option<Box<str>> {
     text(object, key).filter(|name| is_identifier(name))
 }
 
-/// A `RustPath` member: a non-empty array of non-empty strings. Whether each
-/// is a Rust identifier is the members check's.
 pub(super) fn path(object: &Map<String, Value>, key: &str) -> Option<Vec<Box<str>>> {
     let segments = object
         .get(key)?
@@ -218,7 +182,6 @@ pub(super) fn path(object: &Map<String, Value>, key: &str) -> Option<Vec<Box<str
     (!segments.is_empty()).then_some(segments)
 }
 
-/// An object holding exactly `members`, or the path of the value at fault.
 pub(super) fn closed<'v>(
     value: &'v Value,
     members: &[&str],
@@ -230,7 +193,6 @@ pub(super) fn closed<'v>(
     }
 }
 
-/// The array held in `object[key]`, or `at`.
 pub(super) fn array<'v>(
     object: &'v Map<String, Value>,
     key: &str,
@@ -242,7 +204,6 @@ pub(super) fn array<'v>(
     }
 }
 
-/// The entries of `object[key]`, each read at its own element of `at`/`key`.
 pub(super) fn entries<'v, T>(
     object: &'v Map<String, Value>,
     key: &str,
@@ -254,72 +215,8 @@ pub(super) fn entries<'v, T>(
     items
         .iter()
         .enumerate()
-        .map(|(index, item)| read(item, &at.clone().index(index)))
+        .map(|(i, item)| read(item, &at.clone().index(i)))
         .collect()
-}
-
-/// One `{name, <rust>}` entry of `fields` or `parameters`.
-fn read_binding(value: &Value, rust: &str, at: &JsonPointer) -> Result<Binding, Defect> {
-    let object = closed(value, &["name", rust], at)?;
-    match (identifier(object, "name"), text(object, rust)) {
-        (Some(name), Some(rust)) => Ok(Binding { name, rust }),
-        _ => Err(Defect::invalid(at)),
-    }
-}
-
-fn read_object(value: &Value, at: &JsonPointer) -> Result<ObjectEntry, Defect> {
-    let object = closed(value, &["type", "rust_type", "fields"], at)?;
-    let fail = || Defect::invalid(at);
-    Ok(ObjectEntry {
-        type_id: node_key(object, "type", at)?,
-        rust_type: path(object, "rust_type").ok_or_else(fail)?,
-        fields: entries(object, "fields", at, |field, field_at| {
-            read_binding(field, "rust_field", field_at)
-        })?,
-    })
-}
-
-fn read_population(value: &Value, at: &JsonPointer) -> Result<PopulationEntry, Defect> {
-    let object = closed(value, &["population", "collection"], at)?;
-    let fail = || Defect::invalid(at);
-    Ok(PopulationEntry {
-        population: node_key(object, "population", at)?,
-        collection: path(object, "collection").ok_or_else(fail)?,
-    })
-}
-
-fn read_frame(value: &Value, at: &JsonPointer) -> Result<FrameEntry, Defect> {
-    let object = closed(
-        value,
-        &["context", "operation", "function", "receiver", "parameters"],
-        at,
-    )?;
-    let fail = || Defect::invalid(at);
-    Ok(FrameEntry {
-        context: node_key(object, "context", at)?,
-        operation: identifier(object, "operation").ok_or_else(fail)?,
-        function: path(object, "function").ok_or_else(fail)?,
-        receiver: text(object, "receiver").ok_or_else(fail)?,
-        parameters: entries(object, "parameters", at, |parameter, parameter_at| {
-            read_binding(parameter, "rust_parameter", parameter_at)
-        })?,
-    })
-}
-
-/// Reads the closed body shape of FR-346 at `at`; an `Err` is the defect and
-/// the path of the value at fault: the array element of `objects`, `fields`,
-/// `populations`, `frames` or `parameters`, else the body, or a node key
-/// outside the node-identity domain at the key.
-fn read_body(body: &Value, at: &JsonPointer) -> Result<AbstractionBody, Defect> {
-    let object = closed(body, &["term", "objects", "populations", "frames"], at)?;
-    if body_term(body) != Some(BodyTerm::AbstractionRelation) {
-        return Err(Defect::invalid(at));
-    }
-    Ok(AbstractionBody {
-        objects: entries(object, "objects", at, read_object)?,
-        populations: entries(object, "populations", at, read_population)?,
-        frames: entries(object, "frames", at, read_frame)?,
-    })
 }
 
 /// A model refusal at `path`, located at the key `locus`.
@@ -384,13 +281,19 @@ pub(super) fn validate_abstraction(
         index,
         owners,
     };
-    let mut admitted = Vec::new();
+    let count = kinds
+        .iter()
+        .filter(|kind| {
+            **kind == CheckedNodeKind::Correspondence(CorrespondenceForm::AbstractionRelation)
+        })
+        .count();
+    let mut admitted = meter.vec(count)?;
     for (position, node) in graph.each(CheckedNodeKind::Correspondence(
         CorrespondenceForm::AbstractionRelation,
     )) {
         let site = Site { node, position };
         let body = check_node(&site, &graph, meter)?;
-        admitted.push((position, body));
+        meter.push(&mut admitted, (position, body))?;
     }
     check_keys(&admitted)
 }
@@ -405,7 +308,7 @@ fn check_node(
     // An application at the body root is the closed term grammar's, not this
     // body's: the temporal and state steps refused it already where they place
     // it, and the shape check opening this step refuses the rest.
-    if body_term(&node.body) == Some(BodyTerm::Application) {
+    if super::TermNode::of(&node.body).kind() == Some(BodyTerm::Application) {
         return Err(ValidationFailure::refused_at(
             CheckedPackageRefusalCode::IllTyped,
             site.node_at(),
@@ -413,10 +316,29 @@ fn check_node(
             node.node_id.clone(),
         ));
     }
-    let body = read_body(&node.body, &site.body_at()).map_err(|defect| {
-        ValidationFailure::refused_at(defect.code, defect.path, None, node.node_id.clone())
+    let decoded = meter.decode_body(site.position)?;
+    let decoded = decoded.map_err(|_| {
+        ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::MalformedWire,
+            site.body_at(),
+            None,
+            node.node_id.clone(),
+        )
     })?;
-    check_identity(site, &body)?;
+    let CheckedTerm::AbstractionRelation {
+        objects,
+        populations,
+        frames,
+    } = decoded
+    else {
+        return Err(site.invalid(site.body_at()));
+    };
+    let body = AbstractionBody {
+        objects,
+        populations,
+        frames,
+    };
+    check_identity(site, &body, meter)?;
     check_order(site, &body)?;
     check_targets(site, &body, graph)?;
     check_members(site, &body, graph, meter)?;
@@ -425,9 +347,13 @@ fn check_node(
 
 /// Step 1: the node is its own semantic type and its dependencies are the
 /// body's targets.
-fn check_identity(site: &Site<'_>, body: &AbstractionBody) -> Result<(), ValidationFailure> {
+fn check_identity(
+    site: &Site<'_>,
+    body: &AbstractionBody,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
     let node = site.node;
-    if node.semantic_type == node.node_id && node.dependencies == body.targets() {
+    if node.semantic_type == node.node_id && node.dependencies == body.targets(meter)? {
         Ok(())
     } else {
         Err(site.invalid(site.node_at()))
@@ -436,8 +362,14 @@ fn check_identity(site: &Site<'_>, body: &AbstractionBody) -> Result<(), Validat
 
 /// Whether `keys` ascend, equal keys in order.
 pub(super) fn ascending<K: Ord>(keys: impl Iterator<Item = K>) -> bool {
-    let keys = keys.collect::<Vec<_>>();
-    keys.windows(2).all(|pair| pair[0] <= pair[1])
+    let mut previous = None;
+    for key in keys {
+        if previous.as_ref().is_some_and(|before| before > &key) {
+            return false;
+        }
+        previous = Some(key);
+    }
+    true
 }
 
 /// Step 2: every array in its canonical order. A non-strict order: equal keys
@@ -458,7 +390,7 @@ fn check_order(site: &Site<'_>, body: &AbstractionBody) -> Result<(), Validation
         return out_of_order(body_at.key("populations"));
     }
     let frames_at = body_at.key("frames");
-    fn frame_key(entry: &FrameEntry) -> (&CheckedNodeId, &str) {
+    fn frame_key(entry: &CheckedAbstractionFrame) -> (&CheckedNodeId, &str) {
         (&entry.context, entry.operation.as_ref())
     }
     if !ascending(body.frames.iter().map(frame_key)) {
@@ -559,18 +491,18 @@ fn check_members(
 /// An object entry: a repeated field name, a name the object type does not
 /// expose, then the Rust spellings.
 fn check_object(
-    entry: &ObjectEntry,
+    entry: &CheckedAbstractionObject,
     at: &JsonPointer,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let fields_at = at.clone().key("fields");
-    let mut names = BTreeSet::new();
-    if let Some(repeat) = entry
-        .fields
-        .iter()
-        .position(|field| !names.insert(field.name.as_ref()))
-    {
+    if let Some(repeat) = entry.fields.iter().enumerate().find_map(|(index, field)| {
+        entry.fields[..index]
+            .iter()
+            .any(|previous| previous.name == field.name)
+            .then_some(index)
+    }) {
         return Err(conflict(fields_at.index(repeat), &entry.type_id));
     }
     if let Some((declaring, kind)) = graph.node(&entry.type_id) {
@@ -604,13 +536,13 @@ fn check_object(
         }
     }
     let malformed = |at: JsonPointer| model_refusal(ModelRefusal::malformed(), at, &entry.type_id);
-    if !is_rust_path(&entry.rust_type) {
+    if !is_rust_path(&entry.type_path) {
         return Err(malformed(at.clone()));
     }
     match entry
         .fields
         .iter()
-        .position(|field| !is_rust_field(&field.rust))
+        .position(|field| !is_rust_field(&field.field_ident))
     {
         Some(index) => Err(malformed(fields_at.index(index))),
         None => Ok(()),
@@ -621,7 +553,7 @@ fn check_object(
 /// Rust parameters against each other and the receiver, then the Rust
 /// spellings.
 fn check_frame(
-    entry: &FrameEntry,
+    entry: &CheckedAbstractionFrame,
     at: &JsonPointer,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
@@ -634,20 +566,13 @@ fn check_frame(
             Ok(Some((_, operation))) => {
                 // Domain selection validated the declared names (FR-154-AC-14);
                 // compare the frame's list with that admitted declaration.
-                let declared = operation
-                    .parameters
-                    .iter()
-                    .map(|slot| slot.name.as_deref())
-                    .collect::<Option<Vec<_>>>();
-                let bound = entry
-                    .parameters
-                    .iter()
-                    .map(|parameter| parameter.name.as_ref());
-                let exact = declared.is_some_and(|mut declared| {
-                    declared.sort_unstable();
-                    declared.windows(2).all(|pair| pair[0] != pair[1])
-                        && declared.iter().copied().eq(bound)
-                });
+                let exact = operation.parameters.len() == entry.parameters.len()
+                    && entry.parameters.iter().all(|parameter| {
+                        operation
+                            .parameters
+                            .iter()
+                            .any(|slot| slot.name.as_deref() == Some(parameter.name.as_ref()))
+                    });
                 if !exact {
                     return Err(malformed(at.clone()));
                 }
@@ -657,18 +582,23 @@ fn check_frame(
             Ok(None) => {}
         }
     }
-    let mut seen = BTreeSet::new();
     if let Some(repeat) = entry
         .parameters
         .iter()
-        .position(|parameter| !seen.insert(parameter.rust.as_ref()))
+        .enumerate()
+        .find_map(|(index, parameter)| {
+            entry.parameters[..index]
+                .iter()
+                .any(|previous| previous.parameter_ident == parameter.parameter_ident)
+                .then_some(index)
+        })
     {
         return Err(malformed(parameters_at.index(repeat)));
     }
     if let Some(clash) = entry
         .parameters
         .iter()
-        .position(|parameter| parameter.rust == entry.receiver)
+        .position(|parameter| parameter.parameter_ident == entry.receiver)
     {
         return Err(malformed(parameters_at.index(clash)));
     }
@@ -678,7 +608,7 @@ fn check_frame(
     match entry
         .parameters
         .iter()
-        .position(|parameter| !is_rust_identifier(&parameter.rust))
+        .position(|parameter| !is_rust_identifier(&parameter.parameter_ident))
     {
         Some(index) => Err(malformed(parameters_at.index(index))),
         None => Ok(()),
@@ -690,25 +620,46 @@ fn check_frame(
 /// population or operation key refuses `invalid_model_binding`/
 /// `conflicting-binding`.
 fn check_keys(admitted: &[(usize, AbstractionBody)]) -> Result<(), ValidationFailure> {
-    let mut objects = BTreeSet::new();
-    let mut populations = BTreeSet::new();
-    let mut operations = BTreeSet::new();
-    for (position, body) in admitted {
+    for (body_index, (position, body)) in admitted.iter().enumerate() {
         let body_at = node_pointer(*position).key("body");
         for (index, entry) in body.objects.iter().enumerate() {
-            if !objects.insert(&entry.type_id) {
+            let repeated = admitted[..body_index].iter().any(|(_, previous)| {
+                previous
+                    .objects
+                    .iter()
+                    .any(|item| item.type_id == entry.type_id)
+            }) || body.objects[..index]
+                .iter()
+                .any(|item| item.type_id == entry.type_id);
+            if repeated {
                 let at = body_at.clone().key("objects").index(index);
                 return Err(conflict(at, &entry.type_id));
             }
         }
         for (index, entry) in body.populations.iter().enumerate() {
-            if !populations.insert(&entry.population) {
+            let repeated = admitted[..body_index].iter().any(|(_, previous)| {
+                previous
+                    .populations
+                    .iter()
+                    .any(|item| item.population == entry.population)
+            }) || body.populations[..index]
+                .iter()
+                .any(|item| item.population == entry.population);
+            if repeated {
                 let at = body_at.clone().key("populations").index(index);
                 return Err(conflict(at, &entry.population));
             }
         }
         for (index, entry) in body.frames.iter().enumerate() {
-            if !operations.insert((&entry.context, entry.operation.as_ref())) {
+            let repeated = admitted[..body_index].iter().any(|(_, previous)| {
+                previous
+                    .frames
+                    .iter()
+                    .any(|item| item.context == entry.context && item.operation == entry.operation)
+            }) || body.frames[..index]
+                .iter()
+                .any(|item| item.context == entry.context && item.operation == entry.operation);
+            if repeated {
                 let at = body_at.clone().key("frames").index(index);
                 return Err(conflict(at, &entry.context));
             }

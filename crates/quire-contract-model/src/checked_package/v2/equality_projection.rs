@@ -1342,7 +1342,7 @@ fn validate_dimension_terms(
                     Some(CheckedNodeOwner::Model { .. })
                 ) =>
             {
-                continue
+                continue;
             }
             _ => {
                 return Err(read_error(
@@ -1351,7 +1351,7 @@ fn validate_dimension_terms(
                     application,
                     &declaration.structural_node,
                     0,
-                ))
+                ));
             }
         };
         let Some(terms) = body.dimension_details() else {
@@ -2157,7 +2157,8 @@ impl CheckedPackageV2 {
             application,
             super::native_join_storage::node(application),
         )?;
-        let source_position = self.source_position(application, &occurrence.role, occurrence.ordinal);
+        let source_position =
+            self.source_position(application, &occurrence.role, occurrence.ordinal);
         if !self.wire.semantic_graph.nodes[position]
             .occurrences
             .contains(occurrence)

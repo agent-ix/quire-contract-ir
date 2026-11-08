@@ -5,15 +5,13 @@
 //! operation-anchor binding. It is not a semantic expression term.
 
 use super::read_charge::{ReadStorage, Site};
-use super::typed_terms::TermConversionCause;
-use super::{CheckedOperationAnchorBody, CheckedTerm, ExecutionPoint};
+use super::ExecutionPoint;
 use crate::checked_package::common::{
     validate_term, Ids, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::CheckedPackageRefusalCode;
 use crate::checked_package::terms::TermSource;
 use crate::identity::ExecutionPointName;
-use serde_json::Value;
 
 /// Validate the anchor's term members and optional bare point in wire order.
 pub(super) fn validate_anchor_body<'a, V: TermSource<'a>>(
@@ -118,39 +116,4 @@ fn read_point<'a, V: TermSource<'a>>(
     sink.reserve(name.len() as u128, site)
         .map_err(|_| sink.denial())?;
     Ok(ExecutionPointName::new(name).ok().map(make))
-}
-
-/// Decode the optional point only for an operation-anchor body. The generic
-/// expression decoder cannot create an anchor point or a pointed anchor body.
-pub(super) fn decode_anchor_body(body: &Value) -> Result<CheckedTerm, TermConversionCause> {
-    if body.get("term").and_then(Value::as_str) != Some("aggregate") {
-        return CheckedTerm::decode_admitted(body);
-    }
-    let Some(members) = body.get("members").and_then(Value::as_array) else {
-        return CheckedTerm::decode_admitted(body);
-    };
-    let (context, operation, frame, point) = match members.as_slice() {
-        [context, operation, frame] => (context, operation, frame, None),
-        [context, operation, frame, fourth] => {
-            let point = fourth
-                .get("value")
-                .and_then(ExecutionPoint::from_wire)
-                .ok_or(TermConversionCause::MalformedMember {
-                    member: "execution_point",
-                    category: serde_json::error::Category::Data,
-                })?;
-            (context, operation, frame, Some(point))
-        }
-        _ => return CheckedTerm::decode_admitted(body),
-    };
-    Ok(CheckedTerm::OperationAnchorBody(Box::new(
-        CheckedOperationAnchorBody {
-            members: [
-                CheckedTerm::decode_admitted(context)?,
-                CheckedTerm::decode_admitted(operation)?,
-                CheckedTerm::decode_admitted(frame)?,
-            ],
-            execution_point: point,
-        },
-    )))
 }

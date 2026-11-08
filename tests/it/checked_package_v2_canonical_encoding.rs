@@ -419,11 +419,18 @@ fn tc_048_lock_source_map_capability_node_id_and_diagnostics_bytes_equal_serde_j
             && entry
                 .details
                 .iter()
-                .any(|detail| detail.to_value().is_object())));
-    assert!(diagnostics.entries.iter().any(|entry| entry
-        .details
+                .any(|detail| serde_json::to_value(detail)
+                    .expect("JSON detail")
+                    .is_object())));
+    assert!(diagnostics
+        .entries
         .iter()
-        .any(|detail| detail.to_value().is_array())));
+        .any(|entry| entry
+            .details
+            .iter()
+            .any(|detail| serde_json::to_value(detail)
+                .expect("JSON detail")
+                .is_array())));
     // Every capability disposition and a structural id with nested path.
     for disposition in CheckedCapabilityDisposition::ALL {
         assert_same_bytes(
@@ -490,7 +497,7 @@ impl Carrier for CheckedDiagnosticsV2 {
     fn place(&mut self, mut body: Value) -> Result<(), Error> {
         // A handle exists only for a value the encoder writes, so the
         // encoder's refusal of a value is the refusal to hold it.
-        let held = CheckedJson::from_value(&body);
+        let held = CheckedJson::from_serializable(&body);
         dismantle(&mut body);
         self.entries[0].details[0] = match held {
             Ok(held) => held,
@@ -500,8 +507,8 @@ impl Carrier for CheckedDiagnosticsV2 {
         Ok(())
     }
     fn take(&mut self) -> Value {
-        let taken = self.entries[0].details[0].to_value();
-        self.entries[0].details[0] = CheckedJson::from_value(&Value::Null).expect("encodes");
+        let taken = serde_json::to_value(&self.entries[0].details[0]).expect("JSON detail");
+        self.entries[0].details[0] = CheckedJson::from_serializable(&Value::Null).expect("encodes");
         taken
     }
     const AROUND: (&'static str, &'static str) = ("\"details\":[", "]");

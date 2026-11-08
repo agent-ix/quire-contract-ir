@@ -33,10 +33,7 @@
 //!
 //! Implements: FR-038 "Implementation guarantee and component composition bodies".
 
-use super::abstraction::{
-    ascending, closed, conflict, entries, identifier, is_object_type, model_refusal, node_key,
-    path, text, Defect, Site,
-};
+use super::abstraction::{ascending, conflict, is_object_type, model_refusal, Defect, Site};
 use super::dependency_references::SuppliedDependencies;
 use super::frame::{join, StepGraph};
 use super::guarantee_terms::{granularity_spelling, kind_spelling};
@@ -45,16 +42,15 @@ use super::rust_spelling::is_rust_path;
 use super::state::resolve_operation;
 use super::{
     BodyTerm, CheckedComponentClause, CheckedCompositionComponent, CheckedCompositionPremise,
-    CheckedEnvironmentEntry, CheckedEnvironmentSupplies, CheckedFairnessGranularity,
-    CheckedFairnessKind, CheckedFairnessSupply, CheckedGuaranteeMeasure, CheckedGuaranteeProgress,
-    CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2, CheckedTerm, CorrespondenceForm,
-    FunctionForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalForm, ValueForm, WorkMeter,
+    CheckedEnvironmentEntry, CheckedEnvironmentSupplies, CheckedFairnessSupply,
+    CheckedGuaranteeMeasure, CheckedGuaranteeProgress, CheckedNodeKind, CheckedNodeOwner,
+    CheckedPackageV2, CheckedTerm, CorrespondenceForm, FunctionForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalForm, TermNode, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{body_term, ValidationFailure};
+use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use serde_json::Value;
 use std::collections::BTreeSet;
 
 /// The four composition rule spellings of QSpec FR-491.
@@ -87,214 +83,57 @@ struct CompositionBody {
     environment: Vec<CheckedEnvironmentEntry>,
 }
 
-fn environment_targets<'a>(
-    entries: &'a [CheckedEnvironmentEntry],
-    targets: &mut BTreeSet<&'a CheckedNodeId>,
-) {
-    for entry in entries {
-        targets.insert(match &entry.supplies {
-            CheckedEnvironmentSupplies::Fairness(supply) => &supply.context,
-            CheckedEnvironmentSupplies::Assumption(node) => node,
-        });
-    }
-}
-
 impl GuaranteeBody {
-    fn targets(&self) -> Vec<CheckedNodeId> {
-        let mut targets = BTreeSet::from([&self.clause, &self.relation]);
-        targets.extend(self.progress.iter().map(|entry| &entry.context));
-        environment_targets(&self.environment, &mut targets);
-        targets.into_iter().cloned().collect()
+    fn targets(&self, meter: &mut WorkMeter) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
+        let count = 2 + self.progress.len() + self.environment.len();
+        let mut targets = meter.vec(count)?;
+        for id in [&self.clause, &self.relation]
+            .into_iter()
+            .chain(self.progress.iter().map(|entry| &entry.context))
+            .chain(self.environment.iter().map(|entry| match &entry.supplies {
+                CheckedEnvironmentSupplies::Fairness(supply) => &supply.context,
+                CheckedEnvironmentSupplies::Assumption(node) => node,
+            }))
+        {
+            meter.insert_id(&mut targets, id)?;
+        }
+        Ok(targets)
     }
 }
 
 impl CompositionBody {
-    fn targets(&self) -> Vec<CheckedNodeId> {
-        let mut targets = BTreeSet::new();
-        targets.extend(self.components.iter().map(|entry| &entry.subject));
-        targets.extend(self.guarantees.iter().map(|entry| &entry.clause));
-        for premise in self.relies.iter().chain(&self.liveness_dependencies) {
-            targets.insert(&premise.guarantee.clause);
-            targets.insert(&premise.on.clause);
+    fn targets(&self, meter: &mut WorkMeter) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
+        let count = self.components.len()
+            + self.guarantees.len()
+            + 2 * (self.relies.len() + self.liveness_dependencies.len())
+            + self.supplies.len()
+            + self.environment.len();
+        let mut targets = meter.vec(count)?;
+        for id in self
+            .components
+            .iter()
+            .map(|entry| &entry.subject)
+            .chain(self.guarantees.iter().map(|entry| &entry.clause))
+        {
+            meter.insert_id(&mut targets, id)?;
         }
-        targets.extend(self.supplies.iter().map(|entry| &entry.context));
-        environment_targets(&self.environment, &mut targets);
-        targets.into_iter().cloned().collect()
+        for premise in self.relies.iter().chain(&self.liveness_dependencies) {
+            meter.insert_id(&mut targets, &premise.guarantee.clause)?;
+            meter.insert_id(&mut targets, &premise.on.clause)?;
+        }
+        for id in
+            self.supplies
+                .iter()
+                .map(|entry| &entry.context)
+                .chain(self.environment.iter().map(|entry| match &entry.supplies {
+                    CheckedEnvironmentSupplies::Fairness(supply) => &supply.context,
+                    CheckedEnvironmentSupplies::Assumption(node) => node,
+                }))
+        {
+            meter.insert_id(&mut targets, id)?;
+        }
+        Ok(targets)
     }
-}
-
-fn kind_of(spelling: &str) -> Option<CheckedFairnessKind> {
-    match spelling {
-        "weak" => Some(CheckedFairnessKind::Weak),
-        "strong" => Some(CheckedFairnessKind::Strong),
-        _ => None,
-    }
-}
-
-fn granularity_of(spelling: &str) -> Option<CheckedFairnessGranularity> {
-    match spelling {
-        "whole" => Some(CheckedFairnessGranularity::Whole),
-        "each" => Some(CheckedFairnessGranularity::Each),
-        _ => None,
-    }
-}
-
-fn read_supply(value: &Value, at: &JsonPointer) -> Result<CheckedFairnessSupply, Defect> {
-    let object = closed(value, &["kind", "granularity", "context", "operation"], at)?;
-    let fail = || Defect::invalid(at);
-    Ok(CheckedFairnessSupply {
-        kind: text(object, "kind")
-            .and_then(|kind| kind_of(&kind))
-            .ok_or_else(fail)?,
-        granularity: text(object, "granularity")
-            .and_then(|granularity| granularity_of(&granularity))
-            .ok_or_else(fail)?,
-        context: node_key(object, "context", at)?,
-        operation: identifier(object, "operation").ok_or_else(fail)?,
-    })
-}
-
-fn read_environment(value: &Value, at: &JsonPointer) -> Result<CheckedEnvironmentEntry, Defect> {
-    let object = closed(value, &["name", "supplier", "supplies"], at)?;
-    let fail = || Defect::invalid(at);
-    let supplies_at = at.clone().key("supplies");
-    let supplies = match object.get("supplies") {
-        Some(Value::Object(supplies)) if supplies.len() == 1 => supplies,
-        _ => return Err(Defect::invalid(&supplies_at)),
-    };
-    let supplies = if let Some(fairness) = supplies.get("fairness") {
-        CheckedEnvironmentSupplies::Fairness(read_supply(fairness, &supplies_at.key("fairness"))?)
-    } else if supplies.contains_key("assumption") {
-        CheckedEnvironmentSupplies::Assumption(node_key(supplies, "assumption", &supplies_at)?)
-    } else {
-        return Err(Defect::invalid(&supplies_at));
-    };
-    Ok(CheckedEnvironmentEntry {
-        name: identifier(object, "name").ok_or_else(fail)?,
-        supplier: object
-            .get("supplier")
-            .and_then(Value::as_str)
-            .map(Box::from)
-            .ok_or_else(fail)?,
-        supplies,
-    })
-}
-
-fn read_progress(value: &Value, at: &JsonPointer) -> Result<CheckedGuaranteeProgress, Defect> {
-    let object = closed(value, &["context", "operation", "measure"], at)?;
-    let fail = || Defect::invalid(at);
-    let measure = match object.get("measure") {
-        Some(Value::Object(measure)) if measure.len() == 1 => measure,
-        _ => return Err(Defect::invalid(&at.clone().key("measure"))),
-    };
-    let measure = if measure.contains_key("decreases") {
-        CheckedGuaranteeMeasure::Decreases(path(measure, "decreases").ok_or_else(fail)?)
-    } else {
-        CheckedGuaranteeMeasure::Bound(
-            measure
-                .get("bound")
-                .and_then(Value::as_u64)
-                .ok_or_else(fail)?,
-        )
-    };
-    Ok(CheckedGuaranteeProgress {
-        context: node_key(object, "context", at)?,
-        operation: identifier(object, "operation").ok_or_else(fail)?,
-        measure,
-    })
-}
-
-fn read_clause(value: &Value, at: &JsonPointer) -> Result<CheckedComponentClause, Defect> {
-    let object = closed(value, &["component", "clause"], at)?;
-    Ok(CheckedComponentClause {
-        component: identifier(object, "component").ok_or_else(|| Defect::invalid(at))?,
-        clause: node_key(object, "clause", at)?,
-    })
-}
-
-fn read_premise(value: &Value, at: &JsonPointer) -> Result<CheckedCompositionPremise, Defect> {
-    let object = closed(value, &["guarantee", "on"], at)?;
-    let member = |name: &str| {
-        let value = object.get(name).ok_or_else(|| Defect::invalid(at))?;
-        read_clause(value, &at.clone().key(name))
-    };
-    Ok(CheckedCompositionPremise {
-        guarantee: member("guarantee")?,
-        on: member("on")?,
-    })
-}
-
-fn read_component(value: &Value, at: &JsonPointer) -> Result<CheckedCompositionComponent, Defect> {
-    let object = closed(value, &["name", "package", "subject"], at)?;
-    let fail = || Defect::invalid(at);
-    Ok(CheckedCompositionComponent {
-        name: identifier(object, "name").ok_or_else(fail)?,
-        package: text(object, "package").ok_or_else(fail)?,
-        subject: node_key(object, "subject", at)?,
-    })
-}
-
-fn check_term(body: &Value, expected: BodyTerm, at: &JsonPointer) -> Result<(), Defect> {
-    if body_term(body) == Some(expected) {
-        Ok(())
-    } else {
-        Err(Defect::invalid(at))
-    }
-}
-
-fn read_guarantee(body: &Value, at: &JsonPointer) -> Result<GuaranteeBody, Defect> {
-    let object = closed(
-        body,
-        &[
-            "term",
-            "clause",
-            "relation",
-            "initial",
-            "progress",
-            "environment",
-        ],
-        at,
-    )?;
-    check_term(body, BodyTerm::ImplementationGuarantee, at)?;
-    Ok(GuaranteeBody {
-        clause: node_key(object, "clause", at)?,
-        relation: node_key(object, "relation", at)?,
-        initial: path(object, "initial").ok_or_else(|| Defect::invalid(at))?,
-        progress: entries(object, "progress", at, read_progress)?,
-        environment: entries(object, "environment", at, read_environment)?,
-    })
-}
-
-fn read_composition(body: &Value, at: &JsonPointer) -> Result<(Box<str>, CompositionBody), Defect> {
-    let object = closed(
-        body,
-        &[
-            "term",
-            "rule",
-            "components",
-            "guarantees",
-            "relies",
-            "liveness_dependencies",
-            "supplies",
-            "environment",
-        ],
-        at,
-    )?;
-    check_term(body, BodyTerm::ComponentComposition, at)?;
-    let rule = text(object, "rule")
-        .filter(|rule| RULES.contains(&rule.as_ref()))
-        .ok_or_else(|| Defect::invalid(at))?;
-    Ok((
-        rule,
-        CompositionBody {
-            components: entries(object, "components", at, read_component)?,
-            guarantees: entries(object, "guarantees", at, read_clause)?,
-            relies: entries(object, "relies", at, read_premise)?,
-            liveness_dependencies: entries(object, "liveness_dependencies", at, read_premise)?,
-            supplies: entries(object, "supplies", at, read_supply)?,
-            environment: entries(object, "environment", at, read_environment)?,
-        },
-    ))
 }
 
 fn defect_failure(defect: Defect, node: &CheckedSemanticNodeV2) -> ValidationFailure {
@@ -358,7 +197,7 @@ fn check_identity(site: &Site<'_>, targets: Vec<CheckedNodeId>) -> Result<(), Va
 }
 
 fn root_application(site: &Site<'_>) -> Option<ValidationFailure> {
-    (body_term(&site.node.body) == Some(BodyTerm::Application)).then(|| {
+    (TermNode::of(&site.node.body).kind() == Some(BodyTerm::Application)).then(|| {
         refuse(
             CheckedPackageRefusalCode::IllTyped,
             CheckedPackageRefusalCause::OperatorIneligible,
@@ -381,8 +220,27 @@ fn check_guarantee(
     if let Some(failure) = root_application(site) {
         return Err(failure);
     }
-    let body = read_guarantee(&node.body, &site.body_at()).map_err(|d| defect_failure(d, node))?;
-    check_identity(site, body.targets())?;
+    let decoded = meter
+        .decode_body(site.position)?
+        .map_err(|_| defect_failure(Defect::invalid(&site.body_at()), node))?;
+    let CheckedTerm::ImplementationGuarantee {
+        clause,
+        relation,
+        initial,
+        progress,
+        environment,
+    } = decoded
+    else {
+        return Err(site.invalid(site.body_at()));
+    };
+    let body = GuaranteeBody {
+        clause,
+        relation,
+        initial,
+        progress,
+        environment,
+    };
+    check_identity(site, body.targets(meter)?)?;
     if !ascending(
         body.progress
             .iter()
@@ -393,28 +251,29 @@ fn check_guarantee(
     if !ascending(body.environment.iter().map(|entry| entry.name.as_ref())) {
         return Err(out_of_order(site, "environment"));
     }
-    check_guarantee_targets(site, &body, graph)?;
+    check_guarantee_targets(site, &body, graph, meter)?;
     check_guarantee_members(site, &body, graph, meter)
 }
 
 /// Whether the clause node's operation selects the infinite-trace temporal
 /// profile through its one `temporal_profile` law.
-fn selects_infinite_trace(clause: &CheckedSemanticNodeV2) -> bool {
-    let laws = clause
-        .body
-        .get("operation")
+fn selects_infinite_trace(clause_position: usize, meter: &WorkMeter) -> bool {
+    let Some((body, _)) = meter.body(clause_position) else {
+        return false;
+    };
+    body.get("operation")
         .and_then(|operation| operation.get("laws"))
-        .and_then(Value::as_array);
-    laws.is_some_and(|laws| {
-        laws.iter().any(|law| {
-            law.get("role").and_then(Value::as_str) == Some("temporal_profile")
-                && law
-                    .get("definition")
-                    .and_then(|definition| definition.get("identity"))
-                    .and_then(Value::as_str)
-                    == Some(INFINITE_TRACE)
+        .and_then(TermNode::items)
+        .is_some_and(|mut laws| {
+            laws.any(|law| {
+                law.get("role").and_then(TermNode::as_str) == Some("temporal_profile")
+                    && law
+                        .get("definition")
+                        .and_then(|definition| definition.get("identity"))
+                        .and_then(TermNode::as_str)
+                        == Some(INFINITE_TRACE)
+            })
         })
-    })
 }
 
 /// The identity of the domain package a node's `owner` declares it in.
@@ -429,18 +288,22 @@ fn model_identity(node: &CheckedSemanticNodeV2) -> Option<&str> {
 /// `value`/`parameter` its first argument ranges `over`. A clause over a
 /// parameter whose type is no model declaration has no model to compare.
 fn subject_model<'g>(
-    clause: &CheckedSemanticNodeV2,
+    clause_position: usize,
     graph: &'g StepGraph<'_, '_>,
+    meter: &mut WorkMeter,
 ) -> Option<&'g str> {
-    let over = clause.body.get("arguments")?.get(0)?.get("target")?;
-    let over: CheckedNodeId = serde_json::from_value(over.clone()).ok()?;
+    let (body, row) = meter.body(clause_position)?;
+    let over = body.get("arguments")?.items()?.next()?.get("target")?;
+    let over = meter.read_id(over, row).ok()?.valid()?;
     let (parameter, kind) = graph.node(&over)?;
     if kind != CheckedNodeKind::Value(ValueForm::Parameter) {
         return None;
     }
     let (ty, kind) = graph.node(&parameter.semantic_type)?;
     if kind == CheckedNodeKind::CompositeType(super::CompositeTypeForm::Reference) {
-        let target = super::structural::reference_type_target(ty)?;
+        let type_position = graph.index.get(&ty.node_id).copied()?;
+        let decoded = meter.decode_body(type_position).ok()?.ok()?;
+        let target = super::structural::reference_type_target_ref(&decoded)?.clone();
         return model_identity(graph.node(&target)?.0);
     }
     model_identity(ty)
@@ -450,6 +313,7 @@ fn check_guarantee_targets(
     site: &Site<'_>,
     body: &GuaranteeBody,
     graph: &StepGraph<'_, '_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
     let body_at = site.body_at();
@@ -461,10 +325,14 @@ fn check_guarantee_targets(
             .map(|(target, _)| target)
             .map_err(|refusal| model_refusal(refusal, at, id))
     };
-    let clause = target(body_at.clone().key("clause"), &body.clause, |kind| {
+    target(body_at.clone().key("clause"), &body.clause, |kind| {
         kind == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
     })?;
-    if !selects_infinite_trace(clause) {
+    let clause_position = *graph
+        .index
+        .get(&body.clause)
+        .expect("joined clause is indexed");
+    if !selects_infinite_trace(clause_position, meter) {
         return Err(malformed(body_at.clone().key("clause"), &body.clause));
     }
     target(body_at.clone().key("relation"), &body.relation, |kind| {
@@ -501,20 +369,19 @@ fn check_guarantee_members(
     let node = site.node;
     let body_at = site.body_at();
     // 4: each operation a progress or scheduling member names resolves.
-    let mut operations = Vec::new();
+    let mut operations = meter.vec(body.progress.len() + body.environment.len())?;
     for (index, entry) in body.progress.iter().enumerate() {
         let at = body_at.clone().key("progress").index(index);
-        operations.push((at, &entry.context, &entry.operation));
+        meter.push(&mut operations, (at, &entry.context, &entry.operation))?;
     }
     for (index, entry) in body.environment.iter().enumerate() {
         if let CheckedEnvironmentSupplies::Fairness(supply) = &entry.supplies {
             let at = body_at.clone().key("environment").index(index);
-            operations.push((at, &supply.context, &supply.operation));
+            meter.push(&mut operations, (at, &supply.context, &supply.operation))?;
         }
     }
-    let subject = graph
-        .node(&body.clause)
-        .and_then(|(clause, _)| subject_model(clause, graph));
+    let clause_position = graph.index.get(&body.clause).copied();
+    let subject = clause_position.and_then(|position| subject_model(position, graph, meter));
     for (at, context, operation) in operations {
         let Some((context_node, kind)) = graph.node(context) else {
             continue;
@@ -570,9 +437,33 @@ fn check_composition<'e>(
     if let Some(failure) = root_application(site) {
         return Err(failure);
     }
-    let (_, body) =
-        read_composition(&node.body, &site.body_at()).map_err(|d| defect_failure(d, node))?;
-    check_identity(site, body.targets())?;
+    let decoded = meter
+        .decode_body(site.position)?
+        .map_err(|_| defect_failure(Defect::invalid(&site.body_at()), node))?;
+    let CheckedTerm::ComponentComposition {
+        rule,
+        components,
+        guarantees,
+        relies,
+        liveness_dependencies,
+        supplies,
+        environment,
+    } = decoded
+    else {
+        return Err(site.invalid(site.body_at()));
+    };
+    if !RULES.contains(&rule.as_ref()) {
+        return Err(site.invalid(site.body_at().key("rule")));
+    }
+    let body = CompositionBody {
+        components,
+        guarantees,
+        relies,
+        liveness_dependencies,
+        supplies,
+        environment,
+    };
+    check_identity(site, body.targets(meter)?)?;
     check_composition_order(site, &body)?;
     let places = Places {
         dependencies,

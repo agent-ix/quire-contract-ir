@@ -35,20 +35,19 @@ use super::model_members::{
     MemberKind, MemberType, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved,
 };
 use super::structural::{
-    is_state_clause_application, is_state_transition_application, reference_type_target_ref,
-    typed_anchor_body, typed_clause_body, typed_parameter_binding, typed_reference,
-    typed_transition_body, AnchorBody, TransitionBody,
+    reference_type_target_ref, typed_anchor_body, typed_clause_body, typed_parameter_binding,
+    typed_reference, typed_transition_body, AnchorBody, TransitionBody,
 };
 use super::{
     ApplicationOperator, CheckedNodeKind, CheckedTerm, CompositeTypeForm, ExecutionPoint,
     ExpressionForm, ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm,
-    StateClauseKind, StateForm, ValueForm, WorkMeter,
+    StateClauseKind, StateForm, TermNode, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use crate::checked_package::terms::{subterms, At, Cursor};
+use crate::checked_package::terms::{At, Cursor};
 use quire_walk::{Children, Walk};
 use std::ops::ControlFlow;
 
@@ -195,7 +194,8 @@ fn validate_placement(
                 Step::Key("body"),
             ];
             let cursor = Cursor::at(&Trail::Base(&steps));
-            let root = cursor.root(&node.body, true);
+            let (body, _) = meter.body(position).expect("graph bodies are attached");
+            let root = cursor.root(body, true);
             let mut placement = StateApplicationPlacement {
                 node,
                 position,
@@ -229,21 +229,28 @@ struct StateApplicationPlacement<'a> {
 }
 
 impl<'a> Walk for StateApplicationPlacement<'a> {
-    type Node = At<'a, bool>;
+    type Node = At<'a, bool, TermNode<'a>>;
     type Frame = ();
     type Stop = ValidationFailure;
 
     fn enter(
         &mut self,
-        node: At<'a, bool>,
-        children: &mut Children<'_, At<'a, bool>>,
+        node: At<'a, bool, TermNode<'a>>,
+        children: &mut Children<'_, At<'a, bool, TermNode<'a>>>,
     ) -> ControlFlow<ValidationFailure> {
         self.cursor.enter(&node);
-        let application = if self.transition {
-            is_state_transition_application(node.value)
-        } else {
-            is_state_clause_application(node.value)
-        };
+        let application = node.value.view().is_some_and(|view| {
+            let super::TermView::Application { operation, .. } = view else {
+                return false;
+            };
+            let identity = operation.get("identity").and_then(TermNode::as_str);
+            identity
+                == Some(if self.transition {
+                    "quire.op.state.transition"
+                } else {
+                    "quire.op.state.clause"
+                })
+        });
         if application && !(node.extra && self.root_admitted) {
             let path = if node.extra {
                 node_pointer(self.position)
@@ -252,7 +259,10 @@ impl<'a> Walk for StateApplicationPlacement<'a> {
             };
             return ControlFlow::Break(ineligible(self.node, path));
         }
-        children.extend(subterms(node.value).map(|subterm| self.cursor.subterm(subterm, false)));
+        children.extend(node.value.subterms().map(|subterm| {
+            self.cursor
+                .term_subterm(subterm.value, subterm.key, subterm.index, false)
+        }));
         ControlFlow::Continue(())
     }
 
@@ -370,7 +380,10 @@ fn check_anchor(
                 Step::Index(frame_position),
                 Step::Key("body"),
             ];
-            let (frame_body, work) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
+            let (frame_node, row) = meter
+                .body(frame_position)
+                .ok_or_else(|| shape_refusal(frame, position))?;
+            let (frame_body, work) = read_frame_body(frame_node, row, meter, &Trail::Base(&steps))?;
             meter.charge(work, || node_pointer(frame_position).key("body"))?;
             for entry in &frame_body.deletes_scoped {
                 let name = match entry {
@@ -832,7 +845,8 @@ fn check_transition(
         Step::Index(frame_position),
         Step::Key("body"),
     ];
-    let (frame_body, work) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
+    let (frame_node, row) = meter.body(frame_position).ok_or_else(malformed_subject)?;
+    let (frame_body, work) = read_frame_body(frame_node, row, meter, &Trail::Base(&steps))?;
     meter.charge(work, || node_pointer(frame_position).key("body"))?;
     if !frame_body.modifies.iter().any(|entry| matches!(entry, ModifiesEntry::Field { declaration, name, .. } if declaration == declaring && name.as_ref() == field_name)) {
         return Err(malformed_subject());

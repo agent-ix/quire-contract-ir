@@ -31,18 +31,17 @@ use super::budgeted_read::denial;
 use super::checked_json::CheckedJson;
 use super::native_join_budget::{NativeJoinBudget, PackageReadStage};
 use super::read_charge::{self, Meter, Site, WalkReservation};
-use super::temporal::{interval_bound_outside_pattern, timed_upper_is_null};
+use super::temporal::{interval_bound_outside_pattern_node, timed_upper_is_null_node};
 use super::TermNode;
 use super::{
-    body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
-    CheckedTermView, HybridForm, TemporalForm, ValueForm,
+    body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, HybridForm,
+    TemporalForm, ValueForm,
 };
 use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
-use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure, WireTerm};
+use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use crate::checked_package::terms::{At, Cursor, TermSource};
 use quire_walk::{Children, Walk};
-use serde_json::Value;
 use std::ops::ControlFlow;
 
 /// The charge site of the flat-wire check at graph node `index`.
@@ -379,7 +378,7 @@ pub(super) fn check(
                 let CheckedNodeKind::TimedModel(form) = kind else {
                     unreachable!("timed grammar requires a timed kind")
                 };
-                super::timed_model::check_wire(node, form, position)
+                super::timed_model::check_wire(node, form, position, &mut meter.budget())
             }
             BodyGrammar::Hybrid => {
                 let super::CheckedNodeKind::Hybrid(form) = kind else {
@@ -400,7 +399,11 @@ pub(super) fn check(
                     scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
                 }
             }
-            BodyGrammar::Refinement => super::refinement::check_wire(&node.body, &at),
+            BodyGrammar::Refinement => {
+                let decoded =
+                    body.decode(json.document(), &mut meter.budget(), flat_site(position))?;
+                super::refinement::check_wire(body, decoded.as_ref().ok(), &at)
+            }
         };
         checked.map_err(|failure| super::with_node_locus(failure, &node.node_id))?;
         kinds.push(kind);
@@ -476,7 +479,7 @@ pub(super) fn check_interval_bounds(
 ) -> Result<(), ValidationFailure> {
     let mut hybrid_formulas = None;
     for (position, (node, &kind)) in wire.semantic_graph.nodes.iter().zip(kinds).enumerate() {
-        let body = WireTerm::decode(&node.body);
+        let body = TermNode::of(&node.body);
         if matches!(
             body_grammar(kind),
             BodyGrammar::Frame
@@ -487,16 +490,16 @@ pub(super) fn check_interval_bounds(
         {
             continue;
         }
-        let operation = match CheckedTerm::view_from_wire(body) {
-            Some(CheckedTermView::Application { operation, .. }) => Some(operation),
-            _ => node.body.get("operation").filter(|value| !value.is_null()),
+        let operation = match body.view() {
+            Some(super::TermView::Application { operation, .. }) => Some(operation),
+            _ => body.get("operation").filter(|value| !value.is_null()),
         };
         let Some(operation) = operation else {
             continue;
         };
-        let outside_pattern = interval_bound_outside_pattern(operation);
+        let outside_pattern = interval_bound_outside_pattern_node(operation);
         let mut nonhybrid_open_upper = false;
-        if timed_upper_is_null(operation) {
+        if timed_upper_is_null_node(operation) {
             if hybrid_formulas.is_none() {
                 hybrid_formulas = Some(hybrid_formula_nodes(wire, bodies, kinds, budget)?);
             }
@@ -728,12 +731,15 @@ fn check_term_with_empty_leaf<'a, V: TermSource<'a>>(
 }
 
 /// A row expression stands at the root of its own SemanticTerm grammar.
-pub(super) fn check_refinement_term(
-    root: &Value,
-    at: &Trail<'_>,
+pub(super) fn check_refinement_term<'a, 'b, V: TermSource<'a>>(
+    root: V,
+    at: &Trail<'b>,
     reservation: &mut WalkReservation<'_>,
-) -> Result<(), ValidationFailure> {
-    check_term(root, at, Place::BodyRoot, false, reservation)
+) -> Result<(), ValidationFailure>
+where
+    'a: 'b,
+{
+    check_term(root.shorter(), at, Place::BodyRoot, false, reservation)
 }
 
 /// Walks the values below the root of a frame or abstraction relation body,
@@ -1034,9 +1040,7 @@ mod tests {
             .semantic_graph
             .nodes
             .iter()
-            .map(|node| {
-                crate::checked_package::v2::CheckedJson::from_value(&node.body).expect("body")
-            })
+            .map(|node| node.body.clone())
             .collect::<Vec<_>>();
         let failure = check(&wire, &bodies, &mut NativeJoinBudget::unlimited())
             .expect_err("damaged wire refuses");
