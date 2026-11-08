@@ -733,10 +733,28 @@ fn imported_nominals_work_denial_prepays_original_graph_pointer() {
         drop_without_request::<ThreadCounter>(observation);
     }
     let zero = read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, 0);
-    assert!(matches!(
-        zero.result,
-        CheckedPackageV2BudgetedReadResult::Exhausted(_)
-    ));
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(zero_outcome) = &zero.result else {
+        panic!(
+            "zero storage denies the earlier pointer-free catalog reservation: {:?}",
+            zero.result
+        );
+    };
+    assert_eq!(
+        zero_outcome.denied.resource,
+        PackageReadResource::ReadStorage
+    );
+    assert_eq!(zero_outcome.limit, 0);
+    assert!(zero_outcome.path.is_none());
+    let first_storage = zero
+        .budget
+        .first_unpaid_read_storage()
+        .expect("first catalog storage request");
+    assert_eq!(zero_outcome.denied.amount, first_storage);
+    assert_eq!(
+        zero_outcome.consumed,
+        u64::try_from(first_storage).expect("bounded catalog reservation")
+    );
+    assert_eq!(zero.budget.read_storage_consumed(), 0);
     assert_eq!(zero.requested, 0);
     let zero_repeat =
         read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, 0);
