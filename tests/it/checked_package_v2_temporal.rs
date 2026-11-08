@@ -3670,6 +3670,30 @@ fn outcome(code: Code, cause: Option<Cause>, path: String) -> Outcome {
     (code, cause, Some(path))
 }
 
+#[trace("TC-346", "FR-038-AC-531")]
+#[test]
+fn tc_346_a_group_reference_to_a_non_fairness_node_is_refused_before_resolution() {
+    let (package, _) = hyper_edited(|_| {});
+    let wrapper = node_label(&package, clause(&package));
+    let expression = node_label(&package, find_form(&package, "expression", "reference"));
+    for (case, target) in [
+        ("a body wrapper", wrapper),
+        ("a Boolean expression", expression),
+        ("an object type", model_key(ORDER_NODE)),
+    ] {
+        let (package, at) = hyper_edited(|body| {
+            body["members"][3]["value"]["members"][0]["members"][3] = refer(&target);
+        });
+        expect(
+            case,
+            &package,
+            Code::IllTyped,
+            Cause::OperatorIneligible,
+            &at_hyper_reference(at),
+        );
+    }
+}
+
 #[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_the_hyperproperty_shape_is_refused_at_the_first_member_that_breaks_it() {

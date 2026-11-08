@@ -1936,10 +1936,26 @@ fn check_hyper_fairness(
             _ => None,
         });
         for (member_at, member) in group_members.iter().enumerate() {
+            // Check 1: a reference to any node form but a fairness node (a formula
+            // node is the temporal step's, already refused) is ineligible.
+            let fair_id = &graph.nodes[position].node_id;
+            if let Some((_, kind)) = reference_target(member).and_then(|target| graph.node(&target))
+            {
+                if !matches!(
+                    kind,
+                    CheckedNodeKind::Temporal(TemporalForm::Fairness | TemporalForm::Formula)
+                ) {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::IllTyped,
+                        reference_pointer(group_at, member_at),
+                        Some(CheckedPackageRefusalCause::OperatorIneligible),
+                        fair_id.clone(),
+                    ));
+                }
+            }
             let Some((_, fairness)) = fairness_member(member, graph) else {
                 continue;
             };
-            let fair_id = &graph.nodes[position].node_id;
             let super::CheckedFairnessTarget::Operation { declaration, name } = &fairness.target
             else {
                 return Err(malformed(group_at, member_at, fair_id));
