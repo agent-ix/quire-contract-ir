@@ -23,6 +23,8 @@ use std::sync::Arc;
 
 #[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
 mod reached_model_read;
+#[cfg(test)]
+pub(in crate::checked_package::v2) use reached_model_read::fixture_support as model_document_test_fixture;
 #[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
 mod selected_closure_walk;
 mod selected_type_closure;
