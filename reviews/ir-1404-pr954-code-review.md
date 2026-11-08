@@ -71,3 +71,5 @@ NOT MERGEABLE: FND-001 is a regression in the strict reader's canonical guarante
 | FND-005 | fixed | The AC-514 tags are removed from checked_json.rs. The doc comments now say that the read builds a fresh uncharged document per detail through `from_value` until a later stage, and tests.md lists AC-514 as Planned. |
 | FND-006 | fixed | `cargo fmt --all --check` is clean at 09488233. |
 | FND-007 | fixed | The `/// Trace:` lines are removed from node_index.rs, and the shared.rs test now uses `#[trace]`. The AC that tag names is wrong: FND-009. |
+| FND-008 | fixed | 00945af6: `charge_outcome_diagnostic` charges at the active `PackageRead` source with form `"diagnostic"`, falling back to `PackageRead(WireDecode, 0)`, which `admit_bytes` now sets after the envelope. The test asserts `PackageRead(WireDecode, 0)`/`"diagnostic"`, and the 13 budgeted_read tests pass on 00945af6. |
+| FND-009 | fixed | 00945af6 retags the CheckedNodeId writer-reservation test `#[trace("TC-472", "FR-358-AC-13")]`. |
