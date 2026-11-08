@@ -2785,18 +2785,8 @@ pub(super) fn validate_catalog_graph(
             .and_then(|node| node.owner.as_ref())
         {
             for operation in owners.operation_classes(identity, meter)? {
-                concrete.push(DeclaredGraphClass {
-                    class: format!("{}::{}", operation.object, operation.operation),
-                    node: RefinementKey::Local(operation.node),
-                    binder_types: operation.binder_types.map_or(
-                        BinderSignature::Unspecified,
-                        |types| {
-                            BinderSignature::Known(
-                                types.into_iter().map(RefinementKey::Local).collect(),
-                            )
-                        },
-                    ),
-                });
+                let class = operation_class(operation, None, meter)?;
+                meter.push(&mut concrete, class)?;
             }
             concrete.sort_unstable_by(|left, right| left.class.cmp(&right.class));
         }
@@ -2908,30 +2898,14 @@ pub(super) fn validate_catalog_graph(
                         .transpose()?
                         .unwrap_or_default(),
                 };
-                let mut classes = operations
-                    .into_iter()
-                    .map(|operation| {
-                        let key = |node| match abstract_key.as_ref() {
-                            RefinementKey::Local(_) => RefinementKey::Local(node),
-                            RefinementKey::External(model) => {
-                                RefinementKey::External(RefinementPackageNodeKey {
-                                    package: model.package.clone(),
-                                    node,
-                                })
-                            }
-                        };
-                        DeclaredGraphClass {
-                            class: format!("{}::{}", operation.object, operation.operation),
-                            node: key(operation.node),
-                            binder_types: operation.binder_types.map_or(
-                                BinderSignature::Unspecified,
-                                |types| {
-                                    BinderSignature::Known(types.into_iter().map(key).collect())
-                                },
-                            ),
-                        }
-                    })
-                    .collect::<Vec<_>>();
+                let package = match abstract_key.as_ref() {
+                    RefinementKey::Local(_) => None,
+                    RefinementKey::External(model) => Some(model.package.as_ref()),
+                };
+                let mut classes = meter.vec(operations.len())?;
+                for operation in operations {
+                    classes.push(operation_class(operation, package, meter)?);
+                }
                 classes.sort_unstable_by(|left, right| left.class.cmp(&right.class));
                 (classes, MemoryModels::default())
             }
@@ -2955,14 +2929,12 @@ pub(super) fn validate_catalog_graph(
     Ok(())
 }
 
-#[derive(Clone)]
 struct DeclaredGraphClass {
     class: String,
     node: RefinementKey,
     binder_types: BinderSignature<RefinementKey>,
 }
 
-#[derive(Clone)]
 enum BinderSignature<T> {
     Known(Vec<T>),
     Unspecified,
@@ -2970,13 +2942,92 @@ enum BinderSignature<T> {
 }
 
 impl<T> BinderSignature<T> {
-    fn map<U>(self, convert: impl FnMut(T) -> U) -> BinderSignature<U> {
-        match self {
-            Self::Known(types) => BinderSignature::Known(types.into_iter().map(convert).collect()),
+    fn map<U>(
+        self,
+        meter: &mut super::WorkMeter,
+        mut convert: impl FnMut(T, &mut super::WorkMeter) -> Result<U, ValidationFailure>,
+    ) -> Result<BinderSignature<U>, ValidationFailure> {
+        Ok(match self {
+            Self::Known(types) => {
+                let mut mapped = meter.vec(types.len())?;
+                for member in types {
+                    mapped.push(convert(member, meter)?);
+                }
+                BinderSignature::Known(mapped)
+            }
             Self::Unspecified => BinderSignature::Unspecified,
             Self::Ambiguous => BinderSignature::Ambiguous,
-        }
+        })
     }
+}
+
+impl BinderSignature<RefinementKey> {
+    fn duplicate(&self, meter: &mut super::WorkMeter) -> Result<Self, ValidationFailure> {
+        Ok(match self {
+            Self::Known(types) => {
+                let mut copied = meter.vec(types.len())?;
+                for key in types {
+                    let copied_key = match key {
+                        RefinementKey::Local(id) => copy_class_key(id, None, meter)?,
+                        RefinementKey::External(key) => {
+                            copy_class_key(&key.node, Some(&key.package), meter)?
+                        }
+                    };
+                    copied.push(copied_key);
+                }
+                Self::Known(copied)
+            }
+            Self::Unspecified => Self::Unspecified,
+            Self::Ambiguous => Self::Ambiguous,
+        })
+    }
+}
+
+fn owned_class_key(
+    node: CheckedNodeId,
+    package: Option<&str>,
+    meter: &mut super::WorkMeter,
+) -> Result<RefinementKey, ValidationFailure> {
+    Ok(match package {
+        Some(package) => RefinementKey::External(RefinementPackageNodeKey {
+            package: meter.boxed_str(package)?,
+            node,
+        }),
+        None => RefinementKey::Local(node),
+    })
+}
+
+fn copy_class_key(
+    node: &CheckedNodeId,
+    package: Option<&str>,
+    meter: &mut super::WorkMeter,
+) -> Result<RefinementKey, ValidationFailure> {
+    let node = meter.clone_id(node)?;
+    owned_class_key(node, package, meter)
+}
+
+fn operation_class(
+    operation: super::model_members::ModelOperationClass,
+    package: Option<&str>,
+    meter: &mut super::WorkMeter,
+) -> Result<DeclaredGraphClass, ValidationFailure> {
+    let class = meter
+        .formatted(format_args!(
+            "{}::{}",
+            operation.object, operation.operation
+        ))?
+        .into_string();
+    let node = owned_class_key(operation.node, package, meter)?;
+    let binder_types = match operation.binder_types {
+        Some(types) => BinderSignature::Known(types)
+            .map(meter, |id, meter| owned_class_key(id, package, meter))?,
+        None => BinderSignature::Unspecified,
+    };
+    Ok(DeclaredGraphClass {
+        class,
+        node,
+        binder_types,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -3121,25 +3172,27 @@ fn protocol_classes(
             None
         }
     });
-    let key = |id: &CheckedNodeId| match package {
-        Some(package) => RefinementKey::External(RefinementPackageNodeKey {
-            package: package.into(),
-            node: id.clone(),
-        }),
-        None => RefinementKey::Local(id.clone()),
-    };
     meter.charge(super::model_members::units(nodes.len()), || at.clone())?;
-    let clause_paths: Vec<_> = nodes
+    let clause_count = nodes
         .iter()
         .filter(|node| {
             node.kind == super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
+                && node.name.is_some()
         })
-        .filter_map(|node| {
-            node.name
-                .map(|name| (node.id, name.qualified_name.as_slice()))
-        })
-        .collect();
-    let mut closest_clauses = Vec::with_capacity(nodes.len());
+        .count();
+    let mut clause_paths = meter.vec(clause_count)?;
+    clause_paths.extend(
+        nodes
+            .iter()
+            .filter(|node| {
+                node.kind == super::CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolClause)
+            })
+            .filter_map(|node| {
+                node.name
+                    .map(|name| (node.id, name.qualified_name.as_slice()))
+            }),
+    );
+    let mut closest_clauses = meter.vec(nodes.len())?;
     for member in nodes {
         let closest = if matches!(member.kind, super::CheckedNodeKind::Protocol(_)) {
             if let Some(name) = member.name {
@@ -3198,12 +3251,20 @@ fn protocol_classes(
                         protocol_clause_path(&clause_name.qualified_name),
                         trigger_type,
                     ) {
-                        classes.push(DeclaredGraphClass {
-                            class: format!("activate {name}"),
-                            node: key(clause.id),
-                            binder_types: binder_signature(trigger_type, signatures, meter)?
-                                .map(|id| key(&id)),
-                        });
+                        let class = meter
+                            .formatted(format_args!("activate {name}"))?
+                            .into_string();
+                        let node = copy_class_key(clause.id, package, meter)?;
+                        let binder_types = binder_signature(trigger_type, signatures, meter)?
+                            .map(meter, |id, meter| owned_class_key(id, package, meter))?;
+                        meter.push(
+                            &mut classes,
+                            DeclaredGraphClass {
+                                class,
+                                node,
+                                binder_types,
+                            },
+                        )?;
                     }
                 }
             }
@@ -3239,26 +3300,32 @@ fn protocol_classes(
                 arguments,
                 &clause_name.qualified_name,
                 &name.qualified_name,
-            ) else {
+                meter,
+            )?
+            else {
                 continue;
             };
             let binder_types = if matches!(operator, CatalogOperator::Role) {
                 BinderSignature::Unspecified
             } else {
                 protocol_binder_types(operator, arguments, nodes, signatures, meter)?
-                    .map(|id| key(&id))
+                    .map(meter, |id, meter| owned_class_key(id, package, meter))?
             };
             for class in classes_for_node {
                 let class_binders = if class.empty_binders {
                     BinderSignature::Known(Vec::new())
                 } else {
-                    binder_types.clone()
+                    binder_types.duplicate(meter)?
                 };
-                classes.push(DeclaredGraphClass {
-                    class: class.name,
-                    node: key(member.id),
-                    binder_types: class_binders,
-                });
+                let node = copy_class_key(member.id, package, meter)?;
+                meter.push(
+                    &mut classes,
+                    DeclaredGraphClass {
+                        class: class.name,
+                        node,
+                        binder_types: class_binders,
+                    },
+                )?;
             }
         }
     }
@@ -3352,7 +3419,7 @@ fn protocol_memory_models(
                     return Err(ValidationFailure::refused(
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
                         at.clone(),
-                    ))
+                    ));
                 }
             };
             let model = match selected {
@@ -3363,7 +3430,7 @@ fn protocol_memory_models(
                     return Err(ValidationFailure::refused(
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
                         at.clone(),
-                    ))
+                    ));
                 }
             };
             models.insert(model);
@@ -3624,73 +3691,84 @@ fn protocol_member_classes(
     arguments: &[CheckedTerm],
     clause_name: &[Box<str>],
     name: &[Box<str>],
-) -> Option<Vec<ProtocolMemberClass>> {
-    let path = format!("{}::{}", protocol_clause_path(clause_name)?, name.last()?);
-    let inherited = |name| ProtocolMemberClass {
-        name,
-        empty_binders: false,
+    meter: &mut super::WorkMeter,
+) -> Result<Option<Vec<ProtocolMemberClass>>, ValidationFailure> {
+    let Some(path) = protocol_clause_path(clause_name) else {
+        return Ok(None);
     };
-    let classes = match operator {
-        CatalogOperator::Parallel => Some(vec![format!("fork {path}"), format!("join {path}")]),
-        CatalogOperator::Compensation => {
-            return Some(vec![
-                inherited(path.clone()),
-                ProtocolMemberClass {
-                    name: format!("cend {path}"),
-                    empty_binders: true,
-                },
-            ]);
-        }
+    let Some(member) = name.last() else {
+        return Ok(None);
+    };
+    let prefixes: &[(&str, bool)] = match operator {
+        CatalogOperator::Parallel => &[("fork ", false), ("join ", false)],
+        CatalogOperator::Compensation => &[("", false), ("cend ", true)],
         CatalogOperator::Attempt
         | CatalogOperator::Event
         | CatalogOperator::Send
         | CatalogOperator::Receive
         | CatalogOperator::Fence
         | CatalogOperator::TimeoutFromAwait
-        | CatalogOperator::Finish => Some(vec![path]),
+        | CatalogOperator::Finish => &[("", false)],
         CatalogOperator::Channel => {
-            let delivery = super::protocol_body::binding_value(arguments, "delivery")
+            let Some(delivery) = super::protocol_body::binding_value(arguments, "delivery")
                 .and_then(super::protocol_body::text_value)
-                .and_then(ChannelDelivery::parse)?;
-            // An interval enables neither `duplicate` nor `lose` (FR-465).
-            Some(match delivery {
-                ChannelDelivery::Unknown => {
-                    vec![format!("duplicate {path}"), format!("lose {path}")]
-                }
-                ChannelDelivery::AtLeastOnce => vec![format!("duplicate {path}")],
-                ChannelDelivery::AtMostOnce => vec![format!("lose {path}")],
-                ChannelDelivery::ExactlyOncePremise | ChannelDelivery::Between { .. } => Vec::new(),
-            })
+                .and_then(ChannelDelivery::parse)
+            else {
+                return Ok(None);
+            };
+            match delivery {
+                ChannelDelivery::Unknown => &[("duplicate ", false), ("lose ", false)],
+                ChannelDelivery::AtLeastOnce => &[("duplicate ", false)],
+                ChannelDelivery::AtMostOnce => &[("lose ", false)],
+                ChannelDelivery::ExactlyOncePremise | ChannelDelivery::Between { .. } => &[],
+            }
         }
         CatalogOperator::Role => {
-            let replication = super::protocol_body::binding_value(arguments, "replication")?;
-            let CheckedTerm::Aggregate { members } = replication else {
-                return None;
+            let Some(replication @ CheckedTerm::Aggregate { members }) =
+                super::protocol_body::binding_value(arguments, "replication")
+            else {
+                return Ok(None);
             };
             if members.is_empty() {
-                return Some(Vec::new());
-            }
-            let mut classes = vec![format!("spawn {path}")];
-            if super::protocol_body::group_value(replication, "lifetime")
+                &[]
+            } else if super::protocol_body::group_value(replication, "lifetime")
                 .and_then(super::protocol_body::text_value)
                 == Some("until")
             {
-                classes.push(format!("retire {path}"));
+                &[("spawn ", false), ("retire ", false)]
+            } else {
+                &[("spawn ", false)]
             }
-            Some(classes)
         }
-    }?;
-    Some(classes.into_iter().map(inherited).collect())
+    };
+    let mut classes = meter.vec(prefixes.len())?;
+    for (prefix, empty_binders) in prefixes {
+        let name = meter
+            .formatted(format_args!("{prefix}{path}::{member}"))?
+            .into_string();
+        classes.push(ProtocolMemberClass {
+            name,
+            empty_binders: *empty_binders,
+        });
+    }
+    Ok(Some(classes))
 }
 
-/// Preserve every authored clause segment in the class identity.
-fn protocol_clause_path(name: &[Box<str>]) -> Option<String> {
-    (!name.is_empty()).then(|| {
-        name.iter()
-            .map(AsRef::as_ref)
-            .collect::<Vec<&str>>()
-            .join("::")
-    })
+/// A clause name rendered from its borrowed segments without an intermediate list or string.
+struct ProtocolClausePath<'a>(&'a [Box<str>]);
+impl std::fmt::Display for ProtocolClausePath<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (index, segment) in self.0.iter().enumerate() {
+            if index != 0 {
+                formatter.write_str("::")?;
+            }
+            formatter.write_str(segment)?;
+        }
+        Ok(())
+    }
+}
+fn protocol_clause_path(name: &[Box<str>]) -> Option<ProtocolClausePath<'_>> {
+    (!name.is_empty()).then_some(ProtocolClausePath(name))
 }
 
 fn compare_declared_classes(
@@ -4120,8 +4198,15 @@ mod tests {
         .expect("valid delivery binding");
         let clause: Vec<Box<str>> = vec!["Example".into(), "OrderFlow".into()];
         let name: Vec<Box<str>> = vec!["Charges".into()];
-        protocol_member_classes(CatalogOperator::Channel, &[argument], &clause, &name)
-            .map(|classes| classes.into_iter().map(|class| class.name).collect())
+        protocol_member_classes(
+            CatalogOperator::Channel,
+            &[argument],
+            &clause,
+            &name,
+            &mut super::super::WorkMeter::new(u64::MAX),
+        )
+        .expect("unmetered class derivation")
+        .map(|classes| classes.into_iter().map(|class| class.name).collect())
     }
 
     /// QSpec FR-465 and FR-426: a delivery count interval enables neither the
@@ -4208,5 +4293,118 @@ mod tests {
             "the measured limit admits"
         );
         assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
+    /// The live graph-to-class traversal pays its temporary indexes, rendered
+    /// class names, output rows and dependency-qualified node copies.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn protocol_classes_allocate_exactly_what_they_charge() {
+        let id = |name: &str| {
+            CheckedNodeId::from_value(&json!({
+                "package":"test/protocol", "path":[name], "ordinal":0
+            }))
+            .expect("node ID")
+        };
+        let root = id("root");
+        let object = id("object");
+        let clause = id("clause");
+        let member = id("parallel");
+        let root_owner = super::super::CheckedNodeOwner::ModelRoot {
+            identity: "example".into(),
+        };
+        let object_owner = super::super::CheckedNodeOwner::Model {
+            identity: "example".into(),
+            node: "Object".into(),
+        };
+        let clause_name = super::super::CheckedDeclaration {
+            qualified_name: vec!["Example".into(), "Flow".into()],
+        };
+        let member_name = super::super::CheckedDeclaration {
+            qualified_name: vec!["Example".into(), "Flow".into(), "run".into(), "Fork".into()],
+        };
+        let body = CheckedTerm::decode_admitted(&json!({
+            "term":"application", "operator":"protocol_control",
+            "operation":{"identity":"quire.op.protocol.control", "laws":[], "mode":null,
+                "member":{"kind":"profile_operator", "operator":"parallel"}, "leaves":[]},
+            "result_type":root, "arguments":[]
+        }))
+        .expect("admitted parallel operation");
+        use super::super::{CheckedNodeKind as Kind, ModelForm, ProtocolForm};
+        let nodes = [
+            ProtocolCatalogNode {
+                id: &root,
+                kind: Kind::Model(ModelForm::ObjectType),
+                name: None,
+                owner: Some(&root_owner),
+                owner_model: None,
+                semantic_type: &root,
+                term: None,
+            },
+            ProtocolCatalogNode {
+                id: &object,
+                kind: Kind::Model(ModelForm::ObjectType),
+                name: None,
+                owner: Some(&object_owner),
+                owner_model: None,
+                semantic_type: &root,
+                term: None,
+            },
+            ProtocolCatalogNode {
+                id: &clause,
+                kind: Kind::Protocol(ProtocolForm::ProtocolClause),
+                name: Some(&clause_name),
+                owner: None,
+                owner_model: Some(&object),
+                semantic_type: &root,
+                term: None,
+            },
+            ProtocolCatalogNode {
+                id: &member,
+                kind: Kind::Protocol(ProtocolForm::Control),
+                name: Some(&member_name),
+                owner: None,
+                owner_model: None,
+                semantic_type: &root,
+                term: Some(&body),
+            },
+        ];
+        let retained = super::super::model_fields::RetainedModels::default();
+        let at = JsonPointer::root();
+        for package in [None, Some("dependency/package")] {
+            let run = |limit| {
+                let mut budget =
+                    crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    result = Some(protocol_classes(
+                        &nodes,
+                        &root,
+                        None,
+                        package,
+                        CatalogSignatures::External(&retained),
+                        &at,
+                        &mut super::super::WorkMeter::over(&mut budget),
+                    ));
+                });
+                (
+                    result.expect("ran"),
+                    measured.bytes_total,
+                    budget.read_storage_consumed(),
+                )
+            };
+            let (result, allocated, charged) = run(u64::MAX);
+            let classes = result.expect("classes");
+            assert_eq!(
+                classes
+                    .iter()
+                    .map(|class| class.class.as_str())
+                    .collect::<Vec<_>>(),
+                ["fork Example::Flow::Fork", "join Example::Flow::Fork"]
+            );
+            assert!(charged > 0);
+            assert_eq!(allocated, charged);
+            assert!(run(charged).0.is_ok(), "exact allowance admits");
+            assert!(run(charged - 1).0.is_err(), "one byte short refuses");
+        }
     }
 }

@@ -1250,12 +1250,18 @@ impl RetainedModels {
             for operation in model.effective_operation_names(&declared.node, &mut budget)? {
                 let binder_types =
                     model.model_operation_binder_types(&declared.node, &operation, &mut budget)?;
-                classes.push(ModelOperationClass {
-                    object: member_name(&declared.node).into(),
-                    operation,
-                    node: id.clone(),
-                    binder_types,
-                });
+                let object = budget.text(member_name(&declared.node), "operation_class")?;
+                let node = budget.clone_id(id, "operation_class")?;
+                budget.push(
+                    &mut classes,
+                    ModelOperationClass {
+                        object,
+                        operation,
+                        node,
+                        binder_types,
+                    },
+                    "operation_class",
+                )?;
             }
         }
         Ok(classes)
@@ -2074,12 +2080,12 @@ impl CheckedPackageV2 {
                     Some(DeclaringNode::Ambiguous) => {
                         return Err(CheckedModelFieldsError::AmbiguousDeclaringNode {
                             field_identity: entry.identity.as_ref().into(),
-                        })
+                        });
                     }
                     None => {
                         return Err(CheckedModelFieldsError::MissingDeclaringNode {
                             field_identity: entry.identity.as_ref().into(),
-                        })
+                        });
                     }
                 };
                 Ok(CheckedModelField {

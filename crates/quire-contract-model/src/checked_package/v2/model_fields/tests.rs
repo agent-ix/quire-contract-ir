@@ -1270,7 +1270,9 @@ fn repeated_model_field_reads_do_not_walk_the_whole_graph() {
             }
             let visits = super::probe::node_visits();
             let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
-            println!("model_fields K={requests} R={models} graph_candidates={visits} id_comparisons={comparisons}");
+            println!(
+                "model_fields K={requests} R={models} graph_candidates={visits} id_comparisons={comparisons}"
+            );
             if models == 64 {
                 assert!(comparisons < requests * 64, "a full graph scan must fail");
             }
@@ -2057,4 +2059,73 @@ fn tc_472_operation_resolution_allocates_exactly_what_it_requests() {
     assert!(family && conforms);
     assert_eq!(found, Some(format!("{third}/act").as_str()));
     assert_graph_exact(|| (), |(), meter| run(meter).map(drop));
+}
+
+/// The real retained-record lookup pays both the ordered binder vector and
+/// the structural ID builder for each declared field.
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn retained_record_binders_allocate_exactly_what_they_request() {
+    let original = format!("{ORDERS}Receipt");
+    let mut record = object_type(
+        &original,
+        &[],
+        vec![
+            field(&original, "total", "ix://quire/native/Integer"),
+            field(&original, "label", "ix://quire/native/String"),
+        ],
+    );
+    record["kind"]["name"] = json!("record");
+    let mut selected = document(vec![record]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":"acme/orders", "name":"record"},
+            "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}
+        }));
+    let fixture = build_fixture(&selected, &[("Receipt", DeclarationForm::RecordValueType)]);
+    let key = id_at(&fixture, 0);
+    assert_graph_exact(
+        || (),
+        |(), meter| {
+            let result = fixture.package.models.record_binder_types(&key, meter)?;
+            assert!(
+                matches!(result, Some(RecordBinderTypes::Known(ref types)) if types.len() == 2)
+            );
+            Ok(())
+        },
+    );
+}
+
+/// The retained operation-class traversal pays names, IDs, binders and rows.
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn retained_operation_classes_allocate_exactly_what_they_request() {
+    let original = format!("{ORDERS}Widget");
+    let mut object = object_type(&original, &[], vec![]);
+    object["operations"] = json!([{"identity":format!("{original}/act"), "params":[{
+        "identity":format!("{original}/act/value"), "name":"value", "typeRef":"ix://quire/native/Integer", "multiplicity":multiplicity(1, Some(1))
+    }]}]);
+    let fixture = build_fixture(
+        &document(vec![object]),
+        &[("Widget", DeclarationForm::ObjectType)],
+    );
+    assert_graph_exact(
+        || (),
+        |(), meter| {
+            let classes = fixture
+                .package
+                .models
+                .operation_classes("acme/orders", meter)?;
+            assert_eq!(classes.len(), 1);
+            assert_eq!(classes[0].object.as_ref(), "Widget");
+            assert_eq!(classes[0].operation.as_ref(), "act");
+            assert!(classes[0]
+                .binder_types
+                .as_ref()
+                .is_some_and(|types| types.len() == 2));
+            Ok(())
+        },
+    );
 }
