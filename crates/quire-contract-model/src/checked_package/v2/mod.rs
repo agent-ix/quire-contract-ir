@@ -3626,7 +3626,15 @@ fn validate_graph(
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, meter)?;
-    guarantee_composition::validate(&graph.nodes, &kinds, &index, &owners, dependencies, meter)?;
+    guarantee_composition::validate(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        &owners,
+        dependencies,
+        meter,
+    )?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     validate_hyperproperties(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;

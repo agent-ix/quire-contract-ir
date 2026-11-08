@@ -53,6 +53,17 @@ impl<'a> Path<'a> {
         }
     }
 
+    /// The holder of a graph path, inspected as typed steps without building
+    /// or parsing an owned diagnostic pointer.
+    pub(super) fn graph_node_index(&self) -> Option<usize> {
+        match self.steps() {
+            [Step::Key("semantic_graph"), Step::Key("nodes"), Step::Index(index), ..] => {
+                Some(*index)
+            }
+            _ => None,
+        }
+    }
+
     /// This position one object member below.
     pub(super) fn key(mut self, key: &'a str) -> Self {
         self.steps[self.len] = Step::Key(key);
@@ -640,6 +651,46 @@ mod tests {
 
     fn budget(limit: u64) -> NativeJoinBudget {
         NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit)
+    }
+
+    #[trace("TC-472", "FR-038-AC-510")]
+    #[test]
+    fn graph_holder_prefix_uses_typed_steps_without_pointer_escaping() {
+        let graph = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(17)
+            .key("body")
+            .key("/~é");
+        let measured =
+            allocation_counter::measure(|| assert_eq!(graph.graph_node_index(), Some(17)));
+        assert_eq!(measured.bytes_total, 0);
+        assert_eq!(
+            Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .graph_node_index(),
+            None
+        );
+        assert_eq!(
+            Path::root()
+                .key("semantic_graph/nodes")
+                .index(17)
+                .graph_node_index(),
+            None
+        );
+        assert_eq!(
+            Path::root()
+                .key("semantic_graph")
+                .key("nodes/~")
+                .index(17)
+                .graph_node_index(),
+            None
+        );
+        assert_eq!(
+            Path::root().key("diagnostics").index(17).graph_node_index(),
+            None
+        );
     }
 
     #[trace("TC-472", "FR-038-AC-510")]
