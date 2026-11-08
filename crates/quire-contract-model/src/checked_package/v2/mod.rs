@@ -602,7 +602,7 @@ pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
     /// One operand row per node, in graph order: slot `k` of node `i` names
     /// `nodes[operand_rows[i][k]]`. Required on read.
-    #[serde(deserialize_with = "document_de::exact_vec")]
+    #[serde(deserialize_with = "document_de::exact_rows")]
     pub operand_rows: Vec<Vec<u64>>,
 }
 
