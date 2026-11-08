@@ -397,7 +397,7 @@ fn budget_denial(
 
 /// The shared reader's and writer's reservation: charges read storage on the
 /// caller's budget at its active locus.
-struct ReadStorageReservation<'b>(&'b mut NativeJoinBudget);
+pub(super) struct ReadStorageReservation<'b>(pub(super) &'b mut NativeJoinBudget);
 
 impl Reservation for ReadStorageReservation<'_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), ReservationDenied> {
@@ -510,12 +510,12 @@ pub(super) fn arc_bytes<T>() -> usize {
 }
 
 /// Shares the package document with the handles the decode hands out,
-/// charging the shared allocation at the retained locus first.
+/// charging the shared allocation at the decode locus first.
 pub(super) fn share_document(
     document: Document,
     budget: &mut NativeJoinBudget,
 ) -> Result<std::sync::Arc<Document>, ValidationFailure> {
-    at_stage(budget, PackageReadStage::Retained, "package");
+    at_stage(budget, PackageReadStage::WireDecode, "package");
     if !budget.charge_read_storage(arc_bytes::<Document>() as u128) {
         return Err(denial(budget));
     }

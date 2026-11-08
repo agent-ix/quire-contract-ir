@@ -94,10 +94,11 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
     assert_eq!(budget.last_success_read_storage_delta(), None);
 }
 
-/// The charged stages' reservations are exact: the measured requirement
-/// admits, one byte below is denied at the last request (today a graph body
-/// walk's stack), at its locus, with the bytes asked.
-#[trace("TC-472", "FR-038-AC-498", "FR-358-AC-13")]
+/// The read's reservations are exact: the measured requirement admits, one
+/// byte below is denied at the last request, at its locus (the retained
+/// tables built over the declaration index, the last stage to request heap), with the
+/// bytes asked.
+#[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
 fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
     let mut measure = NativeJoinBudget::unlimited();
@@ -115,32 +116,34 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
 
     let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required - 1);
     let result = read_with(&mut short);
-    let asked = u64::try_from(
-        short
-            .first_unpaid_read_storage()
-            .expect("a denial is recorded"),
-    )
-    .unwrap();
+    let asked = short
+        .first_unpaid_read_storage()
+        .expect("a denial is recorded");
     assert!(asked > 0);
-    // The denied request is the read's last one.
-    assert_eq!(short.read_storage_consumed() + asked, required);
     assert_eq!(short.first_unpaid(), None);
-    // The last request the read makes is a body walk's stack growth.
-    assert!(matches!(
+    // The retained tables are the last requests the read makes.
+    assert_eq!(
         short.first_unpaid_locus(),
         Some(NativeJoinLocus {
-            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, _),
-            form: "walk",
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 0),
+            form: "declarations",
         })
-    ));
+    );
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
+    // The denied request belongs to a graph node's stage, so the stop is
+    // incomplete at the node's body, which the budget can still name.
     let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {
-        panic!("a denial with no pointer to own is affordable: {result:?}");
+        panic!("a denial at a node is incomplete at its body: {result:?}");
     };
     assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(incomplete.denied.amount, u128::from(asked));
+    assert_eq!(incomplete.denied.amount, asked);
     assert_eq!(incomplete.limit, required - 1);
+    assert_eq!(
+        incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/0/body")
+    );
+    assert!(short.read_storage_consumed() < required);
 }
 
 /// A zero read-storage limit is denied at the first allocation of the shared
@@ -313,13 +316,12 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
             NativeJoinLocusSource::PackageRead(stage, 0) => stage,
             other => panic!("limit {limit}: {other:?}"),
         };
-        // The package document's shared `Arc` is paid for, at the retained
-        // locus, right after the canonical comparison and before the decode.
-        let stage = if (stage, locus.form) == (PackageReadStage::Retained, "package") {
-            PackageReadStage::Canonical
-        } else {
-            stage
-        };
+        // Past the canonical comparison the decode's denials carry the pointer of
+        // the value being decoded, whose bytes are charged after the denial, so
+        // the request sequence is read at the envelope and canonical requests.
+        if stage > PackageReadStage::Canonical {
+            break;
+        }
         if let Some((last_consumed, last_end, last_stage)) = previous {
             if consumed == last_consumed {
                 assert_eq!(consumed + asked, last_end, "limit {limit}: same request");
@@ -337,7 +339,8 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
         boundaries.insert(consumed + asked);
         previous = Some((consumed, consumed + asked, stage));
     }
-    assert_eq!(previous.map(|(_, end, _)| end), Some(required));
+    assert!(previous
+        .is_some_and(|(_, end, stage)| end < required && stage == PackageReadStage::Canonical));
     assert!(envelope_end > 0 && envelope_end < required);
     // The envelope's last package-bytes request: one below its end is denied
     // there, at the envelope's locus.

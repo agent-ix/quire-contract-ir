@@ -2082,7 +2082,8 @@ impl NominalGraph<'_> {
     fn model_variant_cases(
         &self,
         id: &CheckedNodeId,
-    ) -> Option<&BTreeMap<Box<str>, super::model_members::SelectedVariantCase>> {
+    ) -> Option<&super::model_members::SortedMap<Box<str>, super::model_members::SelectedVariantCase>>
+    {
         let position = *self.index.get(id)?;
         if self.kinds.get(position) != Some(&CheckedNodeKind::Model(super::ModelForm::VariantType))
         {
@@ -2503,9 +2504,9 @@ mod tests {
         });
         let mut meter = WorkMeter::new(u64::MAX);
         let mut budget = super::super::model_members::Budget::new(&mut meter, 0, 1 << 20);
-        let unit_refs = std::sync::Arc::new(BTreeMap::new());
+        let unit_refs = crate::checked_package::v2::model_members::UnitRefs::default();
         let model = super::super::model_members::read_semantic_ir(
-            &document,
+            super::super::model_members::view_of(&document),
             "example",
             &mut budget,
             &unit_refs,

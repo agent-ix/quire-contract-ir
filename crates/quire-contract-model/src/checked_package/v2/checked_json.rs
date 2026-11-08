@@ -224,12 +224,12 @@ impl Encode for CheckedJson {
     }
 }
 
+const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
 /// Writes one document value from an explicit heap stack, kept on the
 /// writer's reservation. An integer past 2^53 is the encoder's refusal, as it
 /// is for a `serde_json` number: the document holds the number's text, so a
 /// double would otherwise silently round it.
-const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
-
 pub(super) fn encode_node<S: Sink + ?Sized>(
     root: NodeRef<'_>,
     writer: &mut Writer<'_, S>,
