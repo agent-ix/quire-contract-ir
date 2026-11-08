@@ -456,7 +456,10 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
                 }
                 Ok(1)
             }
-            BodyTerm::Frame | BodyTerm::AbstractionRelation => Err(self.invalid(None)),
+            BodyTerm::Frame
+            | BodyTerm::AbstractionRelation
+            | BodyTerm::ImplementationGuarantee
+            | BodyTerm::ComponentComposition => Err(self.invalid(None)),
         }
     }
 }

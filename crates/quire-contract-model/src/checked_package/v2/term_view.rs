@@ -21,9 +21,11 @@ use super::native_join_budget::NativeJoinBudget;
 use super::read_charge::{Denied, ReadStorage, Site};
 use super::typed_terms::TermConversionCause;
 use super::{
-    ApplicationOperator, BodyTerm, CheckedNodeId, CheckedNodePathSegment, CheckedTerm, LiteralKind,
+    ApplicationOperator, BodyTerm, CheckedNodeId, CheckedNodePathSegment,
+    CheckedOperationAnchorBody, CheckedTerm, LiteralKind,
 };
 use crate::checked_package::common::{TermField, TermTag, ValidationFailure};
+use crate::identity::ExecutionPoint;
 use quire_canonical::{Document, Items, Members, Node, NodeRef};
 use serde::Deserialize;
 use serde_json::error::Category;
@@ -266,7 +268,9 @@ impl<'d> TermNode<'d> {
                 | BodyTerm::Reference
                 | BodyTerm::DependencyReference
                 | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
+                | BodyTerm::AbstractionRelation
+                | BodyTerm::ImplementationGuarantee
+                | BodyTerm::ComponentComposition,
             )
             | None => ("", None, None),
         };
@@ -396,6 +400,97 @@ impl<'d> TermNode<'d> {
             return Err(denial(budget));
         }
         Ok(decoded)
+    }
+
+    /// Decodes an operation-anchor body, whose optional fourth binding holds
+    /// a bare execution point rather than a semantic term. The three semantic
+    /// members and the point's owned name are charged before allocation.
+    pub(in crate::checked_package) fn decode_anchor_in(
+        self,
+        document: &'d Arc<Document>,
+        budget: &mut NativeJoinBudget,
+        site: Site,
+        row: &'d [u64],
+    ) -> Result<Result<CheckedTerm, TermConversionCause>, ValidationFailure> {
+        let Some(TermView::Aggregate { mut members }) = self.view() else {
+            return self.decode_in(document, budget, site, row);
+        };
+        let has_point = members.len() == 4;
+        if members.len() != 3 && !has_point {
+            return self.decode_in(document, budget, site, row);
+        }
+        let Some(context_term) = members.next() else {
+            return self.decode_in(document, budget, site, row);
+        };
+        let Some(operation_term) = members.next() else {
+            return self.decode_in(document, budget, site, row);
+        };
+        let Some(frame_term) = members.next() else {
+            return self.decode_in(document, budget, site, row);
+        };
+        let point_value = if has_point {
+            let Some(point_binding) = members.next() else {
+                return self.decode_in(document, budget, site, row);
+            };
+            let Some(TermView::Binding {
+                name: "execution_point",
+                value,
+            }) = point_binding.view()
+            else {
+                return Ok(Err(TermConversionCause::MalformedMember {
+                    member: "execution_point",
+                    category: Category::Data,
+                }));
+            };
+            Some(value)
+        } else {
+            None
+        };
+
+        let decode_member = |member: TermNode<'d>, budget: &mut NativeJoinBudget| {
+            member.decode_in(document, budget, site, row)
+        };
+        let context_member = match decode_member(context_term, budget)? {
+            Ok(term) => term,
+            Err(cause) => return Ok(Err(cause)),
+        };
+        let operation = match decode_member(operation_term, budget)? {
+            Ok(term) => term,
+            Err(cause) => return Ok(Err(cause)),
+        };
+        let frame = match decode_member(frame_term, budget)? {
+            Ok(term) => term,
+            Err(cause) => return Ok(Err(cause)),
+        };
+
+        let point = if let Some(value) = point_value {
+            let decode_context =
+                DecodeContext::at_locus(document, budget, site.locus()).with_operand_row(row);
+            let point = ExecutionPoint::deserialize(decode_context.value_at(value.node_ref()));
+            let denied = decode_context.denied();
+            *budget = decode_context.finish();
+            if denied {
+                return Err(denial(budget));
+            }
+            match point {
+                Ok(point) => Some(point),
+                Err(_) => {
+                    return Ok(Err(TermConversionCause::MalformedMember {
+                        member: "execution_point",
+                        category: Category::Data,
+                    }));
+                }
+            }
+        } else {
+            None
+        };
+        super::read_charge::charge_items::<CheckedOperationAnchorBody>(budget, site, 1)?;
+        Ok(Ok(CheckedTerm::OperationAnchorBody(Box::new(
+            CheckedOperationAnchorBody {
+                members: [context_member, operation, frame],
+                execution_point: point,
+            },
+        ))))
     }
 
     fn array_member(self, name: &str) -> Option<TermItems<'d>> {
@@ -550,6 +645,12 @@ fn decode_term<'d>(
             member: "term",
             category: Category::Data,
         }),
+        TermTag::Known(BodyTerm::ImplementationGuarantee | BodyTerm::ComponentComposition) => {
+            Err(TermConversionCause::MalformedMember {
+                member: "term",
+                category: Category::Data,
+            })
+        }
         TermTag::Unknown => Err(TermConversionCause::UnknownTerm),
     }
 }
@@ -862,6 +963,73 @@ mod tests {
                     .is_err());
             }
         }
+    }
+
+    /// An operation anchor's optional fourth binding decodes as a bare point,
+    /// and both its point name and boxed result are charged before allocation.
+    ///
+    /// Trace: TC-472, FR-038-AC-499.
+    #[test]
+    fn operation_anchor_point_decodes_from_the_retained_document() {
+        use crate::checked_package::v2::native_join_budget::{NativeJoinBudget, PackageReadStage};
+        use crate::checked_package::v2::read_charge::Site;
+        let body = json!({
+            "term": "aggregate",
+            "members": [
+                {"term": "literal", "type": {"package":"p", "path":["t"], "ordinal":0}, "value_kind":"integer", "value":1},
+                {"term": "literal", "type": {"package":"p", "path":["t"], "ordinal":0}, "value_kind":"integer", "value":2},
+                {"term": "literal", "type": {"package":"p", "path":["t"], "ordinal":0}, "value_kind":"integer", "value":3},
+                {"term":"binding", "name":"execution_point", "value":{"kind":"initialization", "name":"Start"}}
+            ]
+        });
+        let handle = CheckedJson::from_value(&body).expect("canonical anchor body");
+        let site = Site::new(PackageReadStage::Graph, 4, "term");
+        let mut budget = NativeJoinBudget::unlimited();
+        let decoded = TermNode::of(&handle)
+            .decode_anchor_in(handle.document(), &mut budget, site, &[])
+            .expect("unlimited budget")
+            .expect("closed anchor body");
+        let CheckedTerm::OperationAnchorBody(anchor) = decoded else {
+            panic!("four-member anchor body keeps its bare execution point");
+        };
+        assert_eq!(
+            anchor.execution_point,
+            Some(ExecutionPoint::Initialization {
+                name: crate::identity::ExecutionPointName::new("Start").expect("nonempty name"),
+            })
+        );
+
+        let mut body_without_point = body;
+        body_without_point["members"]
+            .as_array_mut()
+            .expect("members")
+            .pop();
+        let handle_without_point =
+            CheckedJson::from_value(&body_without_point).expect("canonical anchor body");
+        let decoded = TermNode::of(&handle_without_point)
+            .decode_anchor_in(
+                handle_without_point.document(),
+                &mut NativeJoinBudget::unlimited(),
+                site,
+                &[],
+            )
+            .expect("unlimited budget")
+            .expect("closed anchor body");
+        let CheckedTerm::OperationAnchorBody(anchor) = decoded else {
+            panic!("three-member anchor body uses its dedicated representation");
+        };
+        assert_eq!(anchor.execution_point, None);
+
+        let required = budget.read_storage_consumed();
+        let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+        assert!(TermNode::of(&handle)
+            .decode_anchor_in(handle.document(), &mut exact, site, &[])
+            .is_ok_and(|result| result.is_ok()));
+        let mut short =
+            NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required.saturating_sub(1));
+        assert!(TermNode::of(&handle)
+            .decode_anchor_in(handle.document(), &mut short, site, &[])
+            .is_err());
     }
 
     /// Operand slots read through the holder's row at read time agree with the

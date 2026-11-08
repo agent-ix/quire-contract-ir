@@ -1514,7 +1514,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(catalog, &wire, &bodies, &document, limits, evidence, budget)?;
+        } = validate(&catalog, &wire, &bodies, &document, limits, evidence, budget)?;
         let site = |form| read_charge::Site::new(PackageReadStage::Retained, 0, form);
         let selections = &wire.lock.dependency_selections;
         let mut direct_dependencies: Vec<Arc<CheckedPackageV2>> =
@@ -3351,12 +3351,24 @@ fn validate_graph(
         // step deliberately reports as InvalidSemanticGraph, so a failed
         // typed decode cannot preempt that step.
         let typed_term = match frame_term {
-            Some(term) => Ok(term),
-            None => decode_admitted_body(kind, &node.body),
+            Some(term) => Ok(Ok(term)),
+            None if kind == CheckedNodeKind::State(StateForm::OperationAnchor) => {
+                let Some(budget) = meter.budget_mut() else {
+                    return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
+                };
+                let body = &bodies[position];
+                TermNode::of(body).decode_anchor_in(
+                    body.document(),
+                    budget,
+                    read_charge::Site::new(PackageReadStage::Graph, position, "term"),
+                    &wire.semantic_graph.operand_rows[position],
+                )
+            }
+            None => Ok(decode_admitted_body(kind, &node.body)),
         };
         terms.push(match typed_term {
-            Ok(term) => Some(term),
-            Err(_)
+            Ok(Ok(term)) => Some(term),
+            Ok(Err(_))
                 if matches!(
                     body_grammar(kind),
                     BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence
@@ -3364,9 +3376,10 @@ fn validate_graph(
             {
                 None
             }
-            Err(_) => {
+            Ok(Err(_)) => {
                 return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
             }
+            Err(failure) => return Err(failure),
         });
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
