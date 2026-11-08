@@ -11,7 +11,7 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-spec-language/FR-052
     type: references
-  - target: ix://agent-ix/quire-spec-language/FR-043
+  - target: ix://agent-ix/quire-spec-language/FR-526
     type: references
   - target: ix://agent-ix/quire-specification/FR-095
     type: references
@@ -28,14 +28,14 @@ relationships:
 
 Verify the `agent-ix/quire-integration` temporal bridge against the native
 owner inputs of FR-350: an admitted checked package, QSL's checked subject and
-classification, the native `EvidenceRequest`, `ValuationEvidence`, exact
-occurrence, assessed instance and observation reference, the admitted
-observation revision and QObs views, and the native FR-052 report; and against
+classification, the original native `EvidenceRequest` and exact occurrence,
+the admitted observation revision and QObs views, and the original whole
+`Result<EvaluatedEvidence, CallFailure>` call outcome; and against
 the TL owners' public producers and readers, including the quire-mltl mapped
 result and its non-evaluating predecessor validation. The case executes in
 `agent-ix/quire-integration`, which owns the QSL-typed bridge; neither Contract
 IR package gains a QSL dependency. Every fixture value is produced by its
-genuine owner: native reports by `evaluate_v2`, TL results by the quire-mltl
+genuine owner: native opaque carriers by `EvidencePackage::evaluate_temporal_evidence`, TL results by the quire-mltl
 producer and reader, QObs views by their owner readers. No test constructs a
 fake owner result. Expected bytes are computed by the test from the inputs by
 FR-350's encoding rules; no frozen byte vector or digest is used.
@@ -74,12 +74,11 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
    clock cover (`clock-cover`); a foreign correspondence reference
    (`correspondence-reference`); wrong node, role and ordinal (`occurrence`);
    a foreign control (`control`); an absent anchor and a trigger with no
-   admitted delivery or origin (incomplete `anchor`, `instance`); a mismatched
-   instance anchor and an empty capture instance (`anchor`); an activation
+   admitted delivery or origin (incomplete `anchor`, `instance`); a delivery anchor mismatching the request (`anchor`); an activation
    contradiction and a retained `Refused` fault (`activation`) and a retained
    `Missing` fault (incomplete `activation`); missing, null and stale captures
    and an evicted capture (incomplete `capture`); wrong-type and other-anchor
-   captures (`capture`); an observation reference of another bundle
+   captures (`capture`); a position observation authority or revision of another bundle
    (`observation-revision`); an absent and a duplicate observation identity
    (incomplete `observation`, native-premise `observation`); a position of
    another clock revision (`position`); a gap in stamps (incomplete
@@ -87,20 +86,22 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
    surrounding closure, progress and contradicted completeness
    (`decision-closure`, `surrounding-closure`, `progress`, `completeness`);
    and absent completeness (incomplete `complete-input`).
-   Add per-position request valuation maps that contradict `ValuationEvidence`
-   and require an unchanged projection.
-5. **Valuations (AC-6).** Supply complete rows with an explicit false value and
-   require it in the TL input. Then independently supply a row for another
-   occurrence, a position at `request.positions.len()`, another anchor,
-   another capture instance, another revision and a non-leaf operand; require
-   `tl-projection-valuation` with that `ValuationCause` and row index. Supply a
-   row with both a foreign operand and an out-of-range position and require
-   `OperandNotInFormula`, the owner's check order. Repeat a row with the same
-   value and require the projected value with both rows in the record; repeat
-   it with the opposite value, and omit one row, and require incomplete
-   `valuation{position, operand}`. Project a formula with an aggregate atom and
-   require `tl-projection-formula`; project an integer interval without an
-   upper bound and one above `u32::MAX` and require native-premise `interval`.
+   Change the selected request valuation and require the projected cell to change;
+   shared values cannot supply an instance-bound cell, and a foreign trigger
+   map cannot supply the selected instance.
+5. **Valuations (AC-6, AC-9).** Supply complete original request maps with
+   explicit false and require false in the TL input. Select shared atoms from
+   `valuations` and instance-bound atoms only from the selected trigger's
+   `instance_valuations`, through `native_atom_operands`. An unknown atom in
+   either a shared map or any instance map returns `tl-projection-valuation`
+   with the original request position and atom index. Missing, undefined or
+   absent selected values return incomplete `valuation{position, operand}`;
+   a foreign trigger's valid map does not satisfy the selected cell. Maps admit
+   one entry per atom and instance, so repeated/disagreeing rows have no request
+   form. Require all provided map entries, including unused foreign-trigger
+   maps, to be charged. Project an aggregate atom and require
+   `tl-projection-formula`; an integer interval without an upper bound or above
+   `u32::MAX` returns native-premise `interval`.
 6. **Fixed sample (AC-4).** Project a fixed-sample subject with a nanosecond
    unit and matching epoch and period. Change only the period with equal
    formula bytes and require native-premise `clock`; reinterpret samples as
@@ -131,24 +132,31 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
    reaching each of R1 to R8 except the defensive R4 and require the decision, comparison, cause list
    and Boolean of FR-350's table, including an equal-final pair whose
    settlement differs (`P` false, R6), a final/pending pair (R6), a TL
-   `Failed` result (R2) and a native `InvalidPredecessor` (R6). For each pair
+   `Failed` result (R2) and a native predecessor mismatch (R6). For each pair
    of R1 to R6 rows build a pair
    satisfying both and require the first decision and both causes once in row
-   order. Require the native and TL result bytes in every join record. Build
+   order. Require the native issued identity or typed original failure and complete TL
+   bytes in every join record. Keep original admission refusal/incomplete and
+   fault outcomes distinct from absence and from result `NonValue`. Build
    the expected join record by FR-350's rules and require byte equality.
-10. **Corrections (AC-5, AC-10).** Advance a real QObs progress fact to create
-    native and TL corrections. Require R7 when `previous` holds both direct
-    predecessors, and R6 for a one-sided correction, an original with
-    `previous`, a correction without `previous`, a previous join whose native
-    side was not admitted, a native full-predecessor mismatch, and TL
-    `missing-predecessor`, `unexpected-predecessor` and `predecessor-mismatch`.
-    Substitute a different complete predecessor with equal result identity on
-    each side and require R6 and `read_tl_join` refusal. Require a native
-    `PredecessorLimit` to return `tl-join-limit-reached` with no join.
+10. **Corrections (AC-5, AC-10).** Advance a real QObs progress fact and
+    change native request inputs, using the original evaluator-written ledger
+    and issued predecessor identity. Require R7 with both direct predecessors;
+    require R6 for one-sided correction, original with `previous`, correction
+    without `previous`, a previous join whose native side was not admitted,
+    another prior issued carrier, and TL `missing-predecessor`,
+    `unexpected-predecessor` and `predecessor-mismatch`. A relation-only change
+    is refused by QSL. Require native subject, occurrence, source-map and request
+    mismatch to remain R1. Verify actual changed truth, support, settlement,
+    latest ledger and lineage through immutable result borrows, with original
+    carrier/ledger unchanged. A changed read snapshot cannot substitute for a
+    carrier. TL equal-identity different-content predecessors remain refused.
+    Exercise QSL's exact/one-short `lineage` limit, not retired native
+    predecessor-byte budgets; the stopped result is incomplete with no Boolean.
 11. **Limits (AC-8).** Require `TlLimits::default()` to equal FR-350's
     defaults. For each limit and each operation that charges it, compute the
     expected count `n` from the operation's inputs by FR-350's Limits table
-    (for example `request.positions.len()`, the row count, the owner-read
+    (for example `request.positions.len()`, all provided valuation-map entries, the owner-read
     formula's node count, the cause-list length, or the largest checked byte
     value), without reading the bridge's usage. Run with setting `n` and
     require admission and reported usage `n`; run with `n - 1` and require
@@ -162,8 +170,9 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
     lowered byte ceiling is defensive and not a tested clause.
 12. **No evaluation (AC-6).** After each join, require the retained TL source
     result to equal the supplied one with unchanged `usage()`, and the retained
-    native report to equal the supplied report. Inspect the bridge's call graph
-    and require no call path from any bridge operation to `evaluate_v2`,
+    native outcome to be the original supplied outcome, with immutable result
+    borrows retaining truth, support, settlement, checked subject and ledger. Inspect the bridge's call graph
+    and require no call path from any bridge operation to `evaluate_temporal_evidence`,
     `quire_mltl::report::evaluate` or `quire_mltl::report::read`.
 
 ## Expected Results
@@ -178,7 +187,7 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
   computes from FR-350's rules; each input mutation changes exactly its member
   and fails strict re-reading.
 - Every decision row is reached with its decision, causes and Boolean; only R7
-  carries a Boolean; corrections agree only with both exact direct
-  predecessors.
+  carries a Boolean; corrections agree only with the admitted native issued identity/lineage and TL complete direct
+  predecessor.
 - Each limit admits at its measured count and refuses one over with the named
   cause, and no bridge operation invokes an evaluator.

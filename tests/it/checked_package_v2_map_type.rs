@@ -403,7 +403,10 @@ fn source_map_row(
         base_node: id.clone(),
         key_node: Some(target(0)),
         element_node: target(1),
-        value_type: quire_exact::ValueType::map(quire_exact::MapType::new(value, None)),
+        value_type: quire_exact::ValueType::map(
+            quire_exact::MapType::new(quire_exact::ValueType::String, value, None)
+                .expect("a string map key is a leaf"),
+        ),
     }
 }
 
@@ -443,10 +446,14 @@ fn source_map_rows_preserve_key_and_non_collection_refusals() {
             ..original.clone()
         },
         quire_contract_model::SelectedSourceCollectionRow {
-            value_type: quire_exact::ValueType::map(quire_exact::MapType::new(
-                quire_exact::ValueType::Integer,
-                Some(quire_exact::CardinalityBound::new(0, 3).expect("bound")),
-            )),
+            value_type: quire_exact::ValueType::map(
+                quire_exact::MapType::new(
+                    quire_exact::ValueType::String,
+                    quire_exact::ValueType::Integer,
+                    Some(quire_exact::CardinalityBound::new(0, 3).expect("bound")),
+                )
+                .expect("a string map key is a leaf"),
+            ),
             ..original.clone()
         },
     ] {
@@ -635,10 +642,14 @@ fn nested_and_bounded_source_maps_preserve_all_value_rows_and_bounds() {
     let outer = source_map_row(&package, &id(outer_position), inner.value_type.clone());
     let bounded = SelectedSourceCollectionRow {
         structural_node: id(bounded_position),
-        value_type: ValueType::map(MapType::new(
-            inner.value_type.clone(),
-            Some(CardinalityBound::new(1, 3).unwrap()),
-        )),
+        value_type: ValueType::map(
+            MapType::new(
+                ValueType::String,
+                inner.value_type.clone(),
+                Some(CardinalityBound::new(1, 3).unwrap()),
+            )
+            .expect("a string map key is a leaf"),
+        ),
         ..outer.clone()
     };
     let mut budget = NativeJoinBudget::new(1_000_000, 1_000_000);
@@ -914,7 +925,10 @@ fn cold_integer_map_rows_inspect_and_compare_before_only_admitted_allocations() 
         .expect("cold numeric map projects");
     assert_eq!(
         projection.value_type(),
-        &ValueType::map(MapType::new(ValueType::Int(interval.clone()), None))
+        &ValueType::map(
+            MapType::new(ValueType::String, ValueType::Int(interval.clone()), None)
+                .expect("a string map key is a leaf")
+        )
     );
     let boundary = (0..join_storage)
         .rfind(|limit| {
@@ -1245,7 +1259,10 @@ fn unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads(
         let outer_row = source_map_row(
             &package,
             &outer,
-            ValueType::map(MapType::new(outer_payload, None)),
+            ValueType::map(
+                MapType::new(ValueType::String, outer_payload, None)
+                    .expect("a string map key is a leaf"),
+            ),
         );
         [inner_row, outer_row]
     };
@@ -1446,7 +1463,14 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
                 &package,
                 [
                     source_map_row(&package, &inner, left),
-                    source_map_row(&package, &outer, ValueType::map(MapType::new(right, None))),
+                    source_map_row(
+                        &package,
+                        &outer,
+                        ValueType::map(
+                            MapType::new(ValueType::String, right, None)
+                                .expect("a string map key is a leaf"),
+                        ),
+                    ),
                 ],
                 &mut NativeJoinBudget::new(1_000_000, 1_000_000),
             )

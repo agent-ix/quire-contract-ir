@@ -3902,7 +3902,7 @@ impl CheckedPackageV2 {
                         "bounded_map_result",
                         storage::value_type(projected.values()).saturating_add(2),
                     )?;
-                    ValueType::map(MapType::new(projected.values().clone(), Some(bound)))
+                    ValueType::map(bounded_map_type(projected, bound))
                 } else {
                     // A bounded collection's wrapper resolves to its unbounded
                     // base as its semantic type, but the producer's row is keyed
@@ -3962,7 +3962,10 @@ impl CheckedPackageV2 {
                         self, identities, requested, value, work, work_limit,
                     )?;
                     charge_native_storage(work, requested, type_id, "map_result", 2)?;
-                    ValueType::map(MapType::new(projected, None))
+                    ValueType::map(
+                        MapType::new(ValueType::String, projected, None)
+                            .expect("a string map key is a leaf"),
+                    )
                 }
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {
@@ -4286,6 +4289,16 @@ impl CheckedPackageV2 {
     }
 }
 
+/// `projected` with `bound` declared; its key and values carry over unchanged.
+fn bounded_map_type(projected: &MapType, bound: CardinalityBound) -> MapType {
+    MapType::new(
+        projected.key().clone(),
+        projected.values().clone(),
+        Some(bound),
+    )
+    .expect("a projected map key is a leaf")
+}
+
 #[cfg(test)]
 mod model_enum_tests;
 
@@ -4295,6 +4308,18 @@ mod tests {
     use crate::checked_package::v2::{CheckedPackageWireV2, RetainedModels};
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
+
+    #[test]
+    fn bounded_map_rebuild_forwards_the_key_values_and_bound() {
+        let bound = CardinalityBound::new(1, 3).unwrap();
+        for key in [ValueType::String, ValueType::Integer, ValueType::Boolean] {
+            let projected = MapType::new(key.clone(), ValueType::Boolean, None).unwrap();
+            let rebuilt = bounded_map_type(&projected, bound);
+            assert_eq!(rebuilt.key(), &key);
+            assert_eq!(rebuilt.values(), &ValueType::Boolean);
+            assert_eq!(rebuilt.bound(), Some(bound));
+        }
+    }
 
     #[trace("TC-473", "FR-357-AC-20")]
     #[test]

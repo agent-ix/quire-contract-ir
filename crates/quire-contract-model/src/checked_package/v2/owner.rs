@@ -597,8 +597,8 @@ pub(super) fn validate_owner_joins(
     selected_sources.sort_unstable();
     let mut selected_models = meter.vec(models.len())?;
     let mut model_operations = meter.vec(models.len())?;
-    for model in models {
-        selected_models.push((model.identity.as_ref(), model));
+    for (model_index, model) in models.iter().enumerate() {
+        selected_models.push((model.identity.as_ref(), model_index, model));
         let count = model
             .object_types
             .values()
@@ -614,10 +614,17 @@ pub(super) fn validate_owner_joins(
         );
         operations.sort_unstable();
         operations.dedup();
-        model_operations.push((model.identity.as_ref(), operations));
+        model_operations.push((model.identity.as_ref(), model_index, operations));
     }
-    selected_models.sort_unstable_by_key(|row| row.0);
-    model_operations.sort_unstable_by_key(|row| row.0);
+    // Preserve the replaced map's last-model-wins rule for duplicate identities.
+    selected_models.sort_unstable_by_key(|row| (row.0, row.1));
+    model_operations.sort_unstable_by_key(|row| (row.0, row.1));
+    selected_models.reverse();
+    selected_models.dedup_by_key(|row| row.0);
+    selected_models.reverse();
+    model_operations.reverse();
+    model_operations.dedup_by_key(|row| row.0);
+    model_operations.reverse();
     let mut source_entries = meter.vec(
         wire.source_map
             .iter()
@@ -691,7 +698,7 @@ pub(super) fn validate_owner_joins(
                 identity,
                 node: declared,
             }) => {
-                let Some((_, model)) = selected_models
+                let Some((_, _, model)) = selected_models
                     .binary_search_by_key(&identity.as_ref(), |row| row.0)
                     .ok()
                     .map(|i| &selected_models[i])
@@ -706,7 +713,7 @@ pub(super) fn validate_owner_joins(
                 let operations = model_operations
                     .binary_search_by_key(&identity.as_ref(), |row| row.0)
                     .ok()
-                    .map(|i| model_operations[i].1.as_slice());
+                    .map(|i| model_operations[i].2.as_slice());
                 if !kinds.get(position).is_some_and(|kind| {
                     operations.is_some_and(|operations| {
                         terms

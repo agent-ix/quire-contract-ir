@@ -5094,6 +5094,96 @@ mod tests {
         }
     }
 
+    /// The recursion-group join charges its declared-member table to the caller's
+    /// read storage before requesting it: the exact allowance admits and one
+    /// byte under is denied at that table's size.
+    #[trace("FR-038-AC-511", "TC-472")]
+    #[test]
+    fn recursion_group_join_charges_its_table_before_requesting_it() {
+        let mut declared = recursion_test_node('a', Some("group"));
+        declared.declaration = Some(super::CheckedDeclaration {
+            qualified_name: vec!["a".into()],
+        });
+        let mut anonymous = recursion_test_node('b', Some("group"));
+        anonymous.node_id.path = declared.node_id.path.clone();
+        let nodes = [declared, anonymous];
+        let table = std::mem::size_of::<(&str, &super::CheckedNodeId)>() as u128;
+        let run = |limit: u128| {
+            let mut budget = super::NativeJoinBudget::new(u64::MAX, 0)
+                .with_read_storage_limit(u64::try_from(limit).unwrap());
+            let result =
+                super::validate_recursion_group_paths(&nodes, &mut WorkMeter::over(&mut budget));
+            (result, budget.read_storage_consumed())
+        };
+        let (admitted, consumed) = run(table);
+        assert!(admitted.is_ok());
+        assert_eq!(u128::from(consumed), table);
+        let (denied, _) = run(table - 1);
+        let Err(ValidationFailure::Budget(stop)) = denied else {
+            panic!("one byte under refuses at the table")
+        };
+        assert_eq!(stop.amount, table);
+    }
+
+    /// The declaration-name check holds one entry per indexed node in a table it
+    /// charges first, and a duplicate declaration still refuses.
+    #[trace("FR-038-AC-511", "TC-472")]
+    #[test]
+    fn declaration_names_charge_their_holder_table_before_requesting_it() {
+        let declare = |digit: char| {
+            let mut node = recursion_test_node(digit, None);
+            node.node_tag = "scalar_type".into();
+            node.semantic_form = "dimension".into();
+            node.node_id.path = vec![super::CheckedNodePathSegment::Name("same".into())];
+            node.declaration = Some(super::CheckedDeclaration {
+                qualified_name: vec!["same".into()],
+            });
+            node
+        };
+        let kinds = [CheckedNodeKind::ScalarType(super::ScalarTypeForm::Dimension); 2];
+        let one = [declare('a')];
+        fn index(nodes: &[super::RawSemanticNodeV2]) -> super::GraphIndex<'_> {
+            nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect()
+        }
+        let entry = std::mem::size_of::<(u8, super::DeclarationName<'_>)>() as u64;
+        let run = |nodes: &[super::RawSemanticNodeV2], limit: u64| {
+            let mut budget =
+                super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let result = super::validate_declaration_names(
+                nodes,
+                &kinds,
+                &index(nodes),
+                &mut WorkMeter::over(&mut budget),
+            );
+            (result, budget.read_storage_consumed())
+        };
+        let (admitted, consumed) = run(&one, entry);
+        assert!(admitted.is_ok());
+        assert_eq!(consumed, entry);
+        let (denied, _) = run(&one, entry - 1);
+        let Err(ValidationFailure::Budget(stop)) = denied else {
+            panic!("one byte under refuses at the table")
+        };
+        assert_eq!(stop.amount, u128::from(entry));
+        // Two nodes of equal graph package and one name: the second holder
+        // conflicts, whatever the table held.
+        let mut second = declare('b');
+        second.node_id.path = one[0].node_id.path.clone();
+        let pair = [one[0].clone(), second];
+        let (conflict, _) = run(&pair, u64::MAX);
+        let Err(ValidationFailure::Refused(refusal)) = conflict else {
+            panic!("a repeated declaration name refuses")
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::AmbiguousDeclaration
+        );
+    }
+
     fn assert_recursion_refusal(
         result: Result<(), ValidationFailure>,
         code: CheckedPackageRefusalCode,
