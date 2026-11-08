@@ -78,7 +78,11 @@ impl CheckedJson {
     /// canonical encoder cannot write (an integer past 2^53) is held and is
     /// the encoder's refusal when the package is written, as it always was.
     pub(in crate::checked_package) fn scalar(value: &impl Serialize) -> Self {
-        Self::from_serializable(value).expect("a scalar literal serializes as JSON")
+        let bytes = serde_json::to_vec(value).expect("a scalar literal serializes as JSON");
+        let document =
+            quire_canonical::read(&bytes, u64::MAX).expect("a scalar literal is a JSON value");
+        let node = document.root().id();
+        Self::new(Arc::new(document), node)
     }
 
     /// Leaves `handle` for the `Deserialize` call the document deserializer
@@ -119,7 +123,9 @@ impl CheckedJson {
     pub fn from_serializable(value: &impl Serialize) -> Result<Self, CheckedJsonError> {
         let bytes = serde_json::to_vec(value).map_err(CheckedJsonError::Serialize)?;
         let document = quire_canonical::read(&bytes, u64::MAX).map_err(CheckedJsonError::Read)?;
-        let canonical = quire_canonical::to_vec(&document, Limits::new(u64::MAX))
+        let node = document.root().id();
+        let source = Self::new(Arc::new(document), node);
+        let canonical = quire_canonical::to_vec(&source, Limits::new(u64::MAX))
             .map_err(CheckedJsonError::Encode)?;
         Self::from_canonical_bytes(&canonical, u64::MAX)
     }
@@ -598,6 +604,84 @@ mod tests {
     use super::*;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    #[trace("TC-048", "FR-038-AC-79", "FR-038-AC-514")]
+    #[test]
+    fn serializable_payload_refuses_large_integers_before_binary64_rounding() {
+        for integer in [9_007_199_254_740_993_i64, -9_007_199_254_740_993_i64] {
+            for value in [json!(integer), json!({"details": [integer]})] {
+                assert!(matches!(
+                    CheckedJson::from_serializable(&value),
+                    Err(CheckedJsonError::Encode(
+                        CanonicalError::IntegerMagnitudeAboveMaximum(actual)
+                    )) if actual == i128::from(integer)
+                ));
+            }
+        }
+        assert!(matches!(
+            CheckedJson::from_serializable(&9_007_199_254_740_993_u64),
+            Err(CheckedJsonError::Encode(
+                CanonicalError::IntegerMagnitudeAboveMaximum(9_007_199_254_740_993)
+            ))
+        ));
+    }
+
+    #[trace("TC-048", "FR-038-AC-79", "FR-038-AC-514")]
+    #[test]
+    fn serializable_payload_preserves_integer_boundaries_and_fractional_values() {
+        #[derive(Serialize)]
+        struct Payload {
+            integers: [i64; 3],
+            ratio: f64,
+        }
+        let value = Payload {
+            integers: [
+                9_007_199_254_740_991,
+                9_007_199_254_740_992,
+                -9_007_199_254_740_992,
+            ],
+            ratio: 2.5,
+        };
+        let payload = CheckedJson::from_serializable(&value).expect("canonical payload");
+        assert_eq!(
+            payload.to_value(),
+            serde_json::to_value(&value).expect("JSON value")
+        );
+        let canonical =
+            quire_canonical::to_vec(&payload, Limits::new(u64::MAX)).expect("canonical bytes");
+        assert_eq!(
+            canonical,
+            br#"{"integers":[9007199254740991,9007199254740992,-9007199254740992],"ratio":2.5}"#
+        );
+        assert_eq!(
+            CheckedJson::from_canonical_bytes(&canonical, u64::MAX).expect("canonical readback"),
+            payload
+        );
+    }
+
+    #[trace("TC-048", "FR-038-AC-79", "FR-038-AC-514")]
+    #[test]
+    fn serializable_payload_refusal_preserves_literal_integer_construction() {
+        use crate::checked_package::{CheckedNodeId, CheckedNodePathSegment, CheckedTerm};
+
+        let type_id = CheckedNodeId {
+            package: "example".into(),
+            path: vec![CheckedNodePathSegment::Name("Integer".into())],
+            ordinal: 0,
+        };
+        let term = CheckedTerm::literal_integer(type_id, 9_007_199_254_740_993);
+        let CheckedTerm::Literal { value, .. } = term else {
+            panic!("an integer constructor produces a literal");
+        };
+        assert_eq!(value.number_text(), Some("9007199254740993"));
+        assert_eq!(value.as_u64(), Some(9_007_199_254_740_993));
+        assert!(matches!(
+            quire_canonical::to_vec(&value, Limits::new(u64::MAX)),
+            Err(CanonicalError::IntegerMagnitudeAboveMaximum(
+                9_007_199_254_740_993
+            ))
+        ));
+    }
 
     #[trace("TC-472", "FR-038-AC-514")]
     #[test]
