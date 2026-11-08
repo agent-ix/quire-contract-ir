@@ -2296,12 +2296,6 @@ mod term_fault_storage_tests {
             assert_eq!(value_outcome, expected);
             let required = ample.read_storage_consumed();
             assert_eq!(allocated, required);
-            assert_eq!(
-                ample.take_paid(),
-                Some(super::super::v2::CheckedPackagePendingOutcome::Refused(
-                    code
-                ))
-            );
             let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
             assert_eq!(run(&mut exact), (expected.clone(), required));
             for limit in [0, required - 1] {
@@ -2310,14 +2304,6 @@ mod term_fault_storage_tests {
                 assert!(matches!(outcome, Err(ValidationFailure::Budget(_))));
                 assert_eq!(allocated, short.read_storage_consumed());
                 assert!(short.first_unpaid_read_storage().is_some());
-                if limit != 0 {
-                    assert_eq!(
-                        short.take_pending(),
-                        Some(super::super::v2::CheckedPackagePendingOutcome::Refused(
-                            code
-                        ))
-                    );
-                }
             }
             let mut repeated =
                 NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(2 * required);

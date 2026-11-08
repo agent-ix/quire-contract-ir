@@ -425,3 +425,62 @@ pub(in crate::checked_package) fn ids<'s, 'r>(
         row,
     }
 }
+
+#[cfg(test)]
+mod term_fault_storage_tests {
+    use super::*;
+    use crate::checked_package::common::{Step, Trail};
+    use crate::checked_package::shared::CheckedPackageRefusalCode as Code;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn bare_term_diagnostic_retains_paid_and_pending_codes() {
+        let steps = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(0),
+            Step::Key("body"),
+        ];
+        let at = Trail::Base(&steps);
+        for code in [Code::InvalidSemanticGraph, Code::MalformedWire] {
+            let run = |budget: &mut NativeJoinBudget| {
+                let mut outcome = None;
+                let allocated = allocation_counter::measure(|| {
+                    outcome = Some(refuse_at(
+                        budget,
+                        Site::new(PackageReadStage::Graph, 0, "scalar_type"),
+                        code,
+                        &at,
+                    ))
+                })
+                .bytes_total;
+                (outcome.unwrap(), allocated)
+            };
+            let mut ample = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let (result, allocated) = run(&mut ample);
+            assert!(matches!(result,ValidationFailure::Refused(ref refusal) if refusal.code==code));
+            let required = ample.read_storage_consumed();
+            assert_eq!(allocated, required);
+            assert_eq!(
+                ample.take_paid(),
+                Some(super::super::CheckedPackagePendingOutcome::Refused(code))
+            );
+            for limit in [0, required - 1] {
+                let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let (result, allocated) = run(&mut short);
+                assert!(matches!(result, ValidationFailure::Budget(_)));
+                assert_eq!(allocated, 0);
+                assert_eq!(short.read_storage_consumed(), 0);
+                assert_eq!(
+                    short.first_unpaid_read_storage(),
+                    Some(u128::from(required))
+                );
+                assert_eq!(
+                    short.take_pending(),
+                    Some(super::super::CheckedPackagePendingOutcome::Refused(code))
+                );
+            }
+        }
+    }
+}
