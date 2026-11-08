@@ -1113,8 +1113,8 @@ and matches by those two members. The production catalog is a build-time input
 and not a caller's bytes, so an entry of another shape is never a package
 refusal. The catalog read is a function over supplied bytes that returns an
 error naming the unreadable entry, so that a test can supply bytes in which an
-entry carries `revision`; the production catalog is read through it once. If
-that read of the build's own bytes fails, the reader never stops the process
+entry carries `revision`. Each V2 read calls the budgeted catalog entry and
+retains its own admitted catalog. If that read of the build's own bytes fails, the reader never stops the process
 and never refuses the package: `CheckedPackageV2::read` returns
 `CatalogUnavailable`, carrying the unreadable path and message, before it checks
 any node (FR-038-AC-58). The package is not at fault; the reader and its catalog

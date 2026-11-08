@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! The process-static index of the operation catalog: the catalog bytes read
-//! once, with the shared reader and the document deserializer, into tables
-//! sorted by key and searched by bisection. The strict read consults the
-//! tables through [`super::operation_catalog`]'s accessors, and the first read
-//! builds them.
+//! The owned operation catalog of one read: shared canonical parsing and typed
+//! projections build exact-capacity tables sorted by key and searched by
+//! bisection. Every strict-read allocation is charged to its caller. The
+//! separate document-deserializer helper serves explicit validation and V1.
 
 use super::document_de::DecodeContext;
 use super::native_join_budget::NativeJoinBudget;

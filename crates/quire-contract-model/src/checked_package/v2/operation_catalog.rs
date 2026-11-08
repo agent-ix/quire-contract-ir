@@ -34,7 +34,7 @@ pub(super) use super::operation_catalog_index::{read_catalog, OperationCatalog};
 /// The catalog, read from its home rather than copied here.
 ///
 /// `quire-verification-contracts` owns `quire.checked-operation-catalog/v1` and
-/// publishes the bytes and a digest over them; this crate owns the reader that
+/// publishes the bytes; this crate owns the reader that
 /// decides what they admit. That split is the point: one definition of the closed
 /// vocabulary, one implementation of the rules it drives. A copy of these bytes in
 /// this repository, under any name or path, is a defect — it is what left this
@@ -517,6 +517,8 @@ mod tests {
 
     /// FR-038-AC-515: on the budgeted entry an unreadable catalog returns
     /// `CatalogUnavailable` before any charge, leaving every counter as it was.
+    // This injects an already-produced catalog error to check outcome dispatch.
+    // Fresh catalog allocation accounting is exercised by operation_catalog_index.
     #[trace("TC-472", "FR-038-AC-515")]
     #[test]
     fn tc_472_an_unreadable_catalog_leaves_the_budgeted_entrys_counters_unchanged() {
