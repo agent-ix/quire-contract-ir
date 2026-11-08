@@ -57,9 +57,9 @@ impl CheckedPackageV2 {
             .member_key("population")
             .ok_or(Error::UnresolvedPopulation)?;
         let population = self
-            .node(&binding)
+            .node(binding)
             .filter(|_| {
-                self.node_kind(&binding)
+                self.node_kind(binding)
                     == Some(CheckedNodeKind::BoundedDomain(
                         BoundedDomainForm::ModelPopulation,
                     ))
@@ -117,7 +117,10 @@ mod tests {
         package.reindex();
         let position = package.node_position(&ids[&'7']).expect("indexed node");
         let super::super::CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[position]
+                .body
         else {
             panic!("admitted reaches application term");
         };
@@ -158,7 +161,9 @@ mod tests {
             (
                 "population node with its Type occurrences removed",
                 Box::new(|package, _| {
-                    let node = package.node_position(&raw_node_id('e')).expect("indexed node");
+                    let node = package
+                        .node_position(&raw_node_id('e'))
+                        .expect("indexed node");
                     std::sync::Arc::make_mut(&mut package.wire)
                         .semantic_graph
                         .nodes[node]
@@ -205,7 +210,10 @@ mod tests {
     ) {
         let position = package.node_position(&ids[&'7']).expect("indexed node");
         let super::super::CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[position]
+                .body
         else {
             panic!("admitted reaches application term");
         };

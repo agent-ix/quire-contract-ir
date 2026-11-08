@@ -728,7 +728,7 @@ mod tests {
                 });
                 assert_eq!(
                     measured.bytes_total,
-                    budget.read_storage_consumed() as u64,
+                    budget.read_storage_consumed(),
                     "bytes allocated equal bytes charged"
                 );
                 (budget.read_storage_consumed(), work.expect("ran"))
@@ -782,14 +782,11 @@ mod tests {
         };
         let (outcome, allocated, required) = run(u64::MAX);
         assert!(outcome.is_ok());
-        assert_eq!(
-            allocated, required as u64,
-            "bytes allocated equal bytes charged"
-        );
-        let (outcome, _, consumed) = run(required as u64);
+        assert_eq!(allocated, required, "bytes allocated equal bytes charged");
+        let (outcome, _, consumed) = run(required);
         assert!(outcome.is_ok());
         assert_eq!(consumed, required);
-        for limit in 0..required as u64 {
+        for limit in 0..required {
             let (outcome, allocated, _) = run(limit);
             assert!(
                 matches!(outcome, Err(ValidationFailure::Budget(_))),

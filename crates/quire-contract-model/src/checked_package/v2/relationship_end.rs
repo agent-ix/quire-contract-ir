@@ -102,7 +102,7 @@ impl CheckedPackageV2 {
             .member_key("destination_type")
             .ok_or(Error::UnresolvedEnd)?;
         let name = operation.member_name().ok_or(Error::UnresolvedEnd)?;
-        let retained = node_at(&relationship)
+        let retained = node_at(relationship)
             .and_then(|declaration| {
                 self.term(&declaration.node_id)
                     .and_then(|term| self.models.relationship(declaration, term))
@@ -400,13 +400,15 @@ pub(super) mod tests {
     ) -> super::super::typed_terms::OperationRecordEdit<'a> {
         let position = at(package, &ids[&'7']);
         let super::super::CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[position]
+                .body
         else {
             panic!("admitted reaches application term");
         };
         operation.record_mut()
     }
-
 
     /// The admitted application resolves to the retained destination end, and
     /// the retained record is outside package equality.
@@ -481,11 +483,12 @@ pub(super) mod tests {
                 "declaration node no longer has the declaration shape",
                 Box::new(|p, ids| {
                     let position = at(p, &ids[&'c']);
-                    std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[position].body = CheckedTerm::Aggregate {
-                        members: vec![CheckedTerm::Reference {
-                            target: ids[&'1'].clone(),
-                        }],
-                    };
+                    std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[position].body =
+                        CheckedTerm::Aggregate {
+                            members: vec![CheckedTerm::Reference {
+                                target: ids[&'1'].clone(),
+                            }],
+                        };
                 }),
             ),
             (

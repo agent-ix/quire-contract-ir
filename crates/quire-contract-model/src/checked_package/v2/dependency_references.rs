@@ -97,12 +97,15 @@ pub(super) struct SuppliedDependencies<'e> {
     packages: Vec<SuppliedDependency<'e>>,
 }
 
+/// One selected graph's structural tokens and corresponding node positions.
+type SelectedStructuralGraph<'e> = (&'e str, &'e CheckedPackageV2, Vec<(usize, usize)>);
+
 /// Per-read cross-document equality lookup. Tokens are interned across all
 /// selected graphs and the importing graph from shallow structural descriptors.
 pub(super) struct StructuralImportIndex<'e> {
     importer: Vec<usize>,
     /// Each selected package, with its `(token, position)` pairs in token order.
-    selected: Vec<(&'e str, &'e CheckedPackageV2, Vec<(usize, usize)>)>,
+    selected: Vec<SelectedStructuralGraph<'e>>,
 }
 
 impl<'e> StructuralImportIndex<'e> {

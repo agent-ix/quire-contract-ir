@@ -10,9 +10,10 @@
 //! is identical in both, so the requests between the stops are the stage's.
 //! The counter is per thread and armed only around the read.
 
-#[path = "it/support/mod.rs"]
-mod support;
+#[path = "it/support/checked_package.rs"]
+mod checked_package;
 
+use checked_package::{canonical, evidence_for, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageReadLimits,
@@ -21,7 +22,6 @@ use quire_contract_model::{
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
-use support::checked_package::{canonical, evidence_for, v2_all_families};
 
 thread_local! {
     /// Bytes requested on this thread while armed.
@@ -198,12 +198,7 @@ fn whole_read(bytes: &[u8], evidence: &CheckedPackageEvidence, limit: u64) -> (u
     };
     let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
     REQUESTED.with(|requested| requested.set(Some(0)));
-    let result = CheckedPackageV2::read_with_budget(
-        bytes,
-        limits,
-        evidence,
-        &mut budget,
-    );
+    let result = CheckedPackageV2::read_with_budget(bytes, limits, evidence, &mut budget);
     let requested = REQUESTED
         .with(Cell::take)
         .expect("the counter was armed for the read");
@@ -216,10 +211,16 @@ fn whole_read(bytes: &[u8], evidence: &CheckedPackageEvidence, limit: u64) -> (u
 /// bytes requested equal the bytes charged; the exact limit admits; one byte
 /// short refuses and requests no more than it charged.
 fn assert_whole_read_accounted(label: &str, bytes: &[u8], evidence: &CheckedPackageEvidence) {
-    assert!(initialize_operation_catalog().is_ok(), "the operation catalog reads");
+    assert!(
+        initialize_operation_catalog().is_ok(),
+        "the operation catalog reads"
+    );
     let (requested, charged, admitted) = whole_read(bytes, evidence, u64::MAX);
     assert!(admitted, "{label}: the input admits");
-    assert_eq!(requested, charged, "{label}: requested bytes == charged bytes");
+    assert_eq!(
+        requested, charged,
+        "{label}: requested bytes == charged bytes"
+    );
     let (_, _, exact) = whole_read(bytes, evidence, charged);
     assert!(exact, "{label}: the exact limit admits");
     let (short_requested, short_charged, short) = whole_read(bytes, evidence, charged - 1);
@@ -244,7 +245,7 @@ fn a_genuine_package_requests_exactly_what_it_charges() {
 #[test]
 fn a_package_with_a_sequence_over_one_mebibyte_requests_exactly_what_it_charges() {
     let value = v2_all_families();
-    let (bytes, _) = support::checked_package::v2_reference_chain(4000);
+    let (bytes, _) = checked_package::v2_reference_chain(4000);
     assert!(bytes.len() > 1 << 20, "the chain exceeds 1 MiB");
     assert_whole_read_accounted("reference chain", &bytes, &evidence_for(&value));
 }

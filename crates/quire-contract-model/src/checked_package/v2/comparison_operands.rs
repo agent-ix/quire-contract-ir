@@ -316,12 +316,12 @@ impl CheckedPackageV2 {
             CheckedComparisonClauseKind::Invariant | CheckedComparisonClauseKind::Constraint
         ) {
             context.operation = context
-                .node(&body.anchor)
+                .node(body.anchor)
                 .and_then(|anchor| self.node_position(&anchor.node_id))
                 .and_then(|position| self.term_at(position))
                 .and_then(typed_anchor_body)
                 .and_then(|anchor| {
-                    context.node(&anchor.context).and_then(|owner| {
+                    context.node(anchor.context).and_then(|owner| {
                         self.term(&owner.node_id).and_then(|term| {
                             self.models.operation_types(owner, term, anchor.operation)
                         })
@@ -583,7 +583,7 @@ fn read_range(
         .member_name()
         .ok_or_else(|| fail(Refusal::IneligibleOperand))?;
     let declared = context
-        .node(&declaration)
+        .node(declaration)
         .ok_or_else(|| context.error(Refusal::MissingChild, path, Some(declaration.clone())))?;
     let ty = context
         .package
@@ -792,8 +792,10 @@ mod tests {
     }
 
     fn sync_comparison_term(package: &mut CheckedPackageV2) {
-        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[3].body =
-            package.wire.semantic_graph.nodes[3].body.clone();
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[3]
+            .body = package.wire.semantic_graph.nodes[3].body.clone();
     }
 
     fn edit_body(package: &mut CheckedPackageV2, position: usize, edit: impl FnOnce(&mut Value)) {
@@ -852,7 +854,10 @@ mod tests {
         std::sync::Arc::make_mut(&mut package.kinds)[4] =
             CheckedNodeKind::State(StateForm::StateClause);
         let CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[4].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("fixture clause term");
         };
@@ -865,14 +870,20 @@ mod tests {
             (Refusal::UnsupportedClauseKind, Path::Clause)
         );
         let CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[4].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("fixture clause term");
         };
         operation.record_mut()["member"]["clause"] = json!("invariant");
 
         let CheckedTerm::Application { arguments, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[4].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("fixture clause term");
         };
@@ -892,7 +903,10 @@ mod tests {
         );
         assert_eq!((&failure.clause, &failure.claim), (&clause, &claim));
         let CheckedTerm::Application { arguments, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[4].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("fixture clause term");
         };
@@ -1008,7 +1022,6 @@ mod tests {
             assert_eq!((range.lower, range.upper), (value, value));
         }
     }
-
 
     fn expect_failure(
         package: &CheckedPackageV2,
@@ -1173,7 +1186,10 @@ mod tests {
         );
         std::sync::Arc::make_mut(&mut package.kinds)[5] =
             CheckedNodeKind::Value(ValueForm::Literal);
-        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[5].body =
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[5]
+            .body =
             CheckedTerm::decode_admitted(&literal("340282366920938463463374607431768211456"))
                 .expect("arbitrary integer term");
         edit_body(&mut package, 3, |body| {
@@ -1205,7 +1221,10 @@ mod tests {
             json!({"term": "aggregate", "members": []}),
         );
         let CheckedTerm::Application { arguments, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[4].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[4]
+                .body
         else {
             panic!("clause");
         };

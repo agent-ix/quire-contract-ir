@@ -1693,9 +1693,7 @@ fn typed_compound_unit_term<'t>(
     // A dimension's canonical root has no target. Source units carry that
     // fact in their nominal body; model units carry it in the selected model.
     let is_root_unit = match graph.node_at(unit) {
-        Some((position, node, kind))
-            if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit) =>
-        {
+        Some((position, node, CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))) => {
             match node.owner.as_ref() {
                 Some(super::CheckedNodeOwner::Source { .. }) => {
                     super::identity::nominal_body_if_closed(position, meter)?.is_some_and(|body| {
@@ -2342,11 +2340,8 @@ mod tests {
             &structural,
             &mut meter,
         )
-        .ok()
         .expect("keys build");
-        let order = DependencyKeyOrder::new(&keys, &mut meter)
-            .ok()
-            .expect("order builds");
+        let order = DependencyKeyOrder::new(&keys, &mut meter).expect("order builds");
         assert_eq!(
             order
                 .matches(&actual, &expected, &index, &structural, &mut meter)
@@ -2466,7 +2461,6 @@ mod tests {
                 crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let mut meter = WorkMeter::over(&mut budget);
             let joined = application_dependencies(&term, &mut meter);
-            drop(meter);
             (joined.ok(), budget.read_storage_consumed())
         };
         let (found, spent) = measure(u64::MAX);

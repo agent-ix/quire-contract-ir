@@ -1170,7 +1170,6 @@ mod chain_walk_tests {
                     Err(_) => return (None, items, budget.read_storage_consumed()),
                 }
             }
-            drop(meter);
             (Some(outcome), items, budget.read_storage_consumed())
         };
         let (outcome, items, spent) = run(u64::MAX);
@@ -1277,7 +1276,6 @@ mod rank_tests {
             |_| unreachable!("acyclic table"),
             &mut NativeJoinBudget::unlimited(),
         )
-        .ok()
         .expect("keys rebuild");
         assert_ranks_match_order(&keys);
     }
@@ -1298,7 +1296,6 @@ mod rank_tests {
             let ranked = index.as_ref().is_ok_and(|index| index.rank_at(0).is_some());
             let failed = index.is_err();
             drop(index);
-            drop(meter);
             (ranked, failed, budget.read_storage_consumed())
         };
         let (ranked, failed, spent) = run(u64::MAX);

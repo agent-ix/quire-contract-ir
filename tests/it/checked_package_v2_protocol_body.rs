@@ -3,13 +3,14 @@
 
 //! Public reader checks for the first protocol validation passes.
 
+use crate::support::checked_package::protocol_ports::role_port_fixture;
 use crate::support::checked_package::{
     admitted_protocol_families, application_node_key, canonical, evidence_for,
     evidence_with_document, family_key, family_model_document, fixture_source, node_id,
     owned_structural_node, protocol_named_node, protocol_role_node, reassign_node_id,
     rebuild_source_map, refresh_identity, refresh_identity_projection, refusal, refusal_at_id,
-    rename_node, role_port_fixture, select_model, selected_interface_model_node, settle,
-    source_owner, v2_all_families,
+    rename_node, select_model, selected_interface_model_node, settle, source_owner,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{

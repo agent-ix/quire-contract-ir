@@ -619,14 +619,14 @@ fn hybrid_formula_nodes<'w>(
         formulas: read_charge::filled(budget, site, nodes.len(), false)?,
     };
     let mut pending: Vec<usize> = Vec::new();
-    for position in 0..nodes.len() {
+    for (position, body) in bodies.iter().enumerate().take(nodes.len()) {
         if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause)) {
             continue;
         }
         let (mut over, mut formula) = (None, None);
         let mut index = 0usize;
         application_targets(
-            TermNode::of(&bodies[position]),
+            TermNode::of(body),
             &wire.semantic_graph.operand_rows[position],
             budget,
             interval_site(position),

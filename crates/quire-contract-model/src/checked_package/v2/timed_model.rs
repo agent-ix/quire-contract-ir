@@ -2584,14 +2584,13 @@ pub(super) fn validate_models<'a>(
                                         binding_at(target, 0),
                                     )
                                 })?;
-                            let place_model =
-                                index.get(&place_model).copied().ok_or_else(|| {
-                                    graph.issue(
-                                        target,
-                                        Cause::TimedNodeReference,
-                                        binding_at(target, 0),
-                                    )
-                                })?;
+                            let place_model = index.get(place_model).copied().ok_or_else(|| {
+                                graph.issue(
+                                    target,
+                                    Cause::TimedNodeReference,
+                                    binding_at(target, 0),
+                                )
+                            })?;
                             if place_model != model {
                                 return Err(graph.issue(
                                     target,
@@ -3328,7 +3327,6 @@ mod tests {
         let mut active = vec![false; 2];
         let at = JsonPointer::root();
         let key = term_key(&graph, terms[0].as_ref(), &mut active, &mut meter, &at);
-        drop(meter);
         let words = key.ok().flatten().map(|key| {
             key.iter()
                 .map(|part| match part {
@@ -3378,7 +3376,7 @@ mod tests {
         let wide = "9".repeat(80);
         let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
         let mut meter = WorkMeter::over(&mut budget);
-        let outcome = (|| {
+        let outcome = {
             let big = ratio(&mut meter, &wide, "1");
             let bigger = ratio(&mut meter, &wide, "1");
             if compare {
@@ -3386,8 +3384,7 @@ mod tests {
             } else {
                 Ok(Ordering::Equal)
             }
-        })();
-        drop(meter);
+        };
         (outcome, budget.read_storage_consumed())
     }
 
@@ -3449,7 +3446,6 @@ mod tests {
                 |_| Some("ix://quire/native/Clock".to_owned()),
                 &mut meter,
             );
-            drop(meter);
             (rendered, budget.read_storage_consumed())
         };
         let (rendered, spent) = run(u64::MAX);
