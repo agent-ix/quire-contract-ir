@@ -9,7 +9,8 @@
 mod native_budget_trace;
 #[path = "read_observation.rs"]
 mod observation;
-use observation::{accounted, drop_without_request, measure_at, Counter, Observation};
+use observation::{accounted, drop_without_request};
+pub(crate) use observation::{measure_at, Counter, Observation};
 use quire_contract_model::{
     CheckedPackageEvidence, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageV2,
     CheckedPackageV2BudgetedReadResult as Budgeted, CheckedPackageV2ReadResult as Plain,
