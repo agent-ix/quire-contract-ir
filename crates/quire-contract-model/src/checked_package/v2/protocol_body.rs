@@ -1963,7 +1963,7 @@ pub(super) fn group_value<'a>(term: &'a CheckedTerm, name: &str) -> Option<&'a C
 fn check_member_targets(
     check: &MemberCheck<'_>,
     term: &CheckedTerm,
-    path: JsonPointer,
+    path: &dyn Fn() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
     match term {
         CheckedTerm::Reference { target } => {
@@ -1971,16 +1971,16 @@ fn check_member_targets(
                 return Err(check.refuse(
                     Code::MissingDeclaration,
                     Some(Cause::MissingName),
-                    path.key("target"),
+                    path().key("target"),
                 ));
             }
         }
         CheckedTerm::Binding { value, .. } => {
-            check_member_targets(check, value, path.key("value"))?
+            check_member_targets(check, value, &|| path().key("value"))?
         }
         CheckedTerm::Aggregate { members } => {
             for (position, member) in members.iter().enumerate() {
-                check_member_targets(check, member, path.clone().key("members").index(position))?;
+                check_member_targets(check, member, &|| path().key("members").index(position))?;
             }
         }
         _ => {}
@@ -2852,14 +2852,12 @@ fn check_member(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (ordinal, term) in arguments.iter().enumerate() {
-        check_member_targets(
-            check,
-            term,
+        check_member_targets(check, term, &|| {
             node_pointer(check.position)
                 .key("body")
                 .key("arguments")
-                .index(ordinal),
-        )?;
+                .index(ordinal)
+        })?;
     }
     let role = |position| check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Role));
     let parameter = |position| check.is(position, CheckedNodeKind::Value(ValueForm::Parameter));
@@ -4024,7 +4022,7 @@ fn check_clause_slots(
     let activation = check.at(arguments, 1);
     if let Some(guard) = group_value(activation, "guard") {
         let path = check.argument_path(1).key("members").index(2).key("value");
-        check_member_targets(check, guard, path.clone())?;
+        check_member_targets(check, guard, &|| path.clone())?;
         let triggers: &[usize] = match &scope.activation {
             Some(trigger) => std::slice::from_ref(trigger),
             None => &[],
@@ -4052,7 +4050,7 @@ fn check_clause_slots(
             .key("members")
             .index(1)
             .key("value");
-        check_member_targets(check, initializer, path)?;
+        check_member_targets(check, initializer, &|| path.clone())?;
         let allowed = PositionSet::of(
             &[
                 &scope.c0[..1 + usize::from(scope.activation.is_some())],

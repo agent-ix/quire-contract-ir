@@ -1254,7 +1254,8 @@ fn aggregate<'d>(
         return Err(malformed(at.clone()));
     }
     value
-        .items()
+        .get("members")
+        .and_then(TermNode::items)
         .ok_or_else(|| malformed(at.clone().key("members")))
 }
 

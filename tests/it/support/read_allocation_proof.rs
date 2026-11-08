@@ -17,6 +17,7 @@ pub(crate) trait Counter {
 pub(crate) enum Expected {
     Admitted,
     Refused(CheckedPackageRefusalCode),
+    OriginalOracle(fn(&CheckedPackageV2ReadResult) -> bool),
 }
 
 /// One complete public read. Fixtures, budget construction and comparison
@@ -122,6 +123,26 @@ pub(crate) fn assert_read<C: Counter>(
                 "{label}: genuine refusal input has its claimed code"
             );
             assert_eq!(left, right, "{label}: complete refusal/first fault");
+        }
+        (plain, measured, Expected::OriginalOracle(predicate)) => {
+            assert!(predicate(plain), "{label}: original driver predicate");
+            match (plain, measured) {
+                (
+                    CheckedPackageV2ReadResult::Admitted(a),
+                    CheckedPackageV2BudgetedReadResult::Admitted(b),
+                ) => assert_eq!(a, b, "{label}: original admitted full value"),
+                (
+                    CheckedPackageV2ReadResult::Refused(a),
+                    CheckedPackageV2BudgetedReadResult::Refused(b),
+                ) => assert_eq!(a, b, "{label}: original refused full value"),
+                (
+                    CheckedPackageV2ReadResult::Incomplete(a),
+                    CheckedPackageV2BudgetedReadResult::Incomplete(b),
+                ) => assert_eq!(a, b, "{label}: original incomplete full value"),
+                (plain, measured) => {
+                    panic!("{label}: original driver outcome differs: {plain:?}/{measured:?}")
+                }
+            }
         }
         (plain, measured, _) => panic!(
             "{label}: fixture outcome differs from its required class: {plain:?}/{measured:?}"
