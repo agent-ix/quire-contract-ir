@@ -370,6 +370,7 @@ pub(super) fn read_catalog_budgeted(
     let decoded = decode_catalog(&context, document.root());
     let denied = context.denied();
     *budget = context.finish();
+    budget.set_active_locus(Some(locus));
     if denied {
         return Err(CatalogStop::Budget(budgeted_read::denial(budget)));
     }
@@ -447,5 +448,26 @@ mod tests {
         assert!(!admitted);
         assert_eq!(allocated, 0, "a denied catalog request allocates nothing");
         assert_eq!(zero.read_storage_consumed(), 0);
+        // Visit request boundaries rather than rerunning every byte allowance.
+        let mut allowance = 0;
+        while allowance < required {
+            let (admitted, allocated, denied) = measure(allowance);
+            assert!(!admitted);
+            assert_eq!(
+                allocated,
+                denied.read_storage_consumed(),
+                "catalog allowance {allowance}: a denied request allocates nothing"
+            );
+            let asked = u64::try_from(
+                denied
+                    .first_unpaid_read_storage()
+                    .expect("first denied request"),
+            )
+            .expect("bounded catalog request");
+            let next = denied.read_storage_consumed().saturating_add(asked);
+            assert!(next > allowance, "catalog request boundary advances");
+            allowance = next;
+        }
+        assert_eq!(allowance, required);
     }
 }
