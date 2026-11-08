@@ -33,7 +33,8 @@ use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::natural::{compare_rationals, coprime};
 use super::operation_catalog::OperationCatalog;
 use super::operations::resolve_family;
-use super::structural::typed_reference;
+// These validators consume the strict decoder's authenticated typed table.
+use super::structural::typed_admitted_reference as typed_reference;
 use super::{
     member_pointer, ApplicationOperator, CheckedDiagnosticV2, CheckedNodeKind,
     CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm, ClockConfiguration,
@@ -263,7 +264,7 @@ impl Rational {
         &self,
         other: &Self,
         meter: &mut WorkMeter,
-        at: &dyn Fn() -> JsonPointer,
+        at: super::stage_storage::Site<'_>,
     ) -> Result<Ordering, ValidationFailure> {
         compare_rationals(
             (self.numerator.digits(), self.denominator.digits()),
@@ -437,22 +438,43 @@ pub(super) fn validate_timed_bounds_reduced(
             let Some(rational) = Rational::read_node(bound_node, meter)? else {
                 continue;
             };
-            let at_body = || node_pointer(position).key("body");
             if !coprime(
                 rational.numerator.digits(),
                 rational.denominator.digits(),
                 meter,
-                &at_body,
+                super::stage_storage::Site::new(
+                    super::PackageReadStage::Graph,
+                    position,
+                    "temporal",
+                    super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(position)
+                        .key("body"),
+                ),
             )? {
-                return Err(ValidationFailure::refused_at(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    at_body()
-                        .key("operation")
-                        .key("member")
-                        .key("interval")
-                        .key(bound),
-                    None,
-                    node.node_id.clone(),
+                let at = super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position)
+                    .key("body")
+                    .key("operation")
+                    .key("member")
+                    .key("interval")
+                    .key(bound);
+                return Err(super::stage_storage::refuse(
+                    meter,
+                    &super::stage_storage::Site::new(
+                        super::PackageReadStage::Graph,
+                        position,
+                        "temporal",
+                        at,
+                    ),
+                    super::stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        at,
+                    )
+                    .at_node(&node.node_id),
                 ));
             }
         }
@@ -1001,7 +1023,11 @@ fn check_bounds(
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let at_body = || node_pointer(position).key("body");
+    let at_body = super::stage_storage::Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(position)
+        .key("body");
     let defective = match interval {
         Interval::Unbounded | Interval::LowerBounded => false,
         Interval::Closed { lower, upper } => lower > upper,
@@ -1011,7 +1037,20 @@ fn check_bounds(
             lower_end,
             upper_end,
         } => match upper {
-            Some(upper) => match lower.compare(upper, meter, &at_body)? {
+            Some(upper) => match lower.compare(
+                upper,
+                meter,
+                super::stage_storage::Site::new(
+                    super::PackageReadStage::Graph,
+                    position,
+                    "temporal",
+                    super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(position)
+                        .key("body"),
+                ),
+            )? {
                 Ordering::Greater => true,
                 Ordering::Equal => {
                     *lower_end == IntervalEnd::Open || *upper_end == IntervalEnd::Open
@@ -1022,11 +1061,17 @@ fn check_bounds(
         },
     };
     if defective {
-        Err(ValidationFailure::refused_at(
-            CheckedPackageRefusalCode::InvalidPackage,
-            at_body(),
-            Some(CheckedPackageRefusalCause::InvalidValue),
-            graph.nodes[position].node_id.clone(),
+        Err(super::stage_storage::refuse(
+            meter,
+            &super::stage_storage::Site::new(
+                super::PackageReadStage::Graph,
+                position,
+                "temporal",
+                at_body,
+            ),
+            super::stage_storage::Refusal::new(CheckedPackageRefusalCode::InvalidPackage, at_body)
+                .because(CheckedPackageRefusalCause::InvalidValue)
+                .at_node(&graph.nodes[position].node_id),
         ))
     } else {
         Ok(())
@@ -1044,6 +1089,24 @@ fn selected_under_another_role(
             selection.role != CheckedSelectionRole::TemporalProfile
                 && selection.definition == *definition
         })
+}
+
+/// An owned temporal fault, paid at its original holder before materialization.
+fn temporal_fault(
+    meter: &mut WorkMeter,
+    position: usize,
+    code: CheckedPackageRefusalCode,
+    cause: CheckedPackageRefusalCause,
+    at: super::stage_storage::Path<'_>,
+    locus: &CheckedNodeId,
+) -> ValidationFailure {
+    super::stage_storage::refuse(
+        meter,
+        &super::stage_storage::Site::new(super::PackageReadStage::Graph, position, "temporal", at),
+        super::stage_storage::Refusal::new(code, at)
+            .because(cause)
+            .at_node(locus),
+    )
 }
 
 /// One clause's checks, in order: profile identity, `over`, fairness
@@ -1074,8 +1137,11 @@ fn check_clause(
     {
         return Ok(());
     }
-    let at_node = || node_pointer(position);
-    let at_body = || node_pointer(position).key("body");
+    let at_node = super::stage_storage::Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(position);
+    let at_body = at_node.key("body");
     let arguments: &[CheckedTerm] = match terms.get(position).and_then(Option::as_ref) {
         Some(CheckedTerm::Application { arguments, .. }) => arguments,
         _ => &[],
@@ -1109,15 +1175,17 @@ fn check_clause(
                 } else {
                     CheckedPackageRefusalCause::UnsupportedSelection
                 };
-                return Err(ValidationFailure::refused_at(
+                return Err(temporal_fault(
+                    meter,
+                    position,
                     CheckedPackageRefusalCode::UnknownProfile,
-                    at_body()
+                    cause,
+                    at_body
                         .key("operation")
                         .key("laws")
                         .index(0)
                         .key("definition"),
-                    Some(cause),
-                    node.node_id.clone(),
+                    &node.node_id,
                 ));
             }
         }
@@ -1129,20 +1197,22 @@ fn check_clause(
     // node has none, so the clause's key stands.
     if let Some(over) = arguments.first().and_then(typed_reference) {
         let refusal = match graph.node(&over) {
-            None => Some((ModelRefusal::missing_name(), node.node_id.clone())),
+            None => Some((ModelRefusal::missing_name(), &node.node_id)),
             Some(_) if !node.dependencies.contains(&over) => {
-                Some((ModelRefusal::missing_name(), over.clone()))
+                Some((ModelRefusal::missing_name(), over))
             }
             Some((_, kind)) if kind != CheckedNodeKind::Value(ValueForm::Parameter) => {
-                Some((ModelRefusal::malformed(), over.clone()))
+                Some((ModelRefusal::malformed(), over))
             }
             Some(_) => None,
         };
         if let Some((refusal, locus)) = refusal {
-            return Err(ValidationFailure::refused_at(
+            return Err(temporal_fault(
+                meter,
+                position,
                 refusal.code,
-                at_body().key("arguments").index(0),
-                Some(refusal.cause),
+                refusal.cause,
+                at_body.key("arguments").index(0),
                 locus,
             ));
         }
@@ -1181,34 +1251,44 @@ fn check_clause(
                     super::CheckedFairnessTarget::HybridTransition { .. }
                 )
             {
-                return Err(ValidationFailure::refused_at(
+                return Err(temporal_fault(
+                    meter,
+                    fair,
                     CheckedPackageRefusalCode::InvalidModelBinding,
-                    node_pointer(fair)
+                    CheckedPackageRefusalCause::MalformedDeclaration,
+                    super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(fair)
                         .key("body")
                         .key("operation")
                         .key("member")
                         .key("target")
                         .key("declaration"),
-                    Some(CheckedPackageRefusalCause::MalformedDeclaration),
-                    graph.nodes[fair].node_id.clone(),
+                    &graph.nodes[fair].node_id,
                 ));
             }
             continue;
         };
         if let Err(failure) = resolve_fairness(declaration, name, graph, meter)? {
-            return Err(ValidationFailure::refused_at(
+            return Err(temporal_fault(
+                meter,
+                fair,
                 failure.refusal.code,
-                node_pointer(fair)
+                failure.refusal.cause,
+                super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(fair)
                     .key("body")
                     .key("operation")
                     .key("member")
                     .key("target")
                     .key(failure.member),
-                Some(failure.refusal.cause),
                 if failure.locus_is_target {
-                    declaration.clone()
+                    declaration
                 } else {
-                    graph.nodes[fair].node_id.clone()
+                    &graph.nodes[fair].node_id
                 },
             ));
         }
@@ -1222,7 +1302,12 @@ fn check_clause(
         graph,
         terms,
         meter,
-        &at_node,
+        super::stage_storage::Site::new(
+            super::PackageReadStage::Graph,
+            position,
+            "temporal",
+            at_node,
+        ),
         covered,
         stamps,
     )?;
@@ -1232,20 +1317,28 @@ fn check_clause(
             if !interval_fits(fit, interval)
                 || matches!(interval, Interval::Timed { upper: None, .. }) && !hybrid_claim
             {
-                return Err(ValidationFailure::refused_at(
+                return Err(temporal_fault(
+                    meter,
+                    *formula,
                     CheckedPackageRefusalCode::InvalidPackage,
-                    node_pointer(*formula).key("body"),
-                    Some(CheckedPackageRefusalCause::OperationMemberMismatch),
-                    graph.nodes[*formula].node_id.clone(),
+                    CheckedPackageRefusalCause::OperationMemberMismatch,
+                    super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(*formula)
+                        .key("body"),
+                    &graph.nodes[*formula].node_id,
                 ));
             }
         }
         if !fairness.is_empty() && !profile.admits_fairness() {
-            return Err(ValidationFailure::refused_at(
+            return Err(temporal_fault(
+                meter,
+                position,
                 CheckedPackageRefusalCode::InvalidPackage,
-                at_body(),
-                Some(CheckedPackageRefusalCause::OperationMemberMismatch),
-                node.node_id.clone(),
+                CheckedPackageRefusalCause::OperationMemberMismatch,
+                at_body,
+                &node.node_id,
             ));
         }
     }
@@ -1337,16 +1430,6 @@ const AGGREGATE_NAMES: [&str; 11] = [
     "comparison",
     "threshold",
 ];
-
-fn aggregate_refusal(
-    position: usize,
-    at: JsonPointer,
-    code: CheckedPackageRefusalCode,
-    cause: CheckedPackageRefusalCause,
-    graph: &StepGraph<'_, '_>,
-) -> ValidationFailure {
-    ValidationFailure::refused_at(code, at, Some(cause), graph.nodes[position].node_id.clone())
-}
 
 #[ix_trace_rs::string_edge]
 fn aggregate_literal<'a>(term: &'a CheckedTerm, kind: &str) -> Option<&'a str> {
@@ -1568,13 +1651,30 @@ fn check_aggregate(
     use CheckedPackageRefusalCause as Cause;
     use CheckedPackageRefusalCode as Code;
 
-    let body = node_pointer(formula).key("body");
-    let argument = body.clone().key("arguments").index(0);
-    let fail = |code, cause, at| aggregate_refusal(formula, at, code, cause, graph);
+    let body = super::stage_storage::Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(formula)
+        .key("body");
+    let argument = body.key("arguments").index(0);
+    let fail = |meter: &mut WorkMeter, code, cause, at: super::stage_storage::Path<'_>| {
+        super::stage_storage::refuse(
+            meter,
+            &super::stage_storage::Site::new(
+                super::PackageReadStage::Graph,
+                formula,
+                "temporal",
+                at,
+            ),
+            super::stage_storage::Refusal::new(code, at)
+                .because(cause)
+                .at_node(&graph.nodes[formula].node_id),
+        )
+    };
     let window = match profile {
         Some(TemporalProfile::EventPositionFalseExtension) => AggregateWindow::Positions,
         Some(TemporalProfile::TimestampedEventFiniteWindow) => AggregateWindow::Duration,
-        _ => return Err(fail(Code::InvalidPackage, Cause::InvalidValue, body)),
+        _ => return Err(fail(meter, Code::InvalidPackage, Cause::InvalidValue, body)),
     };
     let Some(CheckedTerm::Application { arguments, .. }) =
         terms.get(formula).and_then(Option::as_ref)
@@ -1597,30 +1697,51 @@ fn check_aggregate(
             },
             _ => None,
         };
-        let pointer = argument.clone().key("members").index(at);
+        let pointer = argument.key("members").index(at);
         let Some(rank) = rank else {
-            return Err(fail(Code::InvalidPackage, Cause::UnknownMember, pointer));
+            return Err(fail(
+                meter,
+                Code::InvalidPackage,
+                Cause::UnknownMember,
+                pointer,
+            ));
         };
         let name = AGGREGATE_NAMES[rank];
         if held.contains_key(name) {
-            return Err(fail(Code::InvalidPackage, Cause::DuplicateMember, pointer));
+            return Err(fail(
+                meter,
+                Code::InvalidPackage,
+                Cause::DuplicateMember,
+                pointer,
+            ));
         }
         if last_rank.is_some_and(|last| rank < last) {
-            return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+            return Err(fail(
+                meter,
+                Code::InvalidPackage,
+                Cause::InvalidValue,
+                pointer,
+            ));
         }
         held.insert(name, at);
         last_rank = Some(rank);
     }
     let Some(&kind_at) = held.get("kind") else {
-        return Err(fail(Code::InvalidPackage, Cause::MissingMember, argument));
+        return Err(fail(
+            meter,
+            Code::InvalidPackage,
+            Cause::MissingMember,
+            argument,
+        ));
     };
     let value_of = |name: &str| match &members[held[name]] {
         CheckedTerm::Binding { value, .. } => value.as_ref(),
         _ => unreachable!("the aggregate member was checked as a binding"),
     };
-    let value_pointer = |at: usize| argument.clone().key("members").index(at).key("value");
+    let value_pointer = |at: usize| argument.key("members").index(at).key("value");
     let Some(kind_text) = aggregate_literal(value_of("kind"), "text") else {
         return Err(fail(
+            meter,
             Code::InvalidPackage,
             Cause::WrongValueKind,
             value_pointer(kind_at),
@@ -1628,6 +1749,7 @@ fn check_aggregate(
     };
     let Some(kind) = AggregateKind::from_wire(kind_text) else {
         return Err(fail(
+            meter,
             Code::InvalidPackage,
             Cause::InvalidValue,
             value_pointer(kind_at),
@@ -1643,15 +1765,21 @@ fn check_aggregate(
         };
         if !aggregate_presence(kind, name).0 {
             return Err(fail(
+                meter,
                 Code::InvalidPackage,
                 Cause::UnknownMember,
-                argument.clone().key("members").index(at),
+                argument.key("members").index(at),
             ));
         }
     }
     for name in AGGREGATE_NAMES {
         if aggregate_presence(kind, name).1 && !held.contains_key(name) {
-            return Err(fail(Code::InvalidPackage, Cause::MissingMember, argument));
+            return Err(fail(
+                meter,
+                Code::InvalidPackage,
+                Cause::MissingMember,
+                argument,
+            ));
         }
     }
 
@@ -1665,16 +1793,34 @@ fn check_aggregate(
         match name {
             "q" => {
                 let Some(text) = aggregate_literal(term, "rational") else {
-                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::WrongValueKind,
+                        pointer,
+                    ));
                 };
                 let (numerator, denominator) = magnitude(text);
                 if numerator == "0"
                     || numerator.starts_with('-')
-                    || compare_rationals((numerator, denominator), ("1", "1"), meter, &|| {
-                        pointer.clone()
-                    })? != Ordering::Less
+                    || compare_rationals(
+                        (numerator, denominator),
+                        ("1", "1"),
+                        meter,
+                        super::stage_storage::Site::new(
+                            super::PackageReadStage::Graph,
+                            formula,
+                            "temporal",
+                            pointer,
+                        ),
+                    )? != Ordering::Less
                 {
-                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::InvalidValue,
+                        pointer,
+                    ));
                 }
             }
             "predicate" | "filter" => {
@@ -1683,7 +1829,7 @@ fn check_aggregate(
                     .map(|family| family.kind)
                     != Some(AggregateFamilyKind::Boolean)
                 {
-                    return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::TypeMismatch, pointer));
                 }
             }
             "value" => {
@@ -1698,12 +1844,17 @@ fn check_aggregate(
                         )
                     })
                 {
-                    return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::TypeMismatch, pointer));
                 }
             }
             "window_kind" | "comparison" => {
                 let Some(text) = aggregate_literal(term, "text") else {
-                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::WrongValueKind,
+                        pointer,
+                    ));
                 };
                 let parsed_window = (name == "window_kind")
                     .then(|| AggregateWindow::from_wire(text))
@@ -1714,10 +1865,15 @@ fn check_aggregate(
                     matches!(text, "<" | "<=" | "=" | ">=" | ">")
                 };
                 if !valid {
-                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::InvalidValue,
+                        pointer,
+                    ));
                 }
                 if name == "window_kind" && parsed_window != Some(window) {
-                    return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
             }
             "lower" | "upper" => {
@@ -1727,7 +1883,12 @@ fn check_aggregate(
                     "quantity"
                 };
                 let Some(text) = aggregate_literal(term, required) else {
-                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::WrongValueKind,
+                        pointer,
+                    ));
                 };
                 let bound_type = match term {
                     CheckedTerm::Literal { type_id, .. } => Some(type_id),
@@ -1736,35 +1897,64 @@ fn check_aggregate(
                 if window == AggregateWindow::Duration
                     && !is_clock_unit_path(bound_type.map(|id| id.path.as_slice()), clock_unit)
                 {
-                    return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
                 if text.starts_with('-') {
-                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::InvalidValue,
+                        pointer,
+                    ));
                 }
                 if name == "upper" {
                     let Some(lower) = aggregate_literal(value_of("lower"), required) else {
                         return Err(fail(
+                            meter,
                             Code::InvalidPackage,
                             Cause::WrongValueKind,
                             value_pointer(held["lower"]),
                         ));
                     };
-                    if compare_rationals(magnitude(lower), magnitude(text), meter, &|| {
-                        argument.clone()
-                    })? == Ordering::Greater
+                    if compare_rationals(
+                        magnitude(lower),
+                        magnitude(text),
+                        meter,
+                        super::stage_storage::Site::new(
+                            super::PackageReadStage::Graph,
+                            formula,
+                            "temporal",
+                            argument,
+                        ),
+                    )? == Ordering::Greater
                     {
-                        return Err(fail(Code::InvalidPackage, Cause::InvalidValue, argument));
+                        return Err(fail(
+                            meter,
+                            Code::InvalidPackage,
+                            Cause::InvalidValue,
+                            argument,
+                        ));
                     }
                 }
             }
             "min_count" => {
                 let Some(text) = aggregate_literal(term, "integer") else {
-                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::WrongValueKind,
+                        pointer,
+                    ));
                 };
                 if text.starts_with('-')
                     || (text == "0" && !matches!(kind, AggregateKind::Count | AggregateKind::Sum))
                 {
-                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::InvalidValue,
+                        pointer,
+                    ));
                 }
             }
             "threshold" => {
@@ -1788,10 +1978,10 @@ fn check_aggregate(
                         .is_some_and(|family| family.kind == AggregateFamilyKind::Quantity)
                     && expected != actual
                 {
-                    return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
                 if expected != actual {
-                    return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::TypeMismatch, pointer));
                 }
             }
             _ => {}
@@ -2386,7 +2576,7 @@ fn formula_intervals(
     graph: &StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
     meter: &mut WorkMeter,
-    at: &dyn Fn() -> JsonPointer,
+    at: super::stage_storage::Site<'_>,
     covered: &mut [bool],
     stamps: &mut Stamps,
 ) -> Result<FormulaReach, ValidationFailure> {
@@ -2406,7 +2596,7 @@ fn formula_intervals(
         {
             continue;
         }
-        meter.charge(1, at)?;
+        super::natural::work_at(meter, at, 1)?;
         meter.push(&mut reached, position)?;
         if let Some(mark) = covered.get_mut(position) {
             *mark = true;
@@ -2445,6 +2635,121 @@ mod tests {
     use crate::checked_package::v2::CheckedNodeTag;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-516", "FR-038-AC-5")]
+    #[test]
+    fn invalid_reference_id_refuses_in_the_graph_term_pass_before_temporal_views() {
+        use crate::checked_package::common::{validate_term, Step, TermGrammar, Trail};
+        let body = CheckedJson::from_value(&json!({"term":"reference","target":{
+            "package":"", "path":[], "ordinal":0
+        }}))
+        .unwrap();
+        let steps = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(7),
+            Step::Key("body"),
+        ];
+        let mut budget =
+            super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let mut visited = 0;
+        let result = validate_term(
+            TermNode::of(&body),
+            TermGrammar::V2,
+            true,
+            &Trail::Base(&steps),
+            &mut |_, _, _, _, _| {
+                visited += 1;
+                Ok(())
+            },
+            super::super::read_charge::ids(
+                &mut budget,
+                super::super::PackageReadStage::Graph,
+                7,
+                "temporal",
+                &[],
+            ),
+        );
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("invalid target must refuse before temporal interpretation")
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().as_str(),
+            "/semantic_graph/nodes/7/body/target"
+        );
+        assert_eq!(
+            visited, 0,
+            "invalid IDs never enter the authenticated target table"
+        );
+    }
+
+    #[trace("TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn profile_fault_contexts_are_paid_at_exact_and_short_storage() {
+        use super::super::stage_storage::Path;
+        let node: CheckedNodeId = serde_json::from_value(id('a')).unwrap();
+        let body = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(7)
+            .key("body");
+        for (code, cause, at) in [
+            (
+                CheckedPackageRefusalCode::UnknownProfile,
+                CheckedPackageRefusalCause::UnsupportedSelection,
+                body.key("operation").key("laws").index(0).key("definition"),
+            ),
+            (
+                CheckedPackageRefusalCode::UnknownProfile,
+                CheckedPackageRefusalCause::WrongSelectionRole,
+                body.key("operation").key("laws").index(0).key("definition"),
+            ),
+            (
+                CheckedPackageRefusalCode::InvalidPackage,
+                CheckedPackageRefusalCause::OperationMemberMismatch,
+                body,
+            ),
+        ] {
+            let run = |limit| {
+                let mut budget =
+                    super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    result = Some(temporal_fault(
+                        &mut WorkMeter::over(&mut budget),
+                        7,
+                        code,
+                        cause,
+                        at,
+                        &node,
+                    ));
+                });
+                (result.unwrap(), allocated.bytes_total, budget)
+            };
+            let (result, allocated, budget) = run(u64::MAX);
+            let ValidationFailure::Refused(refusal) = &result else {
+                panic!("profile fault")
+            };
+            assert_eq!(refusal.code, code);
+            assert_eq!(refusal.cause, Some(cause));
+            assert_eq!(refusal.loci[0].path.as_ref().unwrap(), &at.build());
+            assert_eq!(allocated, budget.read_storage_consumed());
+            assert_eq!(run(allocated).0, result);
+            let (short, allocated, budget) = run(allocated - 1);
+            assert!(matches!(short, ValidationFailure::Budget(_)));
+            assert_eq!(allocated, budget.read_storage_consumed());
+            let locus = budget.first_unpaid_locus().unwrap();
+            assert_eq!(locus.form, "diagnostic");
+            assert_eq!(
+                locus.source,
+                super::super::NativeJoinLocusSource::PackageRead(
+                    super::super::PackageReadStage::Graph,
+                    7
+                )
+            );
+        }
+    }
 
     fn id(fill: char) -> Value {
         json!({ "package": "test/temporal", "path": [fill.to_string()], "ordinal": 0 })

@@ -119,16 +119,23 @@ fn decimal_magnitude(text: &str) -> Option<(&str, bool)> {
 fn validate_number(
     number: &ClockExactNumber,
     positive: bool,
-    at: impl Fn() -> JsonPointer,
+    at: super::stage_storage::Path<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let malformed = |meter: &mut WorkMeter, path| {
+        super::stage_storage::refuse(
+            meter,
+            &super::natural::site(meter, path),
+            super::stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
+        )
+    };
     match number {
         ClockExactNumber::Integer { decimal } => {
             let Some((_, zero)) = decimal_magnitude(decimal) else {
-                return Err(malformed(at().key("decimal")));
+                return Err(malformed(meter, at.key("decimal")));
             };
             if positive && (zero || decimal.starts_with('-')) {
-                return Err(malformed(at().key("decimal")));
+                return Err(malformed(meter, at.key("decimal")));
             }
         }
         ClockExactNumber::Rational {
@@ -136,7 +143,7 @@ fn validate_number(
             denominator,
         } => {
             let Some((digits, zero)) = decimal_magnitude(numerator) else {
-                return Err(malformed(at().key("numerator")));
+                return Err(malformed(meter, at.key("numerator")));
             };
             let valid_denominator = denominator
                 .bytes()
@@ -147,13 +154,18 @@ fn validate_number(
                     .skip(1)
                     .all(|byte| byte.is_ascii_digit());
             if !valid_denominator {
-                return Err(malformed(at().key("denominator")));
+                return Err(malformed(meter, at.key("denominator")));
             }
             if positive && (zero || numerator.starts_with('-')) {
-                return Err(malformed(at().key("numerator")));
+                return Err(malformed(meter, at.key("numerator")));
             }
-            if !super::natural::coprime(digits, denominator, meter, &at)? {
-                return Err(malformed(at()));
+            if !super::natural::coprime(
+                digits,
+                denominator,
+                meter,
+                super::natural::site(meter, at),
+            )? {
+                return Err(malformed(meter, at));
             }
         }
     }
@@ -165,6 +177,7 @@ fn validate_shape(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (index, row) in rows.iter().enumerate() {
+        meter.at_row("temporal_bindings", index);
         let at = || row_pointer(index);
         meter.charge(1, at)?;
         if row.clock_name.is_empty() {
@@ -185,8 +198,26 @@ fn validate_shape(
                 if unit.is_empty() {
                     return Err(malformed(clock_at().key("unit")));
                 }
-                validate_number(epoch, false, || clock_at().key("epoch"), meter)?;
-                validate_number(period, true, || clock_at().key("period"), meter)?;
+                validate_number(
+                    epoch,
+                    false,
+                    super::stage_storage::Path::root()
+                        .key("temporal_bindings")
+                        .index(index)
+                        .key("clock")
+                        .key("epoch"),
+                    meter,
+                )?;
+                validate_number(
+                    period,
+                    true,
+                    super::stage_storage::Path::root()
+                        .key("temporal_bindings")
+                        .index(index)
+                        .key("clock")
+                        .key("period"),
+                    meter,
+                )?;
             }
             ClockConfiguration::TimestampedEvent { timestamp_unit } => {
                 if timestamp_unit.is_empty() {

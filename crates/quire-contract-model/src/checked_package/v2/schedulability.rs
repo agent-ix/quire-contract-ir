@@ -529,7 +529,7 @@ pub(super) fn rational_parts_are_canonical(
     numerator: &str,
     denominator: &str,
     meter: &mut WorkMeter,
-    at: &dyn Fn() -> crate::checked_package::shared::JsonPointer,
+    at: Site<'_>,
 ) -> Result<bool, ValidationFailure> {
     let positive = |text: &str| matches!(text.as_bytes(), [first, rest @ ..] if (b'1'..=b'9').contains(first) && rest.iter().all(u8::is_ascii_digit));
     let magnitude = numerator.strip_prefix('-').unwrap_or(numerator);
@@ -545,12 +545,13 @@ fn greater(
     meter: &mut WorkMeter,
     at: &Path<'_>,
 ) -> Result<bool, ValidationFailure> {
-    Ok(
-        super::natural::compare_rationals(magnitude(left), magnitude(right), meter, &|| {
-            at.build()
-        })?
-        .is_gt(),
-    )
+    Ok(super::natural::compare_rationals(
+        magnitude(left),
+        magnitude(right),
+        meter,
+        super::natural::site(meter, *at),
+    )?
+    .is_gt())
 }
 
 /// The claim nodes in structural-key order: one exact block, charged before
@@ -956,9 +957,12 @@ fn validate_literal_values(
                     } else {
                         (spelling, "1")
                     };
-                    if !rational_parts_are_canonical(numerator, denominator, meter, &|| {
-                        value_at.pointer()
-                    })? {
+                    if !rational_parts_are_canonical(
+                        numerator,
+                        denominator,
+                        meter,
+                        super::natural::site(meter, value_at),
+                    )? {
                         return Err(bad(meter));
                     }
                 }
@@ -1330,26 +1334,26 @@ mod tests {
         assert!(matches!(zero, Err(ValidationFailure::Budget(_))));
         assert_eq!(allocated, 0);
         let mut meter = WorkMeter::new(u64::MAX);
-        let at = || crate::checked_package::shared::JsonPointer::root();
+        let at = Site::new(PackageReadStage::Graph, 0, "claim", Path::root());
         assert!(!rational_parts_are_canonical(
             "170141183460469231731687303715884105728",
             "2",
             &mut meter,
-            &at
+            at
         )
         .expect("exact gcd"));
         assert!(rational_parts_are_canonical(
             "170141183460469231731687303715884105729",
             "2",
             &mut meter,
-            &at
+            at
         )
         .expect("exact gcd"));
         assert!(rational_parts_are_canonical(
             "-170141183460469231731687303715884105729",
             "1",
             &mut meter,
-            &at
+            at
         )
         .expect("signed exact integer"));
     }
