@@ -447,6 +447,7 @@ fn admitted_controls_expose_missing_catalog_constraint_productions() {
         ("quire.op.numeric.convert_rounding", "scale_reduction"),
         ("quire.op.collection.sequence", "uniform_rest"),
         ("quire.op.model.reaches_field", "reference_edge"),
+        ("quire.op.collection.sum.carried_quantity", "carried_member"),
     ];
     for (identity, required_kind) in controls {
         let package = match identity {
