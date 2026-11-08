@@ -135,6 +135,8 @@ pub struct NativeJoinBudget {
     prepaid_diagnostic: Option<bool>,
     /// The outcome whose owned diagnostic the read's first denial is.
     pending_outcome: Option<super::CheckedPackagePendingOutcome>,
+    /// The refusal or `incomplete` outcome whose diagnostic a stage has paid.
+    paid_outcome: Option<super::CheckedPackagePendingOutcome>,
 }
 
 impl NativeJoinBudget {
@@ -156,6 +158,7 @@ impl NativeJoinBudget {
             denied_locus: None,
             prepaid_diagnostic: None,
             pending_outcome: None,
+            paid_outcome: None,
         }
     }
 
@@ -315,6 +318,7 @@ impl NativeJoinBudget {
         self.denied_locus = None;
         self.prepaid_diagnostic = None;
         self.pending_outcome = None;
+        self.paid_outcome = None;
         self.consumed
     }
 
@@ -389,6 +393,16 @@ impl NativeJoinBudget {
     /// Records the outcome whose diagnostic could not be paid for.
     pub(super) fn set_pending(&mut self, pending: Option<super::CheckedPackagePendingOutcome>) {
         self.pending_outcome = pending;
+    }
+
+    /// Records the outcome whose owned diagnostic a stage has paid for.
+    pub(super) fn set_paid(&mut self, paid: super::CheckedPackagePendingOutcome) {
+        self.paid_outcome = Some(paid);
+    }
+
+    /// The outcome recorded by [`Self::set_paid`], taken once.
+    pub(super) fn take_paid(&mut self) -> Option<super::CheckedPackagePendingOutcome> {
+        self.paid_outcome.take()
     }
 
     /// The outcome recorded by [`Self::set_pending`], taken once.

@@ -413,6 +413,7 @@ fn diagnostic(
     let admitted = budget.charge_read_storage(bytes as u128);
     budget.set_active_locus(previous);
     if admitted {
+        budget.set_paid(pending);
         Ok(())
     } else {
         budget.set_pending(Some(pending));
