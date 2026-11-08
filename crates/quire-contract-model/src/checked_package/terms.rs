@@ -64,7 +64,9 @@ pub(super) fn subterms_of(wire: WireTerm<'_>) -> impl Iterator<Item = Subterm<'_
             | BodyTerm::Reference
             | BodyTerm::DependencyReference
             | BodyTerm::Frame
-            | BodyTerm::AbstractionRelation,
+            | BodyTerm::AbstractionRelation
+            | BodyTerm::ImplementationGuarantee
+            | BodyTerm::ComponentComposition,
         )
         | None => ("", &[][..], None),
     };

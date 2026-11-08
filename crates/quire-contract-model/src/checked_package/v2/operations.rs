@@ -586,6 +586,8 @@ fn literal_defect(
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
             | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. }
             | CheckedTerm::NominalBody(_) => {}
@@ -1583,6 +1585,8 @@ fn argument_family(
         CheckedTerm::DependencyReference { .. }
         | CheckedTerm::Frame { .. }
         | CheckedTerm::AbstractionRelation { .. }
+        | CheckedTerm::ImplementationGuarantee { .. }
+        | CheckedTerm::ComponentComposition { .. }
         | CheckedTerm::Refinement { .. }
         | CheckedTerm::ExtensionForm { .. }
         | CheckedTerm::NominalBody(_) => None,
@@ -1765,7 +1769,9 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => None,
     }
 }
@@ -1920,7 +1926,9 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => false,
     }
 }
@@ -2218,6 +2226,8 @@ fn check_operands(
                         | CheckedTerm::Aggregate { .. }
                         | CheckedTerm::Frame { .. }
                         | CheckedTerm::AbstractionRelation { .. }
+                        | CheckedTerm::ImplementationGuarantee { .. }
+                        | CheckedTerm::ComponentComposition { .. }
                 )
             )
         {

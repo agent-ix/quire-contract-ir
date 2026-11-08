@@ -91,6 +91,25 @@ impl<'e> SuppliedDependencies<'e> {
     pub(super) fn packages(&self) -> Vec<&'e CheckedPackageV2> {
         self.packages.iter().map(|entry| entry.package).collect()
     }
+    /// Whether a directly selected package holds the node `id`: a
+    /// component composition's subject or clause in a component package.
+    pub(super) fn holds_node(&self, id: &CheckedNodeId) -> bool {
+        self.packages
+            .iter()
+            .any(|supplied| supplied.index.contains_key(id))
+    }
+
+    /// The node `id` of the directly selected package `package`: the package
+    /// and the node's position in it.
+    pub(super) fn selected_node(
+        &self,
+        package: &str,
+        id: &CheckedNodeId,
+    ) -> Option<(&'e CheckedPackageV2, usize)> {
+        let supplied = self.resolve(package)?;
+        Some((supplied.package, *supplied.index.get(id)?))
+    }
+
     /// The admitted directly selected package with this exact identity.
     pub(super) fn selected_package(&self, package: &str) -> Option<&'e CheckedPackageV2> {
         self.resolve(package).map(|entry| entry.package)
@@ -375,6 +394,8 @@ impl<'a> DependencyReferences<'a> {
                 | CheckedTerm::Reference { .. }
                 | CheckedTerm::Frame { .. }
                 | CheckedTerm::AbstractionRelation { .. }
+                | CheckedTerm::ImplementationGuarantee { .. }
+                | CheckedTerm::ComponentComposition { .. }
                 | CheckedTerm::Refinement { .. }
                 | CheckedTerm::ExtensionForm { .. }
                 | CheckedTerm::NominalBody(_) => {}
@@ -551,6 +572,8 @@ pub(super) fn selected_reference_targets(body: &CheckedTerm) -> Vec<(Box<str>, C
             | CheckedTerm::Reference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
             | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. }
             | CheckedTerm::NominalBody(_) => {}

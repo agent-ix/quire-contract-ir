@@ -1273,7 +1273,9 @@ fn requires_bound(kind: CheckedNodeKind) -> bool {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => false,
     }
 }
