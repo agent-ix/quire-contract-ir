@@ -4709,7 +4709,7 @@ mod tests {
                     selected_documents: std::sync::Arc::new(Vec::new()),
                     direct_dependencies: Vec::new(),
                     closure_index: Default::default(),
-                    catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+                    catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
                     admission_binding: Default::default(),
                 }
                 .retain_original_admission();

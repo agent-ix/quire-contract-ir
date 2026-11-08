@@ -250,6 +250,12 @@ pub(super) fn operation_catalog() -> &'static OperationCatalog {
     ))
 }
 
+/// An owned catalog for admitted-package fixture construction.
+#[cfg(test)]
+pub(super) fn owned_operation_catalog() -> CatalogRef {
+    production_catalog().expect("the production catalog reads")
+}
+
 /// The production operation catalog could not be read: the member the bytes
 /// failed at and why, for example `operations[3].constraints[1].kind`. It is
 /// a skew between this reader and the catalog it depends on, never a defect of

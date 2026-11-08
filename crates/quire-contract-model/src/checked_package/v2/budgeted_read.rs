@@ -156,6 +156,10 @@ impl CheckedPackageV2 {
         let work_before = budget.consumed();
         let storage_before = budget.read_storage_mark();
         budget.resume();
+        if exceeds(bytes.len(), limits.bytes) {
+            budget.abort();
+            return budgeted_outcome(refuse_bytes_exceeded(limits.bytes, bytes.len()), budget);
+        }
         let catalog = match super::operation_catalog::read_catalog_budgeted(budget) {
             Ok(catalog) => catalog,
             Err(super::operation_catalog_index::CatalogStop::Unavailable(error)) => {

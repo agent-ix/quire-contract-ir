@@ -403,3 +403,49 @@ fn catalog_error(budget: &mut NativeJoinBudget, error: &impl std::fmt::Display) 
         message,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ix_trace_rs::trace;
+
+    /// Every catalog read owns its tables and reserves all measured storage,
+    /// including the retained shared catalog, before making its requests.
+    #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-515")]
+    #[test]
+    fn owned_catalog_allocates_exactly_its_admitted_storage() {
+        fn measure(limit: u64) -> (bool, u64, NativeJoinBudget) {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocations = allocation_counter::measure(|| {
+                result = Some(super::super::operation_catalog::read_catalog_budgeted(
+                    &mut budget,
+                ));
+            });
+            let admitted = result.expect("catalog was read").is_ok();
+            (admitted, allocations.bytes_total, budget)
+        }
+        let (admitted, allocated, unlimited) = measure(u64::MAX);
+        assert!(admitted, "the published catalog is valid");
+        let required = unlimited.read_storage_consumed();
+        assert!(required > 0);
+        assert_eq!(allocated, required, "every catalog allocation is charged");
+        let (admitted, allocated, exact) = measure(required);
+        assert!(admitted, "exact catalog allowance admits");
+        assert_eq!(allocated, exact.read_storage_consumed());
+        let (admitted, allocated, short) = measure(required - 1);
+        assert!(
+            !admitted,
+            "one below the retained catalog allocation denies"
+        );
+        assert_eq!(allocated, short.read_storage_consumed());
+        assert_eq!(
+            short.first_unpaid_locus().map(|locus| locus.form),
+            Some("operation_catalog")
+        );
+        let (admitted, allocated, zero) = measure(0);
+        assert!(!admitted);
+        assert_eq!(allocated, 0, "a denied catalog request allocates nothing");
+        assert_eq!(zero.read_storage_consumed(), 0);
+    }
+}
