@@ -13,12 +13,16 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct CheckedTermDataV2 {
     /// Selected equality schedules and their operands.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub equality_decisions: Vec<CheckedEqualityDecision>,
     /// Selected semantic locations for protocol terms.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub protocol_locations: Vec<CheckedProtocolSemanticLocation>,
     /// Selected model-operation candidate tables.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub dispatch_tables: Vec<CheckedDispatchCandidateTable>,
     /// Exact declarations and occurrences of probabilistic claims.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub probabilistic_claims: Vec<CheckedProbabilisticClaim>,
 }
 
@@ -41,6 +45,7 @@ pub struct CheckedEqualityDecision {
     /// Exact source occurrence of the application.
     pub occurrence: CheckedOccurrence,
     /// Empty for an equality application; nonempty paths are refused at admission.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub term_path: Vec<CheckedEqualityTermPathStep>,
     /// Equality operation selected by the producer.
     pub operator: CheckedEqualityOperator,
@@ -51,8 +56,10 @@ pub struct CheckedEqualityDecision {
     /// Selected equality schedule.
     pub schedule: CheckedEqualitySchedule,
     /// Only the units consulted by the producer for this comparison.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub units: Vec<CheckedResolvedEqualityUnit>,
     /// Only the compared enum's retained members.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub enum_members: Vec<CheckedEqualityEnumMember>,
 }
 
@@ -132,17 +139,21 @@ pub enum CheckedResolvedEqualityUnitForm {
         /// Dimension declaration.
         dimension_node: CheckedNodeId,
         /// Normalized base-dimension powers.
+        #[serde(deserialize_with = "super::document_de::exact_vec")]
         dimension_terms: Vec<CheckedUnitDimensionTerm>,
         /// Root declared unit.
         root_unit: CheckedNodeId,
         /// Ordered exact conversion edges.
+        #[serde(deserialize_with = "super::document_de::exact_vec")]
         path: Vec<CheckedUnitConversionEdge>,
     },
     /// A compound unit with canonical root-unit powers.
     Compound {
         /// Normalized base-dimension powers.
+        #[serde(deserialize_with = "super::document_de::exact_vec")]
         dimension_terms: Vec<CheckedUnitDimensionTerm>,
         /// Canonical root-unit powers.
+        #[serde(deserialize_with = "super::document_de::exact_vec")]
         terms: Vec<CheckedCompoundEqualityUnitTerm>,
     },
 }
@@ -216,6 +227,7 @@ pub struct CheckedProtocolLocation {
     /// Authored declaration or protocol attempt origin.
     pub origin: CheckedProtocolLocationOrigin,
     /// Child positions from the origin to this term.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub path: Vec<CheckedKeyOrdinal>,
 }
 
@@ -260,6 +272,7 @@ pub struct CheckedDispatchCandidateTable {
     /// Receiver's selected model context node.
     pub context: CheckedNodeId,
     /// Candidates in producer order, including an authoritative empty set.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub candidates: Vec<CheckedDispatchCandidate>,
 }
 

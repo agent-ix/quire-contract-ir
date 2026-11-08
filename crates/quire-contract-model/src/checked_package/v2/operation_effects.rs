@@ -25,12 +25,16 @@ use serde::{Deserialize, Deserializer, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct CheckedOperationEffect {
     /// Field and relationship grants in canonical order.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub modifies: Vec<CheckedFrameModification>,
     /// Object types whose instances the operation may create.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub creates: Vec<CheckedNodeId>,
     /// Object types whose instances the operation may delete.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub deletes: Vec<CheckedNodeId>,
     /// Receiver and parameter scoped deletion grants.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub deletes_scoped: Vec<CheckedScopedDeletion>,
 }
 

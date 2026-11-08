@@ -88,6 +88,25 @@ where
     deserializer.deserialize_newtype_struct(SEQUENCE_TOKEN, Exact(std::marker::PhantomData))
 }
 
+/// The graph's operand rows: an exact vector of exact rows, so neither level
+/// grows by doubling.
+pub(in crate::checked_package) fn exact_rows<'de, D>(
+    deserializer: D,
+) -> Result<Vec<Vec<u64>>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    struct Row(Vec<u64>);
+    impl<'de> serde::Deserialize<'de> for Row {
+        fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            exact_vec(deserializer).map(Self)
+        }
+    }
+    // `Row` and `Vec<u64>` have one layout, so collecting back into rows
+    // reuses the vector's allocation.
+    exact_vec::<D, Row>(deserializer).map(|rows| rows.into_iter().map(|row| row.0).collect())
+}
+
 /// [`exact_vec`] for an optional member: absent stays `None`.
 pub(in crate::checked_package) fn exact_optional_vec<'de, D, T>(
     deserializer: D,
@@ -244,8 +263,8 @@ impl<'d> DecodeContext<'d> {
         ValueDe {
             node,
             context: self,
-            prepaid: false,
             slots: false,
+            prepaid: false,
         }
     }
 
@@ -280,8 +299,8 @@ impl<'d> DecodeContext<'d> {
         ValueDe {
             node: self.document.root(),
             context: self,
-            prepaid: false,
             slots: false,
+            prepaid: false,
         }
     }
 
@@ -373,11 +392,11 @@ impl<'d> DecodeContext<'d> {
 pub(in crate::checked_package) struct ValueDe<'c, 'd> {
     node: NodeRef<'d>,
     context: &'c DecodeContext<'d>,
-    /// The enclosing call already charged this sequence's elements.
-    prepaid: bool,
     /// Whether this value is the `path` of a node ID, or a segment of one, in
     /// a decode that resolves operand slots through a row.
     slots: bool,
+    /// The enclosing call already charged this sequence's elements.
+    prepaid: bool,
 }
 
 impl<'c, 'd> ValueDe<'c, 'd> {
@@ -389,8 +408,8 @@ impl<'c, 'd> ValueDe<'c, 'd> {
         ValueDe {
             node,
             context: self.context,
-            prepaid: false,
             slots: self.slots && inherit_slots,
+            prepaid: false,
         }
     }
 }
@@ -509,9 +528,8 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
         if name == NODE_ID_TOKEN {
             let decoded = CheckedNodeId::deserialize(ValueDe {
                 prepaid: false,
-                node: self.node,
-                context: self.context,
                 slots: false,
+                ..self
             })?;
             NODE_ID.with(|slot| *slot.borrow_mut() = Some(decoded));
             return visitor.visit_unit();
@@ -740,5 +758,87 @@ impl<'de> VariantAccess<'de> for ValueDe<'_, 'de> {
         visitor: V,
     ) -> Result<V::Value, Error> {
         de::Deserializer::deserialize_any(self, visitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::intake::decode_borrowed_wire;
+    use super::super::{NativeJoinBudget, ValidationFailure};
+    use crate::checked_package::shared::{CheckedArtifactRef, CheckedSelection};
+    use ix_trace_rs::trace;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    /// A closed package holding a vector over 1 MiB (70001 operand rows) and a
+    /// row over 1 MiB (140000 entries); no validation applies to the decode.
+    fn wide_package() -> Vec<u8> {
+        let artifact = CheckedArtifactRef {
+            authority: "a".into(),
+            identity: "i".into(),
+        };
+        let selection = CheckedSelection {
+            role: super::super::CheckedSelectionRole::ProtocolProfile,
+            definition: artifact.clone(),
+        };
+        let mut rows = vec![json!([]); 70_000];
+        rows.push(json!(vec![7_u64; 140_000]));
+        let package = json!({
+            "contract_version": "quire.checked-package/v2",
+            "name": "p",
+            "lock": {
+                "sources": [],
+                "edition": selection,
+                "profile_selections": [],
+                "definition_selections": [],
+                "required_features": [],
+                "dependency_selections": [],
+            },
+            "semantic_graph": {
+                "graph_version": "quire.checked-semantic-graph/v2",
+                "nodes": [],
+                "operand_rows": rows,
+            },
+            "source_map": [],
+            "capability_report": [],
+            "diagnostics": {"catalog": artifact, "entries": []},
+        });
+        quire_canonical::to_vec(&package, quire_canonical::Limits::new(u64::MAX))
+            .expect("the package encodes")
+    }
+
+    fn decode(
+        bytes: &[u8],
+        document: &Arc<quire_canonical::Document>,
+        budget: &mut NativeJoinBudget,
+    ) -> Result<(), ValidationFailure> {
+        decode_borrowed_wire(bytes, document, budget).map(drop)
+    }
+
+    /// The bytes the decode allocates equal the bytes it charged, including a
+    /// vector and a row past serde's 1 MiB pre-size cap; the exact limit
+    /// admits and one byte short refuses.
+    #[trace("TC-472", "FR-038-AC-499", "FR-358-AC-12")]
+    #[test]
+    fn the_decode_allocates_exactly_what_it_charges() {
+        let bytes = wide_package();
+        let document = Arc::new(quire_canonical::read(&bytes, u64::MAX).expect("reads"));
+        let mut measured = NativeJoinBudget::unlimited();
+        let mut outcome = None;
+        let info = allocation_counter::measure(|| {
+            outcome = Some(decode(&bytes, &document, &mut measured));
+        });
+        assert!(outcome.expect("decoded").is_ok());
+        let charged = measured.read_storage_consumed();
+        assert!(charged > 140_000 * 8 + 70_001 * 24, "{charged}");
+        assert_eq!(info.bytes_total, charged);
+
+        let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(charged);
+        assert!(decode(&bytes, &document, &mut exact).is_ok());
+        let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(charged - 1);
+        assert!(matches!(
+            decode(&bytes, &document, &mut short),
+            Err(ValidationFailure::Budget(_))
+        ));
     }
 }
