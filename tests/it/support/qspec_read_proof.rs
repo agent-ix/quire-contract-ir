@@ -249,7 +249,22 @@ fn finish_proof(
     }
     if storage > 0 {
         let short = observe(bytes, limits, evidence, limits.work, storage - 1);
-        assert!(short.budget.first_unpaid_read_storage().is_some());
+        if reference.budget.first_unpaid().is_none() {
+            assert!(
+                short.budget.first_unpaid_read_storage().is_some(),
+                "without an earlier work stop, one below storage denies a reservation"
+            );
+        } else {
+            assert!(
+                short.budget.first_unpaid_read_storage().is_some()
+                    || short.budget.first_unpaid().is_some(),
+                "the original finite work cap or the smaller storage cap stops the read"
+            );
+        }
+        assert!(
+            short.budget.first_unpaid_locus().is_some(),
+            "the actual first unpaid charge retains its locus"
+        );
         assert!(!matches!(short.result, Budgeted::Admitted(_)));
         let repeated = observe(bytes, limits, evidence, limits.work, storage - 1);
         same_observation(&short, &repeated);
