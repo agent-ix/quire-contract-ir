@@ -462,3 +462,7 @@ fn original_dedicated_counter_observes_only_its_original_read() {
         "original requested bytes preserved including result drop"
     );
 }
+
+#[cfg(feature = "test-support")]
+#[path = "it/support/canonical_class_denial.rs"]
+mod canonical_class_denial;
