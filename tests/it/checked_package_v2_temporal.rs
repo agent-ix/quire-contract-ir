@@ -3724,7 +3724,7 @@ fn tc_346_the_hyperproperty_subjects_are_checked_before_its_fairness() {
         outcome(
             Code::InvalidModelBinding,
             Some(Cause::MalformedDeclaration),
-            at_body(at, "/members/1/value/members/0/value")
+            at_body(at, "/members/1/value/members/0/value/target")
         )
     );
     let (package, at) = hyper_edited(|body| {
@@ -3764,7 +3764,7 @@ fn tc_346_the_hyperproperty_subjects_are_checked_before_its_fairness() {
         outcome(
             Code::InvalidModelBinding,
             Some(Cause::MalformedDeclaration),
-            at_body(at, "/members/1/value/members/0/value")
+            at_body(at, "/members/1/value/members/0/value/target")
         )
     );
 }
@@ -3874,7 +3874,7 @@ fn tc_346_a_finite_domain_hyperproperty_has_no_subjects_alias_or_fairness_and_a_
         outcome(
             Code::IllTyped,
             Some(Cause::NonBooleanRoot),
-            at_body(at, "/members/6/value")
+            at_body(at, "/members/6/value/target")
         )
     );
     let (package, at) = finite_hyper(|body| {
@@ -3914,6 +3914,40 @@ fn tc_346_a_finite_domain_hyperproperty_has_no_subjects_alias_or_fairness_and_a_
             Code::InvalidSemanticGraph,
             None,
             at_body(at, "/members/3/value/members/0/members/2")
+        )
+    );
+}
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_a_subjects_or_finite_body_refusal_is_located_at_the_target_with_its_key() {
+    let target: CheckedNodeId = serde_json::from_value(node_id(&aaaa())).expect("target ID");
+    let (package, at) = hyper_edited(|body| {
+        body["members"][1]["value"]["members"][0]["value"]["target"] = node_id(&aaaa());
+    });
+    assert_eq!(
+        refusal_of("a subject that is no model_root", &package),
+        (
+            outcome(
+                Code::InvalidModelBinding,
+                Some(Cause::MalformedDeclaration),
+                at_body(at, "/members/1/value/members/0/value/target")
+            ),
+            Some(target.clone())
+        )
+    );
+    let (package, at) = finite_hyper(|body| {
+        body["members"][6]["value"] = refer(&aaaa());
+    });
+    assert_eq!(
+        refusal_of("a finite body that is no expression", &package),
+        (
+            outcome(
+                Code::IllTyped,
+                Some(Cause::NonBooleanRoot),
+                at_body(at, "/members/6/value/target")
+            ),
+            Some(target)
         )
     );
 }

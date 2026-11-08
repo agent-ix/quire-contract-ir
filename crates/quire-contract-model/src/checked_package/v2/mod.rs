@@ -200,7 +200,9 @@ use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
-use temporal::{validate_hyperproperties, validate_temporal, validate_timed_bounds_reduced, TemporalContext};
+use temporal::{
+    validate_hyperproperties, validate_temporal, validate_timed_bounds_reduced, TemporalContext,
+};
 
 use super::common::{
     count, exceeds, is_nonempty, node_pointer, read_typed_prefix, validate_definition_ref,

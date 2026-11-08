@@ -1750,15 +1750,21 @@ fn check_hyper_shape(position: usize, graph: &StepGraph<'_, '_>) -> Result<(), V
         let Some((name, value)) = binding(subject) else {
             return Err(graph_defect(at_value(1).key("members").index(subject_at)));
         };
-        let is_root = reference_target(value)
-            .and_then(|target| graph.node(&target))
+        let target = reference_target(value);
+        let is_root = target
+            .as_ref()
+            .and_then(|target| graph.node(target))
             .is_some_and(|(_, kind)| kind == CheckedNodeKind::Model(ModelForm::ModelRoot));
         if !is_root {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidModelBinding,
-                at_value(1).key("members").index(subject_at).key("value"),
+                at_value(1)
+                    .key("members")
+                    .index(subject_at)
+                    .key("value")
+                    .key("target"),
                 Some(CheckedPackageRefusalCause::MalformedDeclaration),
-                node.node_id.clone(),
+                target.unwrap_or_else(|| node.node_id.clone()),
             ));
         }
         subject_names.push(name);
@@ -1797,9 +1803,9 @@ fn check_hyper_shape(position: usize, graph: &StepGraph<'_, '_>) -> Result<(), V
         if !boolean_expression {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::IllTyped,
-                at_value(6),
+                at_value(6).key("target"),
                 Some(CheckedPackageRefusalCause::NonBooleanRoot),
-                node.node_id.clone(),
+                body_target.clone().unwrap_or_else(|| node.node_id.clone()),
             ));
         }
     } else {
