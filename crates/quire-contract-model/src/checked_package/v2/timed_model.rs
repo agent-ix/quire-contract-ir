@@ -4469,6 +4469,77 @@ mod tests {
         assert!(unpaid.is_some(), "the short run was denied a request");
     }
 
+    #[trace("TC-472", "FR-038-AC-516", "FR-038-AC-511")]
+    #[test]
+    fn timed_exact_magnitudes_use_reserved_reduction_and_keep_the_semantic_fault() {
+        let (_, node, _) = published_timed_nodes()
+            .into_iter()
+            .next()
+            .expect("published timed node");
+        let nodes = [node];
+        let index: GraphIndex<'_> = [(&nodes[0].node_id, 0)].into_iter().collect();
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &[],
+            terms: &[],
+            index: &index,
+        };
+        let run = |spelling: &str, limit| {
+            let term = CheckedTerm::Literal {
+                type_id: nodes[0].semantic_type.clone(),
+                value_kind: LiteralKind::Rational,
+                value: super::super::CheckedJson::from_value(&json!(spelling)).unwrap(),
+            };
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(0, "timed_model");
+                result =
+                    Some(graph.exact(0, Some(&term), true, node_path(0).key("body"), &mut meter));
+            });
+            (result.unwrap(), allocated.bytes_total, budget)
+        };
+        let coprime =
+            "340282366920938463463374607431768211457/340282366920938463463374607431768211459";
+        let (result, allocated, budget) = run(coprime, u64::MAX);
+        assert_eq!(result, Ok(()));
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert_eq!(run(coprime, allocated).0, Ok(()));
+        for limit in [23, 47, 71, 95] {
+            let (result, allocated, budget) = run(coprime, limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+            assert_eq!(budget.first_unpaid_read_storage(), Some(24));
+            assert_eq!(budget.first_unpaid_locus().unwrap().form, "exact_number");
+        }
+        let noncoprime =
+            "680564733841876926926749214863536422914/340282366920938463463374607431768211457";
+        let (result, allocated, budget) = run(noncoprime, u64::MAX);
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("nonreduced quantity refuses")
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::InvalidTimeQuantity)
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().as_str(),
+            "/semantic_graph/nodes/0/body"
+        );
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert!(matches!(
+            run(noncoprime, allocated).0,
+            Err(ValidationFailure::Refused(_))
+        ));
+        assert_eq!(
+            run("0", u64::MAX).2.consumed().work,
+            0,
+            "positive-zero fault precedes parse and GCD work"
+        );
+    }
+
     fn ratio(meter: &mut WorkMeter, numerator: &str, denominator: &str) -> OrderPart<'static> {
         OrderPart::Ratio(
             meter.exact_integer(numerator).unwrap().unwrap(),
