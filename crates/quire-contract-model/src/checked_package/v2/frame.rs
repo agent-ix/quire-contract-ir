@@ -51,7 +51,8 @@ use super::{
 use crate::checked_package::common::{node_pointer, Trail, ValidationFailure};
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
-use std::collections::BTreeMap;
+use super::stage_storage::{self, Path, Refusal, Site};
+use super::PackageReadStage;
 
 /// One `modifies` entry.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -454,19 +455,25 @@ impl Position {
 /// One meaning-join defect of a frame node; [`MeaningDefect::rank`] selects
 /// the reported one.
 #[derive(Clone, Debug)]
-struct MeaningDefect {
+struct MeaningDefect<'a> {
     position: Position,
-    node_id: CheckedNodeId,
-    name: Box<str>,
+    node_id: &'a CheckedNodeId,
+    name: &'a str,
     /// The entry's index in its member array; `None` for `semantic_type`.
     entry: Option<usize>,
     refusal: ModelRefusal,
 }
 
-impl MeaningDefect {
+impl<'a> MeaningDefect<'a> {
     /// Position, then entry declaration id, then field name.
     fn rank(&self) -> (Position, &CheckedNodeId, &str) {
-        (self.position, &self.node_id, &self.name)
+        (self.position, self.node_id, self.name)
+    }
+
+    fn keep_least(self, held: &mut Option<Self>) {
+        if held.as_ref().is_none_or(|best| self.rank() < best.rank()) {
+            *held = Some(self);
+        }
     }
 }
 
@@ -561,11 +568,12 @@ pub(super) fn validate_frame_semantics(
         index,
         owners,
     };
-    frames.sort_by(|a, b| a.0.cmp(b.0));
+    frames.sort_unstable_by(|a, b| a.0.cmp(b.0));
     for (node_id, position, body) in &frames {
         let Some(node) = nodes.get(*position) else {
             continue;
         };
+        meter.at_node(*position, super::graph_storage::node_form(&node.node_tag));
         if let Some(failure) = frame_defect(node_id, node, *position, body, &graph, meter)? {
             return Err(failure);
         }
@@ -582,7 +590,7 @@ fn frame_defect(
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
-    let mut defects = Vec::new();
+    let mut defect = None;
     let receiver_scoped = matches!(
         graph.node(&frame.semantic_type),
         Some((
@@ -597,17 +605,17 @@ fn frame_defect(
                 ModelForm::ObjectType | ModelForm::Process | ModelForm::StateMachine,
             ),
         )) => {}
-        found => defects.push(MeaningDefect {
+        found => MeaningDefect {
             position: Position::SemanticType,
-            node_id: frame.semantic_type.clone(),
-            name: "".into(),
+            node_id: &frame.semantic_type,
+            name: "",
             entry: None,
             refusal: if found.is_some() {
                 ModelRefusal::malformed()
             } else {
                 ModelRefusal::missing_name()
             },
-        }),
+        }.keep_least(&mut defect),
     }
     for (entry_index, entry) in body.modifies.iter().enumerate() {
         let admits = match entry {
@@ -630,13 +638,13 @@ fn frame_defect(
             },
         };
         if let Some(refusal) = refusal {
-            defects.push(MeaningDefect {
+            MeaningDefect {
                 position: Position::Modifies,
-                node_id: entry.declaration().clone(),
-                name: entry.name().into(),
+                node_id: entry.declaration(),
+                name: entry.name(),
                 entry: Some(entry_index),
                 refusal,
-            });
+            }.keep_least(&mut defect);
         }
     }
     for (position, entries) in [
@@ -645,82 +653,69 @@ fn frame_defect(
     ] {
         for (entry_index, entry) in entries.iter().enumerate() {
             if let Err(refusal) = join(frame, entry, creates_or_deletes, graph) {
-                defects.push(MeaningDefect {
+                MeaningDefect {
                     position,
-                    node_id: entry.clone(),
-                    name: "".into(),
+                    node_id: entry,
+                    name: "",
                     entry: Some(entry_index),
                     refusal,
-                });
+                }.keep_least(&mut defect);
             }
         }
     }
     if receiver_scoped && body.deletes_scoped.contains(&DeletesScopedEntry::Receiver) {
-        defects.push(MeaningDefect {
+        MeaningDefect {
             position: Position::DeletesScoped,
-            node_id: frame_id.clone(),
-            name: "".into(),
+            node_id: frame_id,
+            name: "",
             entry: None,
             refusal: ModelRefusal::malformed(),
-        });
+        }.keep_least(&mut defect);
     }
-    if let Some(defect) = defects.into_iter().min_by(|a, b| a.rank().cmp(&b.rank())) {
-        let at = node_pointer(frame_position);
+    if let Some(defect) = defect {
+        let at = Path::root().key("semantic_graph").key("nodes").index(frame_position);
         let path = match defect.entry {
             _ if defect.position == Position::DeletesScoped => at,
             None => at.key(defect.position.wire_key()),
             Some(entry) => at.key("body").key(defect.position.wire_key()).index(entry),
         };
-        return Ok(Some(ValidationFailure::refused_at(
-            defect.refusal.code,
-            path,
-            Some(defect.refusal.cause),
-            defect.node_id,
+        return Ok(Some(stage_storage::refuse(
+            meter,
+            &Site::new(PackageReadStage::Graph, frame_position, "state", path),
+            Refusal::new(defect.refusal.code, path).because(defect.refusal.cause).at_node(defect.node_id),
         )));
     }
-    let mut scopes = BTreeMap::new();
-    let mut conflict = None;
+    let modifies_at = Path::root().key("semantic_graph").key("nodes")
+        .index(frame_position).key("body").key("modifies");
+    let field_count = body.modifies.iter()
+        .filter(|entry| matches!(entry, ModifiesEntry::Field { .. })).count();
+    let mut scopes: Vec<(&CheckedNodeId, &str, FieldScope, usize)> = stage_storage::vec(
+        meter,
+        &Site::new(PackageReadStage::Graph, frame_position, "state", modifies_at),
+        field_count,
+    )?;
     for (entry_index, entry) in body.modifies.iter().enumerate() {
-        if let ModifiesEntry::Field {
-            declaration,
-            name,
-            scope,
-        } = entry
-        {
-            let key = (declaration, name);
-            if let Some((earlier_scope, earlier_index)) = scopes.insert(key, (*scope, entry_index))
-            {
-                if earlier_scope != *scope {
-                    let receiver_index = if *scope == FieldScope::Receiver {
-                        entry_index
-                    } else {
-                        earlier_index
-                    };
-                    let candidate = (declaration, name.as_ref(), receiver_index);
-                    if conflict
-                        .as_ref()
-                        .is_none_or(|best: &(&CheckedNodeId, &str, usize)| {
-                            (candidate.0, candidate.1) < (best.0, best.1)
-                        })
-                    {
-                        conflict = Some(candidate);
-                    }
-                }
-            }
+        if let ModifiesEntry::Field { declaration, name, scope } = entry {
+            scopes.push((declaration, name, *scope, entry_index));
         }
     }
-    if let Some((declaration, _, receiver_index)) = conflict {
-        return Ok(Some(ValidationFailure::refused_at(
-            CheckedPackageRefusalCode::InvalidModelBinding,
-            node_pointer(frame_position)
-                .key("body")
-                .key("modifies")
-                .index(receiver_index),
-            Some(CheckedPackageRefusalCause::ConflictingBinding),
-            declaration.clone(),
+    // Repeated keys follow wire position, preserving the last-seen scope
+    // and the first conflicting pair for the least declaration/name key.
+    scopes.sort_unstable_by(|left, right| (left.0, left.1, left.3).cmp(&(right.0, right.1, right.3)));
+    let conflict = scopes.windows(2).find_map(|pair| {
+        let (earlier, current) = (pair[0], pair[1]);
+        (earlier.0 == current.0 && earlier.1 == current.1 && earlier.2 != current.2)
+            .then_some((current.0, if current.2 == FieldScope::Receiver { current.3 } else { earlier.3 }))
+    });
+    if let Some((declaration, receiver_index)) = conflict {
+        let path = modifies_at.index(receiver_index);
+        return Ok(Some(stage_storage::refuse(
+            meter,
+            &Site::new(PackageReadStage::Graph, frame_position, "state", path),
+            Refusal::new(CheckedPackageRefusalCode::InvalidModelBinding, path)
+                .because(CheckedPackageRefusalCause::ConflictingBinding).at_node(declaration),
         )));
     }
-    let ascending = |keys: Vec<&CheckedNodeId>| keys.windows(2).all(|pair| pair[0] < pair[1]);
     let modifies_ordered = body
         .modifies
         .windows(2)
@@ -728,16 +723,16 @@ fn frame_defect(
     let scoped_ordered = body.deletes_scoped.windows(2).all(|pair| pair[0] < pair[1]);
     let in_order = modifies_ordered
         && scoped_ordered
-        && ascending(body.creates.iter().collect())
-        && ascending(body.deletes.iter().collect());
+        && body.creates.windows(2).all(|pair| pair[0] < pair[1])
+        && body.deletes.windows(2).all(|pair| pair[0] < pair[1]);
     if in_order {
         Ok(None)
     } else {
-        Ok(Some(ValidationFailure::refused_at(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            node_pointer(frame_position).key("body"),
-            None,
-            frame_id.clone(),
+        let path = Path::root().key("semantic_graph").key("nodes").index(frame_position).key("body");
+        Ok(Some(stage_storage::refuse(
+            meter,
+            &Site::new(PackageReadStage::Graph, frame_position, "state", path),
+            Refusal::new(CheckedPackageRefusalCode::InvalidSemanticGraph, path).at_node(frame_id),
         )))
     }
 }
@@ -940,4 +935,129 @@ mod document_storage_tests {
         assert_eq!(locus.form, "state");
         assert_eq!(run(u64::MAX).0.unwrap(), expected);
     }
+
+    fn semantic_id(position: usize) -> CheckedNodeId {
+        CheckedNodeId {
+            package: "frame-fixture".into(),
+            path: vec![crate::checked_package::shared::CheckedNodePathSegment::Index(position as u64)],
+            ordinal: 0,
+        }
+    }
+
+    fn semantic_fixture() -> (Vec<CheckedSemanticNodeV2>, Vec<CheckedNodeKind>, Vec<(usize, FrameBody)>) {
+        let mut nodes: Vec<CheckedSemanticNodeV2> = (0..72).map(|position| CheckedSemanticNodeV2 {
+            node_id: semantic_id(position),
+            schema_version: "quire.checked-semantic-graph/v2".into(),
+            node_tag: "model".into(),
+            semantic_form: "object_type".into(),
+            semantic_type: semantic_id(0),
+            dependencies: vec![],
+            occurrences: vec![],
+            recursion_group: None,
+            declaration: Some(super::super::CheckedDeclaration { qualified_name: vec![format!("Object{position}").into()] }),
+            owner: Some(super::super::CheckedNodeOwner::Source { authority: "fixture".into(), identity: "source".into() }),
+            owner_model: None,
+            body: serde_json::from_value(json!({})).unwrap(),
+        }).collect();
+        let field = |position, name: &str, scope| ModifiesEntry::Field {
+            declaration: semantic_id(position), name: name.into(), scope,
+        };
+        let bodies = vec![
+            (15, FrameBody {
+                modifies: vec![field(0, "alpha", FieldScope::EveryObject), field(1, "beta", FieldScope::Receiver)],
+                creates: vec![semantic_id(0)], deletes: vec![semantic_id(1)], deletes_scoped: vec![],
+            }),
+            (71, FrameBody {
+                modifies: vec![field(0, "alpha", FieldScope::EveryObject)],
+                ..FrameBody::default()
+            }),
+        ];
+        let mut kinds = vec![CheckedNodeKind::Model(ModelForm::ObjectType); nodes.len()];
+        for &(position, _) in &bodies {
+            nodes[position].node_tag = "state".into();
+            nodes[position].semantic_form = "frame".into();
+            nodes[position].declaration = None;
+            nodes[position].owner = None;
+            nodes[position].dependencies = vec![semantic_id(0), semantic_id(1)];
+            kinds[position] = CheckedNodeKind::State(super::super::StateForm::Frame);
+        }
+        (nodes, kinds, bodies)
+    }
+
+    fn measured_semantics(
+        nodes: &[CheckedSemanticNodeV2], kinds: &[CheckedNodeKind], bodies: &[(usize, FrameBody)], limit: u64,
+    ) -> (Result<(), ValidationFailure>, u64, NativeJoinBudget) {
+        let mut setup = WorkMeter::new(u64::MAX);
+        let index = GraphIndex::build(nodes.iter().map(|node| &node.node_id), &mut setup).unwrap();
+        let owners = ModelOwners::build(&[], nodes,
+            &mut super::super::model_members::Budget::node(&mut setup, 0), |_, _| Ok(())).unwrap();
+        let frames = bodies.iter().map(|(position, body)| (&nodes[*position].node_id, *position, body.clone())).collect();
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        let mut result = None;
+        let measured = allocation_counter::measure(|| {
+            let mut meter = WorkMeter::over(&mut budget);
+            meter.at_node(7, "relation");
+            result = Some(validate_frame_semantics(frames, nodes, kinds, &index, &owners, &mut meter));
+        });
+        (result.unwrap(), measured.bytes_total, budget)
+    }
+
+    #[trace("TC-472", "FR-038-AC-504", "FR-038-AC-511", "FR-038-AC-513")]
+    #[test]
+    fn nonempty_frame_semantics_pay_each_scope_table_at_its_own_node() {
+        let (nodes, kinds, bodies) = semantic_fixture();
+        let (result, allocated, budget) = measured_semantics(&nodes, &kinds, &bodies, u64::MAX);
+        assert!(result.is_ok(), "{result:?}");
+        let required = budget.read_storage_consumed();
+        assert_eq!(allocated, required);
+        assert_eq!(required as usize, 3 * std::mem::size_of::<(&CheckedNodeId, &str, FieldScope, usize)>());
+        assert!(measured_semantics(&nodes, &kinds, &bodies, required).0.is_ok());
+        let (result, allocated, budget) = measured_semantics(&nodes, &kinds, &bodies, required - 1);
+        assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+        assert_eq!(allocated, budget.read_storage_consumed());
+        let locus = budget.first_unpaid_locus().unwrap();
+        assert_eq!(locus.source, super::super::NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 71));
+        assert_eq!(locus.form, "state");
+        assert_eq!(budget.first_unpaid_read_storage(), Some(std::mem::size_of::<(&CheckedNodeId, &str, FieldScope, usize)>() as u128));
+        assert_eq!(measured_semantics(&nodes, &kinds, &bodies, 0).1, 0);
+    }
+
+    #[trace("TC-472", "FR-038-AC-504", "FR-038-AC-511", "TC-053", "TC-056")]
+    #[test]
+    fn frame_meaning_precedes_scope_conflicts_and_pays_only_the_selected_diagnostic() {
+        let (nodes, kinds, mut bodies) = semantic_fixture();
+        bodies[0].1.modifies.push(ModifiesEntry::Field {
+            declaration: semantic_id(0), name: "alpha".into(), scope: FieldScope::Receiver,
+        });
+        bodies[0].1.creates = vec![semantic_id(999)];
+        let (result, allocated, budget) = measured_semantics(&nodes, &kinds, &bodies, u64::MAX);
+        let Err(ValidationFailure::Refused(refusal)) = result else { panic!("expected meaning refusal: {result:?}") };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+        assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingName));
+        assert_eq!(refusal.loci[0].path.as_ref().unwrap().as_str(), "/semantic_graph/nodes/15/body/creates/0");
+        assert_eq!(refusal.locus.as_ref(), Some(&semantic_id(999)));
+        assert_eq!(allocated, budget.read_storage_consumed());
+        let required = budget.read_storage_consumed();
+        assert!(matches!(measured_semantics(&nodes, &kinds, &bodies, required).0, Err(ValidationFailure::Refused(_))));
+        let (short, allocated, short_budget) = measured_semantics(&nodes, &kinds, &bodies, required - 1);
+        assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+        assert_eq!(allocated, short_budget.read_storage_consumed());
+    }
+
+    #[trace("TC-472", "FR-038-AC-504", "FR-038-AC-511", "TC-056")]
+    #[test]
+    fn frame_scope_conflict_keeps_the_least_key_and_original_receiver_position() {
+        let (nodes, kinds, mut bodies) = semantic_fixture();
+        bodies[0].1.modifies = [(1, "beta", FieldScope::Receiver), (0, "alpha", FieldScope::EveryObject),
+            (1, "beta", FieldScope::EveryObject), (0, "alpha", FieldScope::Receiver)].into_iter()
+            .map(|(position, name, scope)| ModifiesEntry::Field { declaration: semantic_id(position), name: name.into(), scope }).collect();
+        let (result, allocated, budget) = measured_semantics(&nodes, &kinds, &bodies, u64::MAX);
+        let Err(ValidationFailure::Refused(refusal)) = result else { panic!("expected conflict refusal: {result:?}") };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidModelBinding);
+        assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::ConflictingBinding));
+        assert_eq!(refusal.loci[0].path.as_ref().unwrap().as_str(), "/semantic_graph/nodes/15/body/modifies/3");
+        assert_eq!(refusal.locus.as_ref(), Some(&semantic_id(0)));
+        assert_eq!(allocated, budget.read_storage_consumed());
+    }
+
 }
