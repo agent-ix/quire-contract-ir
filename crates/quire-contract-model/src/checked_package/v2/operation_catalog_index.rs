@@ -218,6 +218,8 @@ enum CatalogStep<'d> {
     Index(usize),
 }
 
+/// The longest closed path is operations[i].constraints[j].operands[k];
+/// one extra slot names an unknown member without inspecting its value.
 #[derive(Clone, Copy)]
 struct CatalogPath<'d> {
     steps: [Option<CatalogStep<'d>>; 7],
@@ -792,24 +794,50 @@ mod tests {
         let original: serde_json::Value =
             serde_json::from_str(super::super::operation_catalog::CATALOG_BYTES)
                 .expect("catalog fixture");
-        let mut cases = vec!["{".to_owned(), "{}".to_owned()];
-        for (path, value) in [
+        let mut cases = vec![
+            ("{".to_owned(), ".".to_owned()),
+            ("{}".to_owned(), ".".to_owned()),
+        ];
+        for (path, value, expected) in [
             (
                 "/operations/0/operator",
                 serde_json::json!("unknown_operator"),
+                "operations[0].operator",
             ),
-            ("/operations/0/operands", serde_json::json!([1])),
-            ("/operations/0/laws", serde_json::json!(["unknown_law"])),
-            ("/operations/0/member", serde_json::json!("unknown_member")),
-            ("/operations/0/mode", serde_json::json!(false)),
+            (
+                "/operations/0/operands",
+                serde_json::json!([1]),
+                "operations[0].operands[0]",
+            ),
+            (
+                "/operations/0/laws",
+                serde_json::json!(["unknown_law"]),
+                "operations[0].laws[0]",
+            ),
+            (
+                "/operations/0/member",
+                serde_json::json!("unknown_member"),
+                "operations[0].member",
+            ),
+            (
+                "/operations/0/mode",
+                serde_json::json!(false),
+                "operations[0].mode",
+            ),
         ] {
             let mut invalid = original.clone();
             *invalid.pointer_mut(path).expect("catalog field") = value;
-            cases.push(serde_json::to_string(&invalid).expect("fixture encodes"));
+            cases.push((
+                serde_json::to_string(&invalid).expect("fixture encodes"),
+                expected.to_owned(),
+            ));
         }
         let mut unknown_field = original.clone();
         unknown_field["unexpected"] = serde_json::json!(true);
-        cases.push(serde_json::to_string(&unknown_field).expect("fixture encodes"));
+        cases.push((
+            serde_json::to_string(&unknown_field).expect("fixture encodes"),
+            "unexpected".to_owned(),
+        ));
         let role = original["law_roles"]
             .as_object()
             .expect("law table")
@@ -819,7 +847,10 @@ mod tests {
             .expect("catalog has law definitions");
         let mut nested = original.clone();
         nested["law_roles"][role][0]["revision"] = serde_json::json!("unadmitted");
-        cases.push(serde_json::to_string(&nested).expect("fixture encodes"));
+        cases.push((
+            serde_json::to_string(&nested).expect("fixture encodes"),
+            format!("law_roles.{role}[0].revision"),
+        ));
         let constraint = original["operations"]
             .as_array()
             .expect("operations")
@@ -831,22 +862,33 @@ mod tests {
             let mut changed = constraint.clone();
             changed["operands"] = serde_json::json!([operand]);
             invalid["operations"][0]["constraints"] = serde_json::json!([changed]);
-            cases.push(serde_json::to_string(&invalid).expect("fixture encodes"));
+            cases.push((
+                serde_json::to_string(&invalid).expect("fixture encodes"),
+                "operations[0].constraints[0].operands[0]".to_owned(),
+            ));
         }
-        for bytes in cases {
+        for (bytes, expected_path) in cases {
             let measure = |limit| {
                 let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
-                let mut unavailable = false;
+                let mut unavailable = None;
                 let allocations = allocation_counter::measure(|| {
-                    unavailable = matches!(
-                        read_catalog_budgeted(&bytes, &mut budget),
-                        Err(CatalogStop::Unavailable(_))
-                    );
+                    if let Err(CatalogStop::Unavailable(error)) =
+                        read_catalog_budgeted(&bytes, &mut budget)
+                    {
+                        unavailable = Some(error);
+                    }
                 });
                 (unavailable, allocations.bytes_total, budget)
             };
             let (unavailable, allocated, unlimited) = measure(u64::MAX);
-            assert!(unavailable, "the corrupted catalog is unavailable");
+            assert!(
+                unavailable.is_some(),
+                "the corrupted catalog is unavailable"
+            );
+            assert_eq!(
+                unavailable.as_ref().map(|error| error.path()),
+                Some(expected_path.as_str())
+            );
             let charged = unlimited.read_storage_consumed();
             assert_eq!(
                 allocated, charged,
@@ -858,13 +900,13 @@ mod tests {
             );
             let (unavailable, allocated, exact) = measure(charged);
             assert!(
-                unavailable,
+                unavailable.is_some(),
                 "the exact diagnostic allowance returns the catalog error"
             );
             assert_eq!(allocated, exact.read_storage_consumed());
             let (unavailable, allocated, short) = measure(charged - 1);
             assert!(
-                !unavailable,
+                unavailable.is_none(),
                 "one byte below the diagnostic allowance returns the budget denial"
             );
             assert_eq!(allocated, short.read_storage_consumed());
