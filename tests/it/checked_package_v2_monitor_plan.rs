@@ -8,7 +8,7 @@ use crate::support::checked_package::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeKind, CheckedPackageReadLimits, CheckedPackageRefusalCode,
+    CheckedNodeKind, CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageV2,
     CheckedPackageV2ReadResult, TemporalForm,
 };
 use serde_json::{json, Value};
