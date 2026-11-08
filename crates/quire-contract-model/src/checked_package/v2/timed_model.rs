@@ -2940,10 +2940,7 @@ pub(super) fn validate_models<'a>(
                 Path::root().key("semantic_graph").key("nodes"),
             ));
         }
-        if represented
-            .binary_search_by(|key| order.compare_bounded(key, &nodes[position].node_id))
-            .is_err()
-        {
+        if search_id_refs(&represented, &nodes[position].node_id, meter)?.is_err() {
             return Err(graph.issue(
                 meter,
                 position,
@@ -3553,10 +3550,7 @@ pub(super) fn validate_models<'a>(
                     .skip(first_constraint)
                 {
                     if let Some(target) = typed_target(member) {
-                        if listed_constraints
-                            .binary_search_by(|id| listed_order.compare_bounded(id, target))
-                            .is_err()
-                        {
+                        if search_id_refs(&listed_constraints, target, meter)?.is_err() {
                             return Err(graph.issue(
                                 meter,
                                 guard,
@@ -3591,10 +3585,7 @@ pub(super) fn validate_models<'a>(
                 .enumerate()
             {
                 if let Some(target) = typed_target(member) {
-                    if listed_constraints
-                        .binary_search_by(|id| listed_order.compare_bounded(id, target))
-                        .is_err()
-                    {
+                    if search_id_refs(&listed_constraints, target, meter)?.is_err() {
                         return Err(graph.issue(
                             meter,
                             invariant,
@@ -3777,22 +3768,23 @@ mod tests {
         }
     }
 
+    fn foreign_node(name: &str) -> CheckedNodeId {
+        let mut id = node(name);
+        for _ in 0..65 {
+            id = CheckedNodeId {
+                package: "dependency/orders".into(),
+                path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(id))],
+                ordinal: 0,
+            };
+        }
+        id
+    }
+
     #[trace("TC-472", "FR-038-AC-511")]
     #[test]
     fn timed_sort_scratch_prepays_foreign_identity_depth_without_a_graph_bound() {
-        let nested = |name| {
-            let mut id = node(name);
-            for _ in 0..65 {
-                id = CheckedNodeId {
-                    package: "dependency/orders".into(),
-                    path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(id))],
-                    ordinal: 0,
-                };
-            }
-            id
-        };
-        let left = nested("a");
-        let right = nested("b");
+        let left = foreign_node("a");
+        let right = foreign_node("b");
         assert!(left.is_well_formed() && right.is_well_formed());
         let run = |limit| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
@@ -3816,6 +3808,36 @@ mod tests {
         );
         assert_eq!(allocated, budget.read_storage_consumed());
         assert!(run(allocated).0.is_ok());
+        for limit in [allocated - 1, 0] {
+            let (result, allocated, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn singleton_foreign_key_lookup_prepays_the_distinct_deep_needle() {
+        let left = foreign_node("a");
+        let needle = foreign_node("b");
+        let rows = [&left];
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(search_id_refs(
+                    &rows,
+                    &needle,
+                    &mut WorkMeter::over(&mut budget),
+                ))
+            });
+            (result.expect("ran"), allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert_eq!(result.unwrap(), Err(1), "the distinct deep key is absent");
+        assert!(allocated > 0);
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert_eq!(run(allocated).0.unwrap(), Err(1));
         for limit in [allocated - 1, 0] {
             let (result, allocated, budget) = run(limit);
             assert!(matches!(result, Err(ValidationFailure::Budget(_))));
