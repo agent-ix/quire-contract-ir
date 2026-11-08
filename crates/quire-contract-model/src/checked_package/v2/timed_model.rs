@@ -3896,6 +3896,40 @@ mod tests {
             );
         }
         assert!(checked > 1, "published nested and optional places");
+        let bodies: Vec<_> = nodes.iter().map(|node| node.body.clone()).collect();
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.attach_bodies(&bodies, &wire.semantic_graph.operand_rows);
+                result = Some(validate_models(
+                    nodes,
+                    &kinds,
+                    &terms,
+                    &index,
+                    &wire.source_map,
+                    &owners,
+                    &models,
+                    &mut meter,
+                ));
+            });
+            (result.expect("ran"), allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert!(result.is_ok(), "published timed Graph family: {result:?}");
+        assert_eq!(
+            allocated,
+            budget.read_storage_consumed(),
+            "complete timed Graph family"
+        );
+        assert!(allocated > 0);
+        assert!(run(allocated).0.is_ok());
+        for limit in [allocated - 1, 0] {
+            let (result, allocated, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+        }
     }
 
     #[trace("TC-472", "FR-038-AC-511")]
