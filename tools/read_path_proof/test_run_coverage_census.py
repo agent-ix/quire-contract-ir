@@ -11,6 +11,33 @@ from unittest.mock import patch
 import run_coverage_census as runner
 
 
+class OriginalSelection(unittest.TestCase):
+    def test_exact_subset_follows_actual_inventory(self):
+        self.assertEqual(runner.select_original_tests(["a", "b", "c"], ["c", "a"]), ["a", "c"])
+
+    def test_unknown_duplicate_zero_and_control_mixing_fail_closed(self):
+        for compiled, selected, controls, classes in [
+            (["a"], ["typo"], False, False),
+            (["a"], ["a", "a"], False, False),
+            ([], ["a"], False, False),
+            (["a"], ["a"], True, False),
+            (["a"], ["a"], False, True),
+        ]:
+            with self.subTest(compiled=compiled, selected=selected, controls=controls, classes=classes):
+                with self.assertRaises(runner.RunError):
+                    runner.select_original_tests(compiled, selected, controls, classes)
+
+    def test_selected_completion_never_claims_full_corpus(self):
+        metadata = runner.selection_metadata(SimpleNamespace(original_test=["a"], controls=False, class_controls=False))
+        self.assertEqual(metadata["scope"], "selected-only original tests")
+        self.assertFalse(metadata["full_corpus"])
+
+    def test_unfiltered_selection_preserves_inventory_and_scope(self):
+        inventory = ["b", "a"]
+        self.assertEqual(runner.select_original_tests(inventory, []), inventory)
+        self.assertTrue(runner.selection_metadata(SimpleNamespace(original_test=[], controls=False, class_controls=False))["full_corpus"])
+
+
 class ArtifactCustody(unittest.TestCase):
     def test_archive_retains_entire_unfiltered_export_losslessly(self):
         with tempfile.TemporaryDirectory() as directory:
