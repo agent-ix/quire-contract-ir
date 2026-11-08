@@ -12,7 +12,9 @@
 #[path = "it/support/checked_package.rs"]
 mod checked_package;
 
-use checked_package::{canonical, evidence_for, v2_all_families, v2_nominal};
+use checked_package::{
+    canonical, evidence_for, family_key, node_id, settle, v2_all_families, v2_nominal,
+};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageV2,
@@ -999,4 +1001,64 @@ fn nonidentifier_enum_member_refusal_is_paid_before_construction() {
     for observed in [observation, exact, short, zero_diagnostic, repeated] {
         drop_without_request::<ThreadCounter>(observed);
     }
+}
+
+/// A call whose callee function binds `parameters` pays for the declared
+/// parameter types it checks the call's arguments against (FR-347).
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn function_call_parameter_check_has_no_unpaid_allocation() {
+    initialize_operation_catalog().expect("catalogue gate");
+    let reference = |key: &str| serde_json::json!({"term": "reference", "target": node_id(key)});
+    let literal = |type_key: &str, kind: &str, value: &str| serde_json::json!({"term": "literal", "type": node_id(type_key), "value_kind": kind, "value": value});
+    let mut package = v2_all_families();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes");
+    let function = nodes
+        .iter_mut()
+        .find(|node| node["node_id"] == node_id(&family_key("8080")))
+        .expect("the fixture's function node");
+    function["body"] = serde_json::json!({"term": "aggregate", "members": [{
+        "term": "binding", "name": "parameters",
+        "value": {"term": "aggregate", "members": [reference("parameter/0")]}
+    }]});
+    nodes.push(serde_json::json!({
+        "node_id": node_id("parameter/0"),
+        "schema_version": "quire.checked-semantic-graph/v2",
+        "node_tag": "value",
+        "semantic_form": "parameter",
+        "semantic_type": node_id(&family_key("aaaa")),
+        "dependencies": [],
+        "occurrences": [{"role": "expression", "ordinal": 0}],
+        "body": {"term": "aggregate", "members": [
+            {"term": "binding", "name": "name", "value": literal(&family_key("a1a1"), "text", "x")},
+            {"term": "binding", "name": "level", "value": literal(&family_key("a3a3"), "integer", "0")},
+        ]},
+    }));
+    let call = nodes
+        .iter_mut()
+        .find(|node| node["node_tag"] == "function" && node["body"]["term"] == "application")
+        .expect("the fixture's function call node");
+    call["body"]["arguments"]
+        .as_array_mut()
+        .expect("arguments")
+        .push(reference("parameter/0"));
+    settle(&mut package);
+    let observation = read_allocation_proof::measure_at::<ThreadCounter>(
+        &canonical(&package),
+        &evidence_for(&package),
+        generous_limits(),
+        u64::MAX,
+        u64::MAX,
+    );
+    assert!(
+        matches!(
+            observation.result,
+            CheckedPackageV2BudgetedReadResult::Admitted(_)
+        ),
+        "the parameter-bound call admits: {:?}",
+        observation.result
+    );
+    drop_without_request::<ThreadCounter>(observation);
 }

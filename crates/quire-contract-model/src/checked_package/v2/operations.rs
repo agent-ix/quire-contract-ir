@@ -3416,7 +3416,9 @@ fn check_function_call(
     else {
         return Ok(None);
     };
-    let declared: Option<Vec<CheckedNodeId>> = (present == 0)
+    // Borrowed from the graph and walked in place: no owned parameter-type
+    // list is built, so this check requests no heap storage.
+    let entries: Option<&[CheckedTerm]> = (present == 0)
         .then(|| match &members[present] {
             CheckedTerm::Binding { value, .. } => Some(value.as_ref()),
             _ => None,
@@ -3425,24 +3427,24 @@ fn check_function_call(
         .and_then(|term| match term {
             CheckedTerm::Aggregate { members } => Some(members.as_slice()),
             _ => None,
-        })
-        .and_then(|entries| {
-            entries
-                .iter()
-                .map(|entry| {
-                    let position = *index.get(referenced_type(entry)?)?;
-                    (kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter))
-                        .then(|| nodes[position].semantic_type.clone())
-                })
-                .collect()
         });
-    let Some(declared) = declared else {
+    let parameter_type = |entry: &CheckedTerm| -> Option<&CheckedNodeId> {
+        let position = *index.get(referenced_type(entry)?)?;
+        (kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter))
+            .then(|| &nodes[position].semantic_type)
+    };
+    let Some(entries) =
+        entries.filter(|entries| entries.iter().all(|entry| parameter_type(entry).is_some()))
+    else {
         return ineligible(argument_at(0));
     };
-    if arguments.len().saturating_sub(1) != declared.len() {
+    if arguments.len().saturating_sub(1) != entries.len() {
         return ineligible(application.body(&["arguments"]));
     }
-    for (offset, expected) in declared.iter().enumerate() {
+    for (offset, entry) in entries.iter().enumerate() {
+        let Some(expected) = parameter_type(entry) else {
+            return ineligible(argument_at(0));
+        };
         let position = offset.saturating_add(1);
         if !conforms_to_type(
             expected,
