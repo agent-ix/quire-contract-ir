@@ -81,7 +81,8 @@ fn aggregate<'a>(
         return Err(malformed(at.clone()));
     }
     let items = value
-        .items()
+        .get("members")
+        .and_then(TermNode::items)
         .ok_or_else(|| malformed(at.clone().key("members")))?;
     let mut members = Vec::new();
     read_charge::reserve(budget, site, &mut members, items.len())?;
