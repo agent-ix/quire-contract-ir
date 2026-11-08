@@ -497,7 +497,9 @@ impl Carrier for CheckedDiagnosticsV2 {
     fn place(&mut self, mut body: Value) -> Result<(), Error> {
         // A handle exists only for a value the encoder writes, so the
         // encoder's refusal of a value is the refusal to hold it.
-        let held = CheckedJson::from_serializable(&body);
+        let held = quire_canonical::to_vec(&body, Limits::new(u64::MAX))
+            .map_err(CheckedJsonError::Encode)
+            .and_then(|bytes| CheckedJson::from_canonical_bytes(&bytes, u64::MAX));
         dismantle(&mut body);
         self.entries[0].details[0] = match held {
             Ok(held) => held,
@@ -507,9 +509,10 @@ impl Carrier for CheckedDiagnosticsV2 {
         Ok(())
     }
     fn take(&mut self) -> Value {
-        let taken = serde_json::to_value(&self.entries[0].details[0]).expect("JSON detail");
+        // The checked value owns a flat document arena, so replacing it drops
+        // the deep detail without reconstructing a recursive serde value.
         self.entries[0].details[0] = CheckedJson::from_serializable(&Value::Null).expect("encodes");
-        taken
+        Value::Null
     }
     const AROUND: (&'static str, &'static str) = ("\"details\":[", "]");
 }
