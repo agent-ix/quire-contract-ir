@@ -3,7 +3,7 @@
 
 //! Passive charge observations. Buffer allocation occurs outside measured reads.
 
-use super::{measure_at, Counter, Observation};
+use super::{measure_at, Counter, Observation, ReadViewScope};
 use quire_contract_model::{
     with_native_budget_observer, CheckedPackageEvidence, CheckedPackageReadLimits,
     NativeBudgetEvent,
@@ -50,8 +50,8 @@ fn scoped<T>(recorder: Recorder, read: impl FnOnce() -> T) -> (T, Recorder) {
     drop(restore);
     (result, recorded)
 }
-fn unchanged(off: &Observation, on: &Observation) {
-    super::assert_budgeted_results_equal(
+fn unchanged(off: &Observation, on: &Observation, views: ReadViewScope) {
+    views.budgeted(
         &off.result,
         &on.result,
         "observer preserves full typed outcome and admitted views",
@@ -76,7 +76,27 @@ pub(crate) fn checked<C: Counter>(
     work: u64,
     storage: u64,
 ) -> (Observation, Vec<NativeBudgetEvent>) {
-    trace(|| measure_at::<C>(bytes, evidence, limits, work, storage))
+    trace(
+        || measure_at::<C>(bytes, evidence, limits, work, storage),
+        ReadViewScope::Core,
+    )
+}
+
+pub(crate) fn checked_with_scope<C: Counter>(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limits: CheckedPackageReadLimits,
+    work: u64,
+    storage: u64,
+    views: ReadViewScope,
+) -> (Observation, Vec<NativeBudgetEvent>) {
+    match views {
+        ReadViewScope::Core => super::observe_native::<C>(bytes, evidence, limits, work, storage),
+        ReadViewScope::Full => trace(
+            || measure_at::<C>(bytes, evidence, limits, work, storage),
+            ReadViewScope::Full,
+        ),
+    }
 }
 
 pub(crate) fn checked_seeded(
@@ -85,13 +105,35 @@ pub(crate) fn checked_seeded(
     limits: CheckedPackageReadLimits,
     seed: &quire_contract_model::NativeJoinBudget,
 ) -> (Observation, Vec<NativeBudgetEvent>) {
-    trace(|| super::measure_seeded(bytes, evidence, limits, seed.read_proof_snapshot()))
+    trace(
+        || super::measure_seeded(bytes, evidence, limits, seed.read_proof_snapshot()),
+        ReadViewScope::Core,
+    )
 }
 
-fn trace(read: impl Fn() -> Observation) -> (Observation, Vec<NativeBudgetEvent>) {
+pub(crate) fn checked_seeded_with_scope(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limits: CheckedPackageReadLimits,
+    seed: &quire_contract_model::NativeJoinBudget,
+    views: ReadViewScope,
+) -> (Observation, Vec<NativeBudgetEvent>) {
+    match views {
+        ReadViewScope::Core => checked_seeded(bytes, evidence, limits, seed),
+        ReadViewScope::Full => trace(
+            || super::measure_seeded(bytes, evidence, limits, seed.read_proof_snapshot()),
+            ReadViewScope::Full,
+        ),
+    }
+}
+
+fn trace(
+    read: impl Fn() -> Observation,
+    views: ReadViewScope,
+) -> (Observation, Vec<NativeBudgetEvent>) {
     let off = read();
     let (counted, count) = scoped(Recorder::Count(0), &read);
-    unchanged(&off, &counted);
+    unchanged(&off, &counted, views);
     let Recorder::Count(count) = count else {
         unreachable!("count recorder")
     };
@@ -105,7 +147,7 @@ fn trace(read: impl Fn() -> Observation) -> (Observation, Vec<NativeBudgetEvent>
         },
         read,
     );
-    unchanged(&off, &recorded);
+    unchanged(&off, &recorded, views);
     let Recorder::Record { events, overflow } = trace else {
         unreachable!("event recorder")
     };

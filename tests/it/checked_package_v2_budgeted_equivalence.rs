@@ -297,3 +297,130 @@ fn sufficient_budgets_preserve_the_first_refusal_with_two_header_faults() {
         assert_eq!(budget.first_unpaid_read_storage(), None);
     }
 }
+
+/// Core accounting performs no derived lowering; explicit AC512 comparisons
+/// keep every public-consumer check even without a full-proof environment.
+#[trace("TC-472", "FR-038-AC-512")]
+#[test]
+fn core_outcome_comparison_does_not_lower_but_explicit_view_proof_visits_every_node() {
+    use crate::qspec_read_proof::equivalence::{take_oracle_visits, OracleVisits, ReadViewScope};
+    let input = input("original nominal scope control", &v2_nominal());
+    let left = plain(&input);
+    let right = budgeted(&input, &mut NativeJoinBudget::unlimited());
+    let (
+        CheckedPackageV2ReadResult::Admitted(left),
+        CheckedPackageV2BudgetedReadResult::Admitted(right_package),
+    ) = (&left, &right)
+    else {
+        panic!("the genuine nominal control must admit");
+    };
+    let nodes = left.resolved_graph().nodes.len();
+    assert!(nodes > 0);
+    assert_eq!(
+        left.graph(),
+        right_package.graph(),
+        "same genuine retained graph"
+    );
+    take_oracle_visits();
+    ReadViewScope::Core.admitted(left, right_package, "core original nominal result");
+    assert_eq!(take_oracle_visits(), OracleVisits::default());
+    assert_admitted_views_equal(left, right_package, "explicit original nominal views");
+    let full = take_oracle_visits();
+    assert_eq!(full.comparisons, 1);
+    assert_eq!(full.nodes, nodes);
+    assert_eq!(full.lower_calls, 2 * nodes);
+}
+
+#[cfg(feature = "test-support")]
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[test]
+fn core_observer_keeps_reader_values_and_full_observer_checks_every_node() {
+    use crate::qspec_read_proof::{equivalence::take_oracle_visits, Counter, ReadViewScope};
+    struct ScopeCounter;
+    impl Counter for ScopeCounter {
+        fn measure(read: impl FnOnce()) -> u64 {
+            crate::measure_qspec_read_requests(read)
+        }
+    }
+    let input = input("original nominal observer scope", &v2_nominal());
+    take_oracle_visits();
+    let (core, core_events) = crate::qspec_read_proof::observe_native_with_scope::<ScopeCounter>(
+        &input.bytes,
+        &input.evidence,
+        input.limits,
+        u64::MAX,
+        u64::MAX,
+        ReadViewScope::Core,
+    );
+    let CheckedPackageV2BudgetedReadResult::Admitted(package) = &core.result else {
+        panic!("genuine nominal control must admit");
+    };
+    let nodes = package.resolved_graph().nodes.len();
+    assert!(nodes > 0);
+    assert!(!core_events.is_empty());
+    assert_eq!(take_oracle_visits().lower_calls, 0);
+    let (full, full_events) = crate::qspec_read_proof::observe_native_with_scope::<ScopeCounter>(
+        &input.bytes,
+        &input.evidence,
+        input.limits,
+        u64::MAX,
+        u64::MAX,
+        ReadViewScope::Full,
+    );
+    assert_eq!(core.result, full.result);
+    assert_eq!(core.requested, full.requested);
+    assert_eq!(core.budget, full.budget);
+    assert_eq!(core_events, full_events);
+    let full_visits = take_oracle_visits();
+    assert_eq!(
+        full_visits.comparisons, 2,
+        "OFF/count and OFF/record full comparisons"
+    );
+    assert_eq!(full_visits.nodes, 2 * nodes);
+    assert_eq!(full_visits.lower_calls, 4 * nodes);
+}
+
+#[cfg(feature = "test-support")]
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[test]
+fn direct_full_native_proof_checks_admitted_views_without_a_mode_environment() {
+    use crate::qspec_read_proof::{equivalence::take_oracle_visits, Counter};
+    struct ScopeCounter;
+    impl Counter for ScopeCounter {
+        fn measure(read: impl FnOnce()) -> u64 {
+            crate::measure_qspec_read_requests(read)
+        }
+    }
+    let input = input("original nominal direct full proof", &v2_nominal());
+    let reference = crate::qspec_read_proof::measure_at::<ScopeCounter>(
+        &input.bytes,
+        &input.evidence,
+        input.limits,
+        u64::MAX,
+        u64::MAX,
+    );
+    let CheckedPackageV2BudgetedReadResult::Admitted(package) = &reference.result else {
+        panic!("genuine nominal control must admit");
+    };
+    let nodes = package.resolved_graph().nodes.len();
+    take_oracle_visits();
+    let (events, results, complete) = crate::qspec_read_proof::full_native_boundaries(
+        &input.bytes,
+        input.limits,
+        &input.evidence,
+        &reference,
+        &[],
+        None,
+    );
+    assert_eq!(complete["outcome"], "admitted");
+    assert_eq!(
+        complete["public_view_equivalence"],
+        "derived-views-and-per-node-lowering"
+    );
+    assert!(!events.is_empty());
+    assert!(!results.is_empty());
+    let visits = take_oracle_visits();
+    assert!(visits.comparisons > 0);
+    assert_eq!(visits.nodes, visits.comparisons * nodes);
+    assert_eq!(visits.lower_calls, 2 * visits.nodes);
+}

@@ -9,11 +9,15 @@
 mod native_budget_trace;
 #[cfg(feature = "test-support")]
 pub(crate) use native_budget_trace::checked as observe_native;
+#[cfg(feature = "test-support")]
+pub(crate) use native_budget_trace::checked_with_scope as observe_native_with_scope;
 #[path = "read_equivalence.rs"]
-mod equivalence;
+pub(crate) mod equivalence;
 #[path = "read_observation.rs"]
 pub(crate) mod observation;
-pub(crate) use equivalence::{assert_admitted_views_equal, assert_budgeted_results_equal};
+pub(crate) use equivalence::{
+    assert_admitted_views_equal, assert_budgeted_results_equal, ReadViewScope,
+};
 use observation::{accounted, drop_without_request};
 pub(crate) use observation::{measure_at, Counter, Observation};
 use quire_contract_model::{
@@ -280,10 +284,13 @@ fn observe(
     evidence: &CheckedPackageEvidence,
     work: u64,
     storage: u64,
+    views: ReadViewScope,
 ) -> Observation {
     #[cfg(feature = "test-support")]
     let (observation, _events) =
-        observe_native::<DriverCounter>(bytes, evidence, limits, work, storage);
+        observe_native_with_scope::<DriverCounter>(bytes, evidence, limits, work, storage, views);
+    #[cfg(not(feature = "test-support"))]
+    let _ = views;
     #[cfg(not(feature = "test-support"))]
     let observation = measure_at::<DriverCounter>(bytes, evidence, limits, work, storage);
     accounted("original driver read", &observation);
@@ -350,7 +357,7 @@ pub(crate) fn measure_seeded(
     }
 }
 
-fn same_observation(left: &Observation, right: &Observation) {
+fn same_observation(left: &Observation, right: &Observation, views: ReadViewScope) {
     if left.budget.work_limit() == right.budget.work_limit()
         && left.budget.read_storage_limit() == right.budget.read_storage_limit()
     {
@@ -370,7 +377,7 @@ fn same_observation(left: &Observation, right: &Observation) {
             "sufficient finite budgets differ only in their explicit configured bounds"
         );
     }
-    assert_budgeted_results_equal(
+    views.budgeted(
         &left.result,
         &right.result,
         "complete repeated budgeted outcome",
@@ -399,10 +406,15 @@ fn same_observation(left: &Observation, right: &Observation) {
     );
 }
 
-fn same_public_result(plain: &Plain, measured: &Observation, limits: CheckedPackageReadLimits) {
+fn same_public_result(
+    plain: &Plain,
+    measured: &Observation,
+    limits: CheckedPackageReadLimits,
+    views: ReadViewScope,
+) {
     match (plain, &measured.result) {
         (Plain::Admitted(a), Budgeted::Admitted(b)) => {
-            assert_admitted_views_equal(a, b, "original plain/measured admitted views")
+            views.admitted(a, b, "original plain/measured admitted views")
         }
         (Plain::Refused(a), Budgeted::Refused(b)) => assert_eq!(a, b),
         (Plain::Incomplete(a), Budgeted::Incomplete(b)) => assert_eq!(a, b),
@@ -433,7 +445,14 @@ fn full_storage_boundaries(
     let mut before = 0_u64;
     let mut boundaries = 0;
     while before < total {
-        let stopped = observe(bytes, limits, evidence, limits.work, before);
+        let stopped = observe(
+            bytes,
+            limits,
+            evidence,
+            limits.work,
+            before,
+            ReadViewScope::Full,
+        );
         let asked = stopped
             .budget
             .first_unpaid_read_storage()
@@ -453,11 +472,25 @@ fn full_storage_boundaries(
             next > before && next <= total,
             "actual reservation stays within reference total"
         );
-        let short = observe(bytes, limits, evidence, limits.work, next - 1);
+        let short = observe(
+            bytes,
+            limits,
+            evidence,
+            limits.work,
+            next - 1,
+            ReadViewScope::Full,
+        );
         assert_eq!(short.budget.first_unpaid_read_storage(), Some(asked));
         assert_eq!(short.budget.first_unpaid_locus(), Some(locus));
-        let repeated = observe(bytes, limits, evidence, limits.work, next - 1);
-        same_observation(&short, &repeated);
+        let repeated = observe(
+            bytes,
+            limits,
+            evidence,
+            limits.work,
+            next - 1,
+            ReadViewScope::Full,
+        );
+        same_observation(&short, &repeated, ReadViewScope::Full);
         for result in [stopped, short, repeated] {
             drop_without_request::<DriverCounter>(result);
         }
@@ -478,7 +511,14 @@ fn full_work_boundaries(
     let mut before = 0_u64;
     let mut boundaries = 0;
     while before < total {
-        let stopped = observe(bytes, limits, evidence, before, u64::MAX);
+        let stopped = observe(
+            bytes,
+            limits,
+            evidence,
+            before,
+            u64::MAX,
+            ReadViewScope::Full,
+        );
         let denied = stopped
             .budget
             .first_unpaid()
@@ -492,14 +532,28 @@ fn full_work_boundaries(
             .checked_add(u64::try_from(denied.amount).expect("bounded work charge"))
             .expect("bounded work total");
         assert!(next > before && next <= total);
-        let short = observe(bytes, limits, evidence, next - 1, u64::MAX);
+        let short = observe(
+            bytes,
+            limits,
+            evidence,
+            next - 1,
+            u64::MAX,
+            ReadViewScope::Full,
+        );
         assert_eq!(short.budget.first_unpaid(), Some(denied));
         assert_eq!(
             short.budget.first_unpaid_locus(),
             stopped.budget.first_unpaid_locus()
         );
-        let repeated = observe(bytes, limits, evidence, next - 1, u64::MAX);
-        same_observation(&short, &repeated);
+        let repeated = observe(
+            bytes,
+            limits,
+            evidence,
+            next - 1,
+            u64::MAX,
+            ReadViewScope::Full,
+        );
+        same_observation(&short, &repeated, ReadViewScope::Full);
         for result in [stopped, short, repeated] {
             drop_without_request::<DriverCounter>(result);
         }
@@ -638,8 +692,13 @@ pub(crate) fn full_native_boundaries(
         });
     let prior_work = unlimited_seed.consumed().work;
     let prior_read = unlimited_seed.read_storage_consumed();
-    let (complete, events) =
-        native_budget_trace::checked_seeded(bytes, evidence, limits, &unlimited_seed);
+    let (complete, events) = native_budget_trace::checked_seeded_with_scope(
+        bytes,
+        evidence,
+        limits,
+        &unlimited_seed,
+        ReadViewScope::Full,
+    );
     assert!(
         complete.budget.first_unpaid().is_none()
             && complete.budget.first_unpaid_read_storage().is_none(),
@@ -665,9 +724,14 @@ pub(crate) fn full_native_boundaries(
             "sufficient original context preserves full outcome",
         );
     }
-    let (repeated, repeated_events) =
-        native_budget_trace::checked_seeded(bytes, evidence, limits, &unlimited_seed);
-    same_observation(&complete, &repeated);
+    let (repeated, repeated_events) = native_budget_trace::checked_seeded_with_scope(
+        bytes,
+        evidence,
+        limits,
+        &unlimited_seed,
+        ReadViewScope::Full,
+    );
+    same_observation(&complete, &repeated, ReadViewScope::Full);
     assert_eq!(
         complete.budget, repeated.budget,
         "entire unlimited reference repeats"
@@ -682,8 +746,13 @@ pub(crate) fn full_native_boundaries(
     let exact_seed = unlimited_seed
         .read_proof_snapshot()
         .read_proof_rebound(work, storage, false);
-    let (exact, exact_events) =
-        native_budget_trace::checked_seeded(bytes, evidence, limits, &exact_seed);
+    let (exact, exact_events) = native_budget_trace::checked_seeded_with_scope(
+        bytes,
+        evidence,
+        limits,
+        &exact_seed,
+        ReadViewScope::Full,
+    );
     assert_budgeted_results_equal(
         &complete.result,
         &exact.result,
@@ -716,8 +785,13 @@ pub(crate) fn full_native_boundaries(
         unlimited_seed
             .read_proof_snapshot()
             .read_proof_rebound(above_work, above_storage, false);
-    let (above, above_events) =
-        native_budget_trace::checked_seeded(bytes, evidence, limits, &above_seed);
+    let (above, above_events) = native_budget_trace::checked_seeded_with_scope(
+        bytes,
+        evidence,
+        limits,
+        &above_seed,
+        ReadViewScope::Full,
+    );
     assert_budgeted_results_equal(
         &complete.result,
         &above.result,
@@ -737,7 +811,7 @@ pub(crate) fn full_native_boundaries(
         Budgeted::Refused(value) => Some(format!("{:?}", value.code)),
         _ => None,
     };
-    let complete_reference = serde_json::json!({"native_budget":"unlimited","outcome":budgeted_kind(&complete.result),
+    let complete_reference = serde_json::json!({"native_budget":"unlimited","public_view_equivalence":ReadViewScope::Full.label(),"outcome":budgeted_kind(&complete.result),
         "prior_work":prior_work,"prior_read_storage":prior_read,"work":work,"read_storage":storage,
         "requested":complete.requested,"logical_storage_delta":0,"exact_work_limit":work,"exact_read_storage_limit":storage,
         "exact_outcome_equal":true,"exact_counts_equal":true,"complete_repeat_equal":true,
@@ -802,7 +876,13 @@ pub(crate) fn full_native_boundaries(
                 .read_proof_snapshot()
                 .read_proof_rebound(work, storage, false);
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                native_budget_trace::checked_seeded(bytes, evidence, limits, &rebound)
+                native_budget_trace::checked_seeded_with_scope(
+                    bytes,
+                    evidence,
+                    limits,
+                    &rebound,
+                    ReadViewScope::Full,
+                )
             })) {
                 Ok(observation) => observation,
                 Err(failure) => {
@@ -841,7 +921,7 @@ pub(crate) fn full_native_boundaries(
         );
         let denial = assert_native_denial(&short, event, bound - 1, &short_events);
         let (repeated, repeated_events) = probe(bound - 1);
-        same_observation(&short, &repeated);
+        same_observation(&short, &repeated, ReadViewScope::Full);
         assert_eq!(
             short_events, repeated_events,
             "full passive denial trace repeats"
@@ -901,6 +981,7 @@ pub(crate) fn read_and_account(
             }),
         )
     });
+    let views = ReadViewScope::from_proof_mode(&mode);
     // The first public read is measured on a fresh worker. Only worker
     // startup/join is outside the caller's enclosing allocation measurement;
     // the worker's own thread-local allocator counter remains fully armed.
@@ -914,7 +995,7 @@ pub(crate) fn read_and_account(
                     test_name
                 ))
                 .spawn_scoped(scope, || {
-                    observe(bytes, limits, evidence, limits.work, u64::MAX)
+                    observe(bytes, limits, evidence, limits.work, u64::MAX, views)
                 })
                 .expect("start first measured driver worker")
                 .join()
@@ -969,7 +1050,8 @@ fn finish_proof(
         location,
         provider,
     } = context;
-    same_public_result(plain, &reference, limits);
+    let views = ReadViewScope::from_proof_mode(&mode);
+    same_public_result(plain, &reference, limits, views);
     let storage = reference.budget.read_storage_consumed();
     let work = if reference.budget.first_unpaid().is_some() {
         limits.work
@@ -981,12 +1063,12 @@ fn finish_proof(
         (limits.work, storage),
         (work, storage),
     ] {
-        let repeated = observe(bytes, limits, evidence, work, storage);
-        same_observation(&reference, &repeated);
+        let repeated = observe(bytes, limits, evidence, work, storage, views);
+        same_observation(&reference, &repeated, views);
         drop_without_request::<DriverCounter>(repeated);
     }
     if storage > 0 {
-        let short = observe(bytes, limits, evidence, limits.work, storage - 1);
+        let short = observe(bytes, limits, evidence, limits.work, storage - 1, views);
         if reference.budget.first_unpaid().is_none() {
             assert!(
                 short.budget.first_unpaid_read_storage().is_some(),
@@ -1004,19 +1086,19 @@ fn finish_proof(
             "the actual first unpaid charge retains its locus"
         );
         assert!(!matches!(short.result, Budgeted::Admitted(_)));
-        let repeated = observe(bytes, limits, evidence, limits.work, storage - 1);
-        same_observation(&short, &repeated);
+        let repeated = observe(bytes, limits, evidence, limits.work, storage - 1, views);
+        same_observation(&short, &repeated, views);
         drop_without_request::<DriverCounter>(short);
         drop_without_request::<DriverCounter>(repeated);
     }
     if work > 0 {
-        let short = observe(bytes, limits, evidence, work - 1, u64::MAX);
+        let short = observe(bytes, limits, evidence, work - 1, u64::MAX, views);
         assert!(
             short.budget.first_unpaid().is_some(),
             "one below the read's work requirement stops"
         );
-        let repeated = observe(bytes, limits, evidence, work - 1, u64::MAX);
-        same_observation(&short, &repeated);
+        let repeated = observe(bytes, limits, evidence, work - 1, u64::MAX, views);
+        same_observation(&short, &repeated, views);
         drop_without_request::<DriverCounter>(short);
         drop_without_request::<DriverCounter>(repeated);
     }
@@ -1069,7 +1151,7 @@ fn finish_proof(
             std::env::temp_dir().join(format!("ir1404-read-sites-{}.jsonl", std::process::id()))
         });
     let row = serde_json::json!({"driver":location.file(),"line":location.line(),"column":location.column(),
-        "test":test_name,"sequence":sequence,"mode":mode,"outcome":kind,
+        "test":test_name,"sequence":sequence,"mode":mode,"public_view_equivalence":views.label(),"outcome":kind,
         "input_bytes":bytes.len(),"work_limit":limits.work,"work":reference.budget.consumed().work,
         "read_storage":storage,"storage_boundaries":storage_boundaries,"work_boundaries":work_boundaries});
     let row = if let Some(provider) = provider {
@@ -1168,6 +1250,8 @@ pub(crate) fn read_budget_and_account(
         mode
     });
     #[cfg(feature = "test-support")]
+    let views = ReadViewScope::from_proof_mode(&mode);
+    #[cfg(feature = "test-support")]
     let seed = budget.read_proof_snapshot();
     #[cfg(feature = "test-support")]
     let reference = crate::without_qspec_instrumentation(|| {
@@ -1179,7 +1263,10 @@ pub(crate) fn read_budget_and_account(
                     location.line()
                 ))
                 .spawn_scoped(scope, || {
-                    native_budget_trace::checked_seeded(bytes, evidence, limits, &seed).0
+                    native_budget_trace::checked_seeded_with_scope(
+                        bytes, evidence, limits, &seed, views,
+                    )
+                    .0
                 })
                 .expect("start exact caller-state measured worker")
                 .join()
@@ -1225,9 +1312,10 @@ pub(crate) fn read_budget_and_account(
                             reference.requested, requested,
                             "original caller requests match exact-state replay"
                         );
-                        let (repeated, _events) =
-                            native_budget_trace::checked_seeded(bytes, evidence, limits, &seed);
-                        same_observation(&reference, &repeated);
+                        let (repeated, _events) = native_budget_trace::checked_seeded_with_scope(
+                            bytes, evidence, limits, &seed, views,
+                        );
+                        same_observation(&reference, &repeated, views);
                         assert_eq!(
                             reference.budget, repeated.budget,
                             "entire repeated caller state"
@@ -1290,6 +1378,7 @@ pub(crate) fn read_budget_and_account(
         let row = {
             let mut row = row;
             row["mode"] = mode.into();
+            row["public_view_equivalence"] = views.label().into();
             row["read_storage"] = requested.into();
             row["prior_read_storage"] = before.into();
             row["prior_logical_storage"] = logical_before.into();
