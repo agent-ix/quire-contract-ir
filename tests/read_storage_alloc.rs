@@ -109,7 +109,15 @@ fn generous_limits() -> CheckedPackageReadLimits {
 }
 
 fn accounted(label: &str, observation: &Observation) {
-    assert_eq!(observation.requested,observation.budget.read_storage_consumed(),"{label}: actual during-call allocation requests equal admitted read storage; outcome {:?}; first unpaid {:?}/{:?}",observation.result,observation.budget.first_unpaid_read_storage(),observation.budget.first_unpaid_locus());
+    let outcome = match &observation.result {
+        CheckedPackageV2BudgetedReadResult::Admitted(_) => "admitted",
+        CheckedPackageV2BudgetedReadResult::Refused(_) => "refused",
+        CheckedPackageV2BudgetedReadResult::Incomplete(_) => "incomplete",
+        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_) => "budget incomplete",
+        CheckedPackageV2BudgetedReadResult::Exhausted(_) => "exhausted",
+        CheckedPackageV2BudgetedReadResult::CatalogUnavailable(_) => "catalog unavailable",
+    };
+    assert_eq!(observation.requested,observation.budget.read_storage_consumed(),"{label}: actual during-call allocation requests equal admitted read storage; outcome {outcome}; first unpaid {:?}/{:?}",observation.budget.first_unpaid_read_storage(),observation.budget.first_unpaid_locus());
 }
 
 /// Destruction is measured separately from AC-511's during-call total. A
@@ -342,16 +350,31 @@ fn even_a_warm_catalogs_first_owned_request_is_denied_before_allocation() {
         let stopped = measure_read(&bytes, &evidence, generous_limits(), 0);
         assert_eq!(stopped.requested, 0);
         assert_eq!(stopped.budget.read_storage_consumed(), 0);
-        let CheckedPackageV2BudgetedReadResult::Exhausted(outcome) = &stopped.result else {
-            panic!("no affordable diagnostic: {:?}", stopped.result);
+        let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(outcome) = &stopped.result else {
+            panic!(
+                "zero-cost pointer-free denial is affordable: {:?}",
+                stopped.result
+            );
         };
         assert_eq!(
             outcome.denied.resource,
             quire_contract_model::PackageReadResource::ReadStorage
         );
         assert!(outcome.denied.amount > 0);
-        assert_eq!(outcome.configured_bound, 0);
-        assert_eq!(outcome.locus.form, "operation_catalog");
+        assert_eq!(outcome.limit, 0);
+        assert_eq!(
+            outcome.consumed,
+            u64::try_from(outcome.denied.amount).expect("catalog request")
+        );
+        assert!(outcome.path.is_none());
+        assert_eq!(
+            stopped
+                .budget
+                .first_unpaid_locus()
+                .expect("denial locus")
+                .form,
+            "operation_catalog"
+        );
         drop_without_request(stopped);
     }
 }

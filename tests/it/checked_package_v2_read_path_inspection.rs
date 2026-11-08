@@ -14,105 +14,8 @@ use ix_trace_rs::trace;
 use std::path::Path;
 use syn::visit::{self, Visit};
 
-/// The read path's source files under `checked_package/v2`: the staged readers
-/// of the stage table (wire decode, wire checks, node index, lock, model
-/// documents, graph validators, source map, extension, diagnostics, retained
-/// structures) and the budgeted entry and its charging helpers.
-const READ_PATH: &[&str] = &[
-    "abstraction.rs",
-    "claim_terminal.rs",
-    "budgeted_read.rs",
-    "read_charge.rs",
-    "graph_storage.rs",
-    "checked_json.rs",
-    "document_de.rs",
-    "term_view.rs",
-    "raw_body.rs",
-    "mod.rs",
-    "intake.rs",
-    "lossless.rs",
-    "flat_wire.rs",
-    "typed_terms.rs",
-    "execution_point.rs",
-    "frame.rs",
-    "guarantee_composition.rs",
-    "guarantee_terms.rs",
-    "hybrid.rs",
-    "lock_tables.rs",
-    "node_index.rs",
-    "identity.rs",
-    "closure_index.rs",
-    "operation_catalog.rs",
-    "operation_catalog_index.rs",
-    "node_lookup.rs",
-    "model_members.rs",
-    "model_members/charged.rs",
-    "model_members/derive.rs",
-    "model_members/document.rs",
-    "model_members/intake_origin.rs",
-    "model_members/option_types.rs",
-    "model_members/view.rs",
-    "model_fields.rs",
-    "model_enum_witness.rs",
-    "monitor_plan.rs",
-    "model_root.rs",
-    "native_join_budget.rs",
-    "native_join_storage.rs",
-    "selected_document.rs",
-    "dependency_references.rs",
-    "model_population_catalog.rs",
-    "structural.rs",
-    "operations.rs",
-    "operation_witness.rs",
-    "owner.rs",
-    "parameter_declaration.rs",
-    "temporal.rs",
-    "timed_model.rs",
-    "protocol_body.rs",
-    "protocol_locations.rs",
-    "natural.rs",
-    "refinement.rs",
-    "relationship_end.rs",
-    "rust_spelling.rs",
-    "scalar_operands.rs",
-    "schedulability.rs",
-    "selected_facts.rs",
-    "selection_equality.rs",
-    "temporal_binding.rs",
-    "temporal_clause_names.rs",
-    "term_json.rs",
-    "state.rs",
-    "step_relation.rs",
-    "extension.rs",
-    "extension_body.rs",
-    "source_map.rs",
-    "stage_storage.rs",
-    "operation_effects.rs",
-    "checked_term_data.rs",
-    "exact_projection.rs",
-];
-
-/// Validators called directly by `validate_graph`; keeping this set separate
-/// makes an omitted scanner entry fail even when the omitted file has no
-/// banned spelling in the current implementation.
-const GRAPH_VALIDATORS: &[&str] = &[
-    "abstraction.rs",
-    "claim_terminal.rs",
-    "execution_point.rs",
-    "frame.rs",
-    "guarantee_composition.rs",
-    "hybrid.rs",
-    "monitor_plan.rs",
-    "operations.rs",
-    "owner.rs",
-    "protocol_body.rs",
-    "refinement.rs",
-    "schedulability.rs",
-    "step_relation.rs",
-    "temporal.rs",
-    "temporal_binding.rs",
-    "temporal_clause_names.rs",
-];
+#[path = "read_path_graph.rs"]
+mod root_graph;
 
 /// The banned spellings of FR-038-AC-513.
 const BANNED: &[&str] = &[
@@ -149,6 +52,9 @@ fn test_only(attributes: &[syn::Attribute]) -> bool {
 #[derive(Default)]
 struct Inspection {
     found: Vec<String>,
+    aliases: std::collections::BTreeMap<String, String>,
+    globs: Vec<String>,
+    skip_nested_functions: bool,
 }
 
 impl Inspection {
@@ -163,19 +69,52 @@ impl Inspection {
             syn::UseTree::Path(path) => {
                 self.imports(&format!("{prefix}{}::", path.ident), &path.tree);
             }
-            syn::UseTree::Name(name) => self.check(&format!("{prefix}{}", name.ident)),
-            syn::UseTree::Rename(rename) => self.check(&format!("{prefix}{}", rename.ident)),
+            syn::UseTree::Name(name) => {
+                let path = format!("{prefix}{}", name.ident);
+                self.aliases.insert(name.ident.to_string(), path.clone());
+                self.check(&path);
+            }
+            syn::UseTree::Rename(rename) => {
+                let path = format!("{prefix}{}", rename.ident);
+                self.aliases.insert(rename.rename.to_string(), path.clone());
+                self.check(&path);
+            }
             syn::UseTree::Group(group) => {
                 for item in &group.items {
                     self.imports(prefix, item);
                 }
             }
-            syn::UseTree::Glob(_) => self.check(prefix),
+            syn::UseTree::Glob(_) => {
+                let prefix = prefix.trim_end_matches("::").to_owned();
+                if !self.globs.contains(&prefix) {
+                    self.globs.push(prefix);
+                }
+                self.check(prefix);
+            }
         }
     }
 }
 
 impl<'ast> Visit<'ast> for Inspection {
+    fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+        if !self.skip_nested_functions {
+            visit::visit_item_fn(self, item);
+        }
+    }
+    fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
+        if let syn::Expr::Path(path) = call.func.as_ref() {
+            if path
+                .qself
+                .as_ref()
+                .is_some_and(|q| matches!(q.ty.as_ref(), syn::Type::Slice(_) | syn::Type::Array(_)))
+            {
+                if let Some(method) = path.path.segments.last() {
+                    self.check(&format!(".{}(", method.ident));
+                }
+            }
+        }
+        visit::visit_expr_call(self, call);
+    }
     fn visit_item(&mut self, item: &'ast syn::Item) {
         let attributes: &[syn::Attribute] = match item {
             syn::Item::Const(item) => &item.attrs,
@@ -237,6 +176,17 @@ impl<'ast> Visit<'ast> for Inspection {
             .map(|segment| segment.ident.to_string())
             .collect::<Vec<_>>()
             .join("::");
+        let first = path
+            .segments
+            .first()
+            .map(|s| s.ident.to_string())
+            .unwrap_or_default();
+        if let Some(alias) = self.aliases.get(&first).cloned() {
+            self.check(&format!("{}{}", alias, &spelling[first.len()..]));
+        }
+        for prefix in self.globs.clone() {
+            self.check(&format!("{prefix}::{spelling}"));
+        }
         self.check(&spelling);
         visit::visit_path(self, path);
     }
@@ -271,6 +221,14 @@ fn banned_lines(file: &str, source: &str) -> Vec<String> {
     let syntax =
         syn::parse_file(source).unwrap_or_else(|error| panic!("read-path syntax {file}: {error}"));
     let mut inspection = Inspection::default();
+    for item in &syntax.items {
+        if let syn::Item::Use(item) = item {
+            if !test_only(&item.attrs) {
+                inspection.imports("", &item.tree);
+            }
+        }
+    }
+    inspection.found.clear();
     inspection.visit_file(&syntax);
     inspection
         .found
@@ -314,36 +272,130 @@ fn inspection_continues_after_test_only_items() {
     }
 }
 
-/// Every graph validator is inspected for AC-513, even before it acquires a
-/// banned spelling that would make the source scan fail.
-#[trace("TC-472", "FR-038-AC-513")]
-#[test]
-fn every_graph_validator_is_in_the_read_path_scan() {
-    for validator in GRAPH_VALIDATORS {
-        assert!(
-            READ_PATH.contains(validator),
-            "graph validator omitted from AC-513 scan: {validator}"
+fn inspect_reached(graph: &root_graph::Graph, roots: &[&str]) -> (Vec<String>, Vec<String>) {
+    let reached = graph.reached(roots);
+    let mut found = Vec::new();
+    for key in &reached.functions {
+        let Some(function) = graph.functions.get(key) else {
+            continue;
+        };
+        let mut inspection = Inspection {
+            skip_nested_functions: true,
+            ..Inspection::default()
+        };
+        if let Some(imports) = graph.imports.get(&function.module) {
+            for (name, path) in imports {
+                if name.starts_with('*') {
+                    inspection.globs.push(graph.resolve(&function.module, path));
+                } else {
+                    inspection
+                        .aliases
+                        .insert(name.clone(), graph.resolve(&function.module, path));
+                }
+            }
+        }
+        inspection.visit_signature(&function.signature);
+        inspection.visit_block(&function.body);
+        found.extend(
+            inspection
+                .found
+                .into_iter()
+                .map(|hit| format!("{key}: {hit}")),
         );
     }
+    (found, reached.unresolved.into_iter().collect())
 }
 
-/// The V2 read path contains no banned parser, tree, big-integer, stable sort
-/// or ordered/hashed container.
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn aliases_globs_reexports_and_slice_ufcs_do_not_hide_banned_calls() {
+    for source in [
+        "use serde_json as sj; fn read(){sj::from_slice::<()>(b\"{}\");}",
+        "use serde_json::*; fn read(){let _:Option<Value>=None;}",
+        "pub use serde_json::from_slice as decode; fn read(){decode::<()>(b\"{}\");}",
+        "fn read(){let mut rows=[1]; <[_]>::sort(&mut rows);}",
+    ] {
+        assert!(!banned_lines("fixture", source).is_empty(), "{source}");
+    }
+    assert!(banned_lines(
+        "negative",
+        r#"fn reader(){let text="serde_json::Value .sort("; let _=text;} // serde_json::from_str"#
+    )
+    .is_empty());
+}
+
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn a_new_reached_helper_after_cfg_test_is_discovered_without_a_file_list() {
+    let graph = root_graph::Graph::from_source(
+        r#"
+        fn read(){helper::decode();}
+        #[cfg(test)] mod tests{fn ignored(){let _:Option<serde_json::Value>=None;}}
+        mod helper { pub fn decode(){late();} fn late(){let _=serde_json::from_slice::<()>(b"{}");} }
+        fn v1_writer(){let _:Option<serde_json::Value>=None;}
+    "#,
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["read"]);
+    assert!(unresolved.is_empty(), "{unresolved:?}");
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert!(hits[0].starts_with("helper::late:"));
+}
+
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn unreachable_v1_and_postread_methods_are_not_attributed_to_the_reader() {
+    let graph = root_graph::Graph::from_source(
+        r#"
+        struct Reader;
+        impl Reader { fn read(){Self::checked();} fn checked(){} fn postread(){let _=std::collections::BTreeMap::<(),()>::new();} }
+        struct V1;
+        impl V1 { fn read(){let _=serde_json::from_slice::<()>(b"{}");} }
+    "#,
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["Reader::read"]);
+    assert!(hits.is_empty(), "{hits:?}");
+    assert!(unresolved.is_empty(), "{unresolved:?}");
+}
+
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn ambiguous_local_receiver_is_an_unresolved_proof_edge_not_a_guessed_call() {
+    let graph = root_graph::Graph::from_source(
+        r#"
+        fn read<T>(value:T){value.decode();}
+        struct V1;
+        impl V1 {fn decode(){let _:Option<serde_json::Value>=None;}}
+    "#,
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["read"]);
+    assert!(
+        hits.is_empty(),
+        "an unrelated same-named V1 method is not reached: {hits:?}"
+    );
+    assert_eq!(unresolved.len(), 1, "{unresolved:?}");
+    assert!(unresolved[0].contains(".decode"));
+}
+
+/// Only bodies reached from the real public entry are inspected. Unknown
+/// local receiver/generic dispatch remains a separate, failing proof gap.
 #[trace("TC-472", "FR-038-AC-513")]
 #[test]
 fn the_read_path_uses_no_banned_parser_container_or_sort() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("crates/quire-contract-model/src/checked_package/v2");
-    let mut found = Vec::new();
-    for file in READ_PATH {
-        let source = std::fs::read_to_string(root.join(file))
-            .unwrap_or_else(|error| panic!("read-path file {file}: {error}"));
-        found.extend(banned_lines(file, &source));
-    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("crates/quire-contract-model/src/lib.rs");
+    let graph = root_graph::Graph::from_crate(&root);
+    let (found, unresolved) = inspect_reached(
+        &graph,
+        &[
+            "checked_package::v2::CheckedPackageV2::read",
+            "checked_package::v2::CheckedPackageV2::read_with_budget",
+        ],
+    );
     assert!(
-        found.is_empty(),
-        "{} banned occurrences on the read path:\n{}",
+        found.is_empty() && unresolved.is_empty(),
+        "Proven forbidden constructs ({}):\n{}\nUnresolved static proof edges ({}):\n{}",
         found.len(),
-        found.join("\n")
+        found.join("\n"),
+        unresolved.len(),
+        unresolved.join("\n")
     );
 }
