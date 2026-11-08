@@ -207,6 +207,11 @@ fn canonical_key(id: &quire_contract_model::CheckedNodeId, out: &mut Vec<u8>) {
                 out.push(4);
                 canonical_key(node, out);
             }
+            Segment::Dependency { package, node } => {
+                out.push(5);
+                text(package, out);
+                out.extend(node.to_be_bytes());
+            }
         }
     }
     out.push(0);

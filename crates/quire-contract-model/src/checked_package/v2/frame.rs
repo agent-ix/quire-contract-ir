@@ -51,6 +51,7 @@ use super::{
     RelationForm, TermNode, WorkMeter,
 };
 use crate::checked_package::common::{Trail, ValidationFailure};
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 
@@ -127,15 +128,63 @@ pub(super) struct FrameBody {
 }
 
 impl FrameBody {
-    /// Copies the already validated frame into its public typed term, charging
-    /// every retained vector and owned value before requesting the allocation.
+    /// Retains the already validated frame as the public typed term. This
+    /// avoids a second generic JSON decode of nested structural node IDs.
+    pub(super) fn into_checked_term(
+        self,
+        meter: &mut WorkMeter,
+    ) -> Result<CheckedTerm, ValidationFailure> {
+        let mut modifies = meter.vec(self.modifies.len())?;
+        for entry in self.modifies {
+            meter.push(
+                &mut modifies,
+                match entry {
+                    ModifiesEntry::Relationship { declaration } => {
+                        CheckedFrameModification::Relationship { declaration }
+                    }
+                    ModifiesEntry::Field {
+                        declaration,
+                        name,
+                        scope,
+                    } => CheckedFrameModification::Field {
+                        declaration,
+                        name,
+                        scope: match scope {
+                            FieldScope::EveryObject => CheckedFieldScope::EveryObject,
+                            FieldScope::Receiver => CheckedFieldScope::Receiver,
+                        },
+                    },
+                },
+            )?;
+        }
+        let mut deletes_scoped = meter.vec(self.deletes_scoped.len())?;
+        for entry in self.deletes_scoped {
+            meter.push(
+                &mut deletes_scoped,
+                match entry {
+                    DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
+                    DeletesScopedEntry::Parameter { name } => {
+                        CheckedScopedDeletion::Parameter { name }
+                    }
+                },
+            )?;
+        }
+        Ok(CheckedTerm::Frame {
+            modifies,
+            creates: self.creates,
+            deletes: self.deletes,
+            deletes_scoped,
+        })
+    }
+
+    /// Copies the retained typed representation using the same caller meter.
     pub(super) fn checked_term(
         &self,
         meter: &mut WorkMeter,
     ) -> Result<CheckedTerm, ValidationFailure> {
         let mut modifies = meter.vec(self.modifies.len())?;
         for entry in &self.modifies {
-            let copied = match entry {
+            modifies.push(match entry {
                 ModifiesEntry::Relationship { declaration } => {
                     CheckedFrameModification::Relationship {
                         declaration: meter.clone_id(declaration)?,
@@ -145,41 +194,32 @@ impl FrameBody {
                     declaration,
                     name,
                     scope,
-                } => {
-                    let declaration = meter.clone_id(declaration)?;
-                    let copied_name = meter.boxed_str(name)?;
-                    CheckedFrameModification::Field {
-                        declaration,
-                        name: copied_name,
-                        scope: match scope {
-                            FieldScope::EveryObject => CheckedFieldScope::EveryObject,
-                            FieldScope::Receiver => CheckedFieldScope::Receiver,
-                        },
-                    }
-                }
-            };
-            meter.push(&mut modifies, copied)?;
-        }
-        let mut deletes_scoped = meter.vec(self.deletes_scoped.len())?;
-        for entry in &self.deletes_scoped {
-            let copied = match entry {
-                DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
-                DeletesScopedEntry::Parameter { name } => {
-                    let copied_name = meter.boxed_str(name)?;
-                    CheckedScopedDeletion::Parameter { name: copied_name }
-                }
-            };
-            meter.push(&mut deletes_scoped, copied)?;
+                } => CheckedFrameModification::Field {
+                    declaration: meter.clone_id(declaration)?,
+                    name: meter.boxed_str(name)?,
+                    scope: match scope {
+                        FieldScope::EveryObject => CheckedFieldScope::EveryObject,
+                        FieldScope::Receiver => CheckedFieldScope::Receiver,
+                    },
+                },
+            });
         }
         let mut creates = meter.vec(self.creates.len())?;
         for id in &self.creates {
-            let copied = meter.clone_id(id)?;
-            meter.push(&mut creates, copied)?;
+            creates.push(meter.clone_id(id)?);
         }
         let mut deletes = meter.vec(self.deletes.len())?;
         for id in &self.deletes {
-            let copied = meter.clone_id(id)?;
-            meter.push(&mut deletes, copied)?;
+            deletes.push(meter.clone_id(id)?);
+        }
+        let mut deletes_scoped = meter.vec(self.deletes_scoped.len())?;
+        for entry in &self.deletes_scoped {
+            deletes_scoped.push(match entry {
+                DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
+                DeletesScopedEntry::Parameter { name } => CheckedScopedDeletion::Parameter {
+                    name: meter.boxed_str(name)?,
+                },
+            });
         }
         Ok(CheckedTerm::Frame {
             modifies,
@@ -194,7 +234,7 @@ impl FrameBody {
 /// one unit for the body and one per entry.
 pub(super) fn read_frame_body(
     body: TermNode<'_>,
-    row: &[super::CheckedOperandEntry],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<(FrameBody, u64), ValidationFailure> {
@@ -276,7 +316,7 @@ fn reject_repeat<T: Ord>(entries: &[T], at: &Trail<'_>) -> Result<(), Validation
 /// One node key, located at the entry that holds it.
 fn read_node_key(
     value: TermNode<'_>,
-    row: &[super::CheckedOperandEntry],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<CheckedNodeId, ValidationFailure> {
@@ -290,7 +330,7 @@ fn read_node_key(
 
 fn read_node_keys(
     values: crate::checked_package::v2::TermItems<'_>,
-    row: &[super::CheckedOperandEntry],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
@@ -307,7 +347,7 @@ fn read_node_keys(
 // Decodes a modifies entry's `kind`.
 fn read_modifies_entry(
     entry: TermNode<'_>,
-    row: &[super::CheckedOperandEntry],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<ModifiesEntry, ValidationFailure> {
@@ -855,12 +895,17 @@ mod document_storage_tests {
                 let mut meter = WorkMeter::over(&mut budget);
                 meter.at_node(7, "state");
                 result = Some(
-                    read_frame_body(TermNode::of(&body), &[42], &mut meter, &Trail::Base(&[]))
-                        .and_then(|(frame, work)| {
-                            frame
-                                .checked_term(&mut meter)
-                                .map(|term| (frame, term, work))
-                        }),
+                    read_frame_body(
+                        TermNode::of(&body),
+                        &[crate::CheckedOperandEntry::Node(42)],
+                        &mut meter,
+                        &Trail::Base(&[]),
+                    )
+                    .and_then(|(frame, work)| {
+                        frame
+                            .checked_term(&mut meter)
+                            .map(|term| (frame, term, work))
+                    }),
                 );
             });
             (result.unwrap(), measured.bytes_total, budget)
@@ -875,7 +920,7 @@ mod document_storage_tests {
         assert_eq!(
             term,
             frame
-                .checked_term(&mut WorkMeter::new(u64::MAX))
+                .into_checked_term(&mut WorkMeter::new(u64::MAX))
                 .unwrap()
         );
         let required = budget.read_storage_consumed();
@@ -894,7 +939,7 @@ mod document_storage_tests {
         let body = document();
         let (frame, _) = read_frame_body(
             TermNode::of(&body),
-            &[42],
+            &[crate::CheckedOperandEntry::Node(42)],
             &mut WorkMeter::new(u64::MAX),
             &Trail::Base(&[]),
         )

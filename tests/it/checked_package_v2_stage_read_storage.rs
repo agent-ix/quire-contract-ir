@@ -6,15 +6,19 @@
 //! the caller's budget before it is made (TC-472).
 
 use crate::support::checked_package::{
-    canonical, evidence_for, node_id, nominal_fixture_members, nominal_package, v2_all_families,
+    canonical, domain_package_document, evidence_for, index_fixture_node_ids, node_id,
+    nominal_fixture_members, nominal_package, select_model, v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackagePendingOutcome, CheckedPackageReadLimits, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2BudgetedReadResult, NativeJoinBudget, NativeJoinLocusSource,
-    PackageReadResource, PackageReadStage,
+    with_native_budget_observer, CheckedPackageEvidence, CheckedPackagePendingOutcome,
+    CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2BudgetedReadResult, CheckedPackageV2ReadResult, NativeBudgetEvent,
+    NativeBudgetResource, NativeJoinBudget, NativeJoinLocusSource, PackageReadResource,
+    PackageReadStage,
 };
 use serde_json::{json, Value};
+use std::cell::RefCell;
 
 /// One heap request of the read, in the order it was made.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -141,6 +145,234 @@ fn check_stage(wire: &Value, stage: PackageReadStage, form: &str) {
         "{requests:?}"
     );
     assert_exact_and_one_short(&read, &requests);
+}
+
+struct ReadInput {
+    bytes: Vec<u8>,
+    evidence: CheckedPackageEvidence,
+}
+
+fn named_package(name: &str) -> Value {
+    let mut package = v2_all_families();
+    package["name"] = json!(name);
+    index_fixture_node_ids(&mut package);
+    package
+}
+
+fn direct_dependencies_input() -> ReadInput {
+    let mut package = named_package("allocation-root");
+    let mut evidence = evidence_for(&package);
+    let mut selections = Vec::new();
+    for index in 0..64 {
+        let identity = format!("allocation-dependency-{index:02}");
+        let dependency = named_package(&identity);
+        let admitted = CheckedPackageV2::read(
+            &canonical(&dependency),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(&dependency),
+        );
+        let CheckedPackageV2ReadResult::Admitted(admitted) = admitted else {
+            panic!("dependency fixture {identity} admits: {admitted:?}");
+        };
+        evidence
+            .insert_dependency_package(identity.clone(), admitted)
+            .expect("unique dependency evidence");
+        selections.push(json!({"identity": identity}));
+    }
+    package["lock"]["dependency_selections"] = json!(selections);
+    ReadInput {
+        bytes: canonical(&package),
+        evidence,
+    }
+}
+
+fn two_selected_models_input() -> ReadInput {
+    let mut package = v2_all_families();
+    package["name"] = json!("allocation-model-root");
+    package["semantic_graph"]["nodes"] = json!([]);
+    package["semantic_graph"]["operand_rows"] = json!([]);
+    package["source_map"] = json!([]);
+    let mut evidence = evidence_for(&package);
+    for identity in ["allocation/model-a", "allocation/model-b"] {
+        select_model(&mut package, identity);
+        let ty = json!({
+            "identity": format!("ix://{identity}/Large"), "displayName": "",
+            "kind": {"module": identity, "name": "entity"}, "roles": [],
+            "constraints": [], "extensions": [], "unknownPolicy": "reject",
+            "supertypes": [], "fields": [], "operations": []
+        });
+        let mut document = domain_package_document(identity, "1", vec![ty]);
+        document["constructs"] = json!([{
+            "kind": {"module": identity, "name": "entity"},
+            "construct": {"meaning": "quire.meaning.model.object-type/v1"}
+        }]);
+        let padding = (512 << 10) - canonical(&document).len();
+        document["types"][0]["displayName"] = json!("m".repeat(padding));
+        let bytes = canonical(&document);
+        assert_eq!(bytes.len(), 512 << 10);
+        evidence
+            .insert_domain_package_document(identity, bytes)
+            .expect("distinct model evidence");
+    }
+    index_fixture_node_ids(&mut package);
+    ReadInput {
+        bytes: canonical(&package),
+        evidence,
+    }
+}
+
+thread_local! {
+    static OBSERVED_READ_STORAGE: RefCell<Vec<NativeBudgetEvent>> = const { RefCell::new(Vec::new()) };
+}
+
+fn capture_read_storage(event: NativeBudgetEvent) {
+    if event.resource == NativeBudgetResource::ReadStorage && event.admitted {
+        OBSERVED_READ_STORAGE.with(|events| events.borrow_mut().push(event));
+    }
+}
+
+fn read_storage_requests(
+    bytes: &[u8],
+    evidence: &quire_contract_model::CheckedPackageEvidence,
+) -> Vec<Request> {
+    OBSERVED_READ_STORAGE.with(|events| events.borrow_mut().clear());
+    let mut budget = NativeJoinBudget::unlimited();
+    let result = with_native_budget_observer(capture_read_storage, || {
+        CheckedPackageV2::read_with_budget(
+            bytes,
+            CheckedPackageReadLimits::bounded(),
+            evidence,
+            &mut budget,
+        )
+    });
+    assert!(matches!(
+        result,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    OBSERVED_READ_STORAGE.with(|events| {
+        std::mem::take(&mut *events.borrow_mut())
+            .into_iter()
+            .map(|event| {
+                let locus = event.locus.expect("read-storage request has a locus");
+                let NativeJoinLocusSource::PackageRead(stage, index) = locus.source else {
+                    panic!("strict-reader storage requests use package-read loci");
+                };
+                Request {
+                    stage,
+                    index,
+                    form: locus.form,
+                    amount: event.amount,
+                    before: event.consumed_before,
+                }
+            })
+            .collect()
+    })
+}
+
+fn assert_one_byte_short_at_input(
+    bytes: &[u8],
+    evidence: &quire_contract_model::CheckedPackageEvidence,
+    request: &Request,
+) {
+    let amount = u64::try_from(request.amount).expect("read-storage request fits u64");
+    let limit = request.before + amount - 1;
+    let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+    let result = CheckedPackageV2::read_with_budget(
+        bytes,
+        CheckedPackageReadLimits::bounded(),
+        evidence,
+        &mut budget,
+    );
+    assert!(!matches!(
+        result,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    assert_eq!(
+        budget
+            .first_unpaid_locus()
+            .map(|locus| (locus.source, locus.form)),
+        Some((
+            NativeJoinLocusSource::PackageRead(request.stage, request.index),
+            request.form
+        ))
+    );
+    assert_eq!(budget.first_unpaid_read_storage(), Some(request.amount));
+}
+
+#[trace("TC-472", "FR-038-AC-503")]
+#[test]
+fn second_selected_model_denials_precede_admission_at_its_document_reservations() {
+    let input = two_selected_models_input();
+    let requests = read_storage_requests(&input.bytes, &input.evidence);
+    for form in ["model_document", "declarations"] {
+        let request = requests
+            .iter()
+            .find(|request| {
+                request.stage == PackageReadStage::ModelDocument
+                    && request.index == 1
+                    && request.form == form
+            })
+            .unwrap_or_else(|| panic!("second model has a {form} reservation"));
+        assert_one_byte_short_at_input(&input.bytes, &input.evidence, request);
+    }
+    let last = requests
+        .iter()
+        .filter(|request| {
+            request.stage == PackageReadStage::ModelDocument
+                && request.index == 1
+                && request.form == "model_document"
+        })
+        .max_by_key(|request| request.before + u64::try_from(request.amount).unwrap())
+        .expect("second selected model has a final document-reader reservation");
+    assert_one_byte_short_at_input(&input.bytes, &input.evidence, last);
+}
+
+#[trace("TC-472", "FR-038-AC-507")]
+#[test]
+fn retained_dependency_and_package_allocations_are_denied_before_admission() {
+    let input = direct_dependencies_input();
+    let requests = read_storage_requests(&input.bytes, &input.evidence);
+    let retained: Vec<_> = requests
+        .iter()
+        .filter(|request| {
+            request.stage == PackageReadStage::Retained
+                && matches!(
+                    request.form,
+                    "direct_dependencies"
+                        | "closure_index"
+                        | "semantic_graph"
+                        | "node_index"
+                        | "package"
+                        | "admission_binding"
+                        | "result"
+                )
+        })
+        .collect();
+    for form in [
+        "direct_dependencies",
+        "closure_index",
+        "semantic_graph",
+        "node_index",
+        "package",
+        "admission_binding",
+        "result",
+    ] {
+        assert!(
+            retained.iter().any(|request| request.form == form),
+            "{form}"
+        );
+    }
+    assert!(
+        retained
+            .iter()
+            .filter(|request| request.form == "package")
+            .count()
+            >= 7,
+        "each retained shared package Arc has its own charged allocation"
+    );
+    for request in retained {
+        assert_one_byte_short_at_input(&input.bytes, &input.evidence, request);
+    }
 }
 
 #[trace("TC-472", "FR-038-AC-505")]

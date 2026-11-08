@@ -43,14 +43,15 @@ and that every sufficient budget returns the unlimited budget's outcome.
    conformance packages this repository reads by reference, one refused input
    per refusal code, and the adverse shapes of FR-038-AC-511 generated in the
    test from the repository's public fixture builders. Select original tests
-   and read-bearing fixture closures from their actual trace attributes and
+   and read-bearing fixture closures in memory from their trace attributes and
    compiled test listing. Interpose at their real public read boundaries;
    retain original builders and semantic oracles. Do not equate a handpicked
    registry or every row of a referenced JSON file with the complete corpus.
    Compiler-observed reader-entry counts must account for every actual
    measured boundary, including aliases, function items and shared helpers;
    reject zero-test, omitted-test, ignored-test and unexplained-entry runs.
-   Log original test/callsite provenance and mode in temporary evidence.
+   Retain aggregate counts, mode and outcome only; do not serialize a
+   test/callsite inventory, provenance record or source/QSpec revision id.
 3. Read each input through `CheckedPackageV2::read_with_budget` under
    `NativeJoinBudget::unlimited()`, and through the unbudgeted
    `CheckedPackageV2::read` and `read_checked_package` at ample, exact and
