@@ -118,24 +118,22 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
         .expect("a denial is recorded");
     assert!(asked > 0);
     assert_eq!(short.first_unpaid(), None);
-    // The decode's strings and sequences are the last requests the read makes.
-    assert!(matches!(
+    // The capability table is the last request the read makes.
+    assert_eq!(
         short.first_unpaid_locus(),
-        Some(NativeJoinLocus {
-            source: NativeJoinLocusSource::PackageRead(PackageReadStage::WireDecode, _),
-            ..
-        })
-    ));
+        Some(envelope_locus(
+            PackageReadStage::Capabilities,
+            "capability_report"
+        ))
+    );
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
-    // The denied value's pointer is an owned diagnostic the exhausted budget
-    // cannot pay for, so the outcome is the fixed-size one.
-    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = result else {
-        panic!("one byte short cannot pay for the decode's pointer: {result:?}");
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {
+        panic!("a denial whose pointer is affordable is incomplete: {result:?}");
     };
-    assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(exhausted.denied.amount, asked);
-    assert_eq!(exhausted.configured_bound, required - 1);
+    assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
+    assert_eq!(incomplete.denied.amount, asked);
+    assert_eq!(incomplete.limit, required - 1);
     assert!(short.read_storage_consumed() < required);
 }
 

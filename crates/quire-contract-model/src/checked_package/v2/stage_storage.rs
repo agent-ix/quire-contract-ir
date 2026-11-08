@@ -21,7 +21,7 @@ use super::native_join_budget::{
     PackageReadStage,
 };
 use super::{WorkMeter, WorkSource};
-use crate::checked_package::common::{Step, ValidationFailure};
+use crate::checked_package::common::{Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
     push_index, push_key, CheckedNodeId, CheckedNodePathSegment, CheckedPackageIncomplete,
     CheckedPackageLimit, CheckedPackageRefusal, CheckedPackageRefusalCause,
@@ -71,17 +71,9 @@ impl<'a> Path<'a> {
 
     /// The exact byte length of the pointer to this position.
     pub(super) fn pointer_len(&self) -> usize {
-        self.steps().iter().fold(0_usize, |total, step| {
-            total.saturating_add(match step {
-                Step::Key(key) => key.chars().fold(1_usize, |length, character| {
-                    length.saturating_add(match character {
-                        '~' | '/' => 2,
-                        other => other.len_utf8(),
-                    })
-                }),
-                Step::Index(index) => 1 + decimal_digits(*index),
-            })
-        })
+        self.steps()
+            .iter()
+            .fold(0_usize, |total, step| total.saturating_add(step_len(step)))
     }
 
     /// The pointer, in a block of exactly its length. The caller has charged
@@ -109,6 +101,142 @@ fn decimal_digits(mut value: usize) -> usize {
     digits
 }
 
+/// The byte length of one step's reference token, its `/` included.
+fn step_len(step: &Step<'_>) -> usize {
+    match step {
+        Step::Key(key) => key.chars().fold(1_usize, |length, character| {
+            length.saturating_add(match character {
+                '~' | '/' => 2,
+                other => other.len_utf8(),
+            })
+        }),
+        Step::Index(index) => 1 + decimal_digits(*index),
+    }
+}
+
+/// Writes `step`'s token into `buffer`, which is exactly [`step_len`] bytes.
+fn write_step(step: &Step<'_>, buffer: &mut [u8]) {
+    let Some((slash, rest)) = buffer.split_first_mut() else {
+        return;
+    };
+    *slash = b'/';
+    match step {
+        Step::Key(key) => {
+            let mut at = 0;
+            for character in key.chars() {
+                let mut encoded = [0_u8; 4];
+                let bytes: &[u8] = match character {
+                    '~' => b"~0",
+                    '/' => b"~1",
+                    other => other.encode_utf8(&mut encoded).as_bytes(),
+                };
+                if let Some(slot) = rest.get_mut(at..at + bytes.len()) {
+                    slot.copy_from_slice(bytes);
+                }
+                at += bytes.len();
+            }
+        }
+        Step::Index(index) => {
+            let mut value = *index;
+            for slot in rest.iter_mut().rev() {
+                *slot = b'0' + (value % 10) as u8;
+                value /= 10;
+            }
+        }
+    }
+}
+
+/// The exact byte length of the pointer to `trail`, counted along its chain
+/// without allocating.
+fn trail_pointer_len(trail: &Trail<'_>) -> usize {
+    let mut total = 0_usize;
+    let mut current = trail;
+    loop {
+        match current {
+            Trail::Base(steps) => {
+                return steps
+                    .iter()
+                    .fold(total, |sum, step| sum.saturating_add(step_len(step)));
+            }
+            Trail::Child(parent, step) => {
+                total = total.saturating_add(step_len(step));
+                current = parent;
+            }
+        }
+    }
+}
+
+/// The pointer to `trail` in one block of exactly [`trail_pointer_len`] bytes.
+/// The block is filled from its end, the chain being read leaf first.
+fn build_trail_pointer(trail: &Trail<'_>) -> JsonPointer {
+    let length = trail_pointer_len(trail);
+    let mut bytes = vec![0_u8; length];
+    let mut end = length;
+    let mut current = trail;
+    loop {
+        match current {
+            Trail::Base(steps) => {
+                for step in steps.iter().rev() {
+                    let token = step_len(step);
+                    end = end.saturating_sub(token);
+                    if let Some(block) = bytes.get_mut(end..end + token) {
+                        write_step(step, block);
+                    }
+                }
+                break;
+            }
+            Trail::Child(parent, step) => {
+                let token = step_len(step);
+                end = end.saturating_sub(token);
+                if let Some(block) = bytes.get_mut(end..end + token) {
+                    write_step(step, block);
+                }
+                current = parent;
+            }
+        }
+    }
+    JsonPointer::from_escaped(String::from_utf8(bytes).unwrap_or_default())
+}
+
+/// A position a charge or a refusal names: a fixed path, or a chain of borrowed
+/// steps of any depth.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Position<'a> {
+    Path(Path<'a>),
+    Trail(Trail<'a>),
+}
+
+impl<'a> From<Path<'a>> for Position<'a> {
+    fn from(path: Path<'a>) -> Self {
+        Self::Path(path)
+    }
+}
+
+impl<'a> From<Trail<'a>> for Position<'a> {
+    fn from(trail: Trail<'a>) -> Self {
+        Self::Trail(trail)
+    }
+}
+
+impl Position<'_> {
+    /// The exact byte length of the pointer to this position.
+    pub(super) fn pointer_len(&self) -> usize {
+        match self {
+            Self::Path(path) => path.pointer_len(),
+            Self::Trail(trail) => trail_pointer_len(trail),
+        }
+    }
+
+    /// The pointer, in a block of exactly its length. The caller has charged
+    /// [`Self::pointer_len`] first.
+    pub(super) fn build(&self) -> JsonPointer {
+        match self {
+            Self::Path(path) => path.build(),
+            Self::Trail(trail) => build_trail_pointer(trail),
+        }
+    }
+}
+
 /// Where a stage's next request is charged: its locus and the position of the
 /// value being read, which a denied request reports.
 #[derive(Clone, Copy, Debug)]
@@ -116,7 +244,7 @@ pub(super) struct Site<'a> {
     pub(super) stage: PackageReadStage,
     pub(super) index: usize,
     pub(super) form: &'static str,
-    pub(super) at: Path<'a>,
+    pub(super) at: Position<'a>,
 }
 
 impl<'a> Site<'a> {
@@ -124,13 +252,13 @@ impl<'a> Site<'a> {
         stage: PackageReadStage,
         index: usize,
         form: &'static str,
-        at: Path<'a>,
+        at: impl Into<Position<'a>>,
     ) -> Self {
         Self {
             stage,
             index,
             form,
-            at,
+            at: at.into(),
         }
     }
 
@@ -166,6 +294,15 @@ fn denied(
         resource,
         amount,
         path,
+    })
+}
+
+/// The failure of a request of `bytes` that the allocator could not provide.
+pub(super) fn unavailable(bytes: usize) -> ValidationFailure {
+    ValidationFailure::Budget(BudgetStop {
+        resource: PackageReadResource::ReadStorage,
+        amount: bytes as u128,
+        path: None,
     })
 }
 
@@ -308,17 +445,17 @@ pub(super) fn node_id_clone_bytes(id: &CheckedNodeId) -> usize {
 pub(super) struct Refusal<'a> {
     pub(super) code: CheckedPackageRefusalCode,
     pub(super) cause: Option<CheckedPackageRefusalCause>,
-    pub(super) path: Path<'a>,
+    pub(super) path: Position<'a>,
     /// The node a refusal is located at; its clone is part of the diagnostic.
     pub(super) locus: Option<&'a CheckedNodeId>,
 }
 
 impl<'a> Refusal<'a> {
-    pub(super) fn new(code: CheckedPackageRefusalCode, path: Path<'a>) -> Self {
+    pub(super) fn new(code: CheckedPackageRefusalCode, path: impl Into<Position<'a>>) -> Self {
         Self {
             code,
             cause: None,
-            path,
+            path: path.into(),
             locus: None,
         }
     }

@@ -81,6 +81,7 @@ mod structural;
 mod temporal;
 mod temporal_binding;
 mod temporal_clause_names;
+mod term_json;
 mod timed_model;
 mod typed_terms;
 mod vocabulary;
@@ -4167,7 +4168,6 @@ fn validate_diagnostics(
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         let entry_at = entries.index(entry_index);
         for (detail_index, detail) in entry.details.iter().enumerate() {
-            let detail = &detail.to_value();
             let detail_steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),
@@ -4176,27 +4176,27 @@ fn validate_diagnostics(
                 Step::Index(detail_index),
             ];
             let detail_at = Trail::Base(&detail_steps);
-            let mut unresolved = None;
-            let work = validate_term(
-                detail,
-                TermGrammar::V2,
+            let detail_site = site(entry_index, entry_at.key("details").index(detail_index));
+            let checked = term_json::validate_term_json(
+                detail.node(),
                 false,
                 &detail_at,
-                &mut |target, _site, target_at| {
-                    if unresolved.is_none() && nodes.binary_search(&target).is_err() {
-                        unresolved = Some(target_at.pointer());
-                    }
-                },
-            )?;
-            stage_storage::work(
                 meter,
-                &site(entry_index, entry_at.key("details").index(detail_index)),
-                work,
+                &detail_site,
+                &mut |target, _site| nodes.binary_search(&target).is_err(),
             )?;
-            if let Some(path) = unresolved {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    path,
+            stage_storage::work(meter, &detail_site, checked.work)?;
+            if let Some(steps) = checked.remembered {
+                let position = Trail::Base(&steps);
+                return Err(stage_storage::refuse(
+                    meter,
+                    &Site::new(
+                        PackageReadStage::Diagnostics,
+                        entry_index,
+                        "diagnostics.entries",
+                        position,
+                    ),
+                    Refusal::new(CheckedPackageRefusalCode::InvalidSemanticGraph, position),
                 ));
             }
         }

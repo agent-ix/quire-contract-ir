@@ -190,11 +190,19 @@ fn with_diagnostic() -> Value {
 #[trace("TC-472", "FR-038-AC-506")]
 #[test]
 fn diagnostic_node_table_is_charged_at_the_diagnostic_entries() {
-    check_stage(
-        &with_diagnostic(),
-        PackageReadStage::Diagnostics,
-        "diagnostics.entries",
+    let read = reader(&with_diagnostic());
+    let requests = stage_requests(&read, PackageReadStage::Diagnostics);
+    assert!(
+        requests
+            .iter()
+            .all(|request| matches!(request.form, "diagnostics.entries" | "walk")),
+        "{requests:?}"
     );
+    assert!(
+        requests.iter().any(|request| request.form == "walk"),
+        "the detail's term walk is charged at the diagnostics stage: {requests:?}"
+    );
+    assert_exact_and_one_short(&read, &requests);
 }
 
 fn effect_row(operation: &str) -> Value {
@@ -333,6 +341,64 @@ fn stage_refusal_diagnostic_is_charged_and_exhausts_when_denied() {
         (exhausted.locus.source, exhausted.locus.form),
         (
             NativeJoinLocusSource::PackageRead(PackageReadStage::SourceMap, 3),
+            "diagnostic"
+        )
+    );
+}
+
+/// A diagnostic detail naming a node the graph does not hold refuses at the
+/// nested target; its pointer is a charged diagnostic, and denying that charge
+/// exhausts the read at the diagnostics stage (FR-038-AC-506, AC-510).
+#[trace("TC-472", "FR-038-AC-506")]
+#[test]
+fn unresolved_detail_target_refusal_is_charged_at_the_diagnostic_entry() {
+    let mut wire = v2_all_families();
+    let mut missing = wire["semantic_graph"]["nodes"][0]["node_id"].clone();
+    missing["ordinal"] = json!(987_654);
+    let source = wire["lock"]["sources"][0].clone();
+    wire["diagnostics"]["entries"] = json!([{
+        "stage": "package_read", "code": "invalid_package", "cause_tag": "invalid-value",
+        "details": [{"term": "aggregate", "members": [{"term": "reference", "target": missing}]}],
+        "loci": [{"source": source, "start": 0, "end": 1}]
+    }]);
+    let read = reader(&wire);
+    let mut unlimited = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+    let CheckedPackageV2BudgetedReadResult::Refused(refusal) = read(&mut unlimited) else {
+        panic!("an unresolved detail target refuses");
+    };
+    assert_eq!(
+        refusal.code,
+        CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert_eq!(
+        refusal
+            .loci
+            .first()
+            .and_then(|locus| locus.path.as_ref())
+            .map(|path| path.as_str()),
+        Some("/diagnostics/entries/0/details/0/members/0/target")
+    );
+    let total = unlimited.read_storage_consumed();
+
+    let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(total);
+    assert!(matches!(
+        read(&mut exact),
+        CheckedPackageV2BudgetedReadResult::Refused(_)
+    ));
+    let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(total - 1);
+    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = read(&mut short) else {
+        panic!("a refusal diagnostic one byte short is exhausted");
+    };
+    assert_eq!(
+        exhausted.pending,
+        Some(CheckedPackagePendingOutcome::Refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        ))
+    );
+    assert_eq!(
+        (exhausted.locus.source, exhausted.locus.form),
+        (
+            NativeJoinLocusSource::PackageRead(PackageReadStage::Diagnostics, 0),
             "diagnostic"
         )
     );
