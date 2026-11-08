@@ -179,14 +179,19 @@ fn original_protocol_term_tree_prepays_each_reserved_walk_growth() {
     // root frame plus thirteen children (fourteen). The first binding then
     // needs fifteen elements, so that list doubles to twenty-eight.
     // These are source-bound capacity patterns, not fabricated instance IDs.
-    let wide_patterns = growths.windows(6).filter(|sequence| {
-        sequence[1].1.amount.checked_mul(2) == Some(sequence[2].1.amount)
-            && sequence[2].1.amount.checked_mul(2) == Some(sequence[3].1.amount)
-            && sequence[0].1.amount.checked_mul(14) == sequence[4].1.amount.checked_mul(4)
-            && sequence[4].1.amount.checked_mul(2) == Some(sequence[5].1.amount)
-    }).count();
-    assert!(wide_patterns > 0,
-        "actual full-capacity requests must match pending 4/8/16 and task 4/14/28 growth");
+    let wide_patterns = growths
+        .windows(6)
+        .filter(|sequence| {
+            sequence[1].1.amount.checked_mul(2) == Some(sequence[2].1.amount)
+                && sequence[2].1.amount.checked_mul(2) == Some(sequence[3].1.amount)
+                && sequence[0].1.amount.checked_mul(14) == sequence[4].1.amount.checked_mul(4)
+                && sequence[4].1.amount.checked_mul(2) == Some(sequence[5].1.amount)
+        })
+        .count();
+    assert!(
+        wide_patterns > 0,
+        "actual full-capacity requests must match pending 4/8/16 and task 4/14/28 growth"
+    );
     eprintln!("Source-bound wide-enter capacity patterns: {wide_patterns}; no list/invocation IDs are present in the events");
     eprintln!("One existing all-families provider; protocol node {protocol}; thirteen typed children; {} actual growth requests. Per-walk attribution is source-bound, not invocation-tagged.", growths.len());
     for (index, event) in &growths {
