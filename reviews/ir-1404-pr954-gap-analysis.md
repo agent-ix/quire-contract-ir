@@ -38,3 +38,10 @@ Coverage gaps on stage-1 code: the shared-reader grammar is now the production e
 - FR-358-AC-13/14, examined: tagged through the budgeted_read tests.
 - FR-354-AC-13, examined: the converted D10 test. Independent check: resolving the converted d10-package.json operand slots through its `operand_rows` gives back origin/main's emitted index-form fixture exactly (34 nodes, value equality).
 - Pre-existing, not this batch: origin/main has two documents with `id: TC-472` (TC-472-inherited-operation-dispatch.md and TC-472-strict-v2-read-exact-budget-charging.md).
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | 37a92011 adds `the_shared_reader_orders_first_faults_on_the_v2_envelope`, tagged FR-038-AC-509, on the V2 envelope. It checks invalid UTF-8 after a repeated member, a repeat then truncation, a repeat closed before a later fault (`duplicate_member` at /x/a), and a grammar fault before `noncanonical_wire`. |
+| FND-002 | fixed | tests.md now splits stage group 1 (AC-495..498, 508, 509, 510, 515: Implemented) from the later stages (Planned), and adds rows for AC-520..523 and AC-524..529. |

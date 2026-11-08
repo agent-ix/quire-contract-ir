@@ -446,7 +446,7 @@ fn an_unaffordable_refusal_diagnostic_is_exhausted_with_the_pending_refusal() {
     assert_eq!(
         exhausted.locus,
         NativeJoinLocus {
-            source: NativeJoinLocusSource::Package,
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::WireDecode, 0),
             form: "diagnostic"
         }
     );

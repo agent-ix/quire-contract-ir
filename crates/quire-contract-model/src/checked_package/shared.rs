@@ -1397,7 +1397,7 @@ mod structural_node_identity_tests {
         }
     }
 
-    #[trace("TC-472", "FR-038-AC-516")]
+    #[trace("TC-472", "FR-358-AC-13")]
     #[test]
     fn checked_node_id_encoding_is_charged_through_the_writer_reservation() {
         let inner = CheckedNodeId {

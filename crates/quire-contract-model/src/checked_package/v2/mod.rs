@@ -1394,6 +1394,7 @@ impl CheckedPackageV2 {
         // The document the shared reader built is the grammar and canonical
         // proof of the bytes; the typed decode below still reads the bytes.
         drop(budgeted_read::read_envelope(bytes, limits, budget)?);
+        budgeted_read::at_stage(budget, PackageReadStage::WireDecode, "wire_decode");
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
             Some(Value::String(version))
                 if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {

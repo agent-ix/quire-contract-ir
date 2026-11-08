@@ -33,3 +33,9 @@ Pass with one low ambiguity in FR-350-AC-8.
 - FR-350 `max_bytes` fixed point (prose, AC-8, TC-461 step 11), examined: FND-001.
 - FR-038-AC-519..529, examined: unique IDs, TC-048 relationships and headings updated, matrix binds each.
 - FR-019 `checked_package` row, examined: lists `CatalogReadError`, `initialize_operation_catalog` and the budgeted entries.
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-350 prose, AC-8 and TC-461 step 11 now state `value: record_len(s - 1)`, equal to `s` only when `s - 1` and `s` have the same number of digits. |

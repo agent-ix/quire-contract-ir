@@ -302,8 +302,16 @@ fn charge_outcome_diagnostic(
     pending: CheckedPackagePendingOutcome,
     budget: &mut NativeJoinBudget,
 ) -> Option<CheckedPackageV2BudgetedReadResult> {
+    // The diagnostic is charged at the stage the read stopped in.
+    let source = match budget.active_locus() {
+        Some(NativeJoinLocus {
+            source: source @ NativeJoinLocusSource::PackageRead(..),
+            ..
+        }) => source,
+        _ => NativeJoinLocusSource::PackageRead(PackageReadStage::WireDecode, 0),
+    };
     let locus = NativeJoinLocus {
-        source: NativeJoinLocusSource::Package,
+        source,
         form: DIAGNOSTIC_FORM,
     };
     budget.set_active_locus(Some(locus));
