@@ -161,13 +161,13 @@ pub(super) struct Fault {
 /// The original row and actual caller meter used by every owned projection.
 pub(super) struct Parse<'a, 'b> {
     pub(super) meter: std::cell::RefCell<&'a mut WorkMeter<'b>>,
-    pub(super) row: &'a [u64],
+    pub(super) row: &'a [super::CheckedOperandEntry],
     pub(super) position: usize,
     denied: std::cell::RefCell<Option<ValidationFailure>>,
     shape: std::cell::RefCell<Option<(CheckedPackageRefusalCode, Path<'static>)>>,
 }
 impl<'a, 'b> Parse<'a, 'b> {
-    pub(super) fn new(meter: &'a mut WorkMeter<'b>, row: &'a [u64], position: usize) -> Self {
+    pub(super) fn new(meter: &'a mut WorkMeter<'b>, row: &'a [super::CheckedOperandEntry], position: usize) -> Self {
         Self {
             meter: std::cell::RefCell::new(meter),
             row,

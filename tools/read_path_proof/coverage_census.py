@@ -85,8 +85,8 @@ def tally(export, root):
                 file, source_name = key
                 files = function.get("filenames", [])
                 matching = [i for i, filename in enumerate(files)
-                            if Path(filename).as_posix().endswith("/" + file)
-                            or Path(filename).as_posix() == file]
+                            if (Path(filename) if Path(filename).is_absolute() else root / filename).resolve()
+                            == (root / file).resolve()]
                 if not matching or not symbol_mentions(name, source_name):
                     continue
                 # Region file ids are compiler supplied. Require this exact

@@ -187,6 +187,28 @@ def discover_tests(args, binary, env):
 
 
 
+def select_original_tests(compiled, selectors, controls=False, class_controls=False):
+    """Exact original symbols only; selection never creates full-corpus evidence."""
+    if selectors and (controls or class_controls):
+        raise RunError("--original-test cannot mix with entry or class controls")
+    if not compiled or len(set(compiled)) != len(compiled):
+        raise RunError("empty or duplicate compiled original-driver test inventory")
+    if not selectors:
+        return list(compiled)
+    if len(set(selectors)) != len(selectors):
+        raise RunError("duplicate --original-test selectors")
+    unknown = set(selectors) - set(compiled)
+    if unknown:
+        raise RunError(f"unknown exact original-test selectors: {sorted(unknown)}")
+    return [name for name in compiled if name in set(selectors)]
+
+
+def selection_metadata(args):
+    selected = bool(getattr(args, "original_test", []))
+    return {"scope": "selected-only original tests" if selected else "declared original corpus",
+            "full_corpus": not selected and not getattr(args,"controls",False) and not getattr(args,"class_controls",False)}
+
+
 def select_tc048(args, compiled):
     # Structural claims choose original test symbols, never JSON files/rows.
     # Intersect with actual compiled tests fail-closed: missing/ambiguous names
@@ -313,7 +335,7 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
               "timeout_seconds": timeout, "timed_out": timed_out,
               "native_started":native_start is not None,
               "lock_wait_seconds":(native_start-start) if native_start is not None else None,
-              "source_head": config["source_head"]}
+              "source_head": config["source_head"], **selection_metadata(args)}
     write_json(output / "test-report.json", report)
     errors = list(parse_errors)
     if timed_out:
@@ -375,7 +397,7 @@ def run_original_corpus(args, binary, config, env, intended):
               "failed_tests": [name for item in reports for name in item["failed_tests"]],
               "ignored_tests": [name for item in reports for name in item["ignored_tests"]],
               "exit_code": int(any(item["exit_code"] or item["evidence_errors"] for item in reports)),
-              "test_threads": 1, "per_test_processes": reports, "source_head": config["source_head"]}
+              "test_threads": 1, "per_test_processes": reports, "source_head": config["source_head"], **selection_metadata(args)}
     write_json(args.out / "test-report.json", report)
     with (args.out / "driver-sites.jsonl").open("w") as log:
         for record in records:
@@ -384,7 +406,9 @@ def run_original_corpus(args, binary, config, env, intended):
         raise RunError("all intended original tests attempted; failures/evidence errors retained in per-test reports")
     evidence = merge_export(args, args.out, profiles, binary, env)
     result = census.check_run(evidence, args.repo, report, records, args.mode)
-    result["scope"]=("executed original TC-048 integration tests only" if args.corpus == "tc048"
+    result.update(selection_metadata(args))
+    result["scope"]=("selected-only original tests" if getattr(args, "original_test", []) else
+                     "executed original TC-048 integration tests only" if args.corpus == "tc048"
                      else "executed original QSpec driver tests only")
     write_json(args.out / "census.json", result)
     archive_export(args.out)
@@ -511,6 +535,7 @@ def main():
     parser.add_argument("--toolchain-bin", type=Path, required=True)
     parser.add_argument("--llvm-bin", type=Path, required=True)
     parser.add_argument("--mode", choices=["sample", "full"], default="sample")
+    parser.add_argument("--original-test", action="append", default=[], help="repeatable exact compiled original test symbol; selected-only evidence")
     parser.add_argument("--controls", action="store_true")
     parser.add_argument("--class-controls",action="store_true")
     parser.add_argument("--reuse-class-kernel",type=Path)
@@ -520,6 +545,8 @@ def main():
     parser.add_argument("--test-timeout-seconds", type=float,
                         help="per original process; sample defaults to120s, full requires an adequate explicit value")
     args = parser.parse_args()
+    if args.original_test and (args.controls or args.class_controls):
+        parser.error("--original-test cannot mix with entry or class controls")
     if args.test_timeout_seconds is None:
         if args.mode == "full":
             parser.error("full mode requires an explicit adequate --test-timeout-seconds")
@@ -561,23 +588,28 @@ def main():
         env["PATH"] = str(args.toolchain_bin) + os.pathsep + env["PATH"]
         config = {"source_head": git(args.repo, "rev-parse", "HEAD"), "rustc": rustc, "llvm": llvm,
                   "mode": args.mode, "controls": args.controls, "class_controls":args.class_controls, "corpus": args.corpus, "features": args.features,
-                  "test_timeout_seconds":args.test_timeout_seconds,
+                  "test_timeout_seconds":args.test_timeout_seconds, "original_tests":args.original_test,
+                  **selection_metadata(args),
                   "qspec": {"path": str(args.qspec_dir), "head": git(args.qspec_dir, "rev-parse", "HEAD")},
                   "environment": safe_environment(env)}
         target = ("read_storage_alloc" if args.class_controls else "read_entry_census_controls" if args.controls else
                   "it" if args.corpus == "tc048" else "conformance_qspec")
         binary = build(args, target, env, config)
         intended = discover_tests(args, binary, env)
+        config["compiled_test_inventory"] = intended
         if not args.controls and args.corpus == "tc048":
             intended = select_tc048(args, intended)
+        intended = select_original_tests(intended, args.original_test, args.controls, args.class_controls)
+        config["intended_tests"] = intended
+        write_json(args.out / "config.json", config)
         results = (run_class_controls(args,binary,config,env,intended) if args.class_controls else
                    run_controls(args, binary, config, env, intended) if args.controls
                    else run_original_corpus(args, binary, config, env, intended))
-        write_json(args.out / "result.json", {"passed": True, "results": results,
-                   "normative_boundary_proof": args.mode == "full" and not args.controls and not args.class_controls,
+        write_json(args.out / "result.json", {"passed": True, "results": results, **selection_metadata(args),
+                   "normative_boundary_proof": args.mode == "full" and not args.controls and not args.class_controls and not args.original_test,
                    "static_ac513_proven": False})
     except (RunError, census.CensusError, OSError, ValueError, subprocess.CalledProcessError) as error:
-        write_json(args.out / "result.json", {"passed": False, "error": str(error)})
+        write_json(args.out / "result.json", {"passed": False, "error": str(error), **selection_metadata(args)})
         raise SystemExit(str(error)) from error
 
 

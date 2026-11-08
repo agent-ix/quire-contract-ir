@@ -847,9 +847,12 @@ fn rational(
     {
         return Err(site.premise(at, meter));
     }
-    if !super::schedulability::rational_parts_are_canonical(numerator, denominator, meter, &|| {
-        at.build()
-    })? {
+    if !super::schedulability::rational_parts_are_canonical(
+        numerator,
+        denominator,
+        meter,
+        StorageSite::new(PackageReadStage::Graph, site.position, "temporal", at),
+    )? {
         return Err(site.premise(at, meter));
     }
     Ok(CheckedRational {

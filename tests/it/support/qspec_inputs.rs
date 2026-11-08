@@ -435,3 +435,41 @@ pub(crate) fn flat_body_control_passes(actual: &CheckedPackageV2ReadResult) -> b
         _ => true,
     }
 }
+
+/// The original dependency-call driver's patch grammar. In particular, an
+/// authored object addition must not silently replace an existing member.
+pub(crate) fn apply_dependency_call_patch(package: &mut Value, patch: &Value) {
+    let path = patch["path"].as_str().expect("published patch path");
+    let (parent, member) = path.rsplit_once('/').expect("patch member");
+    let target = package.pointer_mut(parent).expect("published patch parent");
+    match (patch["op"].as_str().expect("published operation"), target) {
+        ("replace", Value::Object(map)) => {
+            *map.get_mut(member).expect("replaced member") = patch["value"].clone();
+        }
+        ("replace", Value::Array(items)) => {
+            items[member.parse::<usize>().expect("array index")] = patch["value"].clone();
+        }
+        ("add", Value::Object(map)) => {
+            assert!(map
+                .insert(member.to_owned(), patch["value"].clone())
+                .is_none());
+        }
+        (operation, _) => panic!("unsupported published patch {operation}: {path}"),
+    }
+}
+
+/// The original unsupplied-dependency control retains only declared features;
+/// it intentionally does not use the general evidence builder that supplies
+/// the published predicate library.
+pub(crate) fn dependency_call_evidence_without_dependency(
+    package: &Value,
+) -> CheckedPackageEvidence {
+    let mut evidence = CheckedPackageEvidence::new();
+    for feature in package["lock"]["required_features"]
+        .as_array()
+        .expect("required features")
+    {
+        evidence.support_feature(feature.as_str().expect("feature"));
+    }
+    evidence
+}

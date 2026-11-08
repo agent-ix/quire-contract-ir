@@ -552,7 +552,7 @@ fn member<'d>(body: TermNode<'d>, name: &str) -> Option<TermNode<'d>> {
 /// the node holding the body.
 fn application_targets(
     body: TermNode<'_>,
-    row: &[u64],
+    row: &[super::CheckedOperandEntry],
     budget: &mut NativeJoinBudget,
     site: Site,
     mut visit: impl FnMut(

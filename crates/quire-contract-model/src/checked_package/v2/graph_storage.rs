@@ -100,7 +100,7 @@ impl<'b> WorkMeter<'b> {
 
     /// The body of graph node `position` in the retained document, with the
     /// node's operand row. Reading it allocates nothing.
-    pub(super) fn body(&self, position: usize) -> Option<(TermNode<'b>, &'b [u64])> {
+    pub(super) fn body(&self, position: usize) -> Option<(TermNode<'b>, &'b [super::CheckedOperandEntry])> {
         let table = self.bodies?;
         let handle = table.handles.get(position)?;
         let row = table.rows.get(position).map_or(&[][..], Vec::as_slice);
@@ -145,7 +145,7 @@ impl<'b> WorkMeter<'b> {
     pub(super) fn read_id(
         &mut self,
         term: TermNode<'_>,
-        row: &[u64],
+        row: &[super::CheckedOperandEntry],
     ) -> Result<NodeIdRead, ValidationFailure> {
         let site = Site::new(PackageReadStage::Graph, 0, "node_id");
         let mut sink = MeterSink {
@@ -164,7 +164,7 @@ impl<'b> WorkMeter<'b> {
 /// handles outside that read.
 pub(super) struct OwnedBodies {
     handles: Vec<CheckedJson>,
-    rows: Vec<Vec<u64>>,
+    rows: Vec<Vec<super::CheckedOperandEntry>>,
 }
 
 impl OwnedBodies {
@@ -179,7 +179,10 @@ impl OwnedBodies {
 
     /// Bodies written as `values`, node `n` having operand row `rows[n]`.
     #[cfg(test)]
-    pub(super) fn of_values(values: &[serde_json::Value], rows: Vec<Vec<u64>>) -> Self {
+    pub(super) fn of_values(
+        values: &[serde_json::Value],
+        rows: Vec<Vec<super::CheckedOperandEntry>>,
+    ) -> Self {
         let handles = values
             .iter()
             .map(|value| CheckedJson::from_serializable(value).expect("a canonical body"))

@@ -117,15 +117,16 @@ where
 
 /// The graph's operand rows: an exact vector of exact rows, so neither level
 /// grows by doubling.
-pub(in crate::checked_package) fn exact_rows<'de, D>(
+pub(in crate::checked_package) fn exact_rows<'de, D, T>(
     deserializer: D,
-) -> Result<Vec<Vec<u64>>, D::Error>
+) -> Result<Vec<Vec<T>>, D::Error>
 where
     D: de::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
 {
-    struct RowSeed;
-    impl<'de> de::DeserializeSeed<'de> for RowSeed {
-        type Value = Vec<u64>;
+    struct RowSeed<T>(std::marker::PhantomData<T>);
+    impl<'de, T: serde::Deserialize<'de>> de::DeserializeSeed<'de> for RowSeed<T> {
+        type Value = Vec<T>;
         fn deserialize<D: de::Deserializer<'de>>(
             self,
             deserializer: D,
@@ -133,15 +134,17 @@ where
             exact_vec(deserializer)
         }
     }
-    struct Rows;
-    impl<'de> Visitor<'de> for Rows {
-        type Value = Vec<Vec<u64>>;
+    struct Rows<T>(std::marker::PhantomData<T>);
+    impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for Rows<T> {
+        type Value = Vec<Vec<T>>;
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             formatter.write_str("operand rows")
         }
         fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
             let mut rows = Vec::with_capacity(sequence.size_hint().unwrap_or(0));
-            while let Some(row) = sequence.next_element_seed(RowSeed)? {
+            while let Some(row) = sequence
+                .next_element_seed(RowSeed(std::marker::PhantomData))?
+            {
                 rows.push(row);
             }
             Ok(rows)
@@ -153,8 +156,8 @@ where
             inner.deserialize_seq(self)
         }
     }
-    ELEMENT_BYTES.with(|bytes| bytes.set(std::mem::size_of::<Vec<u64>>()));
-    deserializer.deserialize_newtype_struct(SEQUENCE_TOKEN, Rows)
+    ELEMENT_BYTES.with(|bytes| bytes.set(std::mem::size_of::<Vec<T>>()));
+    deserializer.deserialize_newtype_struct(SEQUENCE_TOKEN, Rows(std::marker::PhantomData))
 }
 
 /// [`exact_vec`] for an optional member: absent stays `None`.
@@ -269,7 +272,7 @@ pub(in crate::checked_package) struct DecodeContext<'d> {
     /// The operand row of the node whose body is decoded: an operand slot
     /// `{"operand": k}` in a node ID's path reads as `{"node": row[k]}`, the
     /// form the reader's resolved wire gives it.
-    operand_row: Option<&'d [u64]>,
+    operand_row: Option<&'d [super::CheckedOperandEntry]>,
 }
 
 impl<'d> DecodeContext<'d> {
@@ -293,7 +296,10 @@ impl<'d> DecodeContext<'d> {
     }
 
     /// Reads operand slots through `row` (see the field).
-    pub(in crate::checked_package) fn with_operand_row(mut self, row: &'d [u64]) -> Self {
+    pub(in crate::checked_package) fn with_operand_row(
+        mut self,
+        row: &'d [super::CheckedOperandEntry],
+    ) -> Self {
         self.operand_row = Some(row);
         self
     }
@@ -625,10 +631,7 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
                             _ => None,
                         };
                         if let Some(&entry) = entry {
-                            return visitor.visit_map(ResolvedSlot {
-                                entry: Some(entry),
-                                keyed: false,
-                            });
+                            return visitor.visit_map(ResolvedSlot { entry, position: 0 });
                         }
                     }
                 }
@@ -978,36 +981,52 @@ struct Mapping<'c, 'd> {
     name: &'d str,
 }
 
-/// An operand slot `{"operand": k}` read as `{"node": row[k]}`.
-struct ResolvedSlot {
-    entry: Option<u64>,
-    keyed: bool,
+/// An operand slot read as its typed node or selected-dependency path segment.
+struct ResolvedSlot<'de> {
+    entry: &'de super::CheckedOperandEntry,
+    position: usize,
 }
 
-impl<'de> MapAccess<'de> for ResolvedSlot {
+impl<'de> MapAccess<'de> for ResolvedSlot<'de> {
     type Error = Error;
 
     fn next_key_seed<K: DeserializeSeed<'de>>(
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, Error> {
-        if self.keyed || self.entry.is_none() {
-            return Ok(None);
-        }
-        self.keyed = true;
-        seed.deserialize(KeyDe { name: "node" }).map(Some)
+        let name = match (self.entry, self.position) {
+            (super::CheckedOperandEntry::Node(_), 0)
+            | (super::CheckedOperandEntry::Dependency(_), 0) => "node",
+            (super::CheckedOperandEntry::Dependency(_), 1) => "package",
+            _ => return Ok(None),
+        };
+        seed.deserialize(KeyDe { name }).map(Some)
     }
 
     fn next_value_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<T::Value, Error> {
-        let entry = self
-            .entry
-            .take()
-            .ok_or_else(|| de::Error::custom("a value without a member name"))?;
-        seed.deserialize(entry.into_deserializer())
+        let value = match (self.entry, self.position) {
+            (super::CheckedOperandEntry::Node(node), 0)
+            | (super::CheckedOperandEntry::Dependency(super::CheckedDependencyOperand { node, .. }), 0) => {
+                seed.deserialize((*node).into_deserializer())?
+            }
+            (
+                super::CheckedOperandEntry::Dependency(super::CheckedDependencyOperand {
+                    package,
+                    ..
+                }),
+                1,
+            ) => seed.deserialize(package.as_ref().into_deserializer())?,
+            _ => return Err(de::Error::custom("a value without a member name")),
+        };
+        self.position += 1;
+        Ok(value)
     }
 
     fn size_hint(&self) -> Option<usize> {
-        Some(1)
+        Some(match self.entry {
+            super::CheckedOperandEntry::Node(_) => 1_usize.saturating_sub(self.position),
+            super::CheckedOperandEntry::Dependency(_) => 2_usize.saturating_sub(self.position),
+        })
     }
 }
 

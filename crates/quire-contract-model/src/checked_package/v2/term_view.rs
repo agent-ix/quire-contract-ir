@@ -22,7 +22,7 @@ use super::read_charge::{Denied, ReadStorage, Site};
 use super::typed_terms::TermConversionCause;
 use super::{
     ApplicationOperator, BodyTerm, CheckedNodeId, CheckedNodePathSegment,
-    CheckedOperationAnchorBody, CheckedTerm, LiteralKind,
+    CheckedOperandEntry, CheckedOperationAnchorBody, CheckedTerm, LiteralKind,
 };
 use crate::checked_package::common::{TermField, TermTag, ValidationFailure};
 use crate::identity::ExecutionPoint;
@@ -306,7 +306,7 @@ impl<'d> TermNode<'d> {
         self,
         sink: &mut S,
         site: Site,
-        row: &[u64],
+        row: &[CheckedOperandEntry],
     ) -> Result<NodeIdRead, Denied> {
         const MAXIMUM: u64 = 9_007_199_254_740_991;
         if !self.exact_members(&["package", "path", "ordinal"]) {
@@ -324,6 +324,9 @@ impl<'d> TermNode<'d> {
             let valid = match segment.segment_form() {
                 Some(SegmentForm::Name(_)) => true,
                 Some(SegmentForm::Node(index) | SegmentForm::Operand(index)) => index <= MAXIMUM,
+                Some(SegmentForm::Dependency(package, node)) => {
+                    !package.is_empty() && node <= MAXIMUM
+                }
                 None => false,
             };
             if !valid {
@@ -346,12 +349,29 @@ impl<'d> TermNode<'d> {
                     CheckedNodePathSegment::Name(name.into())
                 }
                 Some(SegmentForm::Node(index)) => CheckedNodePathSegment::Index(index),
-                Some(SegmentForm::Operand(slot)) => usize::try_from(slot)
+                Some(SegmentForm::Operand(slot)) => match usize::try_from(slot)
                     .ok()
                     .and_then(|slot| row.get(slot))
-                    .map_or(CheckedNodePathSegment::Operand(slot), |&entry| {
-                        CheckedNodePathSegment::Index(entry)
-                    }),
+                {
+                    Some(CheckedOperandEntry::Node(index)) => {
+                        CheckedNodePathSegment::Index(*index)
+                    }
+                    Some(CheckedOperandEntry::Dependency(operand)) => {
+                        sink.reserve(operand.package.len() as u128, site)?;
+                        CheckedNodePathSegment::Dependency {
+                            package: operand.package.clone(),
+                            node: operand.node,
+                        }
+                    }
+                    None => CheckedNodePathSegment::Operand(slot),
+                },
+                Some(SegmentForm::Dependency(package, node)) => {
+                    sink.reserve(package.len() as u128, site)?;
+                    CheckedNodePathSegment::Dependency {
+                        package: package.into(),
+                        node,
+                    }
+                }
                 None => return Ok(NodeIdRead::Malformed),
             });
         }
@@ -390,7 +410,7 @@ impl<'d> TermNode<'d> {
         document: &'d Arc<Document>,
         budget: &mut NativeJoinBudget,
         site: Site,
-        row: &'d [u64],
+        row: &'d [CheckedOperandEntry],
     ) -> Result<Result<CheckedTerm, TermConversionCause>, ValidationFailure> {
         let context = DecodeContext::at_locus(document, budget, site.locus()).with_operand_row(row);
         let decoded = decode_term(&context, document, self);
@@ -410,7 +430,7 @@ impl<'d> TermNode<'d> {
         document: &'d Arc<Document>,
         budget: &mut NativeJoinBudget,
         site: Site,
-        row: &'d [u64],
+        row: &'d [CheckedOperandEntry],
     ) -> Result<Result<CheckedTerm, TermConversionCause>, ValidationFailure> {
         let Some(TermView::Aggregate { mut members }) = self.view() else {
             return self.decode_in(document, budget, site, row);
@@ -500,6 +520,12 @@ impl<'d> TermNode<'d> {
     fn segment_form(self) -> Option<SegmentForm<'d>> {
         if let Some(name) = self.as_str() {
             return Some(SegmentForm::Name(name));
+        }
+        if self.exact_members(&["package", "node"]) {
+            return Some(SegmentForm::Dependency(
+                self.get("package")?.as_str()?,
+                self.get("node")?.as_u64()?,
+            ));
         }
         let mut members = self.members()?;
         let ((name, value), None) = (members.next()?, members.next()) else {
@@ -1156,6 +1182,7 @@ enum SegmentForm<'d> {
     Name(&'d str),
     Node(u64),
     Operand(u64),
+    Dependency(&'d str, u64),
 }
 
 /// The elements of an array term, as terms.

@@ -64,6 +64,31 @@ fn positive(label: impl Into<String>, wire: Value) -> Case {
     case(label, wire, evidence, Expected::Admitted)
 }
 
+/// The same wire and evidence preparation used by the original wide-bound
+/// native control. No additional normalization or replacement recipe.
+fn wide_bounded_quantity_case() -> Case {
+    let (wire, _, _, _) = crate::checked_package_v2_map_type::nested_bounded_quantity_wire();
+    Case {
+        label: "native/map_type/nested_bounded_quantity_wire".into(),
+        bytes: canonical(&wire),
+        evidence: evidence_for(&wire),
+        expected: Expected::Admitted,
+    }
+}
+
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[test]
+fn original_wide_bounded_quantity_provider_has_exact_core_accounting() {
+    let input = wide_bounded_quantity_case();
+    proof::assert_read::<IntegrationCounter>(
+        &input.label,
+        &input.bytes,
+        &input.evidence,
+        input.expected,
+    );
+    eprintln!("Original wide bounded-quantity builder: admitted; exact core accounting; no all-family FR-038-AC-516 or source-site census claim");
+}
+
 /// Reuses the exact builder dispatch of the existing catalogue admission
 /// test, including its model-document controls. No copied wire builders.
 fn positive_cases() -> Vec<Case> {
@@ -75,6 +100,50 @@ fn positive_cases() -> Vec<Case> {
             positive_operation_identities(),
         ),
     ];
+    // These are the original native builders used by the corresponding
+    // semantic tests, including their settled graph and model selections.
+    // Construct outside the counter, then run the same public read oracle.
+    let (wire, _, _, _) = crate::checked_package_v2_protocol_body::decision_fact_fixture();
+    cases.push(positive("native/protocol_body/decision_fact_fixture", wire));
+    let (wire, _, _) = crate::checked_package_v2_protocol_body::package_with_send();
+    cases.push(positive("native/protocol_body/package_with_send", wire));
+    let (wire, _, _) =
+        crate::checked_package_v2_protocol_body::package_with_admitted_compensation();
+    cases.push(positive(
+        "native/protocol_body/package_with_admitted_compensation",
+        wire,
+    ));
+    let (wire, _, _) = crate::checked_package_v2_protocol_body::package_with_present_commit();
+    cases.push(positive(
+        "native/protocol_body/package_with_present_commit",
+        wire,
+    ));
+    let (wire, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
+    cases.push(positive("native/frame_entries/state_operand_fixture", wire));
+    let (wire, _) = crate::checked_package_v2_operand_families::quantity_sum_control();
+    cases.push(positive(
+        "native/operand_families/quantity_sum_control",
+        wire,
+    ));
+    let (wire, _) = crate::checked_package_v2_operand_families::carried_sum_control();
+    cases.push(positive(
+        "native/operand_families/carried_sum_control",
+        wire,
+    ));
+    cases.push(positive(
+        "native/checked_package/admitted_protocol_families",
+        crate::support::checked_package::admitted_protocol_families(),
+    ));
+    let (wire, document, _) = crate::support::checked_package::protocol_ports::role_port_fixture();
+    let evidence =
+        crate::support::checked_package::evidence_with_document(&wire, "test/families", &document);
+    cases.push(case(
+        "native/protocol_ports/role_port_fixture",
+        wire,
+        evidence,
+        Expected::Admitted,
+    ));
+    cases.push(wide_bounded_quantity_case());
     let catalog: Value = serde_json::from_str(
         quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
     )
@@ -105,6 +174,171 @@ fn positive_cases() -> Vec<Case> {
         }
     }
     cases
+}
+
+struct DependencyCallCase {
+    input: Case,
+    mutation: Option<Value>,
+}
+
+/// Reuses the dependency-call driver's original patch and unsupplied-evidence
+/// helpers. The raw importer base is never resolved before its wire patches.
+fn dependency_call_cases() -> (Vec<DependencyCallCase>, BTreeSet<String>) {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("QUIRE_SPECIFICATION_DIR").expect("selected QSpec checkout"),
+    );
+    let proposal = root.join("proposals/checked-package-v2");
+    let fixtures = proposal.join("fixtures");
+    let document = proposal.join(qspec_inputs::DOMAIN_DOCUMENT);
+    let vectors = qspec_inputs::read_json(&proposal.join("dependency-call-vectors.json"))
+        .expect("published dependency-call vectors");
+    assert_eq!(vectors["base"], "fixtures/positive-dependency-call.json");
+    assert_eq!(
+        vectors["library"]["package"],
+        "fixtures/positive-dependency-library.json"
+    );
+    let base = qspec_inputs::read_json_wire(&fixtures.join("positive-dependency-call.json"))
+        .expect("original raw importer base");
+    let mut cases = Vec::new();
+    let mut providers = BTreeSet::new();
+    for name in [
+        "positive-dependency-call.json",
+        "positive-dependency-library.json",
+    ] {
+        let wire = if name == "positive-dependency-call.json" {
+            base.clone()
+        } else {
+            qspec_inputs::read_json(&fixtures.join(name)).expect("original library input")
+        };
+        let evidence = qspec_inputs::evidence_for_published(
+            &wire,
+            "checked package",
+            &document,
+            true,
+            None,
+            &fixtures,
+        )
+        .expect("original read_package evidence");
+        cases.push(DependencyCallCase {
+            input: Case {
+                label: format!("QSpec/dependency-call/{name}"),
+                bytes: canonical(&wire),
+                evidence,
+                expected: Expected::Admitted,
+            },
+            mutation: None,
+        });
+        providers.insert(format!(
+            "conformance_qspec/dependency_call.rs: fixtures/{name}"
+        ));
+    }
+    let mutations = vectors["mutations"]
+        .as_array()
+        .expect("published dependency mutations");
+    assert_eq!(
+        mutations.len(),
+        11,
+        "original complete dependency-call family"
+    );
+    for row in mutations {
+        let id = row["id"].as_str().expect("mutation id");
+        let mut wire = base.clone();
+        for patch in row["patch"].as_array().expect("original patch list") {
+            qspec_inputs::apply_dependency_call_patch(&mut wire, patch);
+        }
+        let evidence = if row["supplied"] == false {
+            qspec_inputs::dependency_call_evidence_without_dependency(&wire)
+        } else {
+            qspec_inputs::evidence_for_published(
+                &wire,
+                "checked package",
+                &document,
+                true,
+                None,
+                &fixtures,
+            )
+            .expect("original supplied dependency evidence")
+        };
+        let outcome = row["outcome"].as_str().expect("published outcome");
+        let code = outcome
+            .strip_prefix("refused:")
+            .expect("published refusal")
+            .split('/')
+            .next()
+            .expect("refusal code");
+        cases.push(DependencyCallCase {
+            input: Case {
+                label: format!("QSpec/dependency-call/{id}"),
+                bytes: canonical(&wire),
+                evidence,
+                expected: Expected::Refused(
+                    serde_json::from_value(json!(code)).expect("published refusal code"),
+                ),
+            },
+            mutation: Some(row.clone()),
+        });
+        providers.insert(format!(
+            "conformance_qspec/dependency_call.rs: dependency-call-vectors.json#/mutations#{id}"
+        ));
+    }
+    (cases, providers)
+}
+
+/// The existing driver's complete code/cause/primary-locus assertions are
+/// checked before these inputs may be credited to the allocation registry.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn dependency_call_providers_preserve_original_outcomes_and_loci() {
+    initialize_operation_catalog().expect("catalog gate");
+    let (cases, _) = dependency_call_cases();
+    let (mut admitted, mut refused) = (0, 0);
+    for case in cases {
+        let actual = CheckedPackageV2::read(
+            &case.input.bytes,
+            quire_contract_model::CheckedPackageReadLimits::bounded(),
+            &case.input.evidence,
+        );
+        if let Some(row) = case.mutation {
+            let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
+                panic!(
+                    "{}: original mutation must refuse: {actual:?}",
+                    case.input.label
+                );
+            };
+            let code = serde_json::to_value(refusal.code).expect("code wire word");
+            let expected = match refusal.cause {
+                Some(cause) => format!(
+                    "refused:{}/{}",
+                    code.as_str().expect("code"),
+                    serde_json::to_value(cause)
+                        .expect("cause wire word")
+                        .as_str()
+                        .expect("cause")
+                ),
+                None => format!("refused:{}", code.as_str().expect("code")),
+            };
+            assert_eq!(
+                expected, row["outcome"],
+                "{}: code and cause",
+                case.input.label
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(ToString::to_string),
+                row["locus"].as_str().map(str::to_owned),
+                "{}: primary locus",
+                case.input.label
+            );
+            refused += 1;
+        } else {
+            assert!(
+                matches!(actual, CheckedPackageV2ReadResult::Admitted(_)),
+                "{}: original direct input must admit: {actual:?}",
+                case.input.label
+            );
+            admitted += 1;
+        }
+    }
+    eprintln!("Dependency-call family: direct admitted {admitted}; published mutations refused {refused}; unresolved 0; original-source-site census join pending");
 }
 
 fn normalized_reference(reference: &str) -> &str {
@@ -175,7 +409,19 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
     );
     for row in population_rows {
         if row["operation"] == "published" {
-            providers.insert(format!("it/checked_package_v2_owners.rs: fixtures/adverse.json#/population_reference_cases#{}",row["id"].as_str().expect("published case id")));
+            let id = row["id"].as_str().expect("published case id");
+            assert_eq!(row["outcome"], "admitted", "published population control");
+            cases.push(Case {
+                label: format!("QSpec/population/{id}"),
+                bytes: canonical(&package),
+                evidence: crate::support::checked_package::evidence_with_document(
+                    &package,
+                    "acme/orders",
+                    &document,
+                ),
+                expected: Expected::Admitted,
+            });
+            providers.insert(format!("it/checked_package_v2_owners.rs: fixtures/adverse.json#/population_reference_cases#{id}"));
             continue;
         }
         providers.insert(format!(
@@ -644,6 +890,9 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
             expected,
         });
     }
+    let (dependency_inputs, dependency_providers) = dependency_call_cases();
+    cases.extend(dependency_inputs.into_iter().map(|case| case.input));
+    providers.extend(dependency_providers);
     (cases, providers)
 }
 
@@ -863,6 +1112,7 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
     initialize_operation_catalog().expect("catalog gate");
     let mut seen = BTreeSet::new();
     let mut problems = Vec::new();
+    let mut native_providers = Vec::new();
     let (mut admitted, mut refused, mut stage_contracts) = (0, 0, 0);
     let mut positives = positive_cases();
     let (published, _) = qspec_cases();
@@ -871,6 +1121,20 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
     for input in positives.iter().chain(&refusals) {
         let outcome =
             CheckedPackageV2::read(&input.bytes, proof::generous_limits(), &input.evidence);
+        if input.label.starts_with("native/") {
+            let actual = match &outcome {
+                CheckedPackageV2ReadResult::Admitted(_) => "admitted",
+                CheckedPackageV2ReadResult::Refused(_) => "refused",
+                CheckedPackageV2ReadResult::Incomplete(_) => "incomplete",
+                CheckedPackageV2ReadResult::CatalogUnavailable(_) => "catalog_unavailable",
+            };
+            native_providers.push(json!({
+                "provider": input.label,
+                "expected": "admitted",
+                "actual": actual,
+                "reconciled": matches!(outcome, CheckedPackageV2ReadResult::Admitted(_)),
+            }));
+        }
         match (&input.expected, &outcome) {
             (Expected::Admitted, CheckedPackageV2ReadResult::Admitted(_)) => {
                 admitted += 1;
@@ -895,6 +1159,35 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
         .cloned()
         .collect::<Vec<_>>();
     eprintln!("Registered candidates {}; confirmed admitted {}; confirmed refused {}; confirmed stage contracts {}; confirmed refusal-code classes {}",positives.len()+refusals.len(),admitted,refused,stage_contracts,seen.len());
+    let report = std::env::temp_dir().join(format!(
+        "ir1404-native-provider-outcomes-{}.json",
+        std::process::id()
+    ));
+    let native_admitted = native_providers
+        .iter()
+        .filter(|row| row["actual"] == "admitted")
+        .count();
+    let native_refused = native_providers
+        .iter()
+        .filter(|row| row["actual"] == "refused")
+        .count();
+    let native_unresolved = native_providers
+        .iter()
+        .filter(|row| row["reconciled"] != true)
+        .count();
+    std::fs::write(
+        &report,
+        serde_json::to_vec_pretty(&json!({
+            "scope": "registered original native builders; not an original-read-site census",
+            "providers": native_providers,
+            "admitted": native_admitted,
+            "refused": native_refused,
+            "unresolved": native_unresolved,
+        }))
+        .expect("native provider outcomes"),
+    )
+    .expect("write native provider outcome report");
+    eprintln!("Original native builders: admitted {native_admitted}; refused {native_refused}; unresolved {native_unresolved}; {}", report.display());
     assert!(
         problems.is_empty() && missing.is_empty(),
         "Fixture defects:\n{}\nPublic refusal codes with no genuine input provider: {missing:?}",
