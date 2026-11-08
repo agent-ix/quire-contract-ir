@@ -904,12 +904,18 @@ impl PartialOrd for CheckedNodeId {
 }
 
 impl Ord for CheckedNodeId {
+    /// Orders by package, then path segment by segment (names, then document
+    /// indices, then operand slots, then operand IDs), then ordinal. An operand
+    /// ID is compared in full before the rest of its parent's path. The walk
+    /// is iterative; its frame list is allocated only on meeting two distinct
+    /// operand IDs, so flat IDs (names, indices and slots only) compare
+    /// without allocating.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Without a meter nothing refuses a spill, so the comparison cannot
         // fail. The read path charges its comparisons (`cmp_growing` through
         // the meter) or compares graph ranks; this plain order serves keys
-        // after admission, and a debug build can be told to refuse a spill
-        // on one thread so a test proves a read never reaches it.
+        // after admission, and a debug build can be told to refuse a frame
+        // allocation on one thread so a test proves a read never reaches it.
         match self.cmp_growing(other, &mut |_| {
             #[cfg(debug_assertions)]
             forbid_plain_spill();
@@ -922,9 +928,10 @@ impl Ord for CheckedNodeId {
 }
 
 /// Debug builds only: names the thread (by `std::thread` name) on which an
-/// uncharged `Ord::cmp` spill past the inline stack must panic. Tests set it
-/// to their own thread around a full read to prove the read path never
-/// reaches a plain comparison deep enough to allocate. `*` names every thread.
+/// uncharged `Ord::cmp` frame allocation must panic. Tests set it to their
+/// own thread around a full read to prove the read path never reaches a
+/// plain comparison of two distinct deep operand chains. `*` names every
+/// thread.
 #[cfg(debug_assertions)]
 pub const FORBID_PLAIN_SPILL_ENV: &str = "QUIRE_FORBID_PLAIN_CMP_SPILL_ON";
 
@@ -933,15 +940,17 @@ fn forbid_plain_spill() {
     if let Ok(name) = std::env::var(FORBID_PLAIN_SPILL_ENV) {
         assert!(
             name != "*" && std::thread::current().name() != Some(name.as_str()),
-            "an uncharged CheckedNodeId::cmp spill on the read path"
+            "an uncharged CheckedNodeId::cmp frame allocation on the read path"
         );
     }
 }
 
 impl CheckedNodeId {
-    /// The `Ord` order, where a spill past the inline stack asks `grow` for
-    /// permission first. `grow` receives the byte size of the whole new
-    /// block, before it is requested; its refusal ends the comparison.
+    /// The `Ord` order, where the frame list the walk allocates on meeting
+    /// two distinct operand IDs asks `grow` for permission first. `grow`
+    /// receives the byte size of the whole new block, before it is
+    /// requested; its refusal ends the comparison. Flat IDs compare without
+    /// allocating.
     ///
     /// Operand chains are flat index references, so the wire bounds an
     /// identity's nesting only by the node count; no depth is assumed.
@@ -951,352 +960,104 @@ impl CheckedNodeId {
         grow: &mut dyn FnMut(usize) -> Result<(), E>,
     ) -> Result<std::cmp::Ordering, E> {
         use std::cmp::Ordering;
-        /// One identity pair being compared: the path segments left to
-        /// compare, then the ordinals that follow them.
-        #[derive(Clone, Copy)]
+        /// What a pair of IDs still has to compare once a nested pair is done:
+        /// the rest of both paths, then both ordinals.
         struct Frame<'a> {
             left: &'a [CheckedNodePathSegment],
             right: &'a [CheckedNodePathSegment],
             ordinals: (u64, u64),
         }
-        /// Pending frames, one for each level of nesting. The first
-        /// `INLINE` live on the call stack; a deeper identity spills to the
-        /// heap, which stays empty (and unallocated) otherwise.
-        const INLINE: usize = 32;
-        struct Pending<'a> {
-            inline: [Frame<'a>; INLINE],
-            used: usize,
-            spill: Vec<Frame<'a>>,
+        let mut frames: Vec<Frame<'_>> = Vec::new();
+        let (mut left, mut right) = (self.path.as_slice(), other.path.as_slice());
+        let mut ordinals = (self.ordinal, other.ordinal);
+        #[cfg(test)]
+        checked_node_comparisons::visited();
+        if !std::ptr::eq(self, other) {
+            match self.package.cmp(&other.package) {
+                Ordering::Equal => {}
+                order => return Ok(order),
+            }
+        } else {
+            left = &[];
+            right = &[];
         }
-        impl<'a> Pending<'a> {
-            fn push<E>(
-                &mut self,
-                frame: Frame<'a>,
-                grow: &mut dyn FnMut(usize) -> Result<(), E>,
-            ) -> Result<(), E> {
-                if let Some(slot) = self.inline.get_mut(self.used) {
-                    *slot = frame;
-                    self.used += 1;
-                    return Ok(());
-                }
-                if self.spill.len() == self.spill.capacity() {
-                    let target = self.spill.capacity().saturating_mul(2).max(4);
-                    grow(target.saturating_mul(std::mem::size_of::<Frame<'a>>()))?;
-                    self.spill.reserve_exact(target - self.spill.len());
-                }
-                self.spill.push(frame);
-                Ok(())
-            }
-            fn top(&mut self) -> Option<&mut Frame<'a>> {
-                if !self.spill.is_empty() {
-                    return self.spill.last_mut();
-                }
-                let top = self.used.checked_sub(1)?;
-                self.inline.get_mut(top)
-            }
-            fn pop(&mut self) {
-                if self.spill.pop().is_none() {
-                    self.used = self.used.saturating_sub(1);
-                }
-            }
-        }
-        /// Starts comparing two identities: the package decides first.
-        fn enter<'a, E>(
-            left: &'a CheckedNodeId,
-            right: &'a CheckedNodeId,
-            frames: &mut Pending<'a>,
-            grow: &mut dyn FnMut(usize) -> Result<(), E>,
-        ) -> Result<Ordering, E> {
-            #[cfg(test)]
-            checked_node_comparisons::visited();
-            if std::ptr::eq(left, right) {
-                return Ok(Ordering::Equal);
-            }
-            let order = left.package.cmp(&right.package);
-            if order == Ordering::Equal {
-                frames.push(
-                    Frame {
-                        left: &left.path,
-                        right: &right.path,
-                        ordinals: (left.ordinal, right.ordinal),
-                    },
-                    grow,
-                )?;
-            }
-            Ok(order)
-        }
-        let mut frames = Pending {
-            inline: [Frame {
-                left: &[],
-                right: &[],
-                ordinals: (0, 0),
-            }; INLINE],
-            used: 0,
-            spill: Vec::new(),
-        };
-        match enter(self, other, &mut frames, grow)? {
-            Ordering::Equal => {}
-            order => return Ok(order),
-        }
-        while let Some(frame) = frames.top() {
-            let (Some((head_left, rest_left)), Some((head_right, rest_right))) =
-                (frame.left.split_first(), frame.right.split_first())
-            else {
-                let order = match (frame.left.is_empty(), frame.right.is_empty()) {
-                    (true, true) => frame.ordinals.0.cmp(&frame.ordinals.1),
-                    (true, false) => Ordering::Less,
-                    _ => Ordering::Greater,
-                };
-                if order != Ordering::Equal {
-                    return Ok(order);
-                }
-                frames.pop();
-                continue;
-            };
-            frame.left = rest_left;
-            frame.right = rest_right;
-            let order = match (head_left, head_right) {
-                (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => a.cmp(b),
-                (CheckedNodePathSegment::Name(_), _) => Ordering::Less,
-                (_, CheckedNodePathSegment::Name(_)) => Ordering::Greater,
-                (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b)) => a.cmp(b),
-                (CheckedNodePathSegment::Index(_), _) => Ordering::Less,
-                (_, CheckedNodePathSegment::Index(_)) => Ordering::Greater,
-                (CheckedNodePathSegment::Operand(a), CheckedNodePathSegment::Operand(b)) => {
-                    a.cmp(b)
-                }
-                (CheckedNodePathSegment::Operand(_), _) => Ordering::Less,
-                (_, CheckedNodePathSegment::Operand(_)) => Ordering::Greater,
-                (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
-                    if std::sync::Arc::ptr_eq(a, b) {
-                        Ordering::Equal
-                    } else {
-                        enter(a, b, &mut frames, grow)?
+        loop {
+            match (left.split_first(), right.split_first()) {
+                (None, None) => {
+                    match ordinals.0.cmp(&ordinals.1) {
+                        Ordering::Equal => {}
+                        order => return Ok(order),
                     }
+                    let Some(frame) = frames.pop() else {
+                        return Ok(Ordering::Equal);
+                    };
+                    (left, right, ordinals) = (frame.left, frame.right, frame.ordinals);
                 }
-            };
-            if order != Ordering::Equal {
-                return Ok(order);
-            }
-        }
-        Ok(Ordering::Equal)
-    }
-}
-
-/// Rank resolved structural IDs in `CheckedNodeId::cmp` order without
-/// repeatedly walking a shared operand spine. Children enter the order tree
-/// before parents, so a parent comparison reads the positions of its children.
-pub(crate) fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> Vec<usize> {
-    use std::collections::HashMap;
-
-    struct Entry<'a> {
-        key: &'a CheckedNodeId,
-        parent: Option<usize>,
-        left: Option<usize>,
-        right: Option<usize>,
-        size: usize,
-        priority: u64,
-    }
-
-    struct Order<'a> {
-        entries: Vec<Entry<'a>>,
-        by_pointer: HashMap<*const CheckedNodeId, usize>,
-        root: Option<usize>,
-        random: u64,
-    }
-
-    impl<'a> Order<'a> {
-        fn size(&self, index: Option<usize>) -> usize {
-            index.map_or(0, |at| self.entries[at].size)
-        }
-
-        fn position(&self, mut at: usize) -> usize {
-            let mut position = self.size(self.entries[at].left);
-            while let Some(parent) = self.entries[at].parent {
-                if self.entries[parent].right == Some(at) {
-                    position += self.size(self.entries[parent].left) + 1;
-                }
-                at = parent;
-            }
-            position
-        }
-
-        fn compare(&self, left: &CheckedNodeId, right: &CheckedNodeId) -> std::cmp::Ordering {
-            use std::cmp::Ordering;
-            let package = left.package.cmp(&right.package);
-            if package != Ordering::Equal {
-                return package;
-            }
-            for (a, b) in left.path.iter().zip(&right.path) {
-                let order = match (a, b) {
-                    (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => a.cmp(b),
-                    (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b))
-                    | (CheckedNodePathSegment::Operand(a), CheckedNodePathSegment::Operand(b)) => {
-                        a.cmp(b)
-                    }
-                    (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
-                        let a = self.by_pointer[&std::sync::Arc::as_ptr(a)];
-                        let b = self.by_pointer[&std::sync::Arc::as_ptr(b)];
-                        self.position(a).cmp(&self.position(b))
-                    }
-                    (CheckedNodePathSegment::Name(_), _) => Ordering::Less,
-                    (_, CheckedNodePathSegment::Name(_)) => Ordering::Greater,
-                    (CheckedNodePathSegment::Index(_), _) => Ordering::Less,
-                    (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Index(_)) => {
-                        Ordering::Greater
-                    }
-                    (CheckedNodePathSegment::Operand(_), _) => Ordering::Less,
-                    (CheckedNodePathSegment::Node(_), _) => Ordering::Greater,
-                };
-                if order != Ordering::Equal {
-                    return order;
-                }
-            }
-            left.path
-                .len()
-                .cmp(&right.path.len())
-                .then_with(|| left.ordinal.cmp(&right.ordinal))
-        }
-
-        fn rotate_up(&mut self, child: usize) {
-            let parent = self.entries[child].parent.expect("rotation has a parent");
-            let grand = self.entries[parent].parent;
-            if self.entries[parent].left == Some(child) {
-                let moved = self.entries[child].right;
-                self.entries[parent].left = moved;
-                if let Some(moved) = moved {
-                    self.entries[moved].parent = Some(parent);
-                }
-                self.entries[child].right = Some(parent);
-            } else {
-                let moved = self.entries[child].left;
-                self.entries[parent].right = moved;
-                if let Some(moved) = moved {
-                    self.entries[moved].parent = Some(parent);
-                }
-                self.entries[child].left = Some(parent);
-            }
-            self.entries[parent].parent = Some(child);
-            self.entries[child].parent = grand;
-            if let Some(grand) = grand {
-                if self.entries[grand].left == Some(parent) {
-                    self.entries[grand].left = Some(child);
-                } else {
-                    self.entries[grand].right = Some(child);
-                }
-            } else {
-                self.root = Some(child);
-            }
-            self.entries[parent].size =
-                1 + self.size(self.entries[parent].left) + self.size(self.entries[parent].right);
-            self.entries[child].size =
-                1 + self.size(self.entries[child].left) + self.size(self.entries[child].right);
-        }
-
-        fn insert(&mut self, key: &'a CheckedNodeId) -> usize {
-            use std::cmp::Ordering;
-            let mut parent = None;
-            let mut at = self.root;
-            let mut side = Ordering::Equal;
-            while let Some(current) = at {
-                side = self.compare(key, self.entries[current].key);
-                if side == Ordering::Equal {
-                    return current;
-                }
-                parent = Some(current);
-                at = if side == Ordering::Less {
-                    self.entries[current].left
-                } else {
-                    self.entries[current].right
-                };
-            }
-            // The priority is for tree balance only; it never identifies a
-            // package, file or tool, and it does not affect structural order.
-            self.random = self
-                .random
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            let index = self.entries.len();
-            self.entries.push(Entry {
-                key,
-                parent,
-                left: None,
-                right: None,
-                size: 1,
-                priority: self.random,
-            });
-            if let Some(parent) = parent {
-                if side == Ordering::Less {
-                    self.entries[parent].left = Some(index);
-                } else {
-                    self.entries[parent].right = Some(index);
-                }
-                let mut ancestor = Some(parent);
-                while let Some(current) = ancestor {
-                    self.entries[current].size += 1;
-                    ancestor = self.entries[current].parent;
-                }
-            } else {
-                self.root = Some(index);
-            }
-            while let Some(parent) = self.entries[index].parent {
-                if self.entries[index].priority <= self.entries[parent].priority {
-                    break;
-                }
-                self.rotate_up(index);
-            }
-            index
-        }
-
-        fn positions(&self) -> Vec<usize> {
-            let mut positions = vec![0; self.entries.len()];
-            let mut pending = Vec::new();
-            let mut at = self.root;
-            let mut next = 0;
-            while at.is_some() || !pending.is_empty() {
-                while let Some(current) = at {
-                    pending.push(current);
-                    at = self.entries[current].left;
-                }
-                let current = pending.pop().expect("nonempty traversal stack");
-                positions[current] = next;
-                next += 1;
-                at = self.entries[current].right;
-            }
-            positions
-        }
-    }
-
-    let mut order = Order {
-        entries: Vec::new(),
-        by_pointer: HashMap::new(),
-        root: None,
-        random: 0x9e37_79b9_7f4a_7c15,
-    };
-    for root in keys {
-        let mut pending = vec![(root.as_ref(), false)];
-        while let Some((key, finish)) = pending.pop() {
-            let pointer = std::ptr::from_ref(key);
-            if order.by_pointer.contains_key(&pointer) {
-                continue;
-            }
-            if finish {
-                let index = order.insert(key);
-                order.by_pointer.insert(pointer, index);
-            } else {
-                pending.push((key, true));
-                for segment in key.path.iter().rev() {
-                    if let CheckedNodePathSegment::Node(child) = segment {
-                        pending.push((child, false));
+                (None, Some(_)) => return Ok(Ordering::Less),
+                (Some(_), None) => return Ok(Ordering::Greater),
+                (Some((head_left, rest_left)), Some((head_right, rest_right))) => {
+                    (left, right) = (rest_left, rest_right);
+                    match (head_left, head_right) {
+                        (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => {
+                            match a.cmp(b) {
+                                Ordering::Equal => {}
+                                order => return Ok(order),
+                            }
+                        }
+                        (CheckedNodePathSegment::Name(_), _) => return Ok(Ordering::Less),
+                        (_, CheckedNodePathSegment::Name(_)) => return Ok(Ordering::Greater),
+                        (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b))
+                        | (
+                            CheckedNodePathSegment::Operand(a),
+                            CheckedNodePathSegment::Operand(b),
+                        ) => match a.cmp(b) {
+                            Ordering::Equal => {}
+                            order => return Ok(order),
+                        },
+                        (CheckedNodePathSegment::Index(_), _) => return Ok(Ordering::Less),
+                        (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Index(_)) => {
+                            return Ok(Ordering::Greater)
+                        }
+                        (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Node(_)) => {
+                            return Ok(Ordering::Less)
+                        }
+                        (CheckedNodePathSegment::Node(_), _) => {
+                            if let (
+                                CheckedNodePathSegment::Node(a),
+                                CheckedNodePathSegment::Node(b),
+                            ) = (head_left, head_right)
+                            {
+                                if !std::sync::Arc::ptr_eq(a, b) {
+                                    #[cfg(test)]
+                                    checked_node_comparisons::visited();
+                                    match a.package.cmp(&b.package) {
+                                        Ordering::Equal => {}
+                                        order => return Ok(order),
+                                    }
+                                    if frames.len() == frames.capacity() {
+                                        let target = frames.capacity().saturating_mul(2).max(4);
+                                        grow(
+                                            target.saturating_mul(std::mem::size_of::<Frame<'_>>()),
+                                        )?;
+                                        frames.reserve_exact(target - frames.len());
+                                    }
+                                    frames.push(Frame {
+                                        left,
+                                        right,
+                                        ordinals,
+                                    });
+                                    (left, right) = (a.path.as_slice(), b.path.as_slice());
+                                    ordinals = (a.ordinal, b.ordinal);
+                                }
+                            } else {
+                                return Ok(Ordering::Greater);
+                            }
+                        }
                     }
                 }
             }
         }
     }
-    let positions = order.positions();
-    keys.iter()
-        .map(|key| positions[order.by_pointer[&std::sync::Arc::as_ptr(key)]])
-        .collect()
 }
 
 impl Encode for CheckedNodeId {
@@ -1379,9 +1140,19 @@ pub(crate) mod checked_node_comparisons {
 #[cfg(test)]
 mod structural_node_identity_tests {
     use super::{
-        rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal,
-        CheckedPackageRefusalCode, JsonPointer, RefusalFields,
+        CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal, CheckedPackageRefusalCode,
+        JsonPointer, RefusalFields,
     };
+
+    /// Ranks of `keys` in `CheckedNodeId::cmp` order, from the charged
+    /// structural order under a budget that charges nothing.
+    fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> Vec<usize> {
+        let order = crate::checked_package::v2::StructuralOrder::build_unmetered(&[keys])
+            .expect("keys are their own operands");
+        keys.iter()
+            .map(|key| order.rank(key).expect("every key is in the order"))
+            .collect()
+    }
 
     /// Trace: FR-038-AC-185, TC-048.
     #[test]
@@ -2083,21 +1854,27 @@ pub(crate) mod node_order_tests {
         }
     }
 
-    /// A spill past the inline stack is requested through the caller before
-    /// it is allocated, and the caller's refusal ends the comparison; an
-    /// identity within the inline stack never asks (FR-038-AC-504).
+    /// The frame list the walk allocates on meeting two distinct operand IDs
+    /// is requested through the caller before it is allocated, and the
+    /// caller's refusal ends the comparison; a flat ID never asks
+    /// (FR-038-AC-504).
     #[trace("TC-472", "FR-038-AC-504")]
     #[test]
     fn node_id_spill_is_asked_for_before_it_is_allocated() {
         let leaf = Segment::Name("a".into());
-        let shallow = (nested(20, leaf.clone(), 0), nested(20, leaf.clone(), 1));
+        let flat = |ordinal| CheckedNodeId {
+            package: "p".into(),
+            path: vec![leaf.clone(), Segment::Index(3), Segment::Operand(1)],
+            ordinal,
+        };
+        let shallow = (flat(0), flat(1));
         let mut asked = Vec::new();
         let order = shallow.0.cmp_growing(&shallow.1, &mut |bytes| {
             asked.push(bytes);
             Ok::<(), ()>(())
         });
         assert_eq!(order, Ok(shallow.0.cmp(&shallow.1)));
-        assert!(asked.is_empty(), "inline depth asked to grow: {asked:?}");
+        assert!(asked.is_empty(), "a flat ID asked to grow: {asked:?}");
 
         let deep = (nested(100, leaf.clone(), 0), nested(100, leaf, 1));
         let mut asked = Vec::new();

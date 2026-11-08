@@ -73,6 +73,36 @@ impl<'b> WorkMeter<'b> {
         });
     }
 
+    /// The structural order of every key of `lists`, charged to the caller's
+    /// budget at the site now charged (or unmetered under a meter with its
+    /// own limit). `None` when an operand is not itself a listed key.
+    pub(super) fn structural_order<'k>(
+        &mut self,
+        lists: &[&'k [std::sync::Arc<CheckedNodeId>]],
+    ) -> Result<Option<super::StructuralOrder<'k>>, ValidationFailure> {
+        match self.budget_and_site() {
+            Some((budget, site)) => super::StructuralOrder::build(lists, budget, site),
+            None => Ok(super::StructuralOrder::build_unmetered(lists)),
+        }
+    }
+
+    /// The caller's budget and the site now charged, for a library that
+    /// charges a budget directly; `None` for a meter with its own limit.
+    pub(super) fn budget_and_site(
+        &mut self,
+    ) -> Option<(&mut super::NativeJoinBudget, super::read_charge::Site)> {
+        let (index, form) = self
+            .site
+            .map_or((0, "graph_ranks"), |site| (site.index, site.form));
+        match &mut self.source {
+            super::WorkSource::Budget(budget) => Some((
+                budget,
+                super::read_charge::Site::new(PackageReadStage::Graph, index, form),
+            )),
+            super::WorkSource::Own { .. } => None,
+        }
+    }
+
     /// The site now charged.
     #[allow(dead_code)] // part of the charging toolkit the other read groups fold in
     pub(super) fn site(&self) -> Option<ReadSite> {
@@ -538,7 +568,20 @@ impl<'g> GraphIndex<'g> {
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
         meter: &mut WorkMeter,
     ) -> Result<Self, ValidationFailure> {
-        self.ranks = rank_graph_keys(structural_keys, meter)?;
+        let order = meter.structural_order(&[structural_keys])?;
+        // `None`: an operand is not itself a key, which leaves every
+        // comparison of this graph on `CheckedNodeId::cmp`.
+        let Some(order) = order else {
+            return Ok(self);
+        };
+        let mut ranks = meter.vec(structural_keys.len())?;
+        for key in structural_keys {
+            let Some(rank) = order.rank(key) else {
+                return Ok(self);
+            };
+            ranks.push(rank);
+        }
+        self.ranks = Some(ranks.into_boxed_slice());
         Ok(self)
     }
 
@@ -809,287 +852,6 @@ impl Stamps {
 }
 
 /// The static wire spelling of a node's `node_tag`, for a request's form.
-/// Sentinel for an absent link in the rank tree.
-const NO_LINK: usize = usize::MAX;
-
-/// One distinct key in the rank tree: a treap ordered by structural key,
-/// which keeps each subtree's size so a key's rank is a walk to the root.
-struct RankCell {
-    key: usize,
-    parent: usize,
-    left: usize,
-    right: usize,
-    size: usize,
-    priority: u64,
-}
-
-/// Ranks every key of the graph in `CheckedNodeId::cmp` order, without a
-/// comparison that walks operand chains: keys enter the order children
-/// first, so comparing two keys reads their children's ranks in the tree and
-/// never descends into an operand. Equal keys share a rank.
-///
-/// Every block is charged through `meter` at its full capacity before it is
-/// requested, and nothing here is depth-bounded: the traversals use explicit
-/// charged stacks. `None` when a key holds an operand outside `keys`, which
-/// leaves the caller on plain comparison for the ids it cannot rank.
-pub(super) fn rank_graph_keys(
-    keys: &[std::sync::Arc<CheckedNodeId>],
-    meter: &mut WorkMeter,
-) -> Result<Option<Box<[usize]>>, ValidationFailure> {
-    use crate::checked_package::shared::CheckedNodePathSegment as Segment;
-    let count = keys.len();
-    let mut by_pointer = meter.vec::<(*const CheckedNodeId, usize)>(count)?;
-    by_pointer.extend(
-        keys.iter()
-            .enumerate()
-            .map(|(position, key)| (std::sync::Arc::as_ptr(key), position)),
-    );
-    by_pointer.sort_unstable();
-    // The first position holding this allocation stands for all of them.
-    let canonical = |pointer: *const CheckedNodeId| -> Option<usize> {
-        let at = by_pointer.partition_point(|(held, _)| *held < pointer);
-        by_pointer
-            .get(at)
-            .filter(|(held, _)| *held == pointer)
-            .map(|(_, position)| *position)
-    };
-    let mut entry_of = meter.filled(count, NO_LINK)?;
-    let mut queued = meter.filled(count, false)?;
-    let mut cells = meter.vec::<RankCell>(count)?;
-    let mut stack = meter.vec::<(usize, usize)>(count)?;
-    let mut random = 0x9e37_79b9_7f4a_7c15_u64;
-    for root in 0..count {
-        let Some(root) = canonical(std::sync::Arc::as_ptr(&keys[root])) else {
-            return Ok(None);
-        };
-        if queued[root] {
-            continue;
-        }
-        queued[root] = true;
-        stack.push((root, 0));
-        'walk: while let Some(&(key, cursor)) = stack.last() {
-            meter.charge(1, || node_pointer(key))?;
-            for (offset, segment) in keys[key].path.iter().enumerate().skip(cursor) {
-                let Segment::Node(child) = segment else {
-                    continue;
-                };
-                let Some(child) = canonical(std::sync::Arc::as_ptr(child)) else {
-                    return Ok(None);
-                };
-                if !queued[child] {
-                    queued[child] = true;
-                    if let Some(top) = stack.last_mut() {
-                        top.1 = offset + 1;
-                    }
-                    stack.push((child, 0));
-                    continue 'walk;
-                }
-            }
-            stack.pop();
-            // Every child has an entry: it finished before this key.
-            let mut parent = NO_LINK;
-            let mut at = root_of(&cells);
-            let mut side = Ordering::Equal;
-            let mut existing = NO_LINK;
-            while at != NO_LINK {
-                let order = compare_keys(
-                    keys[key].as_ref(),
-                    &keys[cells[at].key],
-                    &cells,
-                    &entry_of,
-                    &canonical,
-                );
-                if order == Ordering::Equal {
-                    existing = at;
-                    break;
-                }
-                side = order;
-                parent = at;
-                at = if order == Ordering::Less {
-                    cells[at].left
-                } else {
-                    cells[at].right
-                };
-            }
-            if existing != NO_LINK {
-                entry_of[key] = existing;
-                continue;
-            }
-            random = random
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            let entry = cells.len();
-            cells.push(RankCell {
-                key,
-                parent,
-                left: NO_LINK,
-                right: NO_LINK,
-                size: 1,
-                priority: random,
-            });
-            entry_of[key] = entry;
-            if parent != NO_LINK {
-                if side == Ordering::Less {
-                    cells[parent].left = entry;
-                } else {
-                    cells[parent].right = entry;
-                }
-                let mut ancestor = parent;
-                while ancestor != NO_LINK {
-                    cells[ancestor].size += 1;
-                    ancestor = cells[ancestor].parent;
-                }
-            }
-            while cells[entry].parent != NO_LINK
-                && cells[entry].priority > cells[cells[entry].parent].priority
-            {
-                rotate_up(&mut cells, entry);
-            }
-        }
-    }
-    // In-order walk of the tree over the same charged stack.
-    let mut positions = meter.filled(cells.len(), 0_usize)?;
-    stack.clear();
-    let mut at = root_of(&cells);
-    let mut next = 0_usize;
-    while at != NO_LINK || !stack.is_empty() {
-        while at != NO_LINK {
-            stack.push((at, 0));
-            at = cells[at].left;
-        }
-        let Some((current, _)) = stack.pop() else {
-            break;
-        };
-        positions[current] = next;
-        next += 1;
-        at = cells[current].right;
-    }
-    let mut ranks = meter.vec::<usize>(count)?;
-    for key in keys {
-        let Some(owner) = canonical(std::sync::Arc::as_ptr(key)) else {
-            return Ok(None);
-        };
-        ranks.push(positions[entry_of[owner]]);
-    }
-    Ok(Some(ranks.into_boxed_slice()))
-}
-
-/// The tree's root: the one cell without a parent.
-fn root_of(cells: &[RankCell]) -> usize {
-    // Rotations move the root; walk up from the newest cell, which is
-    // cheaper than keeping a second field in step.
-    let Some(mut at) = cells.len().checked_sub(1) else {
-        return NO_LINK;
-    };
-    while cells[at].parent != NO_LINK {
-        at = cells[at].parent;
-    }
-    at
-}
-
-fn rank_size(cells: &[RankCell], at: usize) -> usize {
-    if at == NO_LINK {
-        0
-    } else {
-        cells[at].size
-    }
-}
-
-/// The position of cell `at` among the distinct keys inserted so far.
-fn rank_position(cells: &[RankCell], mut at: usize) -> usize {
-    let mut position = rank_size(cells, cells[at].left);
-    while cells[at].parent != NO_LINK {
-        let parent = cells[at].parent;
-        if cells[parent].right == at {
-            position += rank_size(cells, cells[parent].left) + 1;
-        }
-        at = parent;
-    }
-    position
-}
-
-fn rotate_up(cells: &mut [RankCell], child: usize) {
-    let parent = cells[child].parent;
-    let grand = cells[parent].parent;
-    if cells[parent].left == child {
-        let moved = cells[child].right;
-        cells[parent].left = moved;
-        if moved != NO_LINK {
-            cells[moved].parent = parent;
-        }
-        cells[child].right = parent;
-    } else {
-        let moved = cells[child].left;
-        cells[parent].right = moved;
-        if moved != NO_LINK {
-            cells[moved].parent = parent;
-        }
-        cells[child].left = parent;
-    }
-    cells[parent].parent = child;
-    cells[child].parent = grand;
-    if grand != NO_LINK {
-        if cells[grand].left == parent {
-            cells[grand].left = child;
-        } else {
-            cells[grand].right = child;
-        }
-    }
-    cells[parent].size =
-        1 + rank_size(cells, cells[parent].left) + rank_size(cells, cells[parent].right);
-    cells[child].size =
-        1 + rank_size(cells, cells[child].left) + rank_size(cells, cells[child].right);
-}
-
-/// `CheckedNodeId::cmp` of two keys whose operand children are already in
-/// the tree: a child pair compares by tree position, so no step descends.
-fn compare_keys(
-    left: &CheckedNodeId,
-    right: &CheckedNodeId,
-    cells: &[RankCell],
-    entry_of: &[usize],
-    canonical: &dyn Fn(*const CheckedNodeId) -> Option<usize>,
-) -> Ordering {
-    use crate::checked_package::shared::CheckedNodePathSegment as Segment;
-    let package = left.package.cmp(&right.package);
-    if package != Ordering::Equal {
-        return package;
-    }
-    for (a, b) in left.path.iter().zip(&right.path) {
-        let order = match (a, b) {
-            (Segment::Name(a), Segment::Name(b)) => a.cmp(b),
-            (Segment::Index(a), Segment::Index(b)) | (Segment::Operand(a), Segment::Operand(b)) => {
-                a.cmp(b)
-            }
-            (Segment::Node(a), Segment::Node(b)) => {
-                let entry = |node: &std::sync::Arc<CheckedNodeId>| {
-                    canonical(std::sync::Arc::as_ptr(node)).map(|owner| entry_of[owner])
-                };
-                match (entry(a), entry(b)) {
-                    (Some(a), Some(b)) if a != NO_LINK && b != NO_LINK => {
-                        rank_position(cells, a).cmp(&rank_position(cells, b))
-                    }
-                    // Unreachable for keys ranked children first.
-                    _ => Ordering::Equal,
-                }
-            }
-            (Segment::Name(_), _) => Ordering::Less,
-            (_, Segment::Name(_)) => Ordering::Greater,
-            (Segment::Index(_), _) => Ordering::Less,
-            (Segment::Operand(_), Segment::Index(_)) => Ordering::Greater,
-            (Segment::Operand(_), _) => Ordering::Less,
-            (Segment::Node(_), _) => Ordering::Greater,
-        };
-        if order != Ordering::Equal {
-            return order;
-        }
-    }
-    left.path
-        .len()
-        .cmp(&right.path.len())
-        .then_with(|| left.ordinal.cmp(&right.ordinal))
-}
-
 /// A graph id resolved to its structural key, ordered by the key's rank when
 /// the graph ranked it and by `CheckedNodeId::cmp` otherwise. The two orders
 /// agree on every pair the graph ranks, so a ranked pair never walks an
@@ -1206,7 +968,6 @@ mod chain_walk_tests {
 
 #[cfg(test)]
 mod rank_tests {
-    use super::rank_graph_keys;
     use crate::checked_package::shared::node_order_tests::corpus;
     use crate::checked_package::shared::{CheckedNodeId, CheckedNodePathSegment as Segment};
     use crate::checked_package::v2::native_join_budget::NativeJoinBudget;
@@ -1234,11 +995,12 @@ mod rank_tests {
         keys
     }
 
-    fn ranks_of(keys: &[Arc<CheckedNodeId>]) -> Box<[usize]> {
-        rank_graph_keys(keys, &mut WorkMeter::new(u64::MAX))
-            .ok()
-            .flatten()
-            .expect("graph keys rank")
+    fn ranks_of(keys: &[Arc<CheckedNodeId>]) -> Vec<usize> {
+        let order = crate::checked_package::v2::StructuralOrder::build_unmetered(&[keys])
+            .expect("graph keys rank");
+        keys.iter()
+            .map(|key| order.rank(key).expect("every key is in the order"))
+            .collect()
     }
 
     fn assert_ranks_match_order(keys: &[Arc<CheckedNodeId>]) {
@@ -1287,33 +1049,41 @@ mod rank_tests {
                 ordinal: position % 3,
             });
         }
-        let refs: Vec<&CheckedNodeId> = ids.iter().collect();
         let keys = crate::checked_package::v2::node_index::rebuild_keys(
-            &refs,
-            None,
+            ids.len(),
+            |position| &ids[position],
             |_, _| crate::checked_package::shared::JsonPointer::root(),
             |_| unreachable!("acyclic table"),
+            &mut NativeJoinBudget::unlimited(),
         )
         .ok()
         .expect("keys rebuild");
         assert_ranks_match_order(&keys);
     }
 
-    /// The rank table is charged before each block is requested: the exact
-    /// charge admits it, and one byte fewer is refused.
+    /// The graph's rank table is charged through the caller's budget before
+    /// it is made: the exact charge admits the index with its ranks, and one
+    /// byte fewer is refused.
     #[trace("TC-472", "FR-038-AC-504")]
     #[test]
     fn graph_ranks_charge_every_block_first() {
         let keys = keys_of(&corpus());
         let run = |limit: u64| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
-            let ranked = rank_graph_keys(&keys, &mut WorkMeter::over(&mut budget)).is_ok();
-            (ranked, budget.read_storage_consumed())
+            let mut meter = WorkMeter::over(&mut budget);
+            meter.at_node(0, "node");
+            let index = super::GraphIndex::build(keys.iter().map(AsRef::as_ref), &mut meter)
+                .and_then(|index| index.with_ranks(&keys, &mut meter));
+            let ranked = index.as_ref().is_ok_and(|index| index.rank_at(0).is_some());
+            let failed = index.is_err();
+            drop(index);
+            drop(meter);
+            (ranked, failed, budget.read_storage_consumed())
         };
-        let (ranked, spent) = run(u64::MAX);
-        assert!(ranked && spent > 0);
-        assert!(run(spent).0, "the exact charge admits the table");
-        assert!(!run(spent - 1).0, "one byte fewer is refused");
+        let (ranked, failed, spent) = run(u64::MAX);
+        assert!(ranked && !failed && spent > 0);
+        assert!(run(spent).0, "the exact charge admits the ranks");
+        assert!(run(spent - 1).1, "one byte fewer is refused");
     }
 
     /// A 16,000-level shared chain ranks with every child before its parent

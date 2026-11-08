@@ -51,70 +51,9 @@ const NAMES: [&str; 17] = [
     "activation_capacity",
 ];
 
-/// Candidate entry references are collected without deciding root shape. The
-/// plan step owns that refusal, even when a named candidate is malformed.
-pub(super) fn entry_candidates(nodes: &[RawSemanticNodeV2]) -> BTreeSet<CheckedNodeId> {
-    let mut candidates = BTreeSet::new();
-    for node in nodes {
-        if super::CheckedNodeTag::from_wire(&node.node_tag)
-            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-            != Some(CheckedNodeKind::Temporal(TemporalForm::MonitorPlan))
-        {
-            continue;
-        }
-        let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(&node.body)
-        else {
-            continue;
-        };
-        for member in members {
-            if let Some(super::CheckedTermView::Binding { name, value }) = CheckedTerm::view(member)
-            {
-                if ENTRY_SLOTS.iter().any(|&slot| NAMES[slot] == name) {
-                    if let Some(target) = super::structural::reference_target(value) {
-                        candidates.insert(target);
-                    }
-                }
-            }
-        }
-    }
-    candidates
-}
-
-/// The ordinary executable body, independent of owner/model clause descriptors.
-pub(super) fn anonymous_body_shape(
-    body: &serde_json::Value,
-    nodes: &BTreeMap<&CheckedNodeId, &RawSemanticNodeV2>,
-) -> bool {
-    let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(body) else {
-        return false;
-    };
-    let (parameters, body, measure) = match members {
-        [parameters, body] => (parameters, body, None),
-        [parameters, body, measure] => (parameters, body, Some(measure)),
-        _ => return false,
-    };
-    let Some(super::CheckedTermView::Binding {
-        name: "parameters",
-        value,
-    }) = CheckedTerm::view(parameters)
-    else {
-        return false;
-    };
-    let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(value) else {
-        return false;
-    };
-    let kind = |term: &serde_json::Value| {
-        let id = super::structural::reference_target(term)?;
-        let node = nodes.get(&id)?;
-        super::CheckedNodeTag::from_wire(&node.node_tag)
-            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-    };
-    members
-        .iter()
-        .all(|parameter| kind(parameter) == Some(CheckedNodeKind::Value(ValueForm::Parameter)))
-        && matches!(CheckedTerm::view(body), Some(super::CheckedTermView::Binding { name: "body", value })
-            if matches!(kind(value), Some(CheckedNodeKind::Expression(_))))
-        && measure.is_none_or(|measure| matches!(CheckedTerm::view(measure), Some(super::CheckedTermView::Binding {name:"measure",value}) if kind(value).is_some()))
+/// Whether `name` is the name of an entry slot of a monitor plan.
+pub(super) fn is_entry_slot(name: &str) -> bool {
+    ENTRY_SLOTS.iter().any(|&slot| NAMES[slot] == name)
 }
 
 #[derive(Clone)]

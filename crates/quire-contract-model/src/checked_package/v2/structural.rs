@@ -75,13 +75,13 @@ use super::{
 };
 use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
-    rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole,
-    CheckedPackageRefusalCode, JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole, CheckedPackageRefusalCode,
+    JsonPointer,
 };
 use quire_exact::TextProfile;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
 
 /// The member of one node a structural defect is about.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -354,139 +354,178 @@ pub(super) fn validate_structural_nodes(
     validate_structural_nodes_with_keys(nodes, kinds, terms, index, &[], None, meter)
 }
 
+/// The key a listed dependency ID stands for when the graph holds no such
+/// node, with its blocks charged first. An ID that already holds operand keys
+/// is its own key; an index-form ID resolves against the graph keys.
 fn resolve_unlisted_dependency(
     id: &CheckedNodeId,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
-) -> Option<std::sync::Arc<CheckedNodeId>> {
-    if id
+    meter: &mut WorkMeter,
+) -> Result<Option<std::sync::Arc<CheckedNodeId>>, ValidationFailure> {
+    let resolved = if id
         .path
         .iter()
         .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
     {
-        return (!id
+        if id
             .path
             .iter()
-            .any(|segment| matches!(segment, CheckedNodePathSegment::Index(_))))
-        .then(|| std::sync::Arc::new(id.clone()));
-    }
-    super::node_index::resolve_id(id, structural_keys).map(std::sync::Arc::new)
+            .any(|segment| matches!(segment, CheckedNodePathSegment::Index(_)))
+        {
+            return Ok(None);
+        }
+        Some(meter.clone_id(id)?)
+    } else {
+        resolve_id_charged(id, structural_keys, meter)?
+    };
+    let Some(resolved) = resolved else {
+        return Ok(None);
+    };
+    // The `Arc` block holds the counts beside the id.
+    meter.reserve(
+        std::mem::size_of::<CheckedNodeId>().saturating_add(2 * std::mem::size_of::<usize>()),
+    )?;
+    Ok(Some(std::sync::Arc::new(resolved)))
 }
 
-/// One graph-wide ordering table for both present and absent dependency IDs.
-/// Missing IDs are still compared here; their body join owns the typed refusal.
-struct DependencyKeyOrder {
-    interner: super::node_index::StructuralInterner,
-    tokens: HashMap<*const CheckedNodeId, usize>,
-    ranks: HashMap<*const CheckedNodeId, usize>,
-    absent: HashMap<*const CheckedNodeId, std::sync::Arc<CheckedNodeId>>,
-    expected_roots: Vec<std::sync::Arc<CheckedNodeId>>,
+/// The keys the graph-wide order covers: every graph key, then the key of each
+/// listed dependency ID absent from the graph, with the address of each listed
+/// ID beside its position among the keys.
+struct DependencyKeys {
+    keys: Vec<std::sync::Arc<CheckedNodeId>>,
+    /// `(address of the listed ID, position of its key in keys)`, by address.
+    absent: Vec<(*const CheckedNodeId, usize)>,
 }
 
-impl DependencyKeyOrder {
+impl DependencyKeys {
     fn new<'a>(
         dependencies: impl IntoIterator<Item = &'a [CheckedNodeId]>,
         index: &GraphIndex<'_>,
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
-    ) -> Self {
-        let mut order = Self {
-            interner: super::node_index::StructuralInterner::new(),
-            tokens: HashMap::new(),
-            ranks: HashMap::new(),
-            absent: HashMap::new(),
-            expected_roots: Vec::new(),
-        };
+        meter: &mut WorkMeter,
+    ) -> Result<Self, ValidationFailure> {
+        let mut keys = meter.vec(structural_keys.len())?;
+        let mut absent: Vec<(*const CheckedNodeId, usize)> = Vec::new();
         if structural_keys.is_empty() {
-            return order;
+            return Ok(Self { keys, absent });
         }
-        let mut ranked_keys = structural_keys.to_vec();
+        keys.extend(structural_keys.iter().cloned());
         for listed in dependencies {
             for id in listed {
                 if index.contains_key(id) {
                     continue;
                 }
-                if let Some(key) = resolve_unlisted_dependency(id, structural_keys) {
-                    ranked_keys.push(std::sync::Arc::clone(&key));
-                    order.absent.insert(std::ptr::from_ref(id), key);
+                if let Some(key) = resolve_unlisted_dependency(id, structural_keys, meter)? {
+                    meter.push(&mut absent, (std::ptr::from_ref(id), keys.len()))?;
+                    meter.push(&mut keys, key)?;
                 }
             }
         }
-        let tokens = order
-            .interner
-            .tokens(&ranked_keys)
-            .expect("reader-rebuilt graph keys contain only resolved operands");
-        let ranks = rank_checked_node_ids(&ranked_keys);
-        for ((key, token), rank) in ranked_keys.iter().zip(tokens).zip(ranks) {
-            order.tokens.insert(std::sync::Arc::as_ptr(key), token);
-            order.ranks.insert(std::sync::Arc::as_ptr(key), rank);
+        absent.sort_unstable_by_key(|(address, _)| *address);
+        Ok(Self { keys, absent })
+    }
+
+    /// The key of a listed dependency ID: the graph's for a node it holds,
+    /// the resolved one for an absent ID, none for an unresolvable one.
+    fn key_of<'s>(
+        &'s self,
+        id: &CheckedNodeId,
+        index: &GraphIndex<'_>,
+        structural_keys: &'s [std::sync::Arc<CheckedNodeId>],
+    ) -> Option<&'s std::sync::Arc<CheckedNodeId>> {
+        if let Ok(at) = self
+            .absent
+            .binary_search_by_key(&std::ptr::from_ref(id), |(address, _)| *address)
+        {
+            return self.keys.get(self.absent[at].1);
         }
-        order
+        structural_keys.get(*index.get(id)?)
+    }
+}
+
+/// One graph-wide ordering table for both present and absent dependency IDs,
+/// built once through the caller's budget by `StructuralOrder`. Missing IDs are
+/// still compared here; their body join owns the typed refusal.
+struct DependencyKeyOrder<'k> {
+    keys: &'k DependencyKeys,
+    order: Option<super::StructuralOrder<'k>>,
+}
+
+impl<'k> DependencyKeyOrder<'k> {
+    fn new(keys: &'k DependencyKeys, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
+        let order = if keys.keys.is_empty() {
+            None
+        } else {
+            meter.structural_order(&[keys.keys.as_slice()])?
+        };
+        Ok(Self { keys, order })
     }
 
     fn matches(
-        &mut self,
+        &self,
         actual: &[CheckedNodeId],
         expected: BTreeSet<&CheckedNodeId>,
         index: &GraphIndex<'_>,
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
-    ) -> bool {
-        let expected = expected.into_iter().collect::<Vec<_>>();
-        let expected_keys = expected
-            .iter()
-            .map(|id| super::structural_key(id, index, structural_keys));
+        meter: &mut WorkMeter,
+    ) -> Result<bool, ValidationFailure> {
         if structural_keys.is_empty() {
-            let expected = expected_keys.collect::<BTreeSet<_>>();
-            return actual.len() == expected.len()
+            let expected_keys = expected
+                .iter()
+                .map(|id| super::structural_key(id, index, structural_keys))
+                .collect::<BTreeSet<_>>();
+            return Ok(actual.len() == expected_keys.len()
                 && actual
                     .iter()
                     .map(|id| super::structural_key(id, index, structural_keys))
-                    .zip(expected)
-                    .all(|(left, right)| left == right);
+                    .zip(expected_keys)
+                    .all(|(left, right)| left == right));
         }
-        let mut expected_tokens = HashSet::new();
-        for (raw, key) in expected.iter().zip(expected_keys) {
-            let token = if let Some(&token) = self.tokens.get(&std::ptr::from_ref(key)) {
-                token
-            } else if let Some(resolved) = resolve_unlisted_dependency(raw, structural_keys) {
-                // The interner uses Arc pointers as its cache keys. Retain
-                // each root for the whole validation pass so an allocator
-                // cannot reuse an address for a different expected key.
-                self.expected_roots.push(resolved);
-                let Some(tokens) = self.interner.tokens(std::slice::from_ref(
-                    self.expected_roots
-                        .last()
-                        .expect("just pushed expected key"),
-                )) else {
-                    return false;
-                };
-                tokens[0]
+        let Some(order) = self.order.as_ref() else {
+            return Ok(false);
+        };
+        let mut expected_tokens = meter.vec(expected.len())?;
+        for raw in expected {
+            let token = if let Some(&position) = index.get(raw) {
+                structural_keys
+                    .get(position)
+                    .and_then(|key| order.token(key))
             } else {
-                return false;
+                // An expected key outside the graph is found by its resolved
+                // ID; one that equals no listed key cannot match.
+                match resolve_unlisted_dependency(raw, structural_keys, meter)? {
+                    Some(resolved) => order.find(&resolved),
+                    None => None,
+                }
             };
-            expected_tokens.insert(token);
+            let Some(token) = token else {
+                return Ok(false);
+            };
+            expected_tokens.push(token);
         }
+        expected_tokens.sort_unstable();
+        expected_tokens.dedup();
         if actual.len() != expected_tokens.len() {
-            return false;
+            return Ok(false);
         }
         let mut previous_rank = None;
-        let mut actual_tokens = HashSet::with_capacity(actual.len());
+        let mut actual_tokens = meter.vec(actual.len())?;
         for id in actual {
-            let pointer = if let Some(key) = self.absent.get(&std::ptr::from_ref(id)) {
-                std::sync::Arc::as_ptr(key)
-            } else {
-                let key = super::structural_key(id, index, structural_keys);
-                std::ptr::from_ref(key)
+            let Some(key) = self.keys.key_of(id, index, structural_keys) else {
+                return Ok(false);
             };
-            let (Some(&token), Some(&rank)) = (self.tokens.get(&pointer), self.ranks.get(&pointer))
-            else {
-                return false;
+            let (Some(token), Some(rank)) = (order.token(key), order.rank(key)) else {
+                return Ok(false);
             };
             if previous_rank.is_some_and(|previous| previous >= rank) {
-                return false;
+                return Ok(false);
             }
             previous_rank = Some(rank);
-            actual_tokens.insert(token);
+            actual_tokens.push(token);
         }
-        actual_tokens == expected_tokens
+        actual_tokens.sort_unstable();
+        actual_tokens.dedup();
+        Ok(actual_tokens == expected_tokens)
     }
 
     fn ordered(
@@ -498,13 +537,13 @@ impl DependencyKeyOrder {
         if structural_keys.is_empty() {
             return actual.windows(2).all(|pair| pair[0] < pair[1]);
         }
+        let Some(order) = self.order.as_ref() else {
+            return false;
+        };
         let rank = |id: &CheckedNodeId| {
-            let pointer = if let Some(key) = self.absent.get(&std::ptr::from_ref(id)) {
-                std::sync::Arc::as_ptr(key)
-            } else {
-                std::ptr::from_ref(super::structural_key(id, index, structural_keys))
-            };
-            self.ranks.get(&pointer)
+            self.keys
+                .key_of(id, index, structural_keys)
+                .and_then(|key| order.rank(key))
         };
         actual
             .windows(2)
@@ -532,11 +571,14 @@ pub(super) fn validate_structural_nodes_with_keys(
     };
     // Rank once for this graph, including listed IDs absent from its nodes.
     // All later comparisons use shallow tokens and ranks, not deep key walks.
-    let mut dependency_order = DependencyKeyOrder::new(
+    meter.at_node(0, "dependency_order");
+    let dependency_keys = DependencyKeys::new(
         nodes.iter().map(|node| node.dependencies.as_slice()),
         index,
         structural_keys,
-    );
+        meter,
+    )?;
+    let dependency_order = DependencyKeyOrder::new(&dependency_keys, meter)?;
     for (&node_id, &position) in index {
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
@@ -588,7 +630,8 @@ pub(super) fn validate_structural_nodes_with_keys(
                     expected,
                     index,
                     structural_keys,
-                ) {
+                    meter,
+                )? {
                     Some(Defect::Dependencies)
                 } else {
                     None
@@ -623,7 +666,8 @@ pub(super) fn validate_structural_nodes_with_keys(
                     targets,
                     index,
                     structural_keys,
-                ) {
+                    meter,
+                )? {
                     Some(Defect::Dependencies)
                 } else {
                     None
@@ -675,7 +719,8 @@ pub(super) fn validate_structural_nodes_with_keys(
                     BTreeSet::from([key, value]),
                     index,
                     structural_keys,
-                ))
+                    meter,
+                )?)
                 .then_some(Defect::Dependencies)
             }
             Some(StructuralForm::UnionValue) => term
@@ -710,7 +755,8 @@ pub(super) fn validate_structural_nodes_with_keys(
                         expected.iter().collect(),
                         index,
                         structural_keys,
-                    ) {
+                        meter,
+                    )? {
                         return Err(refuse(Defect::Dependencies));
                     }
                 }
@@ -723,7 +769,8 @@ pub(super) fn validate_structural_nodes_with_keys(
                 expected.iter().collect(),
                 index,
                 structural_keys,
-            ) {
+                meter,
+            )? {
                 return Err(refuse(Defect::Dependencies));
             }
         }
@@ -1291,6 +1338,7 @@ pub(super) fn validate_selected_type_bounds(
     models: &[DomainModel],
     terms: &[Option<CheckedTerm>],
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut selected = Vec::new();
     for model in models {
@@ -1303,7 +1351,13 @@ pub(super) fn validate_selected_type_bounds(
             let Some(id) = member_type.node_id(&model.checked_package) else {
                 continue;
             };
-            selected.push((bounds.clone(), std::sync::Arc::new(id)));
+            // The bounds, the id and the `Arc` block holding it.
+            meter.reserve(
+                std::mem::size_of::<ValueBounds>()
+                    .saturating_add(std::mem::size_of::<CheckedNodeId>())
+                    .saturating_add(2 * std::mem::size_of::<usize>()),
+            )?;
+            meter.push(&mut selected, (bounds.clone(), std::sync::Arc::new(id)))?;
         }
     }
     if selected.is_empty() {
@@ -1312,23 +1366,38 @@ pub(super) fn validate_selected_type_bounds(
 
     // Tokens compare one path segment at a time. Comparing every rebuilt key
     // structurally would repeatedly descend a long operand chain.
-    let mut interner = super::node_index::StructuralInterner::new();
-    let graph_tokens = interner
-        .tokens(structural_keys)
-        .expect("reader-rebuilt graph keys contain only resolved operands");
-    let selected_keys = selected
-        .iter()
-        .map(|(_, id)| std::sync::Arc::clone(id))
-        .collect::<Vec<_>>();
-    let selected_tokens = interner
-        .tokens(&selected_keys)
-        .expect("selected member keys contain only resolved operands");
-    let mut index = Vec::new();
-    for (position, token) in graph_tokens.into_iter().enumerate() {
-        if token >= index.len() {
-            index.resize(token + 1, None);
+    let mut selected_keys = meter.vec(selected.len())?;
+    selected_keys.extend(selected.iter().map(|(_, id)| std::sync::Arc::clone(id)));
+    // The order wants every operand of a listed key listed too: the selected
+    // keys' own operands follow them, each allocation once.
+    let mut listed: Vec<*const CheckedNodeId> = Vec::new();
+    let mut pending: Vec<std::sync::Arc<CheckedNodeId>> = Vec::new();
+    for key in selected_keys.clone().iter() {
+        meter.push(&mut pending, std::sync::Arc::clone(key))?;
+        while let Some(key) = pending.pop() {
+            if !meter.insert_sorted(&mut listed, std::sync::Arc::as_ptr(&key))? {
+                continue;
+            }
+            for segment in &key.path {
+                if let CheckedNodePathSegment::Node(operand) = segment {
+                    meter.push(&mut pending, std::sync::Arc::clone(operand))?;
+                    meter.push(&mut selected_keys, std::sync::Arc::clone(operand))?;
+                }
+            }
         }
+    }
+    let order = meter
+        .structural_order(&[structural_keys, selected_keys.as_slice()])?
+        .expect("reader-rebuilt keys and selected member keys contain only resolved operands");
+    // A token is at most the number of keys the order was built over.
+    let mut index = meter.filled(structural_keys.len() + selected_keys.len(), None)?;
+    for (position, key) in structural_keys.iter().enumerate() {
+        let token = order.token(key).expect("graph keys are in the order");
         index[token] = Some(position);
+    }
+    let mut selected_tokens = meter.vec(selected.len())?;
+    for key in selected_keys.iter().take(selected.len()) {
+        selected_tokens.push(order.token(key).expect("selected keys are in the order"));
     }
     for ((expected, id), token) in selected.into_iter().zip(selected_tokens) {
         let Some(&Some(position)) = index.get(token) else {
@@ -2053,15 +2122,41 @@ mod tests {
         actual.push(absent.clone());
         let expected = wire.iter().chain(std::iter::once(&absent)).collect();
         checked_node_comparisons::reset();
-        let mut order =
-            DependencyKeyOrder::new(std::iter::once(actual.as_slice()), &index, &structural);
-        assert!(order.matches(&actual, expected, &index, &structural,));
+        let mut meter = WorkMeter::new(u64::MAX);
+        let keys = DependencyKeys::new(
+            std::iter::once(actual.as_slice()),
+            &index,
+            &structural,
+            &mut meter,
+        )
+        .ok()
+        .expect("keys build");
+        let order = DependencyKeyOrder::new(&keys, &mut meter)
+            .ok()
+            .expect("order builds");
+        assert_eq!(
+            order
+                .matches(&actual, expected, &index, &structural, &mut meter)
+                .ok(),
+            Some(true)
+        );
         assert!(
             checked_node_comparisons::count() < 64 * LENGTH as u64,
             "one missing target must not compare the shared chain repeatedly: {}",
             checked_node_comparisons::count()
         );
-        assert!(!order.matches(&actual, wire.iter().collect(), &index, &structural,));
+        assert_eq!(
+            order
+                .matches(
+                    &actual,
+                    wire.iter().collect(),
+                    &index,
+                    &structural,
+                    &mut meter
+                )
+                .ok(),
+            Some(false)
+        );
         let wrong = CheckedNodeId {
             package: "structural-test".into(),
             path: vec![
@@ -2070,12 +2165,18 @@ mod tests {
             ],
             ordinal: 0,
         };
-        assert!(!order.matches(
-            &actual,
-            wire.iter().chain(std::iter::once(&wrong)).collect(),
-            &index,
-            &structural,
-        ));
+        assert_eq!(
+            order
+                .matches(
+                    &actual,
+                    wire.iter().chain(std::iter::once(&wrong)).collect(),
+                    &index,
+                    &structural,
+                    &mut meter,
+                )
+                .ok(),
+            Some(false)
+        );
     }
 
     #[trace("TC-048", "FR-038-AC-22")]

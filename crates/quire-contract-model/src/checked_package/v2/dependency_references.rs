@@ -70,7 +70,8 @@ pub(super) struct SuppliedDependencies<'e> {
 /// selected graphs and the importing graph from shallow structural descriptors.
 pub(super) struct StructuralImportIndex<'e> {
     importer: Vec<usize>,
-    selected: Vec<(&'e str, &'e CheckedPackageV2, BTreeMap<usize, usize>)>,
+    /// Each selected package, with its `(token, position)` pairs in token order.
+    selected: Vec<(&'e str, &'e CheckedPackageV2, Vec<(usize, usize)>)>,
 }
 
 impl<'e> StructuralImportIndex<'e> {
@@ -83,7 +84,12 @@ impl<'e> StructuralImportIndex<'e> {
         self.selected
             .iter()
             .find(|(identity, _, _)| *identity == package)
-            .and_then(|(_, selected, positions)| positions.get(token).map(|&at| (at, *selected)))
+            .and_then(|(_, selected, positions)| {
+                let at = positions
+                    .binary_search_by_key(token, |(held, _)| *held)
+                    .ok()?;
+                Some((positions[at].1, *selected))
+            })
     }
 }
 
@@ -103,30 +109,42 @@ impl<'e> SuppliedDependencies<'e> {
         importer_keys: &[std::sync::Arc<CheckedNodeId>],
         meter: &mut WorkMeter,
     ) -> Result<StructuralImportIndex<'e>, ValidationFailure> {
-        let mut interner = super::node_index::StructuralInterner::new();
-        let importer = interner
-            .tokens(importer_keys)
-            .expect("reader rebuilt each importer key");
+        // One order over the importer and every selected graph, so equal keys
+        // of different documents share a token. The tables below are plain
+        // integers, so the order itself ends with this call.
+        let mut lists: Vec<&[std::sync::Arc<CheckedNodeId>]> =
+            meter.vec(self.packages.len() + 1)?;
+        lists.push(importer_keys);
+        lists.extend(
+            self.packages
+                .iter()
+                .map(|package| package.package.structural_keys.as_slice()),
+        );
+        let order = meter
+            .structural_order(&lists)?
+            .expect("reader rebuilt each key of every selected graph");
+        let mut importer = meter.vec(importer_keys.len())?;
+        for key in importer_keys {
+            importer.push(order.token(key).expect("reader rebuilt each importer key"));
+        }
         meter.charge(count(importer.len()), || {
             JsonPointer::root().key("semantic_graph").key("nodes")
         })?;
-        let mut selected = Vec::with_capacity(self.packages.len());
+        let mut selected = meter.vec(self.packages.len())?;
         for package in &self.packages {
-            let tokens = interner
-                .tokens(&package.package.structural_keys)
-                .expect("admitted dependency has rebuilt keys");
-            meter.charge(count(tokens.len()), || {
+            let keys = &package.package.structural_keys;
+            let mut positions = meter.vec(keys.len())?;
+            for (position, key) in keys.iter().enumerate() {
+                let token = order
+                    .token(key)
+                    .expect("admitted dependency has rebuilt keys");
+                positions.push((token, position));
+            }
+            positions.sort_unstable();
+            meter.charge(count(positions.len()), || {
                 JsonPointer::root().key("lock").key("dependency_selections")
             })?;
-            selected.push((
-                package.identity,
-                package.package,
-                tokens
-                    .into_iter()
-                    .enumerate()
-                    .map(|(position, token)| (token, position))
-                    .collect(),
-            ));
+            selected.push((package.identity, package.package, positions));
         }
         Ok(StructuralImportIndex { importer, selected })
     }

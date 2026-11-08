@@ -51,7 +51,9 @@ mod native_join_budget;
 mod native_join_storage;
 mod natural;
 mod node_index;
+pub(in crate::checked_package) use node_index::StructuralOrder;
 mod operation_catalog;
+mod read_charge;
 pub use operation_catalog::{initialize_operation_catalog, CatalogReadError};
 mod operation_effects;
 mod operation_witness;
@@ -1381,7 +1383,7 @@ impl CheckedPackageV2 {
     ) -> Result<Self, ValidationFailure> {
         // The document the shared reader built is the grammar and canonical
         // proof of the bytes; the typed decode below still reads the bytes.
-        drop(budgeted_read::read_envelope(bytes, limits, budget)?);
+        let document = budgeted_read::read_envelope(bytes, limits, budget)?;
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
             Some(Value::String(version))
                 if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {
@@ -1413,11 +1415,9 @@ impl CheckedPackageV2 {
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
         // Every later stage compares operands by graph index, so each node-held
-        // slot is read through its row once here; `slot_ids` keeps the nodes'
-        // own IDs as written for the operand checks.
-        let slot_ids = node_index::slot_ids(&wire);
-        node_index::resolve_slots(&mut wire);
-        validate_owner_schema(&wire)?;
+        // slot is read through its row once here.
+        node_index::resolve_slots(&mut wire, budget)?;
+        validate_owner_schema(&wire, budget)?;
         let ValidatedPackage {
             kinds,
             schedulability_claim_index,
@@ -1427,7 +1427,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(catalog, &wire, &slot_ids, bytes, limits, evidence, budget)?;
+        } = validate(catalog, &wire, &document, limits, evidence, budget)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1761,8 +1761,7 @@ struct ValidatedGraph {
 fn validate(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
-    slot_ids: &[CheckedNodeId],
-    bytes: &[u8],
+    document: &quire_canonical::Document,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
     budget: &mut NativeJoinBudget,
@@ -1770,9 +1769,9 @@ fn validate(
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
-    let flat_kinds = flat_wire::check(wire)?;
-    let structural_keys = node_index::check(bytes, wire, slot_ids, evidence)?;
-    flat_wire::check_interval_bounds(wire, &flat_kinds)?;
+    let flat_kinds = flat_wire::check(wire, budget)?;
+    let structural_keys = node_index::check(document, wire, evidence, budget)?;
+    flat_wire::check_interval_bounds(wire, &flat_kinds, budget)?;
     let mut meter = WorkMeter::over(budget);
     let LockAdmission {
         models,
@@ -2192,11 +2191,61 @@ fn validate_domain_packages(
         .collect()
 }
 
-/// Checks a structural node identity and all nested operand identities.
+/// [`validate_node_id_charged`] under a budget that charges nothing, for the
+/// graph validators whose stage has not yet threaded the read's budget here.
 fn validate_node_id(
     id: &CheckedNodeId,
     at: impl FnOnce() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
+    validate_node_id_charged(
+        id,
+        at,
+        &mut NativeJoinBudget::unlimited(),
+        read_charge::Site::new(PackageReadStage::Graph, 0, "node_id"),
+    )
+}
+
+/// Whether a structural node identity and all nested operand identities are
+/// within the wire bounds. The worklist of nested operands is the only
+/// allocation, charged at `site`; a plain identity allocates nothing.
+fn node_id_is_valid(
+    id: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+    site: read_charge::Site,
+) -> Result<bool, ValidationFailure> {
+    const MAX_ORDINAL: u64 = 9_007_199_254_740_991;
+    let mut pending: Vec<&CheckedNodeId> = Vec::new();
+    let mut candidate = id;
+    loop {
+        if !is_nonempty(&candidate.package)
+            || candidate.path.is_empty()
+            || candidate.ordinal > MAX_ORDINAL
+        {
+            return Ok(false);
+        }
+        for segment in &candidate.path {
+            if let CheckedNodePathSegment::Node(child) = segment {
+                read_charge::push(budget, site, &mut pending, child.as_ref())?;
+            }
+        }
+        match pending.pop() {
+            Some(next) => candidate = next,
+            None => return Ok(true),
+        }
+    }
+}
+
+/// Checks a structural node identity and all nested operand identities. The
+/// pointer of a refusal is built only for a defective identity.
+fn validate_node_id_charged(
+    id: &CheckedNodeId,
+    at: impl FnOnce() -> JsonPointer,
+    budget: &mut NativeJoinBudget,
+    site: read_charge::Site,
+) -> Result<(), ValidationFailure> {
+    if node_id_is_valid(id, budget, site)? {
+        return Ok(());
+    }
     const MAX_ORDINAL: u64 = 9_007_199_254_740_991;
     let mut pending = vec![(id, at())];
     while let Some((candidate, pointer)) = pending.pop() {
@@ -3372,7 +3421,7 @@ fn validate_graph(
         models,
         meter,
     )?;
-    validate_selected_type_bounds(models, &terms, structural_keys)?;
+    validate_selected_type_bounds(models, &terms, structural_keys, meter)?;
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
