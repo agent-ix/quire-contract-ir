@@ -344,9 +344,18 @@ fn a_repeated_insufficient_read_stops_at_the_same_first_unpaid_charge() {
 #[test]
 fn sufficient_budgets_preserve_the_first_refusal_with_two_header_faults() {
     let mut wire = v2_all_families();
+    // Prepare genuine node identities and evidence before introducing faults:
+    // fixture indexing requires the package name that this input removes.
+    index_fixture_node_ids(&mut wire);
+    let evidence = evidence_for(&wire);
     wire["contract_version"] = Value::String("unknown-version".into());
     wire.as_object_mut().expect("package").remove("name");
-    let input = input("version before missing name", &wire);
+    let input = Input {
+        label: "version before missing name".into(),
+        bytes: canonical(&wire),
+        evidence,
+        limits: CheckedPackageReadLimits::bounded(),
+    };
     let CheckedPackageV2ReadResult::Refused(expected) = plain(&input) else {
         panic!("two header faults must refuse");
     };
