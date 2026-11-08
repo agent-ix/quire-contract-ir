@@ -183,8 +183,7 @@ fn emit(qsl: &std::path::Path, time_source: &str) -> Emitted {
             },
             Some(progress),
             caps(),
-            &mut NativeJoinBudget::new(100_000_000, 100_000_000)
-                .with_read_storage_limit(1 << 28),
+            &mut NativeJoinBudget::new(100_000_000, 100_000_000).with_read_storage_limit(1 << 28),
             NativeJoinLocus {
                 source: NativeJoinLocusSource::ReachedRow(0),
                 form: "qsl_authority_selection",
@@ -358,19 +357,47 @@ fn genuine_qsl_authority_binds_dense_and_tick_emissions() {
         assert_eq!(receipt.clock().clause(), plan.clause(), "{label}");
         let selected = CheckedOccurrence {
             role: CheckedOccurrenceRole::Claim,
-            ordinal: u64::from(authority.root().plan().subject().occurrence().origin().ordinal()),
+            ordinal: u64::from(
+                authority
+                    .root()
+                    .plan()
+                    .subject()
+                    .occurrence()
+                    .origin()
+                    .ordinal(),
+            ),
         };
-        assert_eq!(receipt.occurrence(), &selected, "{label}: QSL-selected occurrence");
-        let expected_clock = plan.clock_for_claim(plan.clause(), &selected, &mut big()).unwrap();
-        assert_eq!(receipt.clock(), &expected_clock, "{label}: selected admitted clock");
-        assert!(std::ptr::eq(receipt.order_value(), authority.admitted_order()), "{label}: borrowed order");
-        assert!(std::ptr::eq(receipt.progress_association(), authority.progress_context()), "{label}: borrowed association");
+        assert_eq!(
+            receipt.occurrence(),
+            &selected,
+            "{label}: QSL-selected occurrence"
+        );
+        let expected_clock = plan
+            .clock_for_claim(plan.clause(), &selected, &mut big())
+            .unwrap();
+        assert_eq!(
+            receipt.clock(),
+            &expected_clock,
+            "{label}: selected admitted clock"
+        );
+        assert!(
+            std::ptr::eq(receipt.order_value(), authority.admitted_order()),
+            "{label}: borrowed order"
+        );
+        assert!(
+            std::ptr::eq(receipt.progress_association(), authority.progress_context()),
+            "{label}: borrowed association"
+        );
         let cloned = package.clone();
         let mut clone_budget = big();
         let clone_closure = project(authority, &cloned, &row, &mut clone_budget)
             .expect("a clone retains the same admission capability");
         assert_eq!(clone_closure.authority(), receipt, "{label}: clone receipt");
-        assert_eq!(clone_budget.consumed(), budget.consumed(), "{label}: clone charges");
+        assert_eq!(
+            clone_budget.consumed(),
+            budget.consumed(),
+            "{label}: clone charges"
+        );
         assert!(
             matches!(
                 receipt.clock().clock(),
@@ -598,7 +625,11 @@ fn genuine_authority_prepays_a_large_clause_and_its_refusal_diagnostic() {
     let plan = package.monitor_plans().next().unwrap();
     let mut clause = plan.clause().clone();
     let prefix = "selected-qsl-clause".repeat(2048);
-    clause.path.push(quire_contract_model::CheckedNodePathSegment::Name(prefix.clone().into()));
+    clause
+        .path
+        .push(quire_contract_model::CheckedNodePathSegment::Name(
+            prefix.clone().into(),
+        ));
     let claim = authority.root().plan().subject();
     let row = SelectedMonitorAuthorityRow::try_new(
         authority.admission_binding(),
@@ -612,27 +643,64 @@ fn genuine_authority_prepays_a_large_clause_and_its_refusal_diagnostic() {
         },
         authority.admitted_order(),
         authority.progress_context(),
-    ).unwrap();
+    )
+    .unwrap();
     let mut measured = big();
     let full = project(authority, package, &row, &mut measured).unwrap_err();
-    assert_eq!(code(&full), SelectedMonitorAuthorityErrorCode::ClauseMismatch);
+    assert_eq!(
+        code(&full),
+        SelectedMonitorAuthorityErrorCode::ClauseMismatch
+    );
     assert_eq!(full.at.as_deref(), Some(plan.node_id()));
-    assert!(full.work > prefix.len() as u64, "the caller's entire clause width is charged");
+    assert!(
+        full.work > prefix.len() as u64,
+        "the caller's entire clause width is charged"
+    );
     let spent = measured.consumed();
-    let exact = project(authority, package, &row, &mut NativeJoinBudget::new(spent.work, spent.storage)).unwrap_err();
+    let exact = project(
+        authority,
+        package,
+        &row,
+        &mut NativeJoinBudget::new(spent.work, spent.storage),
+    )
+    .unwrap_err();
     assert_eq!(exact, full);
-    let compact = project(authority, package, &row, &mut NativeJoinBudget::new(spent.work, spent.storage - 1)).unwrap_err();
-    assert_eq!(compact.code, SelectedMonitorTypeClosureErrorCode::StorageLimit);
+    let compact = project(
+        authority,
+        package,
+        &row,
+        &mut NativeJoinBudget::new(spent.work, spent.storage - 1),
+    )
+    .unwrap_err();
+    assert_eq!(
+        compact.code,
+        SelectedMonitorTypeClosureErrorCode::StorageLimit
+    );
     assert_eq!(compact.at, None);
     assert_eq!(compact.occurrence, None);
     assert_eq!(compact.work, full.work);
-    assert_eq!(compact.denied_locus, Some(NativeJoinLocus {
-        source: NativeJoinLocusSource::MonitorAuthority,
-        form: "selected_authority",
-    }));
+    assert_eq!(
+        compact.denied_locus,
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::MonitorAuthority,
+            form: "selected_authority",
+        })
+    );
     let diagnostic = compact.denied.unwrap();
-    assert_eq!(diagnostic.kind, quire_contract_model::NativeJoinChargeKind::Storage);
+    assert_eq!(
+        diagnostic.kind,
+        quire_contract_model::NativeJoinChargeKind::Storage
+    );
     let before_diagnostic = spent.storage - u64::try_from(diagnostic.amount).unwrap();
-    let empty = project(authority, package, &row, &mut NativeJoinBudget::new(spent.work, before_diagnostic)).unwrap_err();
-    assert_eq!(empty, compact, "zero remaining diagnostic storage keeps the same compact refusal");
+    let empty = project(
+        authority,
+        package,
+        &row,
+        &mut NativeJoinBudget::new(spent.work, before_diagnostic),
+    )
+    .unwrap_err();
+    assert_eq!(
+        empty, compact,
+        "zero remaining diagnostic storage keeps the same compact refusal"
+    );
 }

@@ -11,8 +11,9 @@ use crate::checked_package::v2::native_join_budget::{read_charge, read_node_work
 use crate::checked_package::v2::native_join_storage as storage;
 use crate::checked_package::v2::timed_model::{admitted_time_source, AdmittedTimeSource};
 use crate::checked_package::v2::{
-    AdmissionBinding, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole, CheckedRational,
-    NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource,
+    AdmissionBinding, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence,
+    CheckedOccurrenceRole, CheckedRational, NativeJoinBudget, NativeJoinChargeKind,
+    NativeJoinLocus, NativeJoinLocusSource,
 };
 use num_bigint::BigUint;
 
@@ -252,15 +253,21 @@ fn identity_work(
         for segment in &node.path {
             match segment {
                 CheckedNodePathSegment::Node(child) => {
-                    read_charge(budget, NativeJoinChargeKind::Storage, if pending.capacity() == 0 { 2 } else { 1 })
-                        .map_err(|_| native_error(budget))?;
+                    read_charge(
+                        budget,
+                        NativeJoinChargeKind::Storage,
+                        if pending.capacity() == 0 { 2 } else { 1 },
+                    )
+                    .map_err(|_| native_error(budget))?;
                     pending.push(child.as_ref());
                 }
                 CheckedNodePathSegment::Dependency { package, .. } => {
                     read_charge(budget, NativeJoinChargeKind::Work, package.len() as u128)
                         .map_err(|_| native_error(budget))?;
                 }
-                CheckedNodePathSegment::Name(_) | CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {}
+                CheckedNodePathSegment::Name(_)
+                | CheckedNodePathSegment::Index(_)
+                | CheckedNodePathSegment::Operand(_) => {}
             }
         }
         current = pending.pop();
@@ -279,9 +286,14 @@ fn same_clause(
         // The shared seam supplies a whole scratch block's size. Its byte
         // width conservatively bounds all owned continuation handles, plus
         // one container, without duplicating the private frame layout.
-        read_charge(budget, NativeJoinChargeKind::Storage, (bytes as u128).saturating_add(1))
-            .map_err(|_| native_error(budget))
-    }).map(|order| order.is_eq())
+        read_charge(
+            budget,
+            NativeJoinChargeKind::Storage,
+            (bytes as u128).saturating_add(1),
+        )
+        .map_err(|_| native_error(budget))
+    })
+    .map(|order| order.is_eq())
 }
 
 impl<'a> CheckedMonitorPlanRef<'a> {
@@ -459,7 +471,13 @@ mod tests {
         locus(NativeJoinLocusSource::MonitorAuthority, &mut below);
         let error = same_clause(&left, &right, &mut below).unwrap_err();
         assert_eq!(error.code, SelectedMonitorTypeClosureErrorCode::WorkLimit);
-        assert_eq!(error.denied_locus, Some(NativeJoinLocus { source: NativeJoinLocusSource::MonitorAuthority, form: FORM }));
+        assert_eq!(
+            error.denied_locus,
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::MonitorAuthority,
+                form: FORM
+            })
+        );
         assert!(error.denied.unwrap().amount > 1);
 
         let wrap = |child| CheckedNodeId {
@@ -471,31 +489,66 @@ mod tests {
         let right = wrap(identity(&format!("{prefix}a"), 0));
         let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let mut equal = None;
-        let full_allocation = allocation_counter::measure(|| equal = Some(same_clause(&left, &right, &mut measured)));
+        let full_allocation =
+            allocation_counter::measure(|| equal = Some(same_clause(&left, &right, &mut measured)));
         assert!(equal.unwrap().unwrap());
         let spent = measured.consumed();
         assert!(spent.work > 2 * prefix.len() as u64);
-        assert!(spent.storage > 4, "the shared comparator's scratch is prepaid after both identity walks");
-        assert!(same_clause(&left, &right, &mut NativeJoinBudget::new(spent.work, spent.storage)).unwrap());
+        assert!(
+            spent.storage > 4,
+            "the shared comparator's scratch is prepaid after both identity walks"
+        );
+        assert!(same_clause(
+            &left,
+            &right,
+            &mut NativeJoinBudget::new(spent.work, spent.storage)
+        )
+        .unwrap());
         let mut below = NativeJoinBudget::new(spent.work, spent.storage - 1);
         let mut result = None;
-        let allocated = allocation_counter::measure(|| result = Some(same_clause(&left, &right, &mut below)));
-        assert_eq!(allocated.count_total + 1, full_allocation.count_total, "the unpaid comparator scratch block must not allocate");
+        let allocated =
+            allocation_counter::measure(|| result = Some(same_clause(&left, &right, &mut below)));
+        assert_eq!(
+            allocated.count_total + 1,
+            full_allocation.count_total,
+            "the unpaid comparator scratch block must not allocate"
+        );
         let error = result.unwrap().unwrap_err();
-        assert_eq!(error.code, SelectedMonitorTypeClosureErrorCode::StorageLimit);
+        assert_eq!(
+            error.code,
+            SelectedMonitorTypeClosureErrorCode::StorageLimit
+        );
         assert!(error.denied.unwrap().amount > 1);
         let dependent = |package: &str, node| CheckedNodeId {
             package: "nested-dependency".into(),
-            path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(CheckedNodeId {
-                package: "child".into(),
-                path: vec![CheckedNodePathSegment::Dependency { package: package.into(), node }],
-                ordinal: 0,
-            }))],
+            path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(
+                CheckedNodeId {
+                    package: "child".into(),
+                    path: vec![CheckedNodePathSegment::Dependency {
+                        package: package.into(),
+                        node,
+                    }],
+                    ordinal: 0,
+                },
+            ))],
             ordinal: 0,
         };
         let selected = dependent("producer", 7);
-        for (candidate, expected) in [(dependent("producer", 7), true), (dependent("producer-next", 7), false), (dependent("producer", 8), false)] {
-            assert_eq!(same_clause(&selected, &candidate, &mut NativeJoinBudget::new(u64::MAX, u64::MAX)).unwrap(), expected, "nested dependency package and position keep their shared structural semantics");
+        for (candidate, expected) in [
+            (dependent("producer", 7), true),
+            (dependent("producer-next", 7), false),
+            (dependent("producer", 8), false),
+        ] {
+            assert_eq!(
+                same_clause(
+                    &selected,
+                    &candidate,
+                    &mut NativeJoinBudget::new(u64::MAX, u64::MAX)
+                )
+                .unwrap(),
+                expected,
+                "nested dependency package and position keep their shared structural semantics"
+            );
         }
     }
 
@@ -505,19 +558,39 @@ mod tests {
         let digits = "7".repeat(4096);
         let row = period("2", "1");
         for admitted in [digits.clone(), format!("{digits}/1")] {
-            let width = admitted.len() as u128 + row.numerator.len() as u128 + row.denominator.len() as u128 + 1;
+            let width = admitted.len() as u128
+                + row.numerator.len() as u128
+                + row.denominator.len() as u128
+                + 1;
             let charge = width * width + width;
             for allowance in [0, u64::try_from(charge).unwrap() - 1] {
                 let mut budget = NativeJoinBudget::new(allowance, u64::MAX);
                 locus(NativeJoinLocusSource::MonitorSeed(0), &mut budget);
                 let mut result = None;
-                let allocated = allocation_counter::measure(|| result = Some(same_period(&admitted, &row, &mut budget)));
+                let allocated = allocation_counter::measure(|| {
+                    result = Some(same_period(&admitted, &row, &mut budget))
+                });
                 assert_eq!(allocated.count_total, 0);
                 let error = result.unwrap().unwrap_err();
                 assert_eq!(error.code, SelectedMonitorTypeClosureErrorCode::WorkLimit);
-                assert_eq!(error.work, 0, "the scan reservation is the first inspection");
-                assert_eq!(error.denied, Some(crate::NativeJoinDeniedCharge { kind: NativeJoinChargeKind::Work, amount: charge }));
-                assert_eq!(error.denied_locus, Some(NativeJoinLocus { source: NativeJoinLocusSource::MonitorSeed(0), form: FORM }));
+                assert_eq!(
+                    error.work, 0,
+                    "the scan reservation is the first inspection"
+                );
+                assert_eq!(
+                    error.denied,
+                    Some(crate::NativeJoinDeniedCharge {
+                        kind: NativeJoinChargeKind::Work,
+                        amount: charge
+                    })
+                );
+                assert_eq!(
+                    error.denied_locus,
+                    Some(NativeJoinLocus {
+                        source: NativeJoinLocusSource::MonitorSeed(0),
+                        form: FORM
+                    })
+                );
             }
         }
     }
@@ -527,33 +600,62 @@ mod tests {
     fn authority_refusal_prepays_its_complete_owned_diagnostic_or_stays_compact() {
         let mut at = identity(&"diagnostic".repeat(128), 4);
         let dependency = "diagnostic-selected-dependency".repeat(64);
-        at.path.push(CheckedNodePathSegment::Dependency { package: dependency.clone().into(), node: 3 });
-        let occurrence = CheckedOccurrence { role: CheckedOccurrenceRole::Claim, ordinal: 7 };
+        at.path.push(CheckedNodePathSegment::Dependency {
+            package: dependency.clone().into(),
+            node: 3,
+        });
+        let occurrence = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Claim,
+            ordinal: 7,
+        };
         let floor = storage::node(&at) + 2 + 1 + dependency.len() as u128;
         let code = SelectedMonitorAuthorityErrorCode::OccurrenceMismatch;
         let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let full = refusal(code, &at, Some(&occurrence), &mut measured);
-        assert_eq!(full.code, SelectedMonitorTypeClosureErrorCode::Authority(code));
+        assert_eq!(
+            full.code,
+            SelectedMonitorTypeClosureErrorCode::Authority(code)
+        );
         assert_eq!(full.at.as_deref(), Some(&at));
         assert_eq!(full.occurrence, Some(occurrence.clone()));
         assert_eq!(measured.consumed().storage as u128, floor);
-        let mut exact = NativeJoinBudget::new(measured.consumed().work, u64::try_from(floor).unwrap());
+        let mut exact =
+            NativeJoinBudget::new(measured.consumed().work, u64::try_from(floor).unwrap());
         assert_eq!(refusal(code, &at, Some(&occurrence), &mut exact), full);
         for storage in [0, u64::try_from(floor).unwrap() - 1] {
             let mut budget = NativeJoinBudget::new(u64::MAX, storage);
             locus(NativeJoinLocusSource::MonitorAuthority, &mut budget);
             let mut result = None;
-            let allocated = allocation_counter::measure(|| result = Some(refusal(code, &at, Some(&occurrence), &mut budget)));
-            assert_eq!(allocated.count_total, 0, "an unaffordable diagnostic owns nothing");
+            let allocated = allocation_counter::measure(|| {
+                result = Some(refusal(code, &at, Some(&occurrence), &mut budget))
+            });
+            assert_eq!(
+                allocated.count_total, 0,
+                "an unaffordable diagnostic owns nothing"
+            );
             let compact = result.unwrap();
-            assert_eq!(compact.code, SelectedMonitorTypeClosureErrorCode::StorageLimit);
+            assert_eq!(
+                compact.code,
+                SelectedMonitorTypeClosureErrorCode::StorageLimit
+            );
             assert_eq!(compact.at, None);
             assert_eq!(compact.occurrence, None);
             assert_eq!(compact.work, full.work);
-            assert_eq!(compact.denied, Some(crate::NativeJoinDeniedCharge { kind: NativeJoinChargeKind::Storage, amount: floor }));
-            assert_eq!(compact.denied_locus, Some(NativeJoinLocus { source: NativeJoinLocusSource::MonitorAuthority, form: FORM }));
+            assert_eq!(
+                compact.denied,
+                Some(crate::NativeJoinDeniedCharge {
+                    kind: NativeJoinChargeKind::Storage,
+                    amount: floor
+                })
+            );
+            assert_eq!(
+                compact.denied_locus,
+                Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::MonitorAuthority,
+                    form: FORM
+                })
+            );
             assert_eq!(budget.consumed().storage, 0);
         }
     }
-
 }
