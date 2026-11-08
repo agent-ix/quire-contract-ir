@@ -50,7 +50,7 @@ use super::{
     CheckedTerm, FrameEntryKind, ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
     RelationForm, TermNode, WorkMeter,
 };
-use crate::checked_package::common::{node_pointer, Trail, ValidationFailure};
+use crate::checked_package::common::{Trail, ValidationFailure};
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 
@@ -983,11 +983,13 @@ mod document_storage_tests {
         }
     }
 
-    fn semantic_fixture() -> (
+    type SemanticFixture = (
         Vec<CheckedSemanticNodeV2>,
         Vec<CheckedNodeKind>,
         Vec<(usize, FrameBody)>,
-    ) {
+    );
+
+    fn semantic_fixture() -> SemanticFixture {
         let mut nodes: Vec<CheckedSemanticNodeV2> = (0..72)
             .map(|position| CheckedSemanticNodeV2 {
                 node_id: semantic_id(position),
