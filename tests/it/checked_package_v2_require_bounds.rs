@@ -770,7 +770,7 @@ fn canonical_referenced_integer_exponent_lowers_and_parameters_still_require_bou
         panic!("checked exponent is the original Integer literal");
     };
     assert_eq!(type_id, &integer);
-    assert_eq!(value, "2");
+    assert_eq!(value.as_str(), Some("2"));
     let Some(CheckedTerm::Application { result_type, .. }) = admitted.term(&square) else {
         panic!("checked square application");
     };

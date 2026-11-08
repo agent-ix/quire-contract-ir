@@ -705,7 +705,7 @@ mod tests {
         let value = CheckedTerm::Literal {
             type_id: serde_json::from_value(id('1')).expect("integer type"),
             value_kind: LiteralKind::Integer,
-            value: json!("13"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("13")),
         };
         std::sync::Arc::make_mut(&mut package.terms)[2] = value.clone();
         std::sync::Arc::make_mut(&mut package.wire)
@@ -913,7 +913,9 @@ mod tests {
                     let CheckedTerm::Literal { value, .. } = value.as_mut() else {
                         panic!("minimum literal");
                     };
-                    *value = json!("-170141183460469231731687303715884105729");
+                    *value = crate::checked_package::CheckedJson::scalar(&json!(
+                        "-170141183460469231731687303715884105729"
+                    ));
                 }
                 _ => unreachable!("the test varies only range dispositions"),
             }

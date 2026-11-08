@@ -74,7 +74,7 @@ fn tc_048_non_byte_encoder_failure_reports_one_above_the_limit() {
     node.node.body = super::super::CheckedTerm::Literal {
         type_id: node.semantic_type.clone(),
         value_kind: super::super::LiteralKind::Integer,
-        value: json!(9_007_199_254_740_993_i64),
+        value: crate::checked_package::CheckedJson::scalar(&json!(9_007_199_254_740_993_i64)),
     };
     let ceiling = 1 << 20;
     assert!(matches!(
