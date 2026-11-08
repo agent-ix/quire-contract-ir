@@ -850,9 +850,7 @@ mod tests {
     use quire_semantic_value::declaration::{EqualityOperator, EqualitySchedule};
 
     /// A row for the fixture's first claim, read from the package under test.
-    fn test_authority(
-        package: &CheckedPackageV2,
-    ) -> crate::SelectedMonitorAuthorityRow<'static> {
+    fn test_authority(package: &CheckedPackageV2) -> crate::SelectedMonitorAuthorityRow<'static> {
         use crate::{CheckedMonitorClock, SelectedMonitorAuthorityRow, SelectedMonitorTimeSource};
         let plan = package.monitor_plans().next().unwrap();
         let clause = plan.clause().clone();
@@ -886,14 +884,14 @@ mod tests {
             },
         };
         SelectedMonitorAuthorityRow::try_new(
-                package.admission_binding(),
-                clause,
-                occurrence,
-                time_source,
-                b"order",
-                b"progress",
-            )
-            .unwrap()
+            package.admission_binding(),
+            clause,
+            occurrence,
+            time_source,
+            b"order",
+            b"progress",
+        )
+        .unwrap()
     }
 
     fn admitted_monitor() -> CheckedPackageV2 {
@@ -1142,16 +1140,25 @@ mod tests {
         let model = monitor_plan_fixtures::find(wire, "object_type");
         let unit = fixture_support::node_id("qualified:Example/Second");
         let unit_at = monitor_plan_fixtures::position(wire, &unit);
-        let dimension = wire["semantic_graph"]["nodes"][unit_at]["body"]["dimension_node_id"].clone();
+        let dimension =
+            wire["semantic_graph"]["nodes"][unit_at]["body"]["dimension_node_id"].clone();
         let text = monitor_plan_fixtures::find(wire, "text");
         let clause = monitor_plan_fixtures::find(wire, "temporal_clause");
         let clause_at = monitor_plan_fixtures::position(wire, &clause);
-        let parameter = wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][0]["target"].clone();
+        let parameter =
+            wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][0]["target"].clone();
         let parameter_at = monitor_plan_fixtures::position(wire, &parameter);
-        wire["semantic_graph"]["nodes"][parameter_at]["semantic_type"] = model.clone();
+        let subject_type = monitor_plan_fixtures::type_node(
+            wire, "reference", aggregate(vec![reference(&model)]), "MonitorSubject",
+        );
+        let subject_type_at = monitor_plan_fixtures::position(wire, &subject_type);
+        wire["semantic_graph"]["nodes"][parameter_at]["semantic_type"] = subject_type;
         let profile = json!({"role":"temporal_profile", "definition":{
             "authority":"agent-ix", "identity":"quire.temporal.timed/v1"}});
-        wire["lock"]["profile_selections"].as_array_mut().unwrap().push(profile.clone());
+        wire["lock"]["profile_selections"]
+            .as_array_mut()
+            .unwrap()
+            .push(profile.clone());
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
             if node["body"]["term"] != "application" {
                 continue;
@@ -1175,25 +1182,63 @@ mod tests {
                     "lower_end":"closed", "upper_end":"closed"});
             }
         }
-        wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][1]["value"] = json!("model-time");
-        wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][2] = aggregate(vec![binding("kind", monitor_plan_fixtures::literal(&text, "text", json!("origin")))]);
-        let source = monitor_plan_fixtures::append(wire, "timed_model", "time_source", None,
-            aggregate(vec![binding("kind", monitor_plan_fixtures::literal(&text, "text", json!("dense"))), binding("unit", reference(&unit))]), "dense");
+        wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][1]["value"] =
+            json!("model-time");
+        wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][2] =
+            aggregate(vec![binding(
+                "kind",
+                monitor_plan_fixtures::literal(&text, "text", json!("origin")),
+            )]);
+        let source = monitor_plan_fixtures::append(
+            wire,
+            "timed_model",
+            "time_source",
+            None,
+            aggregate(vec![
+                binding(
+                    "kind",
+                    monitor_plan_fixtures::literal(&text, "text", json!("dense")),
+                ),
+                binding("unit", reference(&unit)),
+            ]),
+            "dense",
+        );
         let source_at = monitor_plan_fixtures::position(wire, &source);
-        wire["semantic_graph"]["nodes"][source_at]["occurrences"] = json!([{"role":"expression", "ordinal":0}]);
+        wire["semantic_graph"]["nodes"][source_at]["occurrences"] =
+            json!([{"role":"expression", "ordinal":0}]);
         monitor_plan_fixtures::rekey(wire, source_at);
         let source = wire["semantic_graph"]["nodes"][source_at]["node_id"].clone();
-        let mut members = vec![binding("model", reference(&model)), binding("time_dimension", reference(&dimension)), binding("source", reference(&source))];
-        for name in ["clock_places", "resets", "guards", "invariants", "urgencies", "constraints"] {
+        let mut members = vec![
+            binding("model", reference(&model)),
+            binding("time_dimension", reference(&dimension)),
+            binding("source", reference(&source)),
+        ];
+        for name in [
+            "clock_places",
+            "resets",
+            "guards",
+            "invariants",
+            "urgencies",
+            "constraints",
+        ] {
             members.push(binding(name, aggregate(vec![])));
         }
-        let root = monitor_plan_fixtures::append(wire, "timed_model", "timed_model", None, aggregate(members), "Timed");
+        let root = monitor_plan_fixtures::append(
+            wire,
+            "timed_model",
+            "timed_model",
+            None,
+            aggregate(members),
+            "Timed",
+        );
         let root_at = monitor_plan_fixtures::position(wire, &root);
         let owner = fixture_support::source_owner(&wire["lock"]["sources"][0]);
         wire["semantic_graph"]["nodes"][root_at]["owner"] = owner;
-        wire["semantic_graph"]["nodes"][root_at]["declaration"] = json!({"qualified_name":["Example","Timed"]});
-        wire["semantic_graph"]["nodes"][root_at]["occurrences"] = json!([{"role":"declaration", "ordinal":0}]);
-        monitor_plan_fixtures::finish_from(wire, source_at);
+        wire["semantic_graph"]["nodes"][root_at]["declaration"] =
+            json!({"qualified_name":["Example","Timed"]});
+        wire["semantic_graph"]["nodes"][root_at]["occurrences"] =
+            json!([{"role":"declaration", "ordinal":0}]);
+        monitor_plan_fixtures::finish_from(wire, subject_type_at);
         fixture_support::settle(wire);
     }
 
@@ -2011,7 +2056,8 @@ mod tests {
                     authority: &authority,
                 },
                 budget,
-            ).map(|closure| closure.equalities().to_vec())
+            )
+            .map(|closure| closure.equalities().to_vec())
         };
         let mut short_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         read(&applications, &mut short_budget).expect("short key closure");
@@ -2034,10 +2080,7 @@ mod tests {
         assert!(exact_charge.storage >= short_charge.storage + (width as u64 - 16) * 2);
         assert!(exact_charge.work > short_charge.work);
         let mut exact = NativeJoinBudget::new(exact_charge.work, exact_charge.storage);
-        assert_eq!(
-            read(&long_applications, &mut exact).unwrap(),
-            closure
-        );
+        assert_eq!(read(&long_applications, &mut exact).unwrap(), closure);
 
         let mut probe = NativeJoinBudget::new(exact_charge.work, short_charge.storage);
         let refusal =
