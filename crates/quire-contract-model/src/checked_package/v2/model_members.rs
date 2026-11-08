@@ -2366,6 +2366,7 @@ impl DomainModel {
 
     /// A field's type. Timed clock collections retain optionality on each
     /// selected clock element; other optional fields wrap the whole slot.
+    #[cfg(test)]
     pub(super) fn field_type(&self, field: &FieldDecl) -> Option<MemberType> {
         let slot = self.slot_type(&field.slot)?;
         Some(match (field.optional, field.slot.type_ref.as_ref(), slot) {

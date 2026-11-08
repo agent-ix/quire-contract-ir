@@ -167,7 +167,7 @@ impl DomainModel {
         Ok(Some(Leaf::Declared(form, name)))
     }
 
-    /// A field's type as [`Self::field_type`] derives it, each box and each
+    /// A field's type, each box and each
     /// owned id requested before it is made, at `form` of `budget`'s locus.
     pub(in crate::checked_package::v2) fn field_type_charged(
         &self,
@@ -179,7 +179,7 @@ impl DomainModel {
     }
 
     /// A slot's type as [`Self::slot_type`] derives it (`optional` false) or,
-    /// with `optional`, as [`Self::field_type`] wraps it.
+    /// with `optional`, including the field's optionality wrapper.
     pub(in crate::checked_package::v2) fn slot_type_charged(
         &self,
         slot: &TypedSlot,
