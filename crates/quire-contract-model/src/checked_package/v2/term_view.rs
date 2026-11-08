@@ -14,12 +14,20 @@
 //!
 //! Implements: FR-038 "Budget-charged strict read".
 
+use super::budgeted_read::denial;
 use super::checked_json::CheckedJson;
+use super::document_de::DecodeContext;
 use super::native_join_budget::NativeJoinBudget;
 use super::read_charge::{self, Site};
-use super::{ApplicationOperator, BodyTerm, CheckedNodeId, CheckedNodePathSegment, LiteralKind};
+use super::typed_terms::TermConversionCause;
+use super::{
+    ApplicationOperator, BodyTerm, CheckedNodeId, CheckedNodePathSegment, CheckedTerm, LiteralKind,
+};
 use crate::checked_package::common::{TermField, TermTag, ValidationFailure};
-use quire_canonical::{Items, Members, Node, NodeRef};
+use quire_canonical::{Document, Items, Members, Node, NodeRef};
+use serde::Deserialize;
+use serde_json::error::Category;
+use std::sync::Arc;
 
 /// One value of the package document, read as a term.
 #[derive(Clone, Copy)]
@@ -284,6 +292,28 @@ impl<'d> TermNode<'d> {
         }))
     }
 
+    /// Decodes this term, which the reader's flat and closed-shape checks
+    /// already accepted, into its retained typed form: the node view of
+    /// `CheckedTerm::decode_admitted`. Every string, sequence and box it
+    /// requests is charged to `budget` at `site` before it is made; a refusal
+    /// of the budget is the outer error, and a term that is not decodable is
+    /// the inner one.
+    pub(in crate::checked_package) fn decode(
+        self,
+        document: &'d Arc<Document>,
+        budget: &mut NativeJoinBudget,
+        site: Site,
+    ) -> Result<Result<CheckedTerm, TermConversionCause>, ValidationFailure> {
+        let context = DecodeContext::at_locus(document, budget, site.locus());
+        let decoded = decode_term(&context, document, self);
+        let denied = context.denied();
+        *budget = context.finish();
+        if denied {
+            return Err(denial(budget));
+        }
+        Ok(decoded)
+    }
+
     fn array_member(self, name: &str) -> Option<TermItems<'d>> {
         self.get(name)?.items()
     }
@@ -302,6 +332,141 @@ impl<'d> TermNode<'d> {
             "operand" => Some(SegmentForm::Operand(index)),
             _ => None,
         }
+    }
+}
+
+/// One member of `term` decoded as a `T`.
+fn decode_field<'d, T: Deserialize<'d>>(
+    context: &DecodeContext<'d>,
+    term: TermNode<'d>,
+    name: TermField,
+) -> Result<T, TermConversionCause> {
+    let member = term.field(name).ok_or(TermConversionCause::MissingMember {
+        member: name.as_wire(),
+    })?;
+    T::deserialize(context.value_at(member.node_ref())).map_err(|_| {
+        TermConversionCause::MalformedMember {
+            member: name.as_wire(),
+            category: Category::Data,
+        }
+    })
+}
+
+/// The terms of an array member, each decoded; the list is charged at its
+/// exact length first.
+fn decode_children<'d>(
+    context: &DecodeContext<'d>,
+    document: &'d Arc<Document>,
+    term: TermNode<'d>,
+    name: TermField,
+) -> Result<Vec<CheckedTerm>, TermConversionCause> {
+    let items = term
+        .field(name)
+        .ok_or(TermConversionCause::MissingMember {
+            member: name.as_wire(),
+        })?
+        .items()
+        .ok_or(TermConversionCause::MalformedMember {
+            member: name.as_wire(),
+            category: Category::Data,
+        })?;
+    let refused = || TermConversionCause::MalformedMember {
+        member: name.as_wire(),
+        category: Category::Data,
+    };
+    if !context.charge_bytes(
+        items
+            .len()
+            .saturating_mul(std::mem::size_of::<CheckedTerm>()),
+    ) {
+        return Err(refused());
+    }
+    let mut children = Vec::with_capacity(items.len());
+    for item in items {
+        children.push(decode_term(context, document, item)?);
+    }
+    Ok(children)
+}
+
+fn decode_term<'d>(
+    context: &DecodeContext<'d>,
+    document: &'d Arc<Document>,
+    term: TermNode<'d>,
+) -> Result<CheckedTerm, TermConversionCause> {
+    if term.get("term").and_then(TermNode::as_str) == Some("refinement") {
+        // The refinement body is read by its own row decoder, which still
+        // reads a `serde_json::Value`.
+        let body = CheckedJson::new(Arc::clone(document), term.node_ref().id()).to_value();
+        return super::refinement::decode_body(
+            &body,
+            &crate::checked_package::common::Trail::Base(&[]),
+        )
+        .map_err(|_| TermConversionCause::MalformedMember {
+            member: "refinement",
+            category: Category::Data,
+        });
+    }
+    match term.tag() {
+        TermTag::Known(BodyTerm::Literal) => Ok(CheckedTerm::Literal {
+            type_id: decode_field(context, term, TermField::Type)?,
+            value_kind: decode_field(context, term, TermField::ValueKind)?,
+            value: decode_field(context, term, TermField::Value)?,
+        }),
+        TermTag::Known(BodyTerm::Reference) => Ok(CheckedTerm::Reference {
+            target: decode_field(context, term, TermField::Target)?,
+        }),
+        TermTag::Known(BodyTerm::Application) => Ok(CheckedTerm::Application {
+            operator: decode_field(context, term, TermField::Operator)?,
+            operation: decode_field(context, term, TermField::Operation)?,
+            result_type: decode_field(context, term, TermField::ResultType)?,
+            arguments: decode_children(context, document, term, TermField::Arguments)?,
+        }),
+        TermTag::Known(BodyTerm::Aggregate) => Ok(CheckedTerm::Aggregate {
+            members: decode_children(context, document, term, TermField::Members)?,
+        }),
+        TermTag::Known(BodyTerm::Binding) => {
+            let name = decode_field(context, term, TermField::Name)?;
+            let value = term
+                .field(TermField::Value)
+                .ok_or(TermConversionCause::MissingMember { member: "value" })?;
+            let refused = TermConversionCause::MalformedMember {
+                member: "value",
+                category: Category::Data,
+            };
+            if !context.charge_bytes(std::mem::size_of::<CheckedTerm>()) {
+                return Err(refused);
+            }
+            Ok(CheckedTerm::Binding {
+                name,
+                value: Box::new(decode_term(context, document, value)?),
+            })
+        }
+        TermTag::Known(BodyTerm::DependencyReference) => Ok(CheckedTerm::DependencyReference {
+            package: decode_field(context, term, TermField::Package)?,
+            node: decode_field(context, term, TermField::Node)?,
+        }),
+        TermTag::Known(BodyTerm::Frame) => Ok(CheckedTerm::Frame {
+            modifies: decode_field(context, term, TermField::Modifies)?,
+            creates: decode_field(context, term, TermField::Creates)?,
+            deletes: decode_field(context, term, TermField::Deletes)?,
+            deletes_scoped: decode_field(context, term, TermField::DeletesScoped)?,
+        }),
+        TermTag::Known(BodyTerm::AbstractionRelation) => Ok(CheckedTerm::AbstractionRelation {
+            objects: decode_field(context, term, TermField::Objects)?,
+            populations: decode_field(context, term, TermField::Populations)?,
+            frames: decode_field(context, term, TermField::Frames)?,
+        }),
+        TermTag::ExtensionForm => Ok(CheckedTerm::ExtensionForm {
+            definition: decode_field(context, term, TermField::Definition)?,
+            node_kind: decode_field(context, term, TermField::NodeKind)?,
+            clauses: decode_children(context, document, term, TermField::Clauses)?,
+        }),
+        TermTag::Missing => Err(TermConversionCause::MissingTerm),
+        TermTag::NonString => Err(TermConversionCause::MalformedMember {
+            member: "term",
+            category: Category::Data,
+        }),
+        TermTag::Unknown => Err(TermConversionCause::UnknownTerm),
     }
 }
 
@@ -541,6 +706,38 @@ mod tests {
                         .node_id(&mut short, site, well_formed)
                         .is_err());
                 }
+            }
+        }
+    }
+
+    /// A term decodes as `decode_admitted` decodes it, and what it requests is
+    /// charged to the byte.
+    ///
+    /// Trace: TC-472, FR-038-AC-499.
+    #[test]
+    fn terms_decode_like_decode_admitted_and_are_charged_to_the_byte() {
+        use crate::checked_package::v2::native_join_budget::{NativeJoinBudget, PackageReadStage};
+        use crate::checked_package::v2::read_charge::Site;
+        let site = Site::new(PackageReadStage::WireChecks, 0, "flat_wire");
+        for value in samples() {
+            let json = CheckedJson::from_value(&value).expect("sample");
+            let mut budget = NativeJoinBudget::unlimited();
+            let decoded = TermNode::of(&json)
+                .decode(json.document(), &mut budget, site)
+                .expect("unlimited");
+            assert_eq!(decoded, CheckedTerm::decode_admitted(&value), "{value}");
+            let required = budget.read_storage_consumed();
+            if decoded.is_ok() && required > 0 {
+                let mut exact =
+                    NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+                assert!(TermNode::of(&json)
+                    .decode(json.document(), &mut exact, site)
+                    .is_ok_and(|decoded| decoded.is_ok()));
+                let mut short =
+                    NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required - 1);
+                assert!(TermNode::of(&json)
+                    .decode(json.document(), &mut short, site)
+                    .is_err());
             }
         }
     }
