@@ -277,7 +277,10 @@ pub(super) fn decode_borrowed_wire(
         .as_ref()
         .is_some_and(Vec::is_empty)
     {
-        return Err(malformed(JsonPointer::root().key("schedulability_claims")));
+        return Err(malformed(
+            super::stage_storage::Path::root().key("schedulability_claims"),
+            &mut super::WorkMeter::over(budget),
+        ));
     }
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
@@ -551,8 +554,27 @@ fn pointer_token_matches(name: &str, token: &str) -> bool {
 }
 
 /// `malformed_wire` at `at`.
-fn malformed(at: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
+fn malformed(
+    at: super::stage_storage::Path<'static>,
+    meter: &mut super::WorkMeter,
+) -> ValidationFailure {
+    super::stage_storage::refuse(
+        meter,
+        &super::stage_storage::Site::new(
+            super::PackageReadStage::WireDecode,
+            at.steps()
+                .iter()
+                .filter_map(|step| match step {
+                    crate::checked_package::common::Step::Index(index) => Some(*index),
+                    _ => None,
+                })
+                .last()
+                .unwrap_or(0),
+            "wire",
+            at,
+        ),
+        super::stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, at),
+    )
 }
 
 /// Check the lossless closed decode against the retained source document.
@@ -561,35 +583,46 @@ fn malformed(at: JsonPointer) -> ValidationFailure {
 pub(super) fn check_lossless_source(
     document: &Document,
     wire: &RawCheckedPackageWireV2,
+    budget: &mut NativeJoinBudget,
 ) -> Result<(), ValidationFailure> {
+    let mut meter = super::WorkMeter::over(budget);
+    let meter = &mut meter;
     let root = TermNode::from_ref(document.root());
-    let root_at = JsonPointer::root();
-    compare_root(root, "capability_report", &wire.capability_report, &[])?;
-    compare_root(root, "contract_version", &wire.contract_version, &[])?;
-    compare_root(root, "diagnostics", &wire.diagnostics, &["entries"])?;
-    compare_root(root, "lock", &wire.lock, &[])?;
-    compare_root(root, "name", &wire.name, &[])?;
-    compare_root(root, "semantic_graph", &wire.semantic_graph, &["nodes"])?;
+    let root_at = super::stage_storage::Path::root();
+    compare_root(
+        root,
+        "capability_report",
+        &wire.capability_report,
+        &[],
+        meter,
+    )?;
+    compare_root(root, "contract_version", &wire.contract_version, &[], meter)?;
+    compare_root(root, "diagnostics", &wire.diagnostics, &["entries"], meter)?;
+    compare_root(root, "lock", &wire.lock, &[], meter)?;
+    compare_root(root, "name", &wire.name, &[], meter)?;
+    compare_root(
+        root,
+        "semantic_graph",
+        &wire.semantic_graph,
+        &["nodes"],
+        meter,
+    )?;
 
-    let nodes_at = root_at.clone().key("semantic_graph").key("nodes");
+    let nodes_at = root_at.key("semantic_graph").key("nodes");
     let nodes = root
         .get("semantic_graph")
         .and_then(|graph| graph.get("nodes"))
         .and_then(TermNode::items)
-        .ok_or_else(|| malformed(nodes_at.clone()))?;
+        .ok_or_else(|| malformed(nodes_at, meter))?;
     if nodes.len() != wire.semantic_graph.nodes.len() {
-        return Err(malformed(nodes_at));
+        return Err(malformed(nodes_at, meter));
     }
     for (index, (original, node)) in nodes.zip(&wire.semantic_graph.nodes).enumerate() {
-        let at = root_at
-            .clone()
-            .key("semantic_graph")
-            .key("nodes")
-            .index(index);
+        let at = root_at.key("semantic_graph").key("nodes").index(index);
         super::lossless::compare(
             original,
             node,
-            at.clone(),
+            at,
             &[
                 "body",
                 "node_id",
@@ -597,126 +630,145 @@ pub(super) fn check_lossless_source(
                 "dependencies",
                 "owner_model",
             ],
+            meter,
         )?;
         for key in ["node_id", "semantic_type"] {
-            let locus = at.clone().key(key);
-            let source = original.get(key).ok_or_else(|| malformed(locus.clone()))?;
+            let locus = at.key(key);
+            let source = original.get(key).ok_or_else(|| malformed(locus, meter))?;
             let typed = if key == "node_id" {
                 &node.node_id
             } else {
                 &node.semantic_type
             };
-            super::lossless::compare(source, typed, locus, &[])?;
+            super::lossless::compare(source, typed, locus, &[], meter)?;
         }
-        let dependencies_at = at.clone().key("dependencies");
+        let dependencies_at = at.key("dependencies");
         let dependencies = original
             .get("dependencies")
             .and_then(TermNode::items)
-            .ok_or_else(|| malformed(dependencies_at.clone()))?;
+            .ok_or_else(|| malformed(dependencies_at, meter))?;
         if dependencies.len() != node.dependencies.len() {
-            return Err(malformed(dependencies_at));
+            return Err(malformed(dependencies_at, meter));
         }
         for (index, (source, id)) in dependencies.zip(&node.dependencies).enumerate() {
-            super::lossless::compare(source, id, at.clone().key("dependencies").index(index), &[])?;
+            super::lossless::compare(source, id, at.key("dependencies").index(index), &[], meter)?;
         }
         match (&node.owner_model, original.get("owner_model")) {
             (Some(id), Some(source)) => {
-                super::lossless::compare(source, id, at.key("owner_model"), &[])?
+                super::lossless::compare(source, id, at.key("owner_model"), &[], meter)?
             }
             (None, None) => {}
-            _ => return Err(malformed(at.key("owner_model"))),
+            _ => return Err(malformed(at.key("owner_model"), meter)),
         }
     }
 
-    compare_row_collection(root, "source_map", &wire.source_map, &[])?;
+    compare_row_collection(root, "source_map", &wire.source_map, &[], meter)?;
     if let Some(rows) = &wire.refinement_step_rows {
-        compare_row_collection(root, "refinement_step_rows", rows, &[])?;
+        compare_row_collection(root, "refinement_step_rows", rows, &[], meter)?;
     } else if root.get("refinement_step_rows").is_some() {
-        return Err(malformed(root_at.clone().key("refinement_step_rows")));
+        return Err(malformed(root_at.key("refinement_step_rows"), meter));
     }
     if let Some(data) = &wire.checked_term_data {
-        compare_root(root, "checked_term_data", data, &[])?;
+        compare_root(root, "checked_term_data", data, &[], meter)?;
     } else if root.get("checked_term_data").is_some() {
-        return Err(malformed(root_at.clone().key("checked_term_data")));
+        return Err(malformed(root_at.key("checked_term_data"), meter));
     }
-    compare_optional_rows(root, "temporal_bindings", wire.temporal_bindings.as_deref())?;
+    compare_optional_rows(
+        root,
+        "temporal_bindings",
+        wire.temporal_bindings.as_deref(),
+        meter,
+    )?;
     compare_optional_rows(
         root,
         "temporal_clause_names",
         wire.temporal_clause_names.as_deref(),
+        meter,
     )?;
     compare_optional_rows(
         root,
         "schedulability_claims",
         wire.schedulability_claims.as_deref(),
+        meter,
     )?;
     let entries = root
         .get("diagnostics")
         .and_then(|value| value.get("entries"))
         .and_then(TermNode::items)
-        .ok_or_else(|| malformed(root_at.clone().key("diagnostics").key("entries")))?;
+        .ok_or_else(|| malformed(root_at.key("diagnostics").key("entries"), meter))?;
     compare_terms(
         root_at.key("diagnostics").key("entries"),
         entries,
         &wire.diagnostics.entries,
         &["details"],
+        meter,
     )
 }
 
 fn compare_row_collection<T: serde::Serialize>(
     root: TermNode<'_>,
-    key: &str,
+    key: &'static str,
     typed: &[T],
     skipped: &'static [&'static str],
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let at = JsonPointer::root().key(key);
+    let at = super::stage_storage::Path::root().key(key);
     let rows = root
         .get(key)
         .and_then(TermNode::items)
-        .ok_or_else(|| malformed(at.clone()))?;
-    compare_terms(at, rows, typed, skipped)
+        .ok_or_else(|| malformed(at, meter))?;
+    compare_terms(at, rows, typed, skipped, meter)
 }
 
 fn compare_root<T: serde::Serialize>(
     root: TermNode<'_>,
-    key: &str,
+    key: &'static str,
     typed: &T,
     skipped: &'static [&'static str],
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let at = JsonPointer::root().key(key);
-    let raw = root.get(key).ok_or_else(|| malformed(at.clone()))?;
-    super::lossless::compare(raw, typed, at, skipped)
+    let at = super::stage_storage::Path::root().key(key);
+    let raw = root.get(key).ok_or_else(|| malformed(at, meter))?;
+    super::lossless::compare(raw, typed, at, skipped, meter)
 }
 
 fn compare_optional_rows<T: serde::Serialize>(
     root: TermNode<'_>,
-    key: &str,
+    key: &'static str,
     typed: Option<&[T]>,
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let Some(typed) = typed else {
         return if root.get(key).is_some() {
-            Err(malformed(JsonPointer::root().key(key)))
+            Err(malformed(
+                super::stage_storage::Path::root().key(key),
+                meter,
+            ))
         } else {
             Ok(())
         };
     };
     if typed.is_empty() {
-        return Err(malformed(JsonPointer::root().key(key)));
+        return Err(malformed(
+            super::stage_storage::Path::root().key(key),
+            meter,
+        ));
     }
-    compare_row_collection(root, key, typed, &[])
+    compare_row_collection(root, key, typed, &[], meter)
 }
 
 fn compare_terms<T: serde::Serialize>(
-    at: JsonPointer,
+    at: super::stage_storage::Path<'static>,
     terms: super::TermItems<'_>,
     typed: &[T],
     skipped: &'static [&'static str],
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     if terms.len() != typed.len() {
-        return Err(malformed(at));
+        return Err(malformed(at, meter));
     }
     for (index, (source, value)) in terms.zip(typed).enumerate() {
-        super::lossless::compare(source, value, at.clone().index(index), skipped)?;
+        super::lossless::compare(source, value, at.index(index), skipped, meter)?;
     }
     Ok(())
 }
@@ -777,6 +829,99 @@ mod ordinal_locus_tests {
         assert_eq!(
             invalid_node_id_field(&document, &reference),
             Some(reference.key("ordinal"))
+        );
+    }
+}
+
+#[cfg(test)]
+mod lossless_budget_tests {
+    use super::*;
+    use crate::checked_package::v2::monitor_plan::model_document_test_fixture as fixture;
+
+    /// The actual intake comparison borrows healthy paths, and pays its sole
+    /// malformed-field diagnostic before requesting any owned pointer bytes.
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn lossless_intake_borrows_healthy_paths_and_prepays_first_fault() {
+        let value = fixture::v2_all_families();
+        let bytes = fixture::canonical(&value);
+        let document = Arc::new(quire_canonical::read(&bytes, u64::MAX).unwrap());
+        let mut decode_budget =
+            NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let (mut wire, _bodies) = decode_borrowed_wire(&document, &mut decode_budget).unwrap();
+        let run = |wire: &RawCheckedPackageWireV2, limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                result = Some(check_lossless_source(&document, wire, &mut budget));
+            });
+            (
+                result.unwrap(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (healthy, allocated, charged) = run(&wire, 0);
+        healthy.expect("healthy original document agrees with its typed wire");
+        assert_eq!((allocated, charged), (0, 0));
+        wire.name = format!("{}-different", wire.name).into_boxed_str();
+        let (failure, allocated, required) = run(&wire, u64::MAX);
+        let ValidationFailure::Refused(refusal) = failure.unwrap_err() else {
+            panic!("the first changed name is malformed wire");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(refusal.primary_path().unwrap().as_str(), "/name");
+        assert_eq!(allocated, required);
+        assert_eq!(
+            required as usize,
+            std::mem::size_of::<crate::checked_package::shared::CheckedPackageRefusal>()
+                + std::mem::size_of::<crate::checked_package::shared::CheckedPackageRefusalLocation>(
+                )
+                + "/name".len()
+        );
+        let (exact, allocated, charged) = run(&wire, required);
+        assert!(matches!(exact, Err(ValidationFailure::Refused(_))));
+        assert_eq!((allocated, charged), (required, required));
+        for limit in [0, required - 1] {
+            let (short, allocated, charged) = run(&wire, limit);
+            assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+            assert_eq!((allocated, charged), (0, 0));
+        }
+    }
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn lossless_public_reader_preserves_dropped_null_first_fault() {
+        use crate::checked_package::shared::CheckedPackageReadLimits;
+        use crate::checked_package::v2::{CheckedPackageV2, CheckedPackageV2BudgetedReadResult};
+        let mut value = fixture::v2_all_families();
+        let evidence = fixture::evidence_for(&value);
+        let nodes = value["semantic_graph"]["nodes"].as_array_mut().unwrap();
+        let (index, node) = nodes
+            .iter_mut()
+            .enumerate()
+            .find(|(_, node)| node.get("owner").is_none() && node.get("recursion_group").is_none())
+            .expect("the complete fixture includes an unowned node");
+        node["owner"] = serde_json::Value::Null;
+        node["recursion_group"] = serde_json::Value::Null;
+        let bytes = fixture::canonical(&value);
+        let limits = CheckedPackageReadLimits {
+            bytes: 1 << 30,
+            nodes: 1 << 24,
+            edges: 1 << 26,
+            occurrences: 1 << 26,
+            diagnostics: 1 << 24,
+            work: u64::MAX,
+        };
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let result = CheckedPackageV2::read_with_budget(&bytes, limits, &evidence, &mut budget);
+        let CheckedPackageV2BudgetedReadResult::Refused(refusal) = result else {
+            panic!("the original null owner is not silently dropped: {result:?}");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(
+            refusal.primary_path().unwrap().as_str(),
+            format!("/semantic_graph/nodes/{index}/owner")
         );
     }
 }

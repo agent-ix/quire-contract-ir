@@ -1,35 +1,71 @@
-//! Compare a closed typed value with its source without constructing a second
-//! JSON tree. The strict/canonical scans and typed decode have already run.
+//! Compare a closed typed value against its original document without a second
+//! tree. Healthy comparisons borrow every path and map key; only the selected
+//! final diagnostic or a transient key absent from the source owns storage.
 
-use super::{TermNode, ValidationFailure};
-use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
+use super::native_join_budget::PackageReadStage;
+use super::stage_storage::{self, Path as BasePath, Refusal, Site};
+use super::{TermNode, ValidationFailure, WorkMeter};
+use crate::checked_package::common::{Step, Trail};
+use crate::checked_package::shared::CheckedPackageRefusalCode;
 use serde::ser::{
     Error as _, SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant,
     SerializeTuple, SerializeTupleStruct, SerializeTupleVariant, Serializer,
 };
 use serde::Serialize;
-use std::borrow::Cow;
-use std::fmt;
-
-fn malformed(at: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
-}
+use std::{cell::RefCell, cmp::Ordering, fmt, sync::Arc};
 
 const MAX_PATH_DEPTH: usize = 128;
+const MAX_FULL_DEPTH: usize = MAX_PATH_DEPTH + 12 + 1;
 
-struct Path {
-    base: JsonPointer,
-    segments: [Option<PathSegment>; MAX_PATH_DEPTH],
-    depth: usize,
+#[derive(Clone)]
+enum Key<'a> {
+    Borrowed(&'a str),
+    Owned(Arc<Box<str>>),
 }
-
-enum PathSegment {
-    Key(Cow<'static, str>),
+impl Key<'_> {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Borrowed(text) => text,
+            Self::Owned(text) => text,
+        }
+    }
+}
+#[derive(Clone)]
+enum PathSegment<'a> {
+    Key(Key<'a>),
     Index(usize),
 }
-
-impl Path {
-    fn push(&mut self, segment: PathSegment) -> bool {
+impl PathSegment<'_> {
+    fn compare(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Key(a), Self::Key(b)) => a.as_str().cmp(b.as_str()),
+            (Self::Index(a), Self::Index(b)) => a.cmp(b),
+            (Self::Key(_), Self::Index(_)) => Ordering::Less,
+            (Self::Index(_), Self::Key(_)) => Ordering::Greater,
+        }
+    }
+    fn step(&self) -> Step<'_> {
+        match self {
+            Self::Key(key) => Step::Key(key.as_str()),
+            Self::Index(index) => Step::Index(*index),
+        }
+    }
+}
+struct Snapshot<'a> {
+    segments: [Option<PathSegment<'a>>; MAX_PATH_DEPTH],
+    depth: usize,
+    root: bool,
+}
+struct Path<'a, 'm, 'b> {
+    base: BasePath<'static>,
+    segments: [Option<PathSegment<'a>>; MAX_PATH_DEPTH],
+    depth: usize,
+    best: RefCell<Option<Snapshot<'a>>>,
+    denied: RefCell<Option<ValidationFailure>>,
+    meter: RefCell<&'m mut WorkMeter<'b>>,
+}
+impl<'a> Path<'a, '_, '_> {
+    fn push(&mut self, segment: PathSegment<'a>) -> bool {
         let Some(slot) = self.segments.get_mut(self.depth) else {
             return false;
         };
@@ -37,77 +73,203 @@ impl Path {
         self.depth += 1;
         true
     }
-
-    fn pop(&mut self) -> Option<PathSegment> {
+    fn pop(&mut self) -> Option<PathSegment<'a>> {
         self.depth = self.depth.checked_sub(1)?;
         self.segments[self.depth].take()
     }
-
-    fn pointer(&self) -> JsonPointer {
-        self.segments.iter().take(self.depth).flatten().fold(
-            self.base.clone(),
-            |pointer, segment| match segment {
-                PathSegment::Key(key) => pointer.key(key),
-                PathSegment::Index(index) => pointer.index(*index),
-            },
-        )
+    fn record(&self, root: bool) -> CompareError {
+        let replace = self.best.borrow().as_ref().is_none_or(|prior| {
+            self.segments[..self.depth]
+                .iter()
+                .flatten()
+                .zip(prior.segments[..prior.depth].iter().flatten())
+                .map(|(a, b)| a.compare(b))
+                .find(|order| *order != Ordering::Equal)
+                .unwrap_or_else(|| self.depth.cmp(&prior.depth))
+                == Ordering::Less
+        });
+        if replace {
+            *self.best.borrow_mut() = Some(Snapshot {
+                segments: self.segments.clone(),
+                depth: self.depth,
+                root,
+            });
+        }
+        CompareError::Mismatch
     }
-
-    fn pointer_with(&self, segment: &PathSegment) -> JsonPointer {
-        match segment {
-            PathSegment::Key(key) => self.pointer().key(key),
-            PathSegment::Index(index) => self.pointer().index(*index),
+    fn mismatch(&self) -> CompareError {
+        self.record(false)
+    }
+    fn normalize(&self, error: CompareError) -> CompareError {
+        if error == CompareError::CustomRoot {
+            self.record(true)
+        } else {
+            error
         }
     }
-}
-
-#[derive(Debug)]
-pub(super) struct CompareError(ValidationFailure);
-
-impl fmt::Display for CompareError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "closed wire differs from typed decode")
+    fn request(&self, bytes: usize, extra: Option<&str>) -> Result<(), CompareError> {
+        let mut steps = [Step::Index(0); MAX_FULL_DEPTH];
+        let mut length = 0;
+        for step in self.base.steps() {
+            steps[length] = *step;
+            length += 1;
+        }
+        for segment in self.segments[..self.depth].iter().flatten() {
+            steps[length] = segment.step();
+            length += 1;
+        }
+        if let Some(key) = extra {
+            steps[length] = Step::Key(key);
+            length += 1;
+        }
+        let index = steps[..length]
+            .iter()
+            .filter_map(|step| match step {
+                Step::Index(index) => Some(*index),
+                _ => None,
+            })
+            .last()
+            .unwrap_or(0);
+        let trail = Trail::Base(&steps[..length]);
+        let result = stage_storage::reserve(
+            &mut self.meter.borrow_mut(),
+            &Site::new(PackageReadStage::WireDecode, index, "wire", trail),
+            bytes,
+        );
+        result.map_err(|stop| {
+            if self.denied.borrow().is_none() {
+                *self.denied.borrow_mut() = Some(stop);
+            }
+            CompareError::Budget
+        })
+    }
+    fn owned_key(&self, text: &str) -> Result<Key<'a>, CompareError> {
+        self.request(text.len(), Some(text))?;
+        let owned: Box<str> = text.into();
+        self.request(super::budgeted_read::arc_bytes::<Box<str>>(), Some(&owned))?;
+        Ok(Key::Owned(Arc::new(owned)))
+    }
+    fn finish(self, error: CompareError) -> ValidationFailure {
+        if error == CompareError::CustomRoot {
+            self.record(true);
+        }
+        if let Some(stop) = self.denied.into_inner() {
+            return stop;
+        }
+        let selected = self
+            .best
+            .into_inner()
+            .expect("a mismatch records its borrowed path");
+        let mut steps = [Step::Index(0); MAX_FULL_DEPTH];
+        let mut length = 0;
+        if !selected.root {
+            for step in self.base.steps() {
+                steps[length] = *step;
+                length += 1;
+            }
+            for segment in selected.segments[..selected.depth].iter().flatten() {
+                steps[length] = segment.step();
+                length += 1;
+            }
+        }
+        let index = steps[..length]
+            .iter()
+            .filter_map(|step| match step {
+                Step::Index(index) => Some(*index),
+                _ => None,
+            })
+            .last()
+            .unwrap_or(0);
+        let trail = Trail::Base(&steps[..length]);
+        stage_storage::refuse(
+            self.meter.into_inner(),
+            &Site::new(PackageReadStage::WireDecode, index, "wire", trail),
+            Refusal::new(CheckedPackageRefusalCode::MalformedWire, trail),
+        )
     }
 }
-
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CompareError {
+    Mismatch,
+    CustomRoot,
+    Budget,
+}
+impl fmt::Display for CompareError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "closed wire differs from typed decode")
+    }
+}
 impl std::error::Error for CompareError {}
-
 impl serde::ser::Error for CompareError {
     fn custom<T: fmt::Display>(_message: T) -> Self {
-        Self(malformed(JsonPointer::root()))
+        Self::CustomRoot
     }
 }
 
 pub(super) fn compare<T: Serialize>(
     raw: TermNode<'_>,
     typed: &T,
-    at: JsonPointer,
+    at: BasePath<'static>,
     skipped_members: &'static [&'static str],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut path = Path {
         base: at,
         segments: std::array::from_fn(|_| None),
         depth: 0,
+        best: RefCell::new(None),
+        denied: RefCell::new(None),
+        meter: RefCell::new(meter),
     };
-    typed
-        .serialize(Compare {
-            raw,
-            path: &mut path,
-            skipped_members,
-        })
-        .map_err(|error| error.0)
+    let result = typed.serialize(Compare {
+        raw,
+        path: &mut path,
+        skipped_members,
+    });
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => Err(path.finish(error)),
+    }
 }
 
-struct Compare<'a, 'p> {
+/// Compare Display output without allocating a formatting buffer.
+struct TextMatch<'a> {
+    expected: &'a str,
+    offset: usize,
+    equal: bool,
+}
+impl fmt::Write for TextMatch<'_> {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        self.equal &= self
+            .expected
+            .as_bytes()
+            .get(self.offset..self.offset.saturating_add(text.len()))
+            == Some(text.as_bytes());
+        self.offset = self.offset.saturating_add(text.len());
+        Ok(())
+    }
+}
+fn display_matches(value: &impl fmt::Display, expected: &str) -> bool {
+    let mut out = TextMatch {
+        expected,
+        offset: 0,
+        equal: true,
+    };
+    fmt::write(&mut out, format_args!("{value}")).is_ok()
+        && out.equal
+        && out.offset == expected.len()
+}
+
+struct Compare<'a, 'p, 'm, 'b> {
     raw: TermNode<'a>,
-    path: &'p mut Path,
+    path: &'p mut Path<'a, 'm, 'b>,
     // Applied to this object only, never inherited by nested objects.
     skipped_members: &'static [&'static str],
 }
 
-impl<'a, 'p> Compare<'a, 'p> {
+impl<'a, 'p, 'm, 'b> Compare<'a, 'p, 'm, 'b> {
     fn mismatch(&self) -> CompareError {
-        CompareError(malformed(self.path.pointer()))
+        self.path.mismatch()
     }
 
     fn scalar<T: Serialize>(self, expected: T) -> Result<(), CompareError> {
@@ -117,7 +279,7 @@ impl<'a, 'p> Compare<'a, 'p> {
         })
     }
 
-    fn object(self) -> Result<Children<'a, 'p>, CompareError> {
+    fn object(self) -> Result<Children<'a, 'p, 'm, 'b>, CompareError> {
         if !self.raw.is_object() {
             return Err(self.mismatch());
         }
@@ -136,7 +298,10 @@ impl<'a, 'p> Compare<'a, 'p> {
         })
     }
 
-    fn sequence(self, expected_len: Option<usize>) -> Result<Children<'a, 'p>, CompareError> {
+    fn sequence(
+        self,
+        expected_len: Option<usize>,
+    ) -> Result<Children<'a, 'p, 'm, 'b>, CompareError> {
         let items = self.raw.items().ok_or_else(|| self.mismatch())?;
         if expected_len.is_some_and(|length| length != items.len()) {
             return Err(self.mismatch());
@@ -149,14 +314,14 @@ impl<'a, 'p> Compare<'a, 'p> {
     }
 }
 
-struct ScalarCompare<'a, 'p> {
+struct ScalarCompare<'a, 'p, 'm, 'b> {
     raw: TermNode<'a>,
-    path: &'p mut Path,
+    path: &'p mut Path<'a, 'm, 'b>,
 }
 
-impl ScalarCompare<'_, '_> {
+impl ScalarCompare<'_, '_, '_, '_> {
     fn mismatch(&self) -> CompareError {
-        CompareError(malformed(self.path.pointer()))
+        self.path.mismatch()
     }
     fn number(&self) -> Option<quire_canonical::Number<'_>> {
         match self.raw.node_ref().node() {
@@ -201,7 +366,7 @@ impl ScalarCompare<'_, '_> {
     }
 }
 
-impl Serializer for ScalarCompare<'_, '_> {
+impl Serializer for ScalarCompare<'_, '_, '_, '_> {
     type Ok = ();
     type Error = CompareError;
     type SerializeSeq = serde::ser::Impossible<(), CompareError>;
@@ -212,6 +377,17 @@ impl Serializer for ScalarCompare<'_, '_> {
     type SerializeStruct = serde::ser::Impossible<(), CompareError>;
     type SerializeStructVariant = serde::ser::Impossible<(), CompareError>;
 
+    fn collect_str<T: ?Sized + fmt::Display>(self, value: &T) -> Result<(), Self::Error> {
+        if self
+            .raw
+            .as_str()
+            .is_some_and(|raw| display_matches(&value, raw))
+        {
+            Ok(())
+        } else {
+            Err(self.mismatch())
+        }
+    }
     fn serialize_bool(self, expected: bool) -> Result<(), CompareError> {
         if self.raw.as_bool() == Some(expected) {
             Ok(())
@@ -356,17 +532,28 @@ impl Serializer for ScalarCompare<'_, '_> {
     }
 }
 
-impl<'a, 'p> Serializer for Compare<'a, 'p> {
+impl<'a, 'p, 'm, 'b> Serializer for Compare<'a, 'p, 'm, 'b> {
     type Ok = ();
     type Error = CompareError;
-    type SerializeSeq = Children<'a, 'p>;
-    type SerializeTuple = Children<'a, 'p>;
-    type SerializeTupleStruct = Children<'a, 'p>;
-    type SerializeTupleVariant = Children<'a, 'p>;
-    type SerializeMap = Children<'a, 'p>;
-    type SerializeStruct = Children<'a, 'p>;
-    type SerializeStructVariant = Children<'a, 'p>;
+    type SerializeSeq = Children<'a, 'p, 'm, 'b>;
+    type SerializeTuple = Children<'a, 'p, 'm, 'b>;
+    type SerializeTupleStruct = Children<'a, 'p, 'm, 'b>;
+    type SerializeTupleVariant = Children<'a, 'p, 'm, 'b>;
+    type SerializeMap = Children<'a, 'p, 'm, 'b>;
+    type SerializeStruct = Children<'a, 'p, 'm, 'b>;
+    type SerializeStructVariant = Children<'a, 'p, 'm, 'b>;
 
+    fn collect_str<T: ?Sized + fmt::Display>(self, value: &T) -> Result<(), Self::Error> {
+        if self
+            .raw
+            .as_str()
+            .is_some_and(|raw| display_matches(&value, raw))
+        {
+            Ok(())
+        } else {
+            Err(self.mismatch())
+        }
+    }
     fn serialize_bool(self, value: bool) -> Result<(), Self::Error> {
         self.scalar(value)
     }
@@ -486,7 +673,7 @@ impl<'a, 'p> Serializer for Compare<'a, 'p> {
             return Err(self.mismatch());
         }
         let raw = self.raw.get(variant).ok_or_else(|| self.mismatch())?;
-        if !self.path.push(PathSegment::Key(Cow::Borrowed(variant))) {
+        if !self.path.push(PathSegment::Key(Key::Borrowed(variant))) {
             return Err(self.mismatch());
         }
         Compare {
@@ -522,7 +709,7 @@ impl<'a, 'p> Serializer for Compare<'a, 'p> {
             return Err(self.mismatch());
         }
         let raw = self.raw.get(variant).ok_or_else(|| self.mismatch())?;
-        if !self.path.push(PathSegment::Key(Cow::Borrowed(variant))) {
+        if !self.path.push(PathSegment::Key(Key::Borrowed(variant))) {
             return Err(self.mismatch());
         }
         Compare {
@@ -538,12 +725,11 @@ impl<'a, 'p> Serializer for Compare<'a, 'p> {
     }
 }
 
-struct Children<'a, 'p> {
-    path: &'p mut Path,
+struct Children<'a, 'p, 'm, 'b> {
+    path: &'p mut Path<'a, 'm, 'b>,
     pop_on_finish: bool,
     kind: ChildrenKind<'a>,
 }
-
 enum ChildrenKind<'a> {
     Sequence {
         items: super::TermItems<'a>,
@@ -552,50 +738,50 @@ enum ChildrenKind<'a> {
     Object {
         raw: TermNode<'a>,
         skipped_members: &'static [&'static str],
-        pending_key: Option<String>,
+        pending_key: Option<Key<'a>>,
         seen: [Option<&'static str>; 64],
         seen_len: usize,
         seen_count: usize,
-        first: Option<(String, CompareError)>,
+        first: Option<Key<'a>>,
     },
 }
-
-impl Children<'_, '_> {
+impl<'a, 'p, 'm, 'b> Children<'a, 'p, 'm, 'b> {
     fn element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), CompareError> {
         let ChildrenKind::Sequence { items, next } = &mut self.kind else {
             unreachable!()
         };
-        let raw = items
-            .next()
-            .ok_or_else(|| CompareError(malformed(self.path.pointer())))?;
+        let raw = items.next().ok_or_else(|| self.path.mismatch())?;
         if !self.path.push(PathSegment::Index(*next)) {
-            return Err(CompareError(malformed(self.path.pointer())));
+            return Err(self.path.mismatch());
         }
         *next += 1;
-        let result = value.serialize(Compare {
-            raw,
-            path: self.path,
-            skipped_members: &[],
-        });
+        let result = value
+            .serialize(Compare {
+                raw,
+                path: self.path,
+                skipped_members: &[],
+            })
+            .map_err(|error| self.path.normalize(error));
         self.path.pop();
         result
     }
-
-    fn field<T: ?Sized + Serialize>(&mut self, key: String, value: &T) -> Result<(), CompareError> {
-        self.field_inner(Cow::Owned(key), None, value)
+    fn field<T: ?Sized + Serialize>(
+        &mut self,
+        key: Key<'a>,
+        value: &T,
+    ) -> Result<(), CompareError> {
+        self.field_inner(key, None, value)
     }
-
     fn field_static<T: ?Sized + Serialize>(
         &mut self,
         key: &'static str,
         value: &T,
     ) -> Result<(), CompareError> {
-        self.field_inner(Cow::Borrowed(key), Some(key), value)
+        self.field_inner(Key::Borrowed(key), Some(key), value)
     }
-
     fn field_inner<T: ?Sized + Serialize>(
         &mut self,
-        key: Cow<'static, str>,
+        key: Key<'a>,
         static_key: Option<&'static str>,
         value: &T,
     ) -> Result<(), CompareError> {
@@ -611,18 +797,15 @@ impl Children<'_, '_> {
         else {
             unreachable!()
         };
-        if skipped_members.contains(&key.as_ref()) {
+        if skipped_members.contains(&key.as_str()) {
             return Ok(());
         }
+        let child = raw.get(key.as_str());
         if !self.path.push(PathSegment::Key(key)) {
-            return Err(CompareError(malformed(self.path.pointer())));
+            return Err(self.path.mismatch());
         }
-        let key = match self.path.segments[self.path.depth - 1].as_ref() {
-            Some(PathSegment::Key(key)) => key.as_ref(),
-            _ => unreachable!(),
-        };
-        let result = match raw.get(key) {
-            Some(child) => {
+        let result = match child {
+            Some(raw) => {
                 *seen_count += 1;
                 if let Some(key) = static_key {
                     if *seen_len < seen.len() {
@@ -630,40 +813,41 @@ impl Children<'_, '_> {
                         *seen_len += 1;
                     }
                 }
-                value.serialize(Compare {
-                    raw: child,
-                    path: self.path,
-                    skipped_members: &[],
-                })
+                value
+                    .serialize(Compare {
+                        raw,
+                        path: self.path,
+                        skipped_members: &[],
+                    })
+                    .map_err(|error| self.path.normalize(error))
             }
-            // `first_difference` reports the container if the typed form has
-            // a member that the source did not have.
-            None => Err(CompareError(malformed(self.path.pointer()))),
+            None => Err(self.path.mismatch()),
         };
         let key = match self.path.pop() {
             Some(PathSegment::Key(key)) => key,
             _ => unreachable!(),
         };
         if let Err(error) = result {
+            if error == CompareError::Budget {
+                return Err(error);
+            }
             if first
                 .as_ref()
-                .is_none_or(|(prior, _)| key.as_ref() < prior.as_str())
+                .is_none_or(|prior| key.as_str() < prior.as_str())
             {
-                *first = Some((key.into_owned(), error));
+                *first = Some(key);
             }
         }
         Ok(())
     }
-
     fn finish(self) -> Result<(), CompareError> {
-        let pop_on_finish = self.pop_on_finish;
         let path = self.path;
         let result = match self.kind {
             ChildrenKind::Sequence { items, .. } => {
                 if items.len() == 0 {
                     Ok(())
                 } else {
-                    Err(CompareError(malformed(path.pointer())))
+                    Err(path.mismatch())
                 }
             }
             ChildrenKind::Object {
@@ -692,29 +876,41 @@ impl Children<'_, '_> {
                         .filter(|(key, _)| {
                             !seen[..seen_len].iter().flatten().any(|seen| *seen == *key)
                         })
-                        .map(|(key, _)| key.to_owned())
+                        .map(|(key, _)| key)
                         .min();
                     match (first, extra) {
-                        (Some((key, _error)), Some(extra)) if extra < key => Err(CompareError(
-                            malformed(path.pointer_with(&PathSegment::Key(Cow::Owned(extra)))),
-                        )),
-                        (Some((_, error)), _) => Err(error),
-                        (None, Some(extra)) => Err(CompareError(malformed(
-                            path.pointer_with(&PathSegment::Key(Cow::Owned(extra))),
-                        ))),
+                        (Some(key), Some(extra)) if extra < key.as_str() => {
+                            if !path.push(PathSegment::Key(Key::Borrowed(extra))) {
+                                Err(path.mismatch())
+                            } else {
+                                let error = path.mismatch();
+                                path.pop();
+                                Err(error)
+                            }
+                        }
+                        (Some(_), _) => Err(CompareError::Mismatch),
+                        (None, Some(extra)) => {
+                            if !path.push(PathSegment::Key(Key::Borrowed(extra))) {
+                                Err(path.mismatch())
+                            } else {
+                                let error = path.mismatch();
+                                path.pop();
+                                Err(error)
+                            }
+                        }
                         (None, None) => Ok(()),
                     }
                 }
             }
         };
-        if pop_on_finish {
+        if self.pop_on_finish {
             path.pop();
         }
         result
     }
 }
 
-impl SerializeSeq for Children<'_, '_> {
+impl SerializeSeq for Children<'_, '_, '_, '_> {
     type Ok = ();
     type Error = CompareError;
     fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
@@ -724,7 +920,7 @@ impl SerializeSeq for Children<'_, '_> {
         self.finish()
     }
 }
-impl SerializeTuple for Children<'_, '_> {
+impl SerializeTuple for Children<'_, '_, '_, '_> {
     type Ok = ();
     type Error = CompareError;
     fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
@@ -734,7 +930,7 @@ impl SerializeTuple for Children<'_, '_> {
         self.finish()
     }
 }
-impl SerializeTupleStruct for Children<'_, '_> {
+impl SerializeTupleStruct for Children<'_, '_, '_, '_> {
     type Ok = ();
     type Error = CompareError;
     fn serialize_field<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
@@ -744,7 +940,7 @@ impl SerializeTupleStruct for Children<'_, '_> {
         self.finish()
     }
 }
-impl SerializeTupleVariant for Children<'_, '_> {
+impl SerializeTupleVariant for Children<'_, '_, '_, '_> {
     type Ok = ();
     type Error = CompareError;
     fn serialize_field<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
@@ -755,77 +951,150 @@ impl SerializeTupleVariant for Children<'_, '_> {
     }
 }
 
-struct MapKey;
+struct MapKey<'a, 'p, 'm, 'b> {
+    raw: TermNode<'a>,
+    path: &'p mut Path<'a, 'm, 'b>,
+}
+struct ReservedText {
+    text: String,
+    capacity: usize,
+}
+impl fmt::Write for ReservedText {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        if self
+            .text
+            .len()
+            .checked_add(value.len())
+            .is_none_or(|length| length > self.capacity)
+        {
+            return Err(fmt::Error);
+        }
+        self.text.push_str(value);
+        Ok(())
+    }
+}
+struct TextLength(usize);
+impl fmt::Write for TextLength {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        self.0 = self.0.checked_add(text.len()).ok_or(fmt::Error)?;
+        Ok(())
+    }
+}
+impl<'a> MapKey<'a, '_, '_, '_> {
+    fn text(self, text: &str) -> Result<Key<'a>, CompareError> {
+        if let Some((name, _)) = self
+            .raw
+            .members()
+            .into_iter()
+            .flatten()
+            .find(|(name, _)| *name == text)
+        {
+            return Ok(Key::Borrowed(name));
+        }
+        self.path.owned_key(text)
+    }
+    fn formatted(self, value: &impl fmt::Display) -> Result<Key<'a>, CompareError> {
+        if let Some((name, _)) = self
+            .raw
+            .members()
+            .into_iter()
+            .flatten()
+            .find(|(name, _)| display_matches(value, name))
+        {
+            return Ok(Key::Borrowed(name));
+        }
+        let mut count = TextLength(0);
+        fmt::write(&mut count, format_args!("{value}")).map_err(|_| CompareError::CustomRoot)?;
+        self.path.request(count.0, None)?;
+        let mut out = ReservedText {
+            text: String::with_capacity(count.0),
+            capacity: count.0,
+        };
+        fmt::write(&mut out, format_args!("{value}")).map_err(|_| CompareError::CustomRoot)?;
+        let text = out.text;
+        // Formatting a concrete primitive is deterministic. A user Display
+        // implementation cannot make this internal writer grow unnoticed.
+        if text.len() != count.0 {
+            return Err(CompareError::CustomRoot);
+        }
+        self.path
+            .request(super::budgeted_read::arc_bytes::<Box<str>>(), Some(&text))?;
+        Ok(Key::Owned(Arc::new(text.into_boxed_str())))
+    }
+}
 
-impl Serializer for MapKey {
-    type Ok = String;
+impl<'a, 'p, 'm, 'b> Serializer for MapKey<'a, 'p, 'm, 'b> {
+    type Ok = Key<'a>;
     type Error = CompareError;
-    type SerializeSeq = serde::ser::Impossible<String, CompareError>;
-    type SerializeTuple = serde::ser::Impossible<String, CompareError>;
-    type SerializeTupleStruct = serde::ser::Impossible<String, CompareError>;
-    type SerializeTupleVariant = serde::ser::Impossible<String, CompareError>;
-    type SerializeMap = serde::ser::Impossible<String, CompareError>;
-    type SerializeStruct = serde::ser::Impossible<String, CompareError>;
-    type SerializeStructVariant = serde::ser::Impossible<String, CompareError>;
+    type SerializeSeq = serde::ser::Impossible<Key<'a>, CompareError>;
+    type SerializeTuple = serde::ser::Impossible<Key<'a>, CompareError>;
+    type SerializeTupleStruct = serde::ser::Impossible<Key<'a>, CompareError>;
+    type SerializeTupleVariant = serde::ser::Impossible<Key<'a>, CompareError>;
+    type SerializeMap = serde::ser::Impossible<Key<'a>, CompareError>;
+    type SerializeStruct = serde::ser::Impossible<Key<'a>, CompareError>;
+    type SerializeStructVariant = serde::ser::Impossible<Key<'a>, CompareError>;
 
-    fn serialize_bool(self, value: bool) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn collect_str<T: ?Sized + fmt::Display>(self, value: &T) -> Result<Self::Ok, Self::Error> {
+        self.formatted(&value)
     }
-    fn serialize_i8(self, value: i8) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_bool(self, value: bool) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_i16(self, value: i16) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_i8(self, value: i8) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_i32(self, value: i32) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_i16(self, value: i16) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_i64(self, value: i64) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_i32(self, value: i32) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_i128(self, value: i128) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_i64(self, value: i64) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_u8(self, value: u8) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_i128(self, value: i128) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_u16(self, value: u16) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_u8(self, value: u8) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_u32(self, value: u32) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_u16(self, value: u16) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_u64(self, value: u64) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_u32(self, value: u32) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_u128(self, value: u128) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_u64(self, value: u64) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_f32(self, value: f32) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_u128(self, value: u128) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_f64(self, value: f64) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_f32(self, value: f32) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_char(self, value: char) -> Result<String, CompareError> {
-        Ok(value.to_string())
+    fn serialize_f64(self, value: f64) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_str(self, value: &str) -> Result<String, CompareError> {
-        Ok(value.to_owned())
+    fn serialize_char(self, value: char) -> Result<Key<'a>, CompareError> {
+        self.formatted(&value)
     }
-    fn serialize_bytes(self, _value: &[u8]) -> Result<String, CompareError> {
+    fn serialize_str(self, value: &str) -> Result<Key<'a>, CompareError> {
+        self.text(value)
+    }
+    fn serialize_bytes(self, _value: &[u8]) -> Result<Key<'a>, CompareError> {
         Err(CompareError::custom("byte map key"))
     }
-    fn serialize_none(self) -> Result<String, CompareError> {
+    fn serialize_none(self) -> Result<Key<'a>, CompareError> {
         Err(CompareError::custom("null map key"))
     }
-    fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> Result<String, CompareError> {
+    fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> Result<Key<'a>, CompareError> {
         value.serialize(self)
     }
-    fn serialize_unit(self) -> Result<String, CompareError> {
+    fn serialize_unit(self) -> Result<Key<'a>, CompareError> {
         Err(CompareError::custom("unit map key"))
     }
-    fn serialize_unit_struct(self, _name: &'static str) -> Result<String, CompareError> {
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<Key<'a>, CompareError> {
         self.serialize_unit()
     }
     fn serialize_unit_variant(
@@ -833,14 +1102,14 @@ impl Serializer for MapKey {
         _name: &'static str,
         _index: u32,
         variant: &'static str,
-    ) -> Result<String, CompareError> {
-        Ok(variant.to_owned())
+    ) -> Result<Key<'a>, CompareError> {
+        Ok(Key::Borrowed(variant))
     }
     fn serialize_newtype_struct<T: ?Sized + Serialize>(
         self,
         _name: &'static str,
         value: &T,
-    ) -> Result<String, CompareError> {
+    ) -> Result<Key<'a>, CompareError> {
         value.serialize(self)
     }
     fn serialize_newtype_variant<T: ?Sized + Serialize>(
@@ -849,7 +1118,7 @@ impl Serializer for MapKey {
         _index: u32,
         _variant: &'static str,
         _value: &T,
-    ) -> Result<String, CompareError> {
+    ) -> Result<Key<'a>, CompareError> {
         Err(CompareError::custom("newtype map key"))
     }
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, CompareError> {
@@ -895,14 +1164,20 @@ impl Serializer for MapKey {
     }
 }
 
-impl SerializeMap for Children<'_, '_> {
+impl<'a, 'p, 'm, 'b> SerializeMap for Children<'a, 'p, 'm, 'b> {
     type Ok = ();
     type Error = CompareError;
     fn serialize_key<T: ?Sized + Serialize>(&mut self, key: &T) -> Result<(), Self::Error> {
-        let ChildrenKind::Object { pending_key, .. } = &mut self.kind else {
+        let ChildrenKind::Object {
+            raw, pending_key, ..
+        } = &mut self.kind
+        else {
             unreachable!()
         };
-        *pending_key = Some(key.serialize(MapKey)?);
+        *pending_key = Some(key.serialize(MapKey {
+            raw: *raw,
+            path: self.path,
+        })?);
         Ok(())
     }
     fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
@@ -918,7 +1193,7 @@ impl SerializeMap for Children<'_, '_> {
         self.finish()
     }
 }
-impl SerializeStruct for Children<'_, '_> {
+impl SerializeStruct for Children<'_, '_, '_, '_> {
     type Ok = ();
     type Error = CompareError;
     fn serialize_field<T: ?Sized + Serialize>(
@@ -932,7 +1207,7 @@ impl SerializeStruct for Children<'_, '_> {
         self.finish()
     }
 }
-impl SerializeStructVariant for Children<'_, '_> {
+impl SerializeStructVariant for Children<'_, '_, '_, '_> {
     type Ok = ();
     type Error = CompareError;
     fn serialize_field<T: ?Sized + Serialize>(
@@ -949,10 +1224,12 @@ impl SerializeStructVariant for Children<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    use super::BasePath;
     use super::{compare, TermNode};
     use crate::checked_package::common::ValidationFailure;
-    use crate::checked_package::shared::{CheckedCapability, JsonPointer};
+    use crate::checked_package::shared::CheckedCapability;
     use crate::checked_package::v2::CheckedCapabilityDisposition;
+    use crate::checked_package::v2::{NativeJoinBudget, WorkMeter};
     use serde::Serialize;
 
     #[derive(Serialize)]
@@ -965,11 +1242,14 @@ mod tests {
     fn document_comparison_keeps_the_first_difference_pointer() {
         let document =
             quire_canonical::read(br#"{"b":2,"a":9}"#, u64::MAX).expect("source document");
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let mut meter = WorkMeter::over(&mut budget);
         let failure = compare(
             TermNode::from_ref(document.root()),
             &Pair { a: 1, b: 2 },
-            JsonPointer::root().key("row"),
+            BasePath::root().key("row"),
             &[],
+            &mut meter,
         )
         .expect_err("different first field");
 
@@ -983,11 +1263,14 @@ mod tests {
     fn document_comparison_locates_an_unmodeled_member() {
         let document =
             quire_canonical::read(br#"{"a":1,"b":2,"c":3}"#, u64::MAX).expect("source document");
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let mut meter = WorkMeter::over(&mut budget);
         let failure = compare(
             TermNode::from_ref(document.root()),
             &Pair { a: 1, b: 2 },
-            JsonPointer::root().key("row"),
+            BasePath::root().key("row"),
             &[],
+            &mut meter,
         )
         .expect_err("extra field");
 
@@ -1008,12 +1291,107 @@ mod tests {
             feature: "quire.value.complete/v1".into(),
             disposition: CheckedCapabilityDisposition::Available,
         }];
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let mut meter = WorkMeter::over(&mut budget);
         compare(
             TermNode::from_ref(document.root()),
             &typed,
-            JsonPointer::root().key("capability_report"),
+            BasePath::root().key("capability_report"),
             &[],
+            &mut meter,
         )
         .expect("typed capability report matches source");
+    }
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn lossless_dynamic_keys_borrow_or_pay_exactly_before_escaping() {
+        use std::collections::BTreeMap;
+        let document = quire_canonical::read(r#"{"é/~":7,"12":9}"#.as_bytes(), u64::MAX).unwrap();
+        let typed = BTreeMap::from([("é/~", 7_u64), ("12", 9)]);
+        let run = |source: &quire_canonical::Document, limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                result = Some(compare(
+                    TermNode::from_ref(source.root()),
+                    &typed,
+                    BasePath::root().key("row"),
+                    &[],
+                    &mut WorkMeter::over(&mut budget),
+                ));
+            });
+            (
+                result.unwrap(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (healthy, allocated, charged) = run(&document, 0);
+        healthy.unwrap();
+        assert_eq!((allocated, charged), (0, 0));
+        let missing = quire_canonical::read(br#"{"12":9}"#, u64::MAX).unwrap();
+        let (failure, allocated, required) = run(&missing, u64::MAX);
+        let ValidationFailure::Refused(refusal) = failure.unwrap_err() else {
+            panic!("shape refusal")
+        };
+        assert_eq!(refusal.primary_path().unwrap().as_str(), "/row/12");
+        assert_eq!(allocated, required);
+        let (exact, allocated, charged) = run(&missing, required);
+        assert!(matches!(exact, Err(ValidationFailure::Refused(_))));
+        assert_eq!((allocated, charged), (required, required));
+        for limit in [0, required - 1] {
+            let (short, allocated, charged) = run(&missing, limit);
+            assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, charged);
+            assert!(charged <= limit);
+        }
+    }
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-513")]
+    #[test]
+    fn lossless_nested_fault_order_is_lexical_and_array_indices_are_numeric() {
+        #[derive(Serialize)]
+        struct Reversed {
+            z: u64,
+            a: Vec<Pair>,
+        }
+        let document = quire_canonical::read(
+            r#"{"z":9,"a":[{"a":0,"b":2}],"0/~é":1}"#.as_bytes(),
+            u64::MAX,
+        )
+        .unwrap();
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let failure = compare(
+            TermNode::from_ref(document.root()),
+            &Reversed {
+                z: 0,
+                a: vec![Pair { a: 1, b: 2 }],
+            },
+            BasePath::root().key("row"),
+            &[],
+            &mut WorkMeter::over(&mut budget),
+        )
+        .unwrap_err();
+        let ValidationFailure::Refused(refusal) = failure else {
+            panic!("extra field precedes nested and reversed typed faults")
+        };
+        assert_eq!(refusal.primary_path().unwrap().as_str(), "/row/0~1~0é");
+        let document = quire_canonical::read(br#"[0,0,0,0,0,0,0,0,0,0,0]"#, u64::MAX).unwrap();
+        let mut typed = [0_u64; 11];
+        typed[2] = 1;
+        typed[10] = 1;
+        let failure = compare(
+            TermNode::from_ref(document.root()),
+            &typed,
+            BasePath::root().key("row"),
+            &[],
+            &mut WorkMeter::over(&mut budget),
+        )
+        .unwrap_err();
+        let ValidationFailure::Refused(refusal) = failure else {
+            panic!("array mismatch")
+        };
+        assert_eq!(refusal.primary_path().unwrap().as_str(), "/row/2");
     }
 }

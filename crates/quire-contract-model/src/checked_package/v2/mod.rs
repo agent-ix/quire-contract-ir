@@ -1538,7 +1538,7 @@ impl CheckedPackageV2 {
         let (mut wire, bodies) = intake::decode_borrowed_wire(&document, budget)
             .map_err(|failure| classify_dependency_entry_shape(failure, &document))
             .map_err(classify_owner_shape)?;
-        intake::check_lossless_source(&document, &wire)?;
+        intake::check_lossless_source(&document, &wire, budget)?;
         // Every later stage compares operands by graph index, so each node-held
         // slot is read through its row once here.
         node_index::resolve_slots(&mut wire, &bodies, budget)?;
