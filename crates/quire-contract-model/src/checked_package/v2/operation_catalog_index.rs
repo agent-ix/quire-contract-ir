@@ -261,7 +261,6 @@ impl std::fmt::Display for CatalogPath<'_> {
 enum CatalogDecodeError<'d> {
     Denied,
     Shape {
-        path: CatalogPath<'d>,
         message: &'static str,
         word: Option<&'d str>,
     },
@@ -293,14 +292,12 @@ struct CatalogDecoder<'b, 'd> {
 impl<'d> CatalogDecoder<'_, 'd> {
     fn invalid(&self, message: &'static str) -> CatalogDecodeError<'d> {
         CatalogDecodeError::Shape {
-            path: self.path,
             message,
             word: None,
         }
     }
     fn unknown(&self, word: &'d str) -> CatalogDecodeError<'d> {
         CatalogDecodeError::Shape {
-            path: self.path,
             message: "unknown catalog word",
             word: Some(word),
         }
@@ -322,7 +319,7 @@ impl<'d> CatalogDecoder<'_, 'd> {
         }
     }
     fn closed(
-        &self,
+        &mut self,
         node: quire_canonical::NodeRef<'d>,
         required: &[&str],
         optional: &[&str],
@@ -330,11 +327,8 @@ impl<'d> CatalogDecoder<'_, 'd> {
         let members = self.members(node)?;
         for (name, _) in members.clone() {
             if !required.contains(&name) && !optional.contains(&name) {
-                return Err(CatalogDecodeError::Shape {
-                    path: self.path.below(CatalogStep::Key(name)),
-                    message: "unknown catalog member",
-                    word: None,
-                });
+                self.path = self.path.below(CatalogStep::Key(name));
+                return Err(self.invalid("unknown catalog member"));
             }
         }
         for name in required {
@@ -364,7 +358,9 @@ impl<'d> CatalogDecoder<'_, 'd> {
         let result = self
             .member(node, name)
             .and_then(|member| T::read(member, self));
-        self.path = previous;
+        if result.is_ok() {
+            self.path = previous;
+        }
         result
     }
     fn optional<T: CatalogValue<'d>>(
@@ -388,7 +384,9 @@ impl<'d> CatalogDecoder<'_, 'd> {
         let result = self
             .member(node, name)
             .and_then(|member| self.table(member));
-        self.path = previous;
+        if result.is_ok() {
+            self.path = previous;
+        }
         result
     }
     fn table<K: CatalogKey<'d> + Ord, V: CatalogValue<'d>>(
@@ -653,23 +651,20 @@ pub(super) fn read_catalog_budgeted(
         }
         Err(error) => return Err(catalog_error(budget, &error)),
     };
-    let decoded = {
+    let (decoded, path) = {
         let mut reader = CatalogDecoder {
             budget,
             path: CatalogPath::root(),
         };
-        OperationCatalogWire::read(document.root(), &mut reader)
+        let decoded = OperationCatalogWire::read(document.root(), &mut reader);
+        (decoded, reader.path)
     };
     let wire = match decoded {
         Ok(wire) => wire,
         Err(CatalogDecodeError::Denied) => {
             return Err(CatalogStop::Budget(budgeted_read::denial(budget)))
         }
-        Err(CatalogDecodeError::Shape {
-            path,
-            message,
-            word,
-        }) => {
+        Err(CatalogDecodeError::Shape { message, word }) => {
             return Err(catalog_error_at(
                 budget,
                 &path,
