@@ -1370,10 +1370,11 @@ fn operation_defect(
             application.body(&["operation", "identity"]),
         )));
     };
-    meter.charge(
+    work_at_path(
+        meter,
+        &OperationPath::Read(application.read_node().key("body").key("operation")),
         1 + u64::try_from(operation.laws.len()).unwrap_or(u64::MAX)
             + u64::try_from(operation.leaves.len()).unwrap_or(u64::MAX),
-        || application.body(&["operation"]),
     )?;
     let mut structural = StructuralTypes::default();
     let refuse = |path: JsonPointer, cause| {
