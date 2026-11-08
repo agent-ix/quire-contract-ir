@@ -45,6 +45,11 @@ pub(crate) fn measure_at<C: Counter>(
 }
 
 pub(crate) fn accounted(label: &str, observation: &Observation) {
+    assert_eq!(
+        observation.budget.consumed().storage,
+        0,
+        "{label}: a fresh measured read consumes no native logical storage"
+    );
     let outcome = match &observation.result {
         CheckedPackageV2BudgetedReadResult::Admitted(_) => "admitted",
         CheckedPackageV2BudgetedReadResult::Refused(_) => "refused",
