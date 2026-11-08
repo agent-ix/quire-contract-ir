@@ -37,7 +37,7 @@ mod inputs;
 use inputs::{fixture, published_leaf_fixture};
 
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(wire),

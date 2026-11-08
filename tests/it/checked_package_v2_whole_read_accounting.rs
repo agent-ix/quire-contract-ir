@@ -1130,3 +1130,55 @@ fn repeated_reads_preserve_the_callers_storage_delta_with_the_integration_counte
     let value = v2_all_families();
     proof::shared_budget_reads::<IntegrationCounter>(&canonical(&value), &evidence_for(&value));
 }
+
+/// Instrumentation returns the original structural and finite-work outcomes;
+/// it never substitutes generous limits before the driver's oracle sees them.
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[test]
+fn original_read_boundary_preserves_structural_and_work_limits() {
+    let wire = v2_all_families();
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let mut limits = quire_contract_model::CheckedPackageReadLimits::bounded();
+    limits.bytes = 0;
+    let CheckedPackageV2ReadResult::Incomplete(bytes_stop) =
+        crate::read_and_account(&bytes, limits, &evidence)
+    else {
+        panic!("the original byte cap must remain observable");
+    };
+    assert_eq!(
+        bytes_stop.limit_kind,
+        quire_contract_model::CheckedPackageLimit::Bytes
+    );
+    assert_eq!(bytes_stop.limit, 0);
+    assert_eq!(
+        bytes_stop.consumed,
+        u64::try_from(bytes.len()).expect("fixture byte count")
+    );
+
+    limits = quire_contract_model::CheckedPackageReadLimits::bounded();
+    limits.work = 0;
+    let CheckedPackageV2ReadResult::Incomplete(work_stop) =
+        crate::read_and_account(&bytes, limits, &evidence)
+    else {
+        panic!("the original zero work cap must remain observable");
+    };
+    assert_eq!(
+        work_stop.limit_kind,
+        quire_contract_model::CheckedPackageLimit::Work
+    );
+    assert_eq!(work_stop.limit, 0);
+    assert!(
+        work_stop.consumed > 0,
+        "the first attempted work charge is retained"
+    );
+
+    let CheckedPackageV2ReadResult::Refused(malformed) = crate::read_and_account(
+        b"not json",
+        quire_contract_model::CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ) else {
+        panic!("a malformed original byte stream must refuse");
+    };
+    assert_eq!(malformed.code, Code::MalformedWire);
+}

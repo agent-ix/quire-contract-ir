@@ -256,7 +256,7 @@ fn read_package_with_document_override(
         document_override,
         &fixtures_dir(),
     )?;
-    Ok(CheckedPackageV2::read(&bytes, limits, &evidence))
+    Ok(crate::read_and_account(&bytes, limits, &evidence))
 }
 
 /// What the production reader makes of `package`: `admitted`, `incomplete`, or
@@ -1819,4 +1819,12 @@ fn tc_048_qspec_adverse_run_fails_closed() {
         neither.iter().any(|problem| problem.contains("neither")),
         "{neither:?}"
     );
+}
+
+#[path = "../it/support/qspec_read_proof.rs"]
+mod qspec_read_proof;
+use qspec_read_proof::read_and_account;
+
+fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
+    allocation_counter::measure(read).bytes_total
 }

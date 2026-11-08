@@ -52,7 +52,7 @@ pub(crate) fn map_package() -> (Value, usize) {
 }
 
 pub(crate) fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),

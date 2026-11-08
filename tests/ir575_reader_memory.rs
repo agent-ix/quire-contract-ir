@@ -203,3 +203,11 @@ fn tc_048_ir575_metadata_only_peak() {
         "metadata reader peak {incremental_peak} KiB"
     );
 }
+
+#[path = "it/support/qspec_read_proof.rs"]
+mod qspec_read_proof;
+use qspec_read_proof::read_and_account;
+
+fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
+    allocation_counter::measure(read).bytes_total
+}

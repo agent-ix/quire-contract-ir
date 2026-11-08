@@ -7,7 +7,7 @@ use super::{fixture_support, fixtures_dir, proposal_dir_of, read_json};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageRefusalCode as Code, CheckedPackageV2ReadResult,
 };
 use quire_exact::TextProfile;
 use serde_json::{json, Value};
@@ -18,7 +18,7 @@ mod inputs;
 use inputs::{bounded_literal, text_bounds_package};
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &fixture_support::evidence_for(package),

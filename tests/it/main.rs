@@ -107,3 +107,11 @@ mod string_edge_gate;
 mod nominal_reads;
 
 mod checked_package_v2_whole_read_accounting;
+
+#[path = "support/qspec_read_proof.rs"]
+mod qspec_read_proof;
+use qspec_read_proof::read_and_account;
+
+fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
+    allocation_counter::measure(read).bytes_total
+}
