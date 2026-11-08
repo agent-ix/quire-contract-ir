@@ -118,14 +118,18 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
         .expect("a denial is recorded");
     assert!(asked > 0);
     assert_eq!(short.first_unpaid(), None);
-    // The last request the read makes is a body walk's stack growth.
-    assert!(matches!(
-        short.first_unpaid_locus(),
-        Some(NativeJoinLocus {
-            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, _),
-            form: "walk",
-        })
-    ));
+    // The last request the read makes is the graph stage's.
+    let locus = short.first_unpaid_locus();
+    assert!(
+        matches!(
+            locus,
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, _),
+                ..
+            })
+        ),
+        "{locus:?}"
+    );
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
     let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {

@@ -77,6 +77,10 @@ impl ReadStorage for MeterSink<'_, '_> {
             Denied
         })
     }
+
+    fn denial(&self) -> ValidationFailure {
+        ReadStorage::denial(&*self.meter)
+    }
 }
 
 impl<'b> WorkMeter<'b> {
