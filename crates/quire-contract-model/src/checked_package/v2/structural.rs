@@ -1089,26 +1089,36 @@ pub(super) fn validate_derived_type_shapes(
             _ => continue,
         };
         if !valid {
+            let node_path = Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position);
             let at = if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity) {
                 noncanonical_bounded_endpoint(term, meter)?
                     .map(|member| {
-                        node_pointer(position)
+                        node_path
                             .key("body")
                             .key("members")
                             .index(member)
                             .key("value")
                     })
-                    .unwrap_or_else(|| node_pointer(position))
+                    .unwrap_or(node_path)
             } else if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Map) {
-                node_pointer(position)
+                node_path
             } else {
-                node_pointer(position).key("node_id")
+                node_path.key("node_id")
             };
-            return Err(ValidationFailure::refused_at(
-                CheckedPackageRefusalCode::InvalidPackage,
-                at,
-                Some(super::CheckedPackageRefusalCause::InvalidDerivedShape),
-                node_id.clone(),
+            return Err(stage_storage::refuse(
+                meter,
+                &Site::new(
+                    PackageReadStage::Graph,
+                    position,
+                    super::graph_storage::node_form(&node.node_tag),
+                    at,
+                ),
+                Refusal::new(CheckedPackageRefusalCode::InvalidPackage, at)
+                    .because(super::CheckedPackageRefusalCause::InvalidDerivedShape)
+                    .at_node(node_id),
             ));
         }
     }
@@ -2404,6 +2414,158 @@ mod tests {
                     CheckedPackageRefusalCode::InvalidSemanticGraph
                 ))
             );
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn derived_shape_faults_prepay_the_complete_diagnostic() {
+        use crate::checked_package::v2::budgeted_read::{
+            CheckedPackagePendingOutcome, PackageReadResource,
+        };
+        use crate::{NativeJoinBudget, NativeJoinLocusSource, PackageReadStage};
+
+        let catalog = super::super::operation_catalog::operation_catalog();
+        let id: CheckedNodeId = serde_json::from_value(super::super::test_support::id('a'))
+            .expect("fixture node identity");
+        let empty = json!({"term": "aggregate", "members": []});
+        let wrong_endpoint = json!({"term": "aggregate", "members": [
+            {"term": "reference", "target": id},
+            {"term": "binding", "name": "min", "value": {
+                "term": "literal", "type": id,
+                "value_kind": "boolean", "value": true
+            }}
+        ]});
+        for (kind, tag, form, body, expected) in [
+            (
+                CheckedNodeKind::Relation(RelationForm::Population),
+                "relation",
+                "population",
+                &empty,
+                "/semantic_graph/nodes/0/node_id",
+            ),
+            (
+                CheckedNodeKind::CompositeType(CompositeTypeForm::Map),
+                "composite_type",
+                "map",
+                &empty,
+                "/semantic_graph/nodes/0",
+            ),
+            (
+                CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity),
+                "scalar_type",
+                "bounded_quantity",
+                &empty,
+                "/semantic_graph/nodes/0",
+            ),
+            (
+                CheckedNodeKind::ScalarType(ScalarTypeForm::BoundedQuantity),
+                "scalar_type",
+                "bounded_quantity",
+                &wrong_endpoint,
+                "/semantic_graph/nodes/0/body/members/1/value",
+            ),
+        ] {
+            let nodes = [CheckedSemanticNodeV2 {
+                node_id: id.clone(),
+                schema_version: "quire.checked-semantic-graph/v2".into(),
+                node_tag: tag.into(),
+                semantic_form: form.into(),
+                semantic_type: id.clone(),
+                dependencies: if kind == CheckedNodeKind::Relation(RelationForm::Population) {
+                    vec![id.clone()]
+                } else {
+                    Vec::new()
+                },
+                occurrences: Vec::new(),
+                recursion_group: None,
+                declaration: None,
+                owner: None,
+                owner_model: None,
+                body: super::super::CheckedJson::from_serializable(body)
+                    .expect("closed retained body"),
+            }];
+            let kinds = [kind];
+            let terms = [Some(
+                CheckedTerm::decode_admitted(body).expect("closed term"),
+            )];
+            let index: GraphIndex<'_> = [(&nodes[0].node_id, 0)].into_iter().collect();
+            let keys = [std::sync::Arc::new(id.clone())];
+            let observe = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let requested = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut budget);
+                    result = Some(validate_derived_type_shapes(
+                        catalog,
+                        &nodes,
+                        &kinds,
+                        &terms,
+                        &index,
+                        &keys,
+                        &[],
+                        &mut meter,
+                    ));
+                })
+                .bytes_total;
+                (result.expect("derived validation ran"), budget, requested)
+            };
+            let (ample, mut budget, requested) = observe(u64::MAX);
+            assert_eq!(requested, budget.read_storage_consumed(), "{expected}");
+            assert!(requested > 0, "the complete diagnostic owns storage");
+            assert_eq!(budget.consumed().work, 0, "the refusal adds no work");
+            let Err(ValidationFailure::Refused(refusal)) = &ample else {
+                panic!("{expected}: semantic refusal: {ample:?}");
+            };
+            assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+            assert_eq!(
+                refusal.cause,
+                Some(super::super::CheckedPackageRefusalCause::InvalidDerivedShape)
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(|at| at.as_str()),
+                Some(expected)
+            );
+            assert_eq!(refusal.locus.as_ref(), Some(&id));
+            assert_eq!(
+                budget.take_paid(),
+                Some(CheckedPackagePendingOutcome::Refused(
+                    CheckedPackageRefusalCode::InvalidPackage
+                ))
+            );
+            let (exact, exact_budget, exact_requested) = observe(requested);
+            assert_eq!(exact, ample);
+            assert_eq!(exact_requested, requested);
+            assert_eq!(exact_budget.read_storage_consumed(), requested);
+            for limit in [requested - 1, 0] {
+                let (short, mut short_budget, short_requested) = observe(limit);
+                let (repeat, repeat_budget, repeat_requested) = observe(limit);
+                assert_eq!(short, repeat);
+                assert_eq!(short_budget, repeat_budget);
+                assert_eq!(short_requested, repeat_requested);
+                assert_eq!(short_requested, 0, "no unpaid diagnostic is constructed");
+                assert_eq!(short_budget.read_storage_consumed(), 0);
+                assert_eq!(short_budget.consumed().work, 0);
+                let Err(ValidationFailure::Budget(stop)) = short else {
+                    panic!("{expected}: denied diagnostic: {short:?}");
+                };
+                assert_eq!(stop.resource, PackageReadResource::ReadStorage);
+                assert!(stop.path.is_none());
+                let locus = short_budget.first_unpaid_locus().expect("diagnostic locus");
+                assert_eq!(
+                    (locus.source, locus.form),
+                    (
+                        NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 0),
+                        "diagnostic"
+                    )
+                );
+                assert_eq!(
+                    short_budget.take_pending(),
+                    Some(CheckedPackagePendingOutcome::Refused(
+                        CheckedPackageRefusalCode::InvalidPackage
+                    ))
+                );
+            }
         }
     }
 
