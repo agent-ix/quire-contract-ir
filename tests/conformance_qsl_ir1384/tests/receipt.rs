@@ -356,6 +356,21 @@ fn genuine_qsl_authority_binds_dense_and_tick_emissions() {
             "{label}"
         );
         assert_eq!(receipt.clock().clause(), plan.clause(), "{label}");
+        let selected = CheckedOccurrence {
+            role: CheckedOccurrenceRole::Claim,
+            ordinal: u64::from(authority.root().plan().subject().occurrence().origin().ordinal()),
+        };
+        assert_eq!(receipt.occurrence(), &selected, "{label}: QSL-selected occurrence");
+        let expected_clock = plan.clock_for_claim(plan.clause(), &selected, &mut big()).unwrap();
+        assert_eq!(receipt.clock(), &expected_clock, "{label}: selected admitted clock");
+        assert!(std::ptr::eq(receipt.order_value(), authority.admitted_order()), "{label}: borrowed order");
+        assert!(std::ptr::eq(receipt.progress_association(), authority.progress_context()), "{label}: borrowed association");
+        let cloned = package.clone();
+        let mut clone_budget = big();
+        let clone_closure = project(authority, &cloned, &row, &mut clone_budget)
+            .expect("a clone retains the same admission capability");
+        assert_eq!(clone_closure.authority(), receipt, "{label}: clone receipt");
+        assert_eq!(clone_budget.consumed(), budget.consumed(), "{label}: clone charges");
         assert!(
             matches!(
                 receipt.clock().clock(),
