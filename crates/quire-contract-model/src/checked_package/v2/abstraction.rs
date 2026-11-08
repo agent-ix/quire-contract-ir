@@ -143,7 +143,9 @@ pub(super) fn scan_body<'a, V: TermSource<'a>>(
     if body.kind() == Some(BodyTerm::Application) {
         return validate_term(body, TermGrammar::V2, true, at, visit, ids);
     }
-    super::read_charge::with_unmetered_walk(|walk| scan_members(body, at, walk))
+    let Ids { sink, site, .. } = ids;
+    let cell = super::read_charge::SinkCell::new(sink);
+    scan_members(body, at, &mut cell.reservation(site))
 }
 
 /// A shape defect of the body: the code it refuses with and the path of the

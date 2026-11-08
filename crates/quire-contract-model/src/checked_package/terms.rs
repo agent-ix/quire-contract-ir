@@ -123,9 +123,6 @@ pub(super) trait TermSource<'a>: Copy {
     fn text(self) -> Option<&'a str>;
     /// Whether this is an object.
     fn is_object(self) -> bool;
-    /// The value as a `serde_json::Value`: a clone or an uncharged copy, the
-    /// bridge for a reader that takes a `Value`.
-    fn to_value_uncharged(self) -> Value;
     /// The `term` discriminator, decoded.
     fn tag(self) -> TermTag;
     /// Whether this is an object with exactly the members `expected`.
@@ -208,10 +205,6 @@ impl<'a> TermSource<'a> for &'a Value {
 
     fn is_object(self) -> bool {
         self.is_object()
-    }
-
-    fn to_value_uncharged(self) -> Value {
-        self.clone()
     }
 
     fn tag(self) -> TermTag {
@@ -304,10 +297,6 @@ impl<'a> TermSource<'a> for TermNode<'a> {
 
     fn is_object(self) -> bool {
         TermNode::is_object(self)
-    }
-
-    fn to_value_uncharged(self) -> Value {
-        self.uncharged_value()
     }
 
     fn tag(self) -> TermTag {

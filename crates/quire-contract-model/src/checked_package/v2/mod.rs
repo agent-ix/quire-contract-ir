@@ -606,7 +606,7 @@ pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
     /// One operand row per node, in graph order: slot `k` of node `i` names
     /// `nodes[operand_rows[i][k]]`. Required on read.
-    #[serde(deserialize_with = "document_de::exact_vec")]
+    #[serde(deserialize_with = "document_de::exact_rows")]
     pub operand_rows: Vec<Vec<u64>>,
 }
 
@@ -1497,7 +1497,7 @@ impl CheckedPackageV2 {
         // Every later stage compares operands by graph index, so each node-held
         // slot is read through its row once here.
         node_index::resolve_slots(&mut wire, budget)?;
-        validate_owner_schema(&wire, budget)?;
+        validate_owner_schema(&wire, &bodies, budget)?;
         let ValidatedPackage {
             kinds,
             schedulability_claim_index,
@@ -1852,7 +1852,7 @@ fn validate(
     // here, before any identity is recomputed (FR-038-AC-116).
     let flat_kinds = flat_wire::check(wire, bodies, budget)?;
     let structural_keys = node_index::check(document, wire, evidence, budget)?;
-    flat_wire::check_interval_bounds(wire, &flat_kinds, budget)?;
+    flat_wire::check_interval_bounds(wire, bodies, &flat_kinds, budget)?;
     let mut meter = WorkMeter::over(budget);
     meter.attach_bodies(bodies, &wire.semantic_graph.operand_rows);
     let LockAdmission {

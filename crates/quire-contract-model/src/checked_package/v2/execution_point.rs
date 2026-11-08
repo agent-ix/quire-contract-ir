@@ -4,6 +4,7 @@
 //! The QSpec execution-point object is a closed bare value in the fourth
 //! operation-anchor binding. It is not a semantic expression term.
 
+use super::read_charge::{ReadStorage, Site};
 use super::typed_terms::TermConversionCause;
 use super::{CheckedOperationAnchorBody, CheckedTerm, ExecutionPoint};
 use crate::checked_package::common::{
@@ -11,6 +12,7 @@ use crate::checked_package::common::{
 };
 use crate::checked_package::shared::CheckedPackageRefusalCode;
 use crate::checked_package::terms::TermSource;
+use crate::identity::ExecutionPointName;
 use serde_json::Value;
 
 /// Validate the anchor's term members and optional bare point in wire order.
@@ -78,20 +80,44 @@ pub(super) fn validate_anchor_body<'a, V: TermSource<'a>>(
     if !value.is_some_and(|value| value.is_object() && value.member("term").is_none()) {
         return Err(body_refusal());
     }
-    // The point object is a small closed value read by `ExecutionPoint`'s own
-    // wire reader, which takes a `Value`: an uncharged copy of the object.
-    if value
-        .map(TermSource::to_value_uncharged)
-        .as_ref()
-        .and_then(ExecutionPoint::from_wire)
-        .is_none()
-    {
+    let point = match value {
+        Some(value) => read_point(value, &mut *ids.sink, ids.site)?,
+        None => None,
+    };
+    if point.is_none() {
         return Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             at.key("members").index(3).key("value").pointer(),
         ));
     }
     Ok(work)
+}
+
+/// The closed point object `{"kind": ..., "name" | "operation": ...}` a value
+/// holds, with its name charged to `sink` at `site` before it is allocated;
+/// `None` when the value is no point.
+fn read_point<'a, V: TermSource<'a>>(
+    value: V,
+    sink: &mut dyn ReadStorage,
+    site: Site,
+) -> Result<Option<ExecutionPoint>, ValidationFailure> {
+    let (field, make): (&str, fn(ExecutionPointName) -> ExecutionPoint) =
+        match value.member("kind").and_then(TermSource::text) {
+            Some("initialization") => ("name", |name| ExecutionPoint::Initialization { name }),
+            Some("handler") => ("name", |name| ExecutionPoint::Handler { name }),
+            Some("pre") => ("operation", |operation| ExecutionPoint::Pre { operation }),
+            Some("post") => ("operation", |operation| ExecutionPoint::Post { operation }),
+            _ => return Ok(None),
+        };
+    if !value.exact_members(&["kind", field]) {
+        return Ok(None);
+    }
+    let Some(name) = value.member(field).and_then(TermSource::text) else {
+        return Ok(None);
+    };
+    sink.reserve(name.len() as u128, site)
+        .map_err(|_| sink.denial())?;
+    Ok(ExecutionPointName::new(name).ok().map(make))
 }
 
 /// Decode the optional point only for an operation-anchor body. The generic
