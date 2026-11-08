@@ -1121,6 +1121,7 @@ mod tests {
                 ));
             inputs["dependencies"].as_array_mut().unwrap().push(map);
         }
+        use_model_time(&mut wire);
         fixture_support::rebuild_complete_source_map(&mut wire);
         fixture_support::refresh_identity(&mut wire);
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
@@ -1134,6 +1135,63 @@ mod tests {
                 });
         }
         admit_wire(&wire, &document)
+    }
+
+    /// Give the closure fixture an admitted dense model clock. Its existing
+    /// entry, type, equality and map facts stay the subjects of their tests.
+    fn use_model_time(wire: &mut serde_json::Value) {
+        use monitor_plan_fixtures::{aggregate, binding, reference};
+        use serde_json::json;
+        let model = monitor_plan_fixtures::find(wire, "object_type");
+        let unit = fixture_support::node_id("qualified:Example/Second");
+        let unit_at = monitor_plan_fixtures::position(wire, &unit);
+        let dimension = wire["semantic_graph"]["nodes"][unit_at]["body"]["dimension"].clone();
+        let text = monitor_plan_fixtures::find(wire, "text");
+        let clause = monitor_plan_fixtures::find(wire, "temporal_clause");
+        let clause_at = monitor_plan_fixtures::position(wire, &clause);
+        let parameter = wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][0]["target"].clone();
+        let parameter_at = monitor_plan_fixtures::position(wire, &parameter);
+        wire["semantic_graph"]["nodes"][parameter_at]["semantic_type"] = model.clone();
+        let profile = json!({"role":"temporal_profile", "definition":{
+            "authority":"agent-ix", "identity":"quire.temporal.timed/v1"}});
+        wire["lock"]["profile_selections"].as_array_mut().unwrap().push(profile.clone());
+        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            if let Some(laws) = node["body"]["operation"]["laws"].as_array_mut() {
+                for law in laws {
+                    if law["role"] == "temporal_profile" {
+                        *law = profile.clone();
+                    }
+                }
+            }
+            let interval = &mut node["body"]["operation"]["member"]["interval"];
+            if interval.is_object() && interval["lower"].is_string() {
+                let lower = interval["lower"].clone();
+                let upper = interval["upper"].clone();
+                *interval = json!({"lower":{"numerator":lower,"denominator":"1"},
+                    "upper":{"numerator":upper,"denominator":"1"},
+                    "lower_end":"closed", "upper_end":"closed"});
+            }
+        }
+        wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][1]["value"] = json!("model-time");
+        wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][2] = aggregate(vec![binding("kind", monitor_plan_fixtures::literal(&text, "text", json!("origin")))]);
+        let source = monitor_plan_fixtures::append(wire, "timed_model", "time_source", None,
+            aggregate(vec![binding("kind", monitor_plan_fixtures::literal(&text, "text", json!("dense"))), binding("unit", reference(&unit))]), "dense");
+        let source_at = monitor_plan_fixtures::position(wire, &source);
+        wire["semantic_graph"]["nodes"][source_at]["occurrences"] = json!([{"role":"expression", "ordinal":0}]);
+        monitor_plan_fixtures::rekey(wire, source_at);
+        let source = wire["semantic_graph"]["nodes"][source_at]["node_id"].clone();
+        let mut members = vec![binding("model", reference(&model)), binding("time_dimension", reference(&dimension)), binding("source", reference(&source))];
+        for name in ["clock_places", "resets", "guards", "invariants", "urgencies", "constraints"] {
+            members.push(binding(name, aggregate(vec![])));
+        }
+        let root = monitor_plan_fixtures::append(wire, "timed_model", "timed_model", None, aggregate(members), "Timed");
+        let root_at = monitor_plan_fixtures::position(wire, &root);
+        let owner = fixture_support::source_owner(&wire["lock"]["sources"][0]);
+        wire["semantic_graph"]["nodes"][root_at]["owner"] = owner;
+        wire["semantic_graph"]["nodes"][root_at]["declaration"] = json!({"qualified_name":["Example","Timed"]});
+        wire["semantic_graph"]["nodes"][root_at]["occurrences"] = json!([{"role":"declaration", "ordinal":0}]);
+        monitor_plan_fixtures::finish_from(wire, source_at);
+        fixture_support::settle(wire);
     }
 
     fn equality_rows(package: &CheckedPackageV2) -> Vec<crate::SelectedEqualityApplicationRow> {
