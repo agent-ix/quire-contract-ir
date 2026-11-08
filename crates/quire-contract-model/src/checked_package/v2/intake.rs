@@ -568,7 +568,7 @@ fn malformed(
                     crate::checked_package::common::Step::Index(index) => Some(*index),
                     _ => None,
                 })
-                .last()
+                .next_back()
                 .unwrap_or(0),
             "wire",
             at,
