@@ -10,7 +10,7 @@ use quire_contract_model::{
     with_native_budget_observer, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2BudgetedReadResult,
     NativeBudgetEvent, NativeBudgetResource, NativeJoinBudget, NativeJoinLocusSource,
-    PackageReadStage,
+    PackageReadResource, PackageReadStage,
 };
 use std::cell::RefCell;
 use std::io::Write;
@@ -146,7 +146,9 @@ fn kernel(input: &[u8], name: &str, deny: Option<usize>) {
     };
     log(
         serde_json::json!({"kind":"canonical-kernel","provider":name,"input":std::str::from_utf8(input).unwrap(),"deny":deny,
-        "calls":reservation.calls,"granted":reservation.granted,"requested":requested,"outcome":outcome}),
+        "calls":reservation.calls,"callbacks":&reservation.amounts[..reservation.calls],
+        "granted_callbacks":deny.unwrap_or(reservation.calls),"denied_request":deny.map(|index|reservation.amounts[index]),
+        "granted":reservation.granted,"requested":requested,"outcome":outcome}),
     );
 }
 #[derive(Default)]
@@ -211,6 +213,9 @@ fn observe(
     u64,
     Vec<NativeBudgetEvent>,
 ) {
+    // First real read is observer-OFF; callback machinery is initialized only
+    // afterward, outside every measured reader interval.
+    let off = call(input, limit);
     EVENTS.with(|state| *state.borrow_mut() = Events::Count(0));
     let counted = with_native_budget_observer(event, || call(input, limit));
     let Events::Count(count) = EVENTS.with(|state| state.replace(Events::Idle)) else {
@@ -227,6 +232,10 @@ fn observe(
     assert_eq!(
         counted, recorded,
         "passive source capture preserves full outcome/budget/requests"
+    );
+    assert_eq!(
+        off, recorded,
+        "observer-OFF and recorded reads have the same full outcome/budget/requests"
     );
     let Events::Record { events, overflow } = EVENTS.with(|state| state.replace(Events::Idle))
     else {
@@ -305,6 +314,35 @@ fn whole(name: &str, phase: &str) {
         if phase == "deny" {
             assert_eq!(budget.first_unpaid_read_storage(), Some(observed.amount));
             assert_eq!(budget.first_unpaid_locus(), observed.locus);
+            let bound = limit.expect("finite denial control");
+            match &result {
+                CheckedPackageV2BudgetedReadResult::BudgetIncomplete(stop) => {
+                    assert_eq!(stop.denied.resource, PackageReadResource::ReadStorage);
+                    assert_eq!(stop.denied.amount, observed.amount);
+                    assert_eq!(stop.limit, bound);
+                    assert_eq!(
+                        stop.consumed,
+                        observed.consumed_before + u64::try_from(observed.amount).unwrap()
+                    );
+                    assert!(
+                        stop.path.is_none(),
+                        "Envelope reservation denial is pointer-free"
+                    );
+                }
+                CheckedPackageV2BudgetedReadResult::Exhausted(stop) => {
+                    assert_eq!(stop.denied.resource, PackageReadResource::ReadStorage);
+                    assert_eq!(stop.denied.amount, observed.amount);
+                    assert_eq!(stop.configured_bound, bound);
+                    assert_eq!(Some(stop.locus), observed.locus);
+                    assert!(
+                        stop.pending.is_none(),
+                        "no semantic refusal began before this reservation denial"
+                    );
+                }
+                other => panic!(
+                    "denied parser reservation cannot admit or return semantic refusal: {other:?}"
+                ),
+            }
         }
     } else {
         assert!(
@@ -317,7 +355,7 @@ fn whole(name: &str, phase: &str) {
             );
         }
     }
-    let mut row = serde_json::json!({"kind":"canonical-whole","provider":name,"phase":phase,"input":std::str::from_utf8(input).unwrap(),"requested":requested,"charged":budget.read_storage_consumed(),"target":provider_index(name)});
+    let mut row = serde_json::json!({"kind":"canonical-whole","provider":name,"phase":phase,"input":std::str::from_utf8(input).unwrap(),"requested":requested,"charged":budget.read_storage_consumed(),"reader_calls":3,"target":provider_index(name)});
     if name != "empty" {
         let target = package[provider(name).target];
         row["target_before"] = target.consumed_before.into();
@@ -359,14 +397,17 @@ macro_rules! controls {
             let p = provider($name);
             kernel(p.input, p.name, Some(p.target));
         }
+        #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
         #[test]
         fn $whole() {
             whole($name, "allow");
         }
+        #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
         #[test]
         fn $short() {
             whole($name, "deny");
         }
+        #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
         #[test]
         fn $exact() {
             whole($name, "exact");

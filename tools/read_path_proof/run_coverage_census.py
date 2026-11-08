@@ -373,6 +373,83 @@ def run_original_corpus(args, binary, config, env, intended):
     return [result]
 
 
+
+def run_class_controls(args,binary,config,env,compiled_tests):
+    """Only per-class execution binding; not AC513 or general provider coverage."""
+    manifests=[]
+    for line in (args.out/"build.log").read_text().splitlines():
+        try: item=json.loads(line)
+        except ValueError: continue
+        if item.get("reason")=="compiler-artifact" and item.get("target",{}).get("name")=="quire_canonical":
+            manifests.append(Path(item["manifest_path"]))
+    if len(set(manifests))!=1: raise RunError("actual canonical dependency source identity missing/ambiguous")
+    source=manifests[0].parent/"src/read.rs"
+    completed={}; cases=[]
+    def execute(name,reference=None):
+        full="canonical_class_denial::"+name
+        if full not in compiled_tests: raise RunError("missing compiled class control "+full)
+        child=dict(env)
+        if reference: child["IR1404_CANONICAL_REFERENCE_LOG"]=str(reference)
+        output,report,profiles,records=execute_one(args,binary,config,child,full,len(cases),preserve_failure=True)
+        row={"test":full,"directory":str(output),"rust_oracle_passed":not report["evidence_errors"],"report":report}
+        cases.append(row)
+        if report["evidence_errors"]: return None
+        if len(records)!=1: raise RunError("class control must emit exactly one actual fact record")
+        export=merge_export(args,output,profiles,binary,env)
+        counts=census.canonical_path_counts(export,source)
+        archive_export(output)
+        result={"facts":records[0],"counts":counts,"directory":str(output)}
+        completed[name]=result
+        return result
+    kernel_empty=execute("kernel_empty")
+    whole_empty=execute("whole_empty")
+    classes=[]
+    for name in census.CANONICAL_CLASS_SITES:
+        allowed=execute("kernel_"+name+"_allow")
+        denied=execute("kernel_"+name+"_deny")
+        whole=execute("whole_"+name+"_allow")
+        reference=Path(whole["directory"])/"driver-sites.jsonl" if whole else None
+        short=execute("whole_"+name+"_deny",reference)
+        exact=execute("whole_"+name+"_exact",reference)
+        result={"class":name,"qualified":False,"kernel_allow":allowed,"kernel_deny":denied,
+                "whole_allow":whole,"whole_deny":short,"whole_exact":exact}
+        if denied:
+            try:
+                result["source_binding"]=census.bind_canonical_denial(name,denied["counts"],denied["facts"],source)
+                result["kernel_bound"]=True
+            except census.CensusError as error:result["binding_error"]=str(error)
+        if result.get("kernel_bound") and all(x is not None for x in (kernel_empty,whole_empty,allowed,denied,whole,short,exact)):
+            try:
+                for kernel,actual in ((allowed,whole),(denied,short)):
+                    for function in census.CANONICAL_PATH_FUNCTIONS:
+                        # Three whole reads: OFF/count/record. The identical
+                        # owned-catalog Parser instance cancels against empty.
+                        left=actual["counts"][function]-whole_empty["counts"][function]
+                        right=3*(kernel["counts"][function]-kernel_empty["counts"][function])
+                        if left!=right: raise census.CensusError("whole/package Parser instance contrast disagrees with kernel at "+function)
+                result["qualified"]=True
+            except census.CensusError as error:result["binding_error"]=str(error)
+        classes.append(result)
+    negatives=[]
+    for test,claim in [("negative_empty_string_is_not_text_growth","text"),
+                       ("negative_empty_array_is_not_retained_children","children"),
+                       ("negative_scratch_child_is_not_retained_children","children")]:
+        actual=execute(test)
+        row={"test":test,"claimed_class":claim,"rejected":False}
+        if actual:
+            try:census.bind_canonical_denial(claim,actual["counts"],actual["facts"],source)
+            except census.CensusError as error:row.update(rejected=True,reason=str(error))
+        negatives.append(row)
+    qualified=all(case["qualified"] for case in classes) and all(x["rejected"] for x in negatives)
+    result={"schema":"canonical-class-denial/v1","qualified":qualified,
+            "scope":"minimal canonical class-denial controls only; not positive/adverse corpus completeness or AC513",
+            "configuration":"config.json","canonical_source":str(source),"classes":classes,
+            "negative_controls":negatives,"runs":cases,"static_ac513_proven":False}
+    write_json(args.out/"class-proof.json",result)
+    if not qualified: raise RunError("class denial proof incomplete/RED; preserve individual run and binding results")
+    return [result]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, required=True)
@@ -382,6 +459,7 @@ def main():
     parser.add_argument("--llvm-bin", type=Path, required=True)
     parser.add_argument("--mode", choices=["sample", "full"], default="sample")
     parser.add_argument("--controls", action="store_true")
+    parser.add_argument("--class-controls",action="store_true")
     parser.add_argument("--corpus", choices=["qspec", "tc048"], default="qspec")
     parser.add_argument("--features", action="append", default=[])
     parser.add_argument("--qspec-dir", type=Path, required=True)
@@ -428,20 +506,21 @@ def main():
                    CARGO=str(args.toolchain_bin / "cargo"), QUIRE_SPECIFICATION_DIR=str(args.qspec_dir))
         env["PATH"] = str(args.toolchain_bin) + os.pathsep + env["PATH"]
         config = {"source_head": git(args.repo, "rev-parse", "HEAD"), "rustc": rustc, "llvm": llvm,
-                  "mode": args.mode, "controls": args.controls, "corpus": args.corpus, "features": args.features,
+                  "mode": args.mode, "controls": args.controls, "class_controls":args.class_controls, "corpus": args.corpus, "features": args.features,
                   "test_timeout_seconds":args.test_timeout_seconds,
                   "qspec": {"path": str(args.qspec_dir), "head": git(args.qspec_dir, "rev-parse", "HEAD")},
                   "environment": safe_environment(env)}
-        target = ("read_entry_census_controls" if args.controls else
+        target = ("read_storage_alloc" if args.class_controls else "read_entry_census_controls" if args.controls else
                   "it" if args.corpus == "tc048" else "conformance_qspec")
         binary = build(args, target, env, config)
         intended = discover_tests(args, binary, env)
         if not args.controls and args.corpus == "tc048":
             intended = select_tc048(args, intended)
-        results = (run_controls(args, binary, config, env, intended) if args.controls
+        results = (run_class_controls(args,binary,config,env,intended) if args.class_controls else
+                   run_controls(args, binary, config, env, intended) if args.controls
                    else run_original_corpus(args, binary, config, env, intended))
         write_json(args.out / "result.json", {"passed": True, "results": results,
-                   "normative_boundary_proof": args.mode == "full" and not args.controls,
+                   "normative_boundary_proof": args.mode == "full" and not args.controls and not args.class_controls,
                    "static_ac513_proven": False})
     except (RunError, census.CensusError, OSError, ValueError, subprocess.CalledProcessError) as error:
         write_json(args.out / "result.json", {"passed": False, "error": str(error)})

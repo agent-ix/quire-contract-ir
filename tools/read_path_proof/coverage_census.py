@@ -329,3 +329,68 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# This is an execution-path binding for minimal class-denial controls, not a
+# reader reachability proof or a per-callback class inference from byte sizes.
+CANONICAL_CLASS_SITES = {
+    "arena": ("node", ".grow(&mut self.slots, 1)"),
+    "text": ("append", ".grow_text(&mut self.text, piece.len())"),
+    "stack": ("value", ".grow(&mut self.stack, 1)"),
+    "children": ("close", ".grow(&mut self.items, items.len())"),
+    "duplicate_sort": ("check_unique_names", ".grow(&mut self.order, children.len())"),
+}
+CANONICAL_PATH_FUNCTIONS = ("value", "node", "complete", "close", "append", "member_name", "check_unique_names", "pointer")
+
+
+def canonical_path_counts(export, source):
+    lines = source.read_text().splitlines()
+    definitions = {}
+    for name in CANONICAL_PATH_FUNCTIONS:
+        found = [i for i, line in enumerate(lines, 1)
+                 if re.match(r"\s*fn\s+" + name + r"\s*\(", line)]
+        if len(found) != 1:
+            raise CensusError(f"canonical Parser source identity ambiguous/missing: {name}")
+        definitions[name] = found[0]
+    counts = dict.fromkeys(definitions, 0)
+    seen = set()
+    for unit in export.get("data", []):
+        for function in unit.get("functions", []):
+            if closure_symbol(function["name"]) or "Parser" not in function["name"]:
+                continue
+            indices = {i for i, name in enumerate(function.get("filenames", [])) if Path(name).resolve() == source.resolve()}
+            for name, line in definitions.items():
+                if not symbol_mentions(function["name"], name):
+                    continue
+                if not any(len(region) >= 8 and region[5] in indices and region[0] <= line <= region[2]
+                           for region in function.get("regions", [])):
+                    continue
+                counts[name] += function["count"]
+                seen.add(name)
+    if seen != set(definitions):
+        raise CensusError(f"missing compiled canonical Parser identities: {sorted(set(definitions)-seen)}")
+    return counts
+
+
+def bind_canonical_denial(provider, counts, facts, source):
+    # These constraints distinguish the last actual reservation caller from
+    # earlier granted callers and later callers which have not been entered.
+    expected = {
+        "arena": {"value":1,"node":1,"complete":0,"close":0,"append":0,"member_name":0,"check_unique_names":0,"pointer":0},
+        "text": {"value":1,"node":0,"complete":0,"close":0,"append":1,"member_name":0,"check_unique_names":0,"pointer":0},
+        "stack": {"value":1,"node":0,"complete":0,"close":0,"append":0,"member_name":0,"check_unique_names":0,"pointer":0},
+        "children": {"value":2,"node":1,"complete":1,"close":1,"append":0,"member_name":0,"check_unique_names":0,"pointer":0},
+        "duplicate_sort": {"value":3,"node":2,"complete":2,"close":1,"member_name":2,"check_unique_names":1,"pointer":0},
+    }[provider]
+    predecessors = {"arena":0,"text":0,"stack":0,"children":3,"duplicate_sort":3}[provider]
+    if facts.get("outcome") != "reservation-denied" or facts.get("calls") != predecessors+1:
+        raise CensusError("actual denied callback does not follow the genuine required predecessor path")
+    if any(counts[name] != amount for name, amount in expected.items()):
+        raise CensusError(f"canonical before-denial Parser path does not identify {provider}: {counts}")
+    function, expression = CANONICAL_CLASS_SITES[provider]
+    source_lines = source.read_text().splitlines()
+    sites = [(i, line.index(expression)+1) for i,line in enumerate(source_lines,1) if expression in line]
+    if len(sites) != 1:
+        raise CensusError("canonical reservation expression source identity changed/ambiguous")
+    return {"source":str(source),"qualified_function":"quire_canonical::read::Parser::"+function,
+            "reservation_expression":expression,"line":sites[0][0],"column":sites[0][1],
+            "before_denial_counts":counts,"granted_predecessor_callbacks":predecessors}
