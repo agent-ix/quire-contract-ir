@@ -413,3 +413,18 @@ controls!(
     whole_duplicate_sort_exact,
     "duplicate_sort"
 );
+
+// Their real kernel denial oracles pass; source binding MUST reject these
+// candidates as the named class because its genuine predecessor path is absent.
+#[test]
+fn negative_empty_string_is_not_text_growth() {
+    kernel(br#""""#, "negative_text_empty", Some(0));
+}
+#[test]
+fn negative_empty_array_is_not_retained_children() {
+    kernel(b"[]", "negative_children_empty", Some(1));
+}
+#[test]
+fn negative_scratch_child_is_not_retained_children() {
+    kernel(b"[null]", "negative_children_scratch", Some(2));
+}
