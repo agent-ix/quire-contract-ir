@@ -92,6 +92,9 @@ pub(in crate::checked_package) struct DecodeContext<'d> {
     denied_at: RefCell<Option<JsonPointer>>,
     charging: Cell<bool>,
     path: RefCell<([Option<Segment<'d>>; TRACKED_DEPTH], usize)>,
+    /// A locus every charge is made at, for a decode of one term below the
+    /// wire's root rather than of the wire itself.
+    fixed_locus: Option<NativeJoinLocus>,
 }
 
 impl<'d> DecodeContext<'d> {
@@ -108,7 +111,34 @@ impl<'d> DecodeContext<'d> {
             denied_at: RefCell::new(None),
             charging: Cell::new(true),
             path: RefCell::new(([None; TRACKED_DEPTH], 0)),
+            fixed_locus: None,
         }
+    }
+
+    /// [`Self::new`] for a decode whose every charge is made at `locus`.
+    pub(in crate::checked_package) fn at_locus(
+        document: &'d Arc<Document>,
+        budget: &mut NativeJoinBudget,
+        locus: NativeJoinLocus,
+    ) -> Self {
+        Self {
+            fixed_locus: Some(locus),
+            ..Self::new(document, budget)
+        }
+    }
+
+    /// The deserializer for the document value `node`.
+    pub(in crate::checked_package) fn value_at(&self, node: NodeRef<'d>) -> ValueDe<'_, 'd> {
+        ValueDe {
+            node,
+            context: self,
+        }
+    }
+
+    /// Charges `bytes` of heap the caller is about to request, at the
+    /// decode's locus.
+    pub(in crate::checked_package) fn charge_bytes(&self, bytes: usize) -> bool {
+        self.charge(bytes).is_ok()
     }
 
     /// Returns the budget, with every admitted charge, to its owner.
@@ -156,6 +186,9 @@ impl<'d> DecodeContext<'d> {
     /// The `WireDecode` locus of the value being decoded: the position in the
     /// innermost array holding it, and the dotted wire path of that array.
     fn locus(&self) -> NativeJoinLocus {
+        if let Some(fixed) = self.fixed_locus {
+            return fixed;
+        }
         let path = self.path.borrow();
         let tracked = path.0.iter().take(path.1).flatten();
         let mut index = 0;
