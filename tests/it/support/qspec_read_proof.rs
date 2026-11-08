@@ -1064,7 +1064,7 @@ mod caller_budget_tests {
     #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
     #[test]
     fn full_reference_rebounds_finite_caller_limits_and_checks_typed_denials() {
-        let mut seed = NativeJoinBudget::new(3, 2).with_read_storage_limit(u64::MAX);
+        let mut seed = NativeJoinBudget::new(3, 2).with_read_storage_limit(0);
         let locus = quire_contract_model::NativeJoinLocus {
             source: quire_contract_model::NativeJoinLocusSource::Package,
             form: "prior_caller_charge",
@@ -1087,7 +1087,7 @@ mod caller_budget_tests {
         assert_eq!(complete["prior_work"], 3);
         assert_eq!(complete["prior_read_storage"], 0);
         assert_eq!(complete["outcome"], "refused");
-        assert!(complete["work"].as_u64().expect("work") > 3);
+        assert!(complete["read_storage"].as_u64().expect("read storage") > 0);
         assert!(!events.is_empty());
         assert!(!results.is_empty());
         assert!(results
