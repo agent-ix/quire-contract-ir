@@ -19,7 +19,7 @@ const MINIMUM_CAPACITY: usize = 4;
 
 /// A charge site: the stage, the index its table names and its static form.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Site {
+pub(in crate::checked_package) struct Site {
     pub(super) stage: PackageReadStage,
     pub(super) index: usize,
     pub(super) form: &'static str,
