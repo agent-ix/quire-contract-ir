@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Agent-IX
 //! Passive test instrumentation for actual caller-budget requests.
 use super::NativeJoinLocus;
 use std::cell::Cell;
