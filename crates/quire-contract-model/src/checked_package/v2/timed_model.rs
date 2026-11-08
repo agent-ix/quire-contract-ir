@@ -976,12 +976,16 @@ fn check_resolved_path(
                 return Err(fail(at));
             };
             let actual_declaring = field.identity.rsplit_once('/').map(|(owner, _)| owner);
-            let actual_type = declared_field_type(
-                field,
-                |reference| model_owner.package.clock_type_name(reference),
-                meter,
-            )?
-            .ok_or_else(|| fail(at.clone()))?;
+            let rendered = if let Some(reference) = field.slot.type_ref.as_ref() {
+                model_owner.package.clock_type_name_in(
+                    reference,
+                    &mut Budget::new(meter, model_owner.package.root, model_owner.package.bytes),
+                )?
+            } else {
+                None
+            };
+            let actual_type =
+                declared_field_type(field, |_| rendered, meter)?.ok_or_else(|| fail(at.clone()))?;
             if actual_declaring != declaring
                 || Some(field.identity.as_ref()) != identity
                 || actual_type != member_type.unwrap_or_default()

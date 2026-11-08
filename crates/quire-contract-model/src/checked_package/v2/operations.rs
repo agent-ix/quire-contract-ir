@@ -3504,7 +3504,10 @@ fn check_tuple_position(
     else {
         return ineligible();
     };
-    if owner.package.duration_unit_absent(position_ref) {
+    if owner.package.duration_unit_absent(
+        position_ref,
+        &mut Budget::new(meter, owner.package.root, owner.package.bytes),
+    )? {
         return Ok(Some(application.refuse(
             CheckedPackageRefusalCode::MissingDeclaration,
             member_at,

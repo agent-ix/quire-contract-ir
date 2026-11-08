@@ -2315,13 +2315,18 @@ impl DomainModel {
 
     /// A Duration member has no type when its chosen owner declares no `s`
     /// node. Distinguish that missing name from a present but invalid `s`.
-    pub(super) fn duration_unit_absent(&self, type_ref: &SelectedTypeRef) -> bool {
+    pub(super) fn duration_unit_absent(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<bool, ValidationFailure> {
         let mut current = type_ref;
         let mut seen: Vec<&str> = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
-            if !first_visit(&mut seen, name) {
-                return false;
+            if seen.contains(&name.as_ref()) {
+                return Ok(false);
             }
+            budget.push(&mut seen, name.as_ref(), "member_type")?;
             match self.collection_types.get(name) {
                 Some(
                     SelectedTypeDefinition::Sequence(items) | SelectedTypeDefinition::Option(items),
@@ -2330,14 +2335,14 @@ impl DomainModel {
             }
         }
         if !matches!(current, SelectedTypeRef::Native(NativeTypeRef::Duration)) {
-            return false;
+            return Ok(false);
         }
         let unit_name = if self.own_seconds_declared {
-            format!("ix://quire/unit/{}/s", self.identity)
+            budget.concat(&["ix://quire/unit/", &self.identity, "/s"], "member_type")?
         } else {
-            "ix://quire/unit/s".to_owned()
+            budget.concat(&["ix://quire/unit/s"], "member_type")?
         };
-        !self.unit_refs.contains_key(unit_name.as_str())
+        Ok(!self.unit_refs.contains_key(unit_name.as_str()))
     }
 
     fn duration_unit_node(
@@ -2513,7 +2518,11 @@ impl DomainModel {
     }
 
     /// Render the selected field type used by a timed clock-place path.
-    pub(super) fn clock_type_name(&self, type_ref: &SelectedTypeRef) -> Option<String> {
+    pub(super) fn clock_type_name_in(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<String>, ValidationFailure> {
         let mut current = type_ref;
         let mut seen: Vec<&str> = Vec::new();
         let mut layers = Vec::new();
@@ -2521,43 +2530,52 @@ impl DomainModel {
             let Some(definition) = self.collection_types.get(name) else {
                 break;
             };
-            if !first_visit(&mut seen, name) {
-                return None;
+            if seen.contains(&name.as_ref()) {
+                return Ok(None);
             }
+            budget.push(&mut seen, name.as_ref(), "clock_type")?;
             match definition {
                 SelectedTypeDefinition::Sequence(items) => {
-                    layers.push(SelectedValueLayer::Sequence);
+                    budget.push(&mut layers, SelectedValueLayer::Sequence, "clock_type")?;
                     current = items;
                 }
                 SelectedTypeDefinition::Map(values) => {
-                    layers.push(SelectedValueLayer::Map);
+                    budget.push(&mut layers, SelectedValueLayer::Map, "clock_type")?;
                     current = values;
                 }
                 SelectedTypeDefinition::Option(_) | SelectedTypeDefinition::Reference(_) => {
-                    return None;
+                    return Ok(None);
                 }
             }
         }
-        let mut rendered = match current {
+        let Some(mut rendered) = (match current {
             SelectedTypeRef::Native(NativeTypeRef::Clock) => {
-                Some("ix://quire/native/Clock".to_owned())
+                Some(budget.concat(&["ix://quire/native/Clock"], "clock_type")?)
             }
             SelectedTypeRef::Native(NativeTypeRef::Text) => {
-                Some("ix://quire/native/Text".to_owned())
+                Some(budget.concat(&["ix://quire/native/Text"], "clock_type")?)
             }
             SelectedTypeRef::Native(_) => None,
-            SelectedTypeRef::Unit(name) => Some(name.to_string()),
-            SelectedTypeRef::Map(key, value) => Some(format!("Map<{key}, {value}>")),
-            SelectedTypeRef::Declared(name) => Some(name.to_string()),
-        }?;
+            SelectedTypeRef::Unit(name) => Some(budget.concat(&[name], "clock_type")?),
+            SelectedTypeRef::Map(key, value) => {
+                Some(budget.concat(&["Map<", key, ", ", value, ">"], "clock_type")?)
+            }
+            SelectedTypeRef::Declared(name) => Some(budget.concat(&[name], "clock_type")?),
+        }) else {
+            return Ok(None);
+        };
         for layer in layers.into_iter().rev() {
             rendered = match layer {
-                SelectedValueLayer::Sequence => format!("Sequence<{rendered}>"),
-                SelectedValueLayer::Map => format!("Map<Text, {rendered}>"),
-                SelectedValueLayer::Option => return None,
+                SelectedValueLayer::Sequence => {
+                    budget.concat(&["Sequence<", &rendered, ">"], "clock_type")?
+                }
+                SelectedValueLayer::Map => {
+                    budget.concat(&["Map<Text, ", &rendered, ">"], "clock_type")?
+                }
+                SelectedValueLayer::Option => return Ok(None),
             };
         }
-        Some(rendered)
+        Ok(Some(rendered))
     }
 
     /// FR-322 step 4 over one declared `typeRef` and multiplicity; `None`
