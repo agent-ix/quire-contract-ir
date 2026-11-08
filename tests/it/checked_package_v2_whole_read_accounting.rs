@@ -75,6 +75,27 @@ fn positive_cases() -> Vec<Case> {
             positive_operation_identities(),
         ),
     ];
+    // These are the original native builders used by the corresponding
+    // semantic tests, including their settled graph and model selections.
+    // Construct outside the counter, then run the same public read oracle.
+    let (wire, _, _, _) = crate::checked_package_v2_protocol_body::decision_fact_fixture();
+    cases.push(positive("native/protocol_body/decision_fact_fixture", wire));
+    let (wire, _, _) = crate::checked_package_v2_protocol_body::package_with_send();
+    cases.push(positive("native/protocol_body/package_with_send", wire));
+    let (wire, _, _) =
+        crate::checked_package_v2_protocol_body::package_with_admitted_compensation();
+    cases.push(positive(
+        "native/protocol_body/package_with_admitted_compensation",
+        wire,
+    ));
+    let (wire, _, _) = crate::checked_package_v2_protocol_body::package_with_present_commit();
+    cases.push(positive("native/protocol_body/package_with_present_commit", wire));
+    let (wire, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
+    cases.push(positive("native/frame_entries/state_operand_fixture", wire));
+    let (wire, _) = crate::checked_package_v2_operand_families::quantity_sum_control();
+    cases.push(positive("native/operand_families/quantity_sum_control", wire));
+    let (wire, _) = crate::checked_package_v2_operand_families::carried_sum_control();
+    cases.push(positive("native/operand_families/carried_sum_control", wire));
     let catalog: Value = serde_json::from_str(
         quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
     )
@@ -175,7 +196,19 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
     );
     for row in population_rows {
         if row["operation"] == "published" {
-            providers.insert(format!("it/checked_package_v2_owners.rs: fixtures/adverse.json#/population_reference_cases#{}",row["id"].as_str().expect("published case id")));
+            let id = row["id"].as_str().expect("published case id");
+            assert_eq!(row["outcome"], "admitted", "published population control");
+            cases.push(Case {
+                label: format!("QSpec/population/{id}"),
+                bytes: canonical(&package),
+                evidence: crate::support::checked_package::evidence_with_document(
+                    &package,
+                    "acme/orders",
+                    &document,
+                ),
+                expected: Expected::Admitted,
+            });
+            providers.insert(format!("it/checked_package_v2_owners.rs: fixtures/adverse.json#/population_reference_cases#{id}"));
             continue;
         }
         providers.insert(format!(
