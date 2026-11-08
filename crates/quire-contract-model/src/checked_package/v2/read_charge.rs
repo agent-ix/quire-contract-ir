@@ -328,6 +328,14 @@ pub(super) trait ChargeAt {
     /// Charges `bytes` at `site`.
     fn charge(&self, site: Site, bytes: u128) -> Result<(), ValidationFailure>;
 
+    /// Pays an owned outcome through the same caller-owned diagnostic sink.
+    fn reserve_diagnostic(
+        &self,
+        site: Site,
+        bytes: u128,
+        pending: super::CheckedPackagePendingOutcome,
+    ) -> Result<(), Denied>;
+
     /// The stop that ends the read after a refused charge.
     fn denial(&self) -> ValidationFailure;
 }
@@ -335,6 +343,17 @@ pub(super) trait ChargeAt {
 impl ChargeAt for Meter<'_> {
     fn charge(&self, site: Site, bytes: u128) -> Result<(), ValidationFailure> {
         Meter::charge(self, site, bytes)
+    }
+
+    fn reserve_diagnostic(
+        &self,
+        site: Site,
+        bytes: u128,
+        pending: super::CheckedPackagePendingOutcome,
+    ) -> Result<(), Denied> {
+        self.budget
+            .borrow_mut()
+            .reserve_diagnostic(bytes, site, pending)
     }
 
     fn denial(&self) -> ValidationFailure {
@@ -364,6 +383,17 @@ impl ChargeAt for SinkCell<'_> {
     fn charge(&self, site: Site, bytes: u128) -> Result<(), ValidationFailure> {
         let mut sink = self.sink.borrow_mut();
         sink.reserve(bytes, site).map_err(|_| sink.denial())
+    }
+
+    fn reserve_diagnostic(
+        &self,
+        site: Site,
+        bytes: u128,
+        pending: super::CheckedPackagePendingOutcome,
+    ) -> Result<(), Denied> {
+        self.sink
+            .borrow_mut()
+            .reserve_diagnostic(bytes, site, pending)
     }
 
     fn denial(&self) -> ValidationFailure {
