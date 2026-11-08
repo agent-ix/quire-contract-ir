@@ -4,6 +4,9 @@
 //! Allocation proof at the original driver's public read boundary. The driver
 //! retains its input construction, limits, result type and semantic oracle.
 
+#[cfg(feature = "test-support")]
+#[path = "native_budget_trace.rs"]
+mod native_budget_trace;
 #[path = "read_observation.rs"]
 mod observation;
 use observation::{accounted, drop_without_request, measure_at, Counter, Observation};
@@ -29,6 +32,10 @@ fn observe(
     work: u64,
     storage: u64,
 ) -> Observation {
+    #[cfg(feature = "test-support")]
+    let (observation, _events) =
+        native_budget_trace::diagnostic::<DriverCounter>(bytes, evidence, limits, work, storage);
+    #[cfg(not(feature = "test-support"))]
     let observation = measure_at::<DriverCounter>(bytes, evidence, limits, work, storage);
     accounted("original driver read", &observation);
     observation
