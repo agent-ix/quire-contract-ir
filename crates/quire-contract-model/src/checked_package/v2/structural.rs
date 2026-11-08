@@ -2306,7 +2306,8 @@ mod tests {
             CheckedPackagePendingOutcome, PackageReadResource,
         };
         use crate::{NativeJoinBudget, NativeJoinLocusSource, PackageReadStage};
-        let id = super::super::test_support::id('a');
+        let id: CheckedNodeId = serde_json::from_value(super::super::test_support::id('a'))
+            .expect("the original fixture node identity");
         for (defect, expected) in [
             (
                 Defect::SemanticType,
