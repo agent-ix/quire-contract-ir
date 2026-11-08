@@ -642,6 +642,46 @@ mod tests {
         assert!(error.message().contains("not_carried"), "{error}");
     }
 
+    /// FR-038-AC-515: on the budgeted entry an unreadable catalog returns
+    /// `CatalogUnavailable` before any charge, leaving every counter as it was.
+    #[trace("TC-472", "FR-038-AC-515")]
+    #[test]
+    fn tc_472_an_unreadable_catalog_leaves_the_budgeted_entrys_counters_unchanged() {
+        use super::super::{
+            CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2,
+            CheckedPackageV2BudgetedReadResult, NativeJoinBudget,
+        };
+        let mut edited: serde_json::Value =
+            serde_json::from_str(CATALOG_BYTES).expect("the production catalog is JSON");
+        let index = edited["operations"]
+            .as_array()
+            .expect("operations")
+            .iter()
+            .position(|entry| entry["identity"] == "quire.op.collection.sum.carried_quantity")
+            .expect("the carried-quantity sum is catalogued");
+        edited["operations"][index]["constraints"][1]["kind"] = serde_json::json!("not_carried");
+        let unreadable: &'static Result<OperationCatalog, CatalogReadError> =
+            Box::leak(Box::new(read_catalog(&edited.to_string())));
+        let mut budget = NativeJoinBudget::new(5, 6).with_read_storage_limit(7);
+        let result = CheckedPackageV2::read_with_budget_against(
+            unreadable,
+            b"not even a package",
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::default(),
+            &mut budget,
+        );
+        assert!(matches!(
+            result,
+            CheckedPackageV2BudgetedReadResult::CatalogUnavailable(_)
+        ));
+        assert_eq!(budget.consumed(), NativeJoinBudget::new(5, 6).consumed());
+        assert_eq!(budget.read_storage_consumed(), 0);
+        assert_eq!(budget.first_unpaid(), None);
+        assert_eq!(budget.first_unpaid_read_storage(), None);
+        assert_eq!(budget.last_success_delta(), None);
+        assert_eq!(budget.last_success_read_storage_delta(), None);
+    }
+
     /// FR-035-AC-36, FR-038-AC-519: the FR-330 contract-package read gates on
     /// the same catalog result, returning `CatalogUnavailable` with the
     /// offending path before it judges any byte, never a refusal.

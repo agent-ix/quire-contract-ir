@@ -1364,7 +1364,7 @@ fn closed_literal(
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::checked_package::v2) mod tests {
     use super::super::CheckedOccurrenceRole;
     use super::*;
     use crate::{
@@ -1475,7 +1475,7 @@ mod tests {
     }
 
     /// Every corruption below starts from a genuinely reader-admitted package.
-    fn package() -> CheckedPackageV2 {
+    pub(in crate::checked_package::v2) fn package() -> CheckedPackageV2 {
         match CheckedPackageV2::read(
             &crate::checked_package::v2::test_support::canonical(&fixture().0),
             CheckedPackageReadLimits::bounded(),

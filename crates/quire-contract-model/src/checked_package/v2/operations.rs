@@ -6689,7 +6689,6 @@ mod tests {
         use crate::checked_package::v2::model_members::{
             declaration_id, tests as model_tests, DeclarationForm, MemberType,
         };
-        use std::sync::Arc;
         const VARIANT: &str = "ix://acme/orders/Measurements";
         const UNIT: &str = "ix://quire/unit/acme/orders/ms";
         let unit_key = node_id('u');
@@ -6711,7 +6710,8 @@ mod tests {
             .expect("constructs")
             .push(json!({"kind":{"module":"acme/orders","name":"variant"},
                 "construct":{"meaning":"quire.meaning.model.variant-type/v1"}}));
-        let unit_refs = Arc::new(BTreeMap::from([(UNIT.into(), unit_key.clone())]));
+        let unit_refs =
+            model_tests::unit_refs_of(BTreeMap::from([(UNIT.into(), unit_key.clone())]));
         let model = model_tests::read_with_unit_refs(&selected, &unit_refs)
             .expect("float and resolved unit payloads admit at model intake");
         let type_id = declaration_id("acme/orders", DeclarationForm::VariantType, VARIANT);

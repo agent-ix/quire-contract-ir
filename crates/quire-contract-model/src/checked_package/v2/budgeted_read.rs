@@ -261,13 +261,76 @@ fn budgeted_outcome(
 ) -> CheckedPackageV2BudgetedReadResult {
     match stop {
         ValidationFailure::Refused(refusal) => {
-            CheckedPackageV2BudgetedReadResult::Refused(*refusal)
+            let bytes = refusal
+                .loci
+                .iter()
+                .filter_map(|location| location.path.as_ref())
+                .chain(refusal.document_pointer.as_ref())
+                .map(|pointer| pointer.as_str().len() as u128)
+                .sum();
+            match charge_outcome_diagnostic(
+                bytes,
+                CheckedPackagePendingOutcome::Refused(refusal.code),
+                budget,
+            ) {
+                None => CheckedPackageV2BudgetedReadResult::Refused(*refusal),
+                Some(exhausted) => exhausted,
+            }
         }
         ValidationFailure::Incomplete(incomplete) => {
-            CheckedPackageV2BudgetedReadResult::Incomplete(incomplete)
+            let bytes = incomplete
+                .path
+                .as_ref()
+                .map_or(0, |pointer| pointer.as_str().len() as u128);
+            match charge_outcome_diagnostic(
+                bytes,
+                CheckedPackagePendingOutcome::Incomplete(incomplete.limit_kind),
+                budget,
+            ) {
+                None => CheckedPackageV2BudgetedReadResult::Incomplete(incomplete),
+                Some(exhausted) => exhausted,
+            }
         }
         ValidationFailure::Budget(stop) => budget_denial(stop, budget),
     }
+}
+
+/// Charges the owned diagnostic of a refusal or `incomplete` outcome before it
+/// is returned; `Some` is the `Exhausted` outcome when the budget cannot pay.
+fn charge_outcome_diagnostic(
+    bytes: u128,
+    pending: CheckedPackagePendingOutcome,
+    budget: &mut NativeJoinBudget,
+) -> Option<CheckedPackageV2BudgetedReadResult> {
+    // The diagnostic is charged at the stage the read stopped in.
+    let source = match budget.active_locus() {
+        Some(NativeJoinLocus {
+            source: source @ NativeJoinLocusSource::PackageRead(..),
+            ..
+        }) => source,
+        _ => NativeJoinLocusSource::PackageRead(PackageReadStage::WireDecode, 0),
+    };
+    let locus = NativeJoinLocus {
+        source,
+        form: DIAGNOSTIC_FORM,
+    };
+    budget.set_active_locus(Some(locus));
+    let paid = budget.charge_read_storage(bytes);
+    budget.set_active_locus(None);
+    if paid {
+        return None;
+    }
+    Some(CheckedPackageV2BudgetedReadResult::Exhausted(
+        CheckedPackageReadExhausted {
+            denied: PackageReadDeniedCharge {
+                resource: PackageReadResource::ReadStorage,
+                amount: bytes,
+            },
+            configured_bound: budget.read_storage_limit(),
+            locus: budget.first_unpaid_locus().unwrap_or(locus),
+            pending: Some(pending),
+        },
+    ))
 }
 
 fn budget_denial(
@@ -334,7 +397,7 @@ fn budget_denial(
 
 /// The shared reader's and writer's reservation: charges read storage on the
 /// caller's budget at its active locus.
-struct ReadStorageReservation<'b>(&'b mut NativeJoinBudget);
+pub(super) struct ReadStorageReservation<'b>(pub(super) &'b mut NativeJoinBudget);
 
 impl Reservation for ReadStorageReservation<'_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), ReservationDenied> {
@@ -358,7 +421,7 @@ pub(in crate::checked_package) fn denial(budget: &NativeJoinBudget) -> Validatio
     })
 }
 
-fn at_stage(budget: &mut NativeJoinBudget, stage: PackageReadStage, form: &'static str) {
+pub(super) fn at_stage(budget: &mut NativeJoinBudget, stage: PackageReadStage, form: &'static str) {
     budget.set_active_locus(Some(NativeJoinLocus {
         source: NativeJoinLocusSource::PackageRead(stage, 0),
         form,
@@ -391,6 +454,9 @@ struct PackageDocument<'d> {
 }
 
 impl quire_canonical::Encode for PackageDocument<'_> {
+    // The one string comparison is a closed-vocabulary guard on a serde_json
+    // private member name, not an open key.
+    #[ix_trace_rs::string_edge]
     fn encode_into<S: quire_canonical::Sink + ?Sized>(
         &self,
         writer: &mut quire_canonical::Writer<'_, S>,
@@ -444,12 +510,12 @@ pub(super) fn arc_bytes<T>() -> usize {
 }
 
 /// Shares the package document with the handles the decode hands out,
-/// charging the shared allocation at the retained locus first.
+/// charging the shared allocation at the decode locus first.
 pub(super) fn share_document(
     document: Document,
     budget: &mut NativeJoinBudget,
 ) -> Result<std::sync::Arc<Document>, ValidationFailure> {
-    at_stage(budget, PackageReadStage::Retained, "package");
+    at_stage(budget, PackageReadStage::WireDecode, "package");
     if !budget.charge_read_storage(arc_bytes::<Document>() as u128) {
         return Err(denial(budget));
     }

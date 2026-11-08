@@ -957,12 +957,13 @@ mod tests {
                 "constructs":[], "types":[], "dimensions":[], "units":[]
             })
         };
-        let unit_refs = std::sync::Arc::new(std::collections::BTreeMap::new());
+        let unit_refs = std::sync::Arc::new(Default::default());
         let read = |identity: &str| {
+            let selected = crate::CheckedJson::from_value(&document(identity)).expect("a document");
             let mut meter = WorkMeter::new(u64::MAX);
             let mut budget = super::super::model_members::Budget::new(&mut meter, 0, 1 << 20);
-            super::super::model_members::read_semantic_ir(
-                &document(identity),
+            super::super::model_members::read_semantic_ir_of(
+                selected.document(),
                 "example",
                 &mut budget,
                 &unit_refs,
