@@ -92,6 +92,7 @@ fn same_public_result(plain: &Plain, measured: &Observation, limits: CheckedPack
     }
 }
 
+#[cfg(not(feature = "test-support"))]
 fn full_storage_boundaries(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
@@ -136,6 +137,7 @@ fn full_storage_boundaries(
     boundaries
 }
 
+#[cfg(not(feature = "test-support"))]
 fn full_work_boundaries(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
@@ -175,6 +177,144 @@ fn full_work_boundaries(
         boundaries += 1;
     }
     boundaries
+}
+
+#[cfg(feature = "test-support")]
+fn native_event_json(event: &quire_contract_model::NativeBudgetEvent) -> serde_json::Value {
+    serde_json::json!({
+        "resource": format!("{:?}", event.resource), "amount": event.amount,
+        "consumed_before": event.consumed_before, "admitted": event.admitted,
+        "allocation_class": event.allocation_class,
+        "locus": event.locus.map(|locus| serde_json::json!({
+            "source":format!("{:?}",locus.source), "form":locus.form
+        }))
+    })
+}
+
+/// These endpoints are selected from actual events, never inferred from byte
+/// amounts or a fixed number of stages. Designated growth cases additionally
+/// supply source-grounded exhaustive classes at their original provider site.
+#[cfg(feature = "test-support")]
+fn full_native_boundaries(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+    reference: &Observation,
+    exhaustive_classes: &[&str],
+) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
+    use quire_contract_model::{NativeBudgetResource as Resource, NativeJoinLocusSource};
+    use std::collections::{BTreeMap, BTreeSet};
+    let (observed, events) = native_budget_trace::checked::<DriverCounter>(
+        bytes,
+        evidence,
+        limits,
+        limits.work,
+        u64::MAX,
+    );
+    same_observation(reference, &observed);
+    drop_without_request::<DriverCounter>(observed);
+    let mut stage_last = BTreeMap::new();
+    let mut class_ends = BTreeMap::new();
+    let mut selected = BTreeSet::new();
+    let mut seen_exhaustive = BTreeSet::new();
+    for (index, event) in events.iter().enumerate() {
+        if !event.admitted || event.amount == 0 {
+            continue;
+        }
+        let resource = match event.resource {
+            Resource::Work => 0,
+            Resource::ReadStorage => 1,
+            Resource::LogicalStorage => panic!("reader admitted native logical storage"),
+        };
+        let locus = event.locus.expect("actual native event has reader locus");
+        let NativeJoinLocusSource::PackageRead(stage, _) = locus.source else {
+            panic!("actual native event is outside strict-reader stage context")
+        };
+        if resource == 1 {
+            let class = event
+                .allocation_class
+                .expect("full proof needs genuine source-derived reservation class");
+            if exhaustive_classes.contains(&class) {
+                selected.insert(index);
+                seen_exhaustive.insert(class);
+            }
+        }
+        stage_last.insert((resource, stage), index);
+        let key = (resource, stage, locus.form, event.allocation_class);
+        class_ends
+            .entry(key)
+            .and_modify(|ends: &mut (usize, usize)| ends.1 = index)
+            .or_insert((index, index));
+    }
+    assert_eq!(
+        seen_exhaustive,
+        exhaustive_classes.iter().copied().collect::<BTreeSet<_>>(),
+        "every designated source class emitted actual reservations"
+    );
+    selected.extend(stage_last.into_values());
+    for (first, last) in class_ends.into_values() {
+        selected.insert(first);
+        selected.insert(last);
+    }
+    let mut results = Vec::with_capacity(selected.len());
+    for index in selected {
+        let event = events[index];
+        let bound = event
+            .consumed_before
+            .checked_add(u64::try_from(event.amount).expect("admitted amount fits u64"))
+            .expect("admitted bound fits u64");
+        let probe = |bound| {
+            let (work, storage) = match event.resource {
+                Resource::Work => (bound, u64::MAX),
+                Resource::ReadStorage => (limits.work, bound),
+                Resource::LogicalStorage => unreachable!("logical storage rejected"),
+            };
+            native_budget_trace::checked::<DriverCounter>(bytes, evidence, limits, work, storage)
+        };
+        let (exact, exact_events) = probe(bound);
+        assert_eq!(
+            exact_events.get(..=index),
+            events.get(..=index),
+            "exact bound admits the same entire event prefix"
+        );
+        let (short, short_events) = probe(bound - 1);
+        assert_eq!(
+            short_events.get(..index),
+            events.get(..index),
+            "one below preserves every earlier native event"
+        );
+        let mut denied = event;
+        denied.admitted = false;
+        assert_eq!(
+            short_events.get(index),
+            Some(&denied),
+            "one below denies this actual amount/locus/class"
+        );
+        let (repeated, repeated_events) = probe(bound - 1);
+        same_observation(&short, &repeated);
+        assert_eq!(
+            short_events, repeated_events,
+            "full passive denial trace repeats"
+        );
+        let mut row = native_event_json(&event);
+        let object = row.as_object_mut().expect("event object");
+        object.insert("event_index".into(), index.into());
+        object.insert("exact_bound".into(), bound.into());
+        object.insert("one_below_bound".into(), (bound - 1).into());
+        for key in [
+            "exact_event_admitted",
+            "one_below_event_denied",
+            "full_repeat_equal",
+            "accounting_equal",
+        ] {
+            object.insert(key.into(), true.into());
+        }
+        results.push(row);
+        for observation in [exact, short, repeated] {
+            drop_without_request::<DriverCounter>(observation);
+        }
+    }
+    (events.iter().map(native_event_json).collect(), results)
 }
 
 /// Run proof probes serially on scoped workers so an enclosing original
@@ -308,6 +448,26 @@ fn finish_proof(
         drop_without_request::<DriverCounter>(short);
         drop_without_request::<DriverCounter>(repeated);
     }
+    #[cfg(feature = "test-support")]
+    let (native_events, boundary_results) = if mode == "full" {
+        // Original QSpec calls use stage/class endpoints. Designated adverse
+        // providers must explicitly request all intermediate growth events.
+        full_native_boundaries(bytes, limits, evidence, &reference, &[])
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    #[cfg(feature = "test-support")]
+    let (storage_boundaries, work_boundaries) = (
+        boundary_results
+            .iter()
+            .filter(|row| row["resource"] == "ReadStorage")
+            .count(),
+        boundary_results
+            .iter()
+            .filter(|row| row["resource"] == "Work")
+            .count(),
+    );
+    #[cfg(not(feature = "test-support"))]
     let (storage_boundaries, work_boundaries) = if mode == "full" {
         (
             full_storage_boundaries(bytes, limits, evidence, &reference),
@@ -333,6 +493,16 @@ fn finish_proof(
         "test":test_name,"sequence":sequence,"mode":mode,"outcome":kind,
         "input_bytes":bytes.len(),"work_limit":limits.work,"work":reference.budget.consumed().work,
         "read_storage":storage,"storage_boundaries":storage_boundaries,"work_boundaries":work_boundaries});
+    #[cfg(feature = "test-support")]
+    let row = {
+        let mut row = row;
+        if mode == "full" {
+            row["proof_schema"] = "native-budget-events/v1".into();
+            row["native_budget_events"] = native_events.into();
+            row["boundary_results"] = boundary_results.into();
+        }
+        row
+    };
     let mut output = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
