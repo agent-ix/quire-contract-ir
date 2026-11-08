@@ -2192,7 +2192,7 @@ fn check_hyper_shape(
         "body",
     ];
     let node = &graph.nodes[position];
-    let at_body = node_pointer(position).key("body");
+    let at_body = || node_pointer(position).key("body");
     let graph_defect = |at: JsonPointer| {
         ValidationFailure::refused_at(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -2202,33 +2202,32 @@ fn check_hyper_shape(
         )
     };
     let CheckedTerm::Aggregate { members } = body else {
-        return Err(graph_defect(at_body));
+        return Err(graph_defect(at_body()));
     };
     fn binding(term: &CheckedTerm) -> Option<(&str, &CheckedTerm)> {
         match term {
-            CheckedTerm::Binding { name, value } => match name.kind() {
-                super::typed_terms::CheckedBindingNameKind::Other(name) => Some((name, value)),
-                _ => None,
-            },
+            // `parameters` and `body` are contextual kinds, not `Other`: the
+            // shape is keyed on the raw wire name.
+            CheckedTerm::Binding { name, value } => Some((name.as_ref(), value)),
             _ => None,
         }
     }
     for (at, member) in members.iter().enumerate().take(NAMES.len()) {
         if binding(member).map(|(name, _)| name) != Some(NAMES[at]) {
-            return Err(graph_defect(at_body.clone().key("members").index(at)));
+            return Err(graph_defect(at_body().key("members").index(at)));
         }
     }
     if members.len() != NAMES.len() {
         let at = members.len().min(NAMES.len());
         let pointer = if members.len() < NAMES.len() {
-            at_body.clone()
+            at_body()
         } else {
-            at_body.clone().key("members").index(at)
+            at_body().key("members").index(at)
         };
         return Err(graph_defect(pointer));
     }
     let value_of = |at: usize| binding(&members[at]).map(|(_, value)| value);
-    let at_value = |at: usize| at_body.clone().key("members").index(at).key("value");
+    let at_value = |at: usize| at_body().key("members").index(at).key("value");
     let domain = value_of(0).ok_or_else(|| graph_defect(at_value(0)))?;
     let finite = typed_reference(domain).is_some();
     let domain_text = match domain {
@@ -2258,15 +2257,14 @@ fn check_hyper_shape(
     let bindings_in_group: usize = if finite { 2 } else { 3 };
     let mut aliases = meter.vec(quantifiers.len())?;
     for (group_at, group) in quantifiers.iter().enumerate() {
-        let at_group = at_value(3).key("members").index(group_at);
+        let at_group = || at_value(3).key("members").index(group_at);
         let CheckedTerm::Aggregate {
             members: group_members,
         } = group
         else {
-            return Err(graph_defect(at_group));
+            return Err(graph_defect(at_group()));
         };
         for (at, member) in group_members.iter().enumerate() {
-            let at_member = at_group.clone().key("members").index(at);
             let expected = ["variable", "quantifier", "alias"]
                 .get(at)
                 .copied()
@@ -2278,11 +2276,11 @@ fn check_hyper_shape(
                 _ => false,
             };
             if !layout_ok {
-                return Err(graph_defect(at_member));
+                return Err(graph_defect(at_group().key("members").index(at)));
             }
         }
         if group_members.len() < bindings_in_group {
-            return Err(graph_defect(at_group));
+            return Err(graph_defect(at_group()));
         }
         let quantifier = binding(&group_members[1]).and_then(|(_, value)| match value {
             CheckedTerm::Literal {
@@ -2295,7 +2293,7 @@ fn check_hyper_shape(
         if quantifier.is_none_or(|word| !matches!(word, "forall" | "exists")) {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                at_group.key("members").index(1).key("value"),
+                at_group().key("members").index(1).key("value"),
                 Some(CheckedPackageRefusalCause::InvalidValue),
                 node.node_id.clone(),
             ));
@@ -2320,9 +2318,8 @@ fn check_hyper_shape(
         let Some((name, value)) = binding(subject) else {
             return Err(graph_defect(at_value(1).key("members").index(subject_at)));
         };
-        let target = typed_reference(value).cloned();
+        let target = typed_reference(value);
         let is_root = target
-            .as_ref()
             .and_then(|target| graph.node(target))
             .is_some_and(|(_, kind)| kind == CheckedNodeKind::Model(ModelForm::ModelRoot));
         if !is_root {
@@ -2334,7 +2331,7 @@ fn check_hyper_shape(
                     .key("value")
                     .key("target"),
                 Some(CheckedPackageRefusalCause::MalformedDeclaration),
-                target.unwrap_or_else(|| node.node_id.clone()),
+                target.unwrap_or(&node.node_id).clone(),
             ));
         }
         meter.push(&mut subject_names, name)?;
@@ -2509,9 +2506,7 @@ fn check_hyper_fairness(
         });
         let alias_root = alias.and_then(|alias| {
             subjects.iter().find_map(|subject| match subject {
-                CheckedTerm::Binding { name, value }
-                    if name.kind() == super::typed_terms::CheckedBindingNameKind::Other(alias) =>
-                {
+                CheckedTerm::Binding { name, value } if AsRef::<str>::as_ref(name) == alias => {
                     typed_reference(value)
                 }
                 _ => None,
@@ -2519,16 +2514,31 @@ fn check_hyper_fairness(
         });
         let alias_package = alias_root.and_then(|root| match graph.node(root)? {
             (node, CheckedNodeKind::Model(ModelForm::ModelRoot)) => match node.owner.as_ref()? {
-                super::CheckedNodeOwner::ModelRoot { identity } => Some(identity.clone()),
+                super::CheckedNodeOwner::ModelRoot { identity } => Some(identity),
                 _ => None,
             },
             _ => None,
         });
         for (member_at, member) in group_members.iter().enumerate() {
+            // Check 1: a reference to any node form but a fairness node (a formula
+            // node is the temporal step's, already refused) is ineligible.
+            let fair_id = &graph.nodes[position].node_id;
+            if let Some((_, kind)) = typed_reference(member).and_then(|target| graph.node(target)) {
+                if !matches!(
+                    kind,
+                    CheckedNodeKind::Temporal(TemporalForm::Fairness | TemporalForm::Formula)
+                ) {
+                    return Err(ValidationFailure::refused_at(
+                        CheckedPackageRefusalCode::IllTyped,
+                        reference_pointer(group_at, member_at),
+                        Some(CheckedPackageRefusalCause::OperatorIneligible),
+                        fair_id.clone(),
+                    ));
+                }
+            }
             let Some((_, fairness)) = fairness_member(member, graph, terms, meter)? else {
                 continue;
             };
-            let fair_id = &graph.nodes[position].node_id;
             let super::CheckedFairnessTarget::Operation { declaration, name } = &fairness.target
             else {
                 return Err(malformed(group_at, member_at, fair_id));
@@ -2548,7 +2558,7 @@ fn check_hyper_fairness(
             let declaring_package = graph
                 .node(declaration)
                 .and_then(|(declaring, _)| graph.owners.recover(declaring).ok())
-                .map(|owner| owner.package.identity.clone());
+                .map(|owner| &owner.package.identity);
             if alias_package.is_some() && declaring_package != alias_package {
                 return Err(malformed(group_at, member_at, fair_id));
             }
