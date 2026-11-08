@@ -777,7 +777,11 @@ class Graph:
 
     @staticmethod
     def call(instruction: Instruction) -> tuple[str, list[str]] | None:
-        text = instruction.text
+        return Graph.parse_call(instruction.text)
+
+    @staticmethod
+    @lru_cache(maxsize=262_144)
+    def parse_call(text: str) -> tuple[str, list[str]] | None:
         if not re.search(r"\b(?:call|invoke|callbr)\b", text):
             return None
         if re.search(r"\basm\b", text):
@@ -806,6 +810,55 @@ class Graph:
         }
 
         return True
+
+    def copy_memory(self, state: State, instruction: Instruction, arguments: list[str]) -> bool:
+        """Propagate compiler memcpy/memmove pointer cells from a pre-copy snapshot.
+
+        Sizes and addresses must be compiler-proven. Missing bytes, partial
+        pointer copies and dynamic extents remain blockers, never finite target
+        evidence. Source-object watchers include cells discovered on later visits.
+        """
+        caller, module = self.logical_caller(state, instruction), state.function.module
+        length = re.search(r"\b(\d+)$", arguments[2]) if len(arguments) >= 3 else None
+        if length is None or int(length[1]) > 65_536:
+            self.block(caller, instruction, "memory copy extent is not a bounded compiler constant", module)
+            return False
+        size = int(length[1])
+        if size == 0:
+            return False
+        destination = self.operand(arguments[0], state).get((), set())
+        source = self.operand(arguments[1], state).get((), set())
+        if not destination or not source or any(
+            atom.kind not in ("stack", "heap", "global") or atom.offset is None
+            for atom in destination | source
+        ):
+            self.block(caller, instruction, "memory copy addresses lack exact compiler object provenance", module)
+            return False
+        snapshot = []
+        for atom in source:
+            obj = atom.kind, atom.name
+            self.wildcard_watchers[obj].add(self.active_function)
+            self.object_watchers[obj].add(self.active_function)
+            for offset, contents in list(self.cells[obj].items()):
+                if offset is None:
+                    self.block(caller, instruction, "memory copy source has wildcard byte effects", module)
+                    continue
+                if offset < atom.offset + size and atom.offset < offset + 8:
+                    if offset < atom.offset or offset + 8 > atom.offset + size:
+                        self.block(caller, instruction, "memory copy cuts a modeled pointer cell", module)
+                        continue
+                    snapshot.append((offset - atom.offset, joined(contents)))
+        changed = False
+        for atom in destination:
+            for offset, contents in snapshot:
+                changed |= self.store(scalar(Atom(atom.kind, atom.name, atom.offset + offset)), contents)
+        # Unrepresented source bytes cannot clear a call loaded from destination.
+        # Retain the explicit blocker even when some pointer cells were recovered.
+        for atom in source:
+            obj = atom.kind, atom.name
+            if size % 8 or any(not self.cells[obj].get(offset) for offset in range(atom.offset, atom.offset + size, 8)):
+                self.block(caller, instruction, "memory copy source bytes are not fully represented", module)
+        return changed
 
     def process(self, state: State) -> bool:
         changed = False
@@ -916,7 +969,9 @@ class Graph:
                             self.block(caller, instruction, "compiler target has no available declaration/body: " + atom.name, module)
                             continue
                         if callee.declaration:
-                            if atom.name.startswith(("llvm.memcpy", "llvm.memmove", "llvm.memset")):
+                            if atom.name.startswith(("llvm.memcpy", "llvm.memmove")):
+                                changed |= self.copy_memory(state, instruction, arguments)
+                            elif atom.name.startswith("llvm.memset"):
                                 self.block(caller, instruction, "memory intrinsic effects not represented by pointer-flow model: " + atom.name, module)
                             if not self.intrinsic(callee):
                                 self.block(caller, instruction, f"external body unavailable: {self.name(atom.name)}", module)

@@ -248,6 +248,42 @@ pub fn reader_root(count:usize,x:u8)->u8 {
         self.assertTrue({"pointer_iteration::a", "pointer_iteration::b"} <= targets, targets)
         self.assertNotIn("pointer_iteration::unrelated", targets)
 
+    # Trace: TC-472, FR-038-AC-513
+    def test_compiler_memory_copy_preserves_callback_targets(self):
+        result = self.compile("copied_callbacks", """
+#[inline(never)] fn initial(x:u8)->u8 {x ^ 1}
+#[inline(never)] fn copied(x:u8)->u8 {x ^ 128}
+#[inline(never)] fn unrelated(x:u8)->u8 {x ^ 42}
+pub static UNRELATED:fn(u8)->u8=unrelated;
+pub fn reader_root(x:u8)->u8 {
+ let source:[fn(u8)->u8;1]=[copied];
+ let mut destination:[fn(u8)->u8;1]=[initial];
+ unsafe {core::ptr::copy_nonoverlapping(source.as_ptr(),destination.as_mut_ptr(),1);}
+ destination[0](x)
+}
+#[test] fn copied_value() {assert_eq!(reader_root(7),135);}
+""", run_test="copied_value")
+        self.assertTrue(result["result"]["pointer_flow_fixed_point"], result["result"])
+        paths = {item["def_path"] for item in result["functions"]}
+        self.assertIn("copied_callbacks::copied", paths)
+        self.assertNotIn("copied_callbacks::unrelated", paths)
+        self.assertFalse(any("memory intrinsic effects not represented" in item["reason"]
+                             and "llvm.memcpy" in item["reason"] for item in result["unresolved"]))
+
+    # Trace: TC-472, FR-038-AC-513
+    def test_dynamic_opaque_copy_remains_unresolved(self):
+        result = self.compile("opaque_copy", """
+#[inline(never)] fn initial(x:u8)->u8 {x ^ 1}
+pub unsafe fn reader_root(source:*const fn(u8)->u8,count:usize,x:u8)->u8 {
+ let mut destination:[fn(u8)->u8;1]=[initial];
+ unsafe {core::ptr::copy_nonoverlapping(source,destination.as_mut_ptr(),count);}
+ destination[0](x)
+}
+""")
+        self.assertFalse(result["result"]["static_ac513_proven"])
+        self.assertTrue(any("memory copy extent" in item["reason"] or "memory copy addresses" in item["reason"]
+                            for item in result["unresolved"]), result)
+
     def test_recursive_memory_delta_reaches_the_new_global_target(self):
         result = self.compile("recursive_memory", """
 #[inline(never)] fn initial(x:u8)->u8 {x ^ 1}
