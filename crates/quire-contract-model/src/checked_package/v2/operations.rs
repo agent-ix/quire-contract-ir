@@ -18,21 +18,24 @@ use super::operation_catalog::{
     CatalogLeafSource, CatalogResult, FamilyClass, OperationCatalog, OperationCatalogEntry,
 };
 use super::structural::{typed_union_type_body, typed_union_value_body, UnionMember};
-use super::temporal::member_is_well_formed;
+use super::temporal::member_is_well_formed_node;
 use super::typed_terms::{
-    CheckedFieldReadForm, CheckedOperationConstraint, CheckedOperationLaw, CheckedOperationLeaf,
-    CheckedOperationMember, CheckedOperationMode, CheckedOperationRecord, CheckedOperationViews,
+    CheckedApplicationOperationRecord, CheckedFieldReadForm, CheckedOperationConstraint,
+    CheckedOperationLaw, CheckedOperationLawWire as OperationLawWire, CheckedOperationLeaf,
+    CheckedOperationLeafWire as OperationLeafWire, CheckedOperationMember,
+    CheckedOperationMemberIds, CheckedOperationMode, CheckedOperationModeWire as OperationModeWire,
+    CheckedOperationRecord, CheckedOperationViews,
 };
 use super::{
     ApplicationOperator, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
     CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm, CompositeTypeForm,
     CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind, ModelForm,
     OperationConstraintKind, OperationMemberKind, OperationModeKind, ProtocolForm,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateClauseKind,
-    StateForm, TemporalForm, ValueForm, WorkMeter,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateForm,
+    TemporalForm, ValueForm, WorkMeter,
 };
+use crate::checked_package::common::node_pointer;
 use crate::checked_package::common::ValidationFailure;
-use crate::checked_package::common::{decoder_pointer, node_pointer};
 use crate::checked_package::selected_population::{
     is_model_population, least_type_occurrence, population_maximum, population_object_type_typed,
 };
@@ -41,7 +44,6 @@ use crate::checked_package::shared::{
 };
 use quire_exact::TextProfile;
 use serde::Deserialize;
-use serde_json::Value;
 use std::rc::Rc;
 
 /// One application node under validation, and pointers into its body.
@@ -74,16 +76,13 @@ impl Application<'_> {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct OperationWire {
     pub(super) identity: Box<str>,
     pub(super) laws: Vec<OperationLawWire>,
-    #[serde(deserialize_with = "super::required_nullable")]
     mode: Option<OperationModeWire>,
-    #[serde(deserialize_with = "super::required_nullable")]
-    pub(super) member: Option<Value>,
+    pub(super) member: Option<super::CheckedJson>,
     leaves: Vec<OperationLeafWire>,
+    member_ids: CheckedOperationMemberIds,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -93,12 +92,97 @@ enum FieldProjectionIdentity {
 }
 
 impl OperationWire {
+    fn member_node(&self) -> Option<super::TermNode<'_>> {
+        self.member.as_ref().map(super::TermNode::of)
+    }
+    fn member_key(&self, field: &str) -> Option<&CheckedNodeId> {
+        match field {
+            "declaration" => self.member_ids.declaration.as_ref(),
+            "context" => self.member_ids.context.as_ref(),
+            "destination_type" => self.member_ids.destination_type.as_ref(),
+            "population" => self.member_ids.population.as_ref(),
+            _ => None,
+        }
+    }
+
+    fn copy_laws(
+        laws: &[OperationLawWire],
+        meter: &mut WorkMeter,
+    ) -> Result<Vec<OperationLawWire>, ValidationFailure> {
+        let mut copied = meter.vec(laws.len())?;
+        for law in laws {
+            copied.push(OperationLawWire {
+                role: meter.boxed_str(&law.role)?,
+                definition: CheckedArtifactRef {
+                    authority: meter.boxed_str(&law.definition.authority)?,
+                    identity: meter.boxed_str(&law.definition.identity)?,
+                },
+            });
+        }
+        Ok(copied)
+    }
+    fn copy_mode(
+        mode: Option<&OperationModeWire>,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<OperationModeWire>, ValidationFailure> {
+        mode.map(|mode| {
+            Ok(OperationModeWire {
+                kind: meter.boxed_str(&mode.kind)?,
+                value: meter.boxed_str(&mode.value)?,
+            })
+        })
+        .transpose()
+    }
+
+    pub(super) fn from_record(
+        record: &CheckedApplicationOperationRecord,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<Self>, ValidationFailure> {
+        let Some(identity) = record.identity.as_deref() else {
+            return Ok(None);
+        };
+        let identity = meter.boxed_str(identity)?;
+        let laws = Self::copy_laws(&record.laws, meter)?;
+        let mode = Self::copy_mode(record.mode.as_ref(), meter)?;
+        let mut leaves = meter.vec(record.leaves.len())?;
+        for leaf in &record.leaves {
+            let mut path = meter.vec(leaf.path.len())?;
+            for segment in &leaf.path {
+                path.push(meter.boxed_str(segment)?);
+            }
+            leaves.push(OperationLeafWire {
+                path,
+                laws: Self::copy_laws(&leaf.laws, meter)?,
+                mode: Self::copy_mode(leaf.mode.as_ref(), meter)?,
+            });
+        }
+        let declaration = record.copy_member_declaration(meter)?;
+        let context = record.copy_member_context(meter)?;
+        let mut copy_id = |id: Option<&CheckedNodeId>| id.map(|id| meter.clone_id(id)).transpose();
+        let member_ids = CheckedOperationMemberIds {
+            declaration,
+            context,
+            destination_type: copy_id(record.member_ids.destination_type.as_ref())?,
+            population: copy_id(record.member_ids.population.as_ref())?,
+            target_declaration: copy_id(record.member_ids.target_declaration.as_ref())?,
+            target_node: copy_id(record.member_ids.target_node.as_ref())?,
+            target_parallel: copy_id(record.member_ids.target_parallel.as_ref())?,
+        };
+        Ok(Some(Self {
+            identity,
+            laws,
+            mode,
+            member: record.member.clone(),
+            leaves,
+            member_ids,
+        }))
+    }
     /// The wire member's decoded `kind`: `None` when the operation carries no
     /// member (or one without a string `kind`), `Some(None)` when the `kind`
     /// is outside the catalog's vocabulary.
     // Decodes the wire member kind.
     fn member_kind_class(&self) -> Option<Option<OperationMemberKind>> {
-        let kind = self.member.as_ref()?.get("kind")?.as_str()?;
+        let kind = self.member_node()?.get("kind")?.as_str()?;
         Some(OperationMemberKind::from_wire(kind))
     }
 
@@ -111,124 +195,147 @@ impl OperationWire {
         }
     }
 
-    fn admitted_views(&self, entry: &OperationCatalogEntry) -> Option<CheckedOperationViews> {
-        let member_declaration = member_declaration(self);
-        let projection_field = (self.member_kind_class() == Some(Some(OperationMemberKind::Field)))
-            .then(|| {
-                Some((
-                    member_declaration.clone()?,
-                    self.member.as_ref()?.get("name")?.as_str()?.into(),
-                ))
+    fn admitted_views(
+        &self,
+        entry: &OperationCatalogEntry,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<CheckedOperationViews>, ValidationFailure> {
+        macro_rules! need {
+            ($value:expr) => {
+                match $value {
+                    Some(value) => value,
+                    None => return Ok(None),
+                }
+            };
+        }
+        fn definition(
+            value: &CheckedArtifactRef,
+            meter: &mut WorkMeter,
+        ) -> Result<CheckedArtifactRef, ValidationFailure> {
+            Ok(CheckedArtifactRef {
+                authority: meter.boxed_str(&value.authority)?,
+                identity: meter.boxed_str(&value.identity)?,
             })
-            .flatten();
-        let state_clause_kind = (self.member_kind_class()
-            == Some(Some(OperationMemberKind::StateClause)))
-        .then(|| StateClauseKind::from_wire(self.member.as_ref()?.get("clause")?.as_str()?))
-        .flatten();
-        let mode = self
-            .mode
-            .as_ref()
-            .and_then(|mode| Some((mode.kind_class()?, mode.value.clone())));
-        let read_mode = |mode: &OperationModeWire| {
-            Some(CheckedOperationMode {
-                kind: mode.kind_class()?,
-                value: mode.value.clone(),
-            })
+        }
+        fn mode(
+            value: &OperationModeWire,
+            meter: &mut WorkMeter,
+        ) -> Result<Option<CheckedOperationMode>, ValidationFailure> {
+            Ok(Some(CheckedOperationMode {
+                kind: need!(value.kind_class()),
+                value: meter.boxed_str(&value.value)?,
+            }))
+        }
+        fn laws(
+            values: &[OperationLawWire],
+            meter: &mut WorkMeter,
+        ) -> Result<Option<Vec<CheckedOperationLaw>>, ValidationFailure> {
+            let mut laws = meter.vec(values.len())?;
+            for law in values {
+                laws.push(CheckedOperationLaw {
+                    role: need!(law.role_class()),
+                    definition: definition(&law.definition, meter)?,
+                });
+            }
+            Ok(Some(laws))
+        }
+        let member = match self.member_node() {
+            Some(member) => Some(need!(CheckedOperationMember::from_validated_node(
+                member,
+                &self.member_ids,
+                meter
+            )?)),
+            None => None,
         };
-        let read_laws = |laws: &[OperationLawWire]| {
-            laws.iter()
-                .map(|law| {
-                    Some(CheckedOperationLaw {
-                        role: law.role_class()?,
-                        definition: law.definition.clone(),
-                    })
-                })
-                .collect::<Option<Vec<_>>>()
+        let member_declaration = member_declaration(self)
+            .map(|id| meter.clone_id(id))
+            .transpose()?;
+        let projection_field = match member.as_ref() {
+            Some(CheckedOperationMember::Field {
+                declaration, name, ..
+            }) => Some((meter.clone_id(declaration)?, meter.boxed_str(name)?)),
+            _ => None,
         };
+        let state_clause_kind = match member.as_ref() {
+            Some(CheckedOperationMember::StateClause { clause }) => Some(*clause),
+            _ => None,
+        };
+        let mode_view = match self.mode.as_ref() {
+            Some(value) => Some((need!(value.kind_class()), meter.boxed_str(&value.value)?)),
+            None => None,
+        };
+        let mut constraints = meter.vec(entry.constraints.len())?;
+        for constraint in &entry.constraints {
+            constraints.push(CheckedOperationConstraint {
+                kind: constraint.kind,
+                operands: meter.copy_slice(&constraint.operands)?,
+                family: constraint
+                    .family
+                    .as_deref()
+                    .map(|family| meter.boxed_str(family))
+                    .transpose()?,
+            });
+        }
+        let mut leaves = meter.vec(self.leaves.len())?;
+        for leaf in &self.leaves {
+            let mut path = meter.vec(leaf.path.len())?;
+            for segment in &leaf.path {
+                path.push(meter.boxed_str(segment)?);
+            }
+            leaves.push(CheckedOperationLeaf {
+                path,
+                laws: need!(laws(&leaf.laws, meter)?),
+                mode: match leaf.mode.as_ref() {
+                    Some(value) => Some(need!(mode(value, meter)?)),
+                    None => None,
+                },
+            });
+        }
+        let mut law_definitions = meter.vec(self.laws.len())?;
+        for law in &self.laws {
+            law_definitions.push(definition(&law.definition, meter)?);
+        }
         let record = CheckedOperationRecord {
-            identity: self.identity.clone(),
-            mode: match &self.mode {
-                Some(mode) => Some(read_mode(mode)?),
+            identity: meter.boxed_str(&self.identity)?,
+            mode: match self.mode.as_ref() {
+                Some(value) => Some(need!(mode(value, meter)?)),
                 None => None,
             },
-            laws: read_laws(&self.laws)?,
-            member: match &self.member {
-                Some(member) => Some(CheckedOperationMember::from_validated_value(member)?),
-                None => None,
-            },
-            constraints: entry
-                .constraints
-                .iter()
-                .map(|constraint| CheckedOperationConstraint {
-                    kind: constraint.kind,
-                    operands: constraint.operands.clone(),
-                    family: constraint.family.clone(),
-                })
-                .collect(),
-            leaves: self
-                .leaves
-                .iter()
-                .map(|leaf| {
-                    Some(CheckedOperationLeaf {
-                        path: leaf.path.clone(),
-                        laws: read_laws(&leaf.laws)?,
-                        mode: match &leaf.mode {
-                            Some(mode) => Some(read_mode(mode)?),
-                            None => None,
-                        },
-                    })
-                })
-                .collect::<Option<Vec<_>>>()?,
+            laws: need!(laws(&self.laws, meter)?),
+            member,
+            constraints,
+            leaves,
         };
-        Some(CheckedOperationViews {
+        meter.reserve(std::mem::size_of::<CheckedOperationRecord>())?;
+        Ok(Some(CheckedOperationViews {
             record: Some(Box::new(record)),
             state_clause_kind,
             projection_field,
             member_declaration,
-            mode,
-            law_definitions: self.laws.iter().map(|law| law.definition.clone()).collect(),
-        })
+            mode: mode_view,
+            law_definitions,
+        }))
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct OperationLawWire {
-    role: Box<str>,
-    pub(super) definition: CheckedArtifactRef,
-}
-
 impl OperationLawWire {
-    /// The law's decoded role; `None` outside the catalog's vocabulary.
-    // Decodes the wire law role.
     pub(super) fn role_class(&self) -> Option<LawRole> {
         LawRole::from_wire(&self.role)
     }
 }
-
-#[derive(Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-struct OperationModeWire {
-    kind: Box<str>,
-    value: Box<str>,
-}
-
 impl OperationModeWire {
-    /// The mode's decoded kind; `None` outside the catalog's vocabulary.
-    // Decodes the wire mode kind.
     fn kind_class(&self) -> Option<OperationModeKind> {
         OperationModeKind::from_wire(&self.kind)
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OperationLeafWire {
-    path: Vec<Box<str>>,
-    /// Read by `check_leaf_count`, which requires exactly one `text_profile`
-    /// law per leaf.
-    laws: Vec<OperationLawWire>,
-    mode: Option<OperationModeWire>,
+impl<'de> Deserialize<'de> for OperationWire {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let operation = super::typed_terms::CheckedApplicationOperation::deserialize(deserializer)?;
+        Self::from_record(operation.record(), &mut WorkMeter::new(u64::MAX))
+            .map_err(|_| serde::de::Error::custom("operation record could not be copied"))?
+            .ok_or_else(|| serde::de::Error::custom("missing operation identity"))
+    }
 }
 
 /// Every application node's `operation`, in ascending structural node-id order,
@@ -1092,7 +1199,7 @@ fn check_type_argument_member_result(
     let Some(result) = result else {
         return Some(refuse());
     };
-    if result != &member {
+    if result != member {
         return Some(refuse());
     }
     // A model population can be the exact member result even when a
@@ -1156,16 +1263,18 @@ fn operation_defect(
     else {
         return Ok(None);
     };
-    let operation =
-        match serde_path_to_error::deserialize::<_, OperationWire>(operation_value.record()) {
-            Ok(operation) => operation,
-            Err(error) => {
-                return Ok(Some(ValidationFailure::refused(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    decoder_pointer(application.body(&["operation"]), error.path()),
-                )))
-            }
-        };
+    if operation_value.record().malformed.is_some() {
+        return Ok(Some(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            application.body(&["operation"]),
+        )));
+    }
+    let Some(operation) = OperationWire::from_record(operation_value.record(), meter)? else {
+        return Ok(Some(ValidationFailure::refused(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            application.body(&["operation", "identity"]),
+        )));
+    };
     meter.charge(
         1 + u64::try_from(operation.laws.len()).unwrap_or(u64::MAX)
             + u64::try_from(operation.leaves.len()).unwrap_or(u64::MAX),
@@ -1269,13 +1378,7 @@ fn operation_defect(
     }
     // A member present on the wire is the value at fault; an absent one is
     // a defect of the `operation` object that lacks it.
-    let member_or_operation = |member: &str| {
-        if operation_value.get(member).is_some() {
-            application.body(&["operation", member])
-        } else {
-            application.body(&["operation"])
-        }
-    };
+    let member_or_operation = |member: &str| application.body(&["operation", member]);
     if operation.identity.as_ref() == "quire.op.quantity.convert"
         && carried_result(application, graph).is_some()
         && operation.mode.is_none()
@@ -1316,10 +1419,9 @@ fn operation_defect(
         (Some(kind), Some(Some(wire_kind))) => {
             // The kind agrees; the member must also be the closed shape that
             // kind has (QSpec FR-370: `temporal_interval`, `fairness`).
-            let shaped = operation
-                .member
-                .as_ref()
-                .is_some_and(|member| member_is_well_formed(wire_kind, member));
+            let shaped = operation.member_node().is_some_and(|member| {
+                member_is_well_formed_node(wire_kind, member, &operation.member_ids)
+            });
             if kind != wire_kind || !shaped {
                 return member_mismatch();
             }
@@ -1335,7 +1437,7 @@ fn operation_defect(
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
     }
     if wire_member_kind == Some(Some(OperationMemberKind::Field)) {
-        let Some(member) = operation.member.as_ref() else {
+        let Some(member) = operation.member_node() else {
             return member_mismatch();
         };
         let read_form = member.get("read_form");
@@ -1345,7 +1447,10 @@ fn operation_defect(
                 .and_then(|arguments| arguments.first())
                 .is_some_and(|argument| is_model_deref_argument(argument, graph));
         let valid = match (model_projection, read_form) {
-            (true, Some(Value::String(value))) => CheckedFieldReadForm::from_wire(value).is_some(),
+            (true, Some(value)) => value
+                .as_str()
+                .and_then(CheckedFieldReadForm::from_wire)
+                .is_some(),
             (false, None) => true,
             _ => false,
         };
@@ -1359,10 +1464,9 @@ fn operation_defect(
         }
     }
     let profile_operator = operation
-        .member
-        .as_ref()
+        .member_node()
         .and_then(|member| member.get("operator"))
-        .and_then(Value::as_str);
+        .and_then(super::TermNode::as_str);
     if (entry.known == Some(super::KnownOperation::StateTransition)
         && profile_operator != Some("transition"))
         || (entry.known == Some(super::KnownOperation::ProtocolControl)
@@ -1605,13 +1709,13 @@ fn operation_defect(
         )));
     }
     if leaf_defect.is_none() {
-        let Some(views) = operation.admitted_views(entry) else {
+        let Some(views) = operation.admitted_views(entry, meter)? else {
             return Ok(Some(ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 application.body(&["operation"]),
             )));
         };
-        admitted_views.push((application.position, views));
+        meter.push(admitted_views, (application.position, views))?;
     }
     Ok(leaf_defect)
 }
@@ -1680,8 +1784,7 @@ fn is_clause_application(argument: &CheckedTerm, catalog: &OperationCatalog) -> 
         return false;
     };
     operation
-        .get("identity")
-        .and_then(Value::as_str)
+        .identity()
         .and_then(|identity| catalog.entry(identity))
         .is_some_and(|entry| entry.result == CatalogResult::Clause)
 }
@@ -3236,10 +3339,9 @@ fn check_reference_edge(
         return ineligible(member_at("name"));
     }
     let name = operation
-        .member
-        .as_ref()
+        .member_node()
         .and_then(|member| member.get("name"))
-        .and_then(Value::as_str)
+        .and_then(super::TermNode::as_str)
         .unwrap_or("");
     let resolved = {
         let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
@@ -3323,14 +3425,12 @@ fn check_reference_edge(
 }
 
 /// The admitted member's declaring identity, including a typed fairness target.
-fn member_declaration(operation: &OperationWire) -> Option<CheckedNodeId> {
-    let member = operation.member.as_ref()?;
-    let declaration = if member.get("kind").and_then(Value::as_str) == Some("fairness") {
-        member.get("target")?.get("declaration")?
+fn member_declaration(operation: &OperationWire) -> Option<&CheckedNodeId> {
+    if operation.member_kind_class() == Some(Some(OperationMemberKind::Fairness)) {
+        operation.member_ids.target_declaration.as_ref()
     } else {
-        member.get("declaration")?
-    };
-    CheckedNodeId::from_value(declaration)
+        operation.member_key("declaration")
+    }
 }
 
 /// A selected tuple's positions live in its document, not in the declaration
@@ -3353,7 +3453,7 @@ fn check_tuple_position(
             CheckedPackageRefusalCause::OperatorIneligible,
         )))
     };
-    let Some(member) = operation.member.as_ref() else {
+    let Some(member) = operation.member_node() else {
         return ineligible();
     };
     let Some(arguments) = admitted_arguments(application, graph) else {
@@ -3473,10 +3573,9 @@ fn check_relationship_member(
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(1)?;
     let name = operation
-        .member
-        .as_ref()
+        .member_node()
         .and_then(|member| member.get("name"))
-        .and_then(Value::as_str)
+        .and_then(super::TermNode::as_str)
         .unwrap_or("");
     let selected = match relationship.select_ends(name) {
         Ok(selected) => selected,
@@ -3557,18 +3656,13 @@ fn check_relationship_member(
     // QSpec FR-322 supplies this structural label in the member. The selected
     // document establishes the destination kind above; its node need not be in
     // this graph, and the reader must not derive a replacement label.
-    let Some(destination_id) = operation
-        .member
-        .as_ref()
-        .and_then(|member| member.get("destination_type"))
-        .and_then(CheckedNodeId::from_value)
-    else {
+    let Some(destination_id) = operation.member_key("destination_type") else {
         return Ok(Some(ValidationFailure::refused(
             CheckedPackageRefusalCode::MalformedWire,
             member_at("destination_type"),
         )));
     };
-    let member_type = match relationship.navigation_type(forward, destination_id.clone()) {
+    let member_type = match relationship.navigation_type(forward, meter.clone_id(destination_id)?) {
         Ok(member_type) => member_type,
         Err(refusal) => return refuse(member_at("name"), refusal),
     };
@@ -3600,9 +3694,8 @@ fn check_relationship_member(
     }
     // The population link is the last check of the member: every earlier defect
     // keeps its present outcome.
-    let Some(named) = operation
-        .member
-        .as_ref()
+    let Some(_named) = operation
+        .member_node()
         .and_then(|member| member.get("population"))
     else {
         return Ok(None);
@@ -3617,8 +3710,9 @@ fn check_relationship_member(
             .and_then(|&at| graph.terms.get(at))
             .and_then(Option::as_ref)
     };
-    let linked = CheckedNodeId::from_value(named)
-        .and_then(|id| graph.index.get(&id).copied())
+    let linked = operation
+        .member_key("population")
+        .and_then(|id| graph.index.get(id).copied())
         .and_then(|position| Some((graph.nodes.get(position)?, graph.kinds.get(position)?)))
         .filter(|(node, kind)| {
             is_model_population(**kind)
@@ -3994,10 +4088,9 @@ fn check_model_member(
         return ineligible(argument_at(0));
     }
     let name = operation
-        .member
-        .as_ref()
+        .member_node()
         .and_then(|member| member.get("name"))
-        .and_then(Value::as_str)
+        .and_then(super::TermNode::as_str)
         .unwrap_or("");
     // A field is read on an object or a record value type; a record owns no
     // operation.
@@ -4091,8 +4184,8 @@ fn check_field_member(
     operation: &OperationWire,
     graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
-    let member = operation.member.as_ref()?;
-    let declaration = CheckedNodeId::from_value(member.get("declaration")?)?;
+    let member = operation.member_node()?;
+    let declaration = operation.member_key("declaration")?;
     let name = member.get("name")?.as_str()?;
     let Some(&position) = graph.index.get(&declaration) else {
         return Some(application.refuse(
@@ -8415,6 +8508,73 @@ mod tests {
             .map(|name| text_leaf(&[&format!("field:{name}")]))
             .collect();
         (nodes, leaves)
+    }
+
+    /// Actual leaf derivation pays for graph caches, paths, keys, expansions
+    /// and both walks before each allocation, including the pin memo copies.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn structural_leaf_walk_allocates_only_charged_storage() {
+        let (nodes, leaves) = structural_shared_chain();
+        let kinds = kinds_of(&nodes);
+        let index: GraphIndex<'_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(at, node)| (&node.node_id, at))
+            .collect();
+        let terms = decoded_terms(&nodes);
+        let graph = Graph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+            terms: &terms,
+            structural_keys: &[],
+        };
+        let supplied: Vec<super::OperationLeafWire> = leaves
+            .into_iter()
+            .map(|leaf| serde_json::from_value(leaf).expect("leaf"))
+            .collect();
+        let catalog = operation_catalog();
+        let definitions = catalog
+            .law_role_definitions(LawRole::TextProfile)
+            .expect("text profile");
+        let root = node_id('r');
+        let run = |limit| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
+            let operation_at = pointer("/semantic_graph/nodes/0/body/operation");
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                let mut structural = StructuralTypes::default();
+                let mut walk =
+                    super::LeafWalk::new(graph, &mut meter, &mut structural, at, operation_at);
+                result = Some((|| {
+                    let count = walk.count(&root).map_err(|_| ())?;
+                    let pins = walk
+                        .first_leaf_fault(&root, &supplied, definitions)
+                        .map_err(|_| ())?
+                        .map_err(|_| ())?;
+                    Ok::<_, ()>((count, pins))
+                })());
+            })
+            .bytes_total;
+            (
+                result.expect("walk ran"),
+                allocated,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (result, allocated, charged) = run(u64::MAX);
+        let (count, pins) = result.expect("sufficient budget");
+        assert_eq!(count, 300);
+        assert_eq!(pins.len(), 300);
+        assert!(pins.iter().all(|pin| pin.as_deref() == Some("nfc")));
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "every derivation request was charged");
+        assert!(run(charged).0.is_ok());
+        assert!(run(charged - 1).0.is_err());
     }
 
     #[trace("TC-048", "FR-038-AC-224")]

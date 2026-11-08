@@ -18,6 +18,7 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
 };
 use ix_trace_rs::string_edge;
+#[cfg(test)]
 use serde_json::Value;
 
 /// The activation selected by an admitted protocol clause.
@@ -897,51 +898,30 @@ fn validate_envelope<'a>(
     else {
         return Err(D::OperatorIneligible);
     };
-    if result_type != semantic_type
-        || operation.pointer("/identity").and_then(Value::as_str)
-            != Some("quire.op.protocol.control")
-    {
+    if result_type != semantic_type || operation.identity() != Some("quire.op.protocol.control") {
         return Err(D::OperatorIneligible);
     }
-    let laws = operation
-        .get("laws")
-        .and_then(Value::as_array)
-        .ok_or(D::LawMissing)?;
+    let laws = &operation.record().laws;
     let law = laws.first().ok_or(D::LawMissing)?;
     if laws.len() != 1 {
         return Err(D::MalformedLayout);
     }
-    if law.get("role").and_then(Value::as_str) != Some("protocol_profile") {
+    if law.role.as_ref() != "protocol_profile" {
         return Err(D::LawMismatch);
     }
-    if !selected_profile.is_some_and(|selected| {
-        law.get("definition")
-            .and_then(Value::as_object)
-            .is_some_and(|definition| {
-                definition.len() == 2
-                    && definition.get("authority").and_then(Value::as_str)
-                        == Some(selected.authority.as_ref())
-                    && definition.get("identity").and_then(Value::as_str)
-                        == Some(selected.identity.as_ref())
-            })
-    }) {
+    if !selected_profile.is_some_and(|selected| selected == &law.definition) {
         return Err(D::LawUnselected);
     }
-    if !operation.get("mode").is_some_and(Value::is_null)
-        || !operation
-            .get("leaves")
-            .and_then(Value::as_array)
-            .is_some_and(Vec::is_empty)
-    {
+    if operation.record().mode.is_some() || !operation.record().leaves.is_empty() {
         return Err(D::MalformedLayout);
     }
-    let member = operation.get("member").ok_or(D::MemberMismatch)?;
+    let member = operation.member_node().ok_or(D::MemberMismatch)?;
     let operator = member
         .get("operator")
-        .and_then(Value::as_str)
+        .and_then(super::TermNode::as_str)
         .ok_or(D::MemberMismatch)?;
-    if member.as_object().is_none_or(|object| object.len() != 2)
-        || member.get("kind").and_then(Value::as_str) != Some("profile_operator")
+    if !member.exact_members(&["kind", "operator"])
+        || member.get("kind").and_then(super::TermNode::as_str) != Some("profile_operator")
     {
         return Err(D::MemberMismatch);
     }
@@ -1042,21 +1022,13 @@ pub(super) fn wire_layout_defect(
     else {
         return None;
     };
-    if operation
-        .get("laws")
-        .and_then(Value::as_array)
-        .is_some_and(|laws| laws.len() > 1)
-        || !operation.get("mode").is_some_and(Value::is_null)
-        || !operation
-            .get("leaves")
-            .and_then(Value::as_array)
-            .is_some_and(Vec::is_empty)
+    if operation.record().laws.len() > 1
+        || operation.record().mode.is_some()
+        || !operation.record().leaves.is_empty()
     {
         return Some(ProtocolLayoutWireDefect::Body);
     }
-    let operator = operation
-        .pointer("/member/operator")
-        .and_then(Value::as_str)?;
+    let operator = operation.member_operator()?;
     layout(form, operator)?;
     if let Some(defect) = enum_value_defect(form, operator, arguments) {
         return Some(defect);
@@ -2189,9 +2161,7 @@ fn check_control_prefix(
                 operator: ApplicationOperator::ProtocolControl,
                 operation,
                 ..
-            }) if control(position) => operation
-                .pointer("/member/operator")
-                .and_then(Value::as_str),
+            }) if control(position) => operation.member_text("operator"),
             _ => None,
         };
     match operator {
@@ -2606,7 +2576,7 @@ fn check_compensation(
         check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control))
             && check.terms[position].as_ref().is_some_and(|term| {
                 matches!(term, CheckedTerm::Application { operation, .. }
-                    if operation.pointer("/member/operator").and_then(Value::as_str) == Some("effect"))
+                    if operation.member_text("operator") == Some("effect"))
             })
     })?;
     let forward_binder = check.target_at(arguments, 1, parameter)?;
@@ -2684,7 +2654,7 @@ fn check_compensation(
                 check.is(position, CheckedNodeKind::Protocol(ProtocolForm::Control))
                     && check.terms[position].as_ref().is_some_and(|term| {
                         matches!(term, CheckedTerm::Application { operation, .. }
-                            if operation.pointer("/member/operator").and_then(Value::as_str) == Some("commit"))
+                            if operation.member_text("operator") == Some("commit"))
                     })
             },
         )?;
@@ -3524,7 +3494,7 @@ fn validate_protocol_fairness(
                 let Some(&fair) = index.get(fair) else {
                     continue;
                 };
-                let Some(target) = fairness_target(terms[fair].as_ref()) else {
+                let Some(target) = fairness_target(terms[fair].as_ref(), meter)? else {
                     continue;
                 };
                 if matches!(
@@ -3541,7 +3511,7 @@ fn validate_protocol_fairness(
     }
     let mut external_references = None;
     for &fair in index.values() {
-        let Some(target) = fairness_target(terms[fair].as_ref()) else {
+        let Some(target) = fairness_target(terms[fair].as_ref(), meter)? else {
             continue;
         };
         if checked[fair]
@@ -3620,11 +3590,14 @@ fn external_temporal_fairness_references(
     Ok(references)
 }
 
-fn fairness_target(term: Option<&CheckedTerm>) -> Option<CheckedFairnessTarget> {
-    let CheckedTerm::Application { operation, .. } = term? else {
-        return None;
+fn fairness_target(
+    term: Option<&CheckedTerm>,
+    meter: &mut WorkMeter,
+) -> Result<Option<CheckedFairnessTarget>, ValidationFailure> {
+    let Some(CheckedTerm::Application { operation, .. }) = term else {
+        return Ok(None);
     };
-    super::temporal::fairness_target(&operation.record()["member"])
+    operation.fairness_target_syntax(meter)
 }
 
 fn target_identity(target: &CheckedFairnessTarget) -> (&CheckedNodeId, &'static str) {
@@ -4395,11 +4368,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                     if let Some(CheckedTerm::Application { operation, .. }) =
                         &self.check.terms[position]
                     {
-                        if operation
-                            .get("identity")
-                            .and_then(Value::as_str)
-                            .is_some_and(model_state_operation)
-                        {
+                        if operation.identity().is_some_and(model_state_operation) {
                             state_read = Some(position);
                         }
                     }
@@ -4414,9 +4383,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             ..
                         }) = &self.check.terms[position]
                         {
-                            if operation.get("identity").and_then(Value::as_str)
-                                == Some("quire.op.control.case")
-                            {
+                            if operation.identity() == Some("quire.op.control.case") {
                                 if let Some((scrutinee, arms)) = arguments.split_first() {
                                     let mut scoped_arms = meter.vec(arms.len())?;
                                     let mut valid = true;
@@ -4505,8 +4472,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         ..
                     } => {
                         let entry = operation
-                            .get("identity")
-                            .and_then(Value::as_str)
+                            .identity()
                             .and_then(|id| self.check.catalog.entry(id))
                             .filter(|entry| entry.operator == *operator);
                         if entry.is_some() && *operator == ApplicationOperator::Let {
@@ -4664,14 +4630,12 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 ..
             }) = &self.check.terms[position]
             {
-                if operation.get("identity").and_then(Value::as_str)
-                    == Some("quire.op.record.project")
-                    && operation.pointer("/member/kind").and_then(Value::as_str) == Some("field")
+                if operation.identity() == Some("quire.op.record.project")
+                    && operation.member_text("kind") == Some("field")
                 {
-                    if let (Some(CheckedTerm::Reference { target }), Some(field)) = (
-                        arguments.first(),
-                        operation.pointer("/member/name").and_then(Value::as_str),
-                    ) {
+                    if let (Some(CheckedTerm::Reference { target }), Some(field)) =
+                        (arguments.first(), operation.member_text("name"))
+                    {
                         if let Some(&binder) = self.check.index.get(target) {
                             if self
                                 .check
@@ -4762,9 +4726,9 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             let body = self.check.terms[position].as_ref();
             let projection = matches!(body,
                 Some(CheckedTerm::Application { operation, .. })
-                if operation.get("identity").and_then(Value::as_str)
+                if operation.identity()
                     == Some("quire.op.record.project")
-                    && operation.pointer("/member/kind").and_then(Value::as_str) == Some("field"));
+                    && operation.member_text("kind") == Some("field"));
             let bare = match body {
                 Some(CheckedTerm::Reference { target }) => self
                     .check
@@ -6104,7 +6068,7 @@ fn uses_temporal_protocol_operator(body: &CheckedTerm) -> bool {
             operation,
             ..
         } if matches!(
-            operation.pointer("/member/operator").and_then(Value::as_str),
+            operation.member_text("operator"),
             Some("await" | "compensate")
         )
     )

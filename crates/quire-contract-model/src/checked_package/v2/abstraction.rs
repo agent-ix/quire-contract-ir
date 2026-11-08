@@ -43,9 +43,9 @@
 //! the resolution; a target that carries its own `declaration` is declared by
 //! this package's source and is joined by kind alone.
 
-use super::graph_storage::GraphIndex;
 use super::flat_wire::scan_members;
 use super::frame::{join, StepGraph};
+use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::rust_spelling::{is_rust_field, is_rust_identifier, is_rust_path, is_rust_receiver};

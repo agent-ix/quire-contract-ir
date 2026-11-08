@@ -3220,11 +3220,7 @@ fn protocol_classes(
             else {
                 continue;
             };
-            let Some(operator) = operation
-                .get("member")
-                .and_then(|member| member.get("operator"))
-                .and_then(Value::as_str)
-            else {
+            let Some(operator) = operation.member_operator() else {
                 continue;
             };
             let Some(operator) = catalog_operator(member.kind, operator) else {
@@ -3325,12 +3321,7 @@ fn protocol_memory_models(
             else {
                 continue;
             };
-            if operation
-                .get("member")
-                .and_then(|member| member.get("operator"))
-                .and_then(Value::as_str)
-                != Some("parallel")
-            {
+            if operation.member_operator() != Some("parallel") {
                 continue;
             }
             let Some(CheckedTerm::Aggregate { members }) =

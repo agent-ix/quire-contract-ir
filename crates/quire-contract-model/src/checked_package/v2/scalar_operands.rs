@@ -176,10 +176,7 @@ pub(super) fn scalar_arguments<'a, Body: ScalarBody>(
     let CheckedTerm::Application { operation, .. } = term.as_ref() else {
         return Err(Error::NotApplication);
     };
-    let identity = operation
-        .get("identity")
-        .and_then(Value::as_str)
-        .ok_or(Error::UnknownOperator)?;
+    let identity = operation.identity().ok_or(Error::UnknownOperator)?;
     if catalog.entry(identity).is_none() {
         return Err(Error::UnknownOperator);
     }

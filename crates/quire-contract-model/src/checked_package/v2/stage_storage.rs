@@ -900,7 +900,6 @@ mod tests {
     /// the bytes requested once identity comparison allocates nothing.
     #[trace("TC-472", "FR-038-AC-505")]
     #[test]
-    #[ignore = "waits on CheckedNodeId::cmp non-allocating (group D shared.rs)"]
     fn extension_stage_allocates_exactly_the_bytes_it_requests() {
         let (mut wire, kinds) = extension_with_two_regions();
         wire.source_map[0].regions.truncate(1);

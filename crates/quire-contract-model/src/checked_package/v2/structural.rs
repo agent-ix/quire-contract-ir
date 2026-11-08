@@ -74,7 +74,7 @@ use super::{
     RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateForm,
     TemporalForm, ValueForm,
 };
-use crate::checked_package::common::{exact_members, node_pointer, ValidationFailure};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole, CheckedPackageRefusalCode,
     JsonPointer,
@@ -1855,7 +1855,7 @@ pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<Transit
     else {
         return None;
     };
-    if super::KnownOperation::from_wire(operation.get("identity")?.as_str()?)
+    if super::KnownOperation::from_wire(operation.identity()?)
         != Some(super::KnownOperation::StateTransition)
     {
         return None;
@@ -1908,18 +1908,20 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody<
     else {
         return None;
     };
-    if super::KnownOperation::from_wire(operation.get("identity")?.as_str()?)
+    if super::KnownOperation::from_wire(operation.identity()?)
         != Some(super::KnownOperation::StateClause)
     {
         return None;
     }
-    let member = operation.get("member")?.as_object()?;
-    if !exact_members(member, &["kind", "clause"]) {
+    let member = operation.member_node()?;
+    if !(member.exact_members(&["kind", "clause"])
+        || member.exact_members(&["kind", "clause", "execution_point"]))
+    {
         return None;
     }
     if member
         .get("kind")
-        .and_then(Value::as_str)
+        .and_then(super::TermNode::as_str)
         .and_then(OperationMemberKind::from_wire)
         != Some(OperationMemberKind::StateClause)
     {
@@ -2073,44 +2075,36 @@ pub(super) fn collect_application_dependencies(
                 contains_application = true;
                 meter.room(&mut pending, arguments.len())?;
                 pending.extend(arguments);
-                let member = operation.get("member");
-                let member_id = |key: &str| {
-                    member
-                        .and_then(|member| member.get(key))
-                        .and_then(CheckedNodeId::from_value)
-                };
+                let member_id = |key: &str| operation.member_key(key);
                 if let Some(id) = member_id("declaration") {
-                    let id = charged_parse(id, meter)?;
-                    meter.insert_owned_id(join, id)?;
+                    meter.insert_id(join, id)?;
                 }
-                if member.and_then(|m| m.get("kind")).and_then(Value::as_str) == Some("fairness") {
-                    if let Some(target) = member.and_then(|m| m.get("target")) {
-                        for field in ["declaration", "node", "parallel"] {
-                            if let Some(id) = target.get(field).and_then(CheckedNodeId::from_value)
-                            {
-                                let id = charged_parse(id, meter)?;
-                                meter.insert_owned_id(join, id)?;
-                            }
-                        }
+                if operation.member_kind() == Some(OperationMemberKind::Fairness) {
+                    let ids = &operation.record().member_ids;
+                    for id in [
+                        ids.target_declaration.as_ref(),
+                        ids.target_node.as_ref(),
+                        ids.target_parallel.as_ref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        meter.insert_id(join, id)?;
                     }
                 }
                 // Only a relationship application names a population.
-                let relationship = operation
-                    .get("identity")
-                    .and_then(Value::as_str)
-                    .is_some_and(|identity| {
-                        matches!(
-                            super::KnownOperation::from_wire(identity),
-                            Some(
-                                super::KnownOperation::ModelReaches
-                                    | super::KnownOperation::ModelNavigate
-                            )
+                let relationship = operation.identity().is_some_and(|identity| {
+                    matches!(
+                        super::KnownOperation::from_wire(identity),
+                        Some(
+                            super::KnownOperation::ModelReaches
+                                | super::KnownOperation::ModelNavigate
                         )
-                    });
+                    )
+                });
                 if relationship {
                     if let Some(id) = member_id("population") {
-                        let id = charged_parse(id, meter)?;
-                        meter.insert_owned_id(join, id)?;
+                        meter.insert_id(join, id)?;
                     }
                 }
             }
@@ -2223,17 +2217,6 @@ fn member_id(
         Some(value) => Ok(meter.read_id(value, row)?.valid()),
         None => Ok(None),
     }
-}
-
-/// Charges the memory of an ID just read out of a document value. The value
-/// read itself is the bridge the wire migration removes; this makes the
-/// copy the join keeps visible to the budget.
-fn charged_parse(
-    id: CheckedNodeId,
-    meter: &mut WorkMeter,
-) -> Result<CheckedNodeId, ValidationFailure> {
-    meter.charge_id_memory(&id)?;
-    Ok(id)
 }
 
 /// An `aggregate` term's members.

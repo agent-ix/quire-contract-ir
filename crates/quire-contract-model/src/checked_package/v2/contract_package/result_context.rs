@@ -12,7 +12,6 @@ use crate::checked_package::v2::{
     ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
     ExpressionForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
 };
-use serde::Deserialize;
 use std::collections::BTreeMap;
 
 #[cfg(test)]
@@ -393,8 +392,10 @@ fn direct_narrow_of(node: &CheckedSemanticNodeV2, expression: &CheckedNodeId) ->
     else {
         return false;
     };
-    let Ok(operation) = super::super::operations::OperationWire::deserialize(operation.record())
-    else {
+    let Ok(Some(operation)) = super::super::operations::OperationWire::from_record(
+        operation.record(),
+        &mut super::super::WorkMeter::new(u64::MAX),
+    ) else {
         return false;
     };
     if super::super::KnownOperation::from_wire(&operation.identity)

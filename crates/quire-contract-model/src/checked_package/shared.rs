@@ -823,12 +823,32 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                 WireNodeId::deserialize(serde::de::value::MapAccessDeserializer::new(map))
             }
         }
-        let wire = deserializer.deserialize_map(NodeVisitor)?;
-        Ok(Self {
-            package: wire.package,
-            path: wire.path.into_iter().map(|segment| segment.0).collect(),
-            ordinal: wire.ordinal,
-        })
+        struct NodeTokenVisitor;
+        impl<'de> Visitor<'de> for NodeTokenVisitor {
+            type Value = CheckedNodeId;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a flat node ID object")
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                crate::checked_package::v2::document_de::take_node_id()
+                    .ok_or_else(|| E::custom("missing decoded node ID"))
+            }
+            fn visit_newtype_struct<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                let wire = deserializer.deserialize_map(NodeVisitor)?;
+                Ok(CheckedNodeId {
+                    package: wire.package,
+                    path: wire.path.into_iter().map(|segment| segment.0).collect(),
+                    ordinal: wire.ordinal,
+                })
+            }
+        }
+        deserializer.deserialize_newtype_struct(
+            crate::checked_package::v2::document_de::NODE_ID_TOKEN,
+            NodeTokenVisitor,
+        )
     }
 }
 
@@ -1917,5 +1937,50 @@ pub(crate) mod node_order_tests {
         });
         assert_eq!(order, Ok(deep.0.cmp(&deep.1)));
         assert!(granted > 0);
+    }
+}
+
+#[cfg(test)]
+mod node_id_serde_token_tests {
+    use super::{CheckedNodeId, CheckedNodePathSegment};
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    /// Non-document deserializers use the unchanged flat wire visitor.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn node_id_token_preserves_ordinary_serde_wire() {
+        let value =
+            json!({"package":"example", "path":["decl", {"node":9}, {"operand":0}], "ordinal":0});
+        let node: CheckedNodeId = serde_json::from_value(value.clone()).expect("flat node ID");
+        assert!(matches!(
+            node.path.as_slice(),
+            [
+                CheckedNodePathSegment::Name(_),
+                CheckedNodePathSegment::Index(9),
+                CheckedNodePathSegment::Operand(0)
+            ]
+        ));
+        assert_eq!(serde_json::to_value(&node).expect("encode"), value);
+        let text = serde_json::to_string(&value).expect("JSON");
+        assert_eq!(
+            serde_json::from_str::<CheckedNodeId>(&text).expect("text decode"),
+            node
+        );
+        for path in [
+            json!([{"node":-1}]),
+            json!([{"unknown":0}]),
+            json!([{"node":1,"operand":0}]),
+            json!([{"node":{"package":"example","path":["nested"],"ordinal":0}}]),
+        ] {
+            assert!(serde_json::from_value::<CheckedNodeId>(
+                json!({"package":"example", "path":path, "ordinal":0})
+            )
+            .is_err());
+        }
+        let unchecked: CheckedNodeId =
+            serde_json::from_value(json!({"package":"", "path":[], "ordinal":0}))
+                .expect("ordinary serde does not perform the later well-formedness check");
+        assert!(!unchecked.is_well_formed());
     }
 }

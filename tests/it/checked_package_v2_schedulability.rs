@@ -146,7 +146,7 @@ fn admitted(package: &Value) -> Box<CheckedPackageV2> {
     }
 }
 
-fn exact(read: CheckedLiteralRead<'_>, unit: &CheckedNodeId, numerator: i32, denominator: i32) {
+fn exact(read: CheckedLiteralRead<'_>, unit: &CheckedNodeId, numerator: i64, denominator: i64) {
     assert_eq!(read.type_id, unit);
     assert_eq!(
         read.value,
@@ -252,7 +252,7 @@ fn authenticated_views_preserve_exact_premises_and_shared_occurrences() {
         } else {
             assert_eq!(
                 task.priority().expect("priority").value,
-                CheckedLiteralValue::Integer(7.into())
+                CheckedLiteralValue::Integer(7_i64.into())
             );
         }
         if response {

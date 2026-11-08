@@ -178,7 +178,7 @@ pub(super) fn validate_checked_term_data(
         else {
             return Err(invalid(meter, row_index, row.key("application")));
         };
-        let member = operation.record().get("member");
+        let member = operation.member_node();
         let member_name = member
             .and_then(|member| member.get("name"))
             .and_then(|name| name.as_str());

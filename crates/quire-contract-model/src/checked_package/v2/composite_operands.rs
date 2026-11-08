@@ -11,6 +11,7 @@ use super::{
     CheckedPackageV2, CheckedScalarOperandChild, CheckedSemanticNodeV2, CheckedTerm,
     CompositeTypeForm, LiteralKind, ScalarTypeForm, ValueForm,
 };
+#[cfg(test)]
 use serde_json::Value;
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -408,8 +409,7 @@ impl CheckedPackageV2 {
             });
         }
         let identity = operation
-            .get("identity")
-            .and_then(Value::as_str)
+            .identity()
             .filter(|id| self.catalog.entry(id).is_some())
             .ok_or_else(|| Error::UnknownOperator {
                 application: application.clone(),
@@ -1125,24 +1125,17 @@ fn closed_narrow(
     meter.charge(1)?;
     let malformed = || type_error(ordinal, Some(node.semantic_type.clone()));
     let record = operation.record();
-    let member = record.get("member").ok_or_else(malformed)?;
     if graph.kind(node)
         != Some(CheckedNodeKind::Expression(
             super::ExpressionForm::Conversion,
         ))
         || *operator != super::ApplicationOperator::Convert
-        || record
-            .get("laws")
-            .and_then(Value::as_array)
-            .is_none_or(|a| !a.is_empty())
-        || record
-            .get("leaves")
-            .and_then(Value::as_array)
-            .is_none_or(|a| !a.is_empty())
-        || !record.get("mode").is_some_and(Value::is_null)
-        || member.get("kind").and_then(Value::as_str) != Some("type_argument")
-        || member.get("declaration")
-            != Some(&serde_json::to_value(result_type).expect("typed node identity"))
+        || record.malformed.is_some()
+        || !record.laws.is_empty()
+        || !record.leaves.is_empty()
+        || record.mode.is_some()
+        || operation.member_kind() != Some(super::OperationMemberKind::TypeArgument)
+        || operation.member_key("declaration") != Some(result_type)
         || result_type != &node.semantic_type
         || arguments.len() != 1
     {
@@ -4023,7 +4016,9 @@ pub(in crate::checked_package::v2) mod tests {
         arguments
     }
 
-    fn application_operation(package: &mut CheckedPackageV2) -> &mut Value {
+    fn application_operation(
+        package: &mut CheckedPackageV2,
+    ) -> super::super::typed_terms::OperationRecordEdit<'_> {
         let CheckedTerm::Application { operation, .. } =
             &mut std::sync::Arc::make_mut(&mut package.terms)[5]
         else {

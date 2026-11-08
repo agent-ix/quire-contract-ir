@@ -5,8 +5,8 @@
 
 use super::graph_storage::{GraphIndex, ResolvedKey, SortedTable};
 use super::{
-    CheckedLiteralRead, CheckedLiteralValue, CheckedNodeId, CheckedNodeKind, CheckedPackageV2,
-    CheckedTerm, ClaimForm, LiteralKind, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
+    CheckedLiteralRead, CheckedNodeId, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ClaimForm,
+    LiteralKind, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -453,22 +453,31 @@ fn binding_at(at: &JsonPointer, i: usize) -> JsonPointer {
     at.clone().key("members").index(i)
 }
 fn nonnegative(term: &CheckedTerm) -> bool {
-    match term.literal_read().map(|read| read.value) {
-        Some(CheckedLiteralValue::Integer(value)) => value.sign() != num_bigint::Sign::Minus,
-        Some(CheckedLiteralValue::Rational { numerator, .. }) => {
-            numerator.sign() != num_bigint::Sign::Minus
-        }
+    match term {
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Integer | LiteralKind::Rational | LiteralKind::Quantity,
+            value,
+            ..
+        } => value
+            .as_str()
+            .or_else(|| value.number_text())
+            .is_some_and(|text| !text.starts_with('-')),
         _ => false,
     }
 }
 fn zero(term: &CheckedTerm) -> bool {
-    match term.literal_read().map(|read| read.value) {
-        Some(CheckedLiteralValue::Rational { numerator, .. }) => {
-            numerator == num_bigint::BigInt::from(0)
-        }
+    match term {
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Rational | LiteralKind::Quantity,
+            value,
+            ..
+        } => value
+            .as_str()
+            .is_some_and(|text| text.split('/').next() == Some("0")),
         _ => false,
     }
 }
+
 fn magnitude(term: &CheckedTerm) -> (&str, &str) {
     let CheckedTerm::Literal { value, .. } = term else {
         unreachable!("admitted quantity")
@@ -697,8 +706,10 @@ pub(super) fn validate_bodies(
                 })
             }));
         for (time, time_at) in times {
-            let read = literal(time);
-            let valid = index.get(read.type_id).is_some_and(|&u| {
+            let CheckedTerm::Literal { type_id, .. } = time else {
+                return Err(fail(Code::IllTyped, Some(Cause::TypeMismatch), time_at));
+            };
+            let valid = index.get(type_id).is_some_and(|&u| {
                 kinds[u] == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
                     && index.get(&nodes[u].semantic_type).is_some_and(|&d| {
                         kinds[d] == CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension)
@@ -709,10 +720,10 @@ pub(super) fn validate_bodies(
                             )
                     })
             });
-            if !valid || common_unit.is_some_and(|unit| unit != read.type_id) {
+            if !valid || common_unit.is_some_and(|unit| unit != type_id) {
                 return Err(fail(Code::IllTyped, Some(Cause::TypeMismatch), time_at));
             }
-            common_unit = Some(read.type_id);
+            common_unit = Some(type_id);
         }
         let mut priorities: Vec<quire_exact::Integer> = Vec::new();
         for (i, task) in tasks.iter().enumerate() {
@@ -850,7 +861,7 @@ fn validate_literal_values(
                             incomplete => incomplete,
                         });
                     }
-                } else if term.literal_read().is_none() {
+                } else if value.as_i64().is_none() && value.as_u64().is_none() {
                     return Err(bad());
                 }
             }

@@ -430,10 +430,7 @@ impl<'a> DependencyReferences<'a> {
                     arguments,
                     ..
                 } => {
-                    let calls_function = operation
-                        .get("identity")
-                        .and_then(|identity| identity.as_str())
-                        == Some(FUNCTION_CALL_OPERATION);
+                    let calls_function = operation.identity() == Some(FUNCTION_CALL_OPERATION);
                     for (index, child) in arguments.iter().enumerate().rev() {
                         let child_step = steps.len();
                         budget.push(

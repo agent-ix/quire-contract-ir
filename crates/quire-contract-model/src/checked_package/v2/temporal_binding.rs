@@ -7,8 +7,8 @@ use super::graph_storage::GraphIndex;
 use super::term_view::TermNode;
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedOccurrenceRole, CheckedPackageLockV2,
-    CheckedSelectionRole, LawRole, ProtocolForm, RawSemanticNodeV2, TemporalForm, TemporalProfile,
-    WorkMeter,
+    CheckedSelectionRole, CheckedSemanticNodeV2, LawRole, ProtocolForm, TemporalForm,
+    TemporalProfile, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -16,7 +16,6 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
 /// An exact number in a fixed-sample clock configuration.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
@@ -120,16 +119,16 @@ fn decimal_magnitude(text: &str) -> Option<(&str, bool)> {
 fn validate_number(
     number: &ClockExactNumber,
     positive: bool,
-    at: JsonPointer,
+    at: impl Fn() -> JsonPointer,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     match number {
         ClockExactNumber::Integer { decimal } => {
             let Some((_, zero)) = decimal_magnitude(decimal) else {
-                return Err(malformed(at.key("decimal")));
+                return Err(malformed(at().key("decimal")));
             };
             if positive && (zero || decimal.starts_with('-')) {
-                return Err(malformed(at.key("decimal")));
+                return Err(malformed(at().key("decimal")));
             }
         }
         ClockExactNumber::Rational {
@@ -137,7 +136,7 @@ fn validate_number(
             denominator,
         } => {
             let Some((digits, zero)) = decimal_magnitude(numerator) else {
-                return Err(malformed(at.clone().key("numerator")));
+                return Err(malformed(at().key("numerator")));
             };
             let valid_denominator = denominator
                 .bytes()
@@ -148,13 +147,13 @@ fn validate_number(
                     .skip(1)
                     .all(|byte| byte.is_ascii_digit());
             if !valid_denominator {
-                return Err(malformed(at.clone().key("denominator")));
+                return Err(malformed(at().key("denominator")));
             }
             if positive && (zero || numerator.starts_with('-')) {
-                return Err(malformed(at.clone().key("numerator")));
+                return Err(malformed(at().key("numerator")));
             }
-            if !super::natural::coprime(digits, denominator, meter, &|| at.clone())? {
-                return Err(malformed(at));
+            if !super::natural::coprime(digits, denominator, meter, &at)? {
+                return Err(malformed(at()));
             }
         }
     }
@@ -166,16 +165,16 @@ fn validate_shape(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (index, row) in rows.iter().enumerate() {
-        let at = row_pointer(index);
-        meter.charge(1, || at.clone())?;
+        let at = || row_pointer(index);
+        meter.charge(1, &at)?;
         if row.clock_name.is_empty() {
-            return Err(malformed(at.clone().key("clock_name")));
+            return Err(malformed(at().key("clock_name")));
         }
-        let clock_at = at.key("clock");
+        let clock_at = || at().key("clock");
         match &row.clock {
             ClockConfiguration::EventPosition { sequence_authority } => {
                 if sequence_authority.is_empty() {
-                    return Err(malformed(clock_at.key("sequence_authority")));
+                    return Err(malformed(clock_at().key("sequence_authority")));
                 }
             }
             ClockConfiguration::FixedSample {
@@ -184,14 +183,14 @@ fn validate_shape(
                 unit,
             } => {
                 if unit.is_empty() {
-                    return Err(malformed(clock_at.clone().key("unit")));
+                    return Err(malformed(clock_at().key("unit")));
                 }
-                validate_number(epoch, false, clock_at.clone().key("epoch"), meter)?;
-                validate_number(period, true, clock_at.key("period"), meter)?;
+                validate_number(epoch, false, || clock_at().key("epoch"), meter)?;
+                validate_number(period, true, || clock_at().key("period"), meter)?;
             }
             ClockConfiguration::TimestampedEvent { timestamp_unit } => {
                 if timestamp_unit.is_empty() {
-                    return Err(malformed(clock_at.key("timestamp_unit")));
+                    return Err(malformed(clock_at().key("timestamp_unit")));
                 }
             }
         }
@@ -376,9 +375,9 @@ fn clock_matches(profile: Option<TemporalProfile>, clock: &ClockConfiguration) -
 }
 
 /// Validate row coverage before per-node joins and compare names before kinds.
-pub(super) fn validate(
+pub(super) fn validate<B>(
     rows: Option<&[TemporalBinding]>,
-    nodes: &[RawSemanticNodeV2],
+    nodes: &[CheckedSemanticNodeV2<B>],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
@@ -388,20 +387,20 @@ pub(super) fn validate(
     let rows = rows.unwrap_or_default();
     validate_shape(rows, meter)?;
     let compensation_profile = selected_profile(lock);
-    let mut seen = BTreeSet::new();
+    let mut seen: Vec<(usize, u64)> = meter.vec(rows.len())?;
     let mut previous: Option<(super::graph_storage::ResolvedKey<'_>, u64)> = None;
-    let mut resolved = Vec::with_capacity(rows.len());
+    let mut resolved = meter.vec(rows.len())?;
     for (row_index, row) in rows.iter().enumerate() {
-        let at = row_pointer(row_index);
+        let at = || row_pointer(row_index);
         let Some(&position) = index.get(&row.declaration) else {
-            return Err(invalid(at.key("declaration"), &row.declaration));
+            return Err(invalid(at().key("declaration"), &row.declaration));
         };
         if !matches!(
             kinds[position],
             CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
                 | CheckedNodeKind::Protocol(ProtocolForm::Compensation)
         ) {
-            return Err(invalid(at.key("declaration"), &row.declaration));
+            return Err(invalid(at().key("declaration"), &row.declaration));
         }
         if kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
             && profile_law(position, meter)?
@@ -409,7 +408,7 @@ pub(super) fn validate(
                 .and_then(|law| TemporalProfile::from_wire(&law.identity))
                 == Some(TemporalProfile::Timed)
         {
-            return Err(invalid(at, &row.declaration));
+            return Err(invalid(at(), &row.declaration));
         }
         let role = if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
             CheckedOccurrenceRole::Declaration
@@ -418,30 +417,33 @@ pub(super) fn validate(
         };
         let mut owned = false;
         for occurrence in &nodes[position].occurrences {
-            meter.charge(1, || at.clone().key("occurrence"))?;
+            meter.charge(1, || at().key("occurrence"))?;
             if occurrence.role == role && occurrence.ordinal == row.occurrence {
                 owned = true;
                 break;
             }
         }
         if !owned {
-            return Err(invalid(at.key("occurrence"), &row.declaration));
+            return Err(invalid(at().key("occurrence"), &row.declaration));
         }
-        if !seen.insert((&row.declaration, row.occurrence)) {
+        let key = (position, row.occurrence);
+        let insertion = seen.binary_search(&key);
+        if insertion.is_ok() {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                at,
+                at(),
                 Some(CheckedPackageRefusalCause::ConflictingDefinition),
                 row.declaration.clone(),
             ));
         }
+        seen.insert(insertion.expect_err("duplicate refused above"), key);
         let structural = index.resolved_at(position, structural_keys);
         if let Some((previous_id, previous_occurrence)) = previous {
             if previous_id > structural {
-                return Err(invalid(at.key("declaration"), &row.declaration));
+                return Err(invalid(at().key("declaration"), &row.declaration));
             }
             if previous_id == structural && previous_occurrence > row.occurrence {
-                return Err(invalid(at.key("occurrence"), &row.declaration));
+                return Err(invalid(at().key("occurrence"), &row.declaration));
             }
         }
         previous = Some((structural, row.occurrence));
@@ -462,7 +464,9 @@ pub(super) fn validate(
         };
         for occurrence in &node.occurrences {
             meter.charge(1, || node_pointer(position).key("body"))?;
-            if occurrence.role == role && !seen.contains(&(&node.node_id, occurrence.ordinal)) {
+            if occurrence.role == role
+                && seen.binary_search(&(position, occurrence.ordinal)).is_err()
+            {
                 missing = Some(position);
                 break;
             }
@@ -478,13 +482,13 @@ pub(super) fn validate(
         ));
     }
     for (row_index, (row, &position)) in rows.iter().zip(&resolved).enumerate() {
-        let at = row_pointer(row_index);
+        let at = || row_pointer(row_index);
         if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
             if clock_name(meter, position, 4) != Some(row.clock_name.as_ref()) {
-                return Err(invalid(at.clone().key("clock_name"), &row.declaration));
+                return Err(invalid(at().key("clock_name"), &row.declaration));
             }
             if !clock_matches(compensation_profile, &row.clock) {
-                return Err(invalid(at.key("clock").key("kind"), &row.declaration));
+                return Err(invalid(at().key("clock").key("kind"), &row.declaration));
             }
             continue;
         }
@@ -498,13 +502,13 @@ pub(super) fn validate(
             continue;
         }
         if clock_name(meter, position, 1) != Some(row.clock_name.as_ref()) {
-            return Err(invalid(at.clone().key("clock_name"), &row.declaration));
+            return Err(invalid(at().key("clock_name"), &row.declaration));
         }
         let profile = configured_profile(position, meter)?;
         let mut selected = false;
         if let Some(law) = law.as_ref() {
             for selection in &lock.profile_selections {
-                meter.charge(1, || at.clone().key("clock").key("kind"))?;
+                meter.charge(1, || at().key("clock").key("kind"))?;
                 if selection.role == CheckedSelectionRole::TemporalProfile
                     && selection.definition == *law
                 {
@@ -514,7 +518,7 @@ pub(super) fn validate(
             }
         }
         if !selected || !clock_matches(profile, &row.clock) {
-            return Err(invalid(at.key("clock").key("kind"), &row.declaration));
+            return Err(invalid(at().key("clock").key("kind"), &row.declaration));
         }
     }
     Ok(())
@@ -611,5 +615,86 @@ mod tests {
         assert_eq!(allocated, charged, "allocated == requested");
         assert!(run(charged).0.is_some(), "the measured limit admits");
         assert!(run(charged - 1).0.is_none(), "one byte short is denied");
+    }
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn temporal_binding_tables_allocate_only_charged_storage() {
+        let id = super::super::test_support::node_id('1');
+        let nodes = [CheckedSemanticNodeV2 {
+            node_id: id.clone(),
+            schema_version: "test".into(),
+            node_tag: "protocol".into(),
+            semantic_form: "compensation".into(),
+            semantic_type: id.clone(),
+            dependencies: vec![],
+            occurrences: vec![
+                crate::checked_package::shared::CheckedOccurrence {
+                    role: CheckedOccurrenceRole::Declaration,
+                    ordinal: 0,
+                },
+                crate::checked_package::shared::CheckedOccurrence {
+                    role: CheckedOccurrenceRole::Declaration,
+                    ordinal: 1,
+                },
+            ],
+            recursion_group: None,
+            declaration: None,
+            owner: None,
+            owner_model: None,
+            body: (),
+        }];
+        let rows: Vec<_> = (0..2)
+            .map(|occurrence| TemporalBinding {
+                declaration: id.clone(),
+                occurrence,
+                clock_name: "events".into(),
+                clock: ClockConfiguration::EventPosition {
+                    sequence_authority: "source".into(),
+                },
+            })
+            .collect();
+        let lock: CheckedPackageLockV2 = serde_json::from_value(json!({
+            "sources":[], "edition":{"role":"edition","definition":{"authority":"test","identity":"edition"}},
+            "profile_selections":[{"role":"temporal_profile","definition":{"authority":"quire","identity":"quire.temporal.event-position.false-extension/v1"}}],
+            "definition_selections":[],"required_features":[],"dependency_selections":[]
+        })).expect("fixture lock");
+        let bodies = OwnedBodies::of_values(
+            &[json!({"arguments":[null,null,null,null,
+            {"term":"literal","value_kind":"text","value":"events"}]})],
+            vec![Vec::new()],
+        );
+        let mut build_meter = WorkMeter::new(u64::MAX);
+        let index = GraphIndex::build(nodes.iter().map(|node| &node.node_id), &mut build_meter)
+            .expect("index");
+        let keys = [std::sync::Arc::new(id)];
+        let kinds = [CheckedNodeKind::Protocol(ProtocolForm::Compensation)];
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                bodies.attach(&mut meter);
+                result = Some(validate(
+                    Some(&rows),
+                    &nodes,
+                    &kinds,
+                    &index,
+                    &keys,
+                    &lock,
+                    &mut meter,
+                ));
+            });
+            (
+                result.expect("ran"),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (outcome, allocated, charged) = run(u64::MAX);
+        outcome.expect("valid rows");
+        assert!(charged > 0);
+        assert_eq!(allocated, charged);
+        run(charged).0.expect("exact allowance admits");
+        assert!(run(charged - 1).0.is_err(), "one byte short refuses");
     }
 }

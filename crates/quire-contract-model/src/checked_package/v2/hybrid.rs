@@ -419,9 +419,7 @@ fn reads_allowed(
             }
             Some(CheckedNodeKind::Expression(form)) => {
                 let operation = match decoded.term(position) {
-                    CheckedTerm::Application { operation, .. } => {
-                        operation.get("identity").and_then(Value::as_str)
-                    }
+                    CheckedTerm::Application { operation, .. } => operation.identity(),
                     _ => None,
                 };
                 let admitted = matches!(
@@ -1126,9 +1124,8 @@ pub(super) fn validate_claims(
             let CheckedTerm::Application { operation, .. } = decoded.term(fair_position) else {
                 continue;
             };
-            let member = &operation.record()["member"];
             let Some(super::CheckedFairnessTarget::HybridTransition { declaration, name }) =
-                super::CheckedFairnessTarget::hybrid_for_join(&member["target"])
+                operation.hybrid_target_for_join(meter)?
             else {
                 return Err(issue(
                     Code::MissingDeclaration,
@@ -1219,10 +1216,9 @@ pub(super) fn validate_claims(
                 .get(formula_position)
                 .and_then(Option::as_ref)
                 .and_then(|term| match term {
-                    CheckedTerm::Application { operation, .. } => operation
-                        .get("identity")
-                        .and_then(Value::as_str)
-                        .and_then(decode_word),
+                    CheckedTerm::Application { operation, .. } => {
+                        operation.identity().and_then(decode_word)
+                    }
                     _ => None,
                 });
             if operation == Some(HybridTemporalOperation::Holds) {
