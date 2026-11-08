@@ -95,16 +95,25 @@ impl FieldTable {
     }
 
     /// The effective record field types in inherited source order.
-    pub(super) fn binder_types(&self, package: &str) -> Option<RecordBinderTypes> {
+    pub(super) fn binder_types(
+        &self,
+        package: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<RecordBinderTypes>, ValidationFailure> {
         if self.ambiguous.is_some() {
-            return Some(RecordBinderTypes::Ambiguous);
+            return Ok(Some(RecordBinderTypes::Ambiguous));
         }
-        let types = self
-            .ordered_exposed
-            .iter()
-            .map(|entry| entry.entry.member_type.as_ref()?.node_id(package))
-            .collect::<Option<Vec<_>>>()?;
-        Some(RecordBinderTypes::Known(types))
+        let mut types = budget.vec(self.ordered_exposed.len(), "binder_types")?;
+        for entry in &self.ordered_exposed {
+            let Some(member) = entry.entry.member_type.as_ref() else {
+                return Ok(None);
+            };
+            let Some(id) = member.node_id_in(package, budget)? else {
+                return Ok(None);
+            };
+            types.push(id);
+        }
+        Ok(Some(RecordBinderTypes::Known(types)))
     }
 }
 
@@ -1460,14 +1469,22 @@ impl RetainedModels {
         })
     }
 
-    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<RecordBinderTypes> {
-        let declared = self.index.0.get(key)?;
+    pub(super) fn record_binder_types(
+        &self,
+        key: &CheckedNodeId,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<RecordBinderTypes>, ValidationFailure> {
+        let Some(declared) = self.index.0.get(key) else {
+            return Ok(None);
+        };
         if declared.form != DeclarationForm::RecordValueType {
-            return None;
+            return Ok(None);
         }
-        self.models
-            .get(declared.selection)?
-            .record_binder_types(&declared.node)
+        let Some(model) = self.models.get(declared.selection) else {
+            return Ok(None);
+        };
+        let mut budget = Budget::new(meter, model.root, model.bytes);
+        model.record_binder_types(&declared.node, &mut budget)
     }
 
     pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {

@@ -2989,13 +2989,21 @@ impl CatalogSignatures<'_, '_> {
     fn record_binder_types(
         &self,
         key: &CheckedNodeId,
-    ) -> Option<super::model_fields::RecordBinderTypes> {
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<super::model_fields::RecordBinderTypes>, ValidationFailure> {
         match self {
             Self::Local(owners) => {
-                let owner = owners.record_by_key(key)?;
-                owner.package.record_binder_types(owner.node)
+                let Some(owner) = owners.record_by_key(key) else {
+                    return Ok(None);
+                };
+                let mut budget = super::model_members::Budget::new(
+                    meter,
+                    owner.package.root,
+                    owner.package.bytes,
+                );
+                owner.package.record_binder_types(owner.node, &mut budget)
             }
-            Self::External(models) => models.record_binder_types(key),
+            Self::External(models) => models.record_binder_types(key, meter),
         }
     }
 
@@ -3193,7 +3201,7 @@ fn protocol_classes(
                         classes.push(DeclaredGraphClass {
                             class: format!("activate {name}"),
                             node: key(clause.id),
-                            binder_types: binder_signature(trigger_type, signatures)
+                            binder_types: binder_signature(trigger_type, signatures, meter)?
                                 .map(|id| key(&id)),
                         });
                     }
@@ -3570,15 +3578,16 @@ fn protocol_binder_types(
         | CatalogOperator::Fence
         | CatalogOperator::TimeoutFromAwait => return Ok(BinderSignature::Known(Vec::new())),
     };
-    Ok(binder_signature(binder_type, signatures))
+    binder_signature(binder_type, signatures, meter)
 }
 
 fn binder_signature(
     binder_type: &CheckedNodeId,
     signatures: CatalogSignatures<'_, '_>,
-) -> BinderSignature<CheckedNodeId> {
-    if signatures.is_record(binder_type) {
-        match signatures.record_binder_types(binder_type) {
+    meter: &mut super::WorkMeter,
+) -> Result<BinderSignature<CheckedNodeId>, ValidationFailure> {
+    Ok(if signatures.is_record(binder_type) {
+        match signatures.record_binder_types(binder_type, meter)? {
             Some(super::model_fields::RecordBinderTypes::Known(types)) => {
                 BinderSignature::Known(types)
             }
@@ -3586,8 +3595,10 @@ fn binder_signature(
             None => BinderSignature::Unspecified,
         }
     } else {
-        BinderSignature::Known(vec![binder_type.clone()])
-    }
+        let mut types = meter.vec(1)?;
+        types.push(meter.clone_id(binder_type)?);
+        BinderSignature::Known(types)
+    })
 }
 
 fn bound_reference<'a>(arguments: &'a [CheckedTerm], field: &str) -> Option<&'a CheckedNodeId> {
