@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import time
+import weakref
 
 
 class EvidenceError(ValueError):
@@ -146,7 +147,22 @@ class Atom:
     origin: str = ""
 
 
-Value = dict[tuple[int, ...], set[Atom]]
+Value = dict[tuple[int, ...], set[Atom] | frozenset[Atom]]
+
+# Equal immutable sets can occur in thousands of SSA and memory cells. Weak
+# values share their storage without retaining superseded analysis versions.
+FACT_SETS: weakref.WeakValueDictionary[tuple[int, int], frozenset[Atom]] = weakref.WeakValueDictionary()
+
+
+def share_facts(atoms: set[Atom]) -> frozenset[Atom]:
+    frozen = frozenset(atoms)
+    key = hash(frozen), len(frozen)
+    prior = FACT_SETS.get(key)
+    if prior is not None:
+        # Hash collisions can only forgo sharing, never change a fact set.
+        return prior if prior == frozen else frozen
+    FACT_SETS[key] = frozen
+    return frozen
 
 
 def scalar(*atoms: Atom) -> Value:
@@ -156,8 +172,15 @@ def scalar(*atoms: Atom) -> Value:
 def join_into(destination: Value, source: Value) -> bool:
     changed = False
     for path, atoms in source.items():
-        cell = destination.setdefault(path, set())
-        for atom in tuple(atoms) if atoms is cell else atoms:
+        original = destination.get(path, frozenset())
+        if not original and isinstance(atoms, frozenset):
+            destination[path] = atoms
+            changed |= bool(atoms)
+            continue
+        cell = original
+        updated = None
+        for atom in atoms:
+            obsolete = set()
             if atom.kind in ("stack", "heap", "global"):
                 if atom.offset is not None:
                     wide = Atom(atom.kind, atom.name, None, atom.origin)
@@ -166,17 +189,19 @@ def join_into(destination: Value, source: Value) -> bool:
                 else:
                     # An object-local wildcard denotes every byte offset in
                     # this same object. It subsumes narrower address facts;
-                    # keeping those facts cannot add targets, only work and
-                    # memory. Different objects and unknown origins stay apart.
+                    # different objects and unknown origins stay apart.
                     obsolete = {prior for prior in cell
                                 if prior.kind == atom.kind and prior.name == atom.name
                                 and prior.origin == atom.origin and prior.offset is not None}
-                    if obsolete:
-                        cell.difference_update(obsolete)
-                        changed = True
-            if atom not in cell:
-                cell.add(atom)
-                changed = True
+            if obsolete or atom not in cell:
+                if updated is None:
+                    updated = set(original)
+                    cell = updated
+                updated.difference_update(obsolete)
+                updated.add(atom)
+        if updated is not None:
+            destination[path] = share_facts(updated)
+            changed = True
     return changed
 
 
@@ -1003,7 +1028,7 @@ class Graph:
                 value = joined(self.operand(fields[0], state))
                 path = tuple(int(field) for field in fields[2:] if field.isdecimal())
                 for key, atoms in self.operand(fields[1], state).items():
-                    value.setdefault(path + key, set()).update(atoms)
+                    join_into(value, {path + key: atoms})
             elif rhs.startswith("ret "):
                 if join_into(state.returns, self.operand(rhs[4:], state)):
                     changed = True
@@ -1197,6 +1222,7 @@ class Graph:
                 "ssa_value_atoms": sum(len(atoms) for state in self.states.values()
                                        for value in state.values.values() for atoms in value.values()),
                 "memory_value_atoms": sum(len(atoms) for value in self.memory.values() for atoms in value.values()),
+                "shared_fact_sets": len(FACT_SETS),
                 "source_bans_checked": False,
                 "resolved_graph_without_reported_bans": converged and not self.blockers and not violations,
             },
