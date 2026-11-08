@@ -193,12 +193,10 @@ fn validate_placement(
                 Step::Index(position),
                 Step::Key("body"),
             ];
-            let meter = std::cell::RefCell::new(&mut *meter);
-            let cursor = Cursor::charged(&Trail::Base(&steps), &|bytes| {
-                meter.borrow_mut().reserve_as(bytes as u128, None)
-            })?;
-            let meter = meter.into_inner();
             let (body, _) = meter.body(position).expect("graph bodies are attached");
+            let meter = std::cell::RefCell::new(&mut *meter);
+            let charge = |bytes| meter.borrow_mut().reserve_as(bytes as u128, None);
+            let cursor = Cursor::charged(&Trail::Base(&steps), &charge)?;
             let root = cursor.root(body, true);
             let mut placement = StateApplicationPlacement {
                 node,
@@ -211,8 +209,28 @@ fn validate_placement(
                     }),
                 transition,
                 cursor,
+                charge: &charge,
             };
-            if let ControlFlow::Break(failure) = meter.walk(&mut placement, root)? {
+            let mut reservation = PlacementReservation {
+                meter: &meter,
+                failure: None,
+            };
+            let flow = quire_walk::walk_reserved(&mut placement, root, &mut reservation).map_err(
+                |refusal| {
+                    reservation.failure.unwrap_or_else(|| {
+                        let requested = match refusal {
+                            quire_walk::Refusal::Denied { requested }
+                            | quire_walk::Refusal::Allocation { requested } => requested,
+                        };
+                        ValidationFailure::Budget(super::budgeted_read::BudgetStop {
+                            resource: super::budgeted_read::PackageReadResource::ReadStorage,
+                            amount: requested as u128,
+                            path: None,
+                        })
+                    })
+                },
+            )?;
+            if let ControlFlow::Break(failure) = flow {
                 return Err(failure);
             }
         }
@@ -224,15 +242,36 @@ fn validate_placement(
 /// whether it is the body root. A state clause application nested in a body is
 /// refused `malformed_wire` ahead of this step (`flat_wire`); the check here is
 /// the body root's.
-struct StateApplicationPlacement<'a> {
+struct StateApplicationPlacement<'a, 'c> {
     node: &'a CheckedSemanticNodeV2,
     position: usize,
     root_admitted: bool,
     transition: bool,
     cursor: Cursor<'a>,
+    charge: &'c dyn Fn(usize) -> Result<(), ValidationFailure>,
 }
 
-impl<'a> Walk for StateApplicationPlacement<'a> {
+/// Shares the node's meter with its cursor while reserving walker growth.
+struct PlacementReservation<'m, 'b> {
+    meter: &'m std::cell::RefCell<&'m mut WorkMeter<'b>>,
+    failure: Option<ValidationFailure>,
+}
+
+impl quire_walk::Reservation for PlacementReservation<'_, '_> {
+    fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
+        super::observe_allocation_class("walker_growth", || {
+            self.meter
+                .borrow_mut()
+                .reserve_as(bytes as u128, Some("walk"))
+                .map_err(|failure| {
+                    self.failure = Some(failure);
+                    quire_walk::Denied
+                })
+        })
+    }
+}
+
+impl<'a> Walk for StateApplicationPlacement<'a, '_> {
     type Node = At<'a, bool, TermNode<'a>>;
     type Frame = ();
     type Stop = ValidationFailure;
@@ -242,7 +281,9 @@ impl<'a> Walk for StateApplicationPlacement<'a> {
         node: At<'a, bool, TermNode<'a>>,
         children: &mut Children<'_, At<'a, bool, TermNode<'a>>>,
     ) -> ControlFlow<ValidationFailure> {
-        self.cursor.enter(&node);
+        if let Err(failure) = self.cursor.enter_charged(&node, self.charge) {
+            return ControlFlow::Break(failure);
+        }
         let application = node.value.view().is_some_and(|view| {
             let super::TermView::Application { operation, .. } = view else {
                 return false;
@@ -1005,4 +1046,77 @@ fn check_transition(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod placement_budget_tests {
+    use super::super::{CheckedJson, NativeJoinBudget};
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-495")]
+    #[test]
+    fn placement_cursor_growth_is_paid_before_allocation() {
+        let wire = json!({"term":"aggregate","members":[
+            {"term":"aggregate","members":[{"term":"literal","value":null}]}
+        ]});
+        let body = CheckedJson::from_value(&wire).expect("document");
+        let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id":{"package":"fixture","path":[],"ordinal":0},
+            "node_tag":"value", "node_kind":"literal", "semantic_type":null,
+            "owner":null,"declaration":null,"occurrences":[],"body":null
+        }))
+        .expect("node");
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(3, "value");
+                let meter = std::cell::RefCell::new(&mut meter);
+                let charge = |bytes| meter.borrow_mut().reserve_as(bytes as u128, None);
+                outcome = Some((|| {
+                    let steps = [
+                        Step::Key("semantic_graph"),
+                        Step::Key("nodes"),
+                        Step::Index(3),
+                        Step::Key("body"),
+                    ];
+                    let cursor = Cursor::charged(&Trail::Base(&steps), &charge)?;
+                    let root = cursor.root(TermNode::of(&body), true);
+                    let mut placement = StateApplicationPlacement {
+                        node: &node,
+                        position: 3,
+                        root_admitted: false,
+                        transition: false,
+                        cursor,
+                        charge: &charge,
+                    };
+                    let mut reservation = PlacementReservation {
+                        meter: &meter,
+                        failure: None,
+                    };
+                    match quire_walk::walk_reserved(&mut placement, root, &mut reservation) {
+                        Ok(ControlFlow::Continue(())) => Ok(()),
+                        Ok(ControlFlow::Break(failure)) => Err(failure),
+                        Err(_) => Err(reservation.failure.expect("budget denial")),
+                    }
+                })());
+            });
+            (
+                outcome.expect("ran"),
+                allocated.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (outcome, allocated, charged) = run(u64::MAX);
+        outcome.expect("placement admitted");
+        assert_eq!(allocated, charged);
+        assert!(run(charged).0.is_ok());
+        assert!(matches!(
+            run(charged - 1).0,
+            Err(ValidationFailure::Budget(_))
+        ));
+    }
 }
