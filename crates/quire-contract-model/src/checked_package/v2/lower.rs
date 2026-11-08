@@ -757,8 +757,9 @@ impl CheckedPackageV2 {
                         if let Some(&resolved) = index.get(&target) {
                             let role = match site.member {
                                 ReferenceMember::Type => EdgeRole::Annotation,
-                                ReferenceMember::Target
-                                | ReferenceMember::ResultType => EdgeRole::Typing,
+                                ReferenceMember::Target | ReferenceMember::ResultType => {
+                                    EdgeRole::Typing
+                                }
                             };
                             successors.push((resolved, role));
                         }

@@ -4277,8 +4277,7 @@ fn validate_graph(
             };
             let role = match site.member {
                 ReferenceMember::Type => lower::EdgeRole::Annotation,
-                ReferenceMember::Target
-                | ReferenceMember::ResultType => lower::EdgeRole::Typing,
+                ReferenceMember::Target | ReferenceMember::ResultType => lower::EdgeRole::Typing,
             };
             // The extension reader uses its targets for graph admission, but
             // the lowering body grammar charges no extension-body reference

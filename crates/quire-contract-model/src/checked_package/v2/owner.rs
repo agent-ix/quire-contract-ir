@@ -848,6 +848,7 @@ impl<'de> Deserialize<'de> for CheckedNodeOwner {
 
 #[cfg(test)]
 mod anonymous_lookup_tests {
+    use crate::JsonPointer;
     use super::*;
     use serde_json::{json, Value};
 

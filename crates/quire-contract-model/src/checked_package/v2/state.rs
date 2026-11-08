@@ -402,8 +402,8 @@ fn check_anchor(
             .key("members")
             .index(member)
     };
-    let (context, context_kind) = join(anchor, body.context, is_operation_context, graph)
-        .map_err(|refusal| {
+    let (context, context_kind) =
+        join(anchor, body.context, is_operation_context, graph).map_err(|refusal| {
             model_refusal(
                 refusal,
                 target_at(0).key("value").key("target"),
@@ -417,11 +417,7 @@ fn check_anchor(
         graph,
     )
     .map_err(|refusal| {
-        model_refusal(
-            refusal,
-            target_at(2).key("value").key("target"),
-            body.frame,
-        )
+        model_refusal(refusal, target_at(2).key("value").key("target"), body.frame)
     })?;
     if anchor.semantic_type != *body.context || frame.semantic_type != *body.context {
         return Err(model_refusal(
@@ -779,8 +775,7 @@ fn check_transition(
         .index
         .get(body.subject)
         .ok_or_else(|| shape_refusal(subject, position))?;
-    let malformed_subject =
-        || model_refusal(ModelRefusal::malformed(), target_at(1), body.subject);
+    let malformed_subject = || model_refusal(ModelRefusal::malformed(), target_at(1), body.subject);
     let Some(CheckedTerm::Application {
         operator: ApplicationOperator::Query,
         operation: project,

@@ -3386,7 +3386,7 @@ fn check_function_call(
     let Some(callee) = arguments.first().and_then(referenced_type) else {
         return Ok(None);
     };
-    let Some(callee) = index.get(callee) else {
+    let Some(&callee) = index.get(callee) else {
         return Ok(None);
     };
     if kinds[callee].tag() != CheckedNodeTag::Function {

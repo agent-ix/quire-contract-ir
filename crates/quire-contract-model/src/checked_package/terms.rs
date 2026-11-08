@@ -225,7 +225,6 @@ impl<'a> TermSource<'a> for &'a Value {
             Err(_) => NodeIdRead::Malformed,
         })
     }
-
 }
 
 impl<'a> TermSource<'a> for TermNode<'a> {
@@ -309,7 +308,6 @@ impl<'a> TermSource<'a> for TermNode<'a> {
     ) -> Result<NodeIdRead, Denied> {
         self.node_id_in(sink, site, row)
     }
-
 }
 
 /// A node a walk will enter: the value, the steps that lead to it from its
