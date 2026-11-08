@@ -535,6 +535,20 @@ impl NominalBody {
         Ok(Self { kind })
     }
 
+    /// Borrow the nominal body already retained by the typed term decode.
+    pub(super) fn from_term(
+        term: &super::CheckedTerm,
+        at: JsonPointer,
+    ) -> Result<&Self, ValidationFailure> {
+        match term {
+            super::CheckedTerm::NominalBody(body) => Ok(body),
+            _ => Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                at,
+            )),
+        }
+    }
+
     pub(super) fn kind(&self) -> &NominalBodyKind {
         &self.kind
     }
