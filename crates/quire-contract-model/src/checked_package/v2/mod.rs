@@ -28,6 +28,7 @@ pub use model_operations::{
 mod checked_term_data;
 mod claim_terminal;
 mod closure_index;
+mod retained_index;
 mod comparison_operands;
 mod composite_operands;
 mod contract_package;
@@ -234,6 +235,9 @@ pub use vocabulary::*;
 
 use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
+pub(in crate::checked_package) use retained_index::{
+    source_index as retained_source_positions, PositionIndex,
+};
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
 use graph_storage::GraphIndex;
 use ix_trace_rs::string_edge;
@@ -966,8 +970,9 @@ pub enum CheckedPackageV2ReadResult {
 /// holds an operand slot, by those bytes.
 struct SlotView {
     graph: CheckedSemanticGraphV2,
-    /// `None` when several nodes have the same bytes.
-    positions: BTreeMap<CheckedNodeId, Option<usize>>,
+    /// The positions of the slot-holding nodes, sorted by node ID bytes and
+    /// then position.
+    positions: Vec<usize>,
 }
 
 /// Immutable, admitted `quire.checked-package/v2` data.
@@ -984,17 +989,15 @@ pub struct CheckedPackageV2 {
     schedulability_claim_index: Vec<(usize, usize)>,
     monitor_plan_index: Vec<monitor_plan::Plan>,
     timed_model_roots: Vec<usize>,
-    terms: Arc<Vec<CheckedTerm>>,
     /// Admission-derived lookup; excluded from content equality.
-    node_index: Arc<BTreeMap<CheckedNodeId, usize>>,
+    node_index: Arc<PositionIndex>,
     /// Graph-local wire IDs rebuilt as shared, document-independent keys.
     structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
     /// The graph in its wire form, node-held operands as operand slots,
     /// built on first use from the resolved graph in `wire`.
     slot_graph: Arc<std::sync::OnceLock<SlotView>>,
     /// Admission-derived position of each exact source occurrence.
-    pub(in crate::checked_package) source_index:
-        Arc<BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>>,
+    pub(in crate::checked_package) source_index: Arc<PositionIndex>,
     /// Body terms and resolved lowering edges, retained from graph admission.
     lowering_facts: Vec<lower::LoweringNodeFacts>,
     /// The byte limit this package was read under: the ceiling of every
@@ -1019,10 +1022,9 @@ pub struct CheckedPackageV2 {
 struct AdmissionBuffers {
     wire: Arc<CheckedPackageWireV2>,
     kinds: Arc<Vec<CheckedNodeKind>>,
-    terms: Arc<Vec<CheckedTerm>>,
     models: Arc<RetainedModels>,
-    node_index: Arc<BTreeMap<CheckedNodeId, usize>>,
-    source_index: Arc<BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>>,
+    node_index: Arc<PositionIndex>,
+    source_index: Arc<PositionIndex>,
     selected_documents: Arc<Vec<Arc<quire_canonical::Document>>>,
 }
 
@@ -1054,7 +1056,6 @@ impl AdmissionBinding {
         let original = &self.0;
         Arc::ptr_eq(&original.wire, &package.wire)
             && Arc::ptr_eq(&original.kinds, &package.kinds)
-            && Arc::ptr_eq(&original.terms, &package.terms)
             && Arc::ptr_eq(&original.models, &package.models)
             && Arc::ptr_eq(&original.node_index, &package.node_index)
             && Arc::ptr_eq(&original.source_index, &package.source_index)
@@ -1085,17 +1086,22 @@ impl CheckedPackageV2 {
     /// Finish internal construction by retaining the original immutable fact
     /// buffers. The public reader calls this only after strict admission;
     /// private unit fixture builders use the same construction invariant.
-    fn retain_original_admission(mut self) -> Self {
-        self.admission_binding = Some(AdmissionBinding(Arc::new(AdmissionBuffers {
+    /// Retains the original immutable fact buffers, their shared block charged to the
+    /// read's budget first.
+    fn retain_admission(mut self, budget: &mut NativeJoinBudget) -> Result<Self, ValidationFailure> {
+        let site = read_charge::Site::new(PackageReadStage::Retained, 0, "admission_binding");
+        let buffers = AdmissionBuffers {
             wire: Arc::clone(&self.wire),
             kinds: Arc::clone(&self.kinds),
-            terms: Arc::clone(&self.terms),
             models: Arc::clone(&self.models),
             node_index: Arc::clone(&self.node_index),
             source_index: Arc::clone(&self.source_index),
             selected_documents: Arc::clone(&self.selected_documents),
-        })));
-        self
+        };
+        self.admission_binding = Some(AdmissionBinding(read_charge::new_arc(
+            budget, site, buffers,
+        )?));
+        Ok(self)
     }
 }
 
@@ -1145,21 +1151,6 @@ impl PartialEq for CheckedPackageV2 {
 }
 
 impl Eq for CheckedPackageV2 {}
-
-fn retained_node_index(wire: &CheckedPackageWireV2) -> BTreeMap<CheckedNodeId, usize> {
-    wire.semantic_graph
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(position, node)| (node.node_id.clone(), position))
-        .collect()
-}
-
-fn retained_source_index(
-    wire: &CheckedPackageWireV2,
-) -> BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize> {
-    super::selected_population::source_index(&wire.source_map)
-}
 
 /// Cumulative validation work, charged either to the caller's budget (the
 /// strict read) or against one limit of its own (lowering and unit tests).
@@ -1523,28 +1514,23 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(
-            &catalog, &wire, &bodies, &document, limits, evidence, budget,
-        )?;
-        let direct_dependencies = wire
-            .lock
-            .dependency_selections
-            .iter()
-            .enumerate()
-            .map(|(index, selection)| {
-                evidence
-                    .retained_dependency(&selection.identity)
-                    .ok_or_else(|| {
-                        ValidationFailure::refused_because(
-                            CheckedPackageRefusalCode::MissingImport,
-                            member_pointer(&["lock", "dependency_selections"]).index(index),
-                            CheckedPackageRefusalCause::MissingSelection,
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let closure_index =
-            ClosureIndex::from_direct(&wire.lock.dependency_selections, &direct_dependencies);
+        } = validate(catalog, &wire, &bodies, &document, limits, evidence, budget)?;
+        let site = |form| read_charge::Site::new(PackageReadStage::Retained, 0, form);
+        let selections = &wire.lock.dependency_selections;
+        let mut direct_dependencies: Vec<Arc<CheckedPackageV2>> =
+            read_charge::with_capacity(budget, site("direct_dependencies"), selections.len())?;
+        for (index, selection) in selections.iter().enumerate() {
+            direct_dependencies.push(evidence.retained_dependency(&selection.identity).ok_or_else(
+                || {
+                    ValidationFailure::refused_because(
+                        CheckedPackageRefusalCode::MissingImport,
+                        member_pointer(&["lock", "dependency_selections"]).index(index),
+                        CheckedPackageRefusalCause::MissingSelection,
+                    )
+                },
+            )?);
+        }
+        let closure_index = ClosureIndex::from_direct(&direct_dependencies, budget)?;
         let CheckedPackageEnvelope {
             contract_version,
             name,
@@ -1566,14 +1552,18 @@ impl CheckedPackageV2 {
                 member_pointer(&["semantic_graph", "nodes"]),
             ));
         }
-        let semantic_graph = CheckedSemanticGraphV2 {
-            graph_version: semantic_graph.graph_version,
-            nodes: semantic_graph
+        let mut nodes: Vec<CheckedSemanticNodeV2> =
+            read_charge::with_capacity(budget, site("semantic_graph"), terms.len())?;
+        nodes.extend(
+            semantic_graph
                 .nodes
                 .into_iter()
-                .zip(terms.iter().cloned())
-                .map(|(node, term)| node.into_typed(term))
-                .collect(),
+                .zip(terms)
+                .map(|(node, term)| node.into_typed(term)),
+        );
+        let semantic_graph = CheckedSemanticGraphV2 {
+            graph_version: semantic_graph.graph_version,
+            nodes,
             operand_rows: semantic_graph.operand_rows,
         };
         let wire = CheckedPackageEnvelope {
@@ -1591,33 +1581,39 @@ impl CheckedPackageV2 {
             capability_report,
             diagnostics,
         };
-        let node_index = retained_node_index(&wire);
-        let source_index = retained_source_index(&wire);
-        let timed_model_roots = kinds
-            .iter()
-            .enumerate()
-            .filter_map(|(position, kind)| {
-                (*kind == CheckedNodeKind::TimedModel(TimedModelForm::Model)).then_some(position)
-            })
-            .collect();
-        let wire = Arc::new(wire);
-        let kinds = Arc::new(kinds);
-        let terms = Arc::new(terms);
-        let models = Arc::new(models);
-        let node_index = Arc::new(node_index);
-        let source_index = Arc::new(source_index);
-        let selected_documents = Arc::new(selected_documents);
-        Ok(Self {
+        let node_index = retained_index::node_index(&wire, budget)?;
+        let source_index = super::selected_population::source_index(&wire.source_map, budget)?;
+        let is_timed_root =
+            |kind: &CheckedNodeKind| *kind == CheckedNodeKind::TimedModel(TimedModelForm::Model);
+        let mut timed_model_roots: Vec<usize> = read_charge::with_capacity(
+            budget,
+            site("timed_model_roots"),
+            kinds.iter().filter(|kind| is_timed_root(kind)).count(),
+        )?;
+        timed_model_roots.extend(
+            kinds
+                .iter()
+                .enumerate()
+                .filter_map(|(position, kind)| is_timed_root(kind).then_some(position)),
+        );
+        let package = site("package");
+        let wire = read_charge::new_arc(budget, package, wire)?;
+        let kinds = read_charge::new_arc(budget, package, kinds)?;
+        let models = read_charge::new_arc(budget, package, models)?;
+        let node_index = read_charge::new_arc(budget, package, node_index)?;
+        let source_index = read_charge::new_arc(budget, package, source_index)?;
+        let selected_documents = read_charge::new_arc(budget, package, selected_documents)?;
+        let slot_graph = read_charge::new_arc(budget, package, std::sync::OnceLock::new())?;
+        let package = Self {
             admission_binding: None,
             wire,
             kinds,
             schedulability_claim_index,
             monitor_plan_index,
             timed_model_roots,
-            terms,
             node_index,
             structural_keys,
-            slot_graph: Arc::default(),
+            slot_graph,
             source_index,
             lowering_facts,
             bytes: limits.bytes,
@@ -1626,8 +1622,10 @@ impl CheckedPackageV2 {
             direct_dependencies,
             closure_index,
             catalog,
-        }
-        .retain_original_admission())
+        };
+        let package = package.retain_admission(budget)?;
+        read_charge::charge(budget, site("result"), std::mem::size_of::<Self>() as u128)?;
+        Ok(package)
     }
 
     /// The package's exact name identity.
@@ -1668,17 +1666,50 @@ impl CheckedPackageV2 {
     fn slot_view(&self) -> &SlotView {
         self.slot_graph.get_or_init(|| {
             let graph = node_index::slot_graph(&self.wire.semantic_graph);
-            let mut positions = BTreeMap::new();
-            for (position, node) in graph.nodes.iter().enumerate() {
-                if node_index::holds_slot(&node.node_id) {
-                    positions
-                        .entry(node.node_id.clone())
-                        .and_modify(|first| *first = None)
-                        .or_insert(Some(position));
-                }
-            }
+            let nodes = &graph.nodes;
+            let mut positions: Vec<usize> = (0..nodes.len())
+                .filter(|&position| node_index::holds_slot(&nodes[position].node_id))
+                .collect();
+            positions.sort_unstable_by(|left, right| {
+                nodes[*left]
+                    .node_id
+                    .cmp(&nodes[*right].node_id)
+                    .then(left.cmp(right))
+            });
             SlotView { graph, positions }
         })
+    }
+
+    /// The graph position of `id` by the retained node index.
+    fn node_position(&self, id: &CheckedNodeId) -> Option<usize> {
+        self.node_index.node(&self.wire.semantic_graph.nodes, id)
+    }
+
+    /// The graph's node identities in ascending order.
+    pub(in crate::checked_package) fn node_ids_ascending(
+        &self,
+    ) -> impl Iterator<Item = &CheckedNodeId> {
+        self.node_index.node_ids(&self.wire.semantic_graph.nodes)
+    }
+
+    /// The source-map position of one occurrence by the retained source index.
+    pub(in crate::checked_package) fn source_position(
+        &self,
+        id: &CheckedNodeId,
+        role: &CheckedOccurrenceRole,
+        ordinal: u64,
+    ) -> Option<usize> {
+        self.source_index
+            .source(&self.wire.source_map, id, role, ordinal)
+    }
+
+    /// The typed body of the node at `position`.
+    pub(in crate::checked_package) fn term_at(&self, position: usize) -> Option<&CheckedTerm> {
+        self.wire
+            .semantic_graph
+            .nodes
+            .get(position)
+            .map(|node| &node.body)
     }
 
     /// The graph position of `id`: a resolved index-form ID by the retained
@@ -1687,9 +1718,23 @@ impl CheckedPackageV2 {
     /// when their rows differ, so such an ID names none.
     fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
         if node_index::holds_slot(id) {
-            return self.slot_view().positions.get(id).copied().flatten();
+            let view = self.slot_view();
+            let nodes = &view.graph.nodes;
+            let first = view
+                .positions
+                .partition_point(|&position| nodes[position].node_id < *id);
+            let found = view
+                .positions
+                .get(first)
+                .filter(|&&position| nodes[position].node_id == *id)?;
+            // Equal bytes in two nodes name none: the rows tell them apart.
+            let unique = view
+                .positions
+                .get(first + 1)
+                .is_none_or(|&next| nodes[next].node_id != *id);
+            return unique.then_some(*found);
         }
-        self.node_index.get(id).copied()
+        self.node_position(id)
     }
 
     /// The graph with every node-held operand resolved to the index segment of
@@ -1763,7 +1808,7 @@ impl CheckedPackageV2 {
 
     /// The typed body of an admitted node.
     pub fn term(&self, id: &CheckedNodeId) -> Option<&CheckedTerm> {
-        self.terms.get(self.position_of(id)?)
+        self.term_at(self.position_of(id)?)
     }
 
     /// The exact source map.
@@ -4736,7 +4781,6 @@ mod tests {
                     source_index: std::sync::Arc::new(Default::default()),
                     lowering_facts: Vec::new(),
                     wire: std::sync::Arc::new(wire),
-                    terms: std::sync::Arc::new(Vec::new()),
                     kinds: std::sync::Arc::new(Vec::new()),
                     bytes: 0,
                     models: std::sync::Arc::new(Default::default()),
@@ -5150,3 +5194,8 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod retained_fixture;
+#[cfg(test)]
+use retained_fixture::{retained_node_index, retained_source_index};

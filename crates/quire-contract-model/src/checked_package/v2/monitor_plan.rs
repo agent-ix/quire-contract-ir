@@ -516,7 +516,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
     }
     /// Complete root body, without execution.
     pub fn body(&self) -> &'a CheckedTerm {
-        &self.package.terms[self.plan.position]
+        &self.package.wire.semantic_graph.nodes[self.plan.position].body
     }
     /// The state initializer.
     pub fn init(&self) -> CheckedMonitorEntryRef<'a> {
@@ -590,7 +590,7 @@ impl<'a> CheckedMonitorEntryRef<'a> {
     }
     /// Complete ordinary function body, retained without execution.
     pub fn body(&self) -> &'a CheckedTerm {
-        &self.package.terms[self.entry.position]
+        &self.package.wire.semantic_graph.nodes[self.entry.position].body
     }
     /// Read this admitted entry's ordered parameter handles and expression body.
     ///

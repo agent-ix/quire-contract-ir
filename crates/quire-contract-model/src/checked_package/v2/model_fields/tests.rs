@@ -279,7 +279,6 @@ fn exact_reference_uses_the_selected_object_row() {
         .semantic_graph
         .nodes
         .push(reference_node.clone());
-    std::sync::Arc::make_mut(&mut fixture.package.terms).push(reference_node.body);
     std::sync::Arc::make_mut(&mut fixture.package.kinds)[0] =
         CheckedNodeKind::Model(ModelForm::ObjectType);
     std::sync::Arc::make_mut(&mut fixture.package.kinds)
@@ -1190,12 +1189,6 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
     let index = owners.index();
     let [model] = models;
     let kinds = vec![CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean); nodes_len(&wire)];
-    let terms = wire
-        .semantic_graph
-        .nodes
-        .iter()
-        .map(|node| node.body.clone())
-        .collect();
     Fixture {
         package: CheckedPackageV2 {
             schedulability_claim_index: Vec::new(),
@@ -1207,7 +1200,6 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),
-            terms: std::sync::Arc::new(terms),
             kinds: std::sync::Arc::new(kinds),
             bytes: BYTES,
             models: std::sync::Arc::new(RetainedModels::new(index, vec![model])),
@@ -1399,31 +1391,6 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
     }
 }
 
-#[trace("FR-349-AC-2", "FR-038-AC-140")]
-#[test]
-fn admitted_model_fields_use_retained_declaration_term() {
-    let mut fixture = build_fixture(
-        &ledger(),
-        &[
-            ("Ledger", DeclarationForm::ObjectType),
-            ("Base", DeclarationForm::ObjectType),
-        ],
-    );
-    let ledger = id_at(&fixture, 0);
-    let expected = fixture
-        .package
-        .model_object_fields(&ledger)
-        .expect("admitted fields");
-    std::sync::Arc::make_mut(&mut fixture.package.wire)
-        .semantic_graph
-        .nodes[0]
-        .body = super::super::CheckedTerm::Aggregate {
-        members: vec![super::super::CheckedTerm::Reference {
-            target: ledger.clone(),
-        }],
-    };
-    assert_eq!(fixture.package.model_object_fields(&ledger), Ok(expected));
-}
 
 /// `UnknownNode` and `NotModelObjectType` are distinct; the passed node's own
 /// fixed members decide the second, by the one rule of step 2, so an unread
@@ -1480,7 +1447,7 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
     // object type: a non-empty retained term, a `declaration`, a recursion
     // group, a `semantic_type` that is not itself.
     let mut wrong_term = fixture.package.clone();
-    std::sync::Arc::make_mut(&mut wrong_term.terms)[1] = super::super::CheckedTerm::Reference {
+    std::sync::Arc::make_mut(&mut wrong_term.wire).semantic_graph.nodes[1].body = super::super::CheckedTerm::Reference {
         target: base.clone(),
     };
     assert_eq!(

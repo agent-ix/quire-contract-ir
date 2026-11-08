@@ -137,7 +137,6 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
         lowering_facts: Vec::new(),
         wire: std::sync::Arc::new(wire),
-        terms: std::sync::Arc::new(Vec::new()),
         kinds: std::sync::Arc::new(kinds),
         bytes,
         models: std::sync::Arc::new(Default::default()),

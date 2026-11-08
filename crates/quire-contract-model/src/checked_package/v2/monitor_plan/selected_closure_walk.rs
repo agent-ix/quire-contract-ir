@@ -422,7 +422,7 @@ mod tests {
             .unwrap();
         let mut foreign = entry;
         foreign.package = "other/package".into();
-        std::sync::Arc::make_mut(&mut package.terms)[position] = CheckedTerm::DependencyReference {
+        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body = CheckedTerm::DependencyReference {
             package: "other/package".into(),
             node: foreign.clone(),
         };
@@ -460,7 +460,7 @@ mod tests {
             .iter()
             .position(|node| node.node_id == entry)
             .unwrap();
-        std::sync::Arc::make_mut(&mut package.terms)[position] = CheckedTerm::Frame {
+        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body = CheckedTerm::Frame {
             modifies: Vec::new(),
             creates: Vec::new(),
             deletes: Vec::new(),
@@ -500,10 +500,10 @@ mod tests {
             .iter()
             .position(|node| node.node_id == entry)
             .unwrap();
-        std::sync::Arc::make_mut(&mut single.terms)[position] =
+        std::sync::Arc::make_mut(&mut single.wire).semantic_graph.nodes[position].body =
             CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
         let mut repeated = single.clone();
-        std::sync::Arc::make_mut(&mut repeated.terms)[position] = CheckedTerm::aggregate(vec![
+        std::sync::Arc::make_mut(&mut repeated.wire).semantic_graph.nodes[position].body = CheckedTerm::aggregate(vec![
             CheckedTerm::reference(target.clone()),
             CheckedTerm::reference(target),
         ]);

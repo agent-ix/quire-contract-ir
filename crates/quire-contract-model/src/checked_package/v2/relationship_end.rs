@@ -391,7 +391,7 @@ pub(super) mod tests {
 
     /// The graph position of `id`.
     fn at(package: &CheckedPackageV2, id: &CheckedNodeId) -> usize {
-        package.node_index[id]
+        package.node_position(id).expect("indexed node")
     }
 
     fn operation<'a>(
@@ -400,25 +400,13 @@ pub(super) mod tests {
     ) -> super::super::typed_terms::OperationRecordEdit<'a> {
         let position = at(package, &ids[&'7']);
         let super::super::CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[position]
+            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body
         else {
             panic!("admitted reaches application term");
         };
         operation.record_mut()
     }
 
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn relationship_end_uses_retained_operation_after_raw_body_changes() {
-        let (mut package, ids) = admitted();
-        let expected = package.relationship_end(&ids[&'7']).expect("admitted end");
-        let position = at(&package, &ids[&'7']);
-        std::sync::Arc::make_mut(&mut package.wire)
-            .semantic_graph
-            .nodes[position]
-            .body = CheckedTerm::aggregate(Vec::new());
-        assert_eq!(package.relationship_end(&ids[&'7']), Ok(expected));
-    }
 
     /// The admitted application resolves to the retained destination end, and
     /// the retained record is outside package equality.
@@ -493,7 +481,7 @@ pub(super) mod tests {
                 "declaration node no longer has the declaration shape",
                 Box::new(|p, ids| {
                     let position = at(p, &ids[&'c']);
-                    std::sync::Arc::make_mut(&mut p.terms)[position] = CheckedTerm::Aggregate {
+                    std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[position].body = CheckedTerm::Aggregate {
                         members: vec![CheckedTerm::Reference {
                             target: ids[&'1'].clone(),
                         }],

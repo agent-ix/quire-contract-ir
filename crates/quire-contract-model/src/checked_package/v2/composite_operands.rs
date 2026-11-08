@@ -3,6 +3,7 @@
 
 //! FR-038: metered, package-authored domains of structural comparison operands.
 
+use super::retained_index::NodePositions;
 use super::structural::{
     is_integer_bound, is_non_negative_integer, typed_aggregate, typed_binding, typed_reference,
 };
@@ -13,7 +14,6 @@ use super::{
 };
 #[cfg(test)]
 use serde_json::Value;
-use std::collections::BTreeMap;
 use thiserror::Error;
 
 /// The authentic operands of one selected application occurrence.
@@ -301,8 +301,7 @@ impl Meter {
 struct Graph<'a> {
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
-    index: &'a BTreeMap<CheckedNodeId, usize>,
-    terms: &'a [CheckedTerm],
+    index: &'a dyn NodePositions,
 }
 
 impl<'a> Graph<'a> {
@@ -313,21 +312,25 @@ impl<'a> Graph<'a> {
     ) -> Result<Option<&'a CheckedSemanticNodeV2>> {
         meter.charge(1)?;
         Ok(self
-            .index
-            .get(id)
-            .and_then(|position| self.nodes.get(*position)))
+            .position(id)
+            .and_then(|position| self.nodes.get(position)))
     }
-    fn kind(&self, node: &CheckedSemanticNodeV2) -> Option<CheckedNodeKind> {
+
+    fn position(&self, id: &CheckedNodeId) -> Option<usize> {
         self.index
-            .get(&node.node_id)
-            .and_then(|position| self.kinds.get(*position))
+            .position(id, &|position| &self.nodes[position].node_id)
+    }
+
+    fn kind(&self, node: &CheckedSemanticNodeV2) -> Option<CheckedNodeKind> {
+        self.position(&node.node_id)
+            .and_then(|position| self.kinds.get(position))
             .copied()
     }
 
     fn term(&self, node: &CheckedSemanticNodeV2) -> Option<&'a CheckedTerm> {
-        self.index
-            .get(&node.node_id)
-            .and_then(|position| self.terms.get(*position))
+        self.position(&node.node_id)
+            .and_then(|position| self.nodes.get(position))
+            .map(|node| &node.body)
     }
 }
 
@@ -380,8 +383,7 @@ impl CheckedPackageV2 {
         let graph = Graph {
             nodes: &self.wire.semantic_graph.nodes,
             kinds: &self.kinds,
-            index: &self.node_index,
-            terms: &self.terms,
+            index: self.node_index.as_ref(),
         };
         let mut meter = Meter {
             limit: work_limit,
@@ -1358,6 +1360,7 @@ fn closed_literal(
 
 #[cfg(test)]
 pub(in crate::checked_package::v2) mod tests {
+    use std::collections::BTreeMap;
     use super::super::CheckedOccurrenceRole;
     use super::*;
     use crate::{
@@ -3934,16 +3937,7 @@ pub(in crate::checked_package::v2) mod tests {
             .nodes
             .reverse();
         std::sync::Arc::make_mut(&mut permuted.kinds).reverse();
-        std::sync::Arc::make_mut(&mut permuted.terms).reverse();
-        permuted.node_index = permuted
-            .wire
-            .semantic_graph
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (node.node_id.clone(), position))
-            .collect::<std::collections::BTreeMap<_, _>>()
-            .into();
+        permuted.reindex();
         assert_eq!(read(&permuted), Ok(result));
     }
 
@@ -3999,7 +3993,9 @@ pub(in crate::checked_package::v2) mod tests {
         narrow_closed_record_preserves_original_graph_child_and_signed_arbitrary_precision_bounds();
         narrow_rejects_outside_signed_large_bounds_without_rounding();
         let mut absent = narrow_record("0", "9", "3");
-        std::sync::Arc::make_mut(&mut absent.node_index).remove(&id('7'));
+        let seventh = absent.node_position(&id('7')).expect("indexed node");
+        let without_seventh = absent.node_index.without(seventh);
+        absent.node_index = std::sync::Arc::new(without_seventh);
         assert_eq!(read(&absent), Err(type_error(0, Some(id('7')))));
         let mut wrong_kind = narrow_record("0", "9", "3");
         std::sync::Arc::make_mut(&mut wrong_kind.kinds)[6] =
@@ -4009,7 +4005,7 @@ pub(in crate::checked_package::v2) mod tests {
 
     fn application_arguments(package: &mut CheckedPackageV2) -> &mut Vec<CheckedTerm> {
         let CheckedTerm::Application { arguments, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[5]
+            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[5].body
         else {
             panic!("admitted composite application term");
         };
@@ -4020,7 +4016,7 @@ pub(in crate::checked_package::v2) mod tests {
         package: &mut CheckedPackageV2,
     ) -> super::super::typed_terms::OperationRecordEdit<'_> {
         let CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[5]
+            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[5].body
         else {
             panic!("admitted composite application term");
         };
@@ -4028,7 +4024,7 @@ pub(in crate::checked_package::v2) mod tests {
     }
 
     fn sync_term(package: &mut CheckedPackageV2, position: usize) {
-        std::sync::Arc::make_mut(&mut package.terms)[position] =
+        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body =
             package.wire.semantic_graph.nodes[position].body.clone();
     }
 
@@ -4043,43 +4039,7 @@ pub(in crate::checked_package::v2) mod tests {
             CheckedTerm::decode_admitted(&body).expect("edited fixture body remains a closed term");
     }
 
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn composite_uses_retained_application_after_raw_body_changes() {
-        let mut package = package();
-        let expected = read(&package).expect("admitted composite operands");
-        std::sync::Arc::make_mut(&mut package.wire)
-            .semantic_graph
-            .nodes[5]
-            .body = CheckedTerm::aggregate(Vec::new());
-        assert_eq!(read(&package), Ok(expected));
-    }
 
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn alias_forwarding_uses_retained_term_after_raw_body_changes() {
-        let mut package = package();
-        std::sync::Arc::make_mut(&mut package.kinds)[6] =
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Alias);
-        std::sync::Arc::make_mut(&mut package.wire)
-            .semantic_graph
-            .nodes[6]
-            .body = CheckedTerm::aggregate(Vec::new());
-        let graph = Graph {
-            nodes: &package.wire.semantic_graph.nodes,
-            kinds: &package.kinds,
-            index: &package.node_index,
-            terms: &package.terms,
-        };
-        let mut meter = Meter {
-            limit: 100_000,
-            consumed: 0,
-        };
-        assert_eq!(
-            descriptor_kind(&graph, &id('7'), 0, &mut meter),
-            Ok(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
-        );
-    }
 
     #[trace("TC-048", "FR-038-AC-180")]
     #[test]
@@ -4090,7 +4050,11 @@ pub(in crate::checked_package::v2) mod tests {
         let admitted = package();
         let mut nodes = admitted.wire.semantic_graph.nodes.clone();
         let mut kinds = admitted.kinds.as_ref().clone();
-        let mut index = admitted.node_index.as_ref().clone();
+        let mut index: BTreeMap<CheckedNodeId, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (node.node_id.clone(), position))
+            .collect();
         let template = nodes[1].clone();
         let mut append = |tag: &str,
                           form: &str,
@@ -4134,15 +4098,10 @@ pub(in crate::checked_package::v2) mod tests {
             Some(&float32),
             CheckedNodeKind::BoundedDomain(BoundedDomainForm::FloatRounding),
         );
-        let terms = nodes
-            .iter()
-            .map(|node| node.body.clone())
-            .collect::<Vec<_>>();
         let graph = Graph {
             nodes: &nodes,
             kinds: &kinds,
             index: &index,
-            terms: &terms,
         };
         let root = id('5');
         for (ty, kind, expected_shape) in [
@@ -4303,12 +4262,12 @@ pub(in crate::checked_package::v2) mod tests {
         }
         assert_eq!(read(&p), Err(type_error(0, Some(id('7')))));
         let mut p = package();
-        let mut application = p.terms[5].clone();
+        let mut application = p.wire.semantic_graph.nodes[5].body.clone();
         let CheckedTerm::Application { result_type, .. } = &mut application else {
             panic!("fixture application");
         };
         *result_type = id('1');
-        std::sync::Arc::make_mut(&mut p.terms)[4] = application;
+        std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[4].body = application;
         assert_eq!(
             read(&p),
             Err(unsupported(
@@ -4348,7 +4307,7 @@ pub(in crate::checked_package::v2) mod tests {
             })
         );
         let mut p = original.clone();
-        let mut application = p.terms[5].clone();
+        let mut application = p.wire.semantic_graph.nodes[5].body.clone();
         let CheckedTerm::Application { result_type, .. } = &mut application else {
             panic!("fixture application");
         };
