@@ -1803,6 +1803,7 @@ fn validate(
     } = validate_graph(
         catalog,
         wire,
+        bodies,
         limits,
         &mut meter,
         &models,
@@ -3124,9 +3125,17 @@ pub(super) fn structural_key<'a>(
         .map_or(id, std::sync::Arc::as_ref)
 }
 
+// `bodies` is the node-view table: `TermNode::of(&bodies[position])` is the
+// body of graph node `position`, read from the retained document with the
+// node's operand slots resolved through `wire.semantic_graph.operand_rows`
+// (`TermNode::node_id_in`, `TermNode::decode_in`). The `Value` in
+// `wire.semantic_graph.nodes[position].body` is the uncharged bridge for a
+// validator that has not moved to the views.
+#[allow(unused_variables)]
 fn validate_graph(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
+    bodies: &[CheckedJson],
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
     models: &[DomainModel],

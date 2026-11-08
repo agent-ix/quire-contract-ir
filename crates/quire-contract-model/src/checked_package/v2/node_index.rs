@@ -1377,7 +1377,7 @@ pub(super) fn resolve_slots(
     Ok(())
 }
 
-fn resolve_value_slots(
+pub(super) fn resolve_value_slots(
     body: &mut serde_json::Value,
     row: &[u64],
     budget: &mut NativeJoinBudget,
