@@ -11,6 +11,8 @@ mod proof;
 mod qspec_fma_inputs;
 #[path = "support/qspec_inputs.rs"]
 mod qspec_inputs;
+#[path = "support/qspec_protocol_location_inputs.rs"]
+mod qspec_protocol_location_inputs;
 #[path = "support/qspec_text_inputs.rs"]
 mod qspec_text_inputs;
 use crate::support::checked_package::{
@@ -402,15 +404,14 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
     for row in vectors["cases"].as_array().expect("operand cases") {
         let id = row["id"].as_str().expect("operand case id");
         let expected = row["expected"].as_str().expect("operand outcome");
-        // These two vectors specify only an intermediate-stage oracle, not
-        // the complete reader outcome. They retain their unresolved recipes.
-        if expected.starts_with("passes_") {
-            continue;
-        }
-        let expected = Expected::Refused(
-            serde_json::from_value(Value::String(expected.into()))
-                .expect("published operand refusal code"),
-        );
+        let expected = if expected.starts_with("passes_") {
+            Expected::OriginalOracle(qspec_inputs::operand_checks_pass)
+        } else {
+            Expected::Refused(
+                serde_json::from_value(Value::String(expected.into()))
+                    .expect("published operand refusal code"),
+            )
+        };
         let mut wire = base.clone();
         for patch in row["patch"].as_array().expect("operand patches") {
             qspec_inputs::apply_node_index_patch(&mut wire, patch);
@@ -432,6 +433,60 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
             .expect("operand evidence"),
             expected,
         });
+    }
+    let vectors = qspec_inputs::read_json_wire(&proposal.join("checked-term-data-vectors.json"))
+        .expect("published protocol-location vectors");
+    let positives = vectors["positive"]["protocol_locations"]
+        .as_array()
+        .expect("positive locations");
+    for selected in positives {
+        let id = selected["id"].as_str().expect("location case id");
+        let rows = positives
+            .iter()
+            .filter(|row| {
+                row["application"] == selected["application"]
+                    && row["occurrence"] == selected["occurrence"]
+                    && row["term_ordinal"].as_u64() <= selected["term_ordinal"].as_u64()
+            })
+            .map(|row| {
+                let mut row = row.clone();
+                row.as_object_mut().expect("location row").remove("id");
+                row
+            })
+            .collect();
+        let (wire, _) = qspec_protocol_location_inputs::fixture(rows);
+        providers.insert(format!("conformance_qspec/protocol_locations.rs: checked-term-data-vectors.json#/positive/protocol_locations#{id}"));
+        cases.push(positive(format!("QSpec/protocol-location/{id}"), wire));
+    }
+    for category in ["schema_invalid", "reader_refusals"] {
+        for row in vectors[category]
+            .as_array()
+            .expect("location refusal cases")
+            .iter()
+            .filter(|row| row["id"].as_str().is_some_and(|id| id.starts_with("PL-")))
+        {
+            let id = row["id"].as_str().expect("location refusal id");
+            let wire = if id.starts_with("PL-R3-") {
+                qspec_protocol_location_inputs::published_leaf_fixture(row)
+            } else {
+                let rows = row["value"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_else(|| vec![row["value"].clone()]);
+                qspec_protocol_location_inputs::fixture(rows).0
+            };
+            let expected = Expected::Refused(
+                serde_json::from_value(row["expected_code"].clone())
+                    .expect("published location refusal code"),
+            );
+            providers.insert(format!("conformance_qspec/protocol_locations.rs: checked-term-data-vectors.json#/{category}#{id}"));
+            cases.push(Case {
+                label: format!("QSpec/protocol-location/{id}"),
+                bytes: canonical(&wire),
+                evidence: evidence_for(&wire),
+                expected,
+            });
+        }
     }
     (cases, providers)
 }
@@ -652,7 +707,7 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
     initialize_operation_catalog().expect("catalog gate");
     let mut seen = BTreeSet::new();
     let mut problems = Vec::new();
-    let (mut admitted, mut refused) = (0, 0);
+    let (mut admitted, mut refused, mut stage_contracts) = (0, 0, 0);
     let mut positives = positive_cases();
     let (published, _) = qspec_cases();
     positives.extend(published);
@@ -670,6 +725,9 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
                 seen.insert(format!("{:?}", actual.code));
                 refused += 1;
             }
+            (Expected::OriginalOracle(oracle), actual) if oracle(actual) => {
+                stage_contracts += 1;
+            }
             _ => problems.push(format!(
                 "{}: fixture expectation differs from {outcome:?}",
                 input.label
@@ -680,7 +738,7 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
         .difference(&seen)
         .cloned()
         .collect::<Vec<_>>();
-    eprintln!("Registered candidates {}; confirmed admitted {}; confirmed refused {}; confirmed refusal-code classes {}",positives.len()+refusals.len(),admitted,refused,seen.len());
+    eprintln!("Registered candidates {}; confirmed admitted {}; confirmed refused {}; confirmed stage contracts {}; confirmed refusal-code classes {}",positives.len()+refusals.len(),admitted,refused,stage_contracts,seen.len());
     assert!(
         problems.is_empty() && missing.is_empty(),
         "Fixture defects:\n{}\nPublic refusal codes with no genuine input provider: {missing:?}",

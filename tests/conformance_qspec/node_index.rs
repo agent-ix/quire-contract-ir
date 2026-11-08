@@ -58,22 +58,10 @@ fn published_operand_vectors_refuse_in_the_fr322_check_order() {
             // The operand checks (and, for NI-22, the duplicate check) pass:
             // a later semantic refusal is allowed, an operand or duplicate-id
             // refusal is not.
-            if let CheckedPackageV2ReadResult::Refused(refusal) = &actual {
-                assert_ne!(
-                    code_word(refusal.code),
-                    "malformed_wire",
-                    "{id}: operand check"
-                );
-                assert!(
-                    refusal
-                        .loci
-                        .iter()
-                        .all(|locus| locus.path.as_ref().is_none_or(
-                            |path| path.to_string() != "/semantic_graph/nodes/4/node_id"
-                        )),
-                    "{id}: duplicate-id check: {refusal:?}"
-                );
-            }
+            assert!(
+                super::qspec_inputs::operand_checks_pass(&actual),
+                "{id}: operand and duplicate-id stage checks: {actual:?}"
+            );
             continue;
         }
         let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
