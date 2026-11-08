@@ -2619,7 +2619,7 @@ fn validate_body<'a, V: TermSource<'a>>(
         BodyGrammar::Extension => {
             extension::read_body(node, at.pointer(), ids).map(|body| extension::body_work(&body))
         }
-        BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
+        BodyGrammar::Frame => frame::read_frame_body_legacy(body, at).map(|(_, work)| work),
         BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence => {
             abstraction::scan_body(node, at, visit, ids)
         }
@@ -3321,8 +3321,13 @@ fn validate_graph(
                 extension::body_work(&body)
             }
             BodyGrammar::Frame => {
-                let (body, work) = frame::read_frame_body(&node.body, &Trail::Base(&body_steps))?;
-                frame_term = Some(body.clone().into_checked_term());
+                let (body, work) = frame::read_frame_body(
+                    TermNode::of(&bodies[position]),
+                    position,
+                    &wire.semantic_graph.operand_rows[position],
+                    meter,
+                )?;
+                frame_term = Some(body.checked_term(meter)?);
                 frames.push((&node.node_id, position, body));
                 work
             }
@@ -3565,7 +3570,7 @@ fn validate_graph(
         &owners,
         meter,
     )?;
-    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners)?;
+    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     validate_temporal(
         &terms,
         &graph.nodes,

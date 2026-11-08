@@ -29,7 +29,7 @@
 //! (`structural`); a body that no longer parses here refuses as that stage
 //! would.
 
-use super::frame::{join, read_frame_body, DeletesScopedEntry, ModifiesEntry, StepGraph};
+use super::frame::{join, FrameView, StepGraph};
 use super::graph_storage::{first_repeat, GraphIndex};
 use super::model_members::{
     MemberKind, MemberType, ModelOwners, ModelRefusal, OperationDecl, Owner, Resolved,
@@ -43,6 +43,9 @@ use super::{
     ApplicationOperator, CheckedNodeKind, CheckedTerm, CompositeTypeForm, ExecutionPoint,
     ExpressionForm, ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm,
     StateClauseKind, StateForm, ValueForm, WorkMeter,
+};
+use super::{
+    CheckedFrameModification as ModifiesEntry, CheckedScopedDeletion as DeletesScopedEntry,
 };
 use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
@@ -81,7 +84,7 @@ pub(super) fn validate_state(
             .and_then(Option::as_ref)
             .and_then(typed_anchor_body)
             .ok_or_else(|| shape_refusal(node, position))?;
-        check_anchor(node, position, &body, &graph, meter)?;
+        check_anchor(node, position, &body, terms, &graph, meter)?;
         anchors.push((position, node, body));
     }
     meter.at_node(0, "state");
@@ -324,6 +327,7 @@ fn check_anchor(
     anchor: &CheckedSemanticNodeV2,
     position: usize,
     body: &AnchorBody<'_>,
+    terms: &[Option<CheckedTerm>],
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -364,15 +368,14 @@ fn check_anchor(
                 .index
                 .get(body.frame)
                 .ok_or_else(|| shape_refusal(frame, position))?;
-            let steps = [
-                Step::Key("semantic_graph"),
-                Step::Key("nodes"),
-                Step::Index(frame_position),
-                Step::Key("body"),
-            ];
-            let (frame_body, work) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
+            let frame_body = terms
+                .get(frame_position)
+                .and_then(Option::as_ref)
+                .and_then(FrameView::of)
+                .ok_or_else(|| shape_refusal(frame, frame_position))?;
+            let work = frame_body.work();
             meter.charge(work, || node_pointer(frame_position).key("body"))?;
-            for entry in &frame_body.deletes_scoped {
+            for entry in frame_body.deletes_scoped {
                 let name = match entry {
                     DeletesScopedEntry::Receiver => continue,
                     DeletesScopedEntry::Parameter { name } => name,
@@ -826,13 +829,12 @@ fn check_transition(
         .nodes
         .get(frame_position)
         .ok_or_else(malformed_subject)?;
-    let steps = [
-        Step::Key("semantic_graph"),
-        Step::Key("nodes"),
-        Step::Index(frame_position),
-        Step::Key("body"),
-    ];
-    let (frame_body, work) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
+    let frame_body = terms
+        .get(frame_position)
+        .and_then(Option::as_ref)
+        .and_then(FrameView::of)
+        .ok_or_else(|| shape_refusal(frame, frame_position))?;
+    let work = frame_body.work();
     meter.charge(work, || node_pointer(frame_position).key("body"))?;
     if !frame_body.modifies.iter().any(|entry| matches!(entry, ModifiesEntry::Field { declaration, name, .. } if declaration == declaring && name.as_ref() == field_name)) {
         return Err(malformed_subject());

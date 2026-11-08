@@ -3567,8 +3567,8 @@ fn decode_v1_body(
                 },
             )
     } else if kind == super::CheckedNodeKind::State(super::StateForm::Frame) {
-        super::frame::read_frame_body(body, &Trail::Base(&[]))
-            .map(|(frame, _)| frame.into_checked_term())
+        super::frame::read_frame_body_legacy(body, &Trail::Base(&[]))
+            .map(|(frame, _)| frame.into_checked_term_legacy())
             .map_err(
                 |_| super::typed_terms::TermConversionCause::MalformedMember {
                     member: "body",
