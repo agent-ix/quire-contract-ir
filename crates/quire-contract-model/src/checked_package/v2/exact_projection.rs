@@ -3903,7 +3903,14 @@ impl CheckedPackageV2 {
                         "bounded_map_result",
                         storage::value_type(projected.values()).saturating_add(2),
                     )?;
-                    ValueType::map(MapType::new(projected.values().clone(), Some(bound)))
+                    ValueType::map(
+                        MapType::new(
+                            projected.key().clone(),
+                            projected.values().clone(),
+                            Some(bound),
+                        )
+                        .expect("a projected map key is a leaf"),
+                    )
                 } else {
                     // A bounded collection's wrapper resolves to its unbounded
                     // base as its semantic type, but the producer's row is keyed
@@ -3963,7 +3970,10 @@ impl CheckedPackageV2 {
                         self, identities, requested, value, work, work_limit,
                     )?;
                     charge_native_storage(work, requested, type_id, "map_result", 2)?;
-                    ValueType::map(MapType::new(projected, None))
+                    ValueType::map(
+                        MapType::new(ValueType::String, projected, None)
+                            .expect("a string map key is a leaf"),
+                    )
                 }
             }
             CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) => {

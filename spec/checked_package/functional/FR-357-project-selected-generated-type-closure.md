@@ -240,7 +240,10 @@ existing element meaning. A map row's value SHALL be the complete producer
 The existing source-collection row join and Exact projection path SHALL
 accept a structurally corresponding map row and return its complete map type.
 This row support SHALL retain the existing admitted map key-type restrictions
-and cardinality rules; it SHALL NOT admit a new key domain. An ordinary
+and cardinality rules; it SHALL NOT admit a new key domain. The IR package map type carries `values` only and its keys are the
+package's native string, so every projected `ValueType::Map` SHALL carry a
+`ValueType::String` key, and a projection rebuilt from an existing map SHALL
+forward that map's key unchanged. An ordinary
 standalone map projection that already requires no producer collection row
 SHALL retain its existing projection path and result.
 The selected monitor closure SHALL select and retain reached map rows through
