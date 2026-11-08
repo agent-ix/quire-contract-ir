@@ -154,6 +154,7 @@ mod tests {
             closure_index: Default::default(),
             catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
+            body_documents: Vec::new(),
         }
         .retain_original_admission()
     }

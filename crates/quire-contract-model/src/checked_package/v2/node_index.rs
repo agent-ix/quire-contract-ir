@@ -670,17 +670,18 @@ pub(super) fn resolve_id(
 /// Compare two body values from distinct package documents, resolving every
 /// node ID against the graph of the document that contains it.
 pub(super) fn equivalent_values(
-    left: &super::CheckedJson,
-    right: &super::CheckedJson,
+    left: super::TermNode<'_>,
+    right: super::TermNode<'_>,
     left_keys: &[Arc<super::CheckedNodeId>],
     right_keys: &[Arc<super::CheckedNodeId>],
     left_row: &[u64],
     right_row: &[u64],
-) -> bool {
+    meter: &mut super::WorkMeter,
+) -> Result<bool, ValidationFailure> {
     use quire_canonical::Node;
-    let mut budget = super::NativeJoinBudget::unlimited();
     let site = super::read_charge::Site::new(super::PackageReadStage::Graph, 0, "import_body");
-    let mut pending = vec![(super::TermNode::of(left), super::TermNode::of(right))];
+    let mut pending = meter.vec(1)?;
+    pending.push((left, right));
     while let Some((left, right)) = pending.pop() {
         if left.is_object() && right.is_object() {
             // FR-375 external keys are the exception to document-local
@@ -693,53 +694,57 @@ pub(super) fn equivalent_values(
                 if left.get("package").and_then(super::TermNode::as_str)
                     != right.get("package").and_then(super::TermNode::as_str)
                 {
-                    return false;
+                    return Ok(false);
                 }
                 let (Some(a), Some(b)) = (left.get("node"), right.get("node")) else {
-                    return false;
+                    return Ok(false);
                 };
-                pending.push((a, b));
+                super::read_charge::push_charged(meter, site, &mut pending, (a, b))?;
                 continue;
             }
             let a_shape = left.exact_members(&["package", "path", "ordinal"]);
             let b_shape = right.exact_members(&["package", "path", "ordinal"]);
             if a_shape || b_shape {
                 let a = left
-                    .node_id_in(&mut budget, site, left_row)
-                    .ok()
-                    .and_then(|read| read.valid());
+                    .node_id_in(&mut *meter, site, left_row)
+                    .map_err(|_| super::read_charge::ReadStorage::denial(meter))?
+                    .valid();
                 let b = right
-                    .node_id_in(&mut budget, site, right_row)
-                    .ok()
-                    .and_then(|read| read.valid());
+                    .node_id_in(&mut *meter, site, right_row)
+                    .map_err(|_| super::read_charge::ReadStorage::denial(meter))?
+                    .valid();
                 let (Some(a), Some(b)) = (a, b) else {
-                    return false;
+                    return Ok(false);
                 };
-                if resolve_id(&a, left_keys) != resolve_id(&b, right_keys) {
-                    return false;
+                if resolve_id_charged(&a, left_keys, meter)?
+                    != resolve_id_charged(&b, right_keys, meter)?
+                {
+                    return Ok(false);
                 }
             } else {
                 let (Some(a), Some(b)) = (left.members(), right.members()) else {
-                    return false;
+                    return Ok(false);
                 };
                 if a.len() != b.len() {
-                    return false;
+                    return Ok(false);
                 }
                 for (name, value) in a {
                     let Some(other) = right.get(name) else {
-                        return false;
+                        return Ok(false);
                     };
-                    pending.push((value, other));
+                    super::read_charge::push_charged(meter, site, &mut pending, (value, other))?;
                 }
             }
         } else if left.is_array() && right.is_array() {
             let (Some(a), Some(b)) = (left.items(), right.items()) else {
-                return false;
+                return Ok(false);
             };
             if a.len() != b.len() {
-                return false;
+                return Ok(false);
             }
-            pending.extend(a.zip(b));
+            for pair in a.zip(b) {
+                super::read_charge::push_charged(meter, site, &mut pending, pair)?;
+            }
         } else {
             let same = match (left.node_ref().node(), right.node_ref().node()) {
                 (Node::Null, Node::Null) => true,
@@ -749,11 +754,11 @@ pub(super) fn equivalent_values(
                 _ => false,
             };
             if !same {
-                return false;
+                return Ok(false);
             }
         }
     }
-    true
+    Ok(true)
 }
 
 /// Resolve graph-local node operands of the FR-035 ContractPackage projection.
@@ -1605,5 +1610,54 @@ mod tests {
         assert!(!contains_inline_node_path(
             br#"{"details":{"ordinal":0,"package":"p","path":["x"]}}"#
         ));
+    }
+}
+
+#[cfg(test)]
+mod imported_body_storage_tests {
+    use super::*;
+    use crate::checked_package::v2::{CheckedJson, NativeJoinBudget, TermNode, WorkMeter};
+    use ix_trace_rs::trace;
+    #[test]
+    #[trace("TC-472", "FR-038-AC-511")]
+    fn imported_document_comparison_prepays_operand_and_scratch_storage() {
+        let body = serde_json::json!({"term":"aggregate","members":[{"term":"reference","target":{"package":"p","path":[{"operand":0}],"ordinal":0}}]});
+        let left = CheckedJson::from_value(&body).expect("document");
+        let right = CheckedJson::from_value(&body).expect("document");
+        let keys = [Arc::new(super::super::CheckedNodeId {
+            package: "p".into(),
+            path: vec![CheckedNodePathSegment::Name("target".into())],
+            ordinal: 0,
+        })];
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(0, "import_body");
+                result = Some(equivalent_values(
+                    TermNode::of(&left),
+                    TermNode::of(&right),
+                    &keys,
+                    &keys,
+                    &[0],
+                    &[0],
+                    &mut meter,
+                ));
+            });
+            (result.expect("comparison"), budget, allocated.bytes_total)
+        };
+        let (result, budget, allocated) = run(u64::MAX);
+        assert_eq!(result.ok(), Some(true));
+        assert_eq!(allocated, budget.read_storage_consumed());
+        let exact = budget.read_storage_consumed();
+        let (result, budget, allocated) = run(exact);
+        assert_eq!(result.ok(), Some(true));
+        assert_eq!(allocated, exact);
+        assert_eq!(budget.read_storage_consumed(), exact);
+        let (result, budget, allocated) = run(exact - 1);
+        assert!(result.is_err());
+        assert!(budget.first_unpaid_read_storage().is_some());
+        assert_eq!(allocated, budget.read_storage_consumed());
     }
 }

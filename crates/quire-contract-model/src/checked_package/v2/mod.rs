@@ -991,6 +991,8 @@ pub struct CheckedPackageV2 {
     /// Private admission capability; clones preserve it, independent reads do not.
     admission_binding: Option<AdmissionBinding>,
     wire: Arc<CheckedPackageWireV2>,
+    /// Original body views, moved from the charged intake table for imported joins.
+    body_documents: Vec<CheckedJson>,
     kinds: Arc<Vec<CheckedNodeKind>>,
     schedulability_claim_index: Vec<(usize, usize)>,
     monitor_plan_index: Vec<monitor_plan::Plan>,
@@ -1655,6 +1657,7 @@ impl CheckedPackageV2 {
         let slot_graph = read_charge::new_arc(budget, package, std::sync::OnceLock::new())?;
         let package = Self {
             admission_binding: None,
+            body_documents: bodies,
             wire,
             kinds,
             schedulability_claim_index,
@@ -3139,49 +3142,63 @@ fn decode_node_kind<Body>(
 /// Compare a selected import's complete content after resolving each graph-
 /// local operand in its own document. Both packages may choose different node
 /// order and thus different wire index spellings for the same structural key.
-fn imported_node_matches(
+fn imported_node_matches<B>(
     importer: &RawSemanticNodeV2,
-    selected: &RawSemanticNodeV2,
-    importer_keys: &[std::sync::Arc<CheckedNodeId>],
-    selected_keys: &[std::sync::Arc<CheckedNodeId>],
+    selected: &CheckedSemanticNodeV2<B>,
+    selected_body: TermNode<'_>,
+    importer_keys: &[Arc<CheckedNodeId>],
+    selected_keys: &[Arc<CheckedNodeId>],
     importer_row: &[u64],
     selected_row: &[u64],
-) -> bool {
-    let same_id = |left: &CheckedNodeId, right: &CheckedNodeId| match (
-        node_index::resolve_id(left, importer_keys),
-        node_index::resolve_id(right, selected_keys),
-    ) {
-        (Some(left), Some(right)) => left == right,
-        _ => false,
-    };
-    same_id(&importer.node_id, &selected.node_id)
-        && importer.schema_version == selected.schema_version
-        && importer.node_tag == selected.node_tag
-        && importer.semantic_form == selected.semantic_form
-        && same_id(&importer.semantic_type, &selected.semantic_type)
-        && importer.dependencies.len() == selected.dependencies.len()
-        && importer
-            .dependencies
-            .iter()
-            .zip(&selected.dependencies)
-            .all(|(left, right)| same_id(left, right))
-        && importer.occurrences == selected.occurrences
-        && importer.recursion_group == selected.recursion_group
-        && importer.declaration == selected.declaration
-        && importer.owner == selected.owner
-        && match (&importer.owner_model, &selected.owner_model) {
-            (Some(left), Some(right)) => same_id(left, right),
-            (None, None) => true,
-            _ => false,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let mut same_id =
+        |left: &CheckedNodeId, right: &CheckedNodeId| -> Result<bool, ValidationFailure> {
+            Ok(
+                match (
+                    node_index::resolve_id_charged(left, importer_keys, meter)?,
+                    node_index::resolve_id_charged(right, selected_keys, meter)?,
+                ) {
+                    (Some(left), Some(right)) => left == right,
+                    _ => false,
+                },
+            )
+        };
+    if !same_id(&importer.node_id, &selected.node_id)?
+        || importer.schema_version != selected.schema_version
+        || importer.node_tag != selected.node_tag
+        || importer.semantic_form != selected.semantic_form
+        || !same_id(&importer.semantic_type, &selected.semantic_type)?
+        || importer.dependencies.len() != selected.dependencies.len()
+    {
+        return Ok(false);
+    }
+    for (left, right) in importer.dependencies.iter().zip(&selected.dependencies) {
+        if !same_id(left, right)? {
+            return Ok(false);
         }
-        && node_index::equivalent_values(
-            &importer.body,
-            &selected.body,
-            importer_keys,
-            selected_keys,
-            importer_row,
-            selected_row,
-        )
+    }
+    if importer.occurrences != selected.occurrences
+        || importer.recursion_group != selected.recursion_group
+        || importer.declaration != selected.declaration
+        || importer.owner != selected.owner
+    {
+        return Ok(false);
+    }
+    match (&importer.owner_model, &selected.owner_model) {
+        (Some(left), Some(right)) if !same_id(left, right)? => return Ok(false),
+        (None, None) | (Some(_), Some(_)) => {}
+        _ => return Ok(false),
+    }
+    node_index::equivalent_values(
+        TermNode::of(&importer.body),
+        selected_body,
+        importer_keys,
+        selected_keys,
+        importer_row,
+        selected_row,
+        meter,
+    )
 }
 
 fn structural_key<'a>(
@@ -3198,9 +3215,8 @@ fn structural_key<'a>(
 // `bodies` is the node-view table: `TermNode::of(&bodies[position])` is the
 // body of graph node `position`, read from the retained document with the
 // node's operand slots resolved through `wire.semantic_graph.operand_rows`
-// (`TermNode::node_id_in`, `TermNode::decode_in`). The `Value` in
-// `wire.semantic_graph.nodes[position].body` is the uncharged bridge for a
-// validator that has not moved to the views.
+// (`TermNode::node_id_in`, `TermNode::decode_in`). Imported bodies borrow the
+// selected package's original views and its own operand row.
 #[allow(unused_variables)]
 #[allow(clippy::too_many_arguments)] // the catalog and the node bodies are two inputs of one graph check
 fn validate_graph(
@@ -3277,30 +3293,36 @@ fn validate_graph(
                     import_index =
                         Some(dependencies.structural_import_index(structural_keys, meter)?);
                 }
-                import_index
-                    .as_ref()
-                    .and_then(
-                        |lookup: &dependency_references::StructuralImportIndex<'_>| {
-                            lookup.lookup(&node.node_id.package, position)
-                        },
-                    )
-                    .is_some_and(|(selected_position, selected_package)| {
+                match import_index.as_ref().and_then(
+                    |lookup: &dependency_references::StructuralImportIndex<'_>| {
+                        lookup.lookup(&node.node_id.package, position)
+                    },
+                ) {
+                    Some((selected_position, selected_package)) => {
                         let selected_graph = selected_package.resolved_graph();
-                        selected_graph
+                        match selected_graph
                             .nodes
                             .get(selected_position)
                             .zip(selected_graph.operand_rows.get(selected_position))
-                            .is_some_and(|(selected_node, selected_row)| {
+                            .zip(selected_package.body_documents.get(selected_position))
+                        {
+                            Some(((selected_node, selected_row), selected_body)) => {
                                 imported_node_matches(
                                     node,
-                                    &selected_node.to_raw(),
+                                    selected_node,
+                                    TermNode::of(selected_body),
                                     structural_keys,
                                     &selected_package.structural_keys,
                                     &wire.semantic_graph.operand_rows[position],
                                     selected_row,
-                                )
-                            })
-                    })
+                                    meter,
+                                )?
+                            }
+                            None => false,
+                        }
+                    }
+                    None => false,
+                }
             } else {
                 false
             };
@@ -5093,6 +5115,7 @@ mod tests {
                     catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(
                     ),
                     admission_binding: Default::default(),
+                    body_documents: Vec::new(),
                 }
                 .retain_original_admission();
                 let package_debug = format!("{package:?}");
