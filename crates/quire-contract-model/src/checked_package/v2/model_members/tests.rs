@@ -8,6 +8,8 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
 use ix_trace_rs::trace;
+use std::collections::BTreeSet;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 /// Preserve the actual native converter's closed outputs and typed refusal.

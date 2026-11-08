@@ -55,17 +55,10 @@ use crate::checked_package::shared::{
 };
 use ix_trace_rs::string_edge;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
 /// The fixed declaration body shape in raw intake and admitted typed nodes.
 pub(super) trait EmptyAggregateBody {
     fn is_empty_aggregate(&self) -> bool;
-}
-
-impl EmptyAggregateBody for Value {
-    fn is_empty_aggregate(&self) -> bool {
-        *self == json!({"term": "aggregate", "members": []})
-    }
 }
 
 impl EmptyAggregateBody for CheckedTerm {
@@ -73,7 +66,6 @@ impl EmptyAggregateBody for CheckedTerm {
         matches!(self, Self::Aggregate { members } if members.is_empty())
     }
 }
-use std::collections::BTreeSet;
 
 /// The form of the graph-stage requests of the model checks: the tag of the
 /// selected package's `model_root` node.
@@ -95,6 +87,17 @@ pub(super) use charged::{
 };
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
 use view::{List, View};
+
+/// Puts `name` into the sorted `seen`; `false` when it was already there.
+fn first_visit<'a>(seen: &mut Vec<&'a str>, name: &'a str) -> bool {
+    match seen.binary_search(&name) {
+        Ok(_) => false,
+        Err(at) => {
+            seen.insert(at, name);
+            true
+        }
+    }
+}
 
 const NATIVE_PREFIX: &str = "ix://quire/native/";
 
@@ -1743,7 +1746,7 @@ impl DomainModel {
     ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
         runtime_storage(&mut budget, 2)?;
         let mut current = type_ref;
-        let mut seen = BTreeSet::new();
+        let mut seen: Vec<&str> = Vec::new();
         let mut layers = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
             runtime_work(&mut budget, 1)?;
@@ -1751,7 +1754,7 @@ impl DomainModel {
                 break;
             };
             runtime_storage(&mut budget, runtime_text_storage(name).saturating_add(1))?;
-            if !seen.insert(name.clone()) {
+            if !first_visit(&mut seen, name) {
                 return Ok(None);
             }
             match definition {
@@ -1799,9 +1802,9 @@ impl DomainModel {
     /// node. Distinguish that missing name from a present but invalid `s`.
     pub(super) fn duration_unit_absent(&self, type_ref: &SelectedTypeRef) -> bool {
         let mut current = type_ref;
-        let mut seen = BTreeSet::new();
+        let mut seen: Vec<&str> = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
-            if !seen.insert(name) {
+            if !first_visit(&mut seen, name) {
                 return false;
             }
             match self.collection_types.get(name) {
@@ -1997,13 +2000,13 @@ impl DomainModel {
     /// Render the selected field type used by a timed clock-place path.
     pub(super) fn clock_type_name(&self, type_ref: &SelectedTypeRef) -> Option<String> {
         let mut current = type_ref;
-        let mut seen = BTreeSet::new();
+        let mut seen: Vec<&str> = Vec::new();
         let mut layers = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
             let Some(definition) = self.collection_types.get(name) else {
                 break;
             };
-            if !seen.insert(name.clone()) {
+            if !first_visit(&mut seen, name) {
                 return None;
             }
             match definition {
@@ -2388,7 +2391,7 @@ impl<'m> ModelOwners<'m> {
     pub(super) fn refinement_object_fields(
         &self,
         key: &crate::checked_package::shared::CheckedNodeId,
-    ) -> Option<BTreeSet<Box<str>>> {
+    ) -> Option<&[Box<str>]> {
         let owner = &self.row_by_key(key)?.owner;
         if owner.form != DeclarationForm::ObjectType {
             return None;

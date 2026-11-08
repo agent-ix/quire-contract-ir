@@ -15,6 +15,7 @@ use quire_exact::{
     EffectiveId, MemberId, MemberOwner, NodeKey, OriginalDeclarationKey, PathSegment,
 };
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 
 /// Trace: FR-038-AC-475.
 #[trace("FR-038-AC-475")]
@@ -957,6 +958,28 @@ fn tc_227_an_ambiguous_table_is_retained_and_charged_like_any_other() {
     assert_eq!(charged, 1 + 1 + (1 + 2 + 2));
     assert_eq!(table_for(&model, "T3").ambiguous.as_deref(), Some("x"));
     assert_eq!(table_for(&model, "T1").ambiguous, None);
+}
+
+/// The names a table retains for refinement are ascending, without repeats,
+/// even where two exposed fields share one name.
+#[trace("TC-227", "FR-038-AC-144")]
+#[test]
+fn tc_227_retained_exposed_names_are_sorted_and_unique() {
+    let (_, model) = built(&document_of("ambiguity"));
+    let names = |short: &str| -> Vec<String> {
+        table_for(&model, short)
+            .names
+            .iter()
+            .map(|name| name.to_string())
+            .collect()
+    };
+    // `x` is exposed twice (two identities) and repeats once in the names.
+    assert_eq!(names("T3"), ["x", "y"]);
+    assert!(table_for(&model, "T3").exposed.len() > 2);
+    for short in ["T1", "T2", "T3"] {
+        let all = names(short);
+        assert!(all.windows(2).all(|pair| pair[0] < pair[1]), "{short}");
+    }
 }
 
 /// A field resolution charges one unit per exposed or hidden entry of the

@@ -45,7 +45,6 @@ use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// The form of every request the dependency checks make.
@@ -185,11 +184,11 @@ impl<'e> SuppliedDependencies<'e> {
     /// reader that shares FR-322 dependency-reference semantics.
     pub(super) fn from_admitted(
         selections: &'e [CheckedDependencySelection],
-        admitted: &BTreeMap<&str, &'e CheckedPackageV2>,
+        admitted: impl Fn(&str) -> Option<&'e CheckedPackageV2>,
     ) -> Result<Self, usize> {
         let mut packages = Vec::with_capacity(selections.len());
         for (position, selection) in selections.iter().enumerate() {
-            let Some(package) = admitted.get(selection.identity.as_ref()).copied() else {
+            let Some(package) = admitted(selection.identity.as_ref()) else {
                 return Err(position);
             };
             let index = fill_table(
@@ -432,7 +431,9 @@ impl<'a> DependencyReferences<'a> {
                     arguments,
                     ..
                 } => {
-                    let calls_function = operation.get("identity").and_then(Value::as_str)
+                    let calls_function = operation
+                        .get("identity")
+                        .and_then(|identity| identity.as_str())
                         == Some(FUNCTION_CALL_OPERATION);
                     for (index, child) in arguments.iter().enumerate().rev() {
                         let child_step = steps.len();
