@@ -227,6 +227,27 @@ class FullCorpusCompletion(unittest.TestCase):
         with self.assertRaisesRegex(census.CensusError, "every source refusal code"):
             census.validate_full_completion(bundle)
 
+    def test_unknown_reservation_classes_remain_unknown_without_waiving_boundaries(self):
+        row = self.complete_bundle()["runs"][0]["records"][0]
+        row.pop("designated_growth_case")
+        for event in row["native_budget_events"]:
+            event["allocation_class"] = None
+        for result in row["boundary_results"]:
+            result["allocation_class"] = None
+        row["boundary_results"] = [row["boundary_results"][i] for i in (0, 2, 3)]
+        census.validate_normative_boundaries(row)
+        row["boundary_results"].pop()
+        with self.assertRaisesRegex(census.CensusError, "missing normative"):
+            census.validate_normative_boundaries(row)
+
+    def test_relabeling_a_growth_event_at_an_unrelated_role_locus_fails(self):
+        bundle = self.complete_bundle()
+        row = bundle["runs"][0]["records"][0]
+        row["provider_obligation_evidence"][-1]["reservation_locus"] = {
+            "source":"PackageRead(Graph, 99)","form":"exact_number"}
+        with self.assertRaisesRegex(census.CensusError, "actual selected source-bound"):
+            census.validate_full_completion(bundle)
+
     def test_missing_walk_instance_and_omitted_intermediate_boundary_fail(self):
         for remove in ("walk-instance", "intermediate-event"):
             bundle = self.complete_bundle()

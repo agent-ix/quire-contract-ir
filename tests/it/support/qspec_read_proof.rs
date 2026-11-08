@@ -310,13 +310,34 @@ pub(crate) fn measure_seeded(
         logical_before,
         "seeded replay consumes no new logical storage"
     );
+    let actual_result = result.as_ref().expect("seeded read ran");
+    let reported = match actual_result {
+        Budgeted::BudgetIncomplete(value) => Some((
+            value.denied,
+            value.limit,
+            Some(value.consumed),
+            value.path.as_ref().map(|path| path.as_str()),
+            None,
+            None,
+        )),
+        Budgeted::Exhausted(value) => Some((
+            value.denied,
+            value.configured_bound,
+            None,
+            None,
+            Some(value.locus),
+            value.pending,
+        )),
+        _ => None,
+    };
     assert_eq!(
         requested,
         budget
             .read_storage_consumed()
             .checked_sub(before)
             .expect("monotone caller consumption"),
-        "seeded checked public read pays every actual allocation request"
+        "seeded checked public read pays every actual allocation request; result_class={} returned(denied,bound,consumed,pointer,locus,pending)={reported:?}; first_work={:?} first_read_storage={:?} first_locus={:?}; final_budget={budget:?}",
+        budgeted_kind(actual_result), budget.first_unpaid(), budget.first_unpaid_read_storage(), budget.first_unpaid_locus()
     );
     Observation {
         result: result.expect("seeded read ran"),

@@ -669,7 +669,7 @@ def main():
                    run_controls(args, binary, config, env, intended) if args.controls
                    else run_original_corpus(args, binary, config, env, intended))
         write_json(args.out / "result.json", {"passed": True, "results": results, **selection_metadata(args),
-                   "normative_boundaries_verified": args.mode == "full",
+                   "normative_boundaries_verified": args.mode == "full" and not args.controls and not args.class_controls,
                    "normative_boundary_proof": False,
                    "static_ac513_proven": False})
     except (RunError, census.CensusError, OSError, ValueError, subprocess.CalledProcessError) as error:

@@ -154,7 +154,7 @@ def validate_provenance(export, root, intended, records):
         if line > len(source):
             raise CensusError("captured callsite is outside the frozen source")
         spelling = source[line - 1]
-        names = ("read_budget_and_account",) if record.get("entry") == "caller-budget" else ("read_and_account", "fixture_read")
+        names = ("read_budget_and_account",) if record.get("entry") == "caller-budget" else ("read_and_account", "read_designated_and_account", "fixture_read")
         if re.search(r"\bfn\s+", spelling) or not any(re.search(r"\b" + name + r"\s*\(", spelling) for name in names):
             raise CensusError("captured location is not an actual instrumented invocation (function-item shim is unresolved)")
         executed = False
