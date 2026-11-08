@@ -2819,7 +2819,7 @@ fn union_type<'g>(
     owners: &'g ModelOwners<'_>,
     meter: &mut WorkMeter,
     structural: &mut StructuralTypes,
-    at: &JsonPointer,
+    at: &impl DiagnosticPath,
 ) -> Result<Option<Vec<UnionMember<'g>>>, ValidationFailure> {
     let Some((position, kind)) = structural.resolve(type_id, graph, meter, at)? else {
         return Ok(None);
@@ -2920,7 +2920,14 @@ fn union_arms_hold(
         owners,
         meter,
         structural,
-        &application.body(&["operation"]),
+        &OperationPath::Read(
+            super::stage_storage::Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(application.position)
+                .key("body")
+                .key("operation"),
+        ),
     )?
     else {
         return Ok(false);
