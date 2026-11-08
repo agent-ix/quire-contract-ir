@@ -15,6 +15,15 @@ use serde_json::Value;
 use std::fmt;
 use std::sync::Arc;
 
+/// The name under which the read's document deserializer hands out a handle
+/// instead of a copied value.
+pub(super) const CHECKED_JSON_TOKEN: &str = "$quire::CheckedJson";
+
+thread_local! {
+    static OFFERED: std::cell::RefCell<Option<CheckedJson>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Why a `CheckedJson` could not be built outside the read.
 #[derive(Debug)]
 pub enum CheckedJsonError {
@@ -53,6 +62,12 @@ impl CheckedJson {
     /// each handle from the package document it retains.
     pub(in crate::checked_package) fn new(document: Arc<Document>, node: NodeId) -> Self {
         Self { document, node }
+    }
+
+    /// Leaves `handle` for the `Deserialize` call the document deserializer
+    /// is answering on this thread.
+    pub(super) fn offer(handle: Self) {
+        OFFERED.with(|slot| *slot.borrow_mut() = Some(handle));
     }
 
     /// Reads one JSON value with the shared reader and refuses bytes that are
@@ -149,8 +164,31 @@ impl Serialize for CheckedJson {
 
 impl<'de> Deserialize<'de> for CheckedJson {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = Value::deserialize(deserializer)?;
-        Self::from_value(&value).map_err(serde::de::Error::custom)
+        struct Held;
+        impl<'de> serde::de::Visitor<'de> for Held {
+            type Value = CheckedJson;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a JSON value")
+            }
+
+            // The document deserializer answers with the handle it offered.
+            fn visit_unit<E: serde::de::Error>(self) -> Result<CheckedJson, E> {
+                OFFERED
+                    .with(|slot| slot.borrow_mut().take())
+                    .ok_or_else(|| E::custom("no JSON handle was offered"))
+            }
+
+            // Any other deserializer yields a value to encode.
+            fn visit_newtype_struct<D2: Deserializer<'de>>(
+                self,
+                inner: D2,
+            ) -> Result<CheckedJson, D2::Error> {
+                let value = Value::deserialize(inner)?;
+                CheckedJson::from_value(&value).map_err(serde::de::Error::custom)
+            }
+        }
+        deserializer.deserialize_newtype_struct(CHECKED_JSON_TOKEN, Held)
     }
 }
 

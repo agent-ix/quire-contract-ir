@@ -16,7 +16,10 @@ pub use budgeted_read::{
 };
 mod callable;
 mod checked_json;
+mod document_de;
+pub(in crate::checked_package) use budgeted_read::denial as decode_denial;
 pub use checked_json::{CheckedJson, CheckedJsonError};
+pub(in crate::checked_package) use document_de::DecodeContext;
 mod model_operations;
 pub use model_operations::{
     CheckedModelOperation, CheckedModelOperations, CheckedOperationParameter,
@@ -1384,7 +1387,8 @@ impl CheckedPackageV2 {
     ) -> Result<Self, ValidationFailure> {
         // The document the shared reader built is the grammar and canonical
         // proof of the bytes; the typed decode below still reads the bytes.
-        drop(budgeted_read::read_envelope(bytes, limits, budget)?);
+        let document = budgeted_read::read_envelope(bytes, limits, budget)?;
+        let document = budgeted_read::share_document(document, budget)?;
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
             Some(Value::String(version))
                 if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {
@@ -1411,7 +1415,7 @@ impl CheckedPackageV2 {
                 member_pointer(&["name"]),
             ));
         }
-        let mut wire = intake::decode_borrowed_wire(bytes)
+        let mut wire = intake::decode_borrowed_wire(bytes, &document, budget)
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
@@ -4793,7 +4797,14 @@ mod tests {
                 .as_ref()
                 .is_none_or(|rows| !rows.is_empty())
             {
-                let decoded = super::intake::decode_borrowed_wire(&bytes).expect("closed intake");
+                let document =
+                    std::sync::Arc::new(quire_canonical::read(&bytes, u64::MAX).expect("reads"));
+                let decoded = super::intake::decode_borrowed_wire(
+                    &bytes,
+                    &document,
+                    &mut super::NativeJoinBudget::unlimited(),
+                )
+                .expect("closed intake");
                 assert_eq!(decoded.schedulability_claims, wire.schedulability_claims);
                 assert_eq!(decoded.operation_effects, wire.operation_effects);
             }
