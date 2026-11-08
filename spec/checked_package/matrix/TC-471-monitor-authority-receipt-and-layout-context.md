@@ -51,8 +51,10 @@ key node, and charges every external and native step to one budget.
 8. Read `tick_unit_dimension()` for a source and a model tick unit; repeat at
    the exact allowance and one below the first seed charge (FR-357-AC-18).
 
-Tag the tests `#[trace("TC-471", "<criterion id>")]`. FR-361-AC-6 runs in
-`quire-integration` against a genuine QSL plan root.
+Tag the tests `#[trace("TC-471", "<criterion id>")]`. Steps 1, 2 and 4 for the
+authority row run against a genuine QSL plan root and its admitted authority in
+the explicit lane `make conformance-qsl-ir1384` (tests/conformance_qsl_ir1384),
+which also carries FR-361-AC-6.
 
 ## Expected Results
 
