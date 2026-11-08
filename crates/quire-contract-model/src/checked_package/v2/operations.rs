@@ -2469,6 +2469,7 @@ fn check_operands(
 }
 
 /// Resolve a binder's body type, including the two binders of a fold step.
+#[ix_trace_rs::string_edge]
 fn binder_bound(
     binder: &CheckedTerm,
     operation: &OperationWire,
