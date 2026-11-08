@@ -239,54 +239,49 @@ fn same_period(
     Ok(ad != BigUint::from(0u8) && rd != BigUint::from(0u8) && an * &rd == rn * ad)
 }
 
-/// Compare borrowed structural identities without an unmetered comparison
-/// stack. Every text/segment inspection and owned continuation is prepaid.
+/// Admit every component of a structural identity before the shared
+/// comparator inspects it. Borrowed child handles use a prepaid work stack.
+fn identity_work(
+    node: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+) -> Result<(), SelectedMonitorTypeClosureError> {
+    let mut pending = Vec::new();
+    let mut current = Some(node);
+    while let Some(node) = current {
+        read_node_work(budget, node).map_err(|_| native_error(budget))?;
+        for segment in &node.path {
+            match segment {
+                CheckedNodePathSegment::Node(child) => {
+                    read_charge(budget, NativeJoinChargeKind::Storage, if pending.capacity() == 0 { 2 } else { 1 })
+                        .map_err(|_| native_error(budget))?;
+                    pending.push(child.as_ref());
+                }
+                CheckedNodePathSegment::Dependency { package, .. } => {
+                    read_charge(budget, NativeJoinChargeKind::Work, package.len() as u128)
+                        .map_err(|_| native_error(budget))?;
+                }
+                CheckedNodePathSegment::Name(_) | CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {}
+            }
+        }
+        current = pending.pop();
+    }
+    Ok(())
+}
+
 fn same_clause(
     left: &CheckedNodeId,
     right: &CheckedNodeId,
     budget: &mut NativeJoinBudget,
 ) -> Result<bool, SelectedMonitorTypeClosureError> {
-    use CheckedNodePathSegment as Segment;
-    let mut pending = Vec::new();
-    let (mut left, mut right, mut start) = (left, right, 0);
-    'identity: loop {
-        if start == 0 {
-            read_node_work(budget, left).map_err(|_| native_error(budget))?;
-            read_node_work(budget, right).map_err(|_| native_error(budget))?;
-            if left.package != right.package || left.ordinal != right.ordinal || left.path.len() != right.path.len() {
-                return Ok(false);
-            }
-        }
-        for (index, (a, b)) in left.path.iter().zip(&right.path).enumerate().skip(start) {
-            let equal = match (a, b) {
-                (Segment::Name(a), Segment::Name(b)) => a == b,
-                (Segment::Index(a), Segment::Index(b)) | (Segment::Operand(a), Segment::Operand(b)) => a == b,
-                (Segment::Dependency { package: a, node: x }, Segment::Dependency { package: b, node: y }) => {
-                    read_charge(budget, NativeJoinChargeKind::Work, (a.len() as u128).saturating_add(b.len() as u128))
-                        .map_err(|_| native_error(budget))?;
-                    a == b && x == y
-                }
-                (Segment::Node(a), Segment::Node(b)) => {
-                    if !std::sync::Arc::ptr_eq(a, b) {
-                        read_charge(budget, NativeJoinChargeKind::Storage, if pending.capacity() == 0 { 2 } else { 1 })
-                            .map_err(|_| native_error(budget))?;
-                        pending.push((left, right, index + 1));
-                        (left, right, start) = (a.as_ref(), b.as_ref(), 0);
-                        continue 'identity;
-                    }
-                    true
-                }
-                _ => false,
-            };
-            if !equal {
-                return Ok(false);
-            }
-        }
-        match pending.pop() {
-            Some(next) => (left, right, start) = next,
-            None => return Ok(true),
-        }
-    }
+    identity_work(left, budget)?;
+    identity_work(right, budget)?;
+    left.cmp_growing(right, &mut |bytes| {
+        // The shared seam supplies a whole scratch block's size. Its byte
+        // width conservatively bounds all owned continuation handles, plus
+        // one container, without duplicating the private frame layout.
+        read_charge(budget, NativeJoinChargeKind::Storage, (bytes as u128).saturating_add(1))
+            .map_err(|_| native_error(budget))
+    }).map(|order| order.is_eq())
 }
 
 impl<'a> CheckedMonitorPlanRef<'a> {
@@ -475,18 +470,33 @@ mod tests {
         let left = wrap(left);
         let right = wrap(identity(&format!("{prefix}a"), 0));
         let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
-        assert!(same_clause(&left, &right, &mut measured).unwrap());
+        let mut equal = None;
+        let full_allocation = allocation_counter::measure(|| equal = Some(same_clause(&left, &right, &mut measured)));
+        assert!(equal.unwrap().unwrap());
         let spent = measured.consumed();
         assert!(spent.work > 2 * prefix.len() as u64);
-        assert_eq!(spent.storage, 2, "one continuation container and element");
+        assert!(spent.storage > 4, "the shared comparator's scratch is prepaid after both identity walks");
         assert!(same_clause(&left, &right, &mut NativeJoinBudget::new(spent.work, spent.storage)).unwrap());
         let mut below = NativeJoinBudget::new(spent.work, spent.storage - 1);
         let mut result = None;
         let allocated = allocation_counter::measure(|| result = Some(same_clause(&left, &right, &mut below)));
-        assert_eq!(allocated.count_total, 0, "unpaid continuation must not allocate");
+        assert_eq!(allocated.count_total + 1, full_allocation.count_total, "the unpaid comparator scratch block must not allocate");
         let error = result.unwrap().unwrap_err();
         assert_eq!(error.code, SelectedMonitorTypeClosureErrorCode::StorageLimit);
-        assert_eq!(error.denied.unwrap().amount, 2);
+        assert!(error.denied.unwrap().amount > 1);
+        let dependent = |package: &str, node| CheckedNodeId {
+            package: "nested-dependency".into(),
+            path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(CheckedNodeId {
+                package: "child".into(),
+                path: vec![CheckedNodePathSegment::Dependency { package: package.into(), node }],
+                ordinal: 0,
+            }))],
+            ordinal: 0,
+        };
+        let selected = dependent("producer", 7);
+        for (candidate, expected) in [(dependent("producer", 7), true), (dependent("producer-next", 7), false), (dependent("producer", 8), false)] {
+            assert_eq!(same_clause(&selected, &candidate, &mut NativeJoinBudget::new(u64::MAX, u64::MAX)).unwrap(), expected, "nested dependency package and position keep their shared structural semantics");
+        }
     }
 
     #[trace("TC-471", "FR-361-AC-4")]
