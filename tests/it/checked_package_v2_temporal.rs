@@ -3794,3 +3794,126 @@ fn tc_346_a_temporal_step_defect_precedes_a_hyperproperty_fairness_defect() {
         "the temporal step's refusal comes first, got {path}"
     );
 }
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_the_hyperproperty_body_is_checked_after_its_subjects_and_before_its_fairness() {
+    // A `behaviours` body that is no temporal clause.
+    let (package, at) = hyper_edited(|body| {
+        body["members"][6]["value"] = refer(&aaaa());
+    });
+    misplaced("a body target that is no temporal clause", &package, at);
+    // A body wrapper with a fairness argument.
+    let (mut package, at) = hyper_resolution(
+        INFINITE,
+        fairness_member(&model_key(ORDER_NODE), "scaled"),
+        ORDERS,
+    );
+    let (fair_key, wrapper) = {
+        let wrapper = clause(&package);
+        let fair = package["semantic_graph"]["nodes"][at]["body"]["members"][3]["value"]["members"]
+            [0]["members"][3]
+            .clone();
+        (fair, wrapper)
+    };
+    package["semantic_graph"]["nodes"][wrapper]["body"]["arguments"][4] =
+        json!({"term": "aggregate", "members": [fair_key]});
+    settle(&mut package);
+    assert_eq!(
+        first_refusal("a wrapper with fairness", &package),
+        outcome(
+            Code::InvalidSemanticGraph,
+            None,
+            at_node(wrapper, "/body/arguments/4")
+        )
+    );
+    // A body defect precedes a fairness defect.
+    let (mut package, at) = hyper_resolution(
+        INFINITE,
+        fairness_member(&model_key(ORDER_NODE), "nope"),
+        ORDERS,
+    );
+    package["semantic_graph"]["nodes"][at]["body"]["members"][6]["value"] = refer(&aaaa());
+    settle(&mut package);
+    misplaced("a body and a fairness defect", &package, at);
+}
+
+/// A finite-domain hyperproperty over the fixture's Boolean `expression` node:
+/// its domain is a reference and its Groups bind no alias.
+fn finite_hyper(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
+    let mut package = v2_all_families();
+    let boolean_expression = find_form(&package, "expression", "reference");
+    let body = refer(&node_label(&package, boolean_expression));
+    let mut node = hyperproperty(
+        "hyperproperty",
+        vec![json!({"term": "aggregate", "members": [
+            named("variable", text("a")), named("quantifier", text("forall"))]})],
+        vec![],
+        vec![],
+        body,
+    );
+    node["body"]["members"][0]["value"] = refer(&aaaa());
+    node["body"]["members"][1]["value"]["members"] = json!([]);
+    edit(&mut node["body"]);
+    let at = push(&mut package, node);
+    settle(&mut package);
+    (package, at)
+}
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_a_finite_domain_hyperproperty_has_no_subjects_alias_or_fairness_and_a_boolean_body() {
+    let (package, _) = finite_hyper(|_| {});
+    admitted("a finite-domain hyperproperty", &package);
+    // A body that is a `value` node, not an `expression` node.
+    let (package, at) = finite_hyper(|body| {
+        body["members"][6]["value"] = refer(&aaaa());
+    });
+    assert_eq!(
+        first_refusal("a body that is no expression node", &package),
+        outcome(
+            Code::IllTyped,
+            Some(Cause::NonBooleanRoot),
+            at_body(at, "/members/6/value")
+        )
+    );
+    let (package, at) = finite_hyper(|body| {
+        body["members"][1]["value"]["members"] = json!([named("m", text("x"))]);
+    });
+    assert_eq!(
+        first_refusal("a subjects member", &package),
+        outcome(
+            Code::InvalidSemanticGraph,
+            None,
+            at_body(at, "/members/1/value/members/0")
+        )
+    );
+    let (package, at) = finite_hyper(|body| {
+        body["members"][3]["value"]["members"][0]["members"]
+            .as_array_mut()
+            .expect("members")
+            .push(named("alias", text("m")));
+    });
+    assert_eq!(
+        first_refusal("an alias binding", &package),
+        outcome(
+            Code::InvalidSemanticGraph,
+            None,
+            at_body(at, "/members/3/value/members/0/members/2")
+        )
+    );
+    let (package, at) = finite_hyper(|body| {
+        body["members"][3]["value"]["members"][0]["members"]
+            .as_array_mut()
+            .expect("members")
+            .push(refer(&aaaa()));
+    });
+    assert_eq!(
+        first_refusal("a fairness reference", &package),
+        outcome(
+            Code::InvalidSemanticGraph,
+            None,
+            at_body(at, "/members/3/value/members/0/members/2")
+        )
+    );
+}
