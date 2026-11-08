@@ -14,7 +14,7 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 
 fn read(wire: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(wire),

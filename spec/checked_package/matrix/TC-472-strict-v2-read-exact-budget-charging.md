@@ -25,35 +25,77 @@ and that every sufficient budget returns the unlimited budget's outcome.
 1. Build a dedicated integration test binary whose global allocator counts, on
    the reading thread only and only while a flag is set around the
    `CheckedPackageV2::read` call, the size of every allocation request and the
-   new size of every reallocation request, ignoring frees. The binary calls
-   `initialize_operation_catalog` before any measured read and runs its reads
-   on one thread. A separate case reads first in a fresh process without that
-   call and compares its budget deltas with a later read's (FR-038-AC-515).
+   new size of every reallocation request, ignoring frees. Exercise both an
+   explicitly initialized catalog process and a fresh process without
+   `initialize_operation_catalog`; serialize the reads and compare the first
+   read's budget deltas with a later read's (FR-038-AC-515).
    The first package read is measured, not used as an unmeasured warm-up;
    repeated public reads must charge their owned catalog storage again.
+   Preserve an original driver's enclosing allocation oracle: run proof
+   probes serially on scoped workers, with their actual allocator counters
+   armed, and keep the one original public read on its caller thread. Exclude
+   only instrumentation setup, logging and probe-result destruction from the
+   caller's capture; prove the original allocation totals, including result
+   drop, unchanged and independently prove full worker realloc requests.
    Measure dropping a returned outcome in a separate counter interval, so
    destructor requests cannot be mistaken for during-call accounting.
 2. Corpus: every positive TC-048 fixture, the QSpec checked-package
    conformance packages this repository reads by reference, one refused input
    per refusal code, and the adverse shapes of FR-038-AC-511 generated in the
-   test from the repository's public fixture builders.
+   test from the repository's public fixture builders. Select original tests
+   and read-bearing fixture closures from their actual trace attributes and
+   compiled test listing. Interpose at their real public read boundaries;
+   retain original builders and semantic oracles. Do not equate a handpicked
+   registry or every row of a referenced JSON file with the complete corpus.
+   Compiler-observed reader-entry counts must account for every actual
+   measured boundary, including aliases, function items and shared helpers;
+   reject zero-test, omitted-test, ignored-test and unexplained-entry runs.
+   Log original test/callsite provenance and mode in temporary evidence.
 3. Read each input through `CheckedPackageV2::read_with_budget` under
    `NativeJoinBudget::unlimited()`, and through the unbudgeted
    `CheckedPackageV2::read` and `read_checked_package` at ample, exact and
-   one-below `limits.work`, and record
-   the outcome, the work, logical storage and read-storage deltas, and the
-   observed bytes. Discover actual read-storage request boundaries with the
-   public `first_unpaid_read_storage` and `first_unpaid_locus` probes: start
-   at zero and advance the allowance by exactly the denied request amount.
-   Record the actual cumulative boundaries at each stage's requests; stage
-   labels may decrease and must not be treated as a monotonic search key.
+   one-below `limits.work`, preserving each original driver's structural
+   limits, inputs, evidence and semantic oracle. Record the outcome, work,
+   logical-storage and read-storage deltas, and observed bytes. Discover
+   boundaries with the passive test-support native-budget observer: first
+   count events, then reserve the recording buffer outside the active
+   allocation counter and record the same read's Copy events without growing
+   that buffer. Overflow fails the proof. Compare observer-on and observer-off
+   outcomes and deltas. The observer is scoped to the worker/read and changes
+   neither the actual budget layout nor its accounting. Each event supplies
+   its real resource, amount, consumed-before value, admission result, locus
+   and source-derived allocation class; do not infer classes from amounts.
+   Record boundaries in runtime order; stage labels may decrease and must
+   not be treated as a monotonic search key.
 4. Re-read each input with the exact measured work and read-storage limits;
    then, for each stage S the input reaches, with the read-storage limit one
    below the cumulative read storage at S's last charge (work ample), and, for
    each stage that charges work, with the work limit one below its cumulative
    work (read storage ample). Include walker stack growths and quire-exact
    limb requests as denied requests (FR-038-AC-516). Repeat with the denied allocation class chosen as each case of
-   FR-038-AC-497 through FR-038-AC-507 lists.
+   FR-038-AC-497 through FR-038-AC-507 lists. Select stage-last requests and
+   the first/last request of each reached stage/form/allocation class from
+   the recorded events, including walker and exact-number classes. Verify
+   those exact and one-below boundaries and repeated first faults without
+   replaying every allocation prefix of the 100000-node chain. An existing
+   earlier work denial remains the original first fault when the original
+   finite work cap stops a storage probe first; no storage-first outcome is
+   invented. Every probe still asserts requested bytes equal charged bytes.
+   Keep the all-input ample/exact/last-short core tier distinct from the full
+   normative boundary tier in commands and result records.
+   For a designated walker-growth or exact-reservation adverse provider,
+   replay every actual event in those source-derived classes, including
+   intermediate requests; stage/class endpoints alone do not cover that
+   provider. Bind its designation to the original test and read callsite.
+   For an original explicit caller budget, take the test-support exact
+   snapshot before the call, preserving every prior counter, denial, delta,
+   locus, outcome and configuration field. Compare the original call's full
+   outcome and entire final budget with serial checked snapshot reads; assert
+   the logical-storage consumption is unchanged and actual requested bytes
+   equal the read-storage delta. Boundary replay may explicitly change only
+   the work limit, read-storage limit and unlimited flag of an exact snapshot.
+   Do not reconstruct prior state from consumption totals or replace the
+   original caller's one mutable-budget invocation with a proof invocation.
 5. Repeat the one-below reads with a read-storage limit that leaves too little
    for the outcome's own diagnostic, and with zero read storage, including an
    input over the byte limit.
@@ -76,7 +118,13 @@ and that every sufficient budget returns the unlimited budget's outcome.
    implementation; confirm the public read entries take the budget and the
    public outcome types of FR-038-AC-517, with the existing result, limit and
    charge types unchanged and the unbudgeted entries delegating to the one
-   budgeted implementation.
+   budgeted implementation. Ground all reached functions, including generic,
+   Drop, operator, closure and finite-vtable edges, in the actual compiled
+   production entry with opaque borrowed inputs. Map compiler identities and
+   spans back to source syntax; unresolved indirect edges fail closed. Do not
+   replace this with whole-file scanning of mixed V1/postread code or a name
+   allowlist. Executed-corpus entry counts are separate evidence and do not
+   establish the static AC-513 property.
 
 ## Expected Results
 
@@ -102,8 +150,13 @@ and that every sufficient budget returns the unlimited budget's outcome.
   the fixed-size `Exhausted` outcome with the original denial, its configured
   bound, its locus and the pending outcome class, and requests nothing more; an over-byte-limit input returns
   `incomplete` `Bytes` at any read-storage limit.
-- The catalog gate charges nothing, and an unreadable catalog returns
-  `CatalogUnavailable` with the budget unchanged.
+- Each strict read parses and owns its catalog, charging every catalog
+  allocation before requesting it at `PackageRead(Envelope, 0)` with form
+  `"operation_catalog"`. Any catalog charges already admitted remain spent
+  when decoding returns `CatalogUnavailable`; a denied catalog reservation
+  follows the ordinary budget-incomplete/exhausted rules. Calling
+  `initialize_operation_catalog` does not pay for or cache a strict read's
+  catalog storage (FR-038-AC-515).
 - `CheckedJson` and the budget API behave as FR-038-AC-514 and FR-358-AC-14
   state.
 - Composed reads and joins stop at the first unpaid charge of the later

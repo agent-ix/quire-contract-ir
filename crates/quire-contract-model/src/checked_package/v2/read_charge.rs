@@ -58,6 +58,17 @@ pub(in crate::checked_package) trait ReadStorage {
     /// Admits `bytes` of heap about to be requested at `site`, or refuses.
     fn reserve(&mut self, bytes: u128, site: Site) -> Result<(), Denied>;
 
+    /// Pays an owned outcome before construction. Unmetered sinks need only
+    /// reserve; actual native budgets also retain its paid/pending identity.
+    fn reserve_diagnostic(
+        &mut self,
+        bytes: u128,
+        site: Site,
+        _pending: super::CheckedPackagePendingOutcome,
+    ) -> Result<(), Denied> {
+        self.reserve(bytes, site)
+    }
+
     /// The stop that ends the read after this sink refused a request.
     fn denial(&self) -> ValidationFailure;
 }
@@ -69,6 +80,24 @@ impl ReadStorage for NativeJoinBudget {
             Ok(())
         } else {
             Err(Denied)
+        }
+    }
+
+    fn reserve_diagnostic(
+        &mut self,
+        bytes: u128,
+        site: Site,
+        pending: super::CheckedPackagePendingOutcome,
+    ) -> Result<(), Denied> {
+        match self.reserve(bytes, site.form("diagnostic")) {
+            Ok(()) => {
+                self.set_paid(pending);
+                Ok(())
+            }
+            Err(stop) => {
+                self.set_pending(Some(pending));
+                Err(stop)
+            }
         }
     }
 
@@ -324,9 +353,11 @@ pub(super) struct WalkReservation<'m> {
 
 impl quire_walk::Reservation for WalkReservation<'_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
-        self.meter
-            .charge(self.check.form("walk"), bytes as u128)
-            .map_err(|_| quire_walk::Denied)
+        super::observe_allocation_class("walker_growth", || {
+            self.meter
+                .charge(self.check.form("walk"), bytes as u128)
+                .map_err(|_| quire_walk::Denied)
+        })
     }
 }
 

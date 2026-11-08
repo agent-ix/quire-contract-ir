@@ -84,7 +84,7 @@ fn profile(work_limit: u64) -> CompleteLoweringProfileV2 {
 }
 
 fn admit(value: &Value) -> CheckedPackageV2 {
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(value),
@@ -636,7 +636,7 @@ fn dependency_read(
             .insert_dependency_package(*identity, (*package).clone())
             .map_err(|error| error.to_string())?;
     }
-    Ok(CheckedPackageV2::read(
+    Ok(crate::read_and_account(
         &canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &evidence,

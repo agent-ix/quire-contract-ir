@@ -899,10 +899,12 @@ struct SharedReservation<'r, 's> {
 
 impl quire_walk::Reservation for SharedReservation<'_, '_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
-        self.sink
-            .borrow_mut()
-            .reserve(bytes as u128, self.site)
-            .map_err(|_| quire_walk::Denied)
+        super::v2::observe_allocation_class("walker_growth", || {
+            self.sink
+                .borrow_mut()
+                .reserve(bytes as u128, self.site)
+                .map_err(|_| quire_walk::Denied)
+        })
     }
 }
 

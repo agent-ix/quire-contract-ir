@@ -8,8 +8,8 @@
 use crate::support::checked_package::{canonical, evidence_for, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2BudgetedReadResult,
-    NativeJoinBudget, NativeJoinLocusSource, PackageReadStage,
+    CheckedPackageReadLimits, CheckedPackageV2BudgetedReadResult, NativeJoinBudget,
+    NativeJoinLocusSource, PackageReadStage,
 };
 
 /// One heap request of the read, in the order it was made.
@@ -28,7 +28,7 @@ pub type Reader<'a> = &'a dyn Fn(&mut NativeJoinBudget) -> CheckedPackageV2Budge
 
 fn all_families(budget: &mut NativeJoinBudget) -> CheckedPackageV2BudgetedReadResult {
     let value = v2_all_families();
-    CheckedPackageV2::read_with_budget(
+    crate::qspec_read_proof::read_budget_and_account(
         &canonical(&value),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&value),
@@ -63,37 +63,37 @@ pub fn denial_at(read: Reader<'_>, limit: u64) -> Option<Request> {
     })
 }
 
-/// Every request the read makes while it is in `stage`, found by raising the
-/// limit to exactly admit each request in turn. The first request of the
-/// stage is found by bisection, since the stage a read reaches never falls as
-/// the limit rises.
+/// Every request the read makes while it is in `stage`, discovered from
+/// actual first-unpaid prefixes in runtime order. Stage labels may decrease
+/// or reappear: selected-document readers and retained tables interleave them.
+/// Only the supplied caller budget is queried, so fixture preparation using
+/// a different budget cannot contaminate the discovered requests.
 pub fn stage_requests(read: Reader<'_>, stage: PackageReadStage) -> Vec<Request> {
     let total = {
         let (result, budget) = read_at(read, u64::MAX);
-        assert!(matches!(
-            result,
-            CheckedPackageV2BudgetedReadResult::Admitted(_)
-        ));
+        assert!(
+            matches!(result, CheckedPackageV2BudgetedReadResult::Admitted(_)),
+            "{result:?}"
+        );
         budget.read_storage_consumed()
     };
-    let (mut low, mut high) = (0_u64, total);
-    while low < high {
-        let middle = low + (high - low) / 2;
-        match denial_at(read, middle) {
-            Some(request) if request.stage < stage => low = middle + 1,
-            _ => high = middle,
-        }
-    }
-    let mut limit = low;
+    let mut limit = 0_u64;
     let mut found = Vec::new();
     while let Some(mut request) = denial_at(read, limit) {
-        if request.stage > stage {
-            break;
-        }
         request.before = limit;
-        limit += u64::try_from(request.amount).expect("amount fits");
-        found.push(request);
+        let next = limit
+            .checked_add(u64::try_from(request.amount).expect("amount fits"))
+            .expect("request boundary fits");
+        assert!(
+            next > limit && next <= total,
+            "request boundary advances within the measured read"
+        );
+        limit = next;
+        if request.stage == stage {
+            found.push(request);
+        }
     }
+    assert_eq!(limit, total, "every charged request boundary is visited");
     found
 }
 
@@ -111,7 +111,7 @@ pub fn assert_exact_and_one_short(read: Reader<'_>, requests: &[Request]) {
         );
         if let Some(next) = denial_at(read, exact) {
             assert!(
-                next.stage > request.stage
+                next.stage != request.stage
                     || requests.get(position + 1).is_some_and(|following| {
                         (
                             following.stage,
@@ -225,7 +225,7 @@ fn node_id_order_equals_canonical_key_byte_order_on_real_packages() {
         crate::checked_package_v2_map_type::nested_bounded_quantity_wire().0,
     ];
     for value in &wires {
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &canonical(value),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(value),
@@ -279,7 +279,7 @@ fn deeply_nested_keys_read_without_a_plain_comparison_spill() {
     // past the inline stack, and the plain comparison panics on this thread.
     let (wire, maps, _) = crate::checked_package_v2_map_type::map_chain_wire(40);
     let read_key = || {
-        let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
+        let CheckedPackageV2ReadResult::Admitted(package) = crate::read_and_account(
             &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&wire),
@@ -301,7 +301,7 @@ fn deeply_nested_keys_read_without_a_plain_comparison_spill() {
         assert_eq!(maps.len(), depth);
         std::env::set_var("QUIRE_FORBID_PLAIN_CMP_SPILL_ON", &name);
         let _guard = Guard;
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&wire),

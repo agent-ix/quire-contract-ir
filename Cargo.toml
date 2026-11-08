@@ -97,6 +97,13 @@ path = "tests/tc019_determinism.rs"
 test = false
 harness = false
 
+# Explicit compiler-observed entry-census controls; deliberate bypasses must
+# fail the external census, so they do not belong to the ordinary test gate.
+[[test]]
+name = "read_entry_census_controls"
+path = "tests/read_entry_census_controls.rs"
+test = false
+
 [dependencies]
 ix-cli-kit = { version = "0.1", git = "https://github.com/agent-ix/ix-cli-kit", branch = "main", default-features = false, optional = true }
 ix-trace-rs = { version = "0.1", git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }

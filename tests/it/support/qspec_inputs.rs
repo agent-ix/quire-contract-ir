@@ -10,7 +10,7 @@ use quire_contract_model::{
     CheckedArtifactRef, CheckedExtensionClauseSchema, CheckedExtensionDefinition,
     CheckedExtensionGrammarSchema, CheckedExtensionNodeSchema, CheckedExtensionProduction,
     CheckedExtensionTypedNodeSchema, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -158,7 +158,7 @@ pub(crate) fn evidence_for_published(
             None,
             fixtures_dir,
         )?;
-        let CheckedPackageV2ReadResult::Admitted(dependency) = CheckedPackageV2::read(
+        let CheckedPackageV2ReadResult::Admitted(dependency) = crate::read_and_account(
             &fixture_support::canonical(&dependency),
             CheckedPackageReadLimits::bounded(),
             &dependency_evidence,

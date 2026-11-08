@@ -22,7 +22,7 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -39,7 +39,7 @@ fn settle_after_structural_rekey(package: &mut Value) {
 fn read_at_work(package: &Value, work: u64) -> CheckedPackageV2ReadResult {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
-    CheckedPackageV2::read(&canonical(package), limits, &evidence_for(package))
+    crate::read_and_account(&canonical(package), limits, &evidence_for(package))
 }
 
 fn decision_work(package: &Value) -> u64 {
@@ -87,7 +87,7 @@ fn read_with_model(
     package: &Value,
     evidence: &CheckedPackageEvidence,
 ) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         evidence,
@@ -11131,7 +11131,7 @@ fn recovery_slot_let_initializer_cannot_read_its_local_binder() {
 #[test]
 fn role_accepts_a_selected_port_member_without_changing_legacy_roles() {
     let (package, document, _) = role_port_fixture();
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence_with_document(&package, "test/families", &document),
@@ -11348,7 +11348,7 @@ fn unused_local_binding_does_not_hide_barred_initializer_model_state() {
 }
 
 fn read_port(package: &Value, document: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_with_document(package, "test/families", document),
@@ -11480,7 +11480,7 @@ fn port_member_borrowed_read_and_typed_writer_preserve_the_exact_pair() {
         quire_canonical::Limits::new(1 << 24),
     )
     .unwrap();
-    let CheckedPackageV2ReadResult::Admitted(again) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Admitted(again) = crate::read_and_account(
         &encoded,
         CheckedPackageReadLimits::bounded(),
         &evidence_with_document(&package, "test/families", &document),
@@ -11524,7 +11524,7 @@ fn protocol_step_tables_and_walks_are_charged_to_the_read_budget() {
     let bytes = canonical(&package);
     let evidence = evidence_for(&package);
     let reader = |budget: &mut NativeJoinBudget| {
-        CheckedPackageV2::read_with_budget(
+        crate::qspec_read_proof::read_budget_and_account(
             &bytes,
             CheckedPackageReadLimits::bounded(),
             &evidence,

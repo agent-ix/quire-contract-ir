@@ -271,7 +271,7 @@ pub(crate) fn parameters_package() -> Value {
 pub(crate) fn read(value: &Value) -> CheckedPackageV2ReadResult {
     let mut wire = value.clone();
     index_fixture_node_ids(&mut wire);
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&wire),

@@ -217,7 +217,7 @@ pub(super) fn check(
                 } else {
                     super::extension::read_body(
                         body,
-                        at.pointer(),
+                        super::stage_storage::Position::Trail(at),
                         crate::checked_package::common::Ids {
                             sink: &mut **meter.budget(),
                             site: flat_site(position),

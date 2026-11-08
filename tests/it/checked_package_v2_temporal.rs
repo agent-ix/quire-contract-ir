@@ -121,7 +121,7 @@ fn read_with_model(
     limits: CheckedPackageReadLimits,
 ) -> CheckedPackageV2ReadResult {
     let evidence = evidence_with_document(package, ORDERS, document);
-    CheckedPackageV2::read(&canonical(package), limits, &evidence)
+    crate::read_and_account(&canonical(package), limits, &evidence)
 }
 
 fn admitted(case: &str, package: &Value) -> CheckedPackageV2 {

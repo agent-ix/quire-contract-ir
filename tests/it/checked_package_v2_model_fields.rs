@@ -1522,7 +1522,7 @@ fn read_with(
 ) -> CheckedPackageV2ReadResult {
     let mut wire = package.clone();
     index_fixture_node_ids(&mut wire);
-    CheckedPackageV2::read(&canonical(&wire), limits, evidence)
+    crate::read_and_account(&canonical(&wire), limits, evidence)
 }
 
 fn admit(document: &Value, declared: &[(&str, &str)], reads: &[Read]) -> CheckedPackageV2 {
@@ -6352,7 +6352,7 @@ fn model_fields_source_map_and_work_boundary_hold() {
         let middle = low + (high - low) / 2;
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = middle;
-        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+        match crate::read_and_account(&bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Admitted(_) => high = middle,
             CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
             other => panic!("baseline work: {other:?}"),
@@ -6361,7 +6361,7 @@ fn model_fields_source_map_and_work_boundary_hold() {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high - 1;
     let CheckedPackageV2ReadResult::Incomplete(incomplete) =
-        CheckedPackageV2::read(&bytes, limits, &evidence)
+        crate::read_and_account(&bytes, limits, &evidence)
     else {
         panic!("work boundary");
     };
