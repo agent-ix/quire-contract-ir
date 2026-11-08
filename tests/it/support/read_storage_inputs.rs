@@ -10,7 +10,7 @@ use super::checked_package::{
     node_id, rebuild_source_map, select_model, v2_all_families, v2_reference_chain,
 };
 use quire_contract_model::{
-    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -177,7 +177,7 @@ pub fn direct_dependencies_64() -> Input {
         let identity = format!("allocation-dependency-{i:02}");
         let dependency = named_package(&identity);
         let bytes = canonical(&dependency);
-        let result = CheckedPackageV2::read(
+        let result = crate::read_and_account(
             &bytes,
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&dependency),

@@ -67,7 +67,16 @@ and that every sufficient budget returns the unlimited budget's outcome.
    and source-derived allocation class; do not infer classes from amounts.
    Record boundaries in runtime order; stage labels may decrease and must
    not be treated as a monotonic search key.
-4. Re-read each input with the exact measured work and read-storage limits;
+4. Separately measure each input under an unlimited native budget, preserving
+   its structural read limits. For a seeded caller, use its exact snapshot
+   rebound to unlimited work/read storage rather than reconstructing state.
+   Verify that complete reference has no native-budget denial and repeats its
+   full outcome, counts and event stream; then use its complete requirement
+   for exact finite work/read-storage replay and one-below boundaries. Record
+   the original finite-context outcome separately: an intentional original
+   work/storage denial need not equal the unlimited outcome. Never select
+   full stages only from that early-denial prefix.
+   Re-read each input with the exact measured work and read-storage limits;
    then, for each stage S the input reaches, with the read-storage limit one
    below the cumulative read storage at S's last charge (work ample), and, for
    each stage that charges work, with the work limit one below its cumulative

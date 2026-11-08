@@ -52,7 +52,7 @@ pub(crate) fn assert_read<C: Counter>(
     // Initialize only the specified catalog gate; do not use an unmeasured
     // public package read to warm per-read owned storage.
     let reference = measure_read::<C>(bytes, evidence, limits, u64::MAX);
-    let plain = CheckedPackageV2::read(bytes, limits, evidence);
+    let plain = crate::read_and_account(bytes, limits, evidence);
     match (&plain, &reference.result, expected) {
         (
             CheckedPackageV2ReadResult::Admitted(left),

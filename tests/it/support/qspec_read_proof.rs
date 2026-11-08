@@ -19,6 +19,67 @@ use quire_contract_model::{
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[derive(Clone, Copy)]
+struct ReadProvider {
+    symbol: &'static str,
+    classes: &'static [&'static str],
+}
+thread_local! {
+    // Proof-provider metadata only, never an actual budget or allocation meter.
+    static READ_PROVIDER: std::cell::Cell<Option<ReadProvider>> = const { std::cell::Cell::new(None) };
+}
+struct RestoreProvider(Option<ReadProvider>);
+impl Drop for RestoreProvider {
+    fn drop(&mut self) {
+        READ_PROVIDER.with(|provider| provider.set(self.0));
+    }
+}
+
+/// The original fixture-producing test explicitly designates its growth
+/// provider; actual charge events, not data sizes, decide which classes ran.
+pub(crate) fn with_designated_read_provider<R>(
+    symbol: &'static str,
+    classes: &'static [&'static str],
+    read: impl FnOnce() -> R,
+) -> R {
+    assert!(!classes.is_empty());
+    assert!(classes
+        .iter()
+        .all(|class| matches!(*class, "walker_growth" | "exact_reservation")));
+    let previous =
+        READ_PROVIDER.with(|provider| provider.replace(Some(ReadProvider { symbol, classes })));
+    let restore = RestoreProvider(previous);
+    let result = read();
+    drop(restore);
+    result
+}
+
+fn provider_json(
+    provider: ReadProvider,
+    events: &[serde_json::Value],
+    test: &str,
+    location: &'static std::panic::Location<'static>,
+) -> serde_json::Value {
+    let requested: serde_json::Map<String, serde_json::Value> = provider
+        .classes
+        .iter()
+        .map(|class| ((*class).to_owned(), (*class).into()))
+        .collect();
+    let reached: serde_json::Map<String, serde_json::Value> = requested
+        .iter()
+        .filter(|(class, _)| {
+            events.iter().any(|event| {
+                event["resource"] == "ReadStorage"
+                    && event["admitted"] == true
+                    && event["allocation_class"] == class.as_str()
+            })
+        })
+        .map(|(class, role)| (class.clone(), role.clone()))
+        .collect();
+    serde_json::json!({"provider":provider.symbol,"test":test,"driver":location.file(),"line":location.line(),
+                      "requested_classes":requested,"classes":reached})
+}
+
 struct DriverCounter;
 impl Counter for DriverCounter {
     fn measure(read: impl FnOnce()) -> u64 {
@@ -219,6 +280,18 @@ fn full_work_boundaries(
 }
 
 #[cfg(feature = "test-support")]
+fn budgeted_kind(result: &Budgeted) -> &'static str {
+    match result {
+        Budgeted::Admitted(_) => "admitted",
+        Budgeted::Refused(_) => "refused",
+        Budgeted::Incomplete(_) => "incomplete",
+        Budgeted::BudgetIncomplete(_) => "budget-incomplete",
+        Budgeted::Exhausted(_) => "exhausted",
+        Budgeted::CatalogUnavailable(_) => "catalog-unavailable",
+    }
+}
+
+#[cfg(feature = "test-support")]
 fn native_event_json(event: &quire_contract_model::NativeBudgetEvent) -> serde_json::Value {
     serde_json::json!({
         "resource": format!("{:?}", event.resource), "amount": event.amount,
@@ -241,30 +314,97 @@ fn full_native_boundaries(
     reference: &Observation,
     exhaustive_classes: &[&str],
     seed: Option<&quire_contract_model::NativeJoinBudget>,
-) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
+) -> (
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+    serde_json::Value,
+) {
     use quire_contract_model::{NativeBudgetResource as Resource, NativeJoinLocusSource};
     use std::collections::{BTreeMap, BTreeSet};
-    let (observed, events) = if let Some(seed) = seed {
-        native_budget_trace::checked_seeded(bytes, evidence, limits, seed)
-    } else {
-        native_budget_trace::checked::<DriverCounter>(
-            bytes,
-            evidence,
-            limits,
-            limits.work,
-            u64::MAX,
-        )
-    };
-    same_observation(reference, &observed);
-    assert_eq!(
-        reference.budget, observed.budget,
-        "entire original baseline state repeats"
+    let unlimited_seed =
+        seed.map_or_else(quire_contract_model::NativeJoinBudget::unlimited, |seed| {
+            seed.read_proof_snapshot()
+                .read_proof_rebound(u64::MAX, u64::MAX, true)
+        });
+    let prior_work = unlimited_seed.consumed().work;
+    let prior_read = unlimited_seed.read_storage_consumed();
+    let (complete, events) =
+        native_budget_trace::checked_seeded(bytes, evidence, limits, &unlimited_seed);
+    assert!(
+        complete.budget.first_unpaid().is_none()
+            && complete.budget.first_unpaid_read_storage().is_none(),
+        "unlimited native reference has no native denial"
     );
-    drop_without_request::<DriverCounter>(observed);
+    assert!(
+        !matches!(
+            &complete.result,
+            Budgeted::BudgetIncomplete(_) | Budgeted::Exhausted(_)
+        ),
+        "full reference must complete beyond original native limits"
+    );
+    if reference.budget.first_unpaid().is_none()
+        && reference.budget.first_unpaid_read_storage().is_none()
+        && !matches!(
+            &reference.result,
+            Budgeted::BudgetIncomplete(_) | Budgeted::Exhausted(_)
+        )
+    {
+        assert_eq!(
+            complete.result, reference.result,
+            "sufficient original context preserves full outcome"
+        );
+    }
+    let (repeated, repeated_events) =
+        native_budget_trace::checked_seeded(bytes, evidence, limits, &unlimited_seed);
+    same_observation(&complete, &repeated);
+    assert_eq!(
+        complete.budget, repeated.budget,
+        "entire unlimited reference repeats"
+    );
+    assert_eq!(
+        events, repeated_events,
+        "complete unlimited event stream repeats"
+    );
+    drop_without_request::<DriverCounter>(repeated);
+    let work = complete.budget.consumed().work;
+    let storage = complete.budget.read_storage_consumed();
+    let exact_seed = unlimited_seed
+        .read_proof_snapshot()
+        .read_proof_rebound(work, storage, false);
+    let (exact, exact_events) =
+        native_budget_trace::checked_seeded(bytes, evidence, limits, &exact_seed);
+    assert_eq!(
+        complete.result, exact.result,
+        "exact complete requirement preserves full outcome"
+    );
+    assert_eq!(
+        complete.requested, exact.requested,
+        "exact complete requirement preserves requests"
+    );
+    assert_eq!(
+        complete
+            .budget
+            .read_proof_snapshot()
+            .read_proof_rebound(work, storage, false),
+        exact.budget,
+        "exact complete requirement preserves all remaining budget state"
+    );
+    assert_eq!(
+        events, exact_events,
+        "exact complete requirement preserves every native event"
+    );
+    drop_without_request::<DriverCounter>(exact);
+    let complete_reference = serde_json::json!({"native_budget":"unlimited","outcome":budgeted_kind(&complete.result),
+        "prior_work":prior_work,"prior_read_storage":prior_read,"work":work,"read_storage":storage,
+        "requested":complete.requested,"logical_storage_delta":0,"exact_work_limit":work,"exact_read_storage_limit":storage,
+        "exact_outcome_equal":true,"exact_counts_equal":true,"complete_repeat_equal":true,
+        "original_context_outcome":budgeted_kind(&reference.result),
+        "original_context_work_limit":reference.budget.work_limit(),
+        "original_context_read_storage_limit":reference.budget.read_storage_limit()});
+    drop_without_request::<DriverCounter>(complete);
     let mut stage_last = BTreeMap::new();
     let mut class_ends = BTreeMap::new();
     let mut selected = BTreeSet::new();
-    let mut seen_exhaustive = BTreeSet::new();
     for (index, event) in events.iter().enumerate() {
         if !event.admitted || event.amount == 0 {
             continue;
@@ -284,7 +424,6 @@ fn full_native_boundaries(
                 .expect("full proof needs genuine source-derived reservation class");
             if exhaustive_classes.contains(&class) {
                 selected.insert(index);
-                seen_exhaustive.insert(class);
             }
         }
         stage_last.insert((resource, stage), index);
@@ -294,11 +433,6 @@ fn full_native_boundaries(
             .and_modify(|ends: &mut (usize, usize)| ends.1 = index)
             .or_insert((index, index));
     }
-    assert_eq!(
-        seen_exhaustive,
-        exhaustive_classes.iter().copied().collect::<BTreeSet<_>>(),
-        "every designated source class emitted actual reservations"
-    );
     selected.extend(stage_last.into_values());
     for (first, last) in class_ends.into_values() {
         selected.insert(first);
@@ -313,25 +447,14 @@ fn full_native_boundaries(
             .expect("admitted bound fits u64");
         let probe = |bound| {
             let (work, storage) = match event.resource {
-                Resource::Work => (
-                    bound,
-                    seed.map_or(u64::MAX, |seed| seed.read_storage_limit()),
-                ),
-                Resource::ReadStorage => {
-                    (seed.map_or(limits.work, |seed| seed.work_limit()), bound)
-                }
+                Resource::Work => (bound, u64::MAX),
+                Resource::ReadStorage => (u64::MAX, bound),
                 Resource::LogicalStorage => unreachable!("logical storage rejected"),
             };
-            if let Some(seed) = seed {
-                let rebound = seed
-                    .read_proof_snapshot()
-                    .read_proof_rebound(work, storage, false);
-                native_budget_trace::checked_seeded(bytes, evidence, limits, &rebound)
-            } else {
-                native_budget_trace::checked::<DriverCounter>(
-                    bytes, evidence, limits, work, storage,
-                )
-            }
+            let rebound = unlimited_seed
+                .read_proof_snapshot()
+                .read_proof_rebound(work, storage, false);
+            native_budget_trace::checked_seeded(bytes, evidence, limits, &rebound)
         };
         let (exact, exact_events) = probe(bound);
         assert_eq!(
@@ -376,7 +499,11 @@ fn full_native_boundaries(
             drop_without_request::<DriverCounter>(observation);
         }
     }
-    (events.iter().map(native_event_json).collect(), results)
+    (
+        events.iter().map(native_event_json).collect(),
+        results,
+        complete_reference,
+    )
 }
 
 /// Run proof probes serially on scoped workers so an enclosing original
@@ -389,6 +516,7 @@ pub(crate) fn read_and_account(
     evidence: &CheckedPackageEvidence,
 ) -> Plain {
     let location = std::panic::Location::caller();
+    let provider = READ_PROVIDER.with(std::cell::Cell::get);
     let (mode, test_name) = crate::without_qspec_instrumentation(|| {
         let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
         assert!(
@@ -439,6 +567,7 @@ pub(crate) fn read_and_account(
                 .spawn_scoped(scope, move || {
                     finish_proof(
                         bytes, limits, evidence, reference, plain, mode, test_name, location,
+                        provider,
                     )
                 })
                 .expect("start driver accounting worker")
@@ -458,6 +587,7 @@ fn finish_proof(
     mode: String,
     test_name: String,
     location: &'static std::panic::Location<'static>,
+    provider: Option<ReadProvider>,
 ) {
     same_public_result(plain, &reference, limits);
     let storage = reference.budget.read_storage_consumed();
@@ -511,12 +641,19 @@ fn finish_proof(
         drop_without_request::<DriverCounter>(repeated);
     }
     #[cfg(feature = "test-support")]
-    let (native_events, boundary_results) = if mode == "full" {
+    let (native_events, boundary_results, complete_reference) = if mode == "full" {
         // Original QSpec calls use stage/class endpoints. Designated adverse
         // providers must explicitly request all intermediate growth events.
-        full_native_boundaries(bytes, limits, evidence, &reference, &[], None)
+        full_native_boundaries(
+            bytes,
+            limits,
+            evidence,
+            &reference,
+            provider.map_or(&[], |provider| provider.classes),
+            None,
+        )
     } else {
-        (Vec::new(), Vec::new())
+        (Vec::new(), Vec::new(), serde_json::Value::Null)
     };
     #[cfg(feature = "test-support")]
     let (storage_boundaries, work_boundaries) = (
@@ -555,6 +692,17 @@ fn finish_proof(
         "test":test_name,"sequence":sequence,"mode":mode,"outcome":kind,
         "input_bytes":bytes.len(),"work_limit":limits.work,"work":reference.budget.consumed().work,
         "read_storage":storage,"storage_boundaries":storage_boundaries,"work_boundaries":work_boundaries});
+    let row = if let Some(provider) = provider {
+        let mut row = row;
+        #[cfg(feature = "test-support")]
+        let events = &native_events;
+        #[cfg(not(feature = "test-support"))]
+        let events = &[];
+        row["designated_growth_case"] = provider_json(provider, events, &test_name, location);
+        row
+    } else {
+        row
+    };
     #[cfg(feature = "test-support")]
     let row = {
         let mut row = row;
@@ -562,6 +710,8 @@ fn finish_proof(
             row["proof_schema"] = "native-budget-events/v1".into();
             row["native_budget_events"] = native_events.into();
             row["boundary_results"] = boundary_results.into();
+            row["complete_reference"] = complete_reference;
+            row["original_context_outcome"] = kind.into();
         }
         row
     };
@@ -620,6 +770,7 @@ pub(crate) fn read_budget_and_account(
     budget: &mut quire_contract_model::NativeJoinBudget,
 ) -> Budgeted {
     let location = std::panic::Location::caller();
+    let provider = READ_PROVIDER.with(std::cell::Cell::get);
     #[cfg(feature = "test-support")]
     let mode = crate::without_qspec_instrumentation(|| {
         let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
@@ -667,52 +818,53 @@ pub(crate) fn read_budget_and_account(
         "read storage remains separate from native logical storage"
     );
     #[cfg(feature = "test-support")]
-    let (native_events, boundary_results) = crate::without_qspec_instrumentation(|| {
-        std::thread::scope(|scope| {
-            let original = result.as_ref().expect("original caller read ran");
-            let full = mode == "full";
-            let final_budget = &*budget;
-            scope
-                .spawn(move || {
-                    assert_eq!(
-                        &reference.result, original,
-                        "original caller returns the complete snapshot-replay outcome"
-                    );
-                    assert_eq!(
-                        &reference.budget, final_budget,
-                        "original caller retains the complete cumulative snapshot state"
-                    );
-                    assert_eq!(
-                        reference.requested, requested,
-                        "original caller requests match exact-state replay"
-                    );
-                    let (repeated, _events) =
-                        native_budget_trace::checked_seeded(bytes, evidence, limits, &seed);
-                    same_observation(&reference, &repeated);
-                    assert_eq!(
-                        reference.budget, repeated.budget,
-                        "entire repeated caller state"
-                    );
-                    drop_without_request::<DriverCounter>(repeated);
-                    let evidence_rows = if full {
-                        full_native_boundaries(
-                            bytes,
-                            limits,
-                            evidence,
-                            &reference,
-                            &[],
-                            Some(&seed),
-                        )
-                    } else {
-                        (Vec::new(), Vec::new())
-                    };
-                    drop_without_request::<DriverCounter>(reference);
-                    evidence_rows
-                })
-                .join()
-                .expect("exact caller-state repeat proof")
-        })
-    });
+    let (native_events, boundary_results, complete_reference) =
+        crate::without_qspec_instrumentation(|| {
+            std::thread::scope(|scope| {
+                let original = result.as_ref().expect("original caller read ran");
+                let full = mode == "full";
+                let final_budget = &*budget;
+                scope
+                    .spawn(move || {
+                        assert_eq!(
+                            &reference.result, original,
+                            "original caller returns the complete snapshot-replay outcome"
+                        );
+                        assert_eq!(
+                            &reference.budget, final_budget,
+                            "original caller retains the complete cumulative snapshot state"
+                        );
+                        assert_eq!(
+                            reference.requested, requested,
+                            "original caller requests match exact-state replay"
+                        );
+                        let (repeated, _events) =
+                            native_budget_trace::checked_seeded(bytes, evidence, limits, &seed);
+                        same_observation(&reference, &repeated);
+                        assert_eq!(
+                            reference.budget, repeated.budget,
+                            "entire repeated caller state"
+                        );
+                        drop_without_request::<DriverCounter>(repeated);
+                        let evidence_rows = if full {
+                            full_native_boundaries(
+                                bytes,
+                                limits,
+                                evidence,
+                                &reference,
+                                provider.map_or(&[], |provider| provider.classes),
+                                Some(&seed),
+                            )
+                        } else {
+                            (Vec::new(), Vec::new(), serde_json::Value::Null)
+                        };
+                        drop_without_request::<DriverCounter>(reference);
+                        evidence_rows
+                    })
+                    .join()
+                    .expect("exact caller-state repeat proof")
+            })
+        });
     crate::without_qspec_instrumentation(|| {
         let log = std::env::var_os("IR1404_READ_PROOF_LOG")
             .map(std::path::PathBuf::from)
@@ -723,6 +875,23 @@ pub(crate) fn read_budget_and_account(
             "test":std::env::var("IR1404_ORIGINAL_TEST_NAME").unwrap_or_else(|_| std::thread::current().name().unwrap_or("unnamed").to_owned()),"entry":"caller-budget",
             "input_bytes":bytes.len(),"work_limit":budget.work_limit(),
             "storage_limit":budget.read_storage_limit(),"requested":requested});
+        let row = if let Some(provider) = provider {
+            let mut row = row;
+            #[cfg(feature = "test-support")]
+            let events = &native_events;
+            #[cfg(not(feature = "test-support"))]
+            let events = &[];
+            let test = std::env::var("IR1404_ORIGINAL_TEST_NAME").unwrap_or_else(|_| {
+                std::thread::current()
+                    .name()
+                    .unwrap_or("unnamed")
+                    .to_owned()
+            });
+            row["designated_growth_case"] = provider_json(provider, events, &test, location);
+            row
+        } else {
+            row
+        };
         #[cfg(feature = "test-support")]
         let row = {
             let mut row = row;
@@ -735,6 +904,9 @@ pub(crate) fn read_budget_and_account(
             // caller capture is suspended, including sample's empty vectors.
             row["native_budget_events"] = native_events.into();
             row["boundary_results"] = boundary_results.into();
+            row["complete_reference"] = complete_reference;
+            row["original_context_outcome"] =
+                budgeted_kind(result.as_ref().expect("original caller outcome")).into();
             if row["mode"] == "full" {
                 row["proof_schema"] = "native-budget-events/v1".into();
             }
@@ -811,5 +983,37 @@ mod caller_budget_tests {
             "only one actual read reaches the caller's counter"
         );
         assert!(requests > 0, "the real catalogue and parser were observed");
+    }
+}
+
+#[cfg(test)]
+mod provider_scope_tests {
+    use super::{with_designated_read_provider, READ_PROVIDER};
+
+    #[test]
+    fn provider_metadata_restores_after_nested_scope_and_panic() {
+        assert!(READ_PROVIDER.with(std::cell::Cell::get).is_none());
+        with_designated_read_provider("outer-provider", &["walker_growth"], || {
+            let outer = READ_PROVIDER
+                .with(std::cell::Cell::get)
+                .expect("outer metadata");
+            assert_eq!(outer.symbol, "outer-provider");
+            let panic = std::panic::catch_unwind(|| {
+                with_designated_read_provider("inner-provider", &["exact_reservation"], || {
+                    let inner = READ_PROVIDER
+                        .with(std::cell::Cell::get)
+                        .expect("inner metadata");
+                    assert_eq!(inner.classes, &["exact_reservation"]);
+                    panic!("exercise metadata unwind restoration");
+                });
+            });
+            assert!(panic.is_err());
+            let restored = READ_PROVIDER
+                .with(std::cell::Cell::get)
+                .expect("restored metadata");
+            assert_eq!(restored.symbol, outer.symbol);
+            assert_eq!(restored.classes, outer.classes);
+        });
+        assert!(READ_PROVIDER.with(std::cell::Cell::get).is_none());
     }
 }

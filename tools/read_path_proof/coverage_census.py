@@ -176,6 +176,27 @@ def validate_normative_boundaries(record):
     if (record.get("proof_schema") != "native-budget-events/v1"
             or not isinstance(events, list) or not isinstance(results, list)):
         raise CensusError("full proof requires actual passive-event normative boundary results")
+    complete=record.get("complete_reference",{})
+    counters=("prior_work","prior_read_storage","work","read_storage","requested")
+    if (complete.get("native_budget")!="unlimited"
+            or complete.get("outcome") not in {"admitted","refused","incomplete","catalog-unavailable"}
+            or any(type(complete.get(key)) is not int or complete[key]<0 for key in counters)
+            or complete.get("logical_storage_delta")!=0
+            or not complete.get("exact_outcome_equal") or not complete.get("exact_counts_equal")
+            or not complete.get("complete_repeat_equal")):
+        raise CensusError("full proof lacks measured unlimited complete-reference/exact-repeat evidence")
+    if any(type(event.get("amount")) is not int or not 0 <= event["amount"] < 2**128 for event in events):
+        raise CensusError("invalid full native event amount")
+    if any(not event.get("admitted") for event in events):
+        raise CensusError("complete-reference events contain an early native-budget denial")
+    work=sum(event["amount"] for event in events if event.get("resource")=="Work")
+    storage=sum(event["amount"] for event in events if event.get("resource")=="ReadStorage")
+    if (complete["work"]!=complete["prior_work"]+work
+            or complete["read_storage"]!=complete["prior_read_storage"]+storage
+            or complete["requested"]!=storage
+            or complete.get("exact_work_limit")!=complete["work"]
+            or complete.get("exact_read_storage_limit")!=complete["read_storage"]):
+        raise CensusError("unlimited complete-reference totals disagree with actual native events")
     selected = set()
     stage_last, class_first, class_last = {}, {}, {}
     designated = record.get("designated_growth_case")
@@ -187,10 +208,17 @@ def validate_normative_boundaries(record):
                 or not designated.get("provider")
                 or not isinstance(designated.get("classes"), dict)):
             raise CensusError("designated growth case lacks exact original-provider provenance")
-        exhaustive = designated["classes"]
-        if not exhaustive or any(kind not in {"walker_growth", "exact_reservation", "exact_limb"}
-                                 for kind in exhaustive.values()):
+        requested = designated.get("requested_classes", designated["classes"])
+        if (not isinstance(requested, dict) or not requested
+                or any(kind not in {"walker_growth", "exact_reservation", "exact_limb"}
+                       for kind in requested.values())):
             raise CensusError("designated growth classes require source-derived walker/limb roles")
+        exhaustive = {name: role for name, role in requested.items()
+                      if any(event.get("admitted") and event.get("amount", 0) > 0
+                             and event.get("resource") == "ReadStorage"
+                             and event.get("allocation_class") == name for event in events)}
+        if designated["classes"] != exhaustive:
+            raise CensusError("designated reached classes do not match actual native reservations")
     seen_exhaustive = set()
     for index, event in enumerate(events):
         if not event.get("admitted") or event.get("amount", 0) == 0:
@@ -219,7 +247,7 @@ def validate_normative_boundaries(record):
     selected.update(stage_last.values())
     selected.update(class_first.values())
     selected.update(class_last.values())
-    if record.get("read_storage", 0) > 0 and not selected:
+    if complete["requested"] > 0 and not selected:
         raise CensusError("nonempty read has no actual event-selected boundaries")
     observed = set()
     for result in results:
@@ -263,8 +291,15 @@ def check_run(export, root, report, records, mode):
     if mode == "full":
         # A caller-budget original entry is not a probe exemption. It must
         # carry actual full-boundary evidence too; core-only captures stay RED.
+        requested_roles, reached_roles = set(), set()
         for record in records:
             validate_normative_boundaries(record)
+            designated=record.get("designated_growth_case")
+            if designated:
+                requested_roles.update(designated.get("requested_classes",designated["classes"]).values())
+                reached_roles.update(designated["classes"].values())
+        if not requested_roles <= reached_roles:
+            raise CensusError("a designated source growth role was never reached by any original input")
     result.update({"original_tests_passed": len(passed), "mode": mode,
                    "normative_boundary_proof": mode == "full"})
     return result
@@ -294,3 +329,81 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# This is an execution-path binding for minimal class-denial controls, not a
+# reader reachability proof or a per-callback class inference from byte sizes.
+CANONICAL_CLASS_SITES = {
+    "arena": ("node", ".grow(&mut self.slots, 1)"),
+    "text": ("append", ".grow_text(&mut self.text, piece.len())"),
+    "stack": ("value", ".grow(&mut self.stack, 1)"),
+    "children": ("close", ".grow(&mut self.items, items.len())"),
+    "duplicate_sort": ("check_unique_names", ".grow(&mut self.order, children.len())"),
+}
+CANONICAL_PATH_FUNCTIONS = ("value", "node", "complete", "close", "append", "member_name", "check_unique_names", "pointer")
+
+
+def canonical_path_counts(export, source):
+    lines = source.read_text().splitlines()
+    definitions = {}
+    for name in CANONICAL_PATH_FUNCTIONS:
+        found = [i for i, line in enumerate(lines, 1)
+                 if re.match(r"\s*fn\s+" + name + r"\s*\(", line)]
+        if len(found) != 1:
+            raise CensusError(f"canonical Parser source identity ambiguous/missing: {name}")
+        definitions[name] = found[0]
+    counts = dict.fromkeys(definitions, 0)
+    seen = set()
+    for unit in export.get("data", []):
+        for function in unit.get("functions", []):
+            if closure_symbol(function["name"]) or "Parser" not in function["name"]:
+                continue
+            indices = {i for i, name in enumerate(function.get("filenames", [])) if Path(name).resolve() == source.resolve()}
+            for name, line in definitions.items():
+                if not symbol_mentions(function["name"], name):
+                    continue
+                if not any(len(region) >= 8 and region[5] in indices and region[0] <= line <= region[2]
+                           for region in function.get("regions", [])):
+                    continue
+                counts[name] += function["count"]
+                seen.add(name)
+    if seen != set(definitions):
+        raise CensusError(f"missing compiled canonical Parser identities: {sorted(set(definitions)-seen)}")
+    return counts
+
+
+def bind_canonical_denial(provider, counts, facts, source):
+    # These constraints distinguish the last actual reservation caller from
+    # earlier granted callers and later callers which have not been entered.
+    expected = {
+        "arena": {"value":1,"node":1,"complete":0,"close":0,"append":0,"member_name":0,"check_unique_names":0,"pointer":0},
+        "text": {"value":1,"node":0,"complete":0,"close":0,"append":1,"member_name":0,"check_unique_names":0,"pointer":0},
+        "stack": {"value":1,"node":0,"complete":0,"close":0,"append":0,"member_name":0,"check_unique_names":0,"pointer":0},
+        "children": {"value":2,"node":1,"complete":1,"close":1,"append":0,"member_name":0,"check_unique_names":0,"pointer":0},
+        "duplicate_sort": {"value":3,"node":2,"complete":2,"close":1,"member_name":2,"check_unique_names":1,"pointer":0},
+    }[provider]
+    predecessors = {"arena":0,"text":0,"stack":0,"children":3,"duplicate_sort":3}[provider]
+    if facts.get("outcome") != "reservation-denied" or facts.get("calls") != predecessors+1:
+        raise CensusError("actual denied callback does not follow the genuine required predecessor path")
+    if any(counts[name] != amount for name, amount in expected.items()):
+        raise CensusError(f"canonical before-denial Parser path does not identify {provider}: {counts}")
+    function, expression = CANONICAL_CLASS_SITES[provider]
+    source_lines = source.read_text().splitlines()
+    sites = [(i, line.index(expression)+1) for i,line in enumerate(source_lines,1) if expression in line]
+    if len(sites) != 1:
+        raise CensusError("canonical reservation expression source identity changed/ambiguous")
+    return {"source":str(source),"qualified_function":"quire_canonical::read::Parser::"+function,
+            "reservation_expression":expression,"line":sites[0][0],"column":sites[0][1],
+            "before_denial_counts":counts,"granted_predecessor_callbacks":predecessors}
+
+
+def canonical_classes_complete(classes, negatives):
+    expected=set(CANONICAL_CLASS_SITES)
+    required_negatives={"negative_empty_string_is_not_text_growth",
+                        "negative_empty_array_is_not_retained_children",
+                        "negative_scratch_child_is_not_retained_children"}
+    return (len(classes)==len(expected) and {item.get("class") for item in classes}==expected
+            and all(item.get("qualified") is True for item in classes)
+            and len(negatives)==len(required_negatives)
+            and {item.get("test") for item in negatives}==required_negatives
+            and all(item.get("rejected") is True and item.get("rust_oracle_passed") is True
+                    for item in negatives))

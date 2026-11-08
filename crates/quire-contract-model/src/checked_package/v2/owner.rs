@@ -597,8 +597,8 @@ pub(super) fn validate_owner_joins(
     selected_sources.sort_unstable();
     let mut selected_models = meter.vec(models.len())?;
     let mut model_operations = meter.vec(models.len())?;
-    for model in models {
-        selected_models.push((model.identity.as_ref(), model));
+    for (model_index, model) in models.iter().enumerate() {
+        selected_models.push((model.identity.as_ref(), model_index, model));
         let count = model
             .object_types
             .values()
@@ -614,10 +614,17 @@ pub(super) fn validate_owner_joins(
         );
         operations.sort_unstable();
         operations.dedup();
-        model_operations.push((model.identity.as_ref(), operations));
+        model_operations.push((model.identity.as_ref(), model_index, operations));
     }
-    selected_models.sort_unstable_by_key(|row| row.0);
-    model_operations.sort_unstable_by_key(|row| row.0);
+    // Preserve the replaced map's last-model-wins rule for duplicate identities.
+    selected_models.sort_unstable_by_key(|row| (row.0, row.1));
+    model_operations.sort_unstable_by_key(|row| (row.0, row.1));
+    selected_models.reverse();
+    selected_models.dedup_by_key(|row| row.0);
+    selected_models.reverse();
+    model_operations.reverse();
+    model_operations.dedup_by_key(|row| row.0);
+    model_operations.reverse();
     let mut source_entries = meter.vec(
         wire.source_map
             .iter()
@@ -691,7 +698,7 @@ pub(super) fn validate_owner_joins(
                 identity,
                 node: declared,
             }) => {
-                let Some((_, model)) = selected_models
+                let Some((_, _, model)) = selected_models
                     .binary_search_by_key(&identity.as_ref(), |row| row.0)
                     .ok()
                     .map(|i| &selected_models[i])
@@ -706,7 +713,7 @@ pub(super) fn validate_owner_joins(
                 let operations = model_operations
                     .binary_search_by_key(&identity.as_ref(), |row| row.0)
                     .ok()
-                    .map(|i| model_operations[i].1.as_slice());
+                    .map(|i| model_operations[i].2.as_slice());
                 if !kinds.get(position).is_some_and(|kind| {
                     operations.is_some_and(|operations| {
                         terms
@@ -777,6 +784,53 @@ mod anonymous_lookup_tests {
             "source_map":[], "capability_report":[],
             "diagnostics":{"catalog":{"authority":"test", "identity":"diagnostics"}, "entries":[]}
         })).expect("owner-schema input")
+    }
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn selected_model_join_uses_the_last_authentic_document() {
+        use super::super::model_members::tests::{document, object_type, read, GADGET, WIDGET};
+        let widget = read(&document(vec![object_type(WIDGET, &[], vec![])])).unwrap();
+        let gadget = read(&document(vec![object_type(GADGET, &[], vec![])])).unwrap();
+        assert_eq!(widget.identity, gadget.identity);
+        assert!(widget.object_types.contains_key(WIDGET));
+        assert!(!gadget.object_types.contains_key(WIDGET));
+        let mut owned = node(
+            0,
+            "model",
+            "object_type",
+            json!({"term":"aggregate", "members":[]}),
+        );
+        owned["owner"] = json!({"kind":"model", "identity":"acme/orders", "node":WIDGET});
+        let input = wire(vec![owned]);
+        let kinds = [CheckedNodeKind::Model(super::super::ModelForm::ObjectType)];
+        let terms = [Some(CheckedTerm::Aggregate { members: vec![] })];
+        let models = [gadget, widget];
+        assert!(validate_owner_joins(
+            &input,
+            &kinds,
+            &terms,
+            &models,
+            &mut WorkMeter::new(u64::MAX)
+        )
+        .is_ok());
+        let [gadget, widget] = models;
+        let failure = validate_owner_joins(
+            &input,
+            &kinds,
+            &terms,
+            &[widget, gadget],
+            &mut WorkMeter::new(u64::MAX),
+        )
+        .unwrap_err();
+        let ValidationFailure::Refused(refusal) = failure else {
+            panic!("missing selected declaration")
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+        assert_eq!(
+            refusal.loci[0].path,
+            JsonPointer::parse("/semantic_graph/nodes/0/node_id")
+        );
     }
 
     /// Trace: TC-048, FR-038-AC-425.
