@@ -414,7 +414,7 @@ pub(super) fn validate_operations(
     // Temporal placement precedes every operation refusal, including one at
     // a structurally earlier node (FR-038-AC-67).
     for &position in order.wire_index.values() {
-        if let Some(failure) = case_placement_defect(position, &graph) {
+        if let Some(failure) = case_placement_defect(position, &graph, meter) {
             return Err(failure);
         }
     }
@@ -3085,7 +3085,11 @@ fn is_type_node(kind: CheckedNodeKind) -> bool {
 /// `ill_typed`/`operator-ineligible` at the node. A `case` nested in another term
 /// was refused ahead of every identity check, with every other nested
 /// application (`flat_wire`).
-fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<ValidationFailure> {
+fn case_placement_defect(
+    position: usize,
+    graph: &Graph<'_>,
+    meter: &mut WorkMeter,
+) -> Option<ValidationFailure> {
     let node = &graph.nodes[position];
     let kind = graph.kinds[position];
     let root_is_case = matches!(
@@ -3096,29 +3100,39 @@ fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<Validatio
         })
     );
     let is_case_node = kind == CheckedNodeKind::Expression(ExpressionForm::Case);
-    let refuse = |code, path, cause| {
-        Some(ValidationFailure::refused_at(
-            code,
-            path,
-            cause,
-            node.node_id.clone(),
+    let application = Application { node, position };
+    let at = application.read_node();
+    let mut refuse = |code, path, cause| {
+        let mut refusal = super::stage_storage::Refusal::new(code, path).at_node(&node.node_id);
+        if let Some(cause) = cause {
+            refusal = refusal.because(cause);
+        }
+        Some(super::stage_storage::refuse(
+            meter,
+            &super::stage_storage::Site::new(
+                super::PackageReadStage::Graph,
+                position,
+                super::graph_storage::node_form(&node.node_tag),
+                path,
+            ),
+            refusal,
         ))
     };
     match (is_case_node, root_is_case) {
         (true, true) | (false, false) => None,
         (true, false) => refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            node_pointer(position).key("body"),
+            at.key("body"),
             None,
         ),
         (false, true) if kind.tag() == CheckedNodeTag::Expression => refuse(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            node_pointer(position).key("body"),
+            at.key("body"),
             None,
         ),
         (false, true) => refuse(
             CheckedPackageRefusalCode::IllTyped,
-            node_pointer(position),
+            at,
             Some(CheckedPackageRefusalCause::OperatorIneligible),
         ),
     }
@@ -5899,6 +5913,132 @@ mod tests {
             budget.first_unpaid_read_storage(),
             Some(u128::from(charged))
         );
+    }
+
+    #[trace("TC-048", "FR-038-AC-100", "TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn case_placement_faults_prepay_paths_and_node_copies_before_allocation() {
+        use crate::checked_package::v2::{CheckedPackagePendingOutcome, NativeJoinBudget};
+        use CheckedPackageRefusalCause::OperatorIneligible;
+        use CheckedPackageRefusalCode::{IllTyped, InvalidSemanticGraph};
+        for (tag, form, operator, expected_fault) in [
+            (
+                "expression",
+                "case",
+                "unary",
+                Some((InvalidSemanticGraph, None, "/body")),
+            ),
+            (
+                "expression",
+                "call",
+                "case",
+                Some((InvalidSemanticGraph, None, "/body")),
+            ),
+            (
+                "function",
+                "pure_function",
+                "case",
+                Some((IllTyped, Some(OperatorIneligible), "")),
+            ),
+            ("expression", "case", "case", None),
+            ("expression", "call", "unary", None),
+        ] {
+            let identity = if operator == "case" {
+                "quire.op.control.case"
+            } else {
+                "quire.op.boolean.not"
+            };
+            let mut node = application_node(identity, operator);
+            node.node_tag = tag.into();
+            node.semantic_form = form.into();
+            let nodes = [node];
+            let kinds = kinds_of(&nodes);
+            let terms = decoded_terms(&nodes);
+            assert!(terms[0].is_some(), "the existing fixture decodes");
+            let index: GraphIndex<'_> = [(&nodes[0].node_id, 0)].into_iter().collect();
+            let graph = Graph {
+                nodes: &nodes,
+                kinds: &kinds,
+                terms: &terms,
+                index: &index,
+                structural_keys: &[],
+            };
+            let run = |budget: &mut NativeJoinBudget| {
+                let mut outcome = None;
+                let allocated = allocation_counter::measure(|| {
+                    outcome = Some(super::case_placement_defect(
+                        0,
+                        &graph,
+                        &mut WorkMeter::over(budget),
+                    ));
+                })
+                .bytes_total;
+                (outcome.unwrap(), allocated)
+            };
+            let Some((code, cause, suffix)) = expected_fault else {
+                let mut budget = NativeJoinBudget::new(0, 0);
+                assert_eq!(run(&mut budget), (None, 0));
+                assert_eq!(budget.read_storage_consumed(), 0);
+                assert_eq!(budget.consumed().work, 0);
+                assert_eq!(budget.take_paid(), None);
+                assert_eq!(budget.take_pending(), None);
+                continue;
+            };
+            let mut ample = NativeJoinBudget::new(0, 0).with_read_storage_limit(u64::MAX);
+            let (expected, allocated) = run(&mut ample);
+            let Some(ValidationFailure::Refused(refusal)) = &expected else {
+                panic!("placement fault")
+            };
+            assert_eq!(refusal.code, code);
+            assert_eq!(refusal.cause, cause);
+            assert_eq!(
+                refusal.primary_path().unwrap().as_str(),
+                format!("/semantic_graph/nodes/0{suffix}")
+            );
+            assert_eq!(refusal.locus.as_ref(), Some(&nodes[0].node_id));
+            let required = ample.read_storage_consumed();
+            assert_eq!(allocated, required);
+            assert_eq!(
+                ample.take_paid(),
+                Some(CheckedPackagePendingOutcome::Refused(code))
+            );
+            assert_eq!(ample.consumed().work, 0);
+            let mut exact = NativeJoinBudget::new(0, 0).with_read_storage_limit(required);
+            assert_eq!(run(&mut exact), (expected.clone(), required));
+            for limit in [0, required - 1] {
+                let mut short = NativeJoinBudget::new(0, 0).with_read_storage_limit(limit);
+                assert!(matches!(
+                    run(&mut short),
+                    (Some(ValidationFailure::Budget(_)), 0)
+                ));
+                assert_eq!(short.read_storage_consumed(), 0);
+                assert_eq!(
+                    short.first_unpaid_read_storage(),
+                    Some(u128::from(required))
+                );
+                assert_eq!(
+                    short.first_unpaid_locus(),
+                    Some(super::super::NativeJoinLocus {
+                        source: super::super::NativeJoinLocusSource::PackageRead(
+                            super::super::PackageReadStage::Graph,
+                            0
+                        ),
+                        form: "diagnostic",
+                    })
+                );
+                assert_eq!(
+                    short.take_pending(),
+                    Some(CheckedPackagePendingOutcome::Refused(code))
+                );
+                assert_eq!(short.consumed().work, 0);
+            }
+            let mut repeated = NativeJoinBudget::new(0, 0).with_read_storage_limit(2 * required);
+            assert_eq!(run(&mut repeated), (expected.clone(), required));
+            assert_eq!(run(&mut repeated), (expected, required));
+            assert_eq!(repeated.read_storage_consumed(), 2 * required);
+            assert_eq!(repeated.consumed().work, 0);
+            assert_eq!(repeated.first_unpaid_read_storage(), None);
+        }
     }
 
     fn edit_body(node: &mut CheckedSemanticNodeV2, edit: impl FnOnce(&mut Value)) {
