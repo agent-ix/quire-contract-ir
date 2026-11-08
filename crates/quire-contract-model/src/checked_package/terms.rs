@@ -198,6 +198,7 @@ impl<'a> Cursor<'a> {
     }
 }
 
+#[cfg(test)] // the strict read walks `TermNode` subterms; kept as the Value oracle
 /// Visits every term of `root` in document pre-order, outermost first, until
 /// `visit` returns [`ControlFlow::Break`].
 pub(super) fn visit_terms<'a, B>(

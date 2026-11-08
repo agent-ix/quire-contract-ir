@@ -39,14 +39,13 @@ use super::{
     CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm, CheckedTermView, ClockConfiguration,
     FairnessGranularity, FairnessKind, HybridForm, IntervalEnd, IntervalFit, LawRole, ModelForm,
     OperationMemberKind, RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalBinding, TemporalForm,
-    TemporalProfile, ValueForm, WorkMeter,
+    TemporalProfile, TermNode, TermView, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, JsonPointer,
 };
-use crate::checked_package::terms::visit_terms;
 use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
@@ -87,18 +86,35 @@ fn is_placed_class(operator: ApplicationOperator) -> bool {
 /// or `value`/`union_value` node). An application in a `details` term is
 /// outside the body grammar and is refused ahead of this check (`flat_wire`).
 pub(in crate::checked_package) fn references_refused_node(
-    term: &Value,
+    term: TermNode<'_>,
     refused_target: impl Fn(&CheckedNodeId) -> bool,
-) -> bool {
-    visit_terms(term, |term| {
-        let refused = reference_target(term).is_some_and(|target| refused_target(&target));
-        if refused {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let mut pending: Vec<TermNode<'_>> = meter.vec(1)?;
+    pending.push(term);
+    while let Some(term) = pending.pop() {
+        if let Some(TermView::Reference { target }) = term.view() {
+            // The target ID is charged before it is allocated; the budget is
+            // the caller's, or a free one for a meter that owns its limit.
+            let id = match meter.budget_and_site() {
+                Some((budget, site)) => target.node_id(budget, site, true)?,
+                None => target.node_id(
+                    &mut super::NativeJoinBudget::unlimited(),
+                    super::read_charge::Site::new(super::PackageReadStage::Graph, 0, "details"),
+                    true,
+                )?,
+            };
+            if id.is_some_and(|id| refused_target(&id)) {
+                return Ok(true);
+            }
         }
-    })
-    .is_break()
+        let subterms = term.subterms();
+        meter.room(&mut pending, subterms.size_hint().0)?;
+        for subterm in subterms {
+            meter.push(&mut pending, subterm.value)?;
+        }
+    }
+    Ok(false)
 }
 
 /// An integer string: the schema's `IntegerString`, `^(0|-?[1-9][0-9]*)$`.
@@ -531,7 +547,7 @@ pub(super) fn validate_temporal(
             return Err(failure);
         }
     }
-    validate_diagnostic_references(nodes, kinds, context.diagnostics)?;
+    validate_diagnostic_references(nodes, kinds, context.diagnostics, meter)?;
     meter.at_node(0, "temporal");
     let clock_units = aggregate_clock_units(context.bindings, meter)?;
     let mut covered = meter.filled(nodes.len(), false)?;
@@ -578,6 +594,7 @@ fn validate_diagnostic_references(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     diagnostics: &[CheckedDiagnosticV2],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let never_referenced = nodes
         .iter()
@@ -593,8 +610,12 @@ fn validate_diagnostic_references(
         .collect::<BTreeSet<_>>();
     for (entry_index, entry) in diagnostics.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
-            let detail = &detail.to_value();
-            if references_refused_node(detail, |target| never_referenced.contains(target)) {
+            meter.at_row("diagnostic_details", entry_index);
+            if references_refused_node(
+                TermNode::of(detail),
+                |target| never_referenced.contains(target),
+                meter,
+            )? {
                 return Err(ValidationFailure::refused_because(
                     CheckedPackageRefusalCode::IllTyped,
                     member_pointer(&["diagnostics", "entries"])
@@ -1723,6 +1744,7 @@ fn formula_intervals(
 mod tests {
     use super::*;
     use crate::checked_package::shared::CheckedSelection;
+    use crate::checked_package::v2::CheckedJson;
     use crate::checked_package::v2::CheckedNodeTag;
     use ix_trace_rs::trace;
     use serde_json::json;
@@ -1735,11 +1757,69 @@ mod tests {
     #[test]
     fn tc_048_diagnostic_reference_requires_a_closed_term() {
         let target: CheckedNodeId = serde_json::from_value(id('a')).expect("target");
+        let refused = |value: &Value| {
+            let json = CheckedJson::from_value(value).expect("document");
+            references_refused_node(
+                TermNode::of(&json),
+                |node| node == &target,
+                &mut WorkMeter::new(u64::MAX),
+            )
+            .ok()
+        };
         let reference = json!({"term": "reference", "target": id('a')});
-        assert!(references_refused_node(&reference, |node| node == &target));
+        assert_eq!(refused(&reference), Some(true));
 
         let extra = json!({"term": "reference", "target": id('a'), "members": []});
-        assert!(!references_refused_node(&extra, |node| node == &target));
+        assert_eq!(refused(&extra), Some(false));
+        // Below an aggregate and a binding, and a different target.
+        let nested = json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "n", "value": reference}
+        ]});
+        assert_eq!(refused(&nested), Some(true));
+        assert_eq!(
+            refused(&json!({"term": "reference", "target": id('b')})),
+            Some(false)
+        );
+    }
+
+    /// The diagnostic reference walk requests its stack and each target ID
+    /// before making them: the bytes the allocator is asked for equal the
+    /// bytes charged, the measured requirement admits and one byte below is
+    /// denied (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn diagnostic_reference_walk_allocates_exactly_what_it_charges() {
+        let reference = json!({"term": "reference", "target": id('a')});
+        let value = json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "n", "value": reference.clone()},
+            reference,
+            {"term": "reference", "target": id('b')},
+        ]});
+        let json = CheckedJson::from_value(&value).expect("document");
+        let run = |limit: u64| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut walked = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                walked = Some(references_refused_node(
+                    TermNode::of(&json),
+                    |_| false,
+                    &mut meter,
+                ));
+            });
+            (
+                walked.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (walked, allocated, charged) = run(u64::MAX);
+        assert_eq!(walked, Some(false));
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, walked, "the measured limit admits");
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
     }
 
     /// FR-038-AC-97: an interval bound is an integer string of unbounded size,
