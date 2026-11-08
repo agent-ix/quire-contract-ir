@@ -133,7 +133,7 @@ impl<'e> SuppliedDependencies<'e> {
     pub(super) fn holds_node(&self, id: &CheckedNodeId) -> bool {
         self.packages
             .iter()
-            .any(|supplied| supplied.index.contains_key(id))
+            .any(|supplied| supplied.position(id).is_some())
     }
 
     /// The node `id` of the directly selected package `package`: the package
@@ -144,7 +144,7 @@ impl<'e> SuppliedDependencies<'e> {
         id: &CheckedNodeId,
     ) -> Option<(&'e CheckedPackageV2, usize)> {
         let supplied = self.resolve(package)?;
-        Some((supplied.package, *supplied.index.get(id)?))
+        Some((supplied.package, supplied.position(id)?))
     }
 
     /// The admitted directly selected package with this exact identity.

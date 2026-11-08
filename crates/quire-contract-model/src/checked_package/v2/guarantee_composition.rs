@@ -40,7 +40,7 @@ use super::abstraction::{
 use super::dependency_references::SuppliedDependencies;
 use super::frame::{join, StepGraph};
 use super::guarantee_terms::{granularity_spelling, kind_spelling};
-use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
+use super::model_members::{Budget, MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::rust_spelling::is_rust_path;
 use super::state::resolve_operation;
 use super::{
@@ -55,7 +55,7 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// The four composition rule spellings of QSpec FR-491.
 const RULES: [&str; 4] = [
@@ -320,7 +320,7 @@ fn malformed(at: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
 pub(super) fn validate(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &super::graph_storage::GraphIndex<'_>,
     owners: &ModelOwners<'_>,
     dependencies: &SuppliedDependencies<'_>,
     meter: &mut WorkMeter,
@@ -983,12 +983,18 @@ fn check_foreign_operations(
     operations: &[ForeignOperation<'_>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let nodes_at = || JsonPointer::root().key("semantic_graph").key("nodes");
     let graph = package.resolved_graph();
     let nodes = &graph.nodes;
-    let owners = ModelOwners::new(package.models.selected_models(), nodes, |_| {
-        meter.charge(1, nodes_at)
-    })?;
+    let mut budget = Budget::node(meter, 0);
+    let owners = ModelOwners::build(
+        package.models.selected_models(),
+        nodes,
+        &mut budget,
+        |budget, root| {
+            budget.set_index(root);
+            budget.charge(1)
+        },
+    )?;
     for (at, context, position, operation) in operations {
         let Some(node) = nodes.get(*position) else {
             continue;
