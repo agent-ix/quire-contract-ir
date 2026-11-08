@@ -880,16 +880,36 @@ fn path_step_kind(step: &CheckedTerm) -> Option<PathStepKind> {
     text_member(step, 0).and_then(PathStepKind::from_wire)
 }
 
+/// Borrowed selector type nodes from a validated place path.
+pub(super) struct PlaceSelectors<'a> {
+    steps: &'a [CheckedTerm],
+    len: usize,
+}
+impl PlaceSelectors<'_> {
+    pub(super) fn len(&self) -> usize {
+        self.len
+    }
+    pub(super) fn iter(&self) -> impl Iterator<Item = &CheckedNodeId> {
+        self.steps
+            .iter()
+            .filter(|step| path_step_kind(step) == Some(PathStepKind::Slot))
+            .filter_map(|step| bound(step, 2).and_then(typed_target))
+    }
+}
+
 /// The selected model and selector type nodes of an already validated place template.
-pub(super) fn place_template(place: &CheckedTerm) -> Option<(&CheckedNodeId, Vec<&CheckedNodeId>)> {
+pub(super) fn place_template(place: &CheckedTerm) -> Option<(&CheckedNodeId, PlaceSelectors<'_>)> {
     let model = bound(place, 0).and_then(typed_target)?;
     let steps = bound(place, 1).map(typed_members)?;
-    let selectors = steps
+    let mut len = 0;
+    for step in steps
         .iter()
         .filter(|step| path_step_kind(step) == Some(PathStepKind::Slot))
-        .map(|step| bound(step, 2).and_then(typed_target))
-        .collect::<Option<Vec<_>>>()?;
-    Some((model, selectors))
+    {
+        bound(step, 2).and_then(typed_target)?;
+        len += 1;
+    }
+    Some((model, PlaceSelectors { steps, len }))
 }
 
 enum RenderedCollectionType<'a> {
@@ -2576,7 +2596,7 @@ impl super::CheckedPackageV2 {
             if work >= work_limit {
                 return Err(CheckedModelTimeReadError {
                     code: CheckedModelTimeReadErrorCode::WorkLimit,
-                    at: Box::new(at),
+                    at: Box::new(at.clone()),
                     work,
                     attempted_work: 1,
                 });
@@ -3013,7 +3033,7 @@ pub(super) fn validate_models<'a>(
                                     at,
                                 ));
                             };
-                            let slot_index = slot_positions[slot].1;
+
                             if previous_slot.is_some_and(|previous| slot_index <= previous) {
                                 return Err(graph.issue(
                                     meter,
@@ -3041,7 +3061,7 @@ pub(super) fn validate_models<'a>(
                     )?;
                     let parameter_name = bound(body, 2).and_then(spelling).unwrap_or_default();
                     let operation_name = graph
-                        .body(anchor)
+                        .body(meter, anchor)
                         .ok()
                         .and_then(|body| bound(body, 1))
                         .and_then(spelling)
