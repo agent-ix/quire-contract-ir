@@ -11,6 +11,8 @@ mod proof;
 mod qspec_fma_inputs;
 #[path = "support/qspec_inputs.rs"]
 mod qspec_inputs;
+#[path = "support/qspec_option_inputs.rs"]
+mod qspec_option_inputs;
 #[path = "support/qspec_protocol_location_inputs.rs"]
 mod qspec_protocol_location_inputs;
 #[path = "support/qspec_text_inputs.rs"]
@@ -553,6 +555,46 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
                 });
             }
         }
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("model-option-type-vectors.json"))
+        .expect("published option vectors");
+    let base = qspec_option_inputs::document(&vectors["domain_package"]);
+    let (wire, evidence) = qspec_option_inputs::prepare(&base);
+    cases.push(Case {
+        label: format!(
+            "QSpec/option/base-fields/{}-projected-types",
+            base.origins.len()
+        ),
+        bytes: canonical(&wire),
+        evidence,
+        expected: Expected::Admitted,
+    });
+    for row in vectors["intake_cases"]
+        .as_array()
+        .expect("option intake cases")
+    {
+        let id = row["name"].as_str().expect("option case name");
+        let mut projection = vectors["domain_package"].clone();
+        for patch in row["patch"].as_array().expect("option projection patch") {
+            qspec_option_inputs::apply(&mut projection, patch);
+        }
+        let input = qspec_option_inputs::document(&projection);
+        let (wire, evidence) = qspec_option_inputs::prepare(&input);
+        let expected = if row["expected"]["admitted"] == true {
+            Expected::Admitted
+        } else {
+            Expected::Refused(
+                serde_json::from_value(row["expected"]["refused"]["code"].clone())
+                    .expect("published option refusal code"),
+            )
+        };
+        providers.insert(format!("conformance_qspec/model_option_types.rs: model-option-type-vectors.json#/intake_cases#{id}"));
+        cases.push(Case {
+            label: format!("QSpec/option/{id}"),
+            bytes: canonical(&wire),
+            evidence,
+            expected,
+        });
     }
     (cases, providers)
 }
