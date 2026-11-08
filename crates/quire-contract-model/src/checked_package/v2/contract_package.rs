@@ -3300,7 +3300,9 @@ impl ContractPackageWireV1 {
         check_derived_closure(
             selected,
             &packages,
-            JsonPointer::root().key("package").key("source"),
+            super::stage_storage::Path::root()
+                .key("package")
+                .key("source"),
             meter,
         )
     }

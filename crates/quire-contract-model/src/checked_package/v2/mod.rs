@@ -2147,7 +2147,7 @@ fn validate_lock<'a>(
     check_derived_closure(
         &lock.dependency_selections,
         &dependencies.packages(meter)?,
-        JsonPointer::root(),
+        stage_storage::Path::root(),
         meter,
     )?;
     validate_required_features(&lock.required_features, meter)?;
