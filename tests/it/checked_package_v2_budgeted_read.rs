@@ -439,7 +439,7 @@ fn every_read_charges_its_owned_catalog_independently() {
     assert_eq!(denied.read_storage_consumed(), 0);
 }
 
-/// A refusal's owned pointer is a diagnostic the read pays for. Exactly paid,
+/// A refusal's record, location and owned pointer are paid diagnostics. Exactly paid,
 /// the refusal is returned; one byte short, the read is `Exhausted` with the
 /// request that was denied, its bound, locus and pending refusal.
 #[trace("TC-472", "FR-038-AC-510")]
@@ -453,6 +453,15 @@ fn an_unaffordable_refusal_diagnostic_is_exhausted_with_the_pending_refusal() {
     else {
         panic!("an unknown member refuses");
     };
+    assert_eq!(refusal.loci.len(), 1);
+    assert!(refusal.loci[0].source_region.is_none());
+    assert!(refusal.cause.is_none());
+    assert!(refusal.locus.is_none());
+    assert!(refusal.contract_version.is_none());
+    assert!(refusal.document_pointer.is_none());
+    assert!(refusal.extension_detail.is_none());
+    assert!(refusal.protocol_detail.is_none());
+    assert!(refusal.terminal_duplicate.is_none());
     let pointer = refusal.loci[0]
         .path
         .as_ref()
@@ -460,20 +469,26 @@ fn an_unaffordable_refusal_diagnostic_is_exhausted_with_the_pending_refusal() {
         .as_str()
         .len() as u64;
     assert!(pointer > 0);
-    let paid = measure.read_storage_consumed() - pointer;
-    let mut exact = storage_budget(paid + pointer);
+    // The public outcome moves the record out of its read-time box. Its
+    // layout and the one owned location still determine that allocation.
+    let diagnostic =
+        u64::try_from(std::mem::size_of_val(&refusal) + std::mem::size_of_val(&refusal.loci[0]))
+            .expect("diagnostic layout fits u64")
+            + pointer;
+    let paid = measure.read_storage_consumed() - diagnostic;
+    let mut exact = storage_budget(paid + diagnostic);
     assert!(matches!(
         read_bytes(&bytes, &mut exact),
         CheckedPackageV2BudgetedReadResult::Refused(_)
     ));
-    let mut short = storage_budget(paid + pointer - 1);
+    let mut short = storage_budget(paid + diagnostic - 1);
     let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = read_bytes(&bytes, &mut short)
     else {
         panic!("an unaffordable refusal diagnostic is exhausted");
     };
     assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(exhausted.denied.amount, u128::from(pointer));
-    assert_eq!(exhausted.configured_bound, paid + pointer - 1);
+    assert_eq!(exhausted.denied.amount, u128::from(diagnostic));
+    assert_eq!(exhausted.configured_bound, paid + diagnostic - 1);
     assert_eq!(
         exhausted.locus,
         NativeJoinLocus {
