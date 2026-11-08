@@ -189,6 +189,58 @@ impl FrameBody {
             deletes_scoped,
         })
     }
+
+    /// Copies the retained typed representation using the same caller meter.
+    pub(super) fn checked_term(
+        &self,
+        meter: &mut WorkMeter,
+    ) -> Result<CheckedTerm, ValidationFailure> {
+        let mut modifies = meter.vec(self.modifies.len())?;
+        for entry in &self.modifies {
+            modifies.push(match entry {
+                ModifiesEntry::Relationship { declaration } => {
+                    CheckedFrameModification::Relationship {
+                        declaration: meter.clone_id(declaration)?,
+                    }
+                }
+                ModifiesEntry::Field {
+                    declaration,
+                    name,
+                    scope,
+                } => CheckedFrameModification::Field {
+                    declaration: meter.clone_id(declaration)?,
+                    name: meter.boxed_str(name)?,
+                    scope: match scope {
+                        FieldScope::EveryObject => CheckedFieldScope::EveryObject,
+                        FieldScope::Receiver => CheckedFieldScope::Receiver,
+                    },
+                },
+            });
+        }
+        let mut creates = meter.vec(self.creates.len())?;
+        for id in &self.creates {
+            creates.push(meter.clone_id(id)?);
+        }
+        let mut deletes = meter.vec(self.deletes.len())?;
+        for id in &self.deletes {
+            deletes.push(meter.clone_id(id)?);
+        }
+        let mut deletes_scoped = meter.vec(self.deletes_scoped.len())?;
+        for entry in &self.deletes_scoped {
+            deletes_scoped.push(match entry {
+                DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
+                DeletesScopedEntry::Parameter { name } => CheckedScopedDeletion::Parameter {
+                    name: meter.boxed_str(name)?,
+                },
+            });
+        }
+        Ok(CheckedTerm::Frame {
+            modifies,
+            creates,
+            deletes,
+            deletes_scoped,
+        })
+    }
 }
 
 /// Reads a `state`/`frame` node's body at `at`, returning it and its work:
@@ -799,5 +851,108 @@ mod tests {
         for name in ["", "1a", "a-b", "a b", "é"] {
             assert!(!is_identifier(name), "{name}");
         }
+    }
+}
+
+#[cfg(test)]
+mod document_storage_tests {
+    use super::super::{CheckedJson, NativeJoinBudget};
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    fn document() -> CheckedJson {
+        let id = json!({"package":"pkg", "path":[{"operand":0}], "ordinal":0});
+        serde_json::from_value(json!({"term":"frame", "modifies":[{"kind":"field", "declaration":id, "name":"field", "scope":"receiver"}], "creates":[id], "deletes":[], "deletes_scoped":[{"kind":"parameter", "name":"argument"}]})).unwrap()
+    }
+
+    #[trace("TC-472", "FR-038-AC-504", "FR-038-AC-511")]
+    #[test]
+    fn frame_document_and_retained_term_pay_exact_blocks_before_allocation() {
+        let body = document();
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(7, "state");
+                result = Some(
+                    read_frame_body(TermNode::of(&body), &[42], &mut meter, &Trail::Base(&[]))
+                        .and_then(|(frame, work)| {
+                            frame
+                                .checked_term(&mut meter)
+                                .map(|term| (frame, term, work))
+                        }),
+                );
+            });
+            (result.unwrap(), measured.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        let (frame, term, work) = result.unwrap();
+        assert_eq!(work, 4);
+        assert_eq!(
+            frame.creates[0].path,
+            vec![crate::checked_package::shared::CheckedNodePathSegment::Index(42)]
+        );
+        assert_eq!(
+            term,
+            frame
+                .into_checked_term(&mut WorkMeter::new(u64::MAX))
+                .unwrap()
+        );
+        let required = budget.read_storage_consumed();
+        assert_eq!(allocated, required);
+        assert!(run(required).0.is_ok());
+        assert!(matches!(
+            run(required - 1).0,
+            Err(ValidationFailure::Budget(_))
+        ));
+        assert_eq!(run(0).1, 0);
+    }
+
+    #[trace("TC-472", "FR-038-AC-504", "FR-038-AC-511")]
+    #[test]
+    fn borrowed_frame_copy_keeps_its_source_and_stops_before_unpaid_storage() {
+        let body = document();
+        let (frame, _) = read_frame_body(
+            TermNode::of(&body),
+            &[42],
+            &mut WorkMeter::new(u64::MAX),
+            &Trail::Base(&[]),
+        )
+        .unwrap();
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(7, "state");
+                result = Some(frame.checked_term(&mut meter));
+            });
+            (result.unwrap(), measured.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        let expected = result.unwrap();
+        let required = budget.read_storage_consumed();
+        assert!(required > 0);
+        assert_eq!(allocated, required);
+        assert_eq!(run(required).0.unwrap(), expected);
+        let (result, allocated, budget) = run(required - 1);
+        assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some("argument".len() as u128)
+        );
+        let locus = budget.first_unpaid_locus().unwrap();
+        assert_eq!(
+            locus.source,
+            super::super::NativeJoinLocusSource::PackageRead(
+                super::super::PackageReadStage::Graph,
+                7
+            )
+        );
+        assert_eq!(locus.form, "state");
+        assert_eq!(run(u64::MAX).0.unwrap(), expected);
     }
 }
