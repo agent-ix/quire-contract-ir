@@ -62,8 +62,8 @@
 use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{DomainModel, MemberType, ValueBounds};
-use super::node_index::resolve_id_charged;
 use super::native_join_budget::PackageReadStage;
+use super::node_index::resolve_id_charged;
 use super::stage_storage::{self, Path, Refusal, Site};
 use super::term_view::{TermNode, TermView};
 use super::{
@@ -100,7 +100,10 @@ enum Defect {
 
 impl Defect {
     fn path(self, position: usize) -> Path<'static> {
-        let node = Path::root().key("semantic_graph").key("nodes").index(position);
+        let node = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position);
         match self {
             Self::SemanticType => node.key("semantic_type"),
             Self::Dependencies => node.key("dependencies"),
@@ -130,8 +133,14 @@ fn structural_refusal(
 ) -> ValidationFailure {
     let at = defect.path(position);
     let mut refusal = Refusal::new(code, at);
-    if let Some(locus) = locus { refusal = refusal.at_node(locus); }
-    stage_storage::refuse(meter, &Site::new(PackageReadStage::Graph, position, form, at), refusal)
+    if let Some(locus) = locus {
+        refusal = refusal.at_node(locus);
+    }
+    stage_storage::refuse(
+        meter,
+        &Site::new(PackageReadStage::Graph, position, form, at),
+        refusal,
+    )
 }
 
 /// The graph one stage reads: each node with its decoded kind, by key.
@@ -623,12 +632,24 @@ pub(super) fn validate_structural_nodes_with_keys(
         };
         let node_form = super::graph_storage::node_form(&node.node_tag);
         let refuse = |meter: &mut WorkMeter, defect: Defect| {
-            structural_refusal(meter, position, node_form,
-                CheckedPackageRefusalCode::InvalidSemanticGraph, defect, Some(node_id))
+            structural_refusal(
+                meter,
+                position,
+                node_form,
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                defect,
+                Some(node_id),
+            )
         };
         let malformed = |meter: &mut WorkMeter| {
-            structural_refusal(meter, position, node_form,
-                CheckedPackageRefusalCode::MalformedWire, Defect::Body, None)
+            structural_refusal(
+                meter,
+                position,
+                node_form,
+                CheckedPackageRefusalCode::MalformedWire,
+                Defect::Body,
+                None,
+            )
         };
         meter.at_node(position, node_form);
         let form = StructuralForm::of(kind);
@@ -2281,34 +2302,71 @@ mod tests {
     #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
     #[test]
     fn structural_defects_prepay_their_exact_payload_and_preserve_loci() {
-        use crate::checked_package::v2::budgeted_read::{CheckedPackagePendingOutcome, PackageReadResource};
+        use crate::checked_package::v2::budgeted_read::{
+            CheckedPackagePendingOutcome, PackageReadResource,
+        };
         use crate::{NativeJoinBudget, NativeJoinLocusSource, PackageReadStage};
         let id = super::super::test_support::id('a');
         for (defect, expected) in [
-            (Defect::SemanticType, "/semantic_graph/nodes/3/semantic_type"),
+            (
+                Defect::SemanticType,
+                "/semantic_graph/nodes/3/semantic_type",
+            ),
             (Defect::Dependencies, "/semantic_graph/nodes/3/dependencies"),
-            (Defect::RecursionGroup, "/semantic_graph/nodes/3/recursion_group"),
+            (
+                Defect::RecursionGroup,
+                "/semantic_graph/nodes/3/recursion_group",
+            ),
             (Defect::Occurrences, "/semantic_graph/nodes/3/occurrences"),
             (Defect::Body, "/semantic_graph/nodes/3/body"),
-            (Defect::ClausePoint, "/semantic_graph/nodes/3/body/operation/member/execution_point"),
-            (Defect::Role(12), "/semantic_graph/nodes/3/occurrences/12/role"),
+            (
+                Defect::ClausePoint,
+                "/semantic_graph/nodes/3/body/operation/member/execution_point",
+            ),
+            (
+                Defect::Role(12),
+                "/semantic_graph/nodes/3/occurrences/12/role",
+            ),
         ] {
             let observe = |limit| {
                 let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
                 let mut result = None;
                 let requested = allocation_counter::measure(|| {
                     let mut meter = WorkMeter::over(&mut budget);
-                    result = Some(structural_refusal(&mut meter, 3, "expression",
-                        CheckedPackageRefusalCode::InvalidSemanticGraph, defect, Some(&id)));
-                }).bytes_total;
-                (result.expect("structural diagnostic ran"), budget, requested)
+                    result = Some(structural_refusal(
+                        &mut meter,
+                        3,
+                        "expression",
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        defect,
+                        Some(&id),
+                    ));
+                })
+                .bytes_total;
+                (
+                    result.expect("structural diagnostic ran"),
+                    budget,
+                    requested,
+                )
             };
             let (ample, budget, requested) = observe(u64::MAX);
-            assert_eq!(requested, budget.read_storage_consumed(), "{defect:?}: entire diagnostic prepaid");
-            let ValidationFailure::Refused(refusal) = &ample else { panic!("{defect:?}: semantic refusal: {ample:?}"); };
-            assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidSemanticGraph);
+            assert_eq!(
+                requested,
+                budget.read_storage_consumed(),
+                "{defect:?}: entire diagnostic prepaid"
+            );
+            let ValidationFailure::Refused(refusal) = &ample else {
+                panic!("{defect:?}: semantic refusal: {ample:?}");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::InvalidSemanticGraph
+            );
             assert_eq!(refusal.cause, None);
-            assert_eq!(refusal.loci[0].path.as_ref().map(|path| path.as_str()), Some(expected));
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+                Some(expected)
+            );
             assert_eq!(refusal.locus.as_ref(), Some(&id));
             let (exact, exact_budget, exact_requested) = observe(requested);
             assert_eq!(exact, ample);
@@ -2320,12 +2378,28 @@ mod tests {
             assert_eq!(short_budget, repeat_budget);
             assert_eq!(short_requested, repeat_requested);
             assert_eq!(short_requested, short_budget.read_storage_consumed());
-            let ValidationFailure::Budget(stop) = short else { panic!("{defect:?}: denied diagnostic: {short:?}"); };
+            let ValidationFailure::Budget(stop) = short else {
+                panic!("{defect:?}: denied diagnostic: {short:?}");
+            };
             assert_eq!(stop.resource, PackageReadResource::ReadStorage);
-            assert!(stop.path.is_none(), "the unpaid diagnostic builds no pointer");
+            assert!(
+                stop.path.is_none(),
+                "the unpaid diagnostic builds no pointer"
+            );
             let locus = short_budget.first_unpaid_locus().expect("diagnostic locus");
-            assert_eq!((locus.source, locus.form), (NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 3), "diagnostic"));
-            assert_eq!(short_budget.take_pending(), Some(CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::InvalidSemanticGraph)));
+            assert_eq!(
+                (locus.source, locus.form),
+                (
+                    NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 3),
+                    "diagnostic"
+                )
+            );
+            assert_eq!(
+                short_budget.take_pending(),
+                Some(CheckedPackagePendingOutcome::Refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph
+                ))
+            );
         }
     }
 

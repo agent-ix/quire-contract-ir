@@ -573,8 +573,17 @@ pub(crate) fn read_and_account(
                 ))
                 .spawn_scoped(scope, move || {
                     finish_proof(
-                        bytes, limits, evidence, reference, plain,
-                        ProofContext { mode, test_name, location, provider },
+                        bytes,
+                        limits,
+                        evidence,
+                        reference,
+                        plain,
+                        ProofContext {
+                            mode,
+                            test_name,
+                            location,
+                            provider,
+                        },
                     )
                 })
                 .expect("start driver accounting worker")
@@ -593,7 +602,12 @@ fn finish_proof(
     plain: &Plain,
     context: ProofContext,
 ) {
-    let ProofContext { mode, test_name, location, provider } = context;
+    let ProofContext {
+        mode,
+        test_name,
+        location,
+        provider,
+    } = context;
     same_public_result(plain, &reference, limits);
     let storage = reference.budget.read_storage_consumed();
     let work = if reference.budget.first_unpaid().is_some() {
