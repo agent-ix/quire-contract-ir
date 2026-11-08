@@ -24,7 +24,11 @@ the valid guarantee and composition and compare the typed term with the body.
 Then edit one member per case: wrong shapes, `semantic_type` and
 `dependencies`, array order, target kinds, unresolved or inherited
 operations, non-Rust paths, `bound` 0, duplicate progress and environment
-members, duplicate components and undeclared or self-referring premises.
+members, duplicate components, undeclared or self-referring premises, and
+safety/liveness premise mismatches. Supply an admitted dependency package
+for the composition targets and verify cross-package subject, clause,
+operation and environment resolution, including clauses of another model
+subject and malformed structural keys.
 
 ## Expected Results
 
@@ -35,5 +39,5 @@ composition bodies" names.
 ## Status
 
 Implemented in `tests/it/checked_package_v2_guarantee_composition.rs`.
-QSpec FR-491 static checks 4 and 5 are not made: they read the component
-packages.
+QSpec FR-491 static checks 2 through 5 read the admitted component packages;
+clause classification uses their typed formula graphs.

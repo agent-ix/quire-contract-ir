@@ -24,13 +24,12 @@
 //! 4. **Members,** a guarantee's operations, Rust spellings and uniqueness
 //!    (QSpec FR-490 static checks 4 to 6), a composition's component names,
 //!    the components its entries name and its premises (QSpec FR-491 static
-//!    checks 2 and 3).
+//!    checks 2 to 5).
 //!
-//! A composition's targets name nodes of the component packages, which the
-//! graph does not hold, so they are joined to `dependencies` by the identity
-//! step and to no node kind. FR-491 static checks 4 and 5 read the component
-//! packages' clause classification and subject operations and are not made
-//! here.
+//! A composition's targets resolve through admitted dependency packages. Its
+//! clauses are checked against their component model subjects and FR-363's
+//! safety/liveness classification; scheduling operations resolve against the
+//! same admitted model declarations.
 //!
 //! Implements: FR-038 "Implementation guarantee and component composition bodies".
 
@@ -40,17 +39,17 @@ use super::abstraction::{
 };
 use super::dependency_references::SuppliedDependencies;
 use super::frame::{join, StepGraph};
-use super::model_members::{ModelOwners, ModelRefusal};
+use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::rust_spelling::is_rust_path;
 use super::state::resolve_operation;
 use super::{
     BodyTerm, CheckedComponentClause, CheckedCompositionComponent, CheckedCompositionPremise,
     CheckedEnvironmentEntry, CheckedEnvironmentSupplies, CheckedFairnessGranularity,
     CheckedFairnessKind, CheckedFairnessSupply, CheckedGuaranteeMeasure, CheckedGuaranteeProgress,
-    CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2, CorrespondenceForm, FunctionForm,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalForm, ValueForm, WorkMeter,
+    CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2, CheckedTerm, CorrespondenceForm,
+    FunctionForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{body_term, count, ValidationFailure};
+use crate::checked_package::common::{body_term, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -452,7 +451,11 @@ fn subject_model<'g>(
     if kind != CheckedNodeKind::Value(ValueForm::Parameter) {
         return None;
     }
-    let (ty, _) = graph.node(&parameter.semantic_type)?;
+    let (ty, kind) = graph.node(&parameter.semantic_type)?;
+    if kind == CheckedNodeKind::CompositeType(super::CompositeTypeForm::Reference) {
+        let target = super::structural::reference_type_target(ty)?;
+        return model_identity(graph.node(&target)?.0);
+    }
     model_identity(ty)
 }
 
@@ -531,7 +534,7 @@ fn check_guarantee_members(
         };
         // The operation is one of the clause's model subject: its context is
         // an object type of the model the clause ranges over.
-        if subject.is_some_and(|subject| model_identity(context_node) != Some(subject)) {
+        if subject.is_none() || model_identity(context_node) != subject {
             return Err(model_refusal(ModelRefusal::missing_name(), at, context));
         }
         if let Err(refusal) = resolve_operation(context_node, kind, operation, graph, meter)? {
@@ -590,6 +593,7 @@ fn check_composition<'e>(
     };
     check_composition_targets(site, &body, &places, graph)?;
     check_composition_members(site, &body)?;
+    check_composition_clauses(site, &body, &places, meter)?;
     check_composition_operations(site, &body, &places, meter)?;
     check_environment_names(site, &body.environment)
 }
@@ -716,6 +720,210 @@ fn check_composition_targets(
     Ok(())
 }
 
+/// Recover the model subject from an admitted temporal clause's typed `over`
+/// parameter, without decoding its body again.
+fn component_clause_model<'a>(
+    package: &'a CheckedPackageV2,
+    clause: &CheckedNodeId,
+) -> Option<&'a str> {
+    let CheckedTerm::Application { arguments, .. } = package.term(clause)? else {
+        return None;
+    };
+    let CheckedTerm::Reference { target } = arguments.first()? else {
+        return None;
+    };
+    let parameter = package.node(target)?;
+    let mut subject = package.node(&parameter.semantic_type)?;
+    if let CheckedTerm::Aggregate { members } = &subject.body {
+        if let [CheckedTerm::Reference { target }] = members.as_slice() {
+            subject = package.node(target)?;
+        }
+    }
+    match subject.owner.as_ref()? {
+        CheckedNodeOwner::Model { identity, .. } => Some(identity),
+        _ => None,
+    }
+}
+
+/// FR-363's safety test in negation normal form. Polarity applies the duals
+/// without constructing a second formula: negative always/release introduce
+/// eventually/until, and implication reverses its left operand's polarity.
+/// Each referenced formula and polarity is visited at most once.
+fn clause_is_liveness(
+    package: &CheckedPackageV2,
+    clause: &CheckedNodeId,
+    meter: &mut WorkMeter,
+    at: &JsonPointer,
+) -> Result<bool, ValidationFailure> {
+    let Some(CheckedTerm::Application {
+        arguments,
+        operation,
+        ..
+    }) = package.term(clause)
+    else {
+        return Ok(false);
+    };
+    let infinite = operation.read().ok().is_some_and(|read| {
+        read.laws
+            .iter()
+            .any(|law| law.definition.identity.as_ref() == INFINITE_TRACE)
+    });
+    if !infinite {
+        return Ok(false);
+    }
+    let Some(formula) = arguments.get(5) else {
+        return Ok(false);
+    };
+    let mut pending = vec![(formula, false)];
+    let mut seen = Vec::new();
+    while let Some((term, negative)) = pending.pop() {
+        meter.charge(1, || at.clone())?;
+        match term {
+            CheckedTerm::Reference { target } => {
+                if seen.contains(&(target, negative)) {
+                    continue;
+                }
+                seen.push((target, negative));
+                if package.node_kind(target)
+                    == Some(CheckedNodeKind::Temporal(TemporalForm::Formula))
+                {
+                    if let Some(term) = package.term(target) {
+                        pending.push((term, negative));
+                    }
+                }
+            }
+            CheckedTerm::Application {
+                operation,
+                arguments,
+                ..
+            } => {
+                let Ok(read) = operation.read() else { continue };
+                let unbounded = match read.member {
+                    Some(super::CheckedOperationMember::TemporalInterval { interval }) => {
+                        match interval {
+                            None => true,
+                            Some(super::CheckedOperationInterval::Integer { upper, .. }) => {
+                                upper.is_none()
+                            }
+                            Some(super::CheckedOperationInterval::Timed { upper, .. }) => {
+                                upper.is_none()
+                            }
+                        }
+                    }
+                    _ => false,
+                };
+                let operator = FormulaOperator::of(read.identity);
+                if unbounded
+                    && matches!(
+                        (operator, negative),
+                        (FormulaOperator::Eventually | FormulaOperator::Until, false)
+                            | (FormulaOperator::Always | FormulaOperator::Release, true)
+                    )
+                {
+                    return Ok(true);
+                }
+                for (index, argument) in arguments.iter().enumerate().rev() {
+                    let negative = match operator {
+                        FormulaOperator::Not => !negative,
+                        FormulaOperator::Implies if index == 0 => !negative,
+                        _ => negative,
+                    };
+                    pending.push((argument, negative));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(false)
+}
+
+#[derive(Clone, Copy)]
+enum FormulaOperator {
+    Eventually,
+    Until,
+    Always,
+    Release,
+    Not,
+    Implies,
+    Other,
+}
+impl FormulaOperator {
+    #[ix_trace_rs::string_edge]
+    fn of(identity: &str) -> Self {
+        match identity {
+            "quire.op.temporal.eventually" => Self::Eventually,
+            "quire.op.temporal.until" => Self::Until,
+            "quire.op.temporal.always" => Self::Always,
+            "quire.op.temporal.release" => Self::Release,
+            "quire.op.temporal.not" => Self::Not,
+            "quire.op.temporal.implies" => Self::Implies,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// FR-491 static checks 2 and 4: clauses belong to their component's model
+/// subject, and safety and liveness premises cannot discharge each other.
+fn check_composition_clauses(
+    site: &Site<'_>,
+    body: &CompositionBody,
+    places: &Places<'_, '_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let check_subject = |entry: &CheckedComponentClause, at: &JsonPointer| {
+        let component = body.components.iter().find(|c| c.name == entry.component);
+        let found = component.and_then(|c| {
+            places
+                .find(&c.package, &entry.clause)
+                .map(|(_, p, _)| (c, p))
+        });
+        if let Some((component, package)) = found {
+            let subject =
+                package
+                    .node(&component.subject)
+                    .and_then(|node| match node.owner.as_ref()? {
+                        CheckedNodeOwner::Model { identity, .. } => Some(identity.as_ref()),
+                        _ => None,
+                    });
+            if subject.is_none() || component_clause_model(package, &entry.clause) != subject {
+                return Err(model_refusal(
+                    ModelRefusal::missing_name(),
+                    at.clone(),
+                    &entry.clause,
+                ));
+            }
+        }
+        Ok(())
+    };
+    for (index, entry) in body.guarantees.iter().enumerate() {
+        check_subject(entry, &site.body_at().key("guarantees").index(index))?;
+    }
+    for (member, premises, liveness) in [
+        ("relies", &body.relies, false),
+        ("liveness_dependencies", &body.liveness_dependencies, true),
+    ] {
+        for (index, premise) in premises.iter().enumerate() {
+            let at = site.body_at().key(member).index(index);
+            for (side, entry) in [&premise.guarantee, &premise.on].into_iter().enumerate() {
+                check_subject(entry, &at)?;
+                // A rely constrains only its peer H; a depends constrains G and H.
+                if !liveness && side == 0 {
+                    continue;
+                }
+                if let Some(package) = places
+                    .package_of(&entry.component)
+                    .and_then(|name| places.dependencies.selected_package(name))
+                {
+                    if clause_is_liveness(package, &entry.clause, meter, &at)? != liveness {
+                        return Err(malformed(at, &entry.clause));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// QSpec FR-491 static check 5: each `supplies` and scheduling `environment`
 /// operation is an operation of a component subject's model. Operations of
 /// one component package are resolved together over one rebuilt model owner
@@ -738,65 +946,87 @@ fn check_composition_operations(
             wanted.push((at, &supply.context, supply.operation.as_ref()));
         }
     }
-    let mut foreign: BTreeMap<
-        &str,
-        (
-            &CheckedPackageV2,
-            Vec<(JsonPointer, &CheckedNodeId, usize, &str)>,
-        ),
-    > = BTreeMap::new();
+    let mut foreign: Vec<ForeignOperations<'_>> = Vec::new();
     for (at, context, operation) in wanted {
-        // A context no component package holds is the target check's refusal.
         if let Some((_, package, position)) = places.context(context) {
-            foreign
-                .entry(package.name())
-                .or_insert_with(|| (package, Vec::new()))
-                .1
-                .push((at, context, position, operation));
+            let context_model =
+                package
+                    .node(context)
+                    .and_then(|node| match node.owner.as_ref()? {
+                        CheckedNodeOwner::Model { identity, .. } => Some(identity.as_ref()),
+                        _ => None,
+                    });
+            let belongs = context_model.is_some_and(|identity| {
+                body.components.iter().any(|component| {
+                    places
+                        .dependencies
+                        .selected_package(&component.package)
+                        .and_then(|package| package.node(&component.subject))
+                        .and_then(|node| match node.owner.as_ref()? {
+                            CheckedNodeOwner::Model { identity, .. } => Some(identity.as_ref()),
+                            _ => None,
+                        })
+                        == Some(identity)
+                })
+            });
+            if !belongs {
+                return Err(model_refusal(ModelRefusal::missing_name(), at, context));
+            }
+            let group =
+                if let Some(index) = foreign.iter().position(|(p, _)| p.name() == package.name()) {
+                    &mut foreign[index].1
+                } else {
+                    foreign.push((package, Vec::new()));
+                    &mut foreign.last_mut().expect("just inserted package").1
+                };
+            group.push((at, context, position, operation));
         }
     }
-    for (package, operations) in foreign.into_values() {
+    for (package, operations) in foreign {
         check_foreign_operations(package, &operations, meter)?;
     }
     Ok(())
 }
 
+type ForeignOperation<'a> = (JsonPointer, &'a CheckedNodeId, usize, &'a str);
+type ForeignOperations<'a> = (&'a CheckedPackageV2, Vec<ForeignOperation<'a>>);
+
 fn check_foreign_operations(
     package: &CheckedPackageV2,
-    operations: &[(JsonPointer, &CheckedNodeId, usize, &str)],
+    operations: &[ForeignOperation<'_>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let nodes_at = || JsonPointer::root().key("semantic_graph").key("nodes");
-    let nodes: Vec<CheckedSemanticNodeV2> = package
-        .resolved_graph()
-        .nodes
-        .iter()
-        .map(|node| node.to_raw())
-        .collect();
-    meter.charge(count(nodes.len()), nodes_at)?;
-    let index: BTreeMap<&CheckedNodeId, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(position, node)| (&node.node_id, position))
-        .collect();
-    let owners = ModelOwners::new(package.models.selected_models(), &nodes, |_| {
+    let graph = package.resolved_graph();
+    let nodes = &graph.nodes;
+    let owners = ModelOwners::new(package.models.selected_models(), nodes, |_| {
         meter.charge(1, nodes_at)
     })?;
-    let kinds = package.node_kinds();
-    let graph = StepGraph {
-        nodes: &nodes,
-        kinds,
-        index: &index,
-        owners: &owners,
-    };
     for (at, context, position, operation) in operations {
-        if let Err(refusal) = resolve_operation(
-            &nodes[*position],
-            kinds[*position],
-            operation,
-            &graph,
-            meter,
-        )? {
+        let Some(node) = nodes.get(*position) else {
+            continue;
+        };
+        let resolution = owners.resolve_member(node, MemberKind::Operation, operation, meter)?;
+        let refusal = match resolution {
+            Ok((owner, Resolved::Operation(operation))) => {
+                if owner.object_type().is_some_and(|object| {
+                    object
+                        .operations
+                        .iter()
+                        .any(|own| std::ptr::eq(own, operation))
+                }) {
+                    None
+                } else {
+                    Some(ModelRefusal::malformed())
+                }
+            }
+            Ok((_, Resolved::Field(_))) => Some(ModelRefusal::missing_name()),
+            Err(refusal) if refusal == ModelRefusal::ineligible() => {
+                Some(ModelRefusal::missing_name())
+            }
+            Err(refusal) => Some(refusal),
+        };
+        if let Some(refusal) = refusal {
             return Err(model_refusal(refusal, at.clone(), context));
         }
     }

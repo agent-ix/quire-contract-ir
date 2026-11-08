@@ -17,7 +17,9 @@ use crate::checked_package_v2_temporal::{
     clause, model_key, node_id, node_with_key, orders_document, push, read, select_profile,
     with_model, INFINITE, LEFT_NODE, ORDERS, ORDER_NODE, SUB_NODE,
 };
-use crate::support::checked_package::{canonical, evidence_with_document, settle, v2_all_families};
+use crate::support::checked_package::{
+    canonical, evidence_with_document, index_fixture_node_ids, settle, v2_all_families,
+};
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodeKind, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
@@ -78,23 +80,30 @@ fn read_any(package: &Value) -> CheckedPackageV2ReadResult {
         .iter()
         .any(|node| node["semantic_form"] == "component_composition");
     if composes {
-        let dependency = match read(&base()) {
-            CheckedPackageV2ReadResult::Admitted(dependency) => *dependency,
-            other => panic!("the component package admits, read {other:?}"),
-        };
-        let mut evidence = evidence_with_document(package, ORDERS, &orders_document());
-        evidence
-            .insert_dependency_package(DEPENDENCY, dependency)
-            .expect("dependency evidence declarations agree on admitted content");
-        CheckedPackageV2::read(
-            &canonical(package),
-            CheckedPackageReadLimits::bounded(),
-            &evidence,
-        )
+        read_composition_with_dependency(package, &base())
     } else {
         read(package)
     }
 }
+fn read_composition_with_dependency(
+    package: &Value,
+    component: &Value,
+) -> CheckedPackageV2ReadResult {
+    let dependency = match read(component) {
+        CheckedPackageV2ReadResult::Admitted(dependency) => *dependency,
+        other => panic!("the component package admits, read {other:?}"),
+    };
+    let mut evidence = evidence_with_document(package, ORDERS, &orders_document());
+    evidence
+        .insert_dependency_package(DEPENDENCY, dependency)
+        .expect("dependency evidence agrees on admitted content");
+    CheckedPackageV2::read(
+        &canonical(package),
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    )
+}
+
 fn order() -> Value {
     node_id(&model_key(ORDER_NODE))
 }
@@ -151,10 +160,63 @@ fn base() -> Value {
     predicate["node_id"] = node_id("guarantee/predicate");
     predicate["semantic_form"] = json!("predicate");
     push(&mut package, predicate);
-    let relation_at = nodes(&package).len() - 2;
+    // Give the clause an actual model subject rather than the general fixture's
+    // Boolean parameter. Other families retain their original parameter.
+    let clause_at = clause(&package);
+    let old_over = nodes(&package)[clause_at]["body"]["arguments"][0]["target"].clone();
+    let mut over = nodes(&package)
+        .iter()
+        .find(|node| node["node_id"] == old_over)
+        .expect("over parameter")
+        .clone();
+    over["node_id"] = node_id("guarantee/model-over");
+    let reference = json!({"package": DEPENDENCY, "path": ["composite_type", "reference", order()], "ordinal": 0});
+    push(
+        &mut package,
+        json!({
+            "node_id": reference, "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": "composite_type", "semantic_form": "reference",
+            "semantic_type": reference, "dependencies": [order()],
+            "occurrences": [{"role": "type", "ordinal": 0}],
+            "body": {"term": "aggregate", "members": [{"term": "reference", "target": order()}]},
+        }),
+    );
+    over["semantic_type"] = reference;
+    let over_id = over["node_id"].clone();
+    push(&mut package, over);
+    package["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][0]["target"] =
+        over_id.clone();
+    let deps = &mut package["semantic_graph"]["nodes"][clause_at]["dependencies"];
+    for id in deps.as_array_mut().expect("dependencies") {
+        if *id == old_over {
+            *id = over_id.clone();
+        }
+    }
+    // A second clause has an unbounded eventually and is liveness; the
+    // original bounded eventually is safety under the infinite-trace profile.
+    let formula_id = nodes(&package)[clause_at]["body"]["arguments"][5]["target"].clone();
+    let mut formula = nodes(&package)
+        .iter()
+        .find(|node| node["node_id"] == formula_id)
+        .expect("formula")
+        .clone();
+    formula["node_id"] = node_id("guarantee/live-formula");
+    formula["body"]["operation"]["member"]["interval"] = Value::Null;
+    push(&mut package, formula);
+    let mut live = nodes(&package)[clause_at].clone();
+    live["node_id"] = node_id("guarantee/live-clause");
+    live["body"]["arguments"][1]["value"] = json!("live_clause");
+    live["body"]["arguments"][5]["target"] = node_id("guarantee/live-formula");
+    live["dependencies"] = json!([over_id, node_id("guarantee/live-formula")]);
+    push(&mut package, live);
+    let relation_at = nodes(&package)
+        .iter()
+        .position(|node| node["node_id"] == relation())
+        .expect("relation");
     let node = &mut package["semantic_graph"]["nodes"][relation_at];
     node["semantic_type"] = node["node_id"].clone();
     node["occurrences"] = json!([{"role": "declaration", "ordinal": 0}]);
+    index_fixture_node_ids(&mut package);
     settle(&mut package);
     package
 }
@@ -202,6 +264,7 @@ fn premise(guarantee: (&str, &Value), on: (&str, &Value)) -> Value {
 
 fn composition_body(package: &Value) -> Value {
     let clause = clause_id(package);
+    let live = node_id("guarantee/live-clause");
     json!({
         "term": "component_composition",
         "rule": "assume-guarantee",
@@ -211,10 +274,10 @@ fn composition_body(package: &Value) -> Value {
         ],
         "guarantees": [
             clause_entry("Consumer", &clause),
-            clause_entry("Producer", &clause),
+            clause_entry("Producer", &live),
         ],
         "relies": [premise(("Consumer", &clause), ("Producer", &clause))],
-        "liveness_dependencies": [premise(("Producer", &clause), ("Consumer", &clause))],
+        "liveness_dependencies": [premise(("Producer", &live), ("Consumer", &live))],
         "supplies": [
             fairness("strong", "each", &order(), "reset"),
             fairness("weak", "whole", &order(), "reset"),
@@ -763,6 +826,12 @@ fn tc_474_a_guarantee_target_must_be_a_declared_node_of_its_kind() {
         &mut package,
         "quire.temporal.event-position.false-extension/v1",
     );
+    let live_formula = nodes(&package)
+        .iter()
+        .position(|node| node["node_id"] == node_id("guarantee/live-formula"))
+        .expect("live formula");
+    package["semantic_graph"]["nodes"][live_formula]["body"]["operation"]["member"]["interval"] =
+        json!({"lower": "0", "upper": "3"});
     let body = guarantee_body(&package);
     let (package, position) = with(package, guarantee_node(body));
     expect(
@@ -917,7 +986,7 @@ fn tc_474_a_composition_member_must_name_its_components_and_guarantees() {
     ]);
 }
 
-#[trace("TC-474", "FR-038-AC-539")]
+#[trace("TC-474", "FR-038-AC-538")]
 #[test]
 fn tc_474_a_composition_target_resolves_in_its_component_package() {
     run_composition(&[
@@ -958,4 +1027,163 @@ fn tc_474_a_composition_target_resolves_in_its_component_package() {
             "/body/environment/0",
         ),
     ]);
+}
+
+#[trace("TC-474", "FR-038-AC-538")]
+#[test]
+fn tc_474_composition_premises_keep_safety_and_liveness_separate() {
+    run_composition(&[
+        (
+            "rely on liveness",
+            |body| {
+                body["relies"][0]["on"]["clause"] = node_id("guarantee/live-clause");
+            },
+            MALFORMED,
+            "/body/relies/0",
+        ),
+        (
+            "depends on safety",
+            |body| {
+                body["liveness_dependencies"][0]["on"]["clause"] = clause_id(&base());
+            },
+            MALFORMED,
+            "/body/liveness_dependencies/0",
+        ),
+        (
+            "depends from safety",
+            |body| {
+                body["liveness_dependencies"][0]["guarantee"] = body["guarantees"][0].clone();
+                body["liveness_dependencies"][0]["on"]["component"] = json!("Producer");
+            },
+            MALFORMED,
+            "/body/liveness_dependencies/0",
+        ),
+    ]);
+}
+
+#[trace("TC-474", "FR-038-AC-538")]
+#[test]
+fn tc_474_a_component_clause_must_be_over_its_model_subject() {
+    let (package, position) = composed(|_| {});
+    let mut component = base();
+    let parameter = nodes(&component)
+        .iter()
+        .position(|node| node["node_id"] == node_id("guarantee/model-over"))
+        .expect("parameter");
+    component["semantic_graph"]["nodes"][parameter]["semantic_type"] = nodes(&component)
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
+        .expect("Boolean type")["node_id"]
+        .clone();
+    settle(&mut component);
+    let CheckedPackageV2ReadResult::Refused(refusal) =
+        read_composition_with_dependency(&package, &component)
+    else {
+        panic!("a clause over a different subject must refuse");
+    };
+    assert_eq!((refusal.code, refusal.cause), MISSING);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|p| p.as_str()),
+        Some(at(position, "/body/guarantees/0").as_str())
+    );
+}
+
+#[trace("TC-474", "FR-038-AC-533")]
+#[test]
+fn tc_474_a_malformed_target_key_refuses_as_wire() {
+    let (mut package, position) = guaranteed(|_| {});
+    package["semantic_graph"]["nodes"][position]["body"]["relation"]["ordinal"] = json!("wrong");
+    // Keep the malformed key out of dependencies so only the body key is invalid.
+    expect(
+        "a nonnumeric target ordinal",
+        &package,
+        Code::MalformedWire,
+        None,
+        &at(position, "/body/relation"),
+    );
+}
+
+#[trace("TC-474", "FR-038-AC-538")]
+#[test]
+fn tc_474_premise_classification_uses_negation_normal_form() {
+    for (operator, negated, liveness) in [
+        ("eventually", false, true),
+        ("eventually", true, false),
+        ("always", false, false),
+        ("always", true, true),
+        ("until", false, true),
+        ("until", true, false),
+        ("release", false, false),
+        ("release", true, true),
+    ] {
+        let (package, position) = composed(|_| {});
+        let mut component = base();
+        let root = nodes(&component)
+            .iter()
+            .position(|node| node["node_id"] == node_id("guarantee/live-formula"))
+            .expect("live formula");
+        let formula = &mut component["semantic_graph"]["nodes"][root];
+        formula["body"]["operation"]["identity"] = json!(format!("quire.op.temporal.{operator}"));
+        if matches!(operator, "until" | "release") {
+            let argument = formula["body"]["arguments"][0].clone();
+            formula["body"]["arguments"]
+                .as_array_mut()
+                .expect("arguments")
+                .push(argument);
+        }
+        if negated {
+            let mut inner = formula.clone();
+            inner["node_id"] = node_id("guarantee/negated-formula");
+            formula["body"]["operation"]["identity"] = json!("quire.op.temporal.not");
+            formula["body"]["operation"]["member"] = Value::Null;
+            formula["body"]["arguments"] =
+                json!([{"term": "reference", "target": inner["node_id"]}]);
+            push(&mut component, inner);
+        }
+        settle(&mut component);
+        let outcome = read_composition_with_dependency(&package, &component);
+        if liveness {
+            assert!(
+                matches!(outcome, CheckedPackageV2ReadResult::Admitted(_)),
+                "{operator} negated={negated}: {outcome:?}"
+            );
+        } else {
+            let CheckedPackageV2ReadResult::Refused(refusal) = outcome else {
+                panic!("{operator} negated={negated} must refuse a depends premise")
+            };
+            assert_eq!(
+                (refusal.code, refusal.cause),
+                MALFORMED,
+                "{operator} negated={negated}"
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(|p| p.as_str()),
+                Some(at(position, "/body/liveness_dependencies/0").as_str())
+            );
+        }
+    }
+}
+
+#[trace("TC-474", "FR-038-AC-537")]
+#[test]
+fn tc_474_guarantee_operations_must_belong_to_the_clause_model_subject() {
+    let mut package = base();
+    let parameter = nodes(&package)
+        .iter()
+        .position(|node| node["node_id"] == node_id("guarantee/model-over"))
+        .expect("parameter");
+    package["semantic_graph"]["nodes"][parameter]["semantic_type"] = nodes(&package)
+        .iter()
+        .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
+        .expect("Boolean type")["node_id"]
+        .clone();
+    let body = guarantee_body(&package);
+    let (package, position) = with(package, guarantee_node(body));
+    expect(
+        "operations of a different subject",
+        &package,
+        MISSING.0,
+        MISSING.1,
+        &at(position, "/body/progress/0"),
+    );
 }
