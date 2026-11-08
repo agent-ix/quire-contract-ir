@@ -136,7 +136,7 @@ class FullRunEvidence(unittest.TestCase):
 
 class DesignatedGrowthEvidence(unittest.TestCase):
     def test_missing_intermediate_walker_or_limb_boundary_fails(self):
-        for role in ("walker_growth", "exact_limb"):
+        for role in ("walker_growth", "exact_reservation", "exact_limb"):
             events = [{"resource": "ReadStorage", "amount": 8, "consumed_before": i * 8,
                        "admitted": True, "locus": {"source": "PackageRead(Graph, 0)", "form": "reserve"},
                        "allocation_class": "actual_source_class"} for i in range(3)]

@@ -184,7 +184,7 @@ def validate_normative_boundaries(record):
                 or not isinstance(designated.get("classes"), dict)):
             raise CensusError("designated growth case lacks exact original-provider provenance")
         exhaustive = designated["classes"]
-        if not exhaustive or any(kind not in {"walker_growth", "exact_limb"}
+        if not exhaustive or any(kind not in {"walker_growth", "exact_reservation", "exact_limb"}
                                  for kind in exhaustive.values()):
             raise CensusError("designated growth classes require source-derived walker/limb roles")
     seen_exhaustive = set()
