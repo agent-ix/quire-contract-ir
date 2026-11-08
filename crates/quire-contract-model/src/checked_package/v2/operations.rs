@@ -4158,7 +4158,7 @@ fn check_place_presence(
     for (offset, selector) in selectors.iter().enumerate() {
         let argument_index = offset + 2;
         let actual = presence_value_type(&arguments[argument_index], graph);
-        if actual != Some(*selector) {
+        if actual != Some(selector) {
             return Err(application.refuse(
                 CheckedPackageRefusalCode::IllTyped,
                 application.body(&["arguments"]).index(argument_index),
