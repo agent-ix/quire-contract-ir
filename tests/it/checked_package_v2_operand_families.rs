@@ -4,8 +4,9 @@
 //! Public-reader controls for declared-unit, aggregate and literal families.
 
 use crate::support::checked_package::{
-    add_family_reference_target, canonical, evidence_for, node_id, nominal_fixture_members,
-    nominal_package, rebuild_source_map, refresh_identity, settle, v2_all_families,
+    add_family_reference_target, canonical, evidence_for, index_fixture_node_ids, node_id,
+    nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, settle,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -1600,6 +1601,140 @@ pub(crate) fn quantity_sum_control() -> (Value, usize) {
         ],
     );
     (package, at)
+}
+
+/// An admitted `quire.op.collection.sum.carried_quantity` application over a
+/// set of a carried quantity, with the carried node as binder bound, member and
+/// result.
+pub(crate) fn carried_sum_control() -> (Value, usize) {
+    let (mut package, unit, _, integer, _, _) = fixture();
+    let text = "operand/scalar/text".to_owned();
+    let name = package["name"].clone();
+    let structural = |path: Vec<Value>| json!({"package": name, "path": path, "ordinal": 0});
+    let range = structural(vec![
+        json!("bounded_domain"),
+        json!("integer_range"),
+        json!("min"),
+        node_id(&integer),
+        json!("-5"),
+        json!("max"),
+        json!("5"),
+    ]);
+    let carried = structural(vec![
+        json!("scalar_type"),
+        json!("carried_quantity"),
+        node_id(&unit),
+        range.clone(),
+        json!("rounding"),
+        node_id(&text),
+        json!("exact"),
+    ]);
+    let set = structural(vec![json!("composite_type"), json!("set"), carried.clone()]);
+    let literal = |ty: &str, kind: &str, value: &str| json!({"term": "literal", "type": node_id(ty), "value_kind": kind, "value": value});
+    let node = |id: &Value,
+                tag: &str,
+                form: &str,
+                ty: &Value,
+                dependencies: Vec<Value>,
+                role: &str,
+                body: Value| {
+        json!({
+            "node_id": id, "schema_version": "quire.checked-semantic-graph/v2",
+            "node_tag": tag, "semantic_form": form, "semantic_type": ty,
+            "dependencies": dependencies, "occurrences": [{"role": role, "ordinal": 0}], "body": body,
+        })
+    };
+    let item = node_id("operand/parameter/carried_item");
+    let nodes = [
+        node(
+            &range,
+            "bounded_domain",
+            "integer_range",
+            &node_id(&integer),
+            vec![node_id(&integer)],
+            "type",
+            json!({"term": "aggregate", "members": [
+                {"term": "binding", "name": "min", "value": literal(&integer, "integer", "-5")},
+                {"term": "binding", "name": "max", "value": literal(&integer, "integer", "5")},
+            ]}),
+        ),
+        node(
+            &carried,
+            "scalar_type",
+            "carried_quantity",
+            &carried,
+            vec![node_id(&unit), range.clone()],
+            "type",
+            json!({"term": "aggregate", "members": [
+                {"term": "binding", "name": "unit", "value": reference(&unit)},
+                {"term": "binding", "name": "carrier",
+                    "value": {"term": "reference", "target": range}},
+                {"term": "binding", "name": "rounding", "value": literal(&text, "text", "exact")},
+            ]}),
+        ),
+        node(
+            &set,
+            "composite_type",
+            "set",
+            &set,
+            vec![carried.clone()],
+            "type",
+            json!({"term": "aggregate", "members": [{"term": "reference", "target": carried}]}),
+        ),
+        node(
+            &item,
+            "value",
+            "parameter",
+            &carried,
+            vec![],
+            "expression",
+            json!({"term": "aggregate", "members": [
+                {"term": "binding", "name": "name", "value": literal(&text, "text", "item")},
+                {"term": "binding", "name": "level", "value": literal(&integer, "integer", "0")},
+            ]}),
+        ),
+    ];
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .extend(nodes);
+    let at = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nodes")
+        .len();
+    let application = node(
+        &node_id(&format!("operand/application/collection/{at}")),
+        "expression",
+        "collection",
+        &carried,
+        vec![],
+        "expression",
+        json!({"term": "application", "operator": "collection",
+        "operation": operation(
+            "quire.op.collection.sum.carried_quantity",
+            json!({"kind": "rounding", "value": "exact"}),
+            json!({"kind": "type_argument", "declaration": carried}),
+        ),
+        "result_type": carried,
+        "arguments": [
+            {"term": "reference", "target": set},
+            {"term": "binding", "name": "item", "value": {"term": "reference", "target": item}},
+        ]}),
+    );
+    package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(application);
+    index_fixture_node_ids(&mut package);
+    settle(&mut package);
+    (package, at)
+}
+
+#[trace("TC-048", "FR-038-AC-524")]
+#[test]
+fn carried_sum_control_admits() {
+    let (package, _) = carried_sum_control();
+    admits(&package);
 }
 
 #[trace("TC-048", "FR-038-AC-213")]

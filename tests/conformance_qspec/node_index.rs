@@ -43,7 +43,6 @@ fn apply_patch(package: &mut Value, patch: &Value) {
     }
 }
 
-/// Trace: FR-038-AC-377, FR-038-AC-378, FR-038-AC-520, FR-038-AC-521
 #[trace(
     "TC-048",
     "FR-038-AC-377",
@@ -146,7 +145,6 @@ fn node_id_of(value: &Value) -> CheckedNodeId {
     serde_json::from_value(value.clone()).expect("published node id")
 }
 
-/// Trace: FR-038-AC-520, FR-038-AC-523
 #[trace("TC-048", "FR-038-AC-520", "FR-038-AC-523")]
 #[test]
 fn operand_slots_rebuild_structural_keys_through_the_rows() {
@@ -202,7 +200,6 @@ fn operand_slots_rebuild_structural_keys_through_the_rows() {
     assert_eq!(resolved, wire);
 }
 
-/// Trace: FR-038-AC-523
 #[trace("TC-048", "FR-038-AC-523")]
 #[test]
 fn replace_node_id_replaces_slot_form_ids_as_written() {
@@ -230,7 +227,6 @@ fn replace_node_id_replaces_slot_form_ids_as_written() {
     );
 }
 
-/// Trace: FR-038-AC-522
 #[trace("TC-048", "FR-038-AC-522")]
 #[test]
 fn unrelated_nodes_leave_other_nodes_bytes_and_keys_unchanged() {

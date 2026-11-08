@@ -89,10 +89,11 @@ and that every sufficient budget returns the unlimited budget's outcome.
   delta; earlier charges stay in cumulative consumption.
 - A work or read-storage denial with an affordable diagnostic returns
   `BudgetIncomplete` with the configured limit, cumulative consumption plus the
-  denied amount and the pointer FR-038 names; an unaffordable diagnostic, or
-  zero read storage, returns the fixed-size `Exhausted` outcome with the
-  original denial, its configured bound, its locus and the pending outcome
-  class, and requests nothing more; an over-byte-limit input returns
+  denied amount and the pointer FR-038 names, including a zero read-storage
+  limit, whose denial owns no pointer and so costs nothing; an unaffordable
+  diagnostic (a refusal or `incomplete` outcome that owns a pointer) returns
+  the fixed-size `Exhausted` outcome with the original denial, its configured
+  bound, its locus and the pending outcome class, and requests nothing more; an over-byte-limit input returns
   `incomplete` `Bytes` at any read-storage limit.
 - The catalog gate charges nothing, and an unreadable catalog returns
   `CatalogUnavailable` with the budget unchanged.

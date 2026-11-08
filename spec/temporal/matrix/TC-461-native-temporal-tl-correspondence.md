@@ -157,7 +157,8 @@ FR-350's encoding rules; no frozen byte vector or digest is used.
     action crosses both and require only the first in table order. For
     `max_bytes`, compute `n` as the record length with the setting itself
     embedded and test the fixed point: the smallest setting `s` with
-    `record_len(s) <= s` admits and `s - 1` refuses. The owner refusal at the
+    `record_len(s) <= s` admits and `s - 1` refuses with `value` equal to
+    `record_len(s - 1)`. The owner refusal at the
     lowered byte ceiling is defensive and not a tested clause.
 12. **No evaluation (AC-6).** After each join, require the retained TL source
     result to equal the supplied one with unchanged `usage()`, and the retained

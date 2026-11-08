@@ -1310,6 +1310,7 @@ mod structural_node_identity_tests {
         rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal,
         CheckedPackageRefusalCode, JsonPointer, RefusalFields,
     };
+    use ix_trace_rs::trace;
 
     /// Trace: FR-038-AC-185, TC-048.
     #[test]
@@ -1396,7 +1397,7 @@ mod structural_node_identity_tests {
         }
     }
 
-    /// Trace: IR-1404.
+    #[trace("TC-472", "FR-358-AC-13")]
     #[test]
     fn checked_node_id_encoding_is_charged_through_the_writer_reservation() {
         let inner = CheckedNodeId {
