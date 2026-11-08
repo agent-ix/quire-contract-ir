@@ -1074,8 +1074,8 @@ fn check_clause(
     {
         return Ok(());
     }
-    let at_node = node_pointer(position);
-    let at_body = at_node.clone().key("body");
+    let at_node = || node_pointer(position);
+    let at_body = || node_pointer(position).key("body");
     let arguments: &[CheckedTerm] = match terms.get(position).and_then(Option::as_ref) {
         Some(CheckedTerm::Application { arguments, .. }) => arguments,
         _ => &[],
@@ -1111,8 +1111,7 @@ fn check_clause(
                 };
                 return Err(ValidationFailure::refused_at(
                     CheckedPackageRefusalCode::UnknownProfile,
-                    at_body
-                        .clone()
+                    at_body()
                         .key("operation")
                         .key("laws")
                         .index(0)
@@ -1142,7 +1141,7 @@ fn check_clause(
         if let Some((refusal, locus)) = refusal {
             return Err(ValidationFailure::refused_at(
                 refusal.code,
-                at_body.clone().key("arguments").index(0),
+                at_body().key("arguments").index(0),
                 Some(refusal.cause),
                 locus,
             ));
@@ -1244,7 +1243,7 @@ fn check_clause(
         if !fairness.is_empty() && !profile.admits_fairness() {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                at_body,
+                at_body(),
                 Some(CheckedPackageRefusalCause::OperationMemberMismatch),
                 node.node_id.clone(),
             ));
@@ -2387,7 +2386,7 @@ fn formula_intervals(
     graph: &StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
     meter: &mut WorkMeter,
-    at: &JsonPointer,
+    at: &dyn Fn() -> JsonPointer,
     covered: &mut [bool],
     stamps: &mut Stamps,
 ) -> Result<FormulaReach, ValidationFailure> {
@@ -2407,7 +2406,7 @@ fn formula_intervals(
         {
             continue;
         }
-        meter.charge(1, || at.clone())?;
+        meter.charge(1, at)?;
         meter.push(&mut reached, position)?;
         if let Some(mark) = covered.get_mut(position) {
             *mark = true;

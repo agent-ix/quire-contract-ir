@@ -1526,7 +1526,7 @@ fn operation_defect(
         let bound = admitted_arguments(application, graph)
             .and_then(|arguments| arguments.get(1))
             .and_then(|binder| binder_bound(binder, &operation, graph));
-        for type_id in result.into_iter().chain(bound.as_ref()) {
+        for type_id in result.into_iter().chain(bound) {
             let pin = carried_unit_and_mode(type_id, graph)
                 .map(|(_, mode)| mode)
                 .or_else(|| {
@@ -2514,12 +2514,17 @@ fn check_operands(
         )));
     }
     for constraint in &entry.constraints {
-        let indices: Option<Vec<usize>> = constraint
+        if constraint
             .operands
             .iter()
-            .map(|position| usize::try_from(*position).ok())
-            .collect();
-        let Some(indices) = indices else { continue };
+            .any(|position| usize::try_from(*position).is_err())
+        {
+            continue;
+        }
+        let mut indices = work.meter.vec(constraint.operands.len())?;
+        for position in &constraint.operands {
+            indices.push(usize::try_from(*position).expect("checked catalogue operand position"));
+        }
         if indices
             .iter()
             .any(|position| *position >= typed_arguments.len())
@@ -2528,42 +2533,42 @@ fn check_operands(
         }
         match constraint.kind {
             OperationConstraintKind::SameFamily => {
-                let families: Option<Vec<&str>> = indices
-                    .iter()
-                    .map(|position| {
-                        typed_arguments.get(*position).and_then(|argument| {
-                            argument_family(
-                                argument,
-                                nodes,
-                                kinds,
-                                index,
-                                fast_index,
-                                catalog,
-                                Some(owners),
-                            )
-                        })
+                let family = |position| {
+                    typed_arguments.get(position).and_then(|argument| {
+                        argument_family(
+                            argument,
+                            nodes,
+                            kinds,
+                            index,
+                            fast_index,
+                            catalog,
+                            Some(owners),
+                        )
                     })
-                    .collect();
-                if let Some(families) = families {
-                    if let Some(pair) = families.windows(2).position(|pair| pair[0] != pair[1]) {
-                        return ineligible(indices.get(pair.saturating_add(1)).copied());
+                };
+                if indices.iter().all(|&position| family(position).is_some()) {
+                    if let Some(pair) = indices
+                        .windows(2)
+                        .position(|pair| family(pair[0]) != family(pair[1]))
+                    {
+                        return ineligible(indices.get(pair + 1).copied());
                     }
                 }
             }
             OperationConstraintKind::SameType => {
-                let types: Option<Vec<CheckedNodeId>> = indices
-                    .iter()
-                    .map(|position| {
-                        typed_arguments.get(*position).and_then(|argument| {
-                            operand_type_node_typed_with_lookup(
-                                argument, nodes, kinds, index, fast_index,
-                            )
-                        })
+                let ty = |position| {
+                    typed_arguments.get(position).and_then(|argument| {
+                        operand_type_node_typed_with_lookup(
+                            argument, nodes, kinds, index, fast_index,
+                        )
                     })
-                    .collect();
-                if let Some(types) = types {
-                    if let Some(pair) = types.windows(2).position(|pair| pair[0] != pair[1]) {
-                        return ineligible(indices.get(pair.saturating_add(1)).copied());
+                };
+                if indices.iter().all(|&position| ty(position).is_some()) {
+                    if let Some(pair) = indices
+                        .windows(2)
+                        .position(|pair| ty(pair[0]) != ty(pair[1]))
+                    {
+                        return ineligible(indices.get(pair + 1).copied());
                     }
                 }
             }
@@ -2677,11 +2682,11 @@ fn check_operands(
 
 /// Resolve a binder's body type, including the two binders of a fold step.
 #[ix_trace_rs::string_edge]
-fn binder_bound(
-    binder: &CheckedTerm,
+fn binder_bound<'a>(
+    binder: &'a CheckedTerm,
     operation: &OperationWire,
-    graph: &Graph<'_>,
-) -> Option<CheckedNodeId> {
+    graph: &'a Graph<'_>,
+) -> Option<&'a CheckedNodeId> {
     let CheckedTerm::Binding { value, .. } = binder else {
         return None;
     };
@@ -2907,7 +2912,7 @@ fn union_arms_hold(
         if !binders_hold
             || !conforms_to_type(
                 result,
-                operand_type_node_typed(body, nodes, kinds, index).as_ref(),
+                operand_type_node_typed(body, nodes, kinds, index),
                 graph,
                 owners,
                 meter,
@@ -3135,7 +3140,7 @@ fn union_defect(
             }
             if !conforms_to_type(
                 expected,
-                operand_type_node_typed(term, nodes, kinds, index).as_ref(),
+                operand_type_node_typed(term, nodes, kinds, index),
                 graph,
                 owners,
                 meter,
@@ -3222,7 +3227,7 @@ fn body_root_defect(
         return Ok(None);
     }
     let root_type = match graph.terms.get(position).and_then(Option::as_ref) {
-        Some(CheckedTerm::Application { result_type, .. }) => Some(result_type.clone()),
+        Some(CheckedTerm::Application { result_type, .. }) => Some(result_type),
         Some(CheckedTerm::Aggregate { members }) if tag == CheckedNodeTag::Function => members
             .iter()
             .find_map(|member| match member {
@@ -3309,7 +3314,7 @@ fn check_function_call(
             entries
                 .iter()
                 .map(|entry| {
-                    let position = *index.get(&referenced_type(entry)?)?;
+                    let position = *index.get(referenced_type(entry)?)?;
                     (kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter))
                         .then(|| nodes[position].semantic_type.clone())
                 })
@@ -3325,7 +3330,7 @@ fn check_function_call(
         let position = offset.saturating_add(1);
         if !conforms_to_type(
             expected,
-            operand_type_node_typed(&arguments[position], nodes, kinds, index).as_ref(),
+            operand_type_node_typed(&arguments[position], nodes, kinds, index),
             graph,
             owners,
             meter,
@@ -3381,7 +3386,7 @@ fn check_reference_edge(
     if !owners.is_model_declaration_node(declaring, tag) {
         return ineligible(member_at("declaration"));
     }
-    if reference_operand(source).as_ref() != Some(&declaring.node_id) {
+    if reference_operand(source) != Some(&declaring.node_id) {
         return ineligible(argument_at(source));
     }
     let owner = match owners.recover(declaring) {
@@ -3578,7 +3583,7 @@ fn check_tuple_position(
     else {
         return ineligible();
     };
-    if operand_type.as_ref() != Some(&declaration.node_id) {
+    if operand_type != Some(&declaration.node_id) {
         return ineligible();
     }
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
@@ -3821,7 +3826,10 @@ fn check_relationship_member(
 
 /// The node a `composite_type`/`reference` type node's body references: `X`
 /// of `Reference<X>`. `None` for any other node.
-fn reference_target(type_id: &CheckedNodeId, graph: &Graph<'_>) -> Option<CheckedNodeId> {
+fn reference_target<'g>(
+    type_id: &CheckedNodeId,
+    graph: &'g Graph<'_>,
+) -> Option<&'g CheckedNodeId> {
     let position = *graph.index.get(type_id)?;
     if *graph.kinds.get(position)? != CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
         return None;
@@ -3832,7 +3840,7 @@ fn reference_target(type_id: &CheckedNodeId, graph: &Graph<'_>) -> Option<Checke
     let [CheckedTerm::Reference { target }] = members.as_slice() else {
         return None;
     };
-    Some(target.clone())
+    Some(target)
 }
 
 /// A model-owned member refusal at `path`.
@@ -4069,8 +4077,8 @@ fn check_place_presence(
         ));
     }
     let owner_type = presence_value_type(&arguments[1], graph)
-        .and_then(|type_id| reference_target(&type_id, graph).or(Some(type_id)));
-    if owner_type.as_ref() != Some(model) {
+        .and_then(|type_id| reference_target(type_id, graph).or(Some(type_id)));
+    if owner_type != Some(model) {
         return Err(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
             application.body(&["arguments"]).index(1),
@@ -4080,7 +4088,7 @@ fn check_place_presence(
     for (offset, selector) in selectors.iter().enumerate() {
         let argument_index = offset + 2;
         let actual = presence_value_type(&arguments[argument_index], graph);
-        if actual.as_ref() != Some(*selector) {
+        if actual != Some(*selector) {
             return Err(application.refuse(
                 CheckedPackageRefusalCode::IllTyped,
                 application.body(&["arguments"]).index(argument_index),
@@ -4091,7 +4099,10 @@ fn check_place_presence(
     Ok(true)
 }
 
-fn presence_value_type(argument: &CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
+fn presence_value_type<'a>(
+    argument: &'a CheckedTerm,
+    graph: &'a Graph<'_>,
+) -> Option<&'a CheckedNodeId> {
     match argument {
         CheckedTerm::Reference { target } => {
             let position = *graph.index.get(target)?;
@@ -4099,10 +4110,10 @@ fn presence_value_type(argument: &CheckedTerm, graph: &Graph<'_>) -> Option<Chec
             if is_type_shaped(kind) || kind.tag() == CheckedNodeTag::Model {
                 return None;
             }
-            Some(graph.nodes.get(position)?.semantic_type.clone())
+            Some(&graph.nodes.get(position)?.semantic_type)
         }
-        CheckedTerm::Literal { type_id, .. } => Some(type_id.clone()),
-        CheckedTerm::Application { result_type, .. } => Some(result_type.clone()),
+        CheckedTerm::Literal { type_id, .. } => Some(type_id),
+        CheckedTerm::Application { result_type, .. } => Some(result_type),
         _ => None,
     }
 }
@@ -4154,13 +4165,7 @@ fn check_model_member(
     // Implements: FR-347. the operand is the declaring type, or a record that conforms to
     // it when that type is a record value type.
     if kind == MemberKind::Field
-        && !conforms_to_type(
-            &declaring.node_id,
-            type_node(0).as_ref(),
-            graph,
-            owners,
-            meter,
-        )?
+        && !conforms_to_type(&declaring.node_id, type_node(0), graph, owners, meter)?
     {
         return ineligible(argument_at(0));
     }
@@ -4202,7 +4207,7 @@ fn check_model_member(
                 return ineligible(argument_at(0));
             };
             if !same_key(
-                type_node(0).as_ref().and_then(|id| graph.structural_id(id)),
+                type_node(0).and_then(|id| graph.structural_id(id)),
                 &receiver_id,
                 meter,
             )? {
@@ -4233,13 +4238,7 @@ fn check_model_member(
                 else {
                     return ineligible(argument_at(position));
                 };
-                if !conforms_to_type(
-                    &expected_id,
-                    type_node(position).as_ref(),
-                    graph,
-                    owners,
-                    meter,
-                )? {
+                if !conforms_to_type(&expected_id, type_node(position), graph, owners, meter)? {
                     return ineligible(argument_at(position));
                 }
             }
@@ -4329,41 +4328,41 @@ fn check_field_member(
 /// and `same_type` need the type node itself (e.g. `float_rounding`), not
 /// the family name [`resolve_family`] reduces it to. Every other term
 /// resolves to no type.
-fn referenced_operand_type(
-    target: &CheckedNodeId,
-    nodes: &[CheckedSemanticNodeV2],
+fn referenced_operand_type<'a>(
+    target: &'a CheckedNodeId,
+    nodes: &'a [CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
-) -> Option<CheckedNodeId> {
+) -> Option<&'a CheckedNodeId> {
     let position = *index.get(target)?;
     let target_node = &nodes[position];
     if is_type_shaped(*kinds.get(position)?) {
-        Some(target.clone())
+        Some(target)
     } else {
-        Some(target_node.semantic_type.clone())
+        Some(&target_node.semantic_type)
     }
 }
 
 /// The admitted-term form of `operand_type_node` for union payloads.
-fn operand_type_node_typed(
-    argument: &CheckedTerm,
-    nodes: &[CheckedSemanticNodeV2],
+fn operand_type_node_typed<'a>(
+    argument: &'a CheckedTerm,
+    nodes: &'a [CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
-) -> Option<CheckedNodeId> {
+) -> Option<&'a CheckedNodeId> {
     operand_type_node_typed_with_lookup(argument, nodes, kinds, index, None)
 }
 
-fn operand_type_node_typed_with_lookup(
-    argument: &CheckedTerm,
-    nodes: &[CheckedSemanticNodeV2],
+fn operand_type_node_typed_with_lookup<'a>(
+    argument: &'a CheckedTerm,
+    nodes: &'a [CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
     fast_index: Option<&FlatWireIndex<'_>>,
-) -> Option<CheckedNodeId> {
+) -> Option<&'a CheckedNodeId> {
     let target = match argument {
-        CheckedTerm::Literal { type_id, .. } => return Some(type_id.clone()),
-        CheckedTerm::Application { result_type, .. } => return Some(result_type.clone()),
+        CheckedTerm::Literal { type_id, .. } => return Some(type_id),
+        CheckedTerm::Application { result_type, .. } => return Some(result_type),
         CheckedTerm::Reference { target } => target,
         _ => return None,
     };
@@ -4371,9 +4370,9 @@ fn operand_type_node_typed_with_lookup(
         let position = fast_index.get(target, index)?;
         let target_node = &nodes[position];
         if is_type_shaped(*kinds.get(position)?) {
-            Some(target.clone())
+            Some(target)
         } else {
-            Some(target_node.semantic_type.clone())
+            Some(&target_node.semantic_type)
         }
     } else {
         referenced_operand_type(target, nodes, kinds, index)
@@ -4430,7 +4429,7 @@ fn check_mode_type(
         .get(application.position)
         .and_then(Option::as_ref)
         .and_then(|term| match term {
-            CheckedTerm::Application { result_type, .. } => Some(result_type.clone()),
+            CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
     let operand_types = entry
@@ -4476,11 +4475,11 @@ fn check_mode_type(
 }
 
 /// The admitted `reference` term's target, as a node id.
-fn referenced_type(term: &CheckedTerm) -> Option<CheckedNodeId> {
+fn referenced_type(term: &CheckedTerm) -> Option<&CheckedNodeId> {
     let CheckedTerm::Reference { target } = term else {
         return None;
     };
-    Some(target.clone())
+    Some(target)
 }
 
 /// The inner type of an `option`, `sequence`, `set`, `bag` or `ordered_set`
@@ -4505,7 +4504,7 @@ fn inner_type(
     else {
         return Ok(None);
     };
-    Ok(graph
+    graph
         .terms
         .get(position)
         .and_then(Option::as_ref)
@@ -4513,7 +4512,9 @@ fn inner_type(
             CheckedTerm::Aggregate { members } => members.first(),
             _ => None,
         })
-        .and_then(referenced_type))
+        .and_then(referenced_type)
+        .map(|id| meter.clone_id(id))
+        .transpose()
 }
 
 /// Why the leaves of a compared type could not be derived.
@@ -5543,6 +5544,8 @@ fn check_leaf_count(
         CatalogLeafSource::OperandZero => arguments
             .first()
             .and_then(|argument| operand_type_node_typed(argument, nodes, kinds, index))
+            .map(|id| work.meter.clone_id(id))
+            .transpose()?
             .map(Some),
         CatalogLeafSource::InnerZero => {
             match arguments

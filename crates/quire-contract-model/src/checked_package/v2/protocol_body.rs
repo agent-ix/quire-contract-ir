@@ -6293,11 +6293,11 @@ pub(super) fn validate_protocol_nodes(
                 node_pointer(position),
             ));
         };
-        let owner_at = node_pointer(position).key("owner_model");
+        let owner_at = || node_pointer(position).key("owner_model");
         let owner_position = index.get(owner_model).copied().ok_or_else(|| {
             ValidationFailure::refused_at(
                 Code::MissingDeclaration,
-                owner_at.clone(),
+                owner_at(),
                 Some(Cause::MissingName),
                 node.node_id.clone(),
             )
@@ -6306,7 +6306,7 @@ pub(super) fn validate_protocol_nodes(
         if kinds[owner_position] != CheckedNodeKind::Model(ModelForm::ObjectType) {
             return Err(ValidationFailure::refused_at(
                 Code::InvalidModelBinding,
-                owner_at,
+                owner_at(),
                 Some(Cause::MalformedDeclaration),
                 node.node_id.clone(),
             ));
@@ -6314,7 +6314,7 @@ pub(super) fn validate_protocol_nodes(
         let owner = owners.recover(target).map_err(|failure| {
             ValidationFailure::refused_at(
                 failure.code,
-                owner_at.clone(),
+                owner_at(),
                 Some(failure.cause),
                 node.node_id.clone(),
             )
@@ -6322,7 +6322,7 @@ pub(super) fn validate_protocol_nodes(
         if owner.form != super::model_members::DeclarationForm::ObjectType {
             return Err(ValidationFailure::refused_at(
                 Code::InvalidModelBinding,
-                owner_at,
+                owner_at(),
                 Some(Cause::MalformedDeclaration),
                 node.node_id.clone(),
             ));
