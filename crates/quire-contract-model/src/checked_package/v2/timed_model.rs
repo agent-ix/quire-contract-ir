@@ -1701,6 +1701,59 @@ fn frame_writes_clock(
     Ok(false)
 }
 
+fn canonical_value_bytes(
+    value: &super::CheckedJson,
+    meter: &mut WorkMeter,
+    at: &Path,
+) -> Result<Option<Vec<u8>>, ValidationFailure> {
+    let site = at.site();
+    let limits = quire_canonical::Limits::new(u64::MAX);
+    let mut count = stage_storage::CountingSink::default();
+    let mut charges = stage_storage::WriterCharges::new(meter, site);
+    let encoded = quire_canonical::encode_with_reservation(&mut count, value, limits, &mut charges);
+    if let Some(failure) = charges.failure.take() {
+        return Err(failure);
+    }
+    if encoded.is_err() {
+        return Ok(None);
+    }
+    let mut bytes: Vec<u8> = stage_storage::vec(meter, &site, count.0)?;
+    let mut charges = stage_storage::WriterCharges::new(meter, site);
+    let encoded = quire_canonical::encode_with_reservation(&mut bytes, value, limits, &mut charges);
+    if let Some(failure) = charges.failure.take() {
+        return Err(failure);
+    }
+    Ok(encoded.ok().map(|()| bytes))
+}
+
+// Canonical scalar equality reads the retained values directly. The closed
+// path schema uses text and nonnegative integers; the paid fallback preserves
+// the same canonical-encoding equality for other retained JSON shapes.
+fn same_literal_value(
+    left: &super::CheckedJson,
+    right: &super::CheckedJson,
+    meter: &mut WorkMeter,
+    at: &Path,
+) -> Result<bool, ValidationFailure> {
+    use quire_canonical::Node;
+    match (left.node().node(), right.node().node()) {
+        (Node::Null, Node::Null) => Ok(true),
+        (Node::Bool(left), Node::Bool(right)) => Ok(left == right),
+        (Node::Number(left), Node::Number(right)) => Ok(left.value() == right.value()),
+        (Node::String(left), Node::String(right)) => Ok(left == right),
+        (Node::Array(_), Node::Array(_)) | (Node::Object(_), Node::Object(_)) => Ok(
+            match (
+                canonical_value_bytes(left, meter, at)?,
+                canonical_value_bytes(right, meter, at)?,
+            ) {
+                (Some(left), Some(right)) => left == right,
+                _ => false,
+            },
+        ),
+        _ => Ok(false),
+    }
+}
+
 /// Compare the retained path terms exactly, charging each actual term visit.
 fn same_place_path(
     left: &CheckedTerm,
@@ -1757,7 +1810,7 @@ fn same_place_path(
             ) => {
                 if !meter.compare_ids(left_type, right_type)?.is_eq()
                     || left_kind != right_kind
-                    || left != right
+                    || !same_literal_value(left, right, meter, at)?
                 {
                     return Ok(false);
                 }
