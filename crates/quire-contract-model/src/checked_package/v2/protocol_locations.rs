@@ -4,6 +4,8 @@
 
 use super::checked_term_data::CheckedProtocolSemanticLocation;
 use super::checked_term_data::{CheckedKeyOrdinal, CheckedProtocolLocationOrigin};
+use super::dispatch_projection::{data_site, fail, invalid};
+use super::stage_storage::{self, Path};
 use super::{
     CheckedNodeKind, CheckedPackageV2, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm,
     ExpressionForm, WorkMeter,
@@ -11,30 +13,37 @@ use super::{
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrence, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedSourceMapEntry, JsonPointer,
+    CheckedSourceMapEntry,
 };
 
 const MAX_SAFE: u64 = 9_007_199_254_740_991;
 
-fn at(row: usize) -> JsonPointer {
-    JsonPointer::root()
+fn at(row: usize) -> Path<'static> {
+    Path::root()
         .key("checked_term_data")
         .key("protocol_locations")
         .index(row)
 }
-fn malformed(path: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused_because(
+
+/// A malformed-wire refusal at `path`, its diagnostic charged before it is built.
+fn malformed(meter: &mut WorkMeter, row: usize, path: Path<'static>) -> ValidationFailure {
+    fail(
+        meter,
+        row,
         CheckedPackageRefusalCode::MalformedWire,
+        Some(CheckedPackageRefusalCause::InvalidValue),
         path,
-        CheckedPackageRefusalCause::InvalidValue,
     )
 }
-fn invalid(path: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused_because(
-        CheckedPackageRefusalCode::InvalidPackage,
-        path,
-        CheckedPackageRefusalCause::InvalidValue,
-    )
+
+/// One unit of work for the value at `path` in row `row`.
+fn work(
+    meter: &mut WorkMeter,
+    row: usize,
+    path: Path<'static>,
+    amount: u64,
+) -> Result<(), ValidationFailure> {
+    stage_storage::work(meter, &data_site(row, path), amount)
 }
 
 /// Validate retained row keys, canonical ordinal shapes and local graph joins.
@@ -72,21 +81,24 @@ fn validate_rows<Body>(
     let mut previous: Option<&CheckedProtocolSemanticLocation> = None;
     let mut missing_predecessor = false;
     for (index, row) in rows.iter().enumerate() {
-        meter.charge(1, || at(index))?;
-        intake_local_application(&row.application, name, index)?;
-        let term_ordinal = intake_term_ordinal(row.term_ordinal, index)?;
+        let here = at(index);
+        work(meter, index, here, 1)?;
+        intake_local_application(&row.application, name, index, meter)?;
+        let term_ordinal = intake_term_ordinal(row.term_ordinal, index, meter)?;
         if let Some(before) = previous {
             let key = (&row.application, &row.occurrence, term_ordinal);
             let prior = (&before.application, &before.occurrence, before.term_ordinal);
             if key == prior {
-                return Err(ValidationFailure::refused_because(
+                return Err(fail(
+                    meter,
+                    index,
                     CheckedPackageRefusalCode::InvalidPackage,
-                    at(index),
-                    CheckedPackageRefusalCause::ConflictingDefinition,
+                    Some(CheckedPackageRefusalCause::ConflictingDefinition),
+                    here,
                 ));
             }
             if key < prior {
-                return Err(invalid(at(index)));
+                return Err(invalid(meter, index, here));
             }
         }
         let expected = previous
@@ -98,37 +110,39 @@ fn validate_rows<Body>(
         previous = Some(row);
         let mut selected = None;
         for (position, node) in nodes.iter().enumerate() {
-            meter.charge(1, || at(index).key("application"))?;
+            work(meter, index, here.key("application"), 1)?;
             if node.node_id == row.application {
                 selected = Some((position, node));
                 break;
             }
         }
-        let (position, node) = selected.ok_or_else(|| invalid(at(index).key("application")))?;
+        let Some((position, node)) = selected else {
+            return Err(invalid(meter, index, here.key("application")));
+        };
         // A leaf owns its location on its graph node. Its occurrence and a
         // matching enclosing application location cannot make a row valid.
         match (kinds.get(position), terms.get(position)) {
             (Some(CheckedNodeKind::Expression(form)), Some(CheckedTerm::Application { .. }))
                 if *form != ExpressionForm::Reference => {}
-            _ => return Err(invalid(at(index).key("application"))),
+            _ => return Err(invalid(meter, index, here.key("application"))),
         }
         let mut occurrence_found = false;
         for occurrence in &node.occurrences {
-            meter.charge(1, || at(index).key("occurrence"))?;
+            work(meter, index, here.key("occurrence"), 1)?;
             occurrence_found |= occurrence == &row.occurrence;
         }
         if !occurrence_found {
-            return Err(invalid(at(index).key("occurrence")));
+            return Err(invalid(meter, index, here.key("occurrence")));
         }
         let mut mapped = false;
         for entry in source_map {
-            meter.charge(1, || at(index).key("occurrence"))?;
+            work(meter, index, here.key("occurrence"), 1)?;
             mapped |= entry.node_id == row.application
                 && entry.role == row.occurrence.role
                 && entry.ordinal == row.occurrence.ordinal;
         }
         if !mapped {
-            return Err(invalid(at(index).key("occurrence")));
+            return Err(invalid(meter, index, here.key("occurrence")));
         }
         intake_location_value(row, index, meter)?;
     }
@@ -136,7 +150,9 @@ fn validate_rows<Body>(
     // Existing row shape, join, duplicate and ordering refusals retain their precedence.
     if missing_predecessor {
         return Err(invalid(
-            JsonPointer::root()
+            meter,
+            0,
+            Path::root()
                 .key("checked_term_data")
                 .key("protocol_locations"),
         ));
@@ -146,9 +162,13 @@ fn validate_rows<Body>(
 
 /// Convert an incoming numeric term coordinate to its safe wire range.
 #[ix_trace_rs::string_edge]
-fn intake_term_ordinal(wire: u64, index: usize) -> Result<u64, ValidationFailure> {
+fn intake_term_ordinal(
+    wire: u64,
+    index: usize,
+    meter: &mut WorkMeter,
+) -> Result<u64, ValidationFailure> {
     if wire > MAX_SAFE {
-        return Err(malformed(at(index).key("term_ordinal")));
+        return Err(malformed(meter, index, at(index).key("term_ordinal")));
     }
     Ok(wire)
 }
@@ -160,9 +180,10 @@ fn intake_local_application<'a>(
     wire_id: &'a CheckedNodeId,
     root_package: &str,
     index: usize,
+    meter: &mut WorkMeter,
 ) -> Result<&'a CheckedNodeId, ValidationFailure> {
     if wire_id.package.as_ref() != root_package {
-        return Err(invalid(at(index).key("application")));
+        return Err(invalid(meter, index, at(index).key("application")));
     }
     Ok(wire_id)
 }
@@ -174,35 +195,44 @@ fn intake_location_value(
     index: usize,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
+    let origin = at(index).key("location").key("origin");
     match &row.location.origin {
         CheckedProtocolLocationOrigin::TypeDeclaration { name } => {
-            meter.charge(u64::try_from(name.len()).unwrap_or(u64::MAX), || {
-                at(index).key("location").key("origin")
-            })?;
+            work(
+                meter,
+                index,
+                origin,
+                u64::try_from(name.len()).unwrap_or(u64::MAX),
+            )?;
             if name.is_empty() {
-                return Err(malformed(at(index).key("location").key("origin")));
+                return Err(malformed(meter, index, origin));
             }
         }
         CheckedProtocolLocationOrigin::ProtocolAttempt { protocol, attempt } => {
             if *protocol > MAX_SAFE || *attempt > MAX_SAFE {
-                return Err(malformed(at(index).key("location").key("origin")));
+                return Err(malformed(meter, index, origin));
             }
         }
     }
     for (position, ordinal) in row.location.path.iter().enumerate() {
-        let locus = || at(index).key("location").key("path").index(position);
-        meter.charge(1, locus)?;
+        let locus = at(index).key("location").key("path").index(position);
+        work(meter, index, locus, 1)?;
         match ordinal {
             CheckedKeyOrdinal::Safe(value) if *value <= MAX_SAFE => {}
             CheckedKeyOrdinal::BeyondSafe(text) => {
-                meter.charge(u64::try_from(text.len()).unwrap_or(u64::MAX), locus)?;
+                work(
+                    meter,
+                    index,
+                    locus,
+                    u64::try_from(text.len()).unwrap_or(u64::MAX),
+                )?;
                 let beyond =
                     text.len() > 16 || (text.len() == 16 && text.as_ref() > "9007199254740991");
                 if !beyond || text.starts_with('0') || !text.bytes().all(|b| b.is_ascii_digit()) {
-                    return Err(malformed(locus()));
+                    return Err(malformed(meter, index, locus));
                 }
             }
-            CheckedKeyOrdinal::Safe(_) => return Err(malformed(locus())),
+            CheckedKeyOrdinal::Safe(_) => return Err(malformed(meter, index, locus)),
         }
     }
     Ok(())
