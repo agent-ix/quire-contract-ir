@@ -12,11 +12,9 @@
 use super::checked_json::{CheckedJson, CHECKED_JSON_TOKEN};
 use super::native_join_budget::{NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource};
 use super::PackageReadStage;
-use crate::checked_package::common::{pointer_from_steps, Step};
 use crate::checked_package::shared::CheckedNodeId;
-use crate::checked_package::shared::JsonPointer;
+use crate::checked_package::shared::{push_index, push_key, JsonPointer};
 use quire_canonical::{Document, Items, Members, Node, NodeRef};
-use serde::de::value::Error;
 use serde::de::{
     self, DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess, VariantAccess,
     Visitor,
@@ -24,6 +22,29 @@ use serde::de::{
 use serde::Deserialize;
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
+
+/// Decode errors preserve schema diagnostics while a reservation denial owns
+/// no message or other allocation.
+#[derive(Debug)]
+pub(in crate::checked_package) enum Error {
+    Denied,
+    Decode(serde::de::value::Error),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Denied => formatter.write_str("the read-storage budget refused a request"),
+            Self::Decode(error) => error.fmt(formatter),
+        }
+    }
+}
+impl std::error::Error for Error {}
+impl de::Error for Error {
+    fn custom<T: std::fmt::Display>(message: T) -> Self {
+        Self::Decode(de::Error::custom(message))
+    }
+}
 
 /// The name under which the wire's node-id member is decoded whole.
 pub(super) const NODE_ID_TOKEN: &str = "$quire::NodeId";
@@ -209,7 +230,7 @@ pub(in crate::checked_package) struct DecodeContext<'d> {
     document: &'d Arc<Document>,
     budget: RefCell<NativeJoinBudget>,
     denied: Cell<bool>,
-    denied_at: RefCell<Option<JsonPointer>>,
+    denied_at: RefCell<Option<([Option<Segment<'d>>; TRACKED_DEPTH], usize)>>,
     charging: Cell<bool>,
     path: RefCell<([Option<Segment<'d>>; TRACKED_DEPTH], usize)>,
     /// A locus every charge is made at, for a decode of one term below the
@@ -286,7 +307,39 @@ impl<'d> DecodeContext<'d> {
 
     /// The pointer of the value being decoded when the budget refused.
     pub(in crate::checked_package) fn denied_at(&self) -> Option<JsonPointer> {
-        self.denied_at.borrow().clone()
+        let (steps, count) = self.denied_at.borrow().as_ref().copied()?;
+        let mut length = 0_usize;
+        for step in steps.iter().take(count).flatten() {
+            let bytes = match step {
+                Segment::Key(key) => key.chars().fold(1_usize, |length, character| {
+                    length.saturating_add(match character {
+                        '~' | '/' => 2,
+                        other => other.len_utf8(),
+                    })
+                }),
+                Segment::Index(index) => {
+                    let mut value = *index;
+                    let mut digits = 1;
+                    while value >= 10 {
+                        value /= 10;
+                        digits += 1;
+                    }
+                    1 + digits
+                }
+            };
+            length = length.saturating_add(bytes);
+        }
+        if !self.budget.borrow_mut().prepay_diagnostic(length as u128) {
+            return None;
+        }
+        let mut text = String::with_capacity(length);
+        for step in steps.iter().take(count).flatten() {
+            match step {
+                Segment::Key(key) => push_key(&mut text, key),
+                Segment::Index(index) => push_index(&mut text, *index),
+            }
+        }
+        Some(JsonPointer::from_escaped(text))
     }
 
     /// Whether the budget refused a charge during the decode.
@@ -351,21 +404,6 @@ impl<'d> DecodeContext<'d> {
         }
     }
 
-    /// The RFC 6901 pointer of the value being decoded.
-    fn pointer(&self) -> JsonPointer {
-        let path = self.path.borrow();
-        let steps = path
-            .0
-            .iter()
-            .take(path.1)
-            .flatten()
-            .map(|segment| match segment {
-                Segment::Key(key) => Step::Key(key),
-                Segment::Index(index) => Step::Index(*index),
-            });
-        pointer_from_steps(steps)
-    }
-
     /// Charges `bytes` of heap the decode is about to request.
     fn charge(&self, bytes: usize) -> Result<(), Error> {
         if bytes == 0 || !self.charging.get() {
@@ -380,10 +418,10 @@ impl<'d> DecodeContext<'d> {
             Ok(())
         } else {
             self.denied.set(true);
-            *self.denied_at.borrow_mut() = Some(self.pointer());
-            Err(de::Error::custom(
-                "the read-storage budget refused a request",
-            ))
+            self.denied_at
+                .borrow_mut()
+                .get_or_insert(*self.path.borrow());
+            Err(Error::Denied)
         }
     }
 }

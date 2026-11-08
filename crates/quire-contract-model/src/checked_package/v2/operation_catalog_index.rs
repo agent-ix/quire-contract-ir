@@ -221,7 +221,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Exact<T> {
     }
 }
 
-type DecodeError = serde::de::value::Error;
+type DecodeError = super::document_de::Error;
 
 fn decode<'d, T: Deserialize<'d>>(
     context: &DecodeContext<'d>,
@@ -252,7 +252,7 @@ impl CatalogKey for Box<str> {
     fn read(name: &str, context: &DecodeContext<'_>) -> Result<Self, DecodeError> {
         use serde::de::Error;
         if !context.charge_bytes(name.len()) {
-            return Err(DecodeError::custom("catalog key reservation denied"));
+            return Err(DecodeError::Denied);
         }
         Ok(name.into())
     }
@@ -281,7 +281,7 @@ fn table<'d, K: CatalogKey + Ord, V: Deserialize<'d>>(
     };
     let count = members.len();
     if !context.charge_bytes(count.saturating_mul(std::mem::size_of::<(K, Vec<V>)>())) {
-        return Err(DecodeError::custom("catalog table reservation denied"));
+        return Err(DecodeError::Denied);
     }
     let mut rows = Vec::with_capacity(count);
     for (name, node) in members {
