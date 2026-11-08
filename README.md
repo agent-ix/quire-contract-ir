@@ -1,6 +1,7 @@
 # Quire Contract IR
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/k8DVhuYBR2)
+[![Quire](https://img.shields.io/badge/Quire-Specification%20Language-1F6FEB)](https://github.com/agent-ix/quire-spec-language)
 
 Contract IR is the target-neutral intermediate representation of a Quire
 contract. This repository contains the reader for QSL checked packages and the
@@ -125,7 +126,7 @@ when any fixture mismatches and `2` on an invalid invocation or corpus.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/ecosystem-dark.svg">
-  <img alt="The Quire repositories. The main chain runs from the standard, quire-specification, to the compiler, quire-spec-language, then quire-contract-ir, quire-contract-codegen and quire-contract-runtime. quire-spec-language also feeds quire-protocol, and quire-contract-ir feeds quire-analyze. quire-observation feeds quire-protocol and quire-mltl. Above the chain, quire-driver runs it, quire-integration tests it and quire-verification plans verification. Below it, shared libraries used throughout: quire-exact, quire-semantic-value, quire-walk, quire-canonical and quire-verification-contracts." src="docs/images/ecosystem-light.svg">
+  <img alt="The Quire repositories. The main chain runs from the standard, quire-specification, to the compiler, quire-spec-language, then quire-contract-ir, quire-contract-codegen and quire-contract-runtime. quire-spec-language also feeds quire-protocol, and quire-contract-ir feeds quire-analyze. quire-observation feeds quire-protocol and quire-mltl. quire-eval is the evaluation core. Above the chain, quire-driver runs it, quire-integration tests it and quire-verification plans verification. Below it, shared libraries used throughout: quire-exact, quire-semantic-value, quire-walk, quire-canonical and quire-verification-contracts." src="docs/images/ecosystem-light.svg">
 </picture>
 
 Contract IR sits in the main chain, between the compiler and the backends.
@@ -151,7 +152,7 @@ make help           # all targets, including the lanes that need a QSL or QSpec 
 ```
 
 Some conformance lanes (`make conformance-qspec`, `conformance-qsl-ir769` and
-others) need a checkout of `quire-specification` (private) or
+others) need a checkout of [`quire-specification`](https://github.com/agent-ix/quire-specification) or
 `quire-spec-language` and are outside `make test`; `make help` names what each
 one needs.
 
