@@ -39,7 +39,7 @@ use crate::checked_package::common::{
     application_operator, body_term, node_pointer, Step, Trail, ValidationFailure, WireTerm,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
-use crate::checked_package::terms::{subterms, subterms_of, At, Cursor};
+use crate::checked_package::terms::{At, Cursor, TermSource};
 use quire_walk::{Children, Walk};
 use serde_json::Value;
 use std::ops::ControlFlow;
@@ -398,31 +398,31 @@ pub(super) fn check(
 
 /// The fourth anchor binding is a bare point object, outside the term grammar.
 /// The graph-shape stage owns its closed binding and value refusals.
-fn check_anchor_flat_wire(
-    body: &Value,
-    at: &Trail<'_>,
+fn check_anchor_flat_wire<'a, V: TermSource<'a>>(
+    body: V,
+    at: &Trail<'a>,
     reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<(), ValidationFailure> {
-    let Some(members) = body.get("members").and_then(Value::as_array) else {
-        return check_term(body, at, Place::BodyRoot, false, reservation);
-    };
-    if body_term(body) != Some(BodyTerm::Aggregate) {
+    fn is_point<'a, V: TermSource<'a>>(member: V) -> bool {
+        member.member("name").and_then(TermSource::text) == Some("execution_point")
+    }
+    let members = || body.member("members").and_then(TermSource::items);
+    if members().is_none() || body.kind() != Some(BodyTerm::Aggregate) {
         return check_term(body, at, Place::BodyRoot, false, reservation);
     }
-    if members.len() < 4
-        && !members
-            .iter()
-            .any(|member| member.get("name").and_then(Value::as_str) == Some("execution_point"))
-    {
+    let count = members().map_or(0, Iterator::count);
+    if count < 4 && !members().is_some_and(|mut items| items.any(is_point)) {
         return check_term(body, at, Place::BodyRoot, false, reservation);
     }
-    for (index, member) in members.iter().enumerate() {
-        if member.get("name").and_then(Value::as_str) == Some("execution_point") {
+    for (index, member) in members().into_iter().flatten().enumerate() {
+        if is_point(member) {
             continue;
         }
+        let members_at = at.key("members");
+        let member_at = members_at.index(index);
         check_term(
-            member,
-            &at.key("members").index(index),
+            member.shorter(),
+            &member_at,
             Place::Member,
             false,
             reservation,
@@ -645,9 +645,9 @@ fn hybrid_formula_nodes<'w>(
 /// it. `details` is whether the term belongs to a diagnostic's `details`,
 /// which refuses an application of the temporal formula and fairness classes as
 /// it refuses a `case` one.
-fn check_term(
-    root: &Value,
-    at: &Trail<'_>,
+fn check_term<'a, V: TermSource<'a>>(
+    root: V,
+    at: &Trail<'a>,
     place: Place,
     details: bool,
     reservation: &mut WalkReservation<'_, '_>,
@@ -657,9 +657,9 @@ fn check_term(
 
 // FR-482 task records additionally use an empty aggregate for absent HI work
 // and priority. It is a terminal leaf here, so the ordinary flat bound remains.
-fn check_term_with_empty_leaf(
-    root: &Value,
-    at: &Trail<'_>,
+fn check_term_with_empty_leaf<'a, V: TermSource<'a>>(
+    root: V,
+    at: &Trail<'a>,
     place: Place,
     details: bool,
     empty_leaf: bool,
@@ -672,6 +672,8 @@ fn check_term_with_empty_leaf(
     match read_charge::walk(
         &mut Flat {
             cursor,
+            charge: &charge,
+            _terms: std::marker::PhantomData,
             details,
             empty_leaf,
         },
@@ -699,16 +701,21 @@ pub(super) fn check_refinement_term(
 /// `malformed_wire` at the application. Charges one unit of work per value
 /// entered, the work the abstraction relation step's body read is charged. A
 /// pointer is built only for the application that refuses.
-pub(super) fn scan_members(
-    body: &Value,
-    at: &Trail<'_>,
+pub(super) fn scan_members<'a, V: TermSource<'a>>(
+    body: V,
+    at: &Trail<'a>,
     reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<u64, ValidationFailure> {
     let (meter, site) = (reservation.meter, reservation.check);
     let charge = move |bytes: usize| meter.charge(site, bytes as u128);
     let cursor = Cursor::charged(at, &charge)?;
     let root = cursor.root(body, true);
-    let mut scan = Scan { cursor, work: 0 };
+    let mut scan = Scan {
+        cursor,
+        charge: &charge,
+        _terms: std::marker::PhantomData,
+        work: 0,
+    };
     match read_charge::walk(&mut scan, root, reservation)? {
         ControlFlow::Continue(()) => Ok(scan.work),
         ControlFlow::Break(failure) => Err(failure),
@@ -717,48 +724,41 @@ pub(super) fn scan_members(
 
 /// The walk of [`scan_members`]: every JSON value below the body root, an
 /// object's members and an array's elements alike.
-struct Scan<'a> {
+struct Scan<'a, 'c, V> {
     cursor: Cursor<'a>,
+    charge: &'c dyn Fn(usize) -> Result<(), ValidationFailure>,
+    _terms: std::marker::PhantomData<V>,
     work: u64,
 }
 
-impl<'a> Walk for Scan<'a> {
+impl<'a, V: TermSource<'a>> Walk for Scan<'a, '_, V> {
     /// A value, and whether it is the body root.
-    type Node = At<'a, bool>;
+    type Node = At<'a, bool, V>;
     type Frame = ();
     type Stop = ValidationFailure;
 
     fn enter(
         &mut self,
-        node: At<'a, bool>,
-        children: &mut Children<'_, At<'a, bool>>,
+        node: At<'a, bool, V>,
+        children: &mut Children<'_, At<'a, bool, V>>,
     ) -> ControlFlow<ValidationFailure> {
-        if let Err(failure) = self.cursor.enter_charged(&node) {
+        if let Err(failure) = self.cursor.enter_charged(&node, self.charge) {
             return ControlFlow::Break(failure);
         }
         self.work = self.work.saturating_add(1);
         let is_root = node.extra;
-        if !is_root && body_term(node.value) == Some(BodyTerm::Application) {
+        if !is_root && node.value.kind() == Some(BodyTerm::Application) {
             return ControlFlow::Break(nested_application_refusal(
                 node.value,
                 &self.cursor.trail(),
                 false,
             ));
         }
-        match node.value {
-            Value::Object(members) => children.extend(
-                members
-                    .iter()
-                    .map(|(key, member)| self.cursor.child(member, Some(key), None, false)),
-            ),
-            Value::Array(items) => children.extend(
-                items
-                    .iter()
-                    .enumerate()
-                    .map(|(index, item)| self.cursor.child(item, None, Some(index), false)),
-            ),
-            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-        }
+        children.extend(
+            node.value
+                .children()
+                .map(|(child, key, index)| self.cursor.child(child, key, index, false)),
+        );
         ControlFlow::Continue(())
     }
 
@@ -768,29 +768,30 @@ impl<'a> Walk for Scan<'a> {
 }
 
 /// The walk of [`check_term`].
-struct Flat<'a> {
+struct Flat<'a, 'c, V> {
     cursor: Cursor<'a>,
+    charge: &'c dyn Fn(usize) -> Result<(), ValidationFailure>,
+    _terms: std::marker::PhantomData<V>,
     details: bool,
     empty_leaf: bool,
 }
 
-impl<'a> Walk for Flat<'a> {
-    type Node = At<'a, Place>;
+impl<'a, V: TermSource<'a>> Walk for Flat<'a, '_, V> {
+    type Node = At<'a, Place, V>;
     type Frame = ();
     type Stop = ValidationFailure;
 
     fn enter(
         &mut self,
-        node: At<'a, Place>,
-        children: &mut Children<'_, At<'a, Place>>,
+        node: At<'a, Place, V>,
+        children: &mut Children<'_, At<'a, Place, V>>,
     ) -> ControlFlow<ValidationFailure> {
-        if let Err(failure) = self.cursor.enter_charged(&node) {
+        if let Err(failure) = self.cursor.enter_charged(&node, self.charge) {
             return ControlFlow::Break(failure);
         }
         let value = node.value;
         let place = node.extra;
-        let wire = WireTerm::decode(value);
-        let below = match wire.kind() {
+        let below = match value.kind() {
             // An application stands only at a body root; its arguments are
             // each a Member.
             Some(BodyTerm::Application) if place == Place::BodyRoot => Place::Member,
@@ -805,12 +806,7 @@ impl<'a> Walk for Flat<'a> {
                 Place::BodyRoot => Place::Member,
                 Place::Member | Place::TupleMember => Place::GroupMember,
                 Place::BindingValue => aggregate_stratum(value),
-                Place::LeafOnly
-                    if self.empty_leaf
-                        && wire
-                            .array(crate::checked_package::common::TermField::Members)
-                            .is_some_and(<[Value]>::is_empty) =>
-                {
+                Place::LeafOnly if self.empty_leaf && value.has_empty_members() => {
                     return ControlFlow::Continue(());
                 }
                 Place::GroupMember | Place::LeafOnly => {
@@ -836,7 +832,11 @@ impl<'a> Walk for Flat<'a> {
             )
             | None => return ControlFlow::Continue(()),
         };
-        children.extend(subterms_of(wire).map(|subterm| self.cursor.subterm(subterm, below)));
+        children.extend(
+            value
+                .subterms()
+                .map(|(child, key, index)| self.cursor.child(child, Some(key), index, below)),
+        );
         ControlFlow::Continue(())
     }
 
@@ -845,7 +845,7 @@ impl<'a> Walk for Flat<'a> {
     }
 }
 
-impl Flat<'_> {
+impl<'a, V: TermSource<'a>> Flat<'a, '_, V> {
     /// `malformed_wire` at the entered term: it stands where its stratum is
     /// not admitted.
     fn outside_grammar(&self) -> ValidationFailure {
@@ -862,9 +862,10 @@ impl Flat<'_> {
 /// makes it a Tuple. An aggregate of Leaves is both, and its members need no
 /// further place; a first non-Leaf member of another kind is refused by its own
 /// place whichever stratum the aggregate is read as.
-fn aggregate_stratum(aggregate: &Value) -> Place {
-    subterms(aggregate)
-        .find_map(|subterm| match body_term(subterm.value) {
+fn aggregate_stratum<'a>(aggregate: impl TermSource<'a>) -> Place {
+    aggregate
+        .subterms()
+        .find_map(|(subterm, _, _)| match subterm.kind() {
             Some(BodyTerm::Aggregate) => Some(Place::TupleMember),
             Some(BodyTerm::Binding) => Some(Place::GroupMember),
             Some(
@@ -887,15 +888,12 @@ fn aggregate_stratum(aggregate: &Value) -> Place {
 /// does an application of the `temporal_formula` or `temporal_fairness` class in
 /// a diagnostic's `details` term (merged FR-370-AC-12); an application of any
 /// other class refuses `malformed_wire` at the application itself.
-pub(super) fn nested_application_refusal(
-    application: &Value,
+pub(super) fn nested_application_refusal<'a>(
+    application: impl TermSource<'a>,
     at: &Trail<'_>,
     details: bool,
 ) -> ValidationFailure {
-    let operator = match CheckedTerm::view(application) {
-        Some(CheckedTermView::Application { operator, .. }) => Some(operator),
-        _ => application_operator(application),
-    };
+    let operator = application.operator();
     let operator_ineligible = match operator {
         Some(ApplicationOperator::Case) => true,
         Some(ApplicationOperator::TemporalFormula | ApplicationOperator::TemporalFairness) => {

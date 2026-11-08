@@ -58,6 +58,11 @@ pub struct CheckedJson {
 }
 
 impl CheckedJson {
+    /// The document this handle names a value of.
+    pub(in crate::checked_package) fn document(&self) -> &Arc<Document> {
+        &self.document
+    }
+
     /// The handle for `node` of `document`. Used by the read, which builds
     /// each handle from the package document it retains.
     pub(in crate::checked_package) fn new(document: Arc<Document>, node: NodeId) -> Self {

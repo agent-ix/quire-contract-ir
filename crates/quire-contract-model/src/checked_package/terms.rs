@@ -10,7 +10,7 @@
 //! ([`visit_terms`]).
 
 use super::common::{Step, TermField, Trail, ValidationFailure, WireTerm};
-use super::v2::{BodyTerm, CheckedTerm, CheckedTermView};
+use super::v2::{ApplicationOperator, BodyTerm, CheckedTerm, CheckedTermView, TermNode};
 use quire_walk::{walk, Children, Walk};
 use serde_json::Value;
 use std::marker::PhantomData;
@@ -83,12 +83,168 @@ pub(super) fn subterms_of(wire: WireTerm<'_>) -> impl Iterator<Item = Subterm<'_
         }))
 }
 
+/// What the flat-grammar walks read of a term: implemented by a
+/// `serde_json::Value` and by a [`TermNode`] of the retained document, so one
+/// walk serves a validator that still holds a `Value` and one that reads the
+/// node views.
+pub(super) trait TermSource<'a>: Copy {
+    /// The same kind of source over a shorter borrow of the same value, for a
+    /// check that stands at a position built on the caller's stack.
+    type Shorter<'b>: TermSource<'b>
+    where
+        'a: 'b;
+
+    /// This source over a shorter borrow.
+    fn shorter<'b>(self) -> Self::Shorter<'b>
+    where
+        'a: 'b;
+
+    /// The `term` tag when it names a body term.
+    fn kind(self) -> Option<BodyTerm>;
+    /// An application's decoded `operator` class.
+    fn operator(self) -> Option<ApplicationOperator>;
+    /// Whether the `members` array is present and empty.
+    fn has_empty_members(self) -> bool;
+    /// The terms directly below this one (see [`subterms`]).
+    fn subterms(self) -> impl Iterator<Item = (Self, &'static str, Option<usize>)>;
+    /// Every value directly below this one: an object's members by name and an
+    /// array's elements by index.
+    fn children(self) -> impl Iterator<Item = (Self, Option<&'a str>, Option<usize>)>;
+    /// The member `name` of an object.
+    fn member(self, name: &str) -> Option<Self>;
+    /// The elements of an array.
+    fn items(self) -> Option<impl Iterator<Item = Self>>;
+    /// The text of a string.
+    fn text(self) -> Option<&'a str>;
+}
+
+impl<'a> TermSource<'a> for &'a Value {
+    type Shorter<'b>
+        = &'b Value
+    where
+        'a: 'b;
+
+    fn shorter<'b>(self) -> &'b Value
+    where
+        'a: 'b,
+    {
+        self
+    }
+
+    fn kind(self) -> Option<BodyTerm> {
+        WireTerm::decode(self).kind()
+    }
+
+    fn operator(self) -> Option<ApplicationOperator> {
+        WireTerm::decode(self).operator()
+    }
+
+    fn has_empty_members(self) -> bool {
+        WireTerm::decode(self)
+            .array(TermField::Members)
+            .is_some_and(<[Value]>::is_empty)
+    }
+
+    fn subterms(self) -> impl Iterator<Item = (Self, &'static str, Option<usize>)> {
+        subterms(self).map(|subterm| (subterm.value, subterm.key, subterm.index))
+    }
+
+    fn children(self) -> impl Iterator<Item = (Self, Option<&'a str>, Option<usize>)> {
+        let (members, items) = match self {
+            Value::Object(members) => (Some(members.iter()), None),
+            Value::Array(items) => (None, Some(items.iter())),
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => (None, None),
+        };
+        members
+            .into_iter()
+            .flatten()
+            .map(|(key, member)| (member, Some(key.as_str()), None))
+            .chain(
+                items
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                    .map(|(index, item)| (item, None, Some(index))),
+            )
+    }
+
+    fn member(self, name: &str) -> Option<Self> {
+        self.get(name)
+    }
+
+    fn items(self) -> Option<impl Iterator<Item = Self>> {
+        self.as_array().map(|items| items.iter())
+    }
+
+    fn text(self) -> Option<&'a str> {
+        self.as_str()
+    }
+}
+
+impl<'a> TermSource<'a> for TermNode<'a> {
+    type Shorter<'b>
+        = TermNode<'b>
+    where
+        'a: 'b;
+
+    fn shorter<'b>(self) -> TermNode<'b>
+    where
+        'a: 'b,
+    {
+        self
+    }
+
+    fn kind(self) -> Option<BodyTerm> {
+        TermNode::kind(self)
+    }
+
+    fn operator(self) -> Option<ApplicationOperator> {
+        TermNode::operator(self)
+    }
+
+    fn has_empty_members(self) -> bool {
+        self.array(TermField::Members)
+            .is_some_and(|items| items.len() == 0)
+    }
+
+    fn subterms(self) -> impl Iterator<Item = (Self, &'static str, Option<usize>)> {
+        TermNode::subterms(self).map(|subterm| (subterm.value, subterm.key, subterm.index))
+    }
+
+    fn children(self) -> impl Iterator<Item = (Self, Option<&'a str>, Option<usize>)> {
+        let (members, items) = (self.members(), self.items());
+        members
+            .into_iter()
+            .flatten()
+            .map(|(key, member)| (member, Some(key), None))
+            .chain(
+                items
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                    .map(|(index, item)| (item, None, Some(index))),
+            )
+    }
+
+    fn member(self, name: &str) -> Option<Self> {
+        self.get(name)
+    }
+
+    fn items(self) -> Option<impl Iterator<Item = Self>> {
+        TermNode::items(self)
+    }
+
+    fn text(self) -> Option<&'a str> {
+        self.as_str()
+    }
+}
+
 /// A node a walk will enter: the value, the steps that lead to it from its
 /// parent, and the walk's own `extra` for it. The steps are resolved by
 /// [`Cursor::enter`] once the walk reaches the node, so no node owns a path.
 #[derive(Debug)]
-pub(super) struct At<'a, X> {
-    pub(super) value: &'a Value,
+pub(super) struct At<'a, X, V = &'a Value> {
+    pub(super) value: V,
     /// How many steps the cursor holds at the node's parent.
     keep: usize,
     key: Option<&'a str>,
@@ -103,9 +259,6 @@ pub(super) struct At<'a, X> {
 /// only when an outcome needs one.
 pub(super) struct Cursor<'a> {
     steps: Vec<Step<'a>>,
-    /// Charges the bytes of a growth of `steps` before it is made, when the
-    /// walk meters its heap.
-    charge: Option<&'a dyn Fn(usize) -> Result<(), ValidationFailure>>,
 }
 
 impl<'a> Cursor<'a> {
@@ -113,7 +266,6 @@ impl<'a> Cursor<'a> {
     pub(super) fn at(base: &Trail<'a>) -> Self {
         Self {
             steps: base.steps(),
-            charge: None,
         }
     }
 
@@ -121,7 +273,7 @@ impl<'a> Cursor<'a> {
     /// is entered, is first charged through `charge` as a count of bytes.
     pub(super) fn charged(
         base: &Trail<'a>,
-        charge: &'a dyn Fn(usize) -> Result<(), ValidationFailure>,
+        charge: &dyn Fn(usize) -> Result<(), ValidationFailure>,
     ) -> Result<Self, ValidationFailure> {
         charge(
             base.step_count()
@@ -129,12 +281,11 @@ impl<'a> Cursor<'a> {
         )?;
         Ok(Self {
             steps: base.steps(),
-            charge: Some(charge),
         })
     }
 
     /// The walk's root node, `value` at the cursor's base, with `extra`.
-    pub(super) fn root<X>(&self, value: &'a Value, extra: X) -> At<'a, X> {
+    pub(super) fn root<X, V>(&self, value: V, extra: X) -> At<'a, X, V> {
         At {
             value,
             keep: self.steps.len(),
@@ -146,13 +297,13 @@ impl<'a> Cursor<'a> {
 
     /// The node `value` one level below the entered node, at member `key`
     /// and/or array `index`, with `extra`.
-    pub(super) fn child<X>(
+    pub(super) fn child<X, V>(
         &self,
-        value: &'a Value,
+        value: V,
         key: Option<&'a str>,
         index: Option<usize>,
         extra: X,
-    ) -> At<'a, X> {
+    ) -> At<'a, X, V> {
         At {
             value,
             keep: self.steps.len(),
@@ -168,7 +319,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// Moves the cursor to `node`, the next node the walk enters.
-    pub(super) fn enter<X>(&mut self, node: &At<'a, X>) {
+    pub(super) fn enter<X, V>(&mut self, node: &At<'a, X, V>) {
         self.steps.truncate(node.keep);
         self.steps.extend(node.key.map(Step::Key));
         self.steps.extend(node.index.map(Step::Index));
@@ -176,17 +327,19 @@ impl<'a> Cursor<'a> {
 
     /// [`Self::enter`], first charging and reserving the steps the node adds
     /// beyond the cursor's capacity (doubling from four, reserved exactly).
-    pub(super) fn enter_charged<X>(&mut self, node: &At<'a, X>) -> Result<(), ValidationFailure> {
-        if let Some(charge) = self.charge {
-            self.steps.truncate(node.keep);
-            let needed =
-                node.keep + usize::from(node.key.is_some()) + usize::from(node.index.is_some());
-            let capacity = self.steps.capacity();
-            if needed > capacity {
-                let target = needed.max(capacity.saturating_mul(2)).max(4);
-                charge(target.saturating_mul(std::mem::size_of::<Step<'a>>()))?;
-                self.steps.reserve_exact(target - self.steps.len());
-            }
+    pub(super) fn enter_charged<X, V>(
+        &mut self,
+        node: &At<'a, X, V>,
+        charge: &dyn Fn(usize) -> Result<(), ValidationFailure>,
+    ) -> Result<(), ValidationFailure> {
+        self.steps.truncate(node.keep);
+        let needed =
+            node.keep + usize::from(node.key.is_some()) + usize::from(node.index.is_some());
+        let capacity = self.steps.capacity();
+        if needed > capacity {
+            let target = needed.max(capacity.saturating_mul(2)).max(4);
+            charge(target.saturating_mul(std::mem::size_of::<Step<'a>>()))?;
+            self.steps.reserve_exact(target - self.steps.len());
         }
         self.enter(node);
         Ok(())

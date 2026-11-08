@@ -87,7 +87,7 @@ mod temporal_clause_names;
 mod term_view;
 #[allow(unused_imports)]
 pub(in crate::checked_package) use term_view::{
-    TermItems, TermMembers, TermNode, TermSubterm, TermSubterms, TermView,
+    NodeIdRead, TermItems, TermMembers, TermNode, TermSubterm, TermSubterms, TermView,
 };
 mod timed_model;
 mod typed_terms;

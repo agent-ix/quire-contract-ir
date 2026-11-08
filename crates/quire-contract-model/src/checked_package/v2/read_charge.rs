@@ -43,6 +43,28 @@ impl Site {
     }
 }
 
+/// A charge the sink refused.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::checked_package) struct Denied;
+
+/// Where a read's heap requests are charged: the caller's budget, or a meter
+/// with a limit of its own. A request is charged before it is made.
+pub(in crate::checked_package) trait ReadStorage {
+    /// Admits `bytes` of heap about to be requested at `site`, or refuses.
+    fn reserve(&mut self, bytes: u128, site: Site) -> Result<(), Denied>;
+}
+
+impl ReadStorage for NativeJoinBudget {
+    fn reserve(&mut self, bytes: u128, site: Site) -> Result<(), Denied> {
+        self.set_active_locus(Some(site.locus()));
+        if self.charge_read_storage(bytes) {
+            Ok(())
+        } else {
+            Err(Denied)
+        }
+    }
+}
+
 /// Charges `bytes` of read storage at `site`.
 pub(super) fn charge(
     budget: &mut NativeJoinBudget,
