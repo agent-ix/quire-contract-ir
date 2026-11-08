@@ -921,6 +921,7 @@ fn every_registered_input_has_exact_accounting_at_core_bounds() {
     assert!(!cases.is_empty(), "the real registered corpus is nonempty");
     eprintln!("Registry core tier: {} actual inputs; ample/exact/last-short/repeat; full-boundary proof=false", cases.len());
     for input in cases {
+        eprintln!("Registry core actual input: {}", input.label);
         proof::assert_read::<IntegrationCounter>(
             &input.label,
             &input.bytes,
@@ -935,6 +936,7 @@ fn every_registered_input_has_exact_accounting_at_core_bounds() {
 fn the_actual_tc048_catalogue_and_refusal_corpus_is_exactly_accounted() {
     initialize_operation_catalog().expect("catalog gate");
     for input in registered_cases() {
+        eprintln!("Registry full actual input: {}", input.label);
         proof::assert_read::<IntegrationCounter>(
             &input.label,
             &input.bytes,
