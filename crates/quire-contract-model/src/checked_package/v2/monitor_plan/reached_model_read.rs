@@ -850,10 +850,9 @@ mod tests {
     use quire_semantic_value::declaration::{EqualityOperator, EqualitySchedule};
 
     /// A row for the fixture's first claim, read from the package under test.
-    /// The leaked row lives for the process; this is test-only support.
     fn test_authority(
         package: &CheckedPackageV2,
-    ) -> &'static crate::SelectedMonitorAuthorityRow<'static> {
+    ) -> crate::SelectedMonitorAuthorityRow<'static> {
         use crate::{CheckedMonitorClock, SelectedMonitorAuthorityRow, SelectedMonitorTimeSource};
         let plan = package.monitor_plans().next().unwrap();
         let clause = plan.clause().clone();
@@ -886,8 +885,7 @@ mod tests {
                 },
             },
         };
-        Box::leak(Box::new(
-            SelectedMonitorAuthorityRow::try_new(
+        SelectedMonitorAuthorityRow::try_new(
                 package.admission_binding(),
                 clause,
                 occurrence,
@@ -895,8 +893,7 @@ mod tests {
                 b"order",
                 b"progress",
             )
-            .unwrap(),
-        ))
+            .unwrap()
     }
 
     fn admitted_monitor() -> CheckedPackageV2 {
@@ -1251,6 +1248,7 @@ mod tests {
                 .any(|wrapper| wrapper.base_node == row.structural_node)
         });
         source_collections.extend(wrappers);
+        let authority = test_authority(package);
         let rows = super::super::selected_type_closure::SelectedMonitorClosureRows {
             declarations: &declarations,
             fields: &fields,
@@ -1266,7 +1264,7 @@ mod tests {
             source_collections: &source_collections,
             equality_applications: &equality_apps,
             equality_facts: &[],
-            authority: test_authority(&package),
+            authority: &authority,
         };
         let plan = package.monitor_plans().next().unwrap();
         let closure = plan
@@ -1803,6 +1801,7 @@ mod tests {
     #[test]
     fn selected_monitor_closure_reuses_one_meter_for_reached_model_facts() {
         let package = admitted_monitor_for_closure();
+        let authority = test_authority(&package);
         let equality_apps = equality_rows(&package);
         let (declarations, fields, source_units) = producer_rows(&package);
         let (source_records, source_tuples, source_unions, source_collections) =
@@ -1822,7 +1821,7 @@ mod tests {
             source_collections: &source_collections,
             equality_applications: &equality_apps,
             equality_facts: &[],
-            authority: test_authority(&package),
+            authority: &authority,
         };
         let plan = package.monitor_plans().next().unwrap();
         let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
@@ -1979,12 +1978,13 @@ mod tests {
         use super::super::selected_type_closure::SelectedMonitorClosureRows;
 
         let package = admitted_monitor_for_closure();
+        let authority = test_authority(&package);
         let applications = equality_rows(&package);
         let (declarations, fields, source_units) = producer_rows(&package);
         let (source_records, source_tuples, source_unions, source_collections) =
             source_rows(&package);
         let plan = package.monitor_plans().next().unwrap();
-        let read = |apps: &'static [crate::SelectedEqualityApplicationRow],
+        let read = |apps: &[crate::SelectedEqualityApplicationRow],
                     budget: &mut NativeJoinBudget| {
             plan.project_selected_type_closure(
                 SelectedMonitorClosureRows {
@@ -2002,13 +2002,13 @@ mod tests {
                     source_collections: &source_collections,
                     equality_applications: apps,
                     equality_facts: &[],
-                    authority: test_authority(&package),
+                    authority: &authority,
                 },
                 budget,
-            )
+            ).map(|closure| closure.equalities().to_vec())
         };
         let mut short_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
-        read(Vec::leak(applications.clone()), &mut short_budget).expect("short key closure");
+        read(&applications, &mut short_budget).expect("short key closure");
         let short_charge = short_budget.consumed();
         let width = usize::try_from(short_charge.storage).unwrap() + 1024;
         let long_key = NodeKey::new(
@@ -2022,21 +2022,20 @@ mod tests {
         long_applications[0].location =
             Location::new(long_key.clone(), Origin::new(Role::from("expression"), 0));
         let mut ample = NativeJoinBudget::new(u64::MAX, u64::MAX);
-        let long_applications: &'static [_] = Vec::leak(long_applications);
-        let closure = read(long_applications, &mut ample).expect("long key closure");
+        let closure = read(&long_applications, &mut ample).expect("long key closure");
         let exact_charge = ample.consumed();
-        assert_eq!(closure.equalities()[0].decision.application(), &long_key);
+        assert_eq!(closure[0].decision.application(), &long_key);
         assert!(exact_charge.storage >= short_charge.storage + (width as u64 - 16) * 2);
         assert!(exact_charge.work > short_charge.work);
         let mut exact = NativeJoinBudget::new(exact_charge.work, exact_charge.storage);
         assert_eq!(
-            read(long_applications, &mut exact).unwrap().equalities(),
-            closure.equalities()
+            read(&long_applications, &mut exact).unwrap(),
+            closure
         );
 
         let mut probe = NativeJoinBudget::new(exact_charge.work, short_charge.storage);
         let refusal =
-            read(long_applications, &mut probe).expect_err("long key exceeds short allowance");
+            read(&long_applications, &mut probe).expect_err("long key exceeds short allowance");
         assert_eq!(
             refusal.code,
             super::super::selected_type_closure::SelectedMonitorTypeClosureErrorCode::StorageLimit
@@ -2055,7 +2054,7 @@ mod tests {
         assert_eq!(refusal.at, None);
         let one_below = probe.consumed().storage + u64::try_from(denied.amount).unwrap() - 1;
         let mut one_below_budget = NativeJoinBudget::new(exact_charge.work, one_below);
-        let one_below_refusal = read(long_applications, &mut one_below_budget)
+        let one_below_refusal = read(&long_applications, &mut one_below_budget)
             .expect_err("one below key charge stops before selected-row clone");
         assert_eq!(one_below_refusal.denied, Some(denied));
         assert_eq!(one_below_refusal.denied_locus, refusal.denied_locus);
@@ -2072,6 +2071,7 @@ mod tests {
             SelectedMonitorClosureRows, SelectedMonitorTypeClosureErrorCode as Code,
         };
         let package = admitted_monitor_for_closure();
+        let authority = test_authority(&package);
         let equality_apps = equality_rows(&package);
         let (declarations, fields, source_units) = producer_rows(&package);
         let (source_records, source_tuples, source_unions, source_collections) =
@@ -2093,7 +2093,7 @@ mod tests {
                 source_collections: &source_collections,
                 equality_applications: &equality_apps,
                 equality_facts: &[],
-                authority: test_authority(&package),
+                authority: &authority,
             };
             plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
                 .map(|closure| (closure.work(), closure.identities().clone()))
@@ -2115,7 +2115,7 @@ mod tests {
                 source_collections: &source_collections,
                 equality_applications: applications,
                 equality_facts: &[],
-                authority: test_authority(&package),
+                authority: &authority,
             };
             plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
                 .map(|closure| (closure.work(), closure.equalities().to_vec()))
@@ -2183,7 +2183,7 @@ mod tests {
             source_collections: &source_collections,
             equality_applications: &equality_apps,
             equality_facts: &[],
-            authority: test_authority(&package),
+            authority: &authority,
         };
         let mut diagnostic_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let semantic = plan
@@ -2235,6 +2235,7 @@ mod tests {
             "unreached row lookup still charges inspection"
         );
         let unrepresentable = admitted_monitor_for_closure_with_status("text");
+        let unrepresentable_authority = test_authority(&unrepresentable);
         let unrepresentable_equalities = equality_rows(&unrepresentable);
         let (unrepresentable_declarations, unrepresentable_fields, unrepresentable_units) =
             producer_rows(&unrepresentable);
@@ -2264,7 +2265,7 @@ mod tests {
                     source_collections: &unrepresentable_collections,
                     equality_applications: &unrepresentable_equalities,
                     equality_facts: &[],
-                    authority: test_authority(&unrepresentable),
+                    authority: &unrepresentable_authority,
                 },
                 &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
             )
@@ -3077,7 +3078,7 @@ mod tests {
             unions: Vec<SelectedSourceUnionRow>,
             collections: Vec<SelectedSourceCollectionRow>,
             equalities: Vec<SelectedEqualityApplicationRow>,
-            authority: &'static crate::SelectedMonitorAuthorityRow<'static>,
+            authority: crate::SelectedMonitorAuthorityRow<'static>,
         }
         impl Rows {
             fn new(package: &CheckedPackageV2) -> Self {
@@ -3133,7 +3134,7 @@ mod tests {
                     source_collections: &self.collections,
                     equality_applications: &self.equalities,
                     equality_facts: &[],
-                    authority: self.authority,
+                    authority: &self.authority,
                 }
             }
             fn reached_map(&self) -> &SelectedSourceCollectionRow {
