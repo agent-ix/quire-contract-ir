@@ -560,24 +560,47 @@ pub(super) fn canonical_value(
     read_value(bytes, limits, Ok)
 }
 
-/// Decode a closed package straight from its validated bytes. This uses the
-/// established pointer mapping without first materializing the complete
-/// package as a `Value`.
-pub(super) fn decode_closed_bytes<'de, T: Deserialize<'de>>(
-    bytes: &'de [u8],
+/// Decode a closed package from the reader's document: the closed wire is
+/// decoded in place, charging each string and sequence it requests to the
+/// budget's read storage, with the same member-fault pointers.
+pub(super) fn decode_closed_document<'d, T: Deserialize<'d>>(
+    document: &'d std::sync::Arc<quire_canonical::Document>,
+    budget: &mut crate::checked_package::v2::NativeJoinBudget,
 ) -> Result<T, ValidationFailure> {
-    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-    match T::deserialize(&mut deserializer) {
+    use crate::checked_package::v2::DecodeContext;
+    let context = DecodeContext::new(document, budget);
+    let outcome = match T::deserialize(context.root()) {
         Ok(decoded) => Ok(decoded),
+        Err(_) if context.denied() => Err(None),
         Err(_) => {
-            // The traced wrapper adds a native frame per nested value. Use it
-            // only after a failed closed decode, to locate the offending
-            // shallow wire member without charging a valid deep term's stack.
-            let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+            context.pause_charging();
             let provenance = ClosedMemberProvenance::new();
-            serde_path_to_error::deserialize::<_, T>(provenance.trace(&mut deserializer))
-                .map_err(|error| classify_closed_error(error, provenance.unknown_member()))
+            Err(Some(
+                serde_path_to_error::deserialize::<_, T>(provenance.trace(context.root()))
+                    .err()
+                    .map_or_else(
+                        || {
+                            ValidationFailure::refused_bytes(
+                                CheckedPackageRefusalCode::MalformedWire,
+                            )
+                        },
+                        |error| classify_closed_error(error, provenance.unknown_member()),
+                    ),
+            ))
         }
+    };
+    let at = context.denied_at();
+    *budget = context.finish();
+    match outcome {
+        Ok(decoded) => Ok(decoded),
+        Err(Some(failure)) => Err(failure),
+        Err(None) => Err(match crate::checked_package::v2::decode_denial(budget) {
+            ValidationFailure::Budget(mut stop) => {
+                stop.path = at;
+                ValidationFailure::Budget(stop)
+            }
+            other => other,
+        }),
     }
 }
 

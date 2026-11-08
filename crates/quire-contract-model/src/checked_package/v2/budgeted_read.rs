@@ -295,10 +295,7 @@ fn budget_denial(
             form: DIAGNOSTIC_FORM,
         }));
     }
-    // A read with no read-storage allowance at all owns no diagnostic
-    // (FR-038-AC-510), whatever size it would have.
-    let affordable =
-        budget.read_storage_limit() > 0 && budget.charge_read_storage(diagnostic_bytes);
+    let affordable = budget.charge_read_storage(diagnostic_bytes);
     budget.set_active_locus(None);
     match (affordable, original_locus) {
         (true, _) => {
@@ -350,7 +347,7 @@ impl Reservation for ReadStorageReservation<'_> {
 }
 
 /// The denial the budget just recorded, as the stop that ends the read.
-fn denial(budget: &NativeJoinBudget) -> ValidationFailure {
+pub(in crate::checked_package) fn denial(budget: &NativeJoinBudget) -> ValidationFailure {
     let (resource, amount) = budget
         .first_unpaid_resource()
         .unwrap_or((PackageReadResource::ReadStorage, 0));
@@ -499,6 +496,28 @@ fn nesting_depth(bytes: &[u8]) -> usize {
 ///
 /// A byte-stream fault refuses before `noncanonical_wire`, as FR-038-AC-509
 /// orders them.
+/// The size of the allocation `Arc::new` makes for a `T`: its two counts,
+/// then the value, padded to the value's alignment.
+pub(super) fn arc_bytes<T>() -> usize {
+    std::alloc::Layout::new::<[usize; 2]>()
+        .extend(std::alloc::Layout::new::<T>())
+        .map_or(usize::MAX, |(layout, _)| layout.pad_to_align().size())
+}
+
+/// Shares the package document with the handles the decode hands out,
+/// charging the shared allocation at the retained locus first.
+pub(super) fn share_document(
+    document: Document,
+    budget: &mut NativeJoinBudget,
+) -> Result<std::sync::Arc<Document>, ValidationFailure> {
+    at_stage(budget, PackageReadStage::Retained, "package");
+    if !budget.charge_read_storage(arc_bytes::<Document>() as u128) {
+        return Err(denial(budget));
+    }
+    budget.set_active_locus(None);
+    Ok(std::sync::Arc::new(document))
+}
+
 pub(in crate::checked_package) fn read_envelope(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,

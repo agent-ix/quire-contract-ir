@@ -325,6 +325,7 @@ pub(super) fn check(
     }
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
+            let detail = &detail.to_value();
             let steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),
