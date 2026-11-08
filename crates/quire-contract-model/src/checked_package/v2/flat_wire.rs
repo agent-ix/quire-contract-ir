@@ -461,6 +461,7 @@ fn check_anchor_flat_wire<'a, V: TermSource<'a>>(
 /// reading). One flat loop over the nodes: no recursion.
 pub(super) fn check_interval_bounds(
     wire: &CheckedPackageWireV2,
+    bodies: &[CheckedJson],
     kinds: &[CheckedNodeKind],
     budget: &mut NativeJoinBudget,
 ) -> Result<(), ValidationFailure> {
@@ -479,7 +480,7 @@ pub(super) fn check_interval_bounds(
         }
         let operation = match CheckedTerm::view_from_wire(body) {
             Some(CheckedTermView::Application { operation, .. }) => Some(operation),
-            _ => member(&node.body, "operation"),
+            _ => node.body.get("operation").filter(|value| !value.is_null()),
         };
         let Some(operation) = operation else {
             continue;
@@ -488,7 +489,7 @@ pub(super) fn check_interval_bounds(
         let mut nonhybrid_open_upper = false;
         if timed_upper_is_null(operation) {
             if hybrid_formulas.is_none() {
-                hybrid_formulas = Some(hybrid_formula_nodes(wire, kinds, budget)?);
+                hybrid_formulas = Some(hybrid_formula_nodes(wire, bodies, kinds, budget)?);
             }
             nonhybrid_open_upper = hybrid_formulas
                 .as_ref()
@@ -519,7 +520,7 @@ pub(super) fn check_interval_bounds(
 }
 
 /// A member of an application body that is present and not `null`.
-fn member<'v>(body: &'v Value, name: &str) -> Option<&'v Value> {
+fn member<'d>(body: TermNode<'d>, name: &str) -> Option<TermNode<'d>> {
     body.get(name).filter(|value| !value.is_null())
 }
 
@@ -530,9 +531,11 @@ fn member<'v>(body: &'v Value, name: &str) -> Option<&'v Value> {
 /// early interval exception check, so this reads the `arguments` member and
 /// each argument's `target` directly; later shape checks own the refusal. A
 /// well-formed application's reference arguments name the same targets. Each
-/// target is built by a charged parse at `site`.
+/// target is built by a charged read at `site`, through the operand `row` of
+/// the node holding the body.
 fn application_targets(
-    body: &Value,
+    body: TermNode<'_>,
+    row: &[u64],
     budget: &mut NativeJoinBudget,
     site: Site,
     mut visit: impl FnMut(
@@ -540,12 +543,15 @@ fn application_targets(
         Option<&CheckedNodeId>,
     ) -> Result<(), ValidationFailure>,
 ) -> Result<bool, ValidationFailure> {
-    let Some(arguments) = member(body, "arguments").and_then(Value::as_array) else {
+    let Some(arguments) = member(body, "arguments").and_then(TermNode::items) else {
         return Ok(false);
     };
     for argument in arguments {
         let target = match member(argument, "target") {
-            Some(target) => read_charge::node_id_from_value(budget, site, target, false)?,
+            Some(target) => target
+                .node_id_in(&mut *budget, site, row)
+                .map_err(|_| super::budgeted_read::denial(budget))?
+                .spelled(),
             None => None,
         };
         visit(budget, target.as_ref())?;
@@ -584,6 +590,7 @@ impl HybridFormulas<'_> {
 /// Its position table, flags and worklist are charged at `interval_bounds`.
 fn hybrid_formula_nodes<'w>(
     wire: &'w CheckedPackageWireV2,
+    bodies: &[CheckedJson],
     kinds: &[CheckedNodeKind],
     budget: &mut NativeJoinBudget,
 ) -> Result<HybridFormulas<'w>, ValidationFailure> {
@@ -603,21 +610,27 @@ fn hybrid_formula_nodes<'w>(
         formulas: read_charge::filled(budget, site, nodes.len(), false)?,
     };
     let mut pending: Vec<usize> = Vec::new();
-    for (position, node) in nodes.iter().enumerate() {
+    for position in 0..nodes.len() {
         if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause)) {
             continue;
         }
         let (mut over, mut formula) = (None, None);
         let mut index = 0usize;
-        application_targets(&node.body, budget, interval_site(position), |_, target| {
-            match index {
-                0 => over = target.and_then(|id| found.position(id)),
-                5 => formula = target.and_then(|id| found.position(id)),
-                _ => {}
-            }
-            index += 1;
-            Ok(())
-        })?;
+        application_targets(
+            TermNode::of(&bodies[position]),
+            &wire.semantic_graph.operand_rows[position],
+            budget,
+            interval_site(position),
+            |_, target| {
+                match index {
+                    0 => over = target.and_then(|id| found.position(id)),
+                    5 => formula = target.and_then(|id| found.position(id)),
+                    _ => {}
+                }
+                index += 1;
+                Ok(())
+            },
+        )?;
         let Some(over_position) = over else {
             continue;
         };
@@ -645,11 +658,9 @@ fn hybrid_formula_nodes<'w>(
             continue;
         }
         found.formulas[position] = true;
-        let Some(node) = nodes.get(position) else {
-            continue;
-        };
         application_targets(
-            &node.body,
+            TermNode::of(&bodies[position]),
+            &wire.semantic_graph.operand_rows[position],
             budget,
             interval_site(position),
             |budget, target| {

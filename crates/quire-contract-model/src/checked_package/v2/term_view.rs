@@ -678,6 +678,18 @@ mod tests {
     use crate::checked_package::v2::{CheckedJson, CheckedTerm};
     use serde_json::{json, Value};
 
+    /// The `Value` parse of a node ID the node read is checked against.
+    fn node_id_from_value(
+        _budget: &mut crate::checked_package::v2::native_join_budget::NativeJoinBudget,
+        _site: crate::checked_package::v2::read_charge::Site,
+        value: &Value,
+        well_formed: bool,
+    ) -> Result<Option<crate::checked_package::v2::CheckedNodeId>, ()> {
+        use serde::Deserialize;
+        let parsed = crate::checked_package::v2::CheckedNodeId::deserialize(value).ok();
+        Ok(parsed.filter(|id| !well_formed || id.is_well_formed()))
+    }
+
     fn samples() -> Vec<Value> {
         let id = json!({"package": "p", "path": ["a", {"node": 1}], "ordinal": 0});
         let leaf = json!({"term": "reference", "target": id.clone()});
@@ -754,7 +766,7 @@ mod tests {
     #[test]
     fn node_ids_parse_like_the_value_parse_and_are_charged() {
         use crate::checked_package::v2::native_join_budget::{NativeJoinBudget, PackageReadStage};
-        use crate::checked_package::v2::read_charge::{node_id_from_value, Site};
+        use crate::checked_package::v2::read_charge::Site;
         use crate::checked_package::v2::term_view::NodeIdRead;
         let site = Site::new(PackageReadStage::WireChecks, 0, "owner_schema");
         let cases = [
@@ -862,7 +874,7 @@ mod tests {
     fn operand_slots_resolve_through_the_row_like_the_rewritten_value() {
         use crate::checked_package::v2::native_join_budget::{NativeJoinBudget, PackageReadStage};
         use crate::checked_package::v2::node_index::resolve_value_slots;
-        use crate::checked_package::v2::read_charge::{node_id_from_value, Site};
+        use crate::checked_package::v2::read_charge::Site;
         let site = Site::new(PackageReadStage::WireChecks, 0, "owner_schema");
         let row = [5u64, 7];
         let id =
