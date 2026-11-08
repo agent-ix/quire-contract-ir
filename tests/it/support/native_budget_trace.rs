@@ -66,9 +66,9 @@ fn unchanged(off: &Observation, on: &Observation) {
 }
 
 /// The first read is observer-OFF, before either observed read. This diagnostic
-/// deliberately does not assert requested == charged: it can localize a real
-/// accounting defect without misrepresenting that defect as passing evidence.
-pub(crate) fn diagnostic<C: Counter>(
+/// passes through the checked measurement boundary on all three reads. A real
+/// accounting defect fails before this consumer can provide normative evidence.
+pub(crate) fn checked<C: Counter>(
     bytes: &[u8],
     evidence: &CheckedPackageEvidence,
     limits: CheckedPackageReadLimits,
