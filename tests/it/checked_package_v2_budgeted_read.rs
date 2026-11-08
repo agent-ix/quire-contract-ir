@@ -308,9 +308,17 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
             consumed <= limit && consumed + asked > limit,
             "limit {limit}"
         );
-        let stage = match budget.first_unpaid_locus().expect("denial locus").source {
+        let locus = budget.first_unpaid_locus().expect("denial locus");
+        let stage = match locus.source {
             NativeJoinLocusSource::PackageRead(stage, 0) => stage,
             other => panic!("limit {limit}: {other:?}"),
+        };
+        // The package document's shared `Arc` is paid for, at the retained
+        // locus, right after the canonical comparison and before the decode.
+        let stage = if (stage, locus.form) == (PackageReadStage::Retained, "package") {
+            PackageReadStage::Canonical
+        } else {
+            stage
         };
         if let Some((last_consumed, last_end, last_stage)) = previous {
             if consumed == last_consumed {
@@ -318,7 +326,10 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
             } else {
                 assert_eq!(consumed, last_end, "limit {limit}: next request follows");
             }
-            assert!(stage >= last_stage, "limit {limit}: stages are ordered");
+            assert!(
+                stage >= last_stage,
+                "limit {limit}: stages are ordered: {last_stage:?} then {stage:?}"
+            );
         }
         if stage == PackageReadStage::Envelope {
             envelope_end = consumed + asked;
