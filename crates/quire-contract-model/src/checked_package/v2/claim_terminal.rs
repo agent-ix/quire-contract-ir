@@ -3,8 +3,8 @@
 //! These are separate body steps. Shape and form fit are checked before target
 //! meaning, and all terminal nodes are checked before uniqueness by model.
 
-use super::graph_storage::GraphIndex;
 use super::frame::StepGraph;
+use super::graph_storage::GraphIndex;
 use super::structural::{reference_type_target, typed_parameter_binding};
 use super::{
     CheckedNodeKind, CheckedNodeOwner, CheckedTerm, ClaimForm, CompositeTypeForm, LiteralKind,
@@ -16,7 +16,6 @@ use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedTerminalDuplicate, JsonPointer,
 };
-use std::collections::{BTreeMap, BTreeSet};
 
 fn failure(
     code: Code,
@@ -109,20 +108,27 @@ fn self_object_key(
     let Ok(owner) = graph.owners.recover(model_node) else {
         return Ok(None);
     };
-    let mut covered = BTreeMap::<&str, usize>::new();
+    // The one object type the population covers, and how often; a second
+    // distinct object ends the search.
+    let mut covered: Option<(&str, usize)> = None;
+    let mut distinct = false;
     for members in owner.package.population_members.values() {
         meter.charge(1, || binding_path(position, 2))?;
         for object in members {
             meter.charge(1, || binding_path(position, 2))?;
             if owner.package.object_types.contains_key(object) {
-                *covered.entry(object).or_default() += 1;
+                match &mut covered {
+                    Some((held, count)) if *held == &**object => *count += 1,
+                    Some(_) => distinct = true,
+                    None => covered = Some((&**object, 1)),
+                }
             }
         }
     }
-    if covered.len() != 1 {
+    if distinct {
         return Ok(None);
     }
-    let Some((object, count)) = covered.into_iter().next() else {
+    let Some((object, count)) = covered else {
         return Ok(None);
     };
     if count != 1 {
@@ -144,38 +150,42 @@ fn self_object_key(
     Ok(Some(candidate.node_id.clone()))
 }
 
-fn self_reads(
-    condition: &CheckedNodeId,
-    graph: &StepGraph<'_, '_>,
+fn self_reads<'g>(
+    condition: &'g CheckedNodeId,
+    graph: &'g StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
     meter: &mut WorkMeter,
     position: usize,
-) -> Result<BTreeSet<CheckedNodeId>, ValidationFailure> {
-    let mut seen = BTreeSet::new();
-    let mut pending = vec![condition.clone()];
-    let mut reads = BTreeSet::new();
+) -> Result<Vec<&'g CheckedNodeId>, ValidationFailure> {
+    // Wire IDs are flat, so ordering them never allocates; the tables are
+    // charged sorted slices of borrowed IDs.
+    let mut seen: Vec<&CheckedNodeId> = Vec::new();
+    let mut pending: Vec<&CheckedNodeId> = Vec::new();
+    meter.push(&mut pending, condition)?;
+    let mut reads: Vec<&CheckedNodeId> = Vec::new();
     while let Some(key) = pending.pop() {
-        if !seen.insert(key.clone()) {
+        if !meter.insert_sorted(&mut seen, key)? {
             continue;
         }
         meter.charge(1, || binding_path(position, 3))?;
-        let Some((node, kind)) = graph.node(&key) else {
+        let Some((node, kind)) = graph.node(key) else {
             continue;
         };
         if kind == CheckedNodeKind::Value(ValueForm::Parameter) {
             let declaration = graph
                 .index
-                .get(&key)
+                .get(key)
                 .and_then(|&at| terms.get(at))
                 .and_then(Option::as_ref)
                 .and_then(|body| {
                     typed_parameter_binding(body, &|id| graph.node(id).map(|(_, kind)| kind))
                 });
             if declaration == Some(("self", "0")) {
-                reads.insert(key);
+                meter.insert_sorted(&mut reads, key)?;
             }
         } else {
-            pending.extend(node.dependencies.iter().cloned());
+            meter.room(&mut pending, node.dependencies.len())?;
+            pending.extend(node.dependencies.iter());
         }
     }
     Ok(reads)
@@ -327,7 +337,7 @@ pub(super) fn validate_terminal(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = graph_nodes(nodes, kinds, index, owners);
-    let mut by_model = BTreeMap::<&CheckedNodeId, &CheckedSemanticNodeV2>::new();
+    let mut by_model: Vec<(&CheckedNodeId, &CheckedSemanticNodeV2)> = Vec::new();
     let mut terminals = Vec::new();
     for (position, node) in graph.each(CheckedNodeKind::Temporal(TemporalForm::Terminal)) {
         let [model, mode, parameters, condition] = terms
@@ -470,7 +480,7 @@ pub(super) fn validate_terminal(
             }
             let reads = self_reads(condition, &graph, terms, meter, position)?;
             if reads.len() != usize::from(parameter.is_some())
-                || parameter.is_some_and(|parameter| !reads.contains(parameter))
+                || parameter.is_some_and(|parameter| reads.binary_search(&parameter).is_err())
             {
                 return Err(failure(
                     Code::InvalidSemanticGraph,
@@ -489,10 +499,18 @@ pub(super) fn validate_terminal(
             ));
         }
         claim_occurrences(node, position)?;
-        terminals.push((position, node, model));
+        meter.push(&mut terminals, (position, node, model))?;
     }
     for (position, node, model) in terminals {
-        if let Some(first) = by_model.insert(model, node) {
+        let first = match by_model.binary_search_by(|(held, _)| (*held).cmp(model)) {
+            Ok(at) => Some(by_model[at].1),
+            Err(at) => {
+                meter.room(&mut by_model, 1)?;
+                by_model.insert(at, (model, node));
+                None
+            }
+        };
+        if let Some(first) = first {
             let mut refusal = failure(
                 Code::AmbiguousDeclaration,
                 Some(Cause::AmbiguousName),

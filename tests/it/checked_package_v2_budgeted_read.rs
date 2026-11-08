@@ -94,8 +94,9 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
 }
 
 /// The charged stages' reservations are exact: the measured requirement
-/// admits, one byte below is denied at the last request (today the node-index
-/// key table), at its locus, with the bytes asked.
+/// admits, one byte below is denied at the last request (the graph stage's),
+/// at its locus, with the bytes asked; the node-index key table stays the
+/// node-index stage's last request.
 #[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
 fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
@@ -119,17 +120,42 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
         .expect("a denial is recorded");
     assert!(asked > 0);
     assert_eq!(short.first_unpaid(), None);
-    // Later stages charge their own storage, so the last request is the
-    // last stage's; the canonical comparison's reservations are exact in
-    // their own right.
-    let Some(NativeJoinLocus {
-        source: NativeJoinLocusSource::PackageRead(last, _),
-        ..
-    }) = short.first_unpaid_locus()
-    else {
-        panic!("a read denial is at a package read locus");
-    };
-    assert!(last >= PackageReadStage::Canonical);
+    // Later stages charge their own storage, so the very last request is
+    // the last stage's (the graph stage); the node-index and canonical stages
+    // keep their own last requests, each denied one byte short at its locus.
+    let graph_requests = stage_requests(&read_with, PackageReadStage::Graph);
+    let last = graph_requests
+        .last()
+        .expect("the graph stage makes requests");
+    assert_eq!(
+        short.first_unpaid_locus(),
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, last.index),
+            form: last.form,
+        })
+    );
+    assert_eq!(asked, last.amount);
+    let node_index_requests = stage_requests(&read_with, PackageReadStage::NodeIndex);
+    let node_index_last = node_index_requests
+        .last()
+        .expect("the node-index stage makes requests");
+    assert_eq!(
+        (
+            node_index_last.stage,
+            node_index_last.index,
+            node_index_last.form
+        ),
+        (PackageReadStage::NodeIndex, 0, "node_index")
+    );
+    let mut stage_short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(
+        node_index_last.before + u64::try_from(node_index_last.amount).unwrap() - 1,
+    );
+    let _ = read_with(&mut stage_short);
+    assert_eq!(
+        stage_short.first_unpaid_locus(),
+        Some(envelope_locus(PackageReadStage::NodeIndex, "node_index"))
+    );
+    assert_exact_and_one_short(&read_with, &node_index_requests);
     let canonical_requests = stage_requests(&read_with, PackageReadStage::Canonical);
     assert_eq!(
         canonical_requests.first().map(|request| request.form),

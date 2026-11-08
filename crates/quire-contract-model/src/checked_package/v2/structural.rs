@@ -464,16 +464,22 @@ impl<'k> DependencyKeyOrder<'k> {
     fn matches(
         &self,
         actual: &[CheckedNodeId],
-        expected: BTreeSet<&CheckedNodeId>,
+        expected: &[&CheckedNodeId],
         index: &GraphIndex<'_>,
         structural_keys: &[std::sync::Arc<CheckedNodeId>],
         meter: &mut WorkMeter,
     ) -> Result<bool, ValidationFailure> {
         if structural_keys.is_empty() {
-            let expected_keys = expected
-                .iter()
-                .map(|id| super::structural_key(id, index, structural_keys))
-                .collect::<BTreeSet<_>>();
+            // No structural keys: the IDs are the document's own flat IDs,
+            // whose order allocates nothing.
+            let mut expected_keys = meter.vec(expected.len())?;
+            expected_keys.extend(
+                expected
+                    .iter()
+                    .map(|id| super::structural_key(id, index, structural_keys)),
+            );
+            expected_keys.sort_unstable();
+            expected_keys.dedup();
             return Ok(actual.len() == expected_keys.len()
                 && actual
                     .iter()
@@ -485,7 +491,7 @@ impl<'k> DependencyKeyOrder<'k> {
             return Ok(false);
         };
         let mut expected_tokens = meter.vec(expected.len())?;
-        for raw in expected {
+        for &raw in expected {
             let token = if let Some(&position) = index.get(raw) {
                 structural_keys
                     .get(position)
@@ -611,23 +617,21 @@ pub(super) fn validate_structural_nodes_with_keys(
                         node_pointer(position).key("body"),
                     ));
                 }
-                let expected = clauses
-                    .iter()
-                    .filter_map(|clause| match clause {
-                        super::CheckedTerm::Binding { value, .. } => match value.as_ref() {
-                            super::CheckedTerm::Reference { target } => Some(target),
-                            _ => None,
-                        },
+                let mut expected: Vec<&CheckedNodeId> = meter.vec(clauses.len())?;
+                expected.extend(clauses.iter().filter_map(|clause| match clause {
+                    super::CheckedTerm::Binding { value, .. } => match value.as_ref() {
+                        super::CheckedTerm::Reference { target } => Some(target),
                         _ => None,
-                    })
-                    .collect::<BTreeSet<_>>();
+                    },
+                    _ => None,
+                }));
                 if node.semantic_type != node.node_id {
                     Some(Defect::SemanticType)
                 } else if node.recursion_group.is_some() {
                     Some(Defect::RecursionGroup)
                 } else if !dependency_order.matches(
                     &node.dependencies,
-                    expected,
+                    &expected,
                     index,
                     structural_keys,
                     meter,
@@ -644,15 +648,21 @@ pub(super) fn validate_structural_nodes_with_keys(
                         node_pointer(position).key("body"),
                     ));
                 };
-                let mut pending = vec![term];
-                let mut targets = BTreeSet::new();
+                let mut pending = meter.vec(1)?;
+                pending.push(term);
+                let mut targets: Vec<&CheckedNodeId> = Vec::new();
                 while let Some(next) = pending.pop() {
                     match next {
                         super::CheckedTerm::Reference { target } => {
-                            targets.insert(target);
+                            meter.push(&mut targets, target)?;
                         }
-                        super::CheckedTerm::Aggregate { members } => pending.extend(members),
-                        super::CheckedTerm::Binding { value, .. } => pending.push(value),
+                        super::CheckedTerm::Aggregate { members } => {
+                            meter.room(&mut pending, members.len())?;
+                            pending.extend(members);
+                        }
+                        super::CheckedTerm::Binding { value, .. } => {
+                            meter.push(&mut pending, value.as_ref())?;
+                        }
                         super::CheckedTerm::Literal { .. } => {}
                         _ => return Err(refuse(Defect::Body)),
                     }
@@ -663,7 +673,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                     Some(Defect::RecursionGroup)
                 } else if !dependency_order.matches(
                     &node.dependencies,
-                    targets,
+                    &targets,
                     index,
                     structural_keys,
                     meter,
@@ -716,7 +726,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                 };
                 (!dependency_order.matches(
                     &node.dependencies,
-                    BTreeSet::from([key, value]),
+                    &[key, value],
                     index,
                     structural_keys,
                     meter,
@@ -750,9 +760,11 @@ pub(super) fn validate_structural_nodes_with_keys(
                 }
                 if let Some(mut expected) = term.and_then(application_dependencies) {
                     expected.insert(owner_model.clone());
+                    let mut listed: Vec<&CheckedNodeId> = meter.vec(expected.len())?;
+                    listed.extend(expected.iter());
                     if !dependency_order.matches(
                         &node.dependencies,
-                        expected.iter().collect(),
+                        &listed,
                         index,
                         structural_keys,
                         meter,
@@ -764,9 +776,11 @@ pub(super) fn validate_structural_nodes_with_keys(
             continue;
         }
         if let Some(expected) = term.and_then(application_dependencies) {
+            let mut listed: Vec<&CheckedNodeId> = meter.vec(expected.len())?;
+            listed.extend(expected.iter());
             if !dependency_order.matches(
                 &node.dependencies,
-                expected.iter().collect(),
+                &listed,
                 index,
                 structural_keys,
                 meter,
@@ -2120,7 +2134,7 @@ mod tests {
         };
         let mut actual = wire.clone();
         actual.push(absent.clone());
-        let expected = wire.iter().chain(std::iter::once(&absent)).collect();
+        let expected: Vec<&CheckedNodeId> = wire.iter().chain(std::iter::once(&absent)).collect();
         checked_node_comparisons::reset();
         let mut meter = WorkMeter::new(u64::MAX);
         let keys = DependencyKeys::new(
@@ -2136,7 +2150,7 @@ mod tests {
             .expect("order builds");
         assert_eq!(
             order
-                .matches(&actual, expected, &index, &structural, &mut meter)
+                .matches(&actual, &expected, &index, &structural, &mut meter)
                 .ok(),
             Some(true)
         );
@@ -2149,7 +2163,7 @@ mod tests {
             order
                 .matches(
                     &actual,
-                    wire.iter().collect(),
+                    &wire.iter().collect::<Vec<_>>(),
                     &index,
                     &structural,
                     &mut meter
@@ -2169,7 +2183,10 @@ mod tests {
             order
                 .matches(
                     &actual,
-                    wire.iter().chain(std::iter::once(&wrong)).collect(),
+                    &wire
+                        .iter()
+                        .chain(std::iter::once(&wrong))
+                        .collect::<Vec<_>>(),
                     &index,
                     &structural,
                     &mut meter,

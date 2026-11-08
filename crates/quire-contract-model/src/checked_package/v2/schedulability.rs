@@ -3,7 +3,7 @@
 
 //! Authenticated schedulability claim carrier and FR-482 body admission.
 
-use super::graph_storage::GraphIndex;
+use super::graph_storage::{GraphIndex, ResolvedKey};
 use super::{
     CheckedLiteralRead, CheckedLiteralValue, CheckedNodeId, CheckedNodeKind, CheckedPackageV2,
     CheckedTerm, ClaimForm, LiteralKind, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
@@ -15,7 +15,7 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::cmp::Ordering;
 
 /// An untrusted producer row naming one local claim occurrence.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -290,20 +290,34 @@ pub(super) fn validate_carrier(
     meter: &mut WorkMeter,
 ) -> Result<Vec<(usize, usize)>, ValidationFailure> {
     let root = JsonPointer::root().key("schedulability_claims");
-    let mut occurrences = BTreeMap::new();
+    // Per claim node (ascending position): its claim occurrences as
+    // `(ordinal, occurrence position)` sorted, the last of equal ordinals
+    // being the one a later insertion would have kept.
+    let claims = nodes
+        .iter()
+        .enumerate()
+        .filter(|(p, _)| claim(kinds[*p]))
+        .count();
+    let mut occurrences: Vec<(usize, Vec<(u64, usize)>)> = meter.vec(claims)?;
     for (p, node) in nodes.iter().enumerate().filter(|(p, _)| claim(kinds[*p])) {
-        let mut by_ordinal = BTreeMap::new();
+        let held = node
+            .occurrences
+            .iter()
+            .filter(|occurrence| occurrence.role == CheckedOccurrenceRole::Claim)
+            .count();
+        let mut by_ordinal: Vec<(u64, usize)> = meter.vec(held)?;
         for (position, occurrence) in node.occurrences.iter().enumerate() {
             meter.charge(1, || node_pointer(p).key("occurrences").index(position))?;
             if occurrence.role == CheckedOccurrenceRole::Claim {
-                by_ordinal.insert(occurrence.ordinal, position);
+                by_ordinal.push((occurrence.ordinal, position));
             }
         }
-        occurrences.insert(p, by_ordinal);
+        by_ordinal.sort_unstable();
+        occurrences.push((p, by_ordinal));
     }
     let mut joined = Vec::with_capacity(rows.map_or(0, <[CheckedSchedulabilityClaimRow]>::len));
-    let mut seen = BTreeSet::new();
-    let mut previous = None;
+    let mut seen: Vec<(ResolvedKey<'_>, u64)> = Vec::new();
+    let mut previous: Option<(ResolvedKey<'_>, u64)> = None;
     for (i, row) in rows.unwrap_or_default().iter().enumerate() {
         let at = root.clone().index(i);
         meter.charge(1, || at.clone())?;
@@ -319,8 +333,15 @@ pub(super) fn validate_carrier(
             ));
         };
         let Some(&occurrence_position) = occurrences
-            .get(&position)
-            .and_then(|occurrences| occurrences.get(&row.occurrence))
+            .binary_search_by_key(&position, |(held, _)| *held)
+            .ok()
+            .and_then(|at| {
+                let held = &occurrences[at].1;
+                let after = held.partition_point(|(ordinal, _)| *ordinal <= row.occurrence);
+                held.get(after.checked_sub(1)?)
+                    .filter(|(ordinal, _)| *ordinal == row.occurrence)
+                    .map(|(_, position)| position)
+            })
         else {
             return Err(invalid(
                 Code::InvalidPackage,
@@ -329,44 +350,82 @@ pub(super) fn validate_carrier(
                 &row.declaration,
             ));
         };
-        let key = (structural_keys[position].as_ref(), row.occurrence);
-        if !seen.insert(key) {
-            return Err(invalid(
-                Code::InvalidPackage,
-                Some(Cause::ConflictingDefinition),
-                at,
-                &row.declaration,
-            ));
-        }
-        if previous.is_some_and(|previous| previous > key) {
-            return Err(invalid(
-                Code::InvalidPackage,
-                Some(Cause::InvalidValue),
-                at,
-                &row.declaration,
-            ));
+        let key = (index.resolved_at(position, structural_keys), row.occurrence);
+        let slot = match search_keys(&seen, &key, meter)? {
+            Ok(_) => {
+                return Err(invalid(
+                    Code::InvalidPackage,
+                    Some(Cause::ConflictingDefinition),
+                    at,
+                    &row.declaration,
+                ));
+            }
+            Err(slot) => slot,
+        };
+        meter.room(&mut seen, 1)?;
+        seen.insert(slot, key);
+        if let Some(previous) = previous {
+            if compare_keys(&previous, &key, meter)? == Ordering::Greater {
+                return Err(invalid(
+                    Code::InvalidPackage,
+                    Some(Cause::InvalidValue),
+                    at,
+                    &row.declaration,
+                ));
+            }
         }
         previous = Some(key);
         joined.push((position, occurrence_position));
     }
-    let expected = nodes
-        .iter()
-        .enumerate()
-        .filter(|(p, _)| claim(kinds[*p]))
-        .flat_map(|(p, node)| {
-            node.occurrences
-                .iter()
-                .filter(|o| o.role == CheckedOccurrenceRole::Claim)
-                .map(move |o| (structural_keys[p].as_ref(), o.ordinal))
-        });
-    if expected.clone().any(|key| !seen.contains(&key)) {
-        return Err(ValidationFailure::refused_because(
-            Code::InvalidPackage,
-            root,
-            Cause::InvalidValue,
-        ));
+    for (p, node) in nodes.iter().enumerate().filter(|(p, _)| claim(kinds[*p])) {
+        for occurrence in node
+            .occurrences
+            .iter()
+            .filter(|o| o.role == CheckedOccurrenceRole::Claim)
+        {
+            let key = (index.resolved_at(p, structural_keys), occurrence.ordinal);
+            if search_keys(&seen, &key, meter)?.is_err() {
+                return Err(ValidationFailure::refused_because(
+                    Code::InvalidPackage,
+                    root,
+                    Cause::InvalidValue,
+                ));
+            }
+        }
     }
     Ok(joined)
+}
+
+/// The order of two `(structural key, ordinal)` rows: ranks when the graph
+/// has them, else a comparison that charges its frame list.
+fn compare_keys(
+    left: &(ResolvedKey<'_>, u64),
+    right: &(ResolvedKey<'_>, u64),
+    meter: &mut WorkMeter,
+) -> Result<Ordering, ValidationFailure> {
+    Ok(left
+        .0
+        .order(&right.0, meter)?
+        .then_with(|| left.1.cmp(&right.1)))
+}
+
+/// Binary search of sorted `rows` for `key` (`Ok` position, or `Err` the
+/// insertion slot), each comparison charged.
+fn search_keys(
+    rows: &[(ResolvedKey<'_>, u64)],
+    key: &(ResolvedKey<'_>, u64),
+    meter: &mut WorkMeter,
+) -> Result<Result<usize, usize>, ValidationFailure> {
+    let (mut low, mut high) = (0, rows.len());
+    while low < high {
+        let middle = low + (high - low) / 2;
+        match compare_keys(&rows[middle], key, meter)? {
+            Ordering::Less => low = middle + 1,
+            Ordering::Greater => high = middle,
+            Ordering::Equal => return Ok(Ok(middle)),
+        }
+    }
+    Ok(Err(low))
 }
 
 const CLAIM_FIELDS: &[&str] = &["kind", "policy", "task", "bound", "tasks"];
@@ -445,12 +504,12 @@ pub(super) fn validate_bodies(
         .iter()
         .map(|model| (model.identity.as_ref(), model))
         .collect();
-    let mut order = index
-        .values()
-        .copied()
-        .filter(|&p| claim(kinds[p]))
-        .collect::<Vec<_>>();
-    order.sort_by(|&a, &b| structural_keys[a].cmp(&structural_keys[b]));
+    let claims = index.values().filter(|&&p| claim(kinds[p])).count();
+    let mut order: Vec<usize> = meter.vec(claims)?;
+    order.extend(index.values().copied().filter(|&p| claim(kinds[p])));
+    // Ranks order the keys without a comparison that allocates; positions
+    // are unique, so the unstable sort is deterministic.
+    order.sort_unstable_by_key(|&p| index.resolved_at(p, structural_keys));
     for p in order {
         let node = &nodes[p];
         if node
@@ -604,7 +663,7 @@ pub(super) fn validate_bodies(
             }
             common_unit = Some(read.type_id);
         }
-        let mut priorities = BTreeSet::new();
+        let mut priorities = Vec::new();
         for (i, task) in tasks.iter().enumerate() {
             let task_at = task_at.clone().key("value").key("members").index(i);
             let b = |j| admitted_bound(task, j);
@@ -623,7 +682,7 @@ pub(super) fn validate_bodies(
                 valid &= zero(b(9)) && zero(b(10));
             } else if let Some(read) = b(8).literal_read() {
                 if let CheckedLiteralValue::Integer(priority) = read.value {
-                    valid &= priorities.insert(priority);
+                    valid &= meter.insert_sorted(&mut priorities, priority)?;
                 }
             } else {
                 valid = false;

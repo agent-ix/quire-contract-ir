@@ -565,7 +565,11 @@ fn check_clause(
             .get(&parameter.semantic_type)
             .and_then(|&position| structural_keys.get(position))
             .map(std::sync::Arc::as_ref);
-        if actual != Some(&expected) {
+        let same = match actual {
+            Some(actual) => meter.compare_ids(actual, &expected)? == std::cmp::Ordering::Equal,
+            None => false,
+        };
+        if !same {
             return Err(signature_refusal());
         }
     }
