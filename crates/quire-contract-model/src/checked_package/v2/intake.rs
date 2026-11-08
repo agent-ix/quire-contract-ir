@@ -1246,10 +1246,27 @@ mod schema_policy_tests {
             for limit in [0, required - 1] {
                 let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
                 let (result, allocated) = run(&mut short);
-                assert!(matches!(
-                    result,
-                    CheckedPackageV2BudgetedReadResult::Exhausted(_)
-                ));
+                if limit == 0 {
+                    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(stop) = result else {
+                        panic!("the initial denial needs no owned pointer");
+                    };
+                    assert_eq!(
+                        stop.denied.resource,
+                        super::super::PackageReadResource::ReadStorage
+                    );
+                    assert_eq!(stop.path, None);
+                    assert_eq!(allocated, 0);
+                } else {
+                    let CheckedPackageV2BudgetedReadResult::Exhausted(stop) = result else {
+                        panic!("the final schema diagnostic cannot fit");
+                    };
+                    assert_eq!(
+                        stop.pending,
+                        Some(super::super::CheckedPackagePendingOutcome::Refused(
+                            UnknownMember
+                        ))
+                    );
+                }
                 assert_eq!(allocated, short.read_storage_consumed());
             }
             let mut repeated =
