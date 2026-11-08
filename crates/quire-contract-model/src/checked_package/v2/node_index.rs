@@ -1740,14 +1740,14 @@ mod tests {
     fn located_fault_replays_keep_all_prior_caller_counters_and_first_denial() {
         use super::super::native_join_budget::NativeJoinChargeKind;
         let document = pointer_document();
-        let target = document
-            .root()
-            .member("a")
-            .unwrap()
-            .items()
-            .unwrap()
-            .next()
-            .unwrap();
+        let Node::Object(mut root) = document.root().node() else {
+            panic!("object fixture")
+        };
+        let array = root.find(|(name, _)| *name == "a").unwrap().1;
+        let Node::Array(mut items) = array.node() else {
+            panic!("array fixture")
+        };
+        let target = items.next().unwrap();
         let mut measured = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
         let _ = malformed_at(&document, target, &mut measured);
         let required = measured.read_storage_consumed();
