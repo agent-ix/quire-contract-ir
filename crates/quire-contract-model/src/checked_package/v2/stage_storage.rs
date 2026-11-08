@@ -654,6 +654,23 @@ pub(super) fn incomplete(
     })
 }
 
+/// Pays the boxed byte-stream refusal before constructing it, without a path.
+pub(super) fn refuse_bytes(
+    meter: &mut WorkMeter<'_>,
+    site: &Site<'_>,
+    code: CheckedPackageRefusalCode,
+) -> ValidationFailure {
+    if let Err(stop) = diagnostic(
+        meter,
+        site,
+        size_of::<CheckedPackageRefusal>() + size_of::<CheckedPackageRefusalLocation>(),
+        CheckedPackagePendingOutcome::Refused(code),
+    ) {
+        return stop;
+    }
+    ValidationFailure::refused_bytes(code)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1020,21 +1037,4 @@ mod tests {
         });
         assert_eq!(measured.bytes_total, budget.read_storage_consumed());
     }
-}
-
-/// Pays the boxed byte-stream refusal before constructing it, without a path.
-pub(super) fn refuse_bytes(
-    meter: &mut WorkMeter<'_>,
-    site: &Site<'_>,
-    code: CheckedPackageRefusalCode,
-) -> ValidationFailure {
-    if let Err(stop) = diagnostic(
-        meter,
-        site,
-        size_of::<CheckedPackageRefusal>() + size_of::<CheckedPackageRefusalLocation>(),
-        CheckedPackagePendingOutcome::Refused(code),
-    ) {
-        return stop;
-    }
-    ValidationFailure::refused_bytes(code)
 }

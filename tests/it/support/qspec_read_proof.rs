@@ -64,6 +64,7 @@ struct ReadInputBinding {
     column: u32,
 }
 impl ReadInputBinding {
+    #[cfg(feature = "test-support")]
     fn new(
         bytes: &[u8],
         evidence: &CheckedPackageEvidence,

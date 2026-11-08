@@ -12,7 +12,7 @@ use super::{
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{
-    CheckedOccurrenceRole, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    CheckedOccurrenceRole, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
 };
 use serde::Deserialize;
 
@@ -751,9 +751,105 @@ pub(super) fn validate_owner_joins(
     Ok(())
 }
 
+impl<'de> Deserialize<'de> for CheckedNodeOwner {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+        enum Wire {
+            Source {
+                authority: Box<str>,
+                identity: Box<str>,
+            },
+            Model {
+                identity: Box<str>,
+                node: Box<str>,
+            },
+            ModelRoot {
+                identity: Box<str>,
+            },
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Tag {
+            Source,
+            Model,
+            ModelRoot,
+        }
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = CheckedNodeOwner;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a closed node owner")
+            }
+            fn visit_newtype_struct<D2: serde::Deserializer<'de>>(
+                self,
+                inner: D2,
+            ) -> Result<Self::Value, D2::Error> {
+                Ok(match Wire::deserialize(inner)? {
+                    Wire::Source {
+                        authority,
+                        identity,
+                    } => CheckedNodeOwner::Source {
+                        authority,
+                        identity,
+                    },
+                    Wire::Model { identity, node } => CheckedNodeOwner::Model { identity, node },
+                    Wire::ModelRoot { identity } => CheckedNodeOwner::ModelRoot { identity },
+                })
+            }
+            fn visit_enum<A: serde::de::EnumAccess<'de>>(
+                self,
+                record: A,
+            ) -> Result<Self::Value, A::Error> {
+                use serde::de::VariantAccess;
+                let (tag, fields) = record.variant::<Tag>()?;
+                match tag {
+                    Tag::Source => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            authority: Box<str>,
+                            identity: Box<str>,
+                        }
+                        let Fields {
+                            authority,
+                            identity,
+                        } = fields.newtype_variant::<Fields>()?;
+                        Ok(CheckedNodeOwner::Source {
+                            authority,
+                            identity,
+                        })
+                    }
+                    Tag::Model => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            identity: Box<str>,
+                            node: Box<str>,
+                        }
+                        let Fields { identity, node } = fields.newtype_variant::<Fields>()?;
+                        Ok(CheckedNodeOwner::Model { identity, node })
+                    }
+                    Tag::ModelRoot => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            identity: Box<str>,
+                        }
+                        let Fields { identity } = fields.newtype_variant::<Fields>()?;
+                        Ok(CheckedNodeOwner::ModelRoot { identity })
+                    }
+                }
+            }
+        }
+        deserializer.deserialize_newtype_struct(super::document_de::CLOSED_ENUM_TOKEN, Visitor)
+    }
+}
+
 #[cfg(test)]
 mod anonymous_lookup_tests {
     use super::*;
+    use crate::JsonPointer;
     use serde_json::{json, Value};
 
     fn node(index: usize, tag: &str, form: &str, body: Value) -> Value {
@@ -943,99 +1039,5 @@ mod anonymous_lookup_tests {
         assert!(matches!(result, Err(ValidationFailure::Budget(_))));
         assert_eq!(allocated, budget.read_storage_consumed());
         assert!(budget.first_unpaid_read_storage().is_some());
-    }
-}
-impl<'de> Deserialize<'de> for CheckedNodeOwner {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-        enum Wire {
-            Source {
-                authority: Box<str>,
-                identity: Box<str>,
-            },
-            Model {
-                identity: Box<str>,
-                node: Box<str>,
-            },
-            ModelRoot {
-                identity: Box<str>,
-            },
-        }
-        #[derive(Deserialize)]
-        #[serde(rename_all = "snake_case")]
-        enum Tag {
-            Source,
-            Model,
-            ModelRoot,
-        }
-        struct Visitor;
-        impl<'de> serde::de::Visitor<'de> for Visitor {
-            type Value = CheckedNodeOwner;
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("a closed node owner")
-            }
-            fn visit_newtype_struct<D2: serde::Deserializer<'de>>(
-                self,
-                inner: D2,
-            ) -> Result<Self::Value, D2::Error> {
-                Ok(match Wire::deserialize(inner)? {
-                    Wire::Source {
-                        authority,
-                        identity,
-                    } => CheckedNodeOwner::Source {
-                        authority,
-                        identity,
-                    },
-                    Wire::Model { identity, node } => CheckedNodeOwner::Model { identity, node },
-                    Wire::ModelRoot { identity } => CheckedNodeOwner::ModelRoot { identity },
-                })
-            }
-            fn visit_enum<A: serde::de::EnumAccess<'de>>(
-                self,
-                record: A,
-            ) -> Result<Self::Value, A::Error> {
-                use serde::de::VariantAccess;
-                let (tag, fields) = record.variant::<Tag>()?;
-                match tag {
-                    Tag::Source => {
-                        #[derive(Deserialize)]
-                        #[serde(deny_unknown_fields)]
-                        struct Fields {
-                            authority: Box<str>,
-                            identity: Box<str>,
-                        }
-                        let Fields {
-                            authority,
-                            identity,
-                        } = fields.newtype_variant::<Fields>()?;
-                        Ok(CheckedNodeOwner::Source {
-                            authority,
-                            identity,
-                        })
-                    }
-                    Tag::Model => {
-                        #[derive(Deserialize)]
-                        #[serde(deny_unknown_fields)]
-                        struct Fields {
-                            identity: Box<str>,
-                            node: Box<str>,
-                        }
-                        let Fields { identity, node } = fields.newtype_variant::<Fields>()?;
-                        Ok(CheckedNodeOwner::Model { identity, node })
-                    }
-                    Tag::ModelRoot => {
-                        #[derive(Deserialize)]
-                        #[serde(deny_unknown_fields)]
-                        struct Fields {
-                            identity: Box<str>,
-                        }
-                        let Fields { identity } = fields.newtype_variant::<Fields>()?;
-                        Ok(CheckedNodeOwner::ModelRoot { identity })
-                    }
-                }
-            }
-        }
-        deserializer.deserialize_newtype_struct(super::document_de::CLOSED_ENUM_TOKEN, Visitor)
     }
 }

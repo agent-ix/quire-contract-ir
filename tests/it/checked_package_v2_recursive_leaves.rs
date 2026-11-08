@@ -19,7 +19,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedNodeId, CheckedNodePathSegment, CheckedNodeTag, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
+    CheckedPackageV2ReadResult, CompleteLoweringProfileV2, ContractDependencies,
     ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
 };
 use serde_json::{json, Value};

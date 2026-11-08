@@ -1346,21 +1346,17 @@ fn tc_474_a_composition_admits_foreign_clauses_named_by_dependency_positions() {
     assert!(held, "the foreign clause keeps its dependency position");
     // The graph as shown is the wire form the reader admits again.
     let canonical_bytes = canonical(&wire_form(&package));
-    let reread = crate::read_and_account(
-        &canonical_bytes,
-        CheckedPackageReadLimits::bounded(),
-        &{
-            let mut evidence = evidence_with_document(&package, ORDERS, &orders_document());
-            let dependency = match read(&dependency) {
-                CheckedPackageV2ReadResult::Admitted(dependency) => *dependency,
-                other => panic!("the dependency admits, read {other:?}"),
-            };
-            evidence
-                .insert_dependency_package(DEPENDENCY, dependency)
-                .expect("dependency evidence");
-            evidence
-        },
-    );
+    let reread = crate::read_and_account(&canonical_bytes, CheckedPackageReadLimits::bounded(), &{
+        let mut evidence = evidence_with_document(&package, ORDERS, &orders_document());
+        let dependency = match read(&dependency) {
+            CheckedPackageV2ReadResult::Admitted(dependency) => *dependency,
+            other => panic!("the dependency admits, read {other:?}"),
+        };
+        evidence
+            .insert_dependency_package(DEPENDENCY, dependency)
+            .expect("dependency evidence");
+        evidence
+    });
     assert!(matches!(reread, CheckedPackageV2ReadResult::Admitted(_)));
 }
 

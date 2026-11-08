@@ -13,8 +13,6 @@ use super::common::{Step, TermField, TermTag, Trail, ValidationFailure, WireTerm
 use super::shared::CheckedNodeId;
 use super::v2::read_charge::{Denied, ReadStorage, Site};
 use super::v2::{ApplicationOperator, BodyTerm, NodeIdRead, TermNode};
-#[cfg(test)]
-use super::v2::{CheckedTerm, CheckedTermView};
 use crate::checked_package::shared::CheckedOperandEntry;
 use serde::Deserialize;
 use serde_json::Value;
@@ -130,8 +128,6 @@ pub(super) trait TermSource<'a>: Copy {
         site: Site,
         row: &[CheckedOperandEntry],
     ) -> Result<NodeIdRead, Denied>;
-    /// Borrow a legacy materialized value when this source is one.
-    fn value(self) -> Option<&'a Value>;
 }
 
 impl<'a> TermSource<'a> for &'a Value {
@@ -229,10 +225,6 @@ impl<'a> TermSource<'a> for &'a Value {
             Err(_) => NodeIdRead::Malformed,
         })
     }
-
-    fn value(self) -> Option<&'a Value> {
-        Some(self)
-    }
 }
 
 impl<'a> TermSource<'a> for TermNode<'a> {
@@ -315,10 +307,6 @@ impl<'a> TermSource<'a> for TermNode<'a> {
         row: &[CheckedOperandEntry],
     ) -> Result<NodeIdRead, Denied> {
         self.node_id_in(sink, site, row)
-    }
-
-    fn value(self) -> Option<&'a Value> {
-        None
     }
 }
 

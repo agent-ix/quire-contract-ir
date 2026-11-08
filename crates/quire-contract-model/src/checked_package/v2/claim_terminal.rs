@@ -439,7 +439,7 @@ pub(super) fn validate_terminal(
                         .and_then(Option::as_ref)
                 })
                 .and_then(reference_type_target_ref)
-                .map(|target| target.clone());
+                .cloned();
             let valid = if name_level == Some(("self", "0")) && reference_target.is_some() {
                 let expected = self_object_key(&graph, model, meter, position)?;
                 reference_target

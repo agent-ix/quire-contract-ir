@@ -761,8 +761,6 @@ pub(super) enum ReferenceMember {
     Type,
     /// An `application` term's `result_type`.
     ResultType,
-    /// One entry of a frame body's `modifies`, `creates` or `deletes`.
-    FrameEntry,
 }
 
 /// Where a resolved reference target was found: the member that carried it,
@@ -869,12 +867,8 @@ impl<'s, 'r> Ids<'s, 'r> {
     }
 }
 
-/// Runs `body` with an [`Ids`] that charges nothing, for a validator that
-/// reads a `Value` and holds no budget.
-///
-/// To be deleted: its read-path caller is `refinement.rs`'s row-term
-/// validation, which moves to the node views; the V1 reader's `Value` callers
-/// then use an unlimited budget of their own.
+/// Runs a test oracle over a `Value` with an [`Ids`] that charges nothing.
+#[cfg(test)]
 pub(super) fn with_unmetered_ids<R>(body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
     with_unmetered_ids_row(&[], body)
 }
@@ -1242,6 +1236,7 @@ impl<'a> WireTerm<'a> {
         Self { object, tag }
     }
 
+    #[cfg(test)]
     pub(in crate::checked_package) fn object(self) -> Option<&'a Map<String, Value>> {
         self.object
     }
@@ -1267,6 +1262,7 @@ impl<'a> WireTerm<'a> {
         self.field(field)?.as_array().map(Vec::as_slice)
     }
 
+    #[cfg(test)]
     pub(in crate::checked_package) fn literal_kind(self) -> Option<LiteralKind> {
         LiteralKind::from_wire(self.field(TermField::ValueKind)?.as_str()?)
     }
@@ -1274,12 +1270,6 @@ impl<'a> WireTerm<'a> {
     pub(in crate::checked_package) fn operator(self) -> Option<ApplicationOperator> {
         ApplicationOperator::from_wire(self.field(TermField::Operator)?.as_str()?)
     }
-}
-
-/// The `term` tag of a semantic term or frame body, decoded; `None` when the
-/// member is absent, not a string, or outside the vocabulary.
-pub(super) fn body_term<'a, V: TermSource<'a>>(value: V) -> Option<BodyTerm> {
-    value.kind()
 }
 
 /// Reports the node reference held in `term[key]` (the term at `at`).
@@ -1339,21 +1329,6 @@ fn visit_reference_with<'a, V: TermSource<'a>>(
             Ok(1)
         }
     }
-}
-
-/// [`visit_reference_with`] for a `Value` reference, read through the
-/// uncharged bridge.
-pub(super) fn visit_reference(
-    value: &Value,
-    member: ReferenceMember,
-    is_body_root: bool,
-    at: &Trail<'_>,
-    visit: &mut ReferenceVisitor<'_>,
-) -> Result<u64, ValidationFailure> {
-    with_unmetered_ids(|Ids { sink, site, row }| {
-        let shared = RefCell::new(sink);
-        visit_reference_with(value, member, is_body_root, at, visit, (&shared, site, row))
-    })
 }
 
 pub(super) fn exact_members(object: &Map<String, Value>, expected: &[&str]) -> bool {
