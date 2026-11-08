@@ -2199,58 +2199,57 @@ fn validate_domain_packages(
             admit_selection(identity, checked_package, evidence, &mut budget, unit_refs)
         };
         let selected = selected.map_err(|failure| {
-                match failure {
-                    SelectionFailure::Limit(failure) => failure,
-                    SelectionFailure::InexactNumber {
+            match failure {
+                SelectionFailure::Limit(failure) => failure,
+                SelectionFailure::InexactNumber {
+                    document_pointer,
+                    cause,
+                } => ValidationFailure::refused_number_in_document(
+                    at(root, "identity"),
+                    document_pointer,
+                    cause,
+                ),
+                SelectionFailure::Refused(refused) => {
+                    let model_members::SelectionRefusal {
+                        refusal,
+                        member,
+                        declaration_identity,
+                        declaration_origin,
+                        declaration_path,
                         document_pointer,
-                        cause,
-                    } => ValidationFailure::refused_number_in_document(
-                        at(root, "identity"),
-                        document_pointer,
-                        cause,
-                    ),
-                    SelectionFailure::Refused(refused) => {
-                        let model_members::SelectionRefusal {
-                            refusal,
-                            member,
-                            declaration_identity,
-                            declaration_origin,
-                            declaration_path,
+                    } = *refused;
+                    // Intake metadata is private. Its owning lifetime ends at
+                    // this projection; none is attached to the public refusal.
+                    drop((declaration_identity, declaration_origin, declaration_path));
+                    if let Some(document_pointer) = document_pointer {
+                        let path = member.map_or_else(|| row(root), |member| at(root, member));
+                        ValidationFailure::refused_because_in_document(
+                            refusal.code,
+                            path,
+                            refusal.cause,
                             document_pointer,
-                        } = *refused;
-                        // Intake metadata is private. Its owning lifetime ends at
-                        // this projection; none is attached to the public refusal.
-                        drop((declaration_identity, declaration_origin, declaration_path));
-                        if let Some(document_pointer) = document_pointer {
-                            let path = member.map_or_else(|| row(root), |member| at(root, member));
-                            ValidationFailure::refused_because_in_document(
-                                refusal.code,
+                        )
+                    } else {
+                        let path = stage_storage::Path::root()
+                            .key("semantic_graph")
+                            .key("nodes")
+                            .index(root)
+                            .key("owner");
+                        let path = member.map_or(path, |member| path.key(member));
+                        stage_storage::refuse(
+                            meter,
+                            &stage_storage::Site::new(
+                                PackageReadStage::ModelDocument,
+                                position,
+                                "model_documents",
                                 path,
-                                refusal.cause,
-                                document_pointer,
-                            )
-                        } else {
-                            let path = stage_storage::Path::root()
-                                .key("semantic_graph")
-                                .key("nodes")
-                                .index(root)
-                                .key("owner");
-                            let path = member.map_or(path, |member| path.key(member));
-                            stage_storage::refuse(
-                                meter,
-                                &stage_storage::Site::new(
-                                    PackageReadStage::ModelDocument,
-                                    position,
-                                    "model_documents",
-                                    path,
-                                ),
-                                stage_storage::Refusal::new(refusal.code, path)
-                                    .because(refusal.cause),
-                            )
-                        }
+                            ),
+                            stage_storage::Refusal::new(refusal.code, path).because(refusal.cause),
+                        )
                     }
                 }
-            })?;
+            }
+        })?;
         let (model, document) = selected;
         models.push(model);
         documents.push(document);

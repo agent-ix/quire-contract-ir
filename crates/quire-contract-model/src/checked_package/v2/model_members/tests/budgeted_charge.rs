@@ -252,9 +252,7 @@ fn run_population_fault(document: &Value, allowance: u64) -> PopulationFaultOutc
 #[trace("TC-229", "FR-038-AC-304", "FR-038-AC-511")]
 #[test]
 fn bare_population_faults_prepay_the_private_carrier_and_public_diagnostic() {
-    use crate::checked_package::shared::{
-        CheckedPackageRefusal, CheckedPackageRefusalLocation,
-    };
+    use crate::checked_package::shared::{CheckedPackageRefusal, CheckedPackageRefusalLocation};
     use crate::checked_package::v2::{CheckedPackagePendingOutcome, PackageReadResource};
 
     const POPULATION: &str = "ix://acme/orders/widgets";
@@ -322,7 +320,11 @@ fn bare_population_faults_prepay_the_private_carrier_and_public_diagnostic() {
         assert_eq!(refusal.code, code, "{name}");
         assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration), "{name}");
         assert_eq!(refusal.loci.len(), 1, "{name}");
-        assert_eq!(refusal.loci[0].path.as_ref().map(|path| path.as_str()), Some(PATH), "{name}");
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+            Some(PATH),
+            "{name}"
+        );
         assert!(refusal.document_pointer.is_none(), "{name}");
         assert!(refusal.locus.is_none(), "{name}");
         assert!(refusal.contract_version.is_none(), "{name}");
@@ -332,8 +334,16 @@ fn bare_population_faults_prepay_the_private_carrier_and_public_diagnostic() {
         assert_eq!(unlimited.paid, Some(pending), "{name}");
         assert_eq!(unlimited.pending, None, "{name}");
         assert_eq!(unlimited.unpaid, None, "{name}");
-        assert_eq!(run_population_fault(&document, u64::MAX), unlimited, "{name}: repeat");
-        assert_eq!(run_population_fault(&document, unlimited.consumed), unlimited, "{name}: exact");
+        assert_eq!(
+            run_population_fault(&document, u64::MAX),
+            unlimited,
+            "{name}: repeat"
+        );
+        assert_eq!(
+            run_population_fault(&document, unlimited.consumed),
+            unlimited,
+            "{name}: exact"
+        );
 
         let private_exact = unlimited.consumed - public_bytes;
         for (allowance, first_unpaid) in [
@@ -342,21 +352,49 @@ fn bare_population_faults_prepay_the_private_carrier_and_public_diagnostic() {
             (private_exact - 1, private_bytes),
         ] {
             let short = run_population_fault(&document, allowance);
-            assert!(matches!(short.failure, ValidationFailure::Budget(_)), "{name}");
+            assert!(
+                matches!(short.failure, ValidationFailure::Budget(_)),
+                "{name}"
+            );
             assert_eq!(short.allocated, short.consumed, "{name}: short {allowance}");
             assert!(short.consumed <= allowance, "{name}");
-            assert_eq!(short.work, unlimited.work, "{name}: no changed work at projection");
-            assert_eq!(short.unpaid, Some((PackageReadResource::ReadStorage, first_unpaid)), "{name}");
+            assert_eq!(
+                short.work, unlimited.work,
+                "{name}: no changed work at projection"
+            );
+            assert_eq!(
+                short.unpaid,
+                Some((PackageReadResource::ReadStorage, first_unpaid)),
+                "{name}"
+            );
             assert_eq!(short.pending, Some(pending), "{name}");
             assert_eq!(short.paid, None, "{name}: the public record was never paid");
-            assert_eq!(short.locus.map(|locus| locus.source), Some(NativeJoinLocusSource::PackageRead(PackageReadStage::ModelDocument, 0)), "{name}");
-            assert_eq!(run_population_fault(&document, allowance), short, "{name}: short repeats");
+            assert_eq!(
+                short.locus.map(|locus| locus.source),
+                Some(NativeJoinLocusSource::PackageRead(
+                    PackageReadStage::ModelDocument,
+                    0
+                )),
+                "{name}"
+            );
+            assert_eq!(
+                run_population_fault(&document, allowance),
+                short,
+                "{name}: short repeats"
+            );
         }
         let zero = run_population_fault(&document, 0);
-        assert!(matches!(zero.failure, ValidationFailure::Budget(_)), "{name}");
+        assert!(
+            matches!(zero.failure, ValidationFailure::Budget(_)),
+            "{name}"
+        );
         assert_eq!((zero.allocated, zero.consumed), (0, 0), "{name}");
         assert_eq!((zero.paid, zero.pending), (None, None), "{name}");
-        assert_eq!(run_population_fault(&document, 0), zero, "{name}: zero repeats");
+        assert_eq!(
+            run_population_fault(&document, 0),
+            zero,
+            "{name}: zero repeats"
+        );
     }
 }
 
