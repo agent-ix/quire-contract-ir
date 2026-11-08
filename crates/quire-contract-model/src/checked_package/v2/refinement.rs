@@ -4,7 +4,7 @@ use super::graph_storage::{GraphIndex, ResolvedKey, SortedTable};
 use super::protocol_body::ChannelDelivery;
 use super::CheckedTerm;
 use crate::checked_package::common::{
-    validate_term, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
+    validate_term, Ids, ReferenceVisitor, TermGrammar, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedSourceMapEntry, CheckedSourceRef,
@@ -13,6 +13,7 @@ use crate::checked_package::shared::{
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
+use crate::checked_package::terms::TermSource;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -1061,59 +1062,79 @@ pub(super) fn decode_body(body: &Value, at: &Trail<'_>) -> Result<CheckedTerm, V
     })
 }
 
+/// The member `name` of an object the closed body check has passed.
+fn node_member<'a, V: TermSource<'a>>(
+    value: V,
+    name: &str,
+    at: &Trail<'_>,
+) -> Result<V, ValidationFailure> {
+    value.member(name).ok_or_else(|| invalid(&at.key(name)))
+}
+
+/// The elements of the array member `name`.
+fn node_items<'a, V: TermSource<'a>>(
+    value: V,
+    name: &str,
+    at: &Trail<'_>,
+) -> Result<impl Iterator<Item = V> + use<'a, V>, ValidationFailure> {
+    node_member(value, name, at)?
+        .items()
+        .ok_or_else(|| invalid(&at.key(name)))
+}
+
 /// Walk each actual semantic term in FR-375 row order. The special `open`
 /// argument is not a semantic term and is excluded here.
-fn row_terms(
-    body: &Value,
+fn row_terms<'a, V: TermSource<'a>>(
+    body: V,
     at: &Trail<'_>,
-    mut visit: impl FnMut(&Value, &Trail<'_>) -> Result<(), ValidationFailure>,
+    mut visit: impl FnMut(V, &Trail<'_>) -> Result<(), ValidationFailure>,
 ) -> Result<(), ValidationFailure> {
-    for (object_index, object) in array(body, "objects", at)?.iter().enumerate() {
+    for (object_index, object) in node_items(body, "objects", at)?.enumerate() {
         let objects_at = at.key("objects");
         let object_at = objects_at.index(object_index);
-        for (field_index, field) in array(object, "fields", &object_at)?.iter().enumerate() {
+        for (field_index, field) in node_items(object, "fields", &object_at)?.enumerate() {
             let fields_at = object_at.key("fields");
             let field_at = fields_at.index(field_index);
             visit(
-                member(field, "expression", &field_at)?,
+                node_member(field, "expression", &field_at)?,
                 &field_at.key("expression"),
             )?;
         }
     }
-    for (step_index, step) in array(body, "steps", at)?.iter().enumerate() {
+    for (step_index, step) in node_items(body, "steps", at)?.enumerate() {
         let steps_at = at.key("steps");
         let step_at = steps_at.index(step_index);
         let target_at = step_at.key("target");
-        let target = member(step, "target", &step_at)?;
-        let kind = member(target, "kind", &target_at)?.as_str();
+        let target = node_member(step, "target", &step_at)?;
+        let kind = node_member(target, "kind", &target_at)?.text();
         if kind == Some("operation") {
             visit(
-                member(target, "receiver", &target_at)?,
+                node_member(target, "receiver", &target_at)?,
                 &target_at.key("receiver"),
             )?;
         }
         if matches!(kind, Some("operation" | "protocol_step")) {
             for (argument_index, argument) in
-                array(target, "arguments", &target_at)?.iter().enumerate()
+                node_items(target, "arguments", &target_at)?.enumerate()
             {
-                if argument.get("term").and_then(Value::as_str) != Some("open") {
+                if argument.member("term").and_then(V::text) != Some("open") {
                     visit(argument, &target_at.key("arguments").index(argument_index))?;
                 }
             }
         }
     }
-    for (history_index, history) in array(body, "histories", at)?.iter().enumerate() {
+    for (history_index, history) in node_items(body, "histories", at)?.enumerate() {
         let histories_at = at.key("histories");
         let history_at = histories_at.index(history_index);
         visit(
-            member(history, "initial", &history_at)?,
+            node_member(history, "initial", &history_at)?,
             &history_at.key("initial"),
         )?;
-        for (update_index, update) in array(history, "updates", &history_at)?.iter().enumerate() {
+        for (update_index, update) in node_items(history, "updates", &history_at)?.enumerate() {
             let updates_at = history_at.key("updates");
             let update_at = updates_at.index(update_index);
             visit(
-                member(update, "expression", &update_at)?,
+                node_member(update, "expression", &update_at)?,
                 &update_at.key("expression"),
             )?;
         }
@@ -1295,17 +1316,24 @@ fn check_open_arguments(
 }
 
 /// Validate every row term and report its local node references to the graph.
-/// The whole body has already passed `check_wire`.
-pub(super) fn validate_body(
-    body: &Value,
-    at: &Trail<'_>,
+/// The whole body has already passed `check_wire`. Each term's allocations are
+/// charged to `ids`, and its node IDs are read through the node's operand row.
+pub(super) fn validate_body<'a, V: TermSource<'a>>(
+    body: V,
+    at: &Trail<'a>,
     visitor: &mut ReferenceVisitor<'_>,
+    mut ids: Ids<'_, '_>,
 ) -> Result<u64, ValidationFailure> {
     let mut work = 1_u64;
     row_terms(body, at, |term, term_at| {
-        work = work.saturating_add(crate::checked_package::common::with_unmetered_ids(|ids| {
-            validate_term(term, TermGrammar::V2, true, term_at, visitor, ids)
-        })?);
+        work = work.saturating_add(validate_term(
+            term.shorter(),
+            TermGrammar::V2,
+            true,
+            term_at,
+            visitor,
+            ids.reborrow(),
+        )?);
         Ok(())
     })?;
     Ok(work)

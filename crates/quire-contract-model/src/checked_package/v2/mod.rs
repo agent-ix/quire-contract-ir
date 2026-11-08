@@ -2729,7 +2729,7 @@ fn validate_body<'a, V: TermSource<'a>>(
         }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
         BodyGrammar::AbstractionRelation => abstraction::scan_body(node, at, visit, ids),
-        BodyGrammar::Refinement => refinement::validate_body(body, at, visit),
+        BodyGrammar::Refinement => refinement::validate_body(node, at, visit, ids),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
         BodyGrammar::Literal
@@ -3393,9 +3393,17 @@ fn validate_graph(
                 work
             }
             BodyGrammar::Refinement => refinement::validate_body(
-                &node.body,
+                TermNode::of(&bodies[position]),
                 &Trail::Base(&body_steps),
                 &mut |target, site, _target_at| targets.push((target.clone(), site)),
+                read_charge::ids(
+                    &mut *meter,
+                    PackageReadStage::Graph,
+                    position,
+                    CheckedNodeTag::from_wire(&node.node_tag)
+                        .map_or("node", CheckedNodeTag::as_wire),
+                    &wire.semantic_graph.operand_rows[position],
+                ),
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
             BodyGrammar::Literal
