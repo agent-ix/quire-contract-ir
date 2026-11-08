@@ -355,6 +355,105 @@ fn the_one_short_outcome_itself_has_no_unpaid_allocation() {
     drop_without_request::<ThreadCounter>(reference);
 }
 
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[test]
+fn exact_and_above_native_budgets_preserve_the_original_model_views_and_lowering() {
+    let wire = v2_all_families();
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let limits = generous_limits();
+    let reference = read_allocation_proof::measure_at::<ThreadCounter>(
+        &bytes,
+        &evidence,
+        limits,
+        u64::MAX,
+        u64::MAX,
+    );
+    let CheckedPackageV2BudgetedReadResult::Admitted(package) = &reference.result else {
+        panic!("the original all-families fixture must admit");
+    };
+    assert!(
+        package.selected_model_packages().next().is_some(),
+        "genuine selected model views execute"
+    );
+    let work = reference.budget.consumed().work;
+    let storage = reference.budget.read_storage_consumed();
+    for (work, storage) in [
+        (work, storage),
+        (
+            work.checked_add(1).expect("above work"),
+            storage.checked_add(1).expect("above read storage"),
+        ),
+    ] {
+        let sufficient = read_allocation_proof::measure_at::<ThreadCounter>(
+            &bytes, &evidence, limits, work, storage,
+        );
+        // Shared oracle executes every node's kind/term/model/operation views,
+        // population projections, lowering result and canonical output bytes.
+        qspec_read_proof::assert_budgeted_results_equal(
+            &reference.result,
+            &sufficient.result,
+            "original all-families exact/above views",
+        );
+        assert_eq!(reference.requested, sufficient.requested);
+        drop_without_request::<ThreadCounter>(sufficient);
+    }
+    drop_without_request::<ThreadCounter>(reference);
+}
+
+#[cfg(feature = "test-support")]
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn full_native_boundaries_cover_seeded_work_on_the_original_genuine_package() {
+    use quire_contract_model::{
+        NativeJoinBudget, NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource,
+    };
+    let value = v2_all_families();
+    let bytes = canonical(&value);
+    let evidence = evidence_for(&value);
+    let limits = generous_limits();
+    let mut seed = NativeJoinBudget::new(u64::MAX, 2).with_read_storage_limit(u64::MAX);
+    let locus = NativeJoinLocus {
+        source: NativeJoinLocusSource::Package,
+        form: "prior_caller_charge",
+    };
+    seed.accounted_charge(NativeJoinChargeKind::Work, 3, locus)
+        .expect("prior work");
+    seed.accounted_charge(NativeJoinChargeKind::Storage, 2, locus)
+        .expect("prior logical storage");
+    let reference =
+        qspec_read_proof::measure_seeded(&bytes, &evidence, limits, seed.read_proof_snapshot());
+    assert!(
+        matches!(
+            reference.result,
+            CheckedPackageV2BudgetedReadResult::Admitted(_)
+        ),
+        "the original genuine package must admit"
+    );
+    let (_, results, complete) = qspec_read_proof::full_native_boundaries(
+        &bytes,
+        limits,
+        &evidence,
+        &reference,
+        &[],
+        Some(&seed),
+    );
+    assert_eq!(complete["prior_work"], 3);
+    assert!(complete["work"].as_u64().expect("actual work") > 3);
+    assert!(
+        results.iter().any(|row| row["resource"] == "Work"),
+        "real selected Work denials executed"
+    );
+    assert!(results
+        .iter()
+        .filter(|row| row["resource"] == "Work")
+        .all(|row| row["denial"]["resource"] == "Work"
+            && row["denial"]["entire_repeat_budget_equal"] == true));
+    assert_eq!(seed.consumed().work, 3);
+    assert_eq!(seed.consumed().storage, 2);
+    drop_without_request::<ThreadCounter>(reference);
+}
+
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn counted_exact_and_denied_work_budgets_cover_a_genuine_package() {

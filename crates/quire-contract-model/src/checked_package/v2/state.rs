@@ -51,6 +51,20 @@ use crate::checked_package::terms::{At, Cursor};
 use quire_walk::{Children, Walk};
 use std::ops::ControlFlow;
 
+fn frame_work(
+    meter: &mut WorkMeter,
+    frame_position: usize,
+    amount: u64,
+) -> Result<(), ValidationFailure> {
+    let path = super::stage_storage::Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(frame_position)
+        .key("body");
+    let site = super::natural::site(meter, path);
+    super::natural::work_at(meter, site, amount)
+}
+
 /// The state step. See the module documentation for the order.
 pub(super) fn validate_state(
     nodes: &[CheckedSemanticNodeV2],
@@ -433,7 +447,7 @@ fn check_anchor(
                 .body(frame_position)
                 .ok_or_else(|| shape_refusal(frame, position))?;
             let (frame_body, work) = read_frame_body(frame_node, row, meter, &Trail::Base(&steps))?;
-            meter.charge(work, || node_pointer(frame_position).key("body"))?;
+            frame_work(meter, frame_position, work)?;
             for entry in &frame_body.deletes_scoped {
                 let name = match entry {
                     DeletesScopedEntry::Receiver => continue,
@@ -441,7 +455,7 @@ fn check_anchor(
                 };
                 let mut present = false;
                 for slot in &operation.parameters {
-                    meter.charge(1, || node_pointer(frame_position).key("body"))?;
+                    frame_work(meter, frame_position, 1)?;
                     if slot.name.as_deref() == Some(name.as_ref())
                         && matches!(
                             owner.package.slot_type_charged(
@@ -906,7 +920,7 @@ fn check_transition(
     ];
     let (frame_node, row) = meter.body(frame_position).ok_or_else(malformed_subject)?;
     let (frame_body, work) = read_frame_body(frame_node, row, meter, &Trail::Base(&steps))?;
-    meter.charge(work, || node_pointer(frame_position).key("body"))?;
+    frame_work(meter, frame_position, work)?;
     if !frame_body.modifies.iter().any(|entry| matches!(entry, ModifiesEntry::Field { declaration, name, .. } if declaration == declaring && name.as_ref() == field_name)) {
         return Err(malformed_subject());
     }
@@ -1126,5 +1140,79 @@ mod placement_budget_tests {
             run(charged - 1).0,
             Err(ValidationFailure::Budget(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod frame_work_storage_tests {
+    use super::super::stage_storage::Path;
+    use super::super::{
+        NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+    };
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-508", "FR-038-AC-511")]
+    #[test]
+    fn frame_work_denials_preserve_amount_path_and_inherited_locus() {
+        for (position, amount) in [(0, 1), (23, 1), (23, 7), (1000, 43)] {
+            let path = Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+                .key("body");
+            let expected_path = path.build();
+            let locus = NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 25),
+                form: "declarations",
+            };
+            let run = |budget: &mut NativeJoinBudget| {
+                budget.set_active_locus(Some(locus));
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(budget);
+                    meter.at_node(position, "state");
+                    result = Some(frame_work(&mut meter, position, amount));
+                })
+                .bytes_total;
+                (result.unwrap(), allocated)
+            };
+            let mut admitted = NativeJoinBudget::new(amount, 0);
+            assert_eq!(run(&mut admitted), (Ok(()), 0));
+            assert_eq!(admitted.consumed().work, amount);
+            let mut ample = NativeJoinBudget::new(amount - 1, 0).with_read_storage_limit(u64::MAX);
+            let (expected, allocated) = run(&mut ample);
+            let Err(ValidationFailure::Budget(stop)) = &expected else {
+                panic!("Work denial")
+            };
+            assert_eq!(stop.resource, super::super::PackageReadResource::Work);
+            assert_eq!(stop.amount, u128::from(amount));
+            assert_eq!(stop.path.as_ref(), Some(&expected_path));
+            let required = ample.read_storage_consumed();
+            assert_eq!(required, expected_path.as_str().len() as u64);
+            assert_eq!(allocated, required);
+            assert_eq!(ample.first_unpaid_locus(), Some(locus));
+            let mut exact = NativeJoinBudget::new(amount - 1, 0).with_read_storage_limit(required);
+            assert_eq!(run(&mut exact), (expected.clone(), required));
+            for limit in [0, required - 1] {
+                let mut short = NativeJoinBudget::new(amount - 1, 0).with_read_storage_limit(limit);
+                let (result, allocated) = run(&mut short);
+                let Err(ValidationFailure::Budget(stop)) = result else {
+                    panic!("Work denial")
+                };
+                assert_eq!(stop.path, None);
+                assert_eq!(allocated, 0);
+                assert_eq!(short.read_storage_consumed(), 0);
+                assert_eq!(short.first_unpaid_locus(), Some(locus));
+                assert_eq!(short.consumed(), ample.consumed());
+            }
+            let mut repeated =
+                NativeJoinBudget::new(amount - 1, 0).with_read_storage_limit(2 * required);
+            assert_eq!(run(&mut repeated), (expected.clone(), required));
+            assert_eq!(run(&mut repeated), (expected, required));
+            assert_eq!(repeated.read_storage_consumed(), 2 * required);
+            assert_eq!(repeated.first_unpaid_locus(), Some(locus));
+            assert_eq!(repeated.consumed(), ample.consumed());
+        }
     }
 }

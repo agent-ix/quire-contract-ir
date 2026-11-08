@@ -7,8 +7,13 @@
 #[cfg(feature = "test-support")]
 #[path = "native_budget_trace.rs"]
 mod native_budget_trace;
+#[cfg(feature = "test-support")]
+pub(crate) use native_budget_trace::checked as observe_native;
+#[path = "read_equivalence.rs"]
+mod equivalence;
 #[path = "read_observation.rs"]
 pub(crate) mod observation;
+pub(crate) use equivalence::{assert_admitted_views_equal, assert_budgeted_results_equal};
 use observation::{accounted, drop_without_request};
 pub(crate) use observation::{measure_at, Counter, Observation};
 use quire_contract_model::{
@@ -19,10 +24,91 @@ use quire_contract_model::{
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Facts are computed/asserted from the actual prepared input by its original
+/// provider. Reservation loci/sources describe that provider's role, never a
+/// class inferred from allocation size. Completion independently checks roles.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy)]
+pub(crate) struct ReadProviderObligation {
+    pub(crate) role: &'static str,
+    pub(crate) fact: u64,
+    pub(crate) fact_source: &'static str,
+    pub(crate) reservation_locus: Option<quire_contract_model::NativeJoinLocus>,
+    pub(crate) reservation_source: Option<&'static str>,
+    pub(crate) same_walk_instance_source: Option<&'static str>,
+}
+#[cfg(feature = "test-support")]
+pub(crate) struct DesignatedReadProvider<'a> {
+    pub(crate) symbol: &'static str,
+    pub(crate) classes: &'static [&'static str],
+    pub(crate) obligations: &'a [ReadProviderObligation],
+}
+
 #[derive(Clone, Copy)]
 struct ReadProvider {
     symbol: &'static str,
     classes: &'static [&'static str],
+    binding: Option<ReadInputBinding>,
+    verified: bool,
+    #[cfg(feature = "test-support")]
+    obligations: [Option<ReadProviderObligation>; 13],
+}
+
+#[derive(Clone, Copy)]
+struct ReadInputBinding {
+    bytes: usize,
+    length: usize,
+    evidence: usize,
+    file: &'static str,
+    line: u32,
+    column: u32,
+}
+impl ReadInputBinding {
+    fn new(
+        bytes: &[u8],
+        evidence: &CheckedPackageEvidence,
+        site: &'static std::panic::Location<'static>,
+    ) -> Self {
+        Self {
+            bytes: bytes.as_ptr() as usize,
+            length: bytes.len(),
+            evidence: std::ptr::from_ref(evidence) as usize,
+            file: site.file(),
+            line: site.line(),
+            column: site.column(),
+        }
+    }
+    fn matches(
+        self,
+        bytes: &[u8],
+        evidence: &CheckedPackageEvidence,
+        site: &'static std::panic::Location<'static>,
+    ) -> bool {
+        self.bytes == bytes.as_ptr() as usize
+            && self.length == bytes.len()
+            && self.evidence == std::ptr::from_ref(evidence) as usize
+            && self.file == site.file()
+            && self.line == site.line()
+            && self.column == site.column()
+    }
+}
+fn provider_for_input(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    site: &'static std::panic::Location<'static>,
+) -> Option<ReadProvider> {
+    READ_PROVIDER
+        .with(std::cell::Cell::get)
+        .filter(|provider| {
+            provider
+                .binding
+                .is_some_and(|binding| binding.matches(bytes, evidence, site))
+        })
+        .map(|mut provider| {
+            provider.binding = None;
+            provider.verified = true;
+            provider
+        })
 }
 thread_local! {
     // Proof-provider metadata only, never an actual budget or allocation meter.
@@ -53,12 +139,101 @@ pub(crate) fn with_designated_read_provider<R>(
     assert!(classes
         .iter()
         .all(|class| matches!(*class, "walker_growth" | "exact_reservation")));
-    let previous =
-        READ_PROVIDER.with(|provider| provider.replace(Some(ReadProvider { symbol, classes })));
+    let previous = READ_PROVIDER.with(|provider| {
+        provider.replace(Some(ReadProvider {
+            symbol,
+            classes,
+            binding: None,
+            verified: false,
+            #[cfg(feature = "test-support")]
+            obligations: [None; 13],
+        }))
+    });
     let restore = RestoreProvider(previous);
     let result = read();
     drop(restore);
     result
+}
+
+/// Bind provider metadata only after fixture/evidence preparation, at this
+/// exact original call. No pointers escape in artifacts or cross into workers.
+/// Legacy broad scopes have no binding and cannot supply provider evidence.
+#[cfg(feature = "test-support")]
+#[track_caller]
+pub(crate) fn read_designated_and_account(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+    descriptor: DesignatedReadProvider<'_>,
+) -> Plain {
+    let DesignatedReadProvider {
+        symbol,
+        classes,
+        obligations,
+    } = descriptor;
+    assert!(
+        obligations.len() <= 13,
+        "bounded normative obligation inventory"
+    );
+    assert!(classes
+        .iter()
+        .all(|class| matches!(*class, "walker_growth" | "exact_reservation")));
+    let provider = ReadProvider {
+        symbol,
+        classes,
+        verified: false,
+        obligations: std::array::from_fn(|index| obligations.get(index).copied()),
+        binding: Some(ReadInputBinding::new(
+            bytes,
+            evidence,
+            std::panic::Location::caller(),
+        )),
+    };
+    let previous = READ_PROVIDER.with(|current| current.replace(Some(provider)));
+    let restore = RestoreProvider(previous);
+    let result = read_and_account(bytes, limits, evidence);
+    drop(restore);
+    result
+}
+
+#[cfg(feature = "test-support")]
+fn obligation_json(
+    provider: ReadProvider,
+    events: &[serde_json::Value],
+    location: &'static std::panic::Location<'static>,
+) -> Vec<serde_json::Value> {
+    assert!(provider.verified);
+    provider.obligations.into_iter().flatten().map(|obligation| {
+        let (field, class) = match obligation.role {
+            "reference_chain" => ("reference_chain_nodes", None),
+            "flat_graph" => ("flat_graph_nodes", None),
+            "node_dependencies" => ("maximum_node_dependencies", None),
+            "string_member" => ("string_member_utf8_bytes", None),
+            "source_maps" => ("source_map_entries", None),
+            "diagnostic_details" => ("diagnostics_with_detail_terms", None),
+            "direct_dependencies" => ("direct_dependencies", None),
+            "selected_models" => ("selected_model_documents_at_least_524288_bytes", None),
+            "term_walk_multigrowth" => ("same_term_walk_stack_growth_requests", Some("walker_growth")),
+            "canonical_rational_multilimb" => ("canonical_rational_max_bits", Some("exact_reservation")),
+            "dimension_exponent_multilimb" => ("dimension_exponent_max_bits", Some("exact_reservation")),
+            "timed_magnitude_multilimb" => ("timed_magnitude_max_bits", Some("exact_reservation")),
+            "schedulability_bound_multilimb" => ("schedulability_bound_max_bits", Some("exact_reservation")),
+            _ => panic!("unknown normative provider role"),
+        };
+        let expected_locus = obligation.reservation_locus.map(|locus| serde_json::json!({"source":format!("{:?}",locus.source),"form":locus.form}));
+        let indices: Vec<usize> = events.iter().enumerate().filter_map(|(index,event)| {
+            (class.is_some_and(|class| event["allocation_class"] == class)
+                && event["resource"] == "ReadStorage" && event["admitted"] == true
+                && event["amount"].as_u64().is_some_and(|amount| amount>0)
+                && expected_locus.as_ref().is_some_and(|locus| &event["locus"] == locus)).then_some(index)
+        }).collect();
+        let mut facts = serde_json::Map::new();
+        facts.insert(field.to_owned(), obligation.fact.into());
+        serde_json::json!({"role":obligation.role,"source":{"symbol":provider.symbol,"file":location.file(),"line":location.line()},
+            "input_binding":"exact-borrowed-input-evidence-and-callsite","fact_source":obligation.fact_source,
+            "input_facts":facts,"request_event_indices":indices,"reservation_locus":expected_locus,
+            "reservation_source":obligation.reservation_source,"same_walk_instance_source":obligation.same_walk_instance_source})
+    }).collect()
 }
 
 fn provider_json(
@@ -67,6 +242,10 @@ fn provider_json(
     test: &str,
     location: &'static std::panic::Location<'static>,
 ) -> serde_json::Value {
+    assert!(
+        provider.verified,
+        "only caller-bound provider metadata reaches proof records"
+    );
     let requested: serde_json::Map<String, serde_json::Value> = provider
         .classes
         .iter()
@@ -84,7 +263,7 @@ fn provider_json(
         .map(|(class, role)| (class.clone(), role.clone()))
         .collect();
     serde_json::json!({"provider":provider.symbol,"test":test,"driver":location.file(),"line":location.line(),
-                      "requested_classes":requested,"classes":reached})
+                      "requested_classes":requested,"classes":reached,"input_binding":"exact-borrowed-input-evidence-and-callsite"})
 }
 
 struct DriverCounter;
@@ -103,7 +282,7 @@ fn observe(
 ) -> Observation {
     #[cfg(feature = "test-support")]
     let (observation, _events) =
-        native_budget_trace::checked::<DriverCounter>(bytes, evidence, limits, work, storage);
+        observe_native::<DriverCounter>(bytes, evidence, limits, work, storage);
     #[cfg(not(feature = "test-support"))]
     let observation = measure_at::<DriverCounter>(bytes, evidence, limits, work, storage);
     accounted("original driver read", &observation);
@@ -112,7 +291,7 @@ fn observe(
 
 /// A checked read from an exact caller-state snapshot, not reconstructed totals.
 #[cfg(feature = "test-support")]
-fn measure_seeded(
+pub(crate) fn measure_seeded(
     bytes: &[u8],
     evidence: &CheckedPackageEvidence,
     limits: CheckedPackageReadLimits,
@@ -134,13 +313,34 @@ fn measure_seeded(
         logical_before,
         "seeded replay consumes no new logical storage"
     );
+    let actual_result = result.as_ref().expect("seeded read ran");
+    let reported = match actual_result {
+        Budgeted::BudgetIncomplete(value) => Some((
+            value.denied,
+            value.limit,
+            Some(value.consumed),
+            value.path.as_ref().map(|path| path.as_str()),
+            None,
+            None,
+        )),
+        Budgeted::Exhausted(value) => Some((
+            value.denied,
+            value.configured_bound,
+            None,
+            None,
+            Some(value.locus),
+            value.pending,
+        )),
+        _ => None,
+    };
     assert_eq!(
         requested,
         budget
             .read_storage_consumed()
             .checked_sub(before)
             .expect("monotone caller consumption"),
-        "seeded checked public read pays every actual allocation request"
+        "seeded checked public read pays every actual allocation request; result_class={} returned(denied,bound,consumed,pointer,locus,pending)={reported:?}; first_work={:?} first_read_storage={:?} first_locus={:?}; final_budget={budget:?}",
+        budgeted_kind(actual_result), budget.first_unpaid(), budget.first_unpaid_read_storage(), budget.first_unpaid_locus()
     );
     Observation {
         result: result.expect("seeded read ran"),
@@ -150,9 +350,29 @@ fn measure_seeded(
 }
 
 fn same_observation(left: &Observation, right: &Observation) {
-    assert_eq!(
-        left.result, right.result,
-        "complete repeated budgeted outcome"
+    if left.budget.work_limit() == right.budget.work_limit()
+        && left.budget.read_storage_limit() == right.budget.read_storage_limit()
+    {
+        assert_eq!(
+            left.budget, right.budget,
+            "entire repeated caller-budget state"
+        );
+    } else {
+        #[cfg(feature = "test-support")]
+        assert_eq!(
+            left.budget.read_proof_snapshot().read_proof_rebound(
+                right.budget.work_limit(),
+                right.budget.read_storage_limit(),
+                false
+            ),
+            right.budget,
+            "sufficient finite budgets differ only in their explicit configured bounds"
+        );
+    }
+    assert_budgeted_results_equal(
+        &left.result,
+        &right.result,
+        "complete repeated budgeted outcome",
     );
     assert_eq!(
         left.requested, right.requested,
@@ -180,7 +400,9 @@ fn same_observation(left: &Observation, right: &Observation) {
 
 fn same_public_result(plain: &Plain, measured: &Observation, limits: CheckedPackageReadLimits) {
     match (plain, &measured.result) {
-        (Plain::Admitted(a), Budgeted::Admitted(b)) => assert_eq!(a, b),
+        (Plain::Admitted(a), Budgeted::Admitted(b)) => {
+            assert_admitted_views_equal(a, b, "original plain/measured admitted views")
+        }
         (Plain::Refused(a), Budgeted::Refused(b)) => assert_eq!(a, b),
         (Plain::Incomplete(a), Budgeted::Incomplete(b)) => assert_eq!(a, b),
         (Plain::CatalogUnavailable(a), Budgeted::CatalogUnavailable(b)) => assert_eq!(a, b),
@@ -299,9 +521,17 @@ fn budgeted_kind(result: &Budgeted) -> &'static str {
 }
 
 #[cfg(feature = "test-support")]
+fn native_amount_json(amount: u128) -> serde_json::Value {
+    match u64::try_from(amount) {
+        Ok(amount) => amount.into(),
+        Err(_) => amount.to_string().into(),
+    }
+}
+
+#[cfg(feature = "test-support")]
 fn native_event_json(event: &quire_contract_model::NativeBudgetEvent) -> serde_json::Value {
     serde_json::json!({
-        "resource": format!("{:?}", event.resource), "amount": event.amount,
+        "resource": format!("{:?}", event.resource), "amount": native_amount_json(event.amount),
         "consumed_before": event.consumed_before, "admitted": event.admitted,
         "allocation_class": event.allocation_class,
         "locus": event.locus.map(|locus| serde_json::json!({
@@ -310,11 +540,83 @@ fn native_event_json(event: &quire_contract_model::NativeBudgetEvent) -> serde_j
     })
 }
 
+#[cfg(feature = "test-support")]
+fn assert_native_denial(
+    observation: &Observation,
+    event: quire_contract_model::NativeBudgetEvent,
+    bound: u64,
+    events: &[quire_contract_model::NativeBudgetEvent],
+) -> serde_json::Value {
+    use quire_contract_model::NativeBudgetResource as Resource;
+    let resource = match event.resource {
+        Resource::Work => {
+            let unpaid = observation
+                .budget
+                .first_unpaid()
+                .expect("first unpaid work");
+            assert_eq!(
+                unpaid.kind,
+                quire_contract_model::NativeJoinChargeKind::Work
+            );
+            assert_eq!(unpaid.amount, event.amount);
+            assert!(observation.budget.first_unpaid_read_storage().is_none());
+            PackageReadResource::Work
+        }
+        Resource::ReadStorage => {
+            assert_eq!(
+                observation.budget.first_unpaid_read_storage(),
+                Some(event.amount)
+            );
+            assert!(observation.budget.first_unpaid().is_none());
+            PackageReadResource::ReadStorage
+        }
+        Resource::LogicalStorage => panic!("reader consumed logical storage"),
+    };
+    assert_eq!(observation.budget.first_unpaid_locus(), event.locus);
+    let outcome = match &observation.result {
+        Budgeted::BudgetIncomplete(value) => {
+            assert_eq!(value.denied.resource, resource);
+            assert_eq!(value.denied.amount, event.amount);
+            assert_eq!(value.limit, bound);
+            // Stages may pay for a pointer after the primary denial. The
+            // returned cumulative amount includes that paid prefix, before
+            // the final outcome diagnostic reservation itself. Bind that
+            // boundary to the actual terminal diagnostic event, not merely
+            // the earlier primary charge's prefix.
+            let diagnostic = events.last().expect("typed outcome diagnostic event");
+            assert_eq!(diagnostic.resource, Resource::ReadStorage);
+            assert!(diagnostic.admitted);
+            assert_eq!(diagnostic.locus.map(|locus| locus.form), Some("diagnostic"));
+            let consumed = match event.resource {
+                Resource::Work => observation.budget.consumed().work,
+                Resource::ReadStorage => diagnostic.consumed_before,
+                Resource::LogicalStorage => unreachable!(),
+            };
+            assert_eq!(
+                value.consumed,
+                consumed
+                    .saturating_add(u64::try_from(event.amount).expect("admitted request fits"))
+            );
+            "budget-incomplete"
+        }
+        Budgeted::Exhausted(value) => {
+            assert_eq!(value.denied.resource, resource);
+            assert_eq!(value.denied.amount, event.amount);
+            assert_eq!(value.configured_bound, bound);
+            assert_eq!(Some(value.locus), event.locus);
+            "exhausted"
+        }
+        _ => panic!("a denied native charge must return a typed budget outcome"),
+    };
+    serde_json::json!({"outcome":outcome,"resource":format!("{resource:?}"),"amount":native_amount_json(event.amount),
+        "configured_bound":bound,"locus":native_event_json(&event)["locus"],"entire_repeat_budget_equal":true})
+}
+
 /// These endpoints are selected from actual events, never inferred from byte
 /// amounts or a fixed number of stages. Designated growth cases additionally
 /// supply source-grounded exhaustive classes at their original provider site.
 #[cfg(feature = "test-support")]
-fn full_native_boundaries(
+pub(crate) fn full_native_boundaries(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
@@ -356,9 +658,10 @@ fn full_native_boundaries(
             Budgeted::BudgetIncomplete(_) | Budgeted::Exhausted(_)
         )
     {
-        assert_eq!(
-            complete.result, reference.result,
-            "sufficient original context preserves full outcome"
+        assert_budgeted_results_equal(
+            &complete.result,
+            &reference.result,
+            "sufficient original context preserves full outcome",
         );
     }
     let (repeated, repeated_events) =
@@ -380,9 +683,10 @@ fn full_native_boundaries(
         .read_proof_rebound(work, storage, false);
     let (exact, exact_events) =
         native_budget_trace::checked_seeded(bytes, evidence, limits, &exact_seed);
-    assert_eq!(
-        complete.result, exact.result,
-        "exact complete requirement preserves full outcome"
+    assert_budgeted_results_equal(
+        &complete.result,
+        &exact.result,
+        "exact complete requirement preserves full outcome",
     );
     assert_eq!(
         complete.requested, exact.requested,
@@ -401,10 +705,43 @@ fn full_native_boundaries(
         "exact complete requirement preserves every native event"
     );
     drop_without_request::<DriverCounter>(exact);
+    let above_work = work
+        .checked_add(1)
+        .expect("above-work bound is representable");
+    let above_storage = storage
+        .checked_add(1)
+        .expect("above-storage bound is representable");
+    let above_seed =
+        unlimited_seed
+            .read_proof_snapshot()
+            .read_proof_rebound(above_work, above_storage, false);
+    let (above, above_events) =
+        native_budget_trace::checked_seeded(bytes, evidence, limits, &above_seed);
+    assert_budgeted_results_equal(
+        &complete.result,
+        &above.result,
+        "above complete requirement preserves full outcome",
+    );
+    assert_eq!(complete.requested, above.requested);
+    assert_eq!(events, above_events);
+    assert_eq!(
+        complete
+            .budget
+            .read_proof_snapshot()
+            .read_proof_rebound(above_work, above_storage, false),
+        above.budget
+    );
+    drop_without_request::<DriverCounter>(above);
+    let refusal_code = match &complete.result {
+        Budgeted::Refused(value) => Some(format!("{:?}", value.code)),
+        _ => None,
+    };
     let complete_reference = serde_json::json!({"native_budget":"unlimited","outcome":budgeted_kind(&complete.result),
         "prior_work":prior_work,"prior_read_storage":prior_read,"work":work,"read_storage":storage,
         "requested":complete.requested,"logical_storage_delta":0,"exact_work_limit":work,"exact_read_storage_limit":storage,
         "exact_outcome_equal":true,"exact_counts_equal":true,"complete_repeat_equal":true,
+        "above_work_limit":above_work,"above_read_storage_limit":above_storage,"above_outcome_equal":true,"above_counts_equal":true,
+        "above_budget_equal":true,"refusal_code":refusal_code,
         "original_context_outcome":budgeted_kind(&reference.result),
         "original_context_work_limit":reference.budget.work_limit(),
         "original_context_read_storage_limit":reference.budget.read_storage_limit()});
@@ -426,10 +763,12 @@ fn full_native_boundaries(
             panic!("actual native event is outside strict-reader stage context")
         };
         if resource == 1 {
-            let class = event
+            // None stays unknown. Independent canonical class denial evidence
+            // supplies class-specific proof; amounts never manufacture labels.
+            if event
                 .allocation_class
-                .expect("full proof needs genuine source-derived reservation class");
-            if exhaustive_classes.contains(&class) {
+                .is_some_and(|class| exhaustive_classes.contains(&class))
+            {
                 selected.insert(index);
             }
         }
@@ -461,13 +800,30 @@ fn full_native_boundaries(
             let rebound = unlimited_seed
                 .read_proof_snapshot()
                 .read_proof_rebound(work, storage, false);
-            native_budget_trace::checked_seeded(bytes, evidence, limits, &rebound)
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                native_budget_trace::checked_seeded(bytes, evidence, limits, &rebound)
+            })) {
+                Ok(observation) => observation,
+                Err(failure) => {
+                    eprintln!("full native boundary failed: event_index={index} event={event:?} work_bound={work} read_storage_bound={storage}");
+                    std::panic::resume_unwind(failure)
+                }
+            }
         };
         let (exact, exact_events) = probe(bound);
         assert_eq!(
             exact_events.get(..=index),
             events.get(..=index),
             "exact bound admits the same entire event prefix"
+        );
+        let above_bound = bound
+            .checked_add(1)
+            .expect("above event bound is representable");
+        let (above, above_events) = probe(above_bound);
+        assert_eq!(
+            above_events.get(..=index),
+            events.get(..=index),
+            "above bound admits the same entire event prefix"
         );
         let (short, short_events) = probe(bound - 1);
         assert_eq!(
@@ -482,6 +838,7 @@ fn full_native_boundaries(
             Some(&denied),
             "one below denies this actual amount/locus/class"
         );
+        let denial = assert_native_denial(&short, event, bound - 1, &short_events);
         let (repeated, repeated_events) = probe(bound - 1);
         same_observation(&short, &repeated);
         assert_eq!(
@@ -493,6 +850,9 @@ fn full_native_boundaries(
         object.insert("event_index".into(), index.into());
         object.insert("exact_bound".into(), bound.into());
         object.insert("one_below_bound".into(), (bound - 1).into());
+        object.insert("above_bound".into(), above_bound.into());
+        object.insert("above_event_admitted".into(), true.into());
+        object.insert("denial".into(), denial);
         for key in [
             "exact_event_admitted",
             "one_below_event_denied",
@@ -502,7 +862,7 @@ fn full_native_boundaries(
             object.insert(key.into(), true.into());
         }
         results.push(row);
-        for observation in [exact, short, repeated] {
+        for observation in [exact, above, short, repeated] {
             drop_without_request::<DriverCounter>(observation);
         }
     }
@@ -523,7 +883,7 @@ pub(crate) fn read_and_account(
     evidence: &CheckedPackageEvidence,
 ) -> Plain {
     let location = std::panic::Location::caller();
-    let provider = READ_PROVIDER.with(std::cell::Cell::get);
+    let provider = provider_for_input(bytes, evidence, location);
     let (mode, test_name) = crate::without_qspec_instrumentation(|| {
         let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
         assert!(
@@ -717,7 +1077,14 @@ fn finish_proof(
         let events = &native_events;
         #[cfg(not(feature = "test-support"))]
         let events = &[];
-        row["designated_growth_case"] = provider_json(provider, events, &test_name, location);
+        if !provider.classes.is_empty() {
+            row["designated_growth_case"] = provider_json(provider, events, &test_name, location);
+        }
+        #[cfg(feature = "test-support")]
+        {
+            row["provider_obligation_evidence"] =
+                obligation_json(provider, events, location).into();
+        }
         row
     } else {
         row
@@ -789,7 +1156,7 @@ pub(crate) fn read_budget_and_account(
     budget: &mut quire_contract_model::NativeJoinBudget,
 ) -> Budgeted {
     let location = std::panic::Location::caller();
-    let provider = READ_PROVIDER.with(std::cell::Cell::get);
+    let provider = provider_for_input(bytes, evidence, location);
     #[cfg(feature = "test-support")]
     let mode = crate::without_qspec_instrumentation(|| {
         let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
@@ -906,7 +1273,14 @@ pub(crate) fn read_budget_and_account(
                     .unwrap_or("unnamed")
                     .to_owned()
             });
-            row["designated_growth_case"] = provider_json(provider, events, &test, location);
+            if !provider.classes.is_empty() {
+                row["designated_growth_case"] = provider_json(provider, events, &test, location);
+            }
+            #[cfg(feature = "test-support")]
+            {
+                row["provider_obligation_evidence"] =
+                    obligation_json(provider, events, location).into();
+            }
             row
         } else {
             row
@@ -948,6 +1322,48 @@ mod caller_budget_tests {
         CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2, NativeJoinBudget,
         NativeJoinChargeKind,
     };
+
+    #[cfg(feature = "test-support")]
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn full_reference_rebounds_finite_caller_limits_and_checks_typed_denials() {
+        let mut seed = NativeJoinBudget::new(3, 2).with_read_storage_limit(0);
+        let locus = quire_contract_model::NativeJoinLocus {
+            source: quire_contract_model::NativeJoinLocusSource::Package,
+            form: "prior_caller_charge",
+        };
+        seed.accounted_charge(NativeJoinChargeKind::Work, 3, locus)
+            .expect("prior work");
+        seed.accounted_charge(NativeJoinChargeKind::Storage, 2, locus)
+            .expect("prior logical storage");
+        let evidence = CheckedPackageEvidence::new();
+        let limits = CheckedPackageReadLimits::bounded();
+        let reference =
+            super::measure_seeded(b"null", &evidence, limits, seed.read_proof_snapshot());
+        assert!(matches!(
+            reference.result,
+            quire_contract_model::CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_)
+                | quire_contract_model::CheckedPackageV2BudgetedReadResult::Exhausted(_)
+        ));
+        let (events, results, complete) =
+            super::full_native_boundaries(b"null", limits, &evidence, &reference, &[], Some(&seed));
+        assert_eq!(complete["prior_work"], 3);
+        assert_eq!(complete["prior_read_storage"], 0);
+        assert_eq!(complete["outcome"], "refused");
+        assert!(complete["read_storage"].as_u64().expect("read storage") > 0);
+        assert!(!events.is_empty());
+        assert!(!results.is_empty());
+        assert!(results
+            .iter()
+            .all(|row| row["denial"]["entire_repeat_budget_equal"] == true));
+        assert_eq!(
+            seed.consumed().work,
+            3,
+            "the actual caller snapshot remains unchanged"
+        );
+        assert_eq!(seed.consumed().storage, 2);
+        super::drop_without_request::<DriverCounter>(reference);
+    }
 
     #[ix_trace_rs::trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
     #[test]
@@ -1008,6 +1424,96 @@ mod caller_budget_tests {
 #[cfg(test)]
 mod provider_scope_tests {
     use super::{with_designated_read_provider, READ_PROVIDER};
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn native_event_serialization_preserves_u128_max_denied_diagnostic() {
+        let event = quire_contract_model::NativeBudgetEvent {
+            resource: quire_contract_model::NativeBudgetResource::ReadStorage,
+            amount: u128::MAX,
+            consumed_before: 17,
+            admitted: false,
+            allocation_class: None,
+            locus: Some(quire_contract_model::NativeJoinLocus {
+                source: quire_contract_model::NativeJoinLocusSource::PackageRead(
+                    quire_contract_model::PackageReadStage::Graph,
+                    0,
+                ),
+                form: "diagnostic",
+            }),
+        };
+        let value = super::native_event_json(&event);
+        assert_eq!(value["amount"], u128::MAX.to_string());
+        assert_eq!(value["consumed_before"], 17);
+        assert_eq!(value["admitted"], false);
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn provider_binding_rejects_nested_library_input_evidence_and_location() {
+        use super::{provider_for_input, ReadInputBinding, ReadProvider};
+        let bytes = b"null".to_vec();
+        let library = b"null".to_vec();
+        let evidence = quire_contract_model::CheckedPackageEvidence::new();
+        let library_evidence = quire_contract_model::CheckedPackageEvidence::new();
+        let site = std::panic::Location::caller();
+        let binding = ReadInputBinding::new(&bytes, &evidence, site);
+        let previous = READ_PROVIDER.with(|current| {
+            current.replace(Some(ReadProvider {
+                symbol: "actual original provider",
+                classes: &["walker_growth"],
+                binding: Some(binding),
+                verified: false,
+                obligations: [None; 13],
+            }))
+        });
+        let restore = super::RestoreProvider(previous);
+        let verified = provider_for_input(&bytes, &evidence, site).expect("same original input");
+        assert!(verified.verified);
+        assert!(
+            verified.binding.is_none(),
+            "workers receive no borrowed addresses"
+        );
+        assert!(
+            provider_for_input(&library, &evidence, site).is_none(),
+            "equal bytes are not the prepared input identity"
+        );
+        assert!(provider_for_input(&bytes, &library_evidence, site).is_none());
+        READ_PROVIDER.with(|current| {
+            let mut provider = current.get().expect("scope");
+            provider.binding.as_mut().expect("caller binding").line += 1;
+            current.set(Some(provider));
+        });
+        assert!(provider_for_input(&bytes, &evidence, site).is_none());
+        drop(restore);
+        with_designated_read_provider("legacy broad scope", &["walker_growth"], || {
+            assert!(
+                provider_for_input(&bytes, &evidence, site).is_none(),
+                "legacy scopes cannot credit any input"
+            );
+        });
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn provider_designated_read_preserves_the_original_scalar_refusal() {
+        let evidence = quire_contract_model::CheckedPackageEvidence::new();
+        let result = super::read_designated_and_account(
+            b"null",
+            quire_contract_model::CheckedPackageReadLimits::bounded(),
+            &evidence,
+            super::DesignatedReadProvider {
+                symbol: "minimal scalar binding control",
+                classes: &[],
+                obligations: &[],
+            },
+        );
+        assert!(matches!(
+            result,
+            quire_contract_model::CheckedPackageV2ReadResult::Refused(_)
+        ));
+        assert!(READ_PROVIDER.with(std::cell::Cell::get).is_none());
+    }
 
     #[test]
     fn provider_metadata_restores_after_nested_scope_and_panic() {

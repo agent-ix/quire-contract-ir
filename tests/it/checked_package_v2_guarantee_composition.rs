@@ -99,7 +99,7 @@ fn read_composition_with_dependency(
     evidence
         .insert_dependency_package(DEPENDENCY, dependency)
         .expect("dependency evidence agrees on admitted content");
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -1346,7 +1346,7 @@ fn tc_474_a_composition_admits_foreign_clauses_named_by_dependency_positions() {
     assert!(held, "the foreign clause keeps its dependency position");
     // The graph as shown is the wire form the reader admits again.
     let canonical_bytes = canonical(&wire_form(&package));
-    let reread = quire_contract_model::CheckedPackageV2::read(
+    let reread = crate::read_and_account(
         &canonical_bytes,
         CheckedPackageReadLimits::bounded(),
         &{
