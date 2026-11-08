@@ -126,51 +126,66 @@ pub(super) struct FrameBody {
 }
 
 impl FrameBody {
-    /// Retains the already validated frame as the public typed term. This
-    /// avoids a second generic JSON decode of nested structural node IDs.
-    pub(super) fn into_checked_term(
-        self,
+    /// Copies the already validated frame into its public typed term, charging
+    /// every retained vector and owned value before requesting the allocation.
+    pub(super) fn checked_term(
+        &self,
         meter: &mut WorkMeter,
     ) -> Result<CheckedTerm, ValidationFailure> {
         let mut modifies = meter.vec(self.modifies.len())?;
-        for entry in self.modifies {
-            meter.push(
-                &mut modifies,
-                match entry {
-                    ModifiesEntry::Relationship { declaration } => {
-                        CheckedFrameModification::Relationship { declaration }
+        for entry in &self.modifies {
+            let copied = match entry {
+                ModifiesEntry::Relationship { declaration } => {
+                    CheckedFrameModification::Relationship {
+                        declaration: meter.clone_id(declaration)?,
                     }
-                    ModifiesEntry::Field {
+                }
+                ModifiesEntry::Field {
+                    declaration,
+                    name,
+                    scope,
+                } => {
+                    let declaration = meter.clone_id(declaration)?;
+                    let mut copied_name = meter.string(name.len())?;
+                    copied_name.push_str(name);
+                    CheckedFrameModification::Field {
                         declaration,
-                        name,
-                        scope,
-                    } => CheckedFrameModification::Field {
-                        declaration,
-                        name,
+                        name: copied_name,
                         scope: match scope {
                             FieldScope::EveryObject => CheckedFieldScope::EveryObject,
                             FieldScope::Receiver => CheckedFieldScope::Receiver,
                         },
-                    },
-                },
-            )?;
+                    }
+                }
+            };
+            meter.push(&mut modifies, copied)?;
         }
         let mut deletes_scoped = meter.vec(self.deletes_scoped.len())?;
-        for entry in self.deletes_scoped {
-            meter.push(
-                &mut deletes_scoped,
-                match entry {
-                    DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
-                    DeletesScopedEntry::Parameter { name } => {
-                        CheckedScopedDeletion::Parameter { name }
-                    }
-                },
-            )?;
+        for entry in &self.deletes_scoped {
+            let copied = match entry {
+                DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
+                DeletesScopedEntry::Parameter { name } => {
+                    let mut copied_name = meter.string(name.len())?;
+                    copied_name.push_str(name);
+                    CheckedScopedDeletion::Parameter { name: copied_name }
+                }
+            };
+            meter.push(&mut deletes_scoped, copied)?;
+        }
+        let mut creates = meter.vec(self.creates.len())?;
+        for id in &self.creates {
+            let copied = meter.clone_id(id)?;
+            meter.push(&mut creates, copied)?;
+        }
+        let mut deletes = meter.vec(self.deletes.len())?;
+        for id in &self.deletes {
+            let copied = meter.clone_id(id)?;
+            meter.push(&mut deletes, copied)?;
         }
         Ok(CheckedTerm::Frame {
             modifies,
-            creates: self.creates,
-            deletes: self.deletes,
+            creates,
+            deletes,
             deletes_scoped,
         })
     }

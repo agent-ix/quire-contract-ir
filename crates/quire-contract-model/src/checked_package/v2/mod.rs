@@ -3538,7 +3538,7 @@ fn validate_graph(
                 let (body, row) = meter.body(position).expect("graph bodies are attached");
                 let (body, work) =
                     frame::read_frame_body(body, row, meter, &Trail::Base(&body_steps))?;
-                frame_term = Some(body.clone().into_checked_term(meter)?);
+                frame_term = Some(body.checked_term(meter)?);
                 frames.push((&node.node_id, position, body));
                 work
             }
