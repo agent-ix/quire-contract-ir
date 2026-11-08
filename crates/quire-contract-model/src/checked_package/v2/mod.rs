@@ -16,7 +16,7 @@ pub use budgeted_read::{
 };
 mod callable;
 mod checked_json;
-mod document_de;
+pub(super) mod document_de;
 pub(in crate::checked_package) use budgeted_read::denial as decode_denial;
 pub use checked_json::{CheckedJson, CheckedJsonError};
 pub(in crate::checked_package) use document_de::{exact_vec, DecodeContext};

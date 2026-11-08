@@ -27,7 +27,7 @@ use serde_json::{error::Category, Value};
 /// private provenance and do not affect represented-body equality.
 #[derive(Clone, Debug)]
 pub struct CheckedApplicationOperation {
-    record: CheckedApplicationOperationRecord,
+    record: Box<CheckedApplicationOperationRecord>,
     execution_point: Option<ExecutionPoint>,
     views: Option<CheckedOperationViews>,
     #[cfg(feature = "test-support")]
@@ -188,7 +188,14 @@ impl TryFrom<Value> for CheckedApplicationOperationRecord {
     type Error = serde_json::Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         serde_json::from_value(value)
-            .map(|record| CheckedApplicationOperation::outside_read(record).record)
+            .map(|record| *CheckedApplicationOperation::outside_read(record).record)
+    }
+}
+
+impl TryFrom<Value> for Box<CheckedApplicationOperationRecord> {
+    type Error = serde_json::Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        CheckedApplicationOperationRecord::try_from(value).map(Box::new)
     }
 }
 
@@ -1334,7 +1341,7 @@ impl CheckedApplicationOperation {
         execution_point: Option<ExecutionPoint>,
     ) -> Self {
         Self {
-            record,
+            record: Box::new(record),
             execution_point,
             views: None,
             #[cfg(feature = "test-support")]
@@ -3344,8 +3351,8 @@ mod tests {
     #[test]
     fn operation_document_decode_allocates_only_charged_storage() {
         use super::super::read_charge::Site;
-        use super::super::{NativeJoinBudget, PackageReadStage, TermNode};
-        let id = json!({"package":"record-test", "path":["decl"], "ordinal":0});
+        use super::super::{CheckedJson, NativeJoinBudget, PackageReadStage, TermNode};
+        let id = json!({"package":"record-test", "path":["decl", {"operand":0}], "ordinal":0});
         for (identity, member, has_point) in [
             (
                 "test.operation",
@@ -3367,10 +3374,11 @@ mod tests {
                 let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
                 let mut result = None;
                 let allocated = allocation_counter::measure(|| {
-                    result = Some(TermNode::of(&json).decode(
+                    result = Some(TermNode::of(&json).decode_in(
                         json.document(),
                         &mut budget,
                         Site::new(PackageReadStage::Graph, 7, "application"),
+                        &[9],
                     ));
                 })
                 .bytes_total;
@@ -3389,6 +3397,12 @@ mod tests {
             assert_eq!(operation.identity(), Some(identity));
             assert_eq!(operation.execution_point().is_some(), has_point);
             assert_eq!(operation.member_key("declaration").is_some(), !has_point);
+            if let Some(key) = operation.member_key("declaration") {
+                assert!(
+                    matches!(key.path.last(), Some(CheckedNodePathSegment::Index(9))),
+                    "member operand slot resolves through its application's row: {key:?}"
+                );
+            }
             assert!(charged > 0);
             assert_eq!(
                 allocated, charged,

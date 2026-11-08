@@ -47,7 +47,7 @@ impl de::Error for Error {
 }
 
 /// The name under which the wire's node-id member is decoded whole.
-pub(super) const NODE_ID_TOKEN: &str = "$quire::NodeId";
+pub(in crate::checked_package) const NODE_ID_TOKEN: &str = "$quire::NodeId";
 
 thread_local! {
     static NODE_ID: RefCell<Option<CheckedNodeId>> = const { RefCell::new(None) };
@@ -55,7 +55,7 @@ thread_local! {
 
 /// The id the deserializer just decoded for the `Deserialize` call it is
 /// answering on this thread.
-pub(super) fn take_node_id() -> Option<CheckedNodeId> {
+pub(in crate::checked_package) fn take_node_id() -> Option<CheckedNodeId> {
     NODE_ID.with(|slot| slot.borrow_mut().take())
 }
 
@@ -414,13 +414,17 @@ impl<'d> DecodeContext<'d> {
 
     /// Charges `bytes` of heap the decode is about to request.
     fn charge(&self, bytes: usize) -> Result<(), Error> {
+        self.charge_amount(bytes as u128)
+    }
+
+    fn charge_amount(&self, bytes: u128) -> Result<(), Error> {
         if bytes == 0 || !self.charging.get() {
             return Ok(());
         }
         let locus = self.locus();
         let mut budget = self.budget.borrow_mut();
         budget.set_active_locus(Some(locus));
-        let admitted = budget.charge_read_storage(bytes as u128);
+        let admitted = budget.charge_read_storage(bytes);
         budget.set_active_locus(None);
         if admitted {
             Ok(())
@@ -431,6 +435,25 @@ impl<'d> DecodeContext<'d> {
                 .get_or_insert(*self.path.borrow());
             Err(Error::Denied)
         }
+    }
+}
+
+/// Node-ID storage requests use the decode's actual stage, index and form.
+struct NodeIdStorage<'c, 'd> {
+    context: &'c DecodeContext<'d>,
+}
+impl super::read_charge::ReadStorage for NodeIdStorage<'_, '_> {
+    fn reserve(
+        &mut self,
+        bytes: u128,
+        _site: super::read_charge::Site,
+    ) -> Result<(), super::read_charge::Denied> {
+        self.context
+            .charge_amount(bytes)
+            .map_err(|_| super::read_charge::Denied)
+    }
+    fn denial(&self) -> crate::checked_package::common::ValidationFailure {
+        super::budgeted_read::denial(&self.context.budget.borrow())
     }
 }
 
@@ -560,6 +583,11 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
             } else {
                 None
             };
+            if !context.charge_bytes(std::mem::size_of::<
+                super::typed_terms::CheckedApplicationOperationRecord,
+            >()) {
+                return Err(Error::Denied);
+            }
             super::typed_terms::CheckedApplicationOperation::offer(
                 super::typed_terms::CheckedApplicationOperation::from_typed_record(record, point),
             );
@@ -590,11 +618,22 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
             return visitor.visit_newtype_struct(self);
         }
         if name == NODE_ID_TOKEN {
-            let decoded = CheckedNodeId::deserialize(ValueDe {
-                prepaid: false,
-                slots: false,
-                ..self
-            })?;
+            let locus = self.context.locus();
+            let NativeJoinLocusSource::PackageRead(stage, index) = locus.source else {
+                return Err(de::Error::custom(
+                    "node-ID decode requires a package-read locus",
+                ));
+            };
+            let site = super::read_charge::Site::new(stage, index, locus.form);
+            let mut storage = NodeIdStorage {
+                context: self.context,
+            };
+            let row = self.context.operand_row.unwrap_or_default();
+            let decoded = super::TermNode::from_ref(self.node)
+                .node_id_in(&mut storage, site, row)
+                .map_err(|_| Error::Denied)?
+                .spelled()
+                .ok_or_else(|| de::Error::custom("invalid flat node ID shape"))?;
             NODE_ID.with(|slot| *slot.borrow_mut() = Some(decoded));
             return visitor.visit_unit();
         }
