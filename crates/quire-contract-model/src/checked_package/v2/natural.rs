@@ -2,7 +2,7 @@
 //! canonical decimal rational is reduced, with every limb operation charged as
 //! work so the metered cost bounds the real cost.
 
-use super::stage_storage::{self, Site};
+use super::stage_storage::Site;
 use super::WorkMeter;
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::JsonPointer;
@@ -16,8 +16,33 @@ impl WorkAt<'_> {
     fn charge(&self, meter: &mut WorkMeter, amount: u64) -> Result<(), ValidationFailure> {
         match self {
             Self::Legacy(at) => meter.charge(amount, at),
-            Self::Paid(site) => stage_storage::work(meter, site, amount),
+            Self::Paid(site) => work_at(meter, *site, amount),
         }
+    }
+}
+
+/// Charges work at the caller's original active locus, preserving its amount
+/// and denial accounting. Only the denied outcome's borrowed pointer is paid
+/// and materialized here; an admitted charge allocates nothing.
+pub(super) fn work_at(
+    meter: &mut WorkMeter,
+    site: Site<'_>,
+    amount: u64,
+) -> Result<(), ValidationFailure> {
+    if meter.budget_mut().is_none() {
+        return meter.charge(amount, || site.at.build());
+    }
+    // The original charge records its first-unpaid locus before any diagnostic
+    // reservation. Its temporary empty pointer owns no heap.
+    match meter.charge(amount, JsonPointer::root) {
+        Err(ValidationFailure::Budget(mut stop)) => {
+            let paid = meter
+                .budget_mut()
+                .is_some_and(|budget| budget.prepay_diagnostic(site.at.pointer_len() as u128));
+            stop.path = paid.then(|| site.at.build());
+            Err(ValidationFailure::Budget(stop))
+        }
+        outcome => outcome,
     }
 }
 
@@ -298,6 +323,51 @@ mod tests {
                     None
                 } else {
                     Some("/semantic_graph/nodes/45/body")
+                }
+            );
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn borrowed_gcd_keeps_legacy_first_unpaid_work_and_locus() {
+        use super::super::native_join_budget::{
+            NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+        };
+        let path = super::super::stage_storage::Path::root().key("scale");
+        let site = Site::new(PackageReadStage::Graph, 45, "timed_model", path);
+        let original = NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 4),
+            form: "scalar_type",
+        };
+        let mut legacy = super::super::NativeJoinBudget::new(1, 0);
+        legacy.set_active_locus(Some(original));
+        assert!(coprime("1", "1", &mut WorkMeter::over(&mut legacy), &at).is_err());
+        for allowance in [
+            8,
+            8 + path.pointer_len() as u64 - 1,
+            8 + path.pointer_len() as u64,
+        ] {
+            let mut paid =
+                super::super::NativeJoinBudget::new(1, 0).with_read_storage_limit(allowance);
+            paid.set_active_locus(Some(original));
+            let mut outcome = None;
+            let allocated = allocation_counter::measure(|| {
+                outcome = Some(coprime_at("1", "1", &mut WorkMeter::over(&mut paid), site))
+            });
+            let Err(ValidationFailure::Budget(stop)) = outcome.expect("ran") else {
+                panic!("work denial");
+            };
+            assert_eq!(paid.first_unpaid(), legacy.first_unpaid());
+            assert_eq!(paid.first_unpaid_locus(), legacy.first_unpaid_locus());
+            assert_eq!(paid.first_unpaid_locus(), Some(original));
+            assert_eq!(allocated.bytes_total, paid.read_storage_consumed());
+            assert_eq!(
+                stop.path.as_ref().map(JsonPointer::as_str),
+                if allowance == 8 + path.pointer_len() as u64 {
+                    Some("/scale")
+                } else {
+                    None
                 }
             );
         }
