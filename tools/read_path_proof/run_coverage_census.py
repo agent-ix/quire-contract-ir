@@ -266,7 +266,6 @@ def select_tc048(args, compiled):
         selected[name] = claim
     if not selected:
         raise RunError("no actual TC-048 original integration tests selected")
-    write_json(args.out / "tc048-selected-tests.json", selected)
     return sorted(selected)
 
 
@@ -385,6 +384,9 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
         records = []
     if any(record.get("test") != name for record in records):
         errors.append("captured read provenance does not belong to its exact original test")
+    if errors and (output / "run.log").exists():
+        tail = (output / "run.log").read_text(errors="replace").splitlines()[-8:]
+        errors.append("test output ended with: " + " | ".join(tail))
     report["evidence_errors"] = errors
     write_json(output / "test-report.json", persisted_test_summary(report))
     if not getattr(args, "class_controls", False):
@@ -433,8 +435,13 @@ def run_original_corpus(args, binary, config, env, intended):
               "ignored_tests": [name for item in reports for name in item["ignored_tests"]],
               "exit_code": int(any(item["exit_code"] or item["evidence_errors"] for item in reports)),
               "test_threads": 1, "per_test_processes": reports, **selection_metadata(args)}
-    if any(item["evidence_errors"] for item in reports):
-        raise RunError("all intended original tests attempted; failures/evidence errors retained in per-test reports")
+    failures = [item for item in reports if item["evidence_errors"]]
+    if failures:
+        write_json(args.out / "test-report.json", persisted_test_summary(report))
+        raise RunError(
+            f"{len(failures)} of {len(reports)} intended original tests failed: "
+            + "; ".join(f"{item['intended_tests'][0]}: {'; '.join(item['evidence_errors'])}"
+                        for item in failures))
     evidence = merge_export(args, args.out, profiles, binary, env)
     result = census.check_run(evidence, args.repo, report, records, args.mode)
     result.update(selection_metadata(args))
@@ -446,6 +453,20 @@ def run_original_corpus(args, binary, config, env, intended):
     archive_export(args.out)
     return [result]
 
+
+
+def persisted_class_proof(result):
+    """The class verdicts and compiler counts, without per-test facts or reports."""
+    kept = {key: result[key] for key in ("schema","qualified","scope","configuration","static_ac513_proven")}
+    kept["canonical_source"] = result["canonical_source"]
+    kept["classes"] = [
+        {key: (value if not isinstance(value, dict) else {"counts": value["counts"]})
+         for key, value in item.items()}
+        for item in result["classes"]]
+    kept["negative_controls"] = result["negative_controls"]
+    kept["runs"] = [{"test": run["test"], "rust_oracle_passed": run["rust_oracle_passed"]}
+                    for run in result["runs"]]
+    return kept
 
 
 def run_class_controls(args,binary,config,env,compiled_tests):
@@ -465,7 +486,7 @@ def run_class_controls(args,binary,config,env,compiled_tests):
         child=dict(env)
         if reference: child["IR1404_CANONICAL_REFERENCE_LOG"]=str(reference)
         output,report,profiles,records=execute_one(args,binary,config,child,full,len(cases),preserve_failure=True)
-        row={"test":full,"directory":str(output),"rust_oracle_passed":not report["evidence_errors"],"report":report}
+        row={"test":full,"directory":str(output),"rust_oracle_passed":not report["evidence_errors"]}
         cases.append(row)
         if report["evidence_errors"]: return None
         if len(records)!=1: raise RunError("class control must emit exactly one actual fact record")
@@ -519,72 +540,17 @@ def run_class_controls(args,binary,config,env,compiled_tests):
             "scope":"minimal canonical class-denial controls only; not positive/adverse corpus completeness or AC513",
             "configuration":"config.json","canonical_source":str(source),"classes":classes,
             "negative_controls":negatives,"runs":cases,"static_ac513_proven":False}
-    write_json(args.out/"class-proof.json",result)
+    # A reference log is only a channel between one allow run and its deny
+    # runs; nothing of it outlives the proof.
+    for case in cases:
+        for name in ("driver-sites.jsonl","run.log"):
+            (Path(case["directory"])/name).unlink(missing_ok=True)
+    write_json(args.out/"class-proof.json",persisted_class_proof(result))
     if not qualified: raise RunError("class denial proof incomplete/RED; preserve individual run and binding results")
     return [result]
 
 
-def complete_full_manifest(manifest_path):
-    """Revalidate retained compiler evidence; never trust a manifest's pass flags."""
-    manifest = json.loads(manifest_path.read_text())
-    if manifest.get("schema") != "ac511-full-completion/v1":
-        raise RunError("missing full-completion manifest schema")
-    if not isinstance(manifest.get("runs"), list) or len(manifest["runs"]) != 2:
-        raise RunError("full completion requires exactly two retained original corpus runs")
-    repo = Path(manifest["repo"]).resolve()
-    bundle = {"schema": manifest["schema"], "runs": []}
-    for directory in manifest.get("runs", []):
-        directory = Path(directory).resolve()
-        config = json.loads((directory / "config.json").read_text())
-        report = json.loads((directory / "test-report.json").read_text())
-        records = [json.loads(line) for line in (directory / "driver-sites.jsonl").read_text().splitlines() if line.strip()]
-        repo = Path(manifest["repo"]).resolve()
-        if git(repo, "status", "--porcelain"):
-            raise RunError("completion requires a clean source tree for compiler/source joins")
-        export_path = directory / "coverage.json"
-        opener = export_path.open if export_path.exists() else (directory / "coverage.json.gz").open
-        if export_path.exists():
-            with opener("r") as source: export = json.load(source)
-        else:
-            with gzip.open(directory / "coverage.json.gz", "rt") as source: export = json.load(source)
-        result = census.check_run(export, repo, report, records, config.get("mode"))
-        declared = (config.get("compiled_test_inventory") if config.get("corpus") == "qspec" else
-                    list(json.loads((directory / "tc048-selected-tests.json").read_text())))
-        bundle["runs"].append({"config": config, "report": report, "records": records,
-                               "census": result, "declared_inventory": declared})
-    class_dir = Path(manifest["canonical_classes"]).resolve()
-    bundle["canonical_classes"] = json.loads((class_dir / "class-proof.json").read_text())
-    bundle["canonical_config"] = json.loads((class_dir / "config.json").read_text())
-    source = (repo / "crates/quire-contract-model/src/checked_package/shared.rs").read_text()
-    body = source.split("pub enum CheckedPackageRefusalCode {", 1)[1].split("}", 1)[0]
-    variants = []
-    for line in body.splitlines():
-        line = line.strip()
-        if not line or line.startswith("//"):
-            continue
-        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*,", line):
-            raise RunError("refusal-code inventory needs explicit support for changed source enum grammar")
-        variants.append(line[:-1])
-    bundle["expected_refusal_codes"] = variants
-    return census.validate_full_completion(bundle)
-
-
 def main():
-    if sys.argv[1:2] == ["complete-full"]:
-        completion = argparse.ArgumentParser(description="Revalidate the exact two full corpus runs and class proof")
-        completion.add_argument("manifest", type=Path)
-        completion.add_argument("--out", type=Path, required=True)
-        selected = completion.parse_args(sys.argv[2:])
-        if selected.out.exists():
-            raise SystemExit("completion output already exists; preserve prior evidence")
-        try:
-            result = complete_full_manifest(selected.manifest)
-        except (RunError, census.CensusError, OSError, ValueError, KeyError) as error:
-            write_json(selected.out, {"passed": False, "full_corpus": False,
-                       "normative_boundary_proof": False, "error": str(error)})
-            raise SystemExit(str(error)) from error
-        write_json(selected.out, {"passed": True, **result})
-        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -660,12 +626,6 @@ def main():
         intended = select_original_tests(intended, args.original_test, args.controls, args.class_controls)
         if args.controls:
             intended = select_control_tests(intended, args.control_test)
-        config["intended_tests"] = intended
-        # This is the actual compiled proof-harness module namespace. These
-        # tests still execute and every public entry remains in the arithmetic;
-        # they are not original consumer fixtures or provider-role evidence.
-        config["auxiliary_tests"] = [name for name in intended if name.startswith("qspec_read_proof::")]
-        config["original_driver_tests"] = [name for name in intended if name not in config["auxiliary_tests"]]
         write_json(args.out / "config.json", config)
         results = (run_class_controls(args,binary,config,env,intended) if args.class_controls else
                    run_controls(args, binary, config, env, intended) if args.controls

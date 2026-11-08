@@ -7,7 +7,8 @@
 
 use crate::support::checked_package::{
     canonical, domain_package_document, evidence_for, index_fixture_node_ids, node_id,
-    nominal_fixture_members, nominal_package, select_model, v2_all_families,
+    nominal_fixture_members, nominal_package, rebuild_source_map, refresh_identity, select_model,
+    v2_all_families,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
@@ -199,13 +200,31 @@ fn two_selected_models_input() -> ReadInput {
             "identity": format!("ix://{identity}/Large"), "displayName": "",
             "kind": {"module": identity, "name": "entity"}, "roles": [],
             "constraints": [], "extensions": [], "unknownPolicy": "reject",
-            "supertypes": [], "fields": [], "operations": []
+            "supertypes": [], "operations": [],
+            "fields": [{"identity": format!("ix://{identity}/Large/next"), "name": "next",
+                "typeRef": format!("ix://{identity}/Large"), "presence": "required",
+                "nullable": false, "defaultKind": "none",
+                "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true}}]
         });
         let mut document = domain_package_document(identity, "1", vec![ty]);
         document["constructs"] = json!([{
             "kind": {"module": identity, "name": "entity"},
             "construct": {"meaning": "quire.meaning.model.object-type/v1"}
         }]);
+        let key = format!("model|object_type|{identity}|ix://{identity}/Large");
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("nodes")
+            .push(json!({
+                "node_id": node_id(&key),
+                "schema_version": "quire.checked-semantic-graph/v2",
+                "node_tag": "model", "semantic_form": "object_type",
+                "semantic_type": node_id(&key), "dependencies": [],
+                "occurrences": [{"role": "type", "ordinal": 0}],
+                "owner": {"kind": "model", "identity": identity,
+                    "node": format!("ix://{identity}/Large")},
+                "body": {"term": "aggregate", "members": []}
+            }));
         let padding = (512 << 10) - canonical(&document).len();
         document["types"][0]["displayName"] = json!("m".repeat(padding));
         let bytes = canonical(&document);
@@ -214,6 +233,8 @@ fn two_selected_models_input() -> ReadInput {
             .insert_domain_package_document(identity, bytes)
             .expect("distinct model evidence");
     }
+    rebuild_source_map(&mut package);
+    refresh_identity(&mut package);
     index_fixture_node_ids(&mut package);
     ReadInput {
         bytes: canonical(&package),
@@ -226,7 +247,7 @@ thread_local! {
 }
 
 fn capture_read_storage(event: NativeBudgetEvent) {
-    if event.resource == NativeBudgetResource::ReadStorage && event.admitted {
+    if event.admitted {
         OBSERVED_READ_STORAGE.with(|events| events.borrow_mut().push(event));
     }
 }
@@ -235,38 +256,64 @@ fn read_storage_requests(
     bytes: &[u8],
     evidence: &quire_contract_model::CheckedPackageEvidence,
 ) -> Vec<Request> {
-    OBSERVED_READ_STORAGE.with(|events| events.borrow_mut().clear());
+    requests_of(
+        observed_events(bytes, evidence),
+        NativeBudgetResource::ReadStorage,
+    )
+}
+
+/// Every admitted charge of the read, of every resource, in the order made.
+fn observed_events(
+    bytes: &[u8],
+    evidence: &quire_contract_model::CheckedPackageEvidence,
+) -> Vec<NativeBudgetEvent> {
     let mut budget = NativeJoinBudget::unlimited();
+    let (result, events) = observed_read(bytes, evidence, &mut budget);
+    assert!(matches!(
+        result,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    events
+}
+
+fn observed_read(
+    bytes: &[u8],
+    evidence: &quire_contract_model::CheckedPackageEvidence,
+    budget: &mut NativeJoinBudget,
+) -> (CheckedPackageV2BudgetedReadResult, Vec<NativeBudgetEvent>) {
+    OBSERVED_READ_STORAGE.with(|events| events.borrow_mut().clear());
     let result = with_native_budget_observer(capture_read_storage, || {
         CheckedPackageV2::read_with_budget(
             bytes,
             CheckedPackageReadLimits::bounded(),
             evidence,
-            &mut budget,
+            budget,
         )
     });
-    assert!(matches!(
+    (
         result,
-        CheckedPackageV2BudgetedReadResult::Admitted(_)
-    ));
-    OBSERVED_READ_STORAGE.with(|events| {
-        std::mem::take(&mut *events.borrow_mut())
-            .into_iter()
-            .map(|event| {
-                let locus = event.locus.expect("read-storage request has a locus");
-                let NativeJoinLocusSource::PackageRead(stage, index) = locus.source else {
-                    panic!("strict-reader storage requests use package-read loci");
-                };
-                Request {
-                    stage,
-                    index,
-                    form: locus.form,
-                    amount: event.amount,
-                    before: event.consumed_before,
-                }
-            })
-            .collect()
-    })
+        OBSERVED_READ_STORAGE.with(|events| std::mem::take(&mut *events.borrow_mut())),
+    )
+}
+
+fn requests_of(events: Vec<NativeBudgetEvent>, resource: NativeBudgetResource) -> Vec<Request> {
+    events
+        .into_iter()
+        .filter(|event| event.resource == resource)
+        .map(|event| {
+            let locus = event.locus.expect("read-storage request has a locus");
+            let NativeJoinLocusSource::PackageRead(stage, index) = locus.source else {
+                panic!("strict-reader storage requests use package-read loci");
+            };
+            Request {
+                stage,
+                index,
+                form: locus.form,
+                amount: event.amount,
+                before: event.consumed_before,
+            }
+        })
+        .collect()
 }
 
 fn assert_one_byte_short_at_input(
@@ -299,32 +346,167 @@ fn assert_one_byte_short_at_input(
     assert_eq!(budget.first_unpaid_read_storage(), Some(request.amount));
 }
 
+/// A read whose allowance ends exactly where `request` ends admits the
+/// request: it consumed the whole allowance and was refused at a later one
+/// (or admitted, when `request` is the read's last).
+fn assert_exact_allowance_admits(
+    bytes: &[u8],
+    evidence: &quire_contract_model::CheckedPackageEvidence,
+    request: &Request,
+) {
+    let amount = u64::try_from(request.amount).expect("read-storage request fits u64");
+    let limit = request.before + amount;
+    let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+    let result = CheckedPackageV2::read_with_budget(
+        bytes,
+        CheckedPackageReadLimits::bounded(),
+        evidence,
+        &mut budget,
+    );
+    assert_eq!(budget.read_storage_consumed(), limit, "{request:?}");
+    if !matches!(result, CheckedPackageV2BudgetedReadResult::Admitted(_)) {
+        let unpaid = budget.first_unpaid_read_storage().expect("a later denial");
+        assert!(unpaid > 0, "{request:?}");
+    }
+}
+
+/// The second selected model's requests, split at the scan of its document:
+/// the reader's reservations, the retained document `Arc`, and the declaration
+/// tables decoded from the document.
+struct SecondModel {
+    reader: Vec<Request>,
+    retained_document: Request,
+    tables: Vec<Request>,
+}
+
+fn second_model(requests: &[Request]) -> SecondModel {
+    let second: Vec<&Request> = requests
+        .iter()
+        .filter(|request| request.stage == PackageReadStage::ModelDocument && request.index == 1)
+        .collect();
+    let first_scan = second
+        .iter()
+        .position(|request| request.form == "declarations")
+        .expect("the second document is scanned");
+    let retained = first_scan
+        + second[first_scan..]
+            .iter()
+            .position(|request| request.form == "model_document")
+            .expect("the second document is retained");
+    SecondModel {
+        reader: second[..first_scan]
+            .iter()
+            .map(|request| (*request).clone())
+            .collect(),
+        retained_document: second[retained].clone(),
+        tables: second[retained + 1..]
+            .iter()
+            .map(|request| (*request).clone())
+            .collect(),
+    }
+}
+
 #[trace("TC-472", "FR-038-AC-503")]
 #[test]
 fn second_selected_model_denials_precede_admission_at_its_document_reservations() {
     let input = two_selected_models_input();
     let requests = read_storage_requests(&input.bytes, &input.evidence);
-    for form in ["model_document", "declarations"] {
-        let request = requests
+    let second = second_model(&requests);
+    assert!(
+        second.reader.len() > 2,
+        "the 512 KiB document is read through several reservations"
+    );
+    assert!(second
+        .reader
+        .iter()
+        .all(|request| request.form == "model_document"));
+    // The last reservation the reader makes, not the retained document.
+    let last_reader = second.reader.last().expect("reader reservations");
+    // The type reference's owned text is a table charge of the document.
+    let reference = u128::try_from("ix://allocation/model-b/Large".len()).unwrap();
+    let amounts: Vec<u128> = second.tables.iter().map(|request| request.amount).collect();
+    assert!(
+        amounts
             .iter()
-            .find(|request| {
-                request.stage == PackageReadStage::ModelDocument
-                    && request.index == 1
-                    && request.form == form
-            })
-            .unwrap_or_else(|| panic!("second model has a {form} reservation"));
-        assert_one_byte_short_at_input(&input.bytes, &input.evidence, request);
-    }
-    let last = requests
+            .filter(|amount| **amount == reference)
+            .count()
+            >= 2,
+        "{amounts:?}"
+    );
+    assert!(second
+        .tables
+        .iter()
+        .all(|table| table.form == "declarations"));
+    // The declaration index of the two models holds two entries, and each of
+    // its two original-identity row tables is one three-word row per entry.
+    let rows = u128::try_from(2 * 3 * std::mem::size_of::<usize>()).unwrap();
+    let index_tables: Vec<Request> = requests
         .iter()
         .filter(|request| {
-            request.stage == PackageReadStage::ModelDocument
-                && request.index == 1
-                && request.form == "model_document"
+            request.stage == PackageReadStage::Graph
+                && request.index == 0
+                && request.form == "declarations"
         })
-        .max_by_key(|request| request.before + u64::try_from(request.amount).unwrap())
-        .expect("second selected model has a final document-reader reservation");
-    assert_one_byte_short_at_input(&input.bytes, &input.evidence, last);
+        .cloned()
+        .collect();
+    assert_eq!(
+        index_tables
+            .iter()
+            .filter(|request| request.amount == rows)
+            .count(),
+        2,
+        "{index_tables:?}"
+    );
+    let denied = std::iter::once(&second.reader[0])
+        .chain(std::iter::once(last_reader))
+        .chain(std::iter::once(&second.retained_document))
+        .chain(second.tables.iter())
+        .chain(index_tables.iter());
+    for request in denied {
+        assert_one_byte_short_at_input(&input.bytes, &input.evidence, request);
+        assert_exact_allowance_admits(&input.bytes, &input.evidence, request);
+    }
+}
+
+#[trace("TC-472", "FR-038-AC-503")]
+#[test]
+fn second_selected_model_work_is_charged_before_its_document_is_read() {
+    let input = two_selected_models_input();
+    let events = observed_events(&input.bytes, &input.evidence);
+    let work = events
+        .iter()
+        .find(|event| {
+            event.resource == NativeBudgetResource::Work
+                && event.locus.is_some_and(|locus| {
+                    locus.source
+                        == NativeJoinLocusSource::PackageRead(PackageReadStage::ModelDocument, 1)
+                        && locus.form == "model_document"
+                })
+        })
+        .expect("the second document's work is charged");
+    // One unit for each started 1024 bytes of the 512 KiB document.
+    assert_eq!(work.amount, 512);
+    let allowance = u64::try_from(work.amount).unwrap() - 1;
+    let mut budget = NativeJoinBudget::new(work.consumed_before + allowance, 0)
+        .with_read_storage_limit(u64::MAX);
+    let (result, denied) = observed_read(&input.bytes, &input.evidence, &mut budget);
+    assert!(!matches!(
+        result,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    let second_document = |event: &&NativeBudgetEvent| {
+        event.resource == NativeBudgetResource::ReadStorage
+            && event.locus.is_some_and(|locus| {
+                locus.source
+                    == NativeJoinLocusSource::PackageRead(PackageReadStage::ModelDocument, 1)
+                    && locus.form == "model_document"
+            })
+    };
+    assert!(
+        events.iter().filter(second_document).count() > 0
+            && denied.iter().filter(second_document).count() == 0,
+        "no byte of the second document is requested before its work is paid"
+    );
 }
 
 #[trace("TC-472", "FR-038-AC-507")]
@@ -332,21 +514,9 @@ fn second_selected_model_denials_precede_admission_at_its_document_reservations(
 fn retained_dependency_and_package_allocations_are_denied_before_admission() {
     let input = direct_dependencies_input();
     let requests = read_storage_requests(&input.bytes, &input.evidence);
-    let retained: Vec<_> = requests
+    let retained: Vec<&Request> = requests
         .iter()
-        .filter(|request| {
-            request.stage == PackageReadStage::Retained
-                && matches!(
-                    request.form,
-                    "direct_dependencies"
-                        | "closure_index"
-                        | "semantic_graph"
-                        | "node_index"
-                        | "package"
-                        | "admission_binding"
-                        | "result"
-                )
-        })
+        .filter(|request| request.stage == PackageReadStage::Retained)
         .collect();
     for form in [
         "direct_dependencies",
@@ -370,8 +540,65 @@ fn retained_dependency_and_package_allocations_are_denied_before_admission() {
             >= 7,
         "each retained shared package Arc has its own charged allocation"
     );
-    for request in retained {
+    assert!(
+        retained.iter().all(|request| request.index == 0),
+        "every retained request is at PackageRead(Retained, 0)"
+    );
+    // The result Box is the read's final request, and it is retained.
+    let last = requests.last().expect("the read makes requests");
+    assert_eq!(
+        (last.stage, last.index, last.form),
+        (PackageReadStage::Retained, 0, "result")
+    );
+    for request in retained.iter().filter(|request| {
+        matches!(
+            request.form,
+            "direct_dependencies"
+                | "closure_index"
+                | "semantic_graph"
+                | "node_index"
+                | "package"
+                | "admission_binding"
+                | "result"
+        )
+    }) {
         assert_one_byte_short_at_input(&input.bytes, &input.evidence, request);
+        assert_exact_allowance_admits(&input.bytes, &input.evidence, request);
+    }
+    // The read's full requirement admits; one byte below it is refused at
+    // the final request.
+    let required = last.before + u64::try_from(last.amount).unwrap();
+    let (full, budget) = read_at(&reader_of(&input), required);
+    assert!(matches!(
+        full,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    assert_eq!(budget.read_storage_consumed(), required);
+    let (short, budget) = read_at(&reader_of(&input), required - 1);
+    assert!(!matches!(
+        short,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    let locus = budget.first_unpaid_locus().expect("a denial has a locus");
+    assert_eq!(
+        (locus.source, locus.form),
+        (
+            NativeJoinLocusSource::PackageRead(PackageReadStage::Retained, 0),
+            "result"
+        )
+    );
+}
+
+fn reader_of(
+    input: &ReadInput,
+) -> impl Fn(&mut NativeJoinBudget) -> CheckedPackageV2BudgetedReadResult + '_ {
+    move |budget| {
+        CheckedPackageV2::read_with_budget(
+            &input.bytes,
+            CheckedPackageReadLimits::bounded(),
+            &input.evidence,
+            budget,
+        )
     }
 }
 
