@@ -5,63 +5,7 @@
 
 use super::*;
 
-/// Add the authored siblings around the original derived Integer node. The
-/// source-map rows follow each new identity, so the reader decides the graph
-/// identity rule rather than failing on missing source correspondence.
-fn case_package(base: &Value, case: &Value) -> (Value, Vec<usize>) {
-    let mut package = base.clone();
-    let nodes = package["semantic_graph"]["nodes"]
-        .as_array()
-        .expect("published graph nodes");
-    let original = nodes
-        .iter()
-        .position(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "integer")
-        .expect("published derived Integer node");
-    let template = nodes[original].clone();
-    assert_eq!(template["node_id"]["ordinal"], 0);
-    assert_eq!(template["semantic_type"], template["node_id"]);
-    let source = package["source_map"]
-        .as_array()
-        .expect("published source map")
-        .iter()
-        .find(|row| row["node_id"] == template["node_id"])
-        .expect("Integer source correspondence")
-        .clone();
-    let siblings = case["siblings"].as_array().expect("authored siblings");
-    assert!(!siblings.is_empty(), "{} has no siblings", case["id"]);
-    let before = match case["placement"].as_str().expect("placement") {
-        "before" => true,
-        "after" => false,
-        other => panic!("unknown placement {other}"),
-    };
-    let mut positions = Vec::with_capacity(siblings.len());
-    for (index, sibling) in siblings.iter().enumerate() {
-        let ordinal = sibling["ordinal"].as_u64().expect("producer ordinal");
-        let mut node = template.clone();
-        node["node_id"]["ordinal"] = json!(ordinal);
-        node["semantic_type"] = node["node_id"].clone();
-        let position = if before {
-            original + index
-        } else {
-            package["semantic_graph"]["nodes"]
-                .as_array()
-                .expect("graph nodes")
-                .len()
-        };
-        package["semantic_graph"]["nodes"]
-            .as_array_mut()
-            .expect("graph nodes")
-            .insert(position, node.clone());
-        let mut correspondence = source.clone();
-        correspondence["node_id"] = node["node_id"].clone();
-        package["source_map"]
-            .as_array_mut()
-            .expect("source map")
-            .push(correspondence);
-        positions.push(position);
-    }
-    (package, positions)
-}
+use super::qspec_inputs::ordinal_case_package as case_package;
 
 /// Trace: TC-233, FR-322-AC-272, FR-322-AC-273.
 #[trace("TC-233", "FR-322-AC-272", "FR-322-AC-273", "FR-038-AC-133")]

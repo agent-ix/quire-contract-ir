@@ -294,6 +294,82 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
             });
         }
     }
+    let vectors = qspec_inputs::read_json(&proposal.join("model-root-vectors.json"))
+        .expect("published model-root vectors");
+    assert_eq!(vectors["base"], "fixtures/positive-all-families.json");
+    let base = qspec_inputs::read_json_wire(&fixtures.join("positive-all-families.json"))
+        .expect("published model-root base");
+    for row in vectors["vectors"].as_array().expect("model-root vectors") {
+        let id = row["id"].as_str().expect("model-root case id");
+        let mut wire = base.clone();
+        for patch in row["patch"].as_array().expect("model-root patches") {
+            qspec_inputs::apply_vector_patch(&mut wire, patch);
+        }
+        let expected = match row["outcome"].as_str().expect("model-root outcome") {
+            "admitted" => Expected::Admitted,
+            outcome => Expected::Refused(
+                serde_json::from_value(Value::String(
+                    outcome
+                        .strip_prefix("refused:")
+                        .expect("published refusal")
+                        .into(),
+                ))
+                .expect("published model-root refusal code"),
+            ),
+        };
+        providers.insert(format!(
+            "conformance_qspec/model_root.rs: model-root-vectors.json#/vectors#{id}"
+        ));
+        cases.push(Case {
+            label: format!("QSpec/model-root/{id}"),
+            bytes: canonical(&wire),
+            evidence: qspec_inputs::evidence_for_published(
+                &wire,
+                id,
+                &proposal.join(qspec_inputs::DOMAIN_DOCUMENT),
+                true,
+                None,
+                &fixtures,
+            )
+            .expect("model-root evidence"),
+            expected,
+        });
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("node-ordinal-vectors.json"))
+        .expect("published ordinal vectors");
+    let base = qspec_inputs::read_json(&fixtures.join("positive-all-families.json"))
+        .expect("published ordinal base");
+    for row in vectors["uniqueness_cases"]
+        .as_array()
+        .expect("ordinal uniqueness cases")
+    {
+        let id = row["id"].as_str().expect("ordinal case id");
+        let (wire, _) = qspec_inputs::ordinal_case_package(&base, row);
+        let expected = match row["expected"].as_str().expect("ordinal outcome") {
+            "admitted" => Expected::Admitted,
+            code => Expected::Refused(
+                serde_json::from_value(Value::String(code.into()))
+                    .expect("published ordinal refusal code"),
+            ),
+        };
+        providers.insert(format!(
+            "conformance_qspec/node_ordinal.rs: node-ordinal-vectors.json#/uniqueness_cases#{id}"
+        ));
+        cases.push(Case {
+            label: format!("QSpec/node-ordinal/{id}"),
+            bytes: canonical(&wire),
+            evidence: qspec_inputs::evidence_for_published(
+                &wire,
+                id,
+                &proposal.join(qspec_inputs::DOMAIN_DOCUMENT),
+                true,
+                None,
+                &fixtures,
+            )
+            .expect("ordinal evidence"),
+            expected,
+        });
+    }
     (cases, providers)
 }
 
