@@ -145,14 +145,14 @@ pub(super) fn scan_body(
 
 /// A shape defect of the body: the code it refuses with and the path of the
 /// value at fault.
-struct Defect {
-    code: CheckedPackageRefusalCode,
-    path: JsonPointer,
+pub(super) struct Defect {
+    pub(super) code: CheckedPackageRefusalCode,
+    pub(super) path: JsonPointer,
 }
 
 impl Defect {
     /// `invalid_semantic_graph` at `path`.
-    fn invalid(path: &JsonPointer) -> Self {
+    pub(super) fn invalid(path: &JsonPointer) -> Self {
         Self {
             code: CheckedPackageRefusalCode::InvalidSemanticGraph,
             path: path.clone(),
@@ -165,7 +165,7 @@ impl Defect {
 /// structural node key is refused at the key itself, as every other node
 /// reference the reader reads (FR-038 "Frame bodies").
 #[ix_trace_rs::string_edge]
-fn node_key(
+pub(super) fn node_key(
     object: &Map<String, Value>,
     key: &str,
     at: &JsonPointer,
@@ -183,7 +183,7 @@ fn node_key(
 }
 
 /// A non-empty string member.
-fn text(object: &Map<String, Value>, key: &str) -> Option<Box<str>> {
+pub(super) fn text(object: &Map<String, Value>, key: &str) -> Option<Box<str>> {
     object
         .get(key)
         .and_then(Value::as_str)
@@ -192,13 +192,13 @@ fn text(object: &Map<String, Value>, key: &str) -> Option<Box<str>> {
 }
 
 /// An `Identifier` member.
-fn identifier(object: &Map<String, Value>, key: &str) -> Option<Box<str>> {
+pub(super) fn identifier(object: &Map<String, Value>, key: &str) -> Option<Box<str>> {
     text(object, key).filter(|name| is_identifier(name))
 }
 
 /// A `RustPath` member: a non-empty array of non-empty strings. Whether each
 /// is a Rust identifier is the members check's.
-fn path(object: &Map<String, Value>, key: &str) -> Option<Vec<Box<str>>> {
+pub(super) fn path(object: &Map<String, Value>, key: &str) -> Option<Vec<Box<str>>> {
     let segments = object
         .get(key)?
         .as_array()?
@@ -214,7 +214,7 @@ fn path(object: &Map<String, Value>, key: &str) -> Option<Vec<Box<str>>> {
 }
 
 /// An object holding exactly `members`, or the path of the value at fault.
-fn closed<'v>(
+pub(super) fn closed<'v>(
     value: &'v Value,
     members: &[&str],
     at: &JsonPointer,
@@ -226,7 +226,7 @@ fn closed<'v>(
 }
 
 /// The array held in `object[key]`, or `at`.
-fn array<'v>(
+pub(super) fn array<'v>(
     object: &'v Map<String, Value>,
     key: &str,
     at: &JsonPointer,
@@ -238,7 +238,7 @@ fn array<'v>(
 }
 
 /// The entries of `object[key]`, each read at its own element of `at`/`key`.
-fn entries<'v, T>(
+pub(super) fn entries<'v, T>(
     object: &'v Map<String, Value>,
     key: &str,
     at: &JsonPointer,
@@ -318,7 +318,7 @@ fn read_body(body: &Value, at: &JsonPointer) -> Result<AbstractionBody, Defect> 
 }
 
 /// A model refusal at `path`, located at the key `locus`.
-fn model_refusal(
+pub(super) fn model_refusal(
     refusal: ModelRefusal,
     path: JsonPointer,
     locus: &CheckedNodeId,
@@ -327,7 +327,7 @@ fn model_refusal(
 }
 
 /// `invalid_model_binding`/`conflicting-binding` at `path`.
-fn conflict(path: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
+pub(super) fn conflict(path: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
     ValidationFailure::refused_at(
         CheckedPackageRefusalCode::InvalidModelBinding,
         path,
@@ -338,22 +338,22 @@ fn conflict(path: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
 
 /// The one node a step's checks are about, with its position and the
 /// pointers its refusals use.
-struct Site<'a> {
-    node: &'a CheckedSemanticNodeV2,
-    position: usize,
+pub(super) struct Site<'a> {
+    pub(super) node: &'a CheckedSemanticNodeV2,
+    pub(super) position: usize,
 }
 
 impl Site<'_> {
-    fn node_at(&self) -> JsonPointer {
+    pub(super) fn node_at(&self) -> JsonPointer {
         node_pointer(self.position)
     }
 
-    fn body_at(&self) -> JsonPointer {
+    pub(super) fn body_at(&self) -> JsonPointer {
         self.node_at().key("body")
     }
 
     /// `invalid_semantic_graph`, no cause, at `path`, located at the node.
-    fn invalid(&self, path: JsonPointer) -> ValidationFailure {
+    pub(super) fn invalid(&self, path: JsonPointer) -> ValidationFailure {
         ValidationFailure::refused_at(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             path,
@@ -430,7 +430,7 @@ fn check_identity(site: &Site<'_>, body: &AbstractionBody) -> Result<(), Validat
 }
 
 /// Whether `keys` ascend, equal keys in order.
-fn ascending<K: Ord>(keys: impl Iterator<Item = K>) -> bool {
+pub(super) fn ascending<K: Ord>(keys: impl Iterator<Item = K>) -> bool {
     let keys = keys.collect::<Vec<_>>();
     keys.windows(2).all(|pair| pair[0] <= pair[1])
 }
@@ -473,7 +473,7 @@ fn check_order(site: &Site<'_>, body: &AbstractionBody) -> Result<(), Validation
 }
 
 /// A `type` or `context` target: a `model`/`object_type` node.
-fn is_object_type(kind: CheckedNodeKind) -> bool {
+pub(super) fn is_object_type(kind: CheckedNodeKind) -> bool {
     kind == CheckedNodeKind::Model(ModelForm::ObjectType)
 }
 

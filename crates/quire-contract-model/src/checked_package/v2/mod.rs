@@ -37,6 +37,8 @@ mod execution_point_accessor;
 mod extension;
 mod flat_wire;
 mod frame;
+mod guarantee_composition;
+mod guarantee_terms;
 mod hybrid;
 mod identity;
 mod intake;
@@ -119,6 +121,11 @@ pub use equality_projection::{
     SelectedEqualityApplicationRow, SelectedEqualityFactRow,
 };
 pub use execution_point_accessor::{CheckedExecutionPointError, CheckedExecutionPointRefusal};
+pub use guarantee_terms::{
+    CheckedComponentClause, CheckedCompositionComponent, CheckedCompositionPremise,
+    CheckedEnvironmentEntry, CheckedEnvironmentSupplies, CheckedFairnessSupply,
+    CheckedGuaranteeMeasure, CheckedGuaranteeProgress,
+};
 pub use identity::*;
 pub use lower::*;
 pub use model_enum_witness::{
@@ -2475,7 +2482,9 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => true,
     }
 }
@@ -2659,7 +2668,7 @@ enum BodyGrammar {
     Term,
     /// The frame body of FR-040.
     Frame,
-    /// The abstraction relation body of FR-346.
+    /// The flat closed correspondence body of FR-346.
     AbstractionRelation,
     /// The closed refinement body of FR-375.
     Refinement,
@@ -2813,9 +2822,11 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
             | ClaimForm::Schedulability
             | ClaimForm::ProbabilisticClaim,
         ) => BodyGrammar::Term,
-        K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
-            BodyGrammar::AbstractionRelation
-        }
+        K::Correspondence(
+            CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
+        ) => BodyGrammar::AbstractionRelation,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
             | CorrespondenceForm::ModelCorrespondence
@@ -3512,6 +3523,7 @@ fn validate_graph(
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, meter)?;
+    guarantee_composition::validate(&graph.nodes, &kinds, &index, &owners, meter)?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     validate_hyperproperties(&graph.nodes, &kinds, &index, &owners, meter)?;

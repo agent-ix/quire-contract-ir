@@ -375,6 +375,8 @@ impl<'a> DependencyReferences<'a> {
                 | CheckedTerm::Reference { .. }
                 | CheckedTerm::Frame { .. }
                 | CheckedTerm::AbstractionRelation { .. }
+                | CheckedTerm::ImplementationGuarantee { .. }
+                | CheckedTerm::ComponentComposition { .. }
                 | CheckedTerm::Refinement { .. }
                 | CheckedTerm::ExtensionForm { .. }
                 | CheckedTerm::NominalBody(_) => {}
@@ -551,6 +553,8 @@ pub(super) fn selected_reference_targets(body: &CheckedTerm) -> Vec<(Box<str>, C
             | CheckedTerm::Reference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
             | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. }
             | CheckedTerm::NominalBody(_) => {}

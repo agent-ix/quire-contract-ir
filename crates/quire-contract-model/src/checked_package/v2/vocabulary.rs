@@ -318,6 +318,8 @@ closed_vocabulary! {
         BindingRole => "binding_role",
         ProfileCorrespondence => "profile_correspondence",
         AbstractionRelation => "abstraction_relation",
+        ImplementationGuarantee => "implementation_guarantee",
+        ComponentComposition => "component_composition",
     }
 }
 
@@ -357,6 +359,8 @@ closed_vocabulary! {
         DependencyReference => "dependency_reference",
         Frame => "frame",
         AbstractionRelation => "abstraction_relation",
+        ImplementationGuarantee => "implementation_guarantee",
+        ComponentComposition => "component_composition",
     }
 }
 

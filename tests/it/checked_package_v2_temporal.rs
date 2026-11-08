@@ -29,12 +29,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // Reading
 // ---------------------------------------------------------------------------
 
-const ORDERS: &str = "acme/orders";
+pub(super) const ORDERS: &str = "acme/orders";
 const ORDERS_VERSION: &str = "1.0.0";
 /// A domain package identity the lock never selects.
 const OTHER_PACKAGE: &str = "acme/other";
-const ORDER_NODE: &str = "ix://acme/orders/Order";
-const SUB_NODE: &str = "ix://acme/orders/Sub";
+pub(super) const ORDER_NODE: &str = "ix://acme/orders/Order";
+pub(super) const SUB_NODE: &str = "ix://acme/orders/Sub";
 const LEFT_NODE: &str = "ix://acme/orders/Left";
 const RIGHT_NODE: &str = "ix://acme/orders/Right";
 const BOTH_NODE: &str = "ix://acme/orders/Both";
@@ -56,7 +56,7 @@ fn domain_type(node: &str, supertypes: &[&str], operations: Value) -> Value {
 
 /// `Order { scaled(Integer): Integer; reset() }`, `Sub: Order`, and
 /// `Both: Left, Right` where `Left` and `Right` each declare `act`.
-fn orders_document() -> Value {
+pub(super) fn orders_document() -> Value {
     let act = |owner: &str| json!([{"identity": format!("{owner}/act"), "params": []}]);
     json!({
         "contractVersion": "2.0.0",
@@ -84,12 +84,12 @@ fn model_key_in(identity: &str, node: &str) -> String {
     format!("{identity}/{node}")
 }
 
-fn model_key(node: &str) -> String {
+pub(super) fn model_key(node: &str) -> String {
     model_key_in(ORDERS, node)
 }
 
 /// Model-owned object types use the selected package and FCD identity in their ID.
-fn node_id(key: &str) -> Value {
+pub(super) fn node_id(key: &str) -> Value {
     if let Some((package, node)) = key.split_once("/ix://") {
         if package == ORDERS || package == OTHER_PACKAGE {
             return json!({
@@ -107,7 +107,7 @@ fn typed_node_id(key: &str) -> CheckedNodeId {
 }
 
 /// Reads `package` with [`orders_document`] supplied under its identity.
-fn read(package: &Value) -> CheckedPackageV2ReadResult {
+pub(super) fn read(package: &Value) -> CheckedPackageV2ReadResult {
     read_limited(package, CheckedPackageReadLimits::bounded())
 }
 
@@ -254,7 +254,7 @@ fn fresh() -> String {
 }
 
 /// A node keyed `key` whose body is `body`.
-fn node_with_key(key: &str, tag: &str, form: &str, body: Value) -> Value {
+pub(super) fn node_with_key(key: &str, tag: &str, form: &str, body: Value) -> Value {
     json!({
         "node_id": node_id(key),
         "schema_version": "quire.checked-semantic-graph/v2",
@@ -298,7 +298,7 @@ fn formula(short: &str, member: Value, arguments: Vec<Value>) -> Value {
 }
 
 /// Appends `node`, returning its position.
-fn push(package: &mut Value, node: Value) -> usize {
+pub(super) fn push(package: &mut Value, node: Value) -> usize {
     let list = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
@@ -323,7 +323,7 @@ fn lower_bounded(lower: &str) -> Value {
 }
 
 const BOUNDED: &str = "quire.temporal.event-position.false-extension/v1";
-const INFINITE: &str = "quire.temporal.infinite-trace/v1";
+pub(super) const INFINITE: &str = "quire.temporal.infinite-trace/v1";
 const TIMED: &str = "quire.temporal.timed/v1";
 const FIVE_PROFILES: [&str; 5] = [
     BOUNDED,
@@ -395,7 +395,7 @@ fn with_root(
     (package, root)
 }
 
-fn clause(package: &Value) -> usize {
+pub(super) fn clause(package: &Value) -> usize {
     find_form(package, "temporal", "temporal_clause")
 }
 
@@ -405,7 +405,7 @@ fn at_node(position: usize, tail: &str) -> String {
 
 /// The model root selecting the domain package and its model declaration
 /// nodes, added to `package`.
-fn with_model(package: &mut Value) {
+pub(super) fn with_model(package: &mut Value) {
     select_model(package, ORDERS);
     for declared in [ORDER_NODE, SUB_NODE, LEFT_NODE, RIGHT_NODE, BOTH_NODE] {
         let key = model_key(declared);

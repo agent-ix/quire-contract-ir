@@ -10,6 +10,10 @@ use super::{
     OperationMemberKind, OperationModeKind, StateClauseKind,
 };
 use super::{
+    CheckedComponentClause, CheckedCompositionComponent, CheckedCompositionPremise,
+    CheckedEnvironmentEntry, CheckedFairnessSupply, CheckedGuaranteeProgress,
+};
+use super::{
     RefinementAssume, RefinementEnsure, RefinementHistory, RefinementKey, RefinementObject,
     RefinementPopulation, RefinementStep, RefinementStepArgument, RefinementStepTarget,
 };
@@ -427,7 +431,7 @@ pub enum CheckedIntervalEnd {
 }
 
 /// The strength of a fairness clause.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckedFairnessKind {
     /// Weak fairness.
@@ -437,7 +441,7 @@ pub enum CheckedFairnessKind {
 }
 
 /// Whether fairness applies to the whole or each participant.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckedFairnessGranularity {
     /// Whole transition.
@@ -1256,6 +1260,36 @@ pub enum CheckedTerm {
         /// Frame mappings.
         frames: Vec<CheckedAbstractionFrame>,
     },
+    /// The closed implementation guarantee body (QSpec FR-490).
+    ImplementationGuarantee {
+        /// The temporal clause node.
+        clause: CheckedNodeId,
+        /// The abstraction relation node.
+        relation: CheckedNodeId,
+        /// The Rust path of the initial-state function.
+        initial: Vec<Box<str>>,
+        /// No-divergence premises.
+        progress: Vec<CheckedGuaranteeProgress>,
+        /// Environment premises.
+        environment: Vec<CheckedEnvironmentEntry>,
+    },
+    /// The closed component composition body (QSpec FR-491).
+    ComponentComposition {
+        /// The composition rule spelling.
+        rule: Box<str>,
+        /// The component subjects.
+        components: Vec<CheckedCompositionComponent>,
+        /// The component guarantees.
+        guarantees: Vec<CheckedComponentClause>,
+        /// Safety premises.
+        relies: Vec<CheckedCompositionPremise>,
+        /// Liveness premises.
+        liveness_dependencies: Vec<CheckedCompositionPremise>,
+        /// Supplied scheduling constraints.
+        supplies: Vec<CheckedFairnessSupply>,
+        /// Environment premises.
+        environment: Vec<CheckedEnvironmentEntry>,
+    },
     /// A closed model or protocol refinement declaration.
     Refinement {
         /// Abstract model declaration.
@@ -1805,6 +1839,8 @@ impl CheckedTerm {
                 }
                 Self::Frame { .. }
                 | Self::AbstractionRelation { .. }
+                | Self::ImplementationGuarantee { .. }
+                | Self::ComponentComposition { .. }
                 | Self::ExtensionForm { .. }
                 | Self::OperationAnchorBody(_)
                 | Self::Refinement { .. } => traversal(SelectedTermTraversal::Visit(
@@ -1871,7 +1907,9 @@ impl CheckedTerm {
             Self::Literal { .. }
             | Self::DependencyReference { .. }
             | Self::Frame { .. }
-            | Self::AbstractionRelation { .. } => {}
+            | Self::AbstractionRelation { .. }
+            | Self::ImplementationGuarantee { .. }
+            | Self::ComponentComposition { .. } => {}
         }
     }
 
@@ -1950,6 +1988,9 @@ impl CheckedTerm {
                     replace(&mut frame.context, old, new);
                 }
             }
+            Self::ImplementationGuarantee { .. } | Self::ComponentComposition { .. } => {
+                super::guarantee_terms::replace_node_ids(self, old, new);
+            }
             Self::ExtensionForm { clauses, .. } => {
                 for clause in clauses {
                     clause.replace_node_id(old, new);
@@ -2011,6 +2052,11 @@ impl CheckedTerm {
                                 }
                             };
                             work.push(NodeMapWork::Id(declaration));
+                        }
+                    }
+                    Self::ImplementationGuarantee { .. } | Self::ComponentComposition { .. } => {
+                        for id in super::guarantee_terms::ids_mut(term).into_iter().rev() {
+                            work.push(NodeMapWork::Id(id));
                         }
                     }
                     Self::AbstractionRelation {
@@ -2286,6 +2332,24 @@ impl CheckedTerm {
                 populations: field(wire, TermField::Populations)?,
                 frames: field(wire, TermField::Frames)?,
             }),
+            TermTag::Known(BodyTerm::ImplementationGuarantee) => {
+                Ok(Self::ImplementationGuarantee {
+                    clause: field(wire, TermField::Clause)?,
+                    relation: field(wire, TermField::Relation)?,
+                    initial: field(wire, TermField::Initial)?,
+                    progress: field(wire, TermField::Progress)?,
+                    environment: field(wire, TermField::Environment)?,
+                })
+            }
+            TermTag::Known(BodyTerm::ComponentComposition) => Ok(Self::ComponentComposition {
+                rule: field(wire, TermField::Rule)?,
+                components: field(wire, TermField::Components)?,
+                guarantees: field(wire, TermField::Guarantees)?,
+                relies: field(wire, TermField::Relies)?,
+                liveness_dependencies: field(wire, TermField::LivenessDependencies)?,
+                supplies: field(wire, TermField::Supplies)?,
+                environment: field(wire, TermField::Environment)?,
+            }),
             TermTag::ExtensionForm => Ok(Self::ExtensionForm {
                 definition: field(wire, TermField::Definition)?,
                 node_kind: field(wire, TermField::NodeKind)?,
@@ -2413,6 +2477,52 @@ impl Encode for CheckedTerm {
                 super::refinement::encode_rows(populations, writer)?;
                 writer.name("frames")?;
                 super::refinement::encode_rows(frames, writer)?;
+            }
+            Self::ImplementationGuarantee {
+                clause,
+                relation,
+                initial,
+                progress,
+                environment,
+            } => {
+                writer.name("term")?;
+                writer.string("implementation_guarantee")?;
+                writer.name("clause")?;
+                clause.encode_into(writer)?;
+                writer.name("relation")?;
+                relation.encode_into(writer)?;
+                writer.name("initial")?;
+                writer.serialize(initial)?;
+                writer.name("progress")?;
+                super::guarantee_terms::encode_all(progress, writer)?;
+                writer.name("environment")?;
+                super::guarantee_terms::encode_all(environment, writer)?;
+            }
+            Self::ComponentComposition {
+                rule,
+                components,
+                guarantees,
+                relies,
+                liveness_dependencies,
+                supplies,
+                environment,
+            } => {
+                writer.name("term")?;
+                writer.string("component_composition")?;
+                writer.name("rule")?;
+                writer.serialize(rule)?;
+                writer.name("components")?;
+                super::guarantee_terms::encode_all(components, writer)?;
+                writer.name("guarantees")?;
+                super::guarantee_terms::encode_all(guarantees, writer)?;
+                writer.name("relies")?;
+                super::guarantee_terms::encode_all(relies, writer)?;
+                writer.name("liveness_dependencies")?;
+                super::guarantee_terms::encode_all(liveness_dependencies, writer)?;
+                writer.name("supplies")?;
+                super::guarantee_terms::encode_all(supplies, writer)?;
+                writer.name("environment")?;
+                super::guarantee_terms::encode_all(environment, writer)?;
             }
             Self::Refinement {
                 abstract_key,
@@ -3352,6 +3462,8 @@ mod tests {
                 CheckedTerm::Application { .. } => "application",
                 CheckedTerm::Frame { .. } => "frame",
                 CheckedTerm::AbstractionRelation { .. } => "abstraction_relation",
+                CheckedTerm::ImplementationGuarantee { .. } => "implementation_guarantee",
+                CheckedTerm::ComponentComposition { .. } => "component_composition",
                 CheckedTerm::Refinement { .. } => "refinement",
                 CheckedTerm::ExtensionForm { .. } => "extension_form",
                 CheckedTerm::OperationAnchorBody(_) => "operation_anchor_body",
