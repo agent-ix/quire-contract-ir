@@ -3332,7 +3332,7 @@ fn tc_048_the_first_non_reduced_bound_is_the_lower_key_nodes() {
 }
 
 // ---------------------------------------------------------------------------
-// FR-038-AC-519 (QSpec FR-370-AC-21): fairness references of a hyperproperty
+// FR-038-AC-530 (QSpec FR-370-AC-21): fairness references of a hyperproperty
 // ---------------------------------------------------------------------------
 
 fn text(value: &str) -> Value {
@@ -3404,7 +3404,7 @@ fn hyper_fixture_with(profile: &str, member: Value) -> (Value, String, String) {
     (package, fair_key, format!("{formula_key}\n{clause_key}"))
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_a_fairness_reference_in_a_quantifier_group_is_admitted() {
     let (mut package, fair, keys) = hyper_fixture();
@@ -3423,7 +3423,7 @@ fn tc_346_a_fairness_reference_in_a_quantifier_group_is_admitted() {
     admitted("fairness reference in a quantifier Group", &package);
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_a_fairness_reference_elsewhere_in_a_hyperproperty_refuses_at_the_node() {
     let (base, fair, keys) = hyper_fixture();
@@ -3493,7 +3493,7 @@ fn tc_346_a_fairness_reference_elsewhere_in_a_hyperproperty_refuses_at_the_node(
     }
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_a_formula_reference_anywhere_in_a_hyperproperty_refuses_at_the_node() {
     let (base, _, keys) = hyper_fixture();
@@ -3594,7 +3594,7 @@ fn at_hyper_reference(position: usize) -> String {
     at_node(position, "/body/members/3/value/members/0/members/3")
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_a_group_fairness_reference_resolves_as_a_clause_member_does() {
     let order = model_key(ORDER_NODE);
@@ -3670,7 +3670,7 @@ fn outcome(code: Code, cause: Option<Cause>, path: String) -> Outcome {
     (code, cause, Some(path))
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_the_hyperproperty_shape_is_refused_at_the_first_member_that_breaks_it() {
     let (package, _) = hyper_edited(|_| {});
@@ -3715,7 +3715,7 @@ fn tc_346_the_hyperproperty_shape_is_refused_at_the_first_member_that_breaks_it(
     );
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_the_hyperproperty_subjects_are_checked_before_its_fairness() {
     let (package, at) = hyper_edited(|body| {
@@ -3771,7 +3771,7 @@ fn tc_346_the_hyperproperty_subjects_are_checked_before_its_fairness() {
     );
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_a_temporal_step_defect_precedes_a_hyperproperty_fairness_defect() {
     let (mut package, _) = hyper_resolution(
@@ -3797,7 +3797,7 @@ fn tc_346_a_temporal_step_defect_precedes_a_hyperproperty_fairness_defect() {
     );
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_the_hyperproperty_body_is_checked_after_its_subjects_and_before_its_fairness() {
     // A `behaviours` body that is no temporal clause.
@@ -3862,7 +3862,7 @@ fn finite_hyper(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
     (package, at)
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_a_finite_domain_hyperproperty_has_no_subjects_alias_or_fairness_and_a_boolean_body() {
     let (package, _) = finite_hyper(|_| {});
@@ -3920,7 +3920,7 @@ fn tc_346_a_finite_domain_hyperproperty_has_no_subjects_alias_or_fairness_and_a_
     );
 }
 
-#[trace("TC-346", "FR-038-AC-519")]
+#[trace("TC-346", "FR-038-AC-530")]
 #[test]
 fn tc_346_a_subjects_or_finite_body_refusal_is_located_at_the_target_with_its_key() {
     let target: CheckedNodeId = serde_json::from_value(node_id(&aaaa())).expect("target ID");
