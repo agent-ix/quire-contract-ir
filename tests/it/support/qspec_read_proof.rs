@@ -336,3 +336,111 @@ mod tests {
         );
     }
 }
+
+/// Observe an original caller-budget probe once, without replacing its
+/// cumulative budget state or changing the driver's existing boundary sweep.
+#[track_caller]
+pub(crate) fn read_budget_and_account(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+    budget: &mut quire_contract_model::NativeJoinBudget,
+) -> Budgeted {
+    let location = std::panic::Location::caller();
+    let before = budget.read_storage_consumed();
+    let logical_before = budget.consumed().storage;
+    let mut result = None;
+    let requested = <DriverCounter as Counter>::measure(|| {
+        result = Some(CheckedPackageV2::read_with_budget(
+            bytes, limits, evidence, budget,
+        ));
+    });
+    assert_eq!(
+        requested,
+        budget.read_storage_consumed() - before,
+        "the actual caller-budget read charges every request including its diagnostic"
+    );
+    assert_eq!(
+        budget.consumed().storage,
+        logical_before,
+        "read storage remains separate from native logical storage"
+    );
+    crate::without_qspec_instrumentation(|| {
+        let log = std::env::var_os("IR1404_READ_PROOF_LOG")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::temp_dir().join(format!("ir1404-read-sites-{}.jsonl", std::process::id()))
+            });
+        let row = serde_json::json!({"driver":location.file(),"line":location.line(),
+            "test":std::thread::current().name(),"entry":"caller-budget",
+            "input_bytes":bytes.len(),"work_limit":budget.work_limit(),
+            "storage_limit":budget.read_storage_limit(),"requested":requested});
+        let mut output = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log)
+            .expect("temporary caller-budget proof log");
+        writeln!(output, "{row}").expect("temporary caller-budget proof record");
+    });
+    result.expect("the original caller-budget read ran once")
+}
+
+#[cfg(test)]
+mod caller_budget_tests {
+    use super::{Counter, DriverCounter};
+    use quire_contract_model::{
+        CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2, NativeJoinBudget,
+        NativeJoinChargeKind,
+    };
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+    #[test]
+    fn caller_budget_observation_preserves_prior_charges_and_outer_capture() {
+        let seeded = || {
+            let mut budget =
+                NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
+            budget
+                .accounted_charge(NativeJoinChargeKind::Work, 3, None)
+                .expect("prior work");
+            budget
+                .accounted_charge(NativeJoinChargeKind::Storage, 2, None)
+                .expect("prior logical storage");
+            budget
+        };
+        let evidence = CheckedPackageEvidence::new();
+        let limits = CheckedPackageReadLimits::bounded();
+        let mut observed_budget = seeded();
+        let mut observed = None;
+        let requests = <DriverCounter as Counter>::measure(|| {
+            observed = Some(super::read_budget_and_account(
+                b"not json",
+                limits,
+                &evidence,
+                &mut observed_budget,
+            ));
+        });
+        let mut original_budget = seeded();
+        let mut original = None;
+        let expected = <DriverCounter as Counter>::measure(|| {
+            original = Some(CheckedPackageV2::read_with_budget(
+                b"not json",
+                limits,
+                &evidence,
+                &mut original_budget,
+            ));
+        });
+        assert_eq!(
+            observed, original,
+            "the original typed outcome is returned unchanged"
+        );
+        assert_eq!(
+            observed_budget, original_budget,
+            "the original cumulative budget is unchanged by observation"
+        );
+        assert_eq!(
+            requests, expected,
+            "only one actual read reaches the caller's counter"
+        );
+        assert!(requests > 0, "the real catalogue and parser were observed");
+    }
+}

@@ -1552,7 +1552,7 @@ fn bounded_quantity_bound_arithmetic_is_charged_to_the_read_budget() {
     let bytes = canonical(&wire);
     let evidence = evidence_for(&wire);
     let read = |budget: &mut NativeJoinBudget| {
-        CheckedPackageV2::read_with_budget(
+        crate::qspec_read_proof::read_budget_and_account(
             &bytes,
             CheckedPackageReadLimits::bounded(),
             &evidence,

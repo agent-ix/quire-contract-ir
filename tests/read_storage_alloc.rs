@@ -405,7 +405,16 @@ mod qspec_read_proof;
 use qspec_read_proof::read_and_account;
 
 fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
-    <ThreadCounter as Counter>::measure(read)
+    if let Some(before) = REQUESTED.with(Cell::get) {
+        read();
+        REQUESTED
+            .with(Cell::get)
+            .expect("outer counter remains armed")
+            .checked_sub(before)
+            .expect("requested-byte counter is monotone")
+    } else {
+        <ThreadCounter as Counter>::measure(read)
+    }
 }
 
 fn without_qspec_instrumentation<T>(operation: impl FnOnce() -> T) -> T {
