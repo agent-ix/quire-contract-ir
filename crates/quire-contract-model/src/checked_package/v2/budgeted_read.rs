@@ -221,8 +221,20 @@ impl CheckedPackageV2 {
     ) -> CheckedPackageV2BudgetedReadResult {
         match Self::admit_bytes(catalog, bytes, limits, evidence, budget) {
             Ok(package) => {
+                let boxed_package = {
+                    let site =
+                        super::read_charge::Site::new(PackageReadStage::Retained, 0, "result");
+                    let bytes = std::alloc::Layout::new::<CheckedPackageV2>()
+                        .pad_to_align()
+                        .size();
+                    if let Err(stop) = super::read_charge::charge(budget, site, bytes as u128) {
+                        budget.abort();
+                        return budgeted_outcome(stop, budget);
+                    }
+                    Box::new(package)
+                };
                 budget.finish_read(work_before, storage_before);
-                CheckedPackageV2BudgetedReadResult::Admitted(Box::new(package))
+                CheckedPackageV2BudgetedReadResult::Admitted(boxed_package)
             }
             Err(stop) => {
                 budget.abort();
@@ -611,7 +623,7 @@ pub(in crate::checked_package) fn read_envelope(
         Err(_) => {
             return Err(ValidationFailure::refused_bytes(
                 CheckedPackageRefusalCode::MalformedWire,
-            ))
+            ));
         }
     };
     // The typed decode below reads term bodies with serde_json, which this

@@ -117,15 +117,9 @@ pub(in crate::checked_package) fn exact_rows<'de, D>(
 where
     D: de::Deserializer<'de>,
 {
-    struct Row(Vec<u64>);
-    impl<'de> serde::Deserialize<'de> for Row {
-        fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            exact_vec(deserializer).map(Self)
-        }
-    }
-    // `Row` and `Vec<u64>` have one layout, so collecting back into rows
-    // reuses the vector's allocation.
-    exact_vec::<D, Row>(deserializer).map(|rows| rows.into_iter().map(|row| row.0).collect())
+    // Decode directly into the final outer vector. The document sequence
+    // access charges each row's `Vec<u64>` allocation as it is decoded.
+    exact_vec::<D, Vec<u64>>(deserializer)
 }
 
 /// [`exact_vec`] for an optional member: absent stays `None`.
@@ -919,11 +913,10 @@ mod tests {
     }
 
     fn decode(
-        bytes: &[u8],
         document: &Arc<quire_canonical::Document>,
         budget: &mut NativeJoinBudget,
     ) -> Result<(), ValidationFailure> {
-        decode_borrowed_wire(bytes, document, budget).map(drop)
+        decode_borrowed_wire(document, budget).map(drop)
     }
 
     /// The bytes the decode allocates equal the bytes it charged, including a
@@ -937,7 +930,7 @@ mod tests {
         let mut measured = NativeJoinBudget::unlimited();
         let mut outcome = None;
         let info = allocation_counter::measure(|| {
-            outcome = Some(decode(&bytes, &document, &mut measured));
+            outcome = Some(decode(&document, &mut measured));
         });
         assert!(outcome.expect("decoded").is_ok());
         let charged = measured.read_storage_consumed();
@@ -945,10 +938,10 @@ mod tests {
         assert_eq!(info.bytes_total, charged);
 
         let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(charged);
-        assert!(decode(&bytes, &document, &mut exact).is_ok());
+        assert!(decode(&document, &mut exact).is_ok());
         let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(charged - 1);
         assert!(matches!(
-            decode(&bytes, &document, &mut short),
+            decode(&document, &mut short),
             Err(ValidationFailure::Budget(_))
         ));
     }

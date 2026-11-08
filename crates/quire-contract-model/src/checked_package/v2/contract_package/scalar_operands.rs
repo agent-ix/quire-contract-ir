@@ -144,14 +144,24 @@ impl ContractPackageV1 {
             .find(|entry| occurrence.matches(entry))
             .ok_or(ContractScalarOperandErrorV1::InvalidOccurrence)?;
 
+        let root_position = *self.node_index.get(&reached.root.node_id).ok_or(
+            ContractScalarOperandErrorV1::View(ContractRootViewError::Inconsistent),
+        )?;
+        let root_term = self
+            .terms
+            .get(root_position)
+            .and_then(Option::as_ref)
+            .ok_or(ContractScalarOperandErrorV1::View(
+                ContractRootViewError::Inconsistent,
+            ))?;
         let arguments = scalar_arguments(
             &self.catalog,
             &self.wire.semantic_graph.nodes,
             &self.node_index,
             &self.node_kinds,
             reached.root,
-            None,
-            None,
+            Some(root_term),
+            Some(&self.terms),
         )
         .map_err(ContractScalarOperandErrorV1::Projection)?
         .map(|argument| {

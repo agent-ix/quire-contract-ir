@@ -2026,7 +2026,8 @@ fn selected_type_bounds_allocate_only_reserved_storage() {
             value: Box::new(CheckedTerm::Literal {
                 type_id: id.clone(),
                 value_kind: LiteralKind::Integer,
-                value: crate::CheckedJson::from_value(&json!(value)).expect("integer payload"),
+                value: crate::CheckedJson::from_serializable(&json!(value))
+                    .expect("integer payload"),
             }),
         })
         .collect();

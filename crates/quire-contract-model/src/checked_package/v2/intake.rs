@@ -1,18 +1,18 @@
 //! The closed-schema decode of the package document, without native recursion
 //! following the nesting of a term.
 //!
-//! A node `body` and a diagnostic's `details`
-//! entry may nest as deep as the strict parser's limit of 128. The outer typed
-//! decode borrows each such term as a raw source slice, then decodes it into a
-//! `Value` only after that outer frame has returned. A `NodeId.path` contains
-//! fixed-depth string or graph-index segments, so a derived chain does not
-//! increase JSON nesting depth. Deep terms stay within the reader stack budget.
+//! A node `body` and a diagnostic's `details` entry may nest as deep as the
+//! strict parser's limit of 128. The outer typed decode retains handles into
+//! the shared document and decodes admitted terms after the outer frame has
+//! returned. A `NodeId.path` contains fixed-depth string or graph-index
+//! segments, so a derived chain does not increase JSON nesting depth.
 //!
 //! The lossless-decode check (no member defaulted, nulled or dropped) compares
-//! borrowed source array items against their typed serialization one at a
-//! time, except structural node identities, which compare from raw slices.
+//! document nodes against their typed serialization one at a time, including
+//! structural node identities.
 
 use super::NativeJoinBudget;
+use super::TermNode;
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
     CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedJson, CheckedNodeOwner,
@@ -27,18 +27,16 @@ use crate::checked_package::shared::{
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
 use quire_canonical::Document;
 use serde::{Deserialize, Deserializer};
-use serde_json::value::RawValue;
-use serde_json::Value;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// QSpec's KeyOrdinal admits a JSON integer through 2^53-1, or a canonical
-/// decimal string strictly above that bound.
-#[ix_trace_rs::string_edge]
-fn key_ordinal(value: &Value) -> bool {
+/// Check a present position ordinal before semantic graph validation.
+fn key_ordinal_node(value: TermNode<'_>) -> bool {
     const MAX_SAFE: &str = "9007199254740991";
-    if let Some(number) = value.as_u64() {
-        return number <= 9_007_199_254_740_991;
+    if value
+        .as_u64()
+        .is_some_and(|number| number <= 9_007_199_254_740_991)
+    {
+        return true;
     }
     let Some(text) = value.as_str() else {
         return false;
@@ -49,33 +47,28 @@ fn key_ordinal(value: &Value) -> bool {
         && (text.len() > MAX_SAFE.len() || (text.len() == MAX_SAFE.len() && text > MAX_SAFE))
 }
 
-/// Check a present position ordinal before semantic graph validation.
-fn position_member_shape(body: &Value) -> bool {
-    let mut pending = vec![body];
-    while let Some(value) = pending.pop() {
-        match value {
-            Value::Array(items) => pending.extend(items),
-            Value::Object(map) => {
-                if map.get("term").and_then(Value::as_str) == Some("application") {
-                    if let Some(member) = map.get("operation").and_then(|op| op.get("member")) {
-                        if member.get("kind").and_then(Value::as_str) == Some("position") {
-                            let Some(fields) = member.as_object() else {
-                                return false;
-                            };
-                            if fields.contains_key("position")
-                                && !fields.get("position").is_some_and(key_ordinal)
-                            {
-                                return false;
-                            }
-                        }
+fn position_member_shape(body: TermNode<'_>) -> bool {
+    if body.get("term").and_then(TermNode::as_str) == Some("application") {
+        if let Some(member) = body
+            .get("operation")
+            .and_then(|operation| operation.get("member"))
+        {
+            if member.get("kind").and_then(TermNode::as_str) == Some("position") {
+                if let Some(position) = member.get("position") {
+                    if !key_ordinal_node(position) {
+                        return false;
                     }
                 }
-                pending.extend(map.values());
             }
-            _ => {}
         }
     }
-    true
+    body.items()
+        .is_none_or(|items| items.into_iter().all(position_member_shape))
+        && body.members().is_none_or(|members| {
+            members
+                .into_iter()
+                .all(|(_, value)| position_member_shape(value))
+        })
 }
 
 // The borrowed intake mirrors only the closed containers that contain an
@@ -207,7 +200,6 @@ struct BorrowedDiagnostic {
 
 #[ix_trace_rs::string_edge]
 pub(super) fn decode_borrowed_wire(
-    bytes: &[u8],
     document: &Arc<Document>,
     budget: &mut NativeJoinBudget,
 ) -> Result<(RawCheckedPackageWireV2, Vec<CheckedJson>), ValidationFailure> {
@@ -266,11 +258,11 @@ pub(super) fn decode_borrowed_wire(
             }
             if refusal.code == CheckedPackageRefusalCode::MalformedWire {
                 if let Some(at) = refusal.primary_path().cloned() {
-                    if let Some(member) = invalid_node_id_field(bytes, &at) {
+                    if let Some(member) = invalid_node_id_field(document, &at) {
                         refusal.set_primary_path(Some(member));
-                    } else if let Some(member) = invalid_clock_field(bytes, &at) {
+                    } else if let Some(member) = invalid_clock_field(document, &at) {
                         refusal.set_primary_path(Some(member));
-                    } else if let Some(member) = missing_probabilistic_occurrence(bytes, &at) {
+                    } else if let Some(member) = missing_probabilistic_occurrence(document, &at) {
                         refusal.set_primary_path(Some(member));
                     } else if let Some(parent) = operation_effect_schema_parent_path(&at) {
                         refusal.set_primary_path(Some(parent));
@@ -289,10 +281,17 @@ pub(super) fn decode_borrowed_wire(
     }
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
-    let mut nodes = Vec::with_capacity(graph.nodes.len());
-    // The node bodies as handles into the retained document: the node views
-    // read these, and the `Value` beside them is the bridge for validators
-    // that have not moved to the views.
+    let mut nodes = super::read_charge::with_capacity(
+        budget,
+        super::read_charge::Site::new(
+            super::PackageReadStage::WireDecode,
+            0,
+            "semantic_graph.nodes",
+        ),
+        graph.nodes.len(),
+    )?;
+    // The node bodies as handles into the retained document; validators read
+    // these directly through TermNode.
     let mut bodies = super::read_charge::with_capacity(
         budget,
         super::read_charge::Site::new(
@@ -313,26 +312,54 @@ pub(super) fn decode_borrowed_wire(
             ));
         }
         bodies.push(node.body.clone());
-        let body = node.body.to_value();
-        if !position_member_shape(&body) {
+        let body = node.body;
+        if !position_member_shape(TermNode::of(&body)) {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::MalformedWire,
                 node_pointer(position),
             ));
         }
+        let mut dependencies = super::read_charge::with_capacity(
+            budget,
+            super::read_charge::Site::new(
+                super::PackageReadStage::WireDecode,
+                position,
+                "dependencies",
+            ),
+            node.dependencies.len(),
+        )?;
+        dependencies.extend(node.dependencies.into_iter().map(|id| id.0));
         nodes.push(RawSemanticNodeV2 {
             node_id: node.node_id.0,
             schema_version: node.schema_version,
             node_tag: node.node_tag,
             semantic_form: node.semantic_form,
             semantic_type: node.semantic_type.0,
-            dependencies: node.dependencies.into_iter().map(|id| id.0).collect(),
+            dependencies,
             occurrences: node.occurrences,
             recursion_group: node.recursion_group,
             declaration: node.declaration.flatten(),
             owner: node.owner,
             owner_model: node.owner_model.map(|id| id.0),
             body,
+        });
+    }
+    let mut diagnostic_entries = super::read_charge::with_capacity(
+        budget,
+        super::read_charge::Site::new(
+            super::PackageReadStage::WireDecode,
+            0,
+            "diagnostics.entries",
+        ),
+        diagnostics.entries.len(),
+    )?;
+    for entry in diagnostics.entries {
+        diagnostic_entries.push(CheckedDiagnosticV2 {
+            stage: entry.stage,
+            code: entry.code,
+            cause_tag: entry.cause_tag,
+            details: entry.details,
+            loci: entry.loci,
         });
     }
     let envelope = CheckedPackageEnvelope {
@@ -354,19 +381,7 @@ pub(super) fn decode_borrowed_wire(
         capability_report: wire.capability_report,
         diagnostics: CheckedDiagnosticsV2 {
             catalog: diagnostics.catalog,
-            entries: diagnostics
-                .entries
-                .into_iter()
-                .map(|entry| {
-                    Ok(CheckedDiagnosticV2 {
-                        stage: entry.stage,
-                        code: entry.code,
-                        cause_tag: entry.cause_tag,
-                        details: entry.details.into_iter().collect(),
-                        loci: entry.loci,
-                    })
-                })
-                .collect::<Result<Vec<_>, ValidationFailure>>()?,
+            entries: diagnostic_entries,
         },
     };
     Ok((envelope, bodies))
@@ -434,23 +449,23 @@ fn probabilistic_row_unknown_member_path(at: &JsonPointer) -> Option<JsonPointer
     )
 }
 
-fn missing_probabilistic_occurrence(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+fn missing_probabilistic_occurrence(document: &Document, at: &JsonPointer) -> Option<JsonPointer> {
     let prefix = "/checked_term_data/probabilistic_claims/";
     let index = at.as_str().strip_prefix(prefix)?;
     if index.is_empty() || !index.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
-    let row: BTreeMap<&str, &RawValue> = serde_json::from_str(source_raw(bytes, at)?).ok()?;
-    (row.contains_key("declaration") && !row.contains_key("occurrence"))
+    let row = term_at_pointer(document, at)?;
+    (row.get("declaration").is_some() && row.get("occurrence").is_none())
         .then(|| at.clone().key("occurrence"))
 }
 
 #[ix_trace_rs::string_edge]
-fn invalid_clock_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+fn invalid_clock_field(document: &Document, at: &JsonPointer) -> Option<JsonPointer> {
     if !at.as_str().starts_with("/temporal_bindings/") || !at.as_str().ends_with("/clock") {
         return None;
     }
-    let clock: Value = serde_json::from_str(source_raw(bytes, at)?).ok()?;
+    let clock = term_at_pointer(document, at)?;
     let field = match clock.get("kind")?.as_str()? {
         "event_position" => "sequence_authority",
         "timestamped_event" => "timestamp_unit",
@@ -459,7 +474,7 @@ fn invalid_clock_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
     };
     clock
         .get(field)
-        .filter(|value| !value.is_string())
+        .filter(|value| value.as_str().is_none())
         .map(|_| at.clone().key(field))
 }
 
@@ -467,157 +482,72 @@ fn invalid_clock_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
 /// V2 path objects are closed graph-local indices; nested IDs are refused at
 /// the segment itself, before semantic-graph admission.
 #[ix_trace_rs::string_edge]
-fn invalid_node_id_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+fn invalid_node_id_field(document: &Document, at: &JsonPointer) -> Option<JsonPointer> {
     const MAX_SAFE: u64 = 9_007_199_254_740_991;
-    let members: BTreeMap<&str, &RawValue> = serde_json::from_str(source_raw(bytes, at)?).ok()?;
-    if !members.contains_key("package") || !members.contains_key("path") {
+    let id = term_at_pointer(document, at)?;
+    if id.get("package").is_none() || id.get("path").is_none() {
         return None;
     }
-    if let Some(ordinal) = members.get("ordinal") {
-        if serde_json::from_str::<u64>(ordinal.get())
-            .ok()
-            .is_none_or(|value| value > MAX_SAFE)
-        {
+    if let Some(ordinal) = id.get("ordinal") {
+        if ordinal.as_u64().is_none_or(|value| value > MAX_SAFE) {
             return Some(at.clone().key("ordinal"));
         }
     }
-    let segments: Vec<&RawValue> = serde_json::from_str(members.get("path")?.get()).ok()?;
-    for (index, segment) in segments.into_iter().enumerate() {
-        let raw = segment.get();
-        if raw.starts_with('"') {
+    let segments = id.get("path")?.items()?;
+    for (index, segment) in segments.enumerate() {
+        if segment.as_str().is_some() {
             continue;
         }
-        if raw.starts_with('{') {
-            let object: BTreeMap<&str, &RawValue> = serde_json::from_str(raw).ok()?;
-            if object.len() == 1
-                && object.get("node").is_some_and(|value| {
-                    serde_json::from_str::<u64>(value.get())
-                        .ok()
-                        .is_some_and(|value| value <= MAX_SAFE)
-                })
-            {
-                continue;
-            }
+        if segment.exact_members(&["node"])
+            && segment
+                .get("node")
+                .and_then(TermNode::as_u64)
+                .is_some_and(|value| value <= MAX_SAFE)
+        {
+            continue;
         }
         return Some(at.clone().key("path").index(index));
     }
     None
 }
 
-/// Read only the JSON value named by `pointer`. Borrowed raw subtrees retain
-/// slices of the caller's bytes; no ancestor is decoded into a `Value`.
-pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value> {
-    serde_json::from_str(source_raw(bytes, pointer)?).ok()
-}
-
-/// Locate a source value without deserializing its ancestors. A package can
-/// contain a valid term near serde_json's depth limit even when the requested
-/// member is shallow; deserializing the root as RawValue would reject it.
-fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a str> {
-    let mut current = bytes;
+fn term_at_pointer<'d>(document: &'d Document, pointer: &JsonPointer) -> Option<TermNode<'d>> {
+    let mut current = TermNode::from_ref(document.root());
     let path = pointer.as_str();
-    if !path.is_empty() {
-        for token in path.strip_prefix('/')?.split('/') {
-            let key = token.replace("~1", "/").replace("~0", "~");
-            current = match current.first()? {
-                b'{' => object_member(current, &key)?,
-                b'[' => array_item(current, key.parse::<usize>().ok()?)?,
-                _ => return None,
-            };
-        }
+    if path.is_empty() {
+        return Some(current);
     }
-    std::str::from_utf8(current).ok()
+    for token in path.strip_prefix('/')?.split('/') {
+        current = if current.is_object() {
+            current
+                .members()?
+                .find(|(name, _)| pointer_token_matches(name, token))?
+                .1
+        } else {
+            current.items()?.nth(token.parse::<usize>().ok()?)?
+        };
+    }
+    Some(current)
 }
 
-/// The strict and canonical scans precede every source lookup. These local
-/// scans only delimit a child span and do not materialize skipped subtrees.
-fn object_member<'a>(object: &'a [u8], key: &str) -> Option<&'a [u8]> {
-    let mut at = 1;
-    while object.get(at) != Some(&b'}') {
-        let end = value_end(object, at)?;
-        let member: &str = serde_json::from_slice(object.get(at..end)?).ok()?;
-        at = end;
-        if object.get(at) != Some(&b':') {
-            return None;
-        }
-        at += 1;
-        let end = value_end(object, at)?;
-        if member == key {
-            return object.get(at..end);
-        }
-        at = end;
-        match object.get(at)? {
-            b',' => at += 1,
-            b'}' => return None,
-            _ => return None,
-        }
-    }
-    None
-}
-
-fn array_item(array: &[u8], target: usize) -> Option<&[u8]> {
-    let mut at = 1;
-    let mut index = 0;
-    while array.get(at) != Some(&b']') {
-        let end = value_end(array, at)?;
-        if index == target {
-            return array.get(at..end);
-        }
-        at = end;
-        if array.get(at) != Some(&b',') {
-            return None;
-        }
-        at += 1;
-        index += 1;
-    }
-    None
-}
-
-/// End of one already validated JSON value, found with a heap stack.
-pub(super) fn value_end(bytes: &[u8], start: usize) -> Option<usize> {
-    let first = *bytes.get(start)?;
-    if !matches!(first, b'{' | b'[' | b'"') {
-        let mut at = start;
-        while !matches!(bytes.get(at), None | Some(b',' | b'}' | b']')) {
-            at += 1;
-        }
-        return Some(at);
-    }
-    let mut at = start;
-    let mut closers = Vec::new();
-    let mut in_string = false;
-    let mut escaped = false;
-    loop {
-        let byte = *bytes.get(at)?;
-        at += 1;
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-                if closers.is_empty() {
-                    return Some(at);
-                }
+fn pointer_token_matches(name: &str, token: &str) -> bool {
+    let mut name = name.chars();
+    let mut token = token.chars();
+    while let Some(character) = token.next() {
+        let character = if character == '~' {
+            match token.next() {
+                Some('0') => '~',
+                Some('1') => '/',
+                _ => return false,
             }
-            continue;
-        }
-        match byte {
-            b'"' => in_string = true,
-            b'{' => closers.push(b'}'),
-            b'[' => closers.push(b']'),
-            b'}' | b']' => {
-                if closers.pop() != Some(byte) {
-                    return None;
-                }
-                if closers.is_empty() {
-                    return Some(at);
-                }
-            }
-            _ => {}
+        } else {
+            character
+        };
+        if name.next() != Some(character) {
+            return false;
         }
     }
+    name.next().is_none()
 }
 
 /// `malformed_wire` at `at`.
@@ -625,44 +555,34 @@ fn malformed(at: JsonPointer) -> ValidationFailure {
     ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
 }
 
-/// Check the lossless closed decode against borrowed slices of the source.
-/// The comparator walks borrowed object members and array items as the typed
-/// serializer visits them. Neither a root field nor one large array element
-/// becomes a second `Value` tree. Arbitrary terms already came directly from
-/// their raw source slices and are skipped by this closed-member check.
+/// Check the lossless closed decode against the retained source document.
+/// The comparator follows document nodes as the typed serializer visits them;
+/// it does not reparse a source slice or build a second JSON tree.
 pub(super) fn check_lossless_source(
-    bytes: &[u8],
+    document: &Document,
     wire: &RawCheckedPackageWireV2,
 ) -> Result<(), ValidationFailure> {
-    let root: BTreeMap<String, &RawValue> =
-        serde_json::from_slice(bytes).map_err(|_| malformed(JsonPointer::root()))?;
-    let nodes = raw_array(
-        raw_member(root.get("semantic_graph").copied(), "nodes"),
-        &["semantic_graph", "nodes"],
-    )?;
-    let source_map = raw_array(root.get("source_map").copied(), &["source_map"])?;
-    let diagnostic_entries = raw_array(
-        raw_member(root.get("diagnostics").copied(), "entries"),
-        &["diagnostics", "entries"],
-    )?;
+    let root = TermNode::from_ref(document.root());
+    let root_at = JsonPointer::root();
+    compare_root(root, "capability_report", &wire.capability_report, &[])?;
+    compare_root(root, "contract_version", &wire.contract_version, &[])?;
+    compare_root(root, "diagnostics", &wire.diagnostics, &["entries"])?;
+    compare_root(root, "lock", &wire.lock, &[])?;
+    compare_root(root, "name", &wire.name, &[])?;
+    compare_root(root, "semantic_graph", &wire.semantic_graph, &["nodes"])?;
 
-    // Root member order matches `serde_json::Value`'s BTreeMap order used by
-    // the prior first-difference check. Within each object, the comparator
-    // likewise chooses the first differing source member rather than the
-    // serializer's declaration order.
-    compare_root(&root, "capability_report", &wire.capability_report, &[])?;
-    compare_root(&root, "contract_version", &wire.contract_version, &[])?;
-    compare_root(&root, "diagnostics", &wire.diagnostics, &["entries"])?;
-    compare_root(&root, "lock", &wire.lock, &[])?;
-    compare_root(&root, "name", &wire.name, &[])?;
-    compare_root(&root, "semantic_graph", &wire.semantic_graph, &["nodes"])?;
+    let nodes_at = root_at.clone().key("semantic_graph").key("nodes");
+    let nodes = root
+        .get("semantic_graph")
+        .and_then(|graph| graph.get("nodes"))
+        .and_then(TermNode::items)
+        .ok_or_else(|| malformed(nodes_at.clone()))?;
     if nodes.len() != wire.semantic_graph.nodes.len() {
-        return Err(malformed(
-            JsonPointer::root().key("semantic_graph").key("nodes"),
-        ));
+        return Err(malformed(nodes_at));
     }
-    for (index, (original, node)) in nodes.iter().zip(&wire.semantic_graph.nodes).enumerate() {
-        let at = JsonPointer::root()
+    for (index, (original, node)) in nodes.zip(&wire.semantic_graph.nodes).enumerate() {
+        let at = root_at
+            .clone()
             .key("semantic_graph")
             .key("nodes")
             .index(index);
@@ -678,188 +598,127 @@ pub(super) fn check_lossless_source(
                 "owner_model",
             ],
         )?;
-        compare_id_member(original, "node_id", &node.node_id, at.clone())?;
-        compare_id_member(original, "semantic_type", &node.semantic_type, at.clone())?;
-        let dependencies: Vec<&RawValue> = serde_json::from_str(
-            raw_member(Some(original), "dependencies")
-                .ok_or_else(|| malformed(at.clone().key("dependencies")))?
-                .get(),
-        )
-        .map_err(|_| malformed(at.clone().key("dependencies")))?;
+        for key in ["node_id", "semantic_type"] {
+            let locus = at.clone().key(key);
+            let source = original.get(key).ok_or_else(|| malformed(locus.clone()))?;
+            let typed = if key == "node_id" {
+                &node.node_id
+            } else {
+                &node.semantic_type
+            };
+            super::lossless::compare(source, typed, locus, &[])?;
+        }
+        let dependencies_at = at.clone().key("dependencies");
+        let dependencies = original
+            .get("dependencies")
+            .and_then(TermNode::items)
+            .ok_or_else(|| malformed(dependencies_at.clone()))?;
         if dependencies.len() != node.dependencies.len() {
-            return Err(malformed(at.clone().key("dependencies")));
+            return Err(malformed(dependencies_at));
         }
-        for (item, (raw, id)) in dependencies.iter().zip(&node.dependencies).enumerate() {
-            compare_id(raw, id, at.clone().key("dependencies").index(item))?;
+        for (index, (source, id)) in dependencies.zip(&node.dependencies).enumerate() {
+            super::lossless::compare(source, id, at.clone().key("dependencies").index(index), &[])?;
         }
-        match (&node.owner_model, raw_member(Some(original), "owner_model")) {
-            (Some(id), Some(raw)) => compare_id(raw, id, at.key("owner_model"))?,
+        match (&node.owner_model, original.get("owner_model")) {
+            (Some(id), Some(source)) => {
+                super::lossless::compare(source, id, at.key("owner_model"), &[])?
+            }
             (None, None) => {}
             _ => return Err(malformed(at.key("owner_model"))),
         }
     }
-    if source_map.len() != wire.source_map.len() {
-        return Err(malformed(JsonPointer::root().key("source_map")));
-    }
-    for (index, (original, entry)) in source_map.iter().zip(&wire.source_map).enumerate() {
-        let at = JsonPointer::root().key("source_map").index(index);
-        super::lossless::compare(original, entry, at.clone(), &["node_id"])?;
-        compare_id_member(original, "node_id", &entry.node_id, at)?;
-    }
+
+    compare_row_collection(root, "source_map", &wire.source_map, &[])?;
     if let Some(rows) = &wire.refinement_step_rows {
-        let originals = raw_array(
-            root.get("refinement_step_rows").copied(),
-            &["refinement_step_rows"],
-        )?;
-        if originals.len() != rows.len() {
-            return Err(malformed(JsonPointer::root().key("refinement_step_rows")));
-        }
-        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
-            let at = JsonPointer::root().key("refinement_step_rows").index(index);
-            super::lossless::compare(original, row, at.clone(), &["node_id"])?;
-            compare_id_member(original, "node_id", &row.node_id, at)?;
-        }
-    } else if root.contains_key("refinement_step_rows") {
-        return Err(malformed(JsonPointer::root().key("refinement_step_rows")));
+        compare_row_collection(root, "refinement_step_rows", rows, &[])?;
+    } else if root.get("refinement_step_rows").is_some() {
+        return Err(malformed(root_at.clone().key("refinement_step_rows")));
     }
     if let Some(data) = &wire.checked_term_data {
-        compare_root(&root, "checked_term_data", data, &[])?;
-    } else if root.contains_key("checked_term_data") {
-        return Err(malformed(JsonPointer::root().key("checked_term_data")));
+        compare_root(root, "checked_term_data", data, &[])?;
+    } else if root.get("checked_term_data").is_some() {
+        return Err(malformed(root_at.clone().key("checked_term_data")));
     }
-    if let Some(rows) = &wire.temporal_bindings {
-        let originals = raw_array(
-            root.get("temporal_bindings").copied(),
-            &["temporal_bindings"],
-        )?;
-        if rows.is_empty() || originals.len() != rows.len() {
-            return Err(malformed(JsonPointer::root().key("temporal_bindings")));
-        }
-        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
-            let at = JsonPointer::root().key("temporal_bindings").index(index);
-            super::lossless::compare(original, row, at.clone(), &["declaration"])?;
-            compare_id_member(original, "declaration", &row.declaration, at)?;
-        }
-    } else if root.contains_key("temporal_bindings") {
-        return Err(malformed(JsonPointer::root().key("temporal_bindings")));
-    }
-    if let Some(rows) = &wire.temporal_clause_names {
-        let originals = raw_array(
-            root.get("temporal_clause_names").copied(),
-            &["temporal_clause_names"],
-        )?;
-        if rows.is_empty() || originals.len() != rows.len() {
-            return Err(malformed(JsonPointer::root().key("temporal_clause_names")));
-        }
-        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
-            let at = JsonPointer::root()
-                .key("temporal_clause_names")
-                .index(index);
-            super::lossless::compare(original, row, at.clone(), &["declaration"])?;
-            compare_id_member(original, "declaration", &row.declaration, at)?;
-        }
-    } else if root.contains_key("temporal_clause_names") {
-        return Err(malformed(JsonPointer::root().key("temporal_clause_names")));
-    }
-    if let Some(rows) = &wire.schedulability_claims {
-        let originals = raw_array(
-            root.get("schedulability_claims").copied(),
-            &["schedulability_claims"],
-        )?;
-        if rows.is_empty() || originals.len() != rows.len() {
-            return Err(malformed(JsonPointer::root().key("schedulability_claims")));
-        }
-        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
-            let at = JsonPointer::root()
-                .key("schedulability_claims")
-                .index(index);
-            super::lossless::compare(original, row, at.clone(), &["declaration"])?;
-            compare_id_member(original, "declaration", &row.declaration, at)?;
-        }
-    } else if root.contains_key("schedulability_claims") {
-        return Err(malformed(JsonPointer::root().key("schedulability_claims")));
-    }
-    compare_items(
-        &["diagnostics", "entries"],
-        &diagnostic_entries,
+    compare_optional_rows(root, "temporal_bindings", wire.temporal_bindings.as_deref())?;
+    compare_optional_rows(
+        root,
+        "temporal_clause_names",
+        wire.temporal_clause_names.as_deref(),
+    )?;
+    compare_optional_rows(
+        root,
+        "schedulability_claims",
+        wire.schedulability_claims.as_deref(),
+    )?;
+    let entries = root
+        .get("diagnostics")
+        .and_then(|value| value.get("entries"))
+        .and_then(TermNode::items)
+        .ok_or_else(|| malformed(root_at.clone().key("diagnostics").key("entries")))?;
+    compare_terms(
+        root_at.key("diagnostics").key("entries"),
+        entries,
         &wire.diagnostics.entries,
         &["details"],
     )
 }
 
-fn compare_id(
-    raw: &RawValue,
-    typed: &CheckedNodeId,
-    at: JsonPointer,
-) -> Result<(), ValidationFailure> {
-    let decoded: CheckedNodeId =
-        serde_json::from_str(raw.get()).map_err(|_| malformed(at.clone()))?;
-    if decoded == *typed {
-        Ok(())
-    } else {
-        Err(malformed(at))
-    }
-}
-
-fn compare_id_member(
-    raw: &RawValue,
+fn compare_row_collection<T: serde::Serialize>(
+    root: TermNode<'_>,
     key: &str,
-    typed: &CheckedNodeId,
-    parent: JsonPointer,
+    typed: &[T],
+    skipped: &'static [&'static str],
 ) -> Result<(), ValidationFailure> {
-    let at = parent.key(key);
-    let value = raw_member(Some(raw), key).ok_or_else(|| malformed(at.clone()))?;
-    compare_id(value, typed, at)
+    let at = JsonPointer::root().key(key);
+    let rows = root
+        .get(key)
+        .and_then(TermNode::items)
+        .ok_or_else(|| malformed(at.clone()))?;
+    compare_terms(at, rows, typed, skipped)
 }
 
 fn compare_root<T: serde::Serialize>(
-    root: &BTreeMap<String, &RawValue>,
+    root: TermNode<'_>,
     key: &str,
     typed: &T,
-    skipped_members: &'static [&'static str],
+    skipped: &'static [&'static str],
 ) -> Result<(), ValidationFailure> {
     let at = JsonPointer::root().key(key);
     let raw = root.get(key).ok_or_else(|| malformed(at.clone()))?;
-    super::lossless::compare(raw, typed, at, skipped_members)
+    super::lossless::compare(raw, typed, at, skipped)
 }
 
-fn compare_items<T: serde::Serialize>(
-    path: &[&str],
-    originals: &[&RawValue],
-    typed: &[T],
-    skipped_members: &'static [&'static str],
+fn compare_optional_rows<T: serde::Serialize>(
+    root: TermNode<'_>,
+    key: &str,
+    typed: Option<&[T]>,
 ) -> Result<(), ValidationFailure> {
-    let pointer = path
-        .iter()
-        .fold(JsonPointer::root(), |pointer, key| pointer.key(key));
-    if originals.len() != typed.len() {
-        return Err(malformed(pointer));
+    let Some(typed) = typed else {
+        return if root.get(key).is_some() {
+            Err(malformed(JsonPointer::root().key(key)))
+        } else {
+            Ok(())
+        };
+    };
+    if typed.is_empty() {
+        return Err(malformed(JsonPointer::root().key(key)));
     }
-    for (index, (original, typed)) in originals.iter().zip(typed).enumerate() {
-        super::lossless::compare(
-            original,
-            typed,
-            pointer.clone().index(index),
-            skipped_members,
-        )?;
+    compare_row_collection(root, key, typed, &[])
+}
+
+fn compare_terms<T: serde::Serialize>(
+    at: JsonPointer,
+    terms: super::TermItems<'_>,
+    typed: &[T],
+    skipped: &'static [&'static str],
+) -> Result<(), ValidationFailure> {
+    if terms.len() != typed.len() {
+        return Err(malformed(at));
+    }
+    for (index, (source, value)) in terms.zip(typed).enumerate() {
+        super::lossless::compare(source, value, at.clone().index(index), skipped)?;
     }
     Ok(())
-}
-
-fn raw_member<'a>(parent: Option<&'a RawValue>, key: &str) -> Option<&'a RawValue> {
-    let members: BTreeMap<String, &'a RawValue> = serde_json::from_str(parent?.get()).ok()?;
-    members.get(key).copied()
-}
-
-fn raw_array<'a>(
-    raw: Option<&'a RawValue>,
-    path: &[&str],
-) -> Result<Vec<&'a RawValue>, ValidationFailure> {
-    let pointer = path
-        .iter()
-        .fold(JsonPointer::root(), |pointer, key| pointer.key(key));
-    serde_json::from_str(raw.ok_or_else(|| malformed(pointer.clone()))?.get())
-        .map_err(|_| malformed(pointer))
 }
 
 #[cfg(test)]
@@ -872,18 +731,23 @@ mod ordinal_locus_tests {
         let bytes = format!(
             "{{\"semantic_graph\":{{\"nodes\":[{{\"body\":{deep},\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":0}}}}]}}}}"
         );
+        let document = quire_canonical::read(bytes.as_bytes(), u64::MAX).expect("document");
         let pointer = JsonPointer::parse("/semantic_graph/nodes/0/node_id/ordinal").unwrap();
         assert_eq!(
-            source_value(bytes.as_bytes(), &pointer),
-            Some(Value::from(0))
+            term_at_pointer(&document, &pointer).and_then(TermNode::as_u64),
+            Some(0)
         );
     }
 
     #[test]
     fn source_lookup_handles_escaped_member_and_string_contents() {
         let bytes = br#"{"a/b":{"~name":["quoted \" { [ }",{"node":3}]}}"#;
+        let document = quire_canonical::read(bytes, u64::MAX).expect("document");
         let pointer = JsonPointer::parse("/a~1b/~0name/1/node").unwrap();
-        assert_eq!(source_value(bytes, &pointer), Some(Value::from(3)));
+        assert_eq!(
+            term_at_pointer(&document, &pointer).and_then(TermNode::as_u64),
+            Some(3)
+        );
     }
 
     #[test]
@@ -893,22 +757,25 @@ mod ordinal_locus_tests {
             let bytes = format!(
                 "{{\"semantic_graph\":{{\"nodes\":[null,{{\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":{ordinal}}}}}]}}}}"
             );
+            let document = quire_canonical::read(bytes.as_bytes(), u64::MAX).expect("document");
             assert_eq!(
-                invalid_node_id_field(bytes.as_bytes(), &node),
+                invalid_node_id_field(&document, &node),
                 Some(node.clone().key("ordinal"))
             );
         }
 
         let nested = br#"{"semantic_graph":{"nodes":[null,{"node_id":{"package":"p","path":[{"package":"p","path":["x"],"ordinal":1.5}],"ordinal":0}}]}}"#;
+        let document = quire_canonical::read(nested, u64::MAX).expect("document");
         assert_eq!(
-            invalid_node_id_field(nested, &node),
+            invalid_node_id_field(&document, &node),
             Some(node.key("path").index(0))
         );
 
         let dependency = br#"{"semantic_graph":{"nodes":[{"dependencies":[{"package":"p","path":["x"],"ordinal":"one"}]}]}}"#;
         let reference = JsonPointer::parse("/semantic_graph/nodes/0/dependencies/0").unwrap();
+        let document = quire_canonical::read(dependency, u64::MAX).expect("document");
         assert_eq!(
-            invalid_node_id_field(dependency, &reference),
+            invalid_node_id_field(&document, &reference),
             Some(reference.key("ordinal"))
         );
     }

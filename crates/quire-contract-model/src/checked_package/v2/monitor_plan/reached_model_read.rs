@@ -2814,10 +2814,15 @@ mod tests {
         let entry = plan.init().node_id().clone();
         let target = plan.state().clone();
         let (position, _) = single.node_with_position(&entry).unwrap();
-        std::sync::Arc::make_mut(&mut single.wire).semantic_graph.nodes[position].body =
-            CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
+        std::sync::Arc::make_mut(&mut single.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
         let mut repeated = single.clone();
-        std::sync::Arc::make_mut(&mut repeated.wire).semantic_graph.nodes[position].body = CheckedTerm::aggregate(vec![
+        std::sync::Arc::make_mut(&mut repeated.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::aggregate(vec![
             CheckedTerm::reference(target.clone()),
             CheckedTerm::reference(target),
         ]);

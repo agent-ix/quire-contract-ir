@@ -91,7 +91,7 @@ const DECODE: u8 = 2;
 
 /// The bytes one read requested and the bytes it charged, under `limit`, and
 /// the stage of its first unpaid request.
-fn read_under(limit: u64) -> (u64, u64, Option<(PackageReadStage, &'static str)>) {
+fn read_under(limit: u64) -> (u64, u64, Option<(PackageReadStage, &'static str)>, String) {
     let value = v2_all_families();
     let bytes = canonical(&value);
     let evidence = evidence_for(&value);
@@ -106,6 +106,7 @@ fn read_under(limit: u64) -> (u64, u64, Option<(PackageReadStage, &'static str)>
     let requested = REQUESTED
         .with(Cell::take)
         .expect("the counter was armed for the read");
+    let outcome = format!("{result:?}");
     drop(result);
     let stage = budget
         .first_unpaid_locus()
@@ -113,18 +114,18 @@ fn read_under(limit: u64) -> (u64, u64, Option<(PackageReadStage, &'static str)>
             NativeJoinLocusSource::PackageRead(stage, _) => Some((stage, locus.form)),
             _ => None,
         });
-    (requested, budget.read_storage_consumed(), stage)
+    (requested, budget.read_storage_consumed(), stage, outcome)
 }
 
 /// The least limit at which the read is admitted or its first unpaid request
 /// falls in a runtime phase after `done`.
 fn limit_past(done: u8) -> u64 {
     let past = |stage: PackageReadStage, form: &str| phase(stage, form) > done;
-    let (_, whole, _) = read_under(u64::MAX);
+    let (_, whole, _, _) = read_under(u64::MAX);
     let (mut low, mut high) = (0, whole);
     while low < high {
         let middle = low + (high - low) / 2;
-        let (_, _, denied) = read_under(middle);
+        let (_, _, denied, _) = read_under(middle);
         if denied.is_none_or(|(stage, form)| past(stage, form)) {
             high = middle;
         } else {
@@ -142,15 +143,17 @@ fn limit_past(done: u8) -> u64 {
 fn node_index_requests_exactly_what_it_charges() {
     let start = limit_past(FLAT_WIRE);
     let end = limit_past(NODE_INDEX) - 1;
-    let (first_requested, first_charged, first_stage) = read_under(start);
-    let (last_requested, last_charged, last_stage) = read_under(end);
+    let (first_requested, first_charged, first_stage, first_outcome) = read_under(start);
+    let (last_requested, last_charged, last_stage, last_outcome) = read_under(end);
     assert_eq!(
         first_stage.map(|(stage, _)| stage),
-        Some(PackageReadStage::NodeIndex)
+        Some(PackageReadStage::NodeIndex),
+        "first outcome: {first_outcome}"
     );
     assert_eq!(
         last_stage.map(|(stage, _)| stage),
-        Some(PackageReadStage::NodeIndex)
+        Some(PackageReadStage::NodeIndex),
+        "last outcome: {last_outcome}"
     );
     assert!(last_charged > first_charged, "the stage charges something");
     assert_eq!(
@@ -167,15 +170,17 @@ fn node_index_requests_exactly_what_it_charges() {
 fn owner_schema_requests_exactly_what_it_charges() {
     let start = limit_past(DECODE);
     let end = limit_past(OWNER_SCHEMA) - 1;
-    let (first_requested, first_charged, first_stage) = read_under(start);
-    let (last_requested, last_charged, last_stage) = read_under(end);
+    let (first_requested, first_charged, first_stage, first_outcome) = read_under(start);
+    let (last_requested, last_charged, last_stage, last_outcome) = read_under(end);
     assert_eq!(
         first_stage,
-        Some((PackageReadStage::WireChecks, "owner_schema"))
+        Some((PackageReadStage::WireChecks, "owner_schema")),
+        "first outcome: {first_outcome}"
     );
     assert_eq!(
         last_stage,
-        Some((PackageReadStage::WireChecks, "owner_schema"))
+        Some((PackageReadStage::WireChecks, "owner_schema")),
+        "last outcome: {last_outcome}"
     );
     assert!(last_charged > first_charged, "the check charges something");
     assert_eq!(
@@ -187,7 +192,11 @@ fn owner_schema_requests_exactly_what_it_charges() {
 /// The bytes one whole read requested, the read storage it charged, and
 /// whether it admitted, under `limit`. The admitted package is held until the
 /// counter is disarmed, so only the read's own requests are counted.
-fn whole_read(bytes: &[u8], evidence: &CheckedPackageEvidence, limit: u64) -> (u64, u64, bool) {
+fn whole_read(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limit: u64,
+) -> (u64, u64, bool, String) {
     let limits = CheckedPackageReadLimits {
         bytes: 1 << 30,
         nodes: 1 << 24,
@@ -198,32 +207,41 @@ fn whole_read(bytes: &[u8], evidence: &CheckedPackageEvidence, limit: u64) -> (u
     };
     let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
     REQUESTED.with(|requested| requested.set(Some(0)));
-    let result = CheckedPackageV2::read_with_budget(
-        bytes,
-        limits,
-        evidence,
-        &mut budget,
-    );
+    let result = CheckedPackageV2::read_with_budget(bytes, limits, evidence, &mut budget);
     let requested = REQUESTED
         .with(Cell::take)
         .expect("the counter was armed for the read");
+    let outcome = format!("{result:?}");
     let admitted = matches!(result, CheckedPackageV2BudgetedReadResult::Admitted(_));
     drop(result);
-    (requested, budget.read_storage_consumed(), admitted)
+    (requested, budget.read_storage_consumed(), admitted, outcome)
 }
 
 /// The whole-read accounting of one input: under an unlimited budget the
 /// bytes requested equal the bytes charged; the exact limit admits; one byte
 /// short refuses and requests no more than it charged.
 fn assert_whole_read_accounted(label: &str, bytes: &[u8], evidence: &CheckedPackageEvidence) {
-    assert!(initialize_operation_catalog().is_ok(), "the operation catalog reads");
-    let (requested, charged, admitted) = whole_read(bytes, evidence, u64::MAX);
-    assert!(admitted, "{label}: the input admits");
-    assert_eq!(requested, charged, "{label}: requested bytes == charged bytes");
-    let (_, _, exact) = whole_read(bytes, evidence, charged);
-    assert!(exact, "{label}: the exact limit admits");
-    let (short_requested, short_charged, short) = whole_read(bytes, evidence, charged - 1);
-    assert!(!short, "{label}: one byte short refuses");
+    assert!(
+        initialize_operation_catalog().is_ok(),
+        "the operation catalog reads"
+    );
+    let (requested, charged, admitted, outcome) = whole_read(bytes, evidence, u64::MAX);
+    assert!(admitted, "{label}: the input admits; outcome: {outcome}");
+    assert_eq!(
+        requested, charged,
+        "{label}: requested bytes == charged bytes"
+    );
+    let (_, _, exact, exact_outcome) = whole_read(bytes, evidence, charged);
+    assert!(
+        exact,
+        "{label}: the exact limit admits; outcome: {exact_outcome}"
+    );
+    let (short_requested, short_charged, short, short_outcome) =
+        whole_read(bytes, evidence, charged - 1);
+    assert!(
+        !short,
+        "{label}: one byte short refuses; outcome: {short_outcome}"
+    );
     assert!(short_charged < charged, "{label}: the refusal stops early");
     assert!(
         short_requested <= short_charged + charged / 16 + 4096,

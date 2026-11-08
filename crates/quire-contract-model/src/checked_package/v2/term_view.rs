@@ -573,16 +573,13 @@ fn decode_term<'d>(
     term: TermNode<'d>,
 ) -> Result<CheckedTerm, TermConversionCause> {
     if term.get("term").and_then(TermNode::as_str) == Some("refinement") {
-        // The refinement body is read by its own row decoder, which still
-        // reads a `serde_json::Value`.
-        let body = CheckedJson::new(Arc::clone(document), term.node_ref().id()).to_value();
-        return super::refinement::decode_body(
-            &body,
-            &crate::checked_package::common::Trail::Base(&[]),
-        )
-        .map_err(|_| TermConversionCause::MalformedMember {
-            member: "refinement",
-            category: Category::Data,
+        // The refinement's row records decode directly from this document;
+        // the context retains the node's operand row and charges owned fields.
+        return CheckedTerm::deserialize(context.value_at(term.node_ref())).map_err(|_| {
+            TermConversionCause::MalformedMember {
+                member: "refinement",
+                category: Category::Data,
+            }
         });
     }
     match term.tag() {
@@ -777,6 +774,7 @@ mod tests {
     use crate::checked_package::terms::subterms;
     use crate::checked_package::v2::CheckedTermView as ValueView;
     use crate::checked_package::v2::{CheckedJson, CheckedTerm};
+    use crate::identity::ExecutionPoint;
     use serde_json::{json, Value};
 
     /// The `Value` parse of a node ID the node read is checked against.
@@ -820,7 +818,7 @@ mod tests {
     #[test]
     fn term_views_agree_with_the_value_projections() {
         for value in samples() {
-            let json = CheckedJson::from_value(&value).expect("sample");
+            let json = CheckedJson::from_serializable(&value).expect("sample");
             let node = TermNode::of(&json);
             let wire = WireTerm::decode(&value);
             assert_eq!(node.kind(), wire.kind(), "{value}");
@@ -843,7 +841,7 @@ mod tests {
                     ValueView::Application { arguments, .. } => ("application", arguments.len()),
                     ValueView::Aggregate { members } => ("aggregate", members.len()),
                     ValueView::Binding { .. } => ("binding", 1),
-                    ValueView::Reference { .. } => ("reference", 1),
+                    ValueView::Reference => ("reference", 1),
                     ValueView::Literal { .. } => ("literal", 1),
                 }),
             );
@@ -900,7 +898,7 @@ mod tests {
             (json!("text"), "malformed"),
         ];
         for (id, expected) in cases {
-            let json = CheckedJson::from_value(&id).expect("sample");
+            let json = CheckedJson::from_serializable(&id).expect("sample");
             let mut budget = NativeJoinBudget::unlimited();
             let read = TermNode::of(&json)
                 .node_id(&mut budget, site)
@@ -943,7 +941,7 @@ mod tests {
         use crate::checked_package::v2::read_charge::Site;
         let site = Site::new(PackageReadStage::WireChecks, 0, "flat_wire");
         for value in samples() {
-            let json = CheckedJson::from_value(&value).expect("sample");
+            let json = CheckedJson::from_serializable(&value).expect("sample");
             let mut budget = NativeJoinBudget::unlimited();
             let decoded = TermNode::of(&json)
                 .decode(json.document(), &mut budget, site)
@@ -982,7 +980,7 @@ mod tests {
                 {"term":"binding", "name":"execution_point", "value":{"kind":"initialization", "name":"Start"}}
             ]
         });
-        let handle = CheckedJson::from_value(&body).expect("canonical anchor body");
+        let handle = CheckedJson::from_serializable(&body).expect("canonical anchor body");
         let site = Site::new(PackageReadStage::Graph, 4, "term");
         let mut budget = NativeJoinBudget::unlimited();
         let decoded = TermNode::of(&handle)
@@ -1005,7 +1003,7 @@ mod tests {
             .expect("members")
             .pop();
         let handle_without_point =
-            CheckedJson::from_value(&body_without_point).expect("canonical anchor body");
+            CheckedJson::from_serializable(&body_without_point).expect("canonical anchor body");
         let decoded = TermNode::of(&handle_without_point)
             .decode_anchor_in(
                 handle_without_point.document(),
@@ -1064,7 +1062,7 @@ mod tests {
                 site,
             )
             .expect("unlimited");
-            let json = CheckedJson::from_value(&body).expect("body");
+            let json = CheckedJson::from_serializable(&body).expect("body");
             let by_row = TermNode::of(&json)
                 .decode_in(
                     json.document(),
@@ -1084,7 +1082,7 @@ mod tests {
             site,
         )
         .expect("unlimited");
-        let json = CheckedJson::from_value(&target).expect("id");
+        let json = CheckedJson::from_serializable(&target).expect("id");
         let read = TermNode::of(&json)
             .node_id_in(&mut NativeJoinBudget::unlimited(), site, &row)
             .expect("unlimited")

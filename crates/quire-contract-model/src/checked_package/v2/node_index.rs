@@ -9,6 +9,7 @@
 
 use super::native_join_budget::{NativeJoinBudget, PackageReadStage};
 use super::read_charge::{self, Site};
+use super::TermNode;
 use super::{CheckedNodePathSegment, RawCheckedPackageWireV2, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
@@ -669,62 +670,87 @@ pub(super) fn resolve_id(
 /// Compare two body values from distinct package documents, resolving every
 /// node ID against the graph of the document that contains it.
 pub(super) fn equivalent_values(
-    left: &serde_json::Value,
-    right: &serde_json::Value,
+    left: &super::CheckedJson,
+    right: &super::CheckedJson,
     left_keys: &[Arc<super::CheckedNodeId>],
     right_keys: &[Arc<super::CheckedNodeId>],
+    left_row: &[u64],
+    right_row: &[u64],
 ) -> bool {
-    let mut pending = vec![(left, right)];
+    use quire_canonical::Node;
+    let mut budget = super::NativeJoinBudget::unlimited();
+    let site = super::read_charge::Site::new(super::PackageReadStage::Graph, 0, "import_body");
+    let mut pending = vec![(super::TermNode::of(left), super::TermNode::of(right))];
     while let Some((left, right)) = pending.pop() {
-        match (left, right) {
-            (serde_json::Value::Object(a), serde_json::Value::Object(b)) => {
-                // FR-375 external keys are the exception to document-local
-                // index scope: their `node` is scoped by the outer package.
-                // Both documents select that dependency under the same key,
-                // so compare its wire ID directly instead of resolving it in
-                // either containing document's graph.
-                if a.len() == 2 && a.contains_key("package") && a.contains_key("node") {
-                    if a != b {
-                        return false;
-                    }
-                    continue;
+        if left.is_object() && right.is_object() {
+            // FR-375 external keys are the exception to document-local
+            // index scope: their `node` is scoped by the outer package.
+            // Both documents select that dependency under the same key,
+            // so compare its wire ID directly instead of resolving it in
+            // either containing document's graph.
+            if left.exact_members(&["package", "node"]) && right.exact_members(&["package", "node"])
+            {
+                if left.get("package").and_then(super::TermNode::as_str)
+                    != right.get("package").and_then(super::TermNode::as_str)
+                {
+                    return false;
                 }
-                let node_shape = |map: &serde_json::Map<String, serde_json::Value>| {
-                    map.len() == 3
-                        && map.contains_key("package")
-                        && map.contains_key("path")
-                        && map.contains_key("ordinal")
+                let (Some(a), Some(b)) = (left.get("node"), right.get("node")) else {
+                    return false;
                 };
-                if node_shape(a) || node_shape(b) {
-                    let Some(a) = super::CheckedNodeId::from_value(left) else {
-                        return false;
-                    };
-                    let Some(b) = super::CheckedNodeId::from_value(right) else {
-                        return false;
-                    };
-                    if resolve_id(&a, left_keys) != resolve_id(&b, right_keys) {
-                        return false;
-                    }
-                } else {
-                    if a.len() != b.len() {
-                        return false;
-                    }
-                    for (name, value) in a {
-                        let Some(other) = b.get(name) else {
-                            return false;
-                        };
-                        pending.push((value, other));
-                    }
-                }
+                pending.push((a, b));
+                continue;
             }
-            (serde_json::Value::Array(a), serde_json::Value::Array(b)) => {
+            let a_shape = left.exact_members(&["package", "path", "ordinal"]);
+            let b_shape = right.exact_members(&["package", "path", "ordinal"]);
+            if a_shape || b_shape {
+                let a = left
+                    .node_id_in(&mut budget, site, left_row)
+                    .ok()
+                    .and_then(|read| read.valid());
+                let b = right
+                    .node_id_in(&mut budget, site, right_row)
+                    .ok()
+                    .and_then(|read| read.valid());
+                let (Some(a), Some(b)) = (a, b) else {
+                    return false;
+                };
+                if resolve_id(&a, left_keys) != resolve_id(&b, right_keys) {
+                    return false;
+                }
+            } else {
+                let (Some(a), Some(b)) = (left.members(), right.members()) else {
+                    return false;
+                };
                 if a.len() != b.len() {
                     return false;
                 }
-                pending.extend(a.iter().zip(b));
+                for (name, value) in a {
+                    let Some(other) = right.get(name) else {
+                        return false;
+                    };
+                    pending.push((value, other));
+                }
             }
-            (a, b) if a == b => {}
-            _ => return false,
+        } else if left.is_array() && right.is_array() {
+            let (Some(a), Some(b)) = (left.items(), right.items()) else {
+                return false;
+            };
+            if a.len() != b.len() {
+                return false;
+            }
+            pending.extend(a.zip(b));
+        } else {
+            let same = match (left.node_ref().node(), right.node_ref().node()) {
+                (Node::Null, Node::Null) => true,
+                (Node::Bool(a), Node::Bool(b)) => a == b,
+                (Node::String(a), Node::String(b)) => a == b,
+                (Node::Number(a), Node::Number(b)) => a.text() == b.text(),
+                _ => false,
+            };
+            if !same {
+                return false;
+            }
         }
     }
     true
@@ -1288,11 +1314,13 @@ pub(super) fn check(
 /// own key text and allocates nothing.
 pub(super) fn resolve_slots(
     wire: &mut RawCheckedPackageWireV2,
+    bodies: &[super::CheckedJson],
     budget: &mut NativeJoinBudget,
 ) -> Result<(), ValidationFailure> {
     let graph = &mut wire.semantic_graph;
     let rows = &graph.operand_rows;
-    for (position, (node, row)) in graph.nodes.iter_mut().zip(rows).enumerate() {
+    for (position, ((node, row), body)) in graph.nodes.iter_mut().zip(rows).zip(bodies).enumerate()
+    {
         let to_index = |id: &mut super::CheckedNodeId| {
             for segment in &mut id.path {
                 if let CheckedNodePathSegment::Operand(slot) = segment {
@@ -1309,12 +1337,35 @@ pub(super) fn resolve_slots(
         if let Some(id) = node.owner_model.as_mut() {
             to_index(id);
         }
+        // Walk the document-backed body with the same charged worklist the
+        // slot rewrite used. IDs stay in the shared document and resolve
+        // through `row` when a reader consumes them.
         let site = Site::new(PackageReadStage::WireChecks, position, "owner_schema");
-        resolve_value_slots(&mut node.body, row, budget, site)?;
+        resolve_document_body(TermNode::of(body), budget, site)?;
     }
     Ok(())
 }
 
+fn resolve_document_body(
+    body: super::TermNode<'_>,
+    budget: &mut NativeJoinBudget,
+    site: Site,
+) -> Result<(), ValidationFailure> {
+    let mut pending = Vec::new();
+    read_charge::push(budget, site, &mut pending, body)?;
+    while let Some(value) = pending.pop() {
+        if let Some(items) = value.items() {
+            read_charge::reserve(budget, site, &mut pending, items.len())?;
+            pending.extend(items);
+        } else if let Some(members) = value.members() {
+            read_charge::reserve(budget, site, &mut pending, members.len())?;
+            pending.extend(members.map(|(_, value)| value));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 pub(super) fn resolve_value_slots(
     body: &mut serde_json::Value,
     row: &[u64],

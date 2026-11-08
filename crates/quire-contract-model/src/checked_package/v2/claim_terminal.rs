@@ -5,7 +5,7 @@
 
 use super::frame::StepGraph;
 use super::graph_storage::GraphIndex;
-use super::structural::{reference_type_target, typed_parameter_binding};
+use super::structural::{reference_type_target_ref, typed_parameter_binding};
 use super::{
     CheckedNodeKind, CheckedNodeOwner, CheckedTerm, ClaimForm, CompositeTypeForm, LiteralKind,
     ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm,
@@ -431,7 +431,15 @@ pub(super) fn validate_terminal(
                 .filter(|(_, kind)| {
                     *kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Reference)
                 })
-                .and_then(|(type_node, _)| reference_type_target(type_node));
+                .and_then(|(type_node, _)| {
+                    graph
+                        .index
+                        .get(&type_node.node_id)
+                        .and_then(|at| terms.get(*at))
+                        .and_then(Option::as_ref)
+                })
+                .and_then(reference_type_target_ref)
+                .map(|target| target.clone());
             let valid = if name_level == Some(("self", "0")) && reference_target.is_some() {
                 let expected = self_object_key(&graph, model, meter, position)?;
                 reference_target

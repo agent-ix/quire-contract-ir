@@ -974,7 +974,8 @@ mod tests {
         };
         let unit_refs = std::sync::Arc::new(Default::default());
         let read = |identity: &str| {
-            let selected = crate::CheckedJson::from_value(&document(identity)).expect("a document");
+            let selected =
+                crate::CheckedJson::from_serializable(&document(identity)).expect("a document");
             let mut meter = WorkMeter::new(u64::MAX);
             let mut budget = super::super::model_members::Budget::new(&mut meter, 0, 1 << 20);
             super::super::model_members::read_semantic_ir_of(
@@ -1105,7 +1106,7 @@ mod tests {
                 ordinal: 0,
             },
             value_kind: LiteralKind::Integer,
-            value: crate::CheckedJson::from_value(&value).expect("a canonical literal"),
+            value: crate::CheckedJson::from_serializable(&value).expect("a canonical literal"),
         };
         let huge = format!("1{}", "0".repeat(60));
         let mut terms: Vec<CheckedTerm> = (0..40_u64)

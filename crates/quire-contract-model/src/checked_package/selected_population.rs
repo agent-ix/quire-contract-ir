@@ -3,12 +3,12 @@
 
 //! FR-053: project one exact admitted population binding and Type occurrence.
 
+use super::v2::PositionIndex;
 use super::v2::{BoundedDomainForm, CheckedNodeKind, CheckedTerm, LiteralKind};
 use super::{
     CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
     CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion,
 };
-use super::v2::PositionIndex;
 
 #[cfg(test)]
 mod source_probe {

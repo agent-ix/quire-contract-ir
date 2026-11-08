@@ -9,8 +9,11 @@ pub(super) fn retained_node_index(wire: &CheckedPackageWireV2) -> PositionIndex 
 
 /// The source index of a fixture package, charged to no one.
 pub(super) fn retained_source_index(wire: &CheckedPackageWireV2) -> PositionIndex {
-    crate::checked_package::selected_population::source_index(&wire.source_map, &mut NativeJoinBudget::unlimited())
-        .expect("unlimited budget")
+    crate::checked_package::selected_population::source_index(
+        &wire.source_map,
+        &mut NativeJoinBudget::unlimited(),
+    )
+    .expect("unlimited budget")
 }
 
 impl CheckedPackageV2 {

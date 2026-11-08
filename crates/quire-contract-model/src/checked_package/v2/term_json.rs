@@ -305,7 +305,7 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
             NodeIdRead::Id(id) => id,
             NodeIdRead::Malformed => return Err(self.invalid(Some(key))),
             NodeIdRead::Invalid(_) => {
-                return Err(self.reject(CheckedPackageRefusalCode::MalformedWire, Some(key)))
+                return Err(self.reject(CheckedPackageRefusalCode::MalformedWire, Some(key)));
             }
         };
         let site = ReferenceSite {
@@ -633,16 +633,17 @@ mod tests {
                         TermGrammar::V2,
                         is_body_root,
                         &Trail::Base(&[Step::Key("body")]),
-                        &mut |target, site, at| {
-                            expected_targets.push((target.clone(), site));
+                        &mut |target, site, at, _sink, _charge_site| {
+                            expected_targets.push((target, site));
                             if expected_first.is_none() {
                                 expected_first = Some(at.pointer());
                             }
+                            Ok(())
                         },
                         ids,
                     )
                 });
-                let json = CheckedJson::from_value(&term).expect("canonical term");
+                let json = CheckedJson::from_serializable(&term).expect("canonical term");
                 let mut meter = WorkMeter::new(u64::MAX);
                 let site = Site::new(
                     PackageReadStage::Diagnostics,
@@ -750,7 +751,7 @@ mod tests {
             json!({"term": "reference", "target": id("b")}),
             json!({"term": "aggregate", "members": [literal(json!(1))]}),
         ]);
-        let json = CheckedJson::from_value(&term).expect("canonical term");
+        let json = CheckedJson::from_serializable(&term).expect("canonical term");
         let run = |limit: u64| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let mut outcome = None;

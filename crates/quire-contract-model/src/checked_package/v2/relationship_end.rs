@@ -400,13 +400,15 @@ pub(super) mod tests {
     ) -> super::super::typed_terms::OperationRecordEdit<'a> {
         let position = at(package, &ids[&'7']);
         let super::super::CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[position]
+                .body
         else {
             panic!("admitted reaches application term");
         };
         operation.record_mut()
     }
-
 
     /// The admitted application resolves to the retained destination end, and
     /// the retained record is outside package equality.
@@ -481,11 +483,12 @@ pub(super) mod tests {
                 "declaration node no longer has the declaration shape",
                 Box::new(|p, ids| {
                     let position = at(p, &ids[&'c']);
-                    std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[position].body = CheckedTerm::Aggregate {
-                        members: vec![CheckedTerm::Reference {
-                            target: ids[&'1'].clone(),
-                        }],
-                    };
+                    std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[position].body =
+                        CheckedTerm::Aggregate {
+                            members: vec![CheckedTerm::Reference {
+                                target: ids[&'1'].clone(),
+                            }],
+                        };
                 }),
             ),
             (

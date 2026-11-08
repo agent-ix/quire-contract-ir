@@ -2,10 +2,11 @@
 
 use super::graph_storage::GraphIndex;
 use super::{
-    CheckedNodeKind, CheckedTerm, CheckedTermView, HybridForm, LiteralKind,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm, WorkMeter,
+    CheckedNodeKind, CheckedTerm, HybridForm, LiteralKind,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, TemporalForm, TermNode, ValueForm,
+    WorkMeter,
 };
-use crate::checked_package::common::{body_term, exact_members, node_pointer, ValidationFailure};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedOccurrenceRole, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, JsonPointer,
@@ -15,7 +16,6 @@ use serde::{
     de::{value::Error as WordError, value::StrDeserializer, DeserializeOwned},
     Deserialize,
 };
-use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 fn malformed(at: JsonPointer) -> ValidationFailure {
@@ -1244,32 +1244,32 @@ pub(super) fn validate_claims(
     Ok(())
 }
 
-fn aggregate<'a>(value: &'a Value, at: &JsonPointer) -> Result<&'a [Value], ValidationFailure> {
-    let object = value.as_object().ok_or_else(|| malformed(at.clone()))?;
-    if !exact_members(object, &["term", "members"])
-        || body_term(value) != Some(super::BodyTerm::Aggregate)
+fn aggregate<'d>(
+    value: TermNode<'d>,
+    at: &JsonPointer,
+) -> Result<super::TermItems<'d>, ValidationFailure> {
+    if value.kind() != Some(super::BodyTerm::Aggregate)
+        || !value.exact_members(&["term", "members"])
     {
         return Err(malformed(at.clone()));
     }
-    match CheckedTerm::view(value) {
-        Some(CheckedTermView::Aggregate { members }) => Ok(members),
-        _ => Err(malformed(at.clone().key("members"))),
-    }
+    value
+        .items()
+        .ok_or_else(|| malformed(at.clone().key("members")))
 }
 
-fn binding<'a>(
-    value: &'a Value,
+fn binding<'d>(
+    value: TermNode<'d>,
     name: &str,
     at: &JsonPointer,
-) -> Result<&'a Value, ValidationFailure> {
-    let object = value.as_object().ok_or_else(|| malformed(at.clone()))?;
-    if !exact_members(object, &["term", "name", "value"])
-        || body_term(value) != Some(super::BodyTerm::Binding)
+) -> Result<TermNode<'d>, ValidationFailure> {
+    if value.kind() != Some(super::BodyTerm::Binding)
+        || !value.exact_members(&["term", "name", "value"])
     {
         return Err(malformed(at.clone()));
     }
-    match CheckedTerm::view(value) {
-        Some(CheckedTermView::Binding {
+    match value.view() {
+        Some(super::TermView::Binding {
             name: actual,
             value,
         }) if actual == name => Ok(value),
@@ -1277,15 +1277,16 @@ fn binding<'a>(
     }
 }
 
-fn entry<'a>(
-    members: &'a [Value],
+fn entry<'d>(
+    members: super::TermItems<'d>,
     index: usize,
     name: &str,
     at: &JsonPointer,
-) -> Result<(&'a Value, JsonPointer), ValidationFailure> {
+) -> Result<(TermNode<'d>, JsonPointer), ValidationFailure> {
     let member_at = at.clone().key("members").index(index);
     let member = members
-        .get(index)
+        .clone()
+        .nth(index)
         .ok_or_else(|| malformed(member_at.clone()))?;
     Ok((
         binding(member, name, &member_at)?,
@@ -1293,20 +1294,20 @@ fn entry<'a>(
     ))
 }
 
-fn reference(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
-    match CheckedTerm::view(value) {
-        Some(CheckedTermView::Reference { .. }) => Ok(()),
+fn reference(value: TermNode<'_>, at: &JsonPointer) -> Result<(), ValidationFailure> {
+    match value.view() {
+        Some(super::TermView::Reference { .. }) => Ok(()),
         _ => Err(malformed(at.clone())),
     }
 }
 
-fn literal<'a>(
-    value: &'a Value,
+fn literal<'d>(
+    value: TermNode<'d>,
     kind: &str,
     at: &JsonPointer,
-) -> Result<&'a str, ValidationFailure> {
-    match CheckedTerm::view(value) {
-        Some(CheckedTermView::Literal {
+) -> Result<&'d str, ValidationFailure> {
+    match value.view() {
+        Some(super::TermView::Literal {
             value_kind, value, ..
         }) if Some(value_kind) == LiteralKind::from_wire(kind) => value
             .as_str()
@@ -1316,7 +1317,7 @@ fn literal<'a>(
 }
 
 #[string_edge]
-fn integer(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
+fn integer(value: TermNode<'_>, at: &JsonPointer) -> Result<(), ValidationFailure> {
     let text = literal(value, "integer", at)?;
     let digits = text.strip_prefix('-').unwrap_or(text);
     if digits.is_empty()
@@ -1330,7 +1331,7 @@ fn integer(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
 }
 
 fn list_of_references(
-    value: &Value,
+    value: TermNode<'_>,
     at: &JsonPointer,
     minimum: usize,
 ) -> Result<(), ValidationFailure> {
@@ -1338,7 +1339,7 @@ fn list_of_references(
     if members.len() < minimum {
         return Err(malformed(at.clone().key("members")));
     }
-    for (index, member) in members.iter().enumerate() {
+    for (index, member) in members.enumerate() {
         reference(member, &at.clone().key("members").index(index))?;
     }
     Ok(())
@@ -1388,47 +1389,47 @@ pub(super) fn check_wire(
         }
     }
     let body_at = at.clone().key("body");
-    let members = aggregate(&node.body, &body_at)?;
+    let members = aggregate(TermNode::of(&node.body), &body_at)?;
     match form {
         HybridForm::Model => {
             if !matches!(members.len(), 2 | 3) {
                 return Err(malformed(body_at.clone().key("members")));
             }
-            let (variables, variables_at) = entry(members, 0, "variables", &body_at)?;
+            let (variables, variables_at) = entry(members.clone(), 0, "variables", &body_at)?;
             let variables = aggregate(variables, &variables_at)?;
-            if variables.is_empty() {
+            if variables.len() == 0 {
                 return Err(malformed(variables_at.clone().key("members")));
             }
-            for (index, variable) in variables.iter().enumerate() {
+            for (index, variable) in variables.enumerate() {
                 let at = variables_at.clone().key("members").index(index);
                 let members = aggregate(variable, &at)?;
                 if members.len() != 2 {
                     return Err(malformed(at.clone().key("members")));
                 }
-                let (parameter, parameter_at) = entry(members, 0, "parameter", &at)?;
+                let (parameter, parameter_at) = entry(members.clone(), 0, "parameter", &at)?;
                 reference(parameter, &parameter_at)?;
-                let (class, class_at) = entry(members, 1, "class", &at)?;
+                let (class, class_at) = entry(members.clone(), 1, "class", &at)?;
                 if !matches!(literal(class, "text", &class_at)?, "clock" | "hybrid") {
                     return Err(malformed(class_at.clone().key("value")));
                 }
             }
-            let (modes, modes_at) = entry(members, 1, "modes", &body_at)?;
+            let (modes, modes_at) = entry(members.clone(), 1, "modes", &body_at)?;
             list_of_references(modes, &modes_at, 1)?;
             if members.len() == 3 {
-                let (initial, initial_at) = entry(members, 2, "initial", &body_at)?;
+                let (initial, initial_at) = entry(members.clone(), 2, "initial", &body_at)?;
                 let initial = aggregate(initial, &initial_at)?;
-                if initial.is_empty() {
+                if initial.len() == 0 {
                     return Err(malformed(initial_at.clone().key("members")));
                 }
-                for (index, item) in initial.iter().enumerate() {
+                for (index, item) in initial.enumerate() {
                     let at = initial_at.clone().key("members").index(index);
                     let item = aggregate(item, &at)?;
                     if item.len() != 2 {
                         return Err(malformed(at.clone().key("members")));
                     }
-                    let (mode, mode_at) = entry(item, 0, "mode", &at)?;
+                    let (mode, mode_at) = entry(item.clone(), 0, "mode", &at)?;
                     integer(mode, &mode_at)?;
-                    let (condition, condition_at) = entry(item, 1, "condition", &at)?;
+                    let (condition, condition_at) = entry(item.clone(), 1, "condition", &at)?;
                     reference(condition, &condition_at)?;
                 }
             }
@@ -1437,34 +1438,34 @@ pub(super) fn check_wire(
             if members.len() != 3 {
                 return Err(malformed(body_at.clone().key("members")));
             }
-            let (invariant, invariant_at) = entry(members, 0, "invariant", &body_at)?;
+            let (invariant, invariant_at) = entry(members.clone(), 0, "invariant", &body_at)?;
             reference(invariant, &invariant_at)?;
-            let (rates, rates_at) = entry(members, 1, "rates", &body_at)?;
+            let (rates, rates_at) = entry(members.clone(), 1, "rates", &body_at)?;
             list_of_references(rates, &rates_at, 1)?;
-            let (transitions, transitions_at) = entry(members, 2, "transitions", &body_at)?;
+            let (transitions, transitions_at) = entry(members.clone(), 2, "transitions", &body_at)?;
             list_of_references(transitions, &transitions_at, 0)?;
         }
         HybridForm::Transition => {
             if members.len() != 3 {
                 return Err(malformed(body_at.clone().key("members")));
             }
-            let (target, target_at) = entry(members, 0, "target", &body_at)?;
+            let (target, target_at) = entry(members.clone(), 0, "target", &body_at)?;
             integer(target, &target_at)?;
-            let (guard, guard_at) = entry(members, 1, "guard", &body_at)?;
+            let (guard, guard_at) = entry(members.clone(), 1, "guard", &body_at)?;
             reference(guard, &guard_at)?;
-            let (resets, resets_at) = entry(members, 2, "resets", &body_at)?;
-            for (index, reset) in aggregate(resets, &resets_at)?.iter().enumerate() {
+            let (resets, resets_at) = entry(members.clone(), 2, "resets", &body_at)?;
+            for (index, reset) in aggregate(resets, &resets_at)?.enumerate() {
                 let at = resets_at.clone().key("members").index(index);
                 let reset = aggregate(reset, &at)?;
                 if !matches!(reset.len(), 2 | 3) {
                     return Err(malformed(at.clone().key("members")));
                 }
-                let (variable, variable_at) = entry(reset, 0, "variable", &at)?;
+                let (variable, variable_at) = entry(reset.clone(), 0, "variable", &at)?;
                 integer(variable, &variable_at)?;
-                let (value, value_at) = entry(reset, 1, "value", &at)?;
+                let (value, value_at) = entry(reset.clone(), 1, "value", &at)?;
                 reference(value, &value_at)?;
                 if reset.len() == 3 {
-                    let (relation, relation_at) = entry(reset, 2, "relation", &at)?;
+                    let (relation, relation_at) = entry(reset.clone(), 2, "relation", &at)?;
                     if !matches!(
                         literal(relation, "text", &relation_at)?,
                         "ne" | "lt" | "le" | "ge" | "gt"
