@@ -77,9 +77,10 @@ pub(crate) fn accounted(label: &str, observation: &Observation) {
         CheckedPackageV2BudgetedReadResult::Refused(refusal) => Some((
             &refusal.code,
             &refusal.cause,
-            refusal.loci.first().and_then(|locus| {
-                locus.path.as_ref().map(|path| path.as_str())
-            }),
+            refusal
+                .loci
+                .first()
+                .and_then(|locus| locus.path.as_ref().map(|path| path.as_str())),
         )),
         _ => None,
     };
