@@ -1525,8 +1525,6 @@ fn nested_fold_and_reduce_binders_resolve_only_the_single_final_step() {
             json!([step]),
             json!([{"term":"binding","name":"x","value":
                 {"term":"literal","type":node_id(&boolean),"value_kind":"boolean","value":true}}]),
-            json!([{"term":"binding","name":"x","value":
-                {"term":"aggregate","members":[inner.clone()]}}]),
         ] {
             let mut invalid = package.clone();
             invalid["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"] =
@@ -1539,6 +1537,19 @@ fn nested_fold_and_reduce_binders_resolve_only_the_single_final_step() {
                 &path,
             );
         }
+        let mut malformed = package.clone();
+        malformed["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"] = json!([{"term":"binding","name":"x","value":
+                {"term":"aggregate","members":[inner]}}]);
+        settle(&mut malformed);
+        let CheckedPackageV2ReadResult::Refused(refusal) = read(&malformed) else {
+            panic!("nested aggregate step must refuse");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(refusal.cause, None);
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(ToString::to_string),
+            Some(format!("{path}/body/arguments/1/value/members/0/value"))
+        );
     }
 }
 
@@ -1582,7 +1593,7 @@ fn genuine_integer_fold_with_both_authored_binders_is_admitted() {
         panic!("step reference");
     };
     let step = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| &node.node_id == target)

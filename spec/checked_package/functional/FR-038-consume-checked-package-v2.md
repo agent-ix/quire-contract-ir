@@ -5678,9 +5678,10 @@ SHALL resolve `bound_is_member` through QSL FR-093's two-binder encoding in
 QSpec FR-322 terms: an accumulator `binding` whose value is an `aggregate`
 containing exactly one element `binding`, whose value names the final step.
 The final step's resolved type SHALL equal the `type_argument` declaration.
-An empty or multiple-member aggregate, a non-binding member, another nested
-aggregate, or a final step of a different type SHALL refuse
-`ill_typed`/`operator-ineligible` at the application node. Direct single-binder
+An empty or multiple-member aggregate, a non-binding member, or a final step
+of a different type SHALL refuse `ill_typed`/`operator-ineligible` at the
+application node. A further nested aggregate step retains the earlier
+`malformed_wire` refusal at that step's value, without a cause. Direct single-binder
 bounds retain their existing meaning. This rule does not assign a type to
 arbitrary aggregate operands or change other operations' binder resolution.
 FR-038-AC-247 and FR-038-AC-251 include these positive and negative controls
