@@ -1336,6 +1336,7 @@ fn canonical_order(
     body: &CheckedTerm,
     position: usize,
     graph: &RefinementGraph<'_, '_>,
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let CheckedTerm::Refinement {
         populations,
@@ -1354,7 +1355,11 @@ fn canonical_order(
         ));
     };
     for (index, pair) in populations.windows(2).enumerate() {
-        if graph.resolved_key(&pair[0].r#abstract) >= graph.resolved_key(&pair[1].r#abstract) {
+        if graph
+            .resolved_key(&pair[0].r#abstract)
+            .order(&graph.resolved_key(&pair[1].r#abstract), meter)?
+            != std::cmp::Ordering::Less
+        {
             return Err(order_defect(position, "populations", index + 1));
         }
     }
@@ -1374,7 +1379,10 @@ fn canonical_order(
         }
     }
     for (index, pair) in objects.windows(2).enumerate() {
-        if graph.resolved_key(&pair[0].abstract_type) >= graph.resolved_key(&pair[1].abstract_type)
+        if graph
+            .resolved_key(&pair[0].abstract_type)
+            .order(&graph.resolved_key(&pair[1].abstract_type), meter)?
+            != std::cmp::Ordering::Less
         {
             return Err(order_defect(position, "objects", index + 1));
         }
@@ -1395,17 +1403,17 @@ fn canonical_order(
         }
     }
     for (index, pair) in histories.windows(2).enumerate() {
-        if (
-            graph
-                .index
-                .resolved(&pair[0].concrete_type, graph.structural_keys),
-            pair[0].name.as_ref(),
-        ) >= (
-            graph
-                .index
-                .resolved(&pair[1].concrete_type, graph.structural_keys),
-            pair[1].name.as_ref(),
-        ) {
+        let first = graph
+            .index
+            .resolved(&pair[0].concrete_type, graph.structural_keys);
+        let second = graph
+            .index
+            .resolved(&pair[1].concrete_type, graph.structural_keys);
+        if first
+            .order(&second, meter)?
+            .then_with(|| pair[0].name.as_ref().cmp(pair[1].name.as_ref()))
+            != std::cmp::Ordering::Less
+        {
             return Err(order_defect(position, "histories", index + 1));
         }
     }
@@ -1432,7 +1440,13 @@ fn canonical_order(
                 granularity(row.granularity),
             )
         }
-        if key(&pair[0], graph) >= key(&pair[1], graph) {
+        let (first, second) = (key(&pair[0], graph), key(&pair[1], graph));
+        if first
+            .0
+            .order(&second.0, meter)?
+            .then_with(|| (first.1, first.2).cmp(&(second.1, second.2)))
+            != std::cmp::Ordering::Less
+        {
             return Err(order_defect(position, "assume", index + 1));
         }
     }
@@ -1459,7 +1473,13 @@ fn canonical_order(
                 granularity(row.granularity),
             )
         }
-        if key(&pair[0], graph) >= key(&pair[1], graph) {
+        let (first, second) = (key(&pair[0], graph), key(&pair[1], graph));
+        if first
+            .0
+            .order(&second.0, meter)?
+            .then_with(|| (first.1, first.2).cmp(&(second.1, second.2)))
+            != std::cmp::Ordering::Less
+        {
             return Err(order_defect(position, "ensure", index + 1));
         }
     }
@@ -1547,17 +1567,24 @@ impl RefinementGraph<'_, '_> {
         }
     }
 
-    fn same_key(&self, actual: &RefinementKey, expected: &RefinementKey) -> bool {
-        match (actual, expected) {
-            (RefinementKey::Local(_), RefinementKey::Local(_)) => {
-                self.resolved_key(actual) == self.resolved_key(expected)
-            }
+    fn same_key(
+        &self,
+        actual: &RefinementKey,
+        expected: &RefinementKey,
+        meter: &mut super::WorkMeter,
+    ) -> Result<bool, ValidationFailure> {
+        let same = match (actual, expected) {
+            (RefinementKey::Local(_), RefinementKey::Local(_)) => true,
             (RefinementKey::External(actual_ref), RefinementKey::External(expected_ref)) => {
                 actual_ref.package == expected_ref.package
-                    && self.resolved_key(actual) == self.resolved_key(expected)
             }
             _ => false,
-        }
+        };
+        Ok(same
+            && self
+                .resolved_key(actual)
+                .order(&self.resolved_key(expected), meter)?
+                == std::cmp::Ordering::Equal)
     }
 
     fn local_term(&self, id: &CheckedNodeId) -> Option<&CheckedTerm> {
@@ -2680,7 +2707,7 @@ pub(super) fn validate_refinements(
                 )
             })?;
         meter.charge(1, || node_at(position))?;
-        canonical_order(body, position, &graph)?;
+        canonical_order(body, position, &graph, meter)?;
         check_headers(node, body, position, &graph, lock)?;
         validate_catalog(
             body,
@@ -3695,11 +3722,21 @@ fn compare_declared_classes(
                         locus.clone(),
                     ));
                 }
-                if found.node.local() != Some(node)
-                    || matches!(&found.binder_types, BinderSignature::Known(expected)
-                        if binder_types.iter().map(|id| graph.index.resolved(id, graph.structural_keys))
-                            .ne(expected.iter().map(|key| graph.resolved_key(key))))
-                {
+                let mut same = found.node.local() == Some(node);
+                if let (true, BinderSignature::Known(expected)) = (same, &found.binder_types) {
+                    same = binder_types.len() == expected.len();
+                    for (id, key) in binder_types.iter().zip(expected) {
+                        if !same {
+                            break;
+                        }
+                        same = graph
+                            .index
+                            .resolved(id, graph.structural_keys)
+                            .order(&graph.resolved_key(key), meter)?
+                            == std::cmp::Ordering::Equal;
+                    }
+                }
+                if !same {
                     return Err(wrong_binding(entry_at, locus));
                 }
             }
@@ -3771,12 +3808,17 @@ fn compare_abstract_classes(
                         locus.clone(),
                     ));
                 }
-                if node != &found.node
-                    || matches!(&found.binder_types, BinderSignature::Known(expected)
-                        if binder_types.len() != expected.len()
-                            || binder_types.iter().zip(expected).any(|(actual, expected)|
-                                !graph.same_key(actual, expected)))
-                {
+                let mut same = node == &found.node;
+                if let (true, BinderSignature::Known(expected)) = (same, &found.binder_types) {
+                    same = binder_types.len() == expected.len();
+                    for (actual, expected) in binder_types.iter().zip(expected) {
+                        if !same {
+                            break;
+                        }
+                        same = graph.same_key(actual, expected, meter)?;
+                    }
+                }
+                if !same {
                     return Err(wrong_binding(entry_at, locus));
                 }
             }

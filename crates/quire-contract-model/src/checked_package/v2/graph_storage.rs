@@ -869,6 +869,23 @@ impl<'a> ResolvedKey<'a> {
     }
 }
 
+impl ResolvedKey<'_> {
+    /// The order of two keys. Two keys of this graph compare by rank; any
+    /// other pair (a key of another graph, an id the graph does not hold, an
+    /// unranked graph) compares through the meter, which charges the frame
+    /// list `CheckedNodeId::cmp` allocates on two distinct operand IDs.
+    pub(super) fn order(
+        &self,
+        other: &Self,
+        meter: &mut WorkMeter,
+    ) -> Result<Ordering, ValidationFailure> {
+        match (self.rank, other.rank) {
+            (Some(left), Some(right)) => Ok(left.cmp(&right)),
+            _ => meter.compare_ids(self.id, other.id),
+        }
+    }
+}
+
 impl PartialEq for ResolvedKey<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
