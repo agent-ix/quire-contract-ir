@@ -78,7 +78,7 @@ impl<'a> Path<'a> {
         self
     }
 
-    fn steps(&self) -> &[Step<'a>] {
+    pub(super) fn steps(&self) -> &[Step<'a>] {
         &self.steps[..self.len]
     }
 
