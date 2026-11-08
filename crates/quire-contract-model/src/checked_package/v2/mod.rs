@@ -5261,6 +5261,18 @@ mod admitted_document_bridge_tests {
                 "target_unit_node_id":null,"scale":{"numerator":"1","denominator":"1"},
                 "offset":{"numerator":"0","denominator":"1"}}),
             ),
+            (
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ImplementationGuarantee),
+                json!({"term":"implementation_guarantee",
+                "clause":{"package":"fixture","path":[{"operand":0}],"ordinal":0},
+                "relation":{"package":"fixture","path":[{"operand":0}],"ordinal":0},
+                "initial":["begin"],"progress":[],"environment":[]}),
+            ),
+            (
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ComponentComposition),
+                json!({"term":"component_composition",
+                "rule":"interface","components":[],"guarantees":[],"relies":[],"liveness_dependencies":[],"supplies":[],"environment":[]}),
+            ),
         ];
         for (kind, wire) in cases {
             let body = CheckedJson::from_value(&wire).expect("fixture document");
@@ -5313,6 +5325,48 @@ mod admitted_document_bridge_tests {
                     };
                     assert_eq!(dimension_node_id.path, [CheckedNodePathSegment::Index(19)]);
                     assert!(target_unit_node_id.is_none());
+                }
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ImplementationGuarantee) => {
+                    let CheckedTerm::ImplementationGuarantee {
+                        clause,
+                        relation,
+                        initial,
+                        progress,
+                        environment,
+                    } = &term
+                    else {
+                        panic!("typed guarantee");
+                    };
+                    assert_eq!(clause.path, [CheckedNodePathSegment::Index(19)]);
+                    assert_eq!(relation.path, [CheckedNodePathSegment::Index(19)]);
+                    assert_eq!(
+                        initial.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
+                        ["begin"]
+                    );
+                    assert!(progress.is_empty() && environment.is_empty());
+                }
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ComponentComposition) => {
+                    let CheckedTerm::ComponentComposition {
+                        rule,
+                        components,
+                        guarantees,
+                        relies,
+                        liveness_dependencies,
+                        supplies,
+                        environment,
+                    } = &term
+                    else {
+                        panic!("typed composition");
+                    };
+                    assert_eq!(rule.as_ref(), "interface");
+                    assert!(
+                        components.is_empty()
+                            && guarantees.is_empty()
+                            && relies.is_empty()
+                            && liveness_dependencies.is_empty()
+                            && supplies.is_empty()
+                            && environment.is_empty()
+                    );
                 }
                 _ => panic!("unexpected test kind"),
             }

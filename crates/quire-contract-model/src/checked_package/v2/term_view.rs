@@ -531,6 +531,23 @@ fn decode_field<'d, T: Deserialize<'d>>(
     })
 }
 
+/// A typed flat-body list, prepaid before serde requests its final block.
+fn decode_vec_field<'d, T: Deserialize<'d>>(
+    context: &DecodeContext<'d>,
+    term: TermNode<'d>,
+    name: TermField,
+) -> Result<Vec<T>, TermConversionCause> {
+    let member = term.field(name).ok_or(TermConversionCause::MissingMember {
+        member: name.as_wire(),
+    })?;
+    super::document_de::exact_vec(context.value_at(member.node_ref())).map_err(|_| {
+        TermConversionCause::MalformedMember {
+            member: name.as_wire(),
+            category: Category::Data,
+        }
+    })
+}
+
 /// The terms of an array member, each decoded; the list is charged at its
 /// exact length first.
 fn decode_children<'d>(
@@ -645,12 +662,28 @@ fn decode_term<'d>(
             member: "term",
             category: Category::Data,
         }),
-        TermTag::Known(BodyTerm::ImplementationGuarantee | BodyTerm::ComponentComposition) => {
-            Err(TermConversionCause::MalformedMember {
-                member: "term",
-                category: Category::Data,
+        TermTag::Known(BodyTerm::ImplementationGuarantee) => {
+            Ok(CheckedTerm::ImplementationGuarantee {
+                clause: decode_field(context, term, TermField::Clause)?,
+                relation: decode_field(context, term, TermField::Relation)?,
+                initial: decode_vec_field(context, term, TermField::Initial)?,
+                progress: decode_vec_field(context, term, TermField::Progress)?,
+                environment: decode_vec_field(context, term, TermField::Environment)?,
             })
         }
+        TermTag::Known(BodyTerm::ComponentComposition) => Ok(CheckedTerm::ComponentComposition {
+            rule: decode_field(context, term, TermField::Rule)?,
+            components: decode_vec_field(context, term, TermField::Components)?,
+            guarantees: decode_vec_field(context, term, TermField::Guarantees)?,
+            relies: decode_vec_field(context, term, TermField::Relies)?,
+            liveness_dependencies: decode_vec_field(
+                context,
+                term,
+                TermField::LivenessDependencies,
+            )?,
+            supplies: decode_vec_field(context, term, TermField::Supplies)?,
+            environment: decode_vec_field(context, term, TermField::Environment)?,
+        }),
         TermTag::Unknown => Err(TermConversionCause::UnknownTerm),
     }
 }
