@@ -3673,10 +3673,16 @@ mod tests {
     use std::path::Path as FilePath;
 
     fn published_timed_nodes() -> Vec<(usize, CheckedSemanticNodeV2, TimedModelForm)> {
+        published_timed_nodes_from("fixtures/positive-tick-timed-model-nodes.json")
+    }
+    fn published_timed_nodes_from(
+        relative: &str,
+    ) -> Vec<(usize, CheckedSemanticNodeV2, TimedModelForm)> {
         let root = std::env::var("QUIRE_SPECIFICATION_DIR").expect("published QSpec checkout");
         let bytes = std::fs::read(
             FilePath::new(&root)
-                .join("proposals/checked-package-v2/fixtures/positive-tick-timed-model-nodes.json"),
+                .join("proposals/checked-package-v2")
+                .join(relative),
         )
         .expect("published tick timed model");
         let wire: super::super::RawCheckedPackageWireV2 =
@@ -3726,6 +3732,65 @@ mod tests {
             assert!(matches!(result, Err(ValidationFailure::Budget(_))));
             assert_eq!(actual, budget.read_storage_consumed());
             assert!(budget.first_unpaid_read_storage().is_some());
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn every_published_slot_wire_shape_prepays_its_actual_requests() {
+        let root = std::env::var("QUIRE_SPECIFICATION_DIR").expect("published QSpec checkout");
+        let vectors: Value = serde_json::from_slice(
+            &std::fs::read(
+                FilePath::new(&root)
+                    .join("proposals/checked-package-v2/timed-slot-selector-vectors.json"),
+            )
+            .expect("published selector vectors"),
+        )
+        .expect("vector JSON");
+        let nodes = published_timed_nodes_from(
+            vectors["selected_package"]
+                .as_str()
+                .expect("published selected package reference"),
+        );
+        assert!(nodes
+            .iter()
+            .any(|(_, _, form)| *form == TimedModelForm::Place));
+        assert!(nodes
+            .iter()
+            .any(|(_, _, form)| *form == TimedModelForm::Guard));
+        for (position, node, form) in &nodes {
+            let run = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    result = Some(check_wire(node, *form, *position, &mut budget))
+                });
+                (result.expect("ran"), allocated.bytes_total, budget)
+            };
+            let (result, allocated, budget) = run(u64::MAX);
+            assert!(
+                result.is_ok(),
+                "published node {position} {form:?}: {result:?}"
+            );
+            assert_eq!(
+                allocated,
+                budget.read_storage_consumed(),
+                "wire node {position} {form:?}"
+            );
+            assert!(allocated > 0);
+            assert!(run(allocated).0.is_ok(), "exact wire node {position}");
+            for limit in [allocated - 1, 0] {
+                let (result, actual, budget) = run(limit);
+                assert!(
+                    matches!(result, Err(ValidationFailure::Budget(_))),
+                    "short wire node {position}"
+                );
+                assert_eq!(
+                    actual,
+                    budget.read_storage_consumed(),
+                    "short wire node {position}"
+                );
+            }
         }
     }
 
