@@ -1336,7 +1336,7 @@ fn operation_defect(
         };
         let bound = admitted_arguments(application, graph)
             .and_then(|arguments| arguments.get(1))
-            .and_then(|binder| binder_bound(binder, operation, graph));
+            .and_then(|binder| binder_bound(binder, &operation, graph));
         for type_id in result.into_iter().chain(bound.as_ref()) {
             let pin = carried_unit_and_mode(type_id, graph)
                 .map(|(_, mode)| mode)
