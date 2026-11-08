@@ -192,9 +192,14 @@ impl<'ast> Visit<'ast> for Inspection {
     }
 
     fn visit_macro(&mut self, invocation: &'ast syn::Macro) {
-        if invocation.path.is_ident("json") {
-            self.check("json!(");
-        }
+        let path = invocation
+            .path
+            .segments
+            .iter()
+            .map(|segment| segment.ident.to_string())
+            .collect::<Vec<_>>()
+            .join("::");
+        self.check(&format!("{path}!("));
         visit::visit_macro(self, invocation);
         // Macro bodies are token streams, not syntax visited by syn.
         self.check(
@@ -227,7 +232,10 @@ fn inspection_continues_after_test_only_items() {
         #[cfg(test)] use serde_json::Value;
         #[cfg(test)] fn helper() { let _ = serde_json::from_str::<()>("{}"); }
         #[cfg(test)] mod tests { fn helper() { let _ = std::collections::BTreeMap::<(), ()>::new(); } }
-        fn production() { let _ = serde_json::from_str::<()>("{}"); }
+        fn production() {
+            let _ = serde_json::from_str::<()>("{}");
+            let _ = serde_json::json!({});
+        }
         use std::collections::{BTreeMap, BTreeSet as Set};
         struct Reader;
         impl Reader {
@@ -236,8 +244,14 @@ fn inspection_continues_after_test_only_items() {
         }
     "#;
     let hits = banned_lines("fixture.rs", source);
-    assert_eq!(hits.len(), 4, "{hits:?}");
-    for word in ["serde_json::from_", "BTreeMap", "BTreeSet", ".sort("] {
+    assert_eq!(hits.len(), 5, "{hits:?}");
+    for word in [
+        "serde_json::from_",
+        "serde_json::json!",
+        "BTreeMap",
+        "BTreeSet",
+        ".sort(",
+    ] {
         assert!(
             hits.iter().any(|hit| hit.contains(word)),
             "{word}: {hits:?}"
