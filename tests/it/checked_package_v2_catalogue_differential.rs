@@ -311,7 +311,7 @@ fn read_with_evidence(
     )
 }
 
-fn simple_fixture(entry: &Value) -> Option<Value> {
+pub(super) fn simple_fixture(entry: &Value) -> Option<Value> {
     let identity = entry["identity"].as_str()?;
     let family = if identity.starts_with("quire.op.boolean.") {
         "boolean"

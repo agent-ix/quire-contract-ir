@@ -433,13 +433,13 @@ fn tc_056_scoped_frame_order_and_conflict() {
     );
 }
 
-fn relationship(declaration: &str) -> Value {
+pub(super) fn relationship(declaration: &str) -> Value {
     json!({"kind": "relationship", "declaration": node_id(declaration)})
 }
 
 /// `v2_all_families()` with `edit` applied to its frame node, identity
 /// re-derived.
-fn frame_mutation(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
+pub(super) fn frame_mutation(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
     let mut value = v2_all_families();
     let frame = position(&value, "state", "frame");
     edit(&mut value["semantic_graph"]["nodes"][frame]);
@@ -480,7 +480,7 @@ fn fixture_key(tag: &str, form: &str, ty: Option<&str>, owner: Option<Value>) ->
     sha256_hex(&canonical(&preimage))
 }
 
-fn object_key() -> &'static str {
+pub(super) fn object_key() -> &'static str {
     "fixture/1515"
 }
 
@@ -489,7 +489,7 @@ fn process_key() -> &'static str {
     &KEY
 }
 
-fn relationship_key() -> &'static str {
+pub(super) fn relationship_key() -> &'static str {
     "fixture/2020"
 }
 

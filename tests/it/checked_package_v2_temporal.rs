@@ -2362,7 +2362,7 @@ fn tc_048_each_of_the_five_fr_250_profiles_admits_as_the_clause_profile() {
 /// The fixture with the clause's own law naming `identity` (the lock still
 /// selects the fixture's profile), and `lock_row` added to the lock's profile
 /// selections when given. The package and the clause's position.
-fn clause_law(identity: &str, lock_row: Option<(&str, &str)>) -> (Value, usize) {
+pub(super) fn clause_law(identity: &str, lock_row: Option<(&str, &str)>) -> (Value, usize) {
     let mut package = v2_all_families();
     let clause_at = clause(&package);
     package["semantic_graph"]["nodes"][clause_at]["body"]["operation"]["laws"][0]["definition"]

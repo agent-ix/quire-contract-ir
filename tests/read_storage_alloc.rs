@@ -2,12 +2,11 @@
 // Copyright (C) 2026 Agent-IX
 
 //! Counting-allocator checks of the budget-charged strict read (FR-038-AC-511,
-//! TC-472): the heap bytes the read requests inside a stage equal the bytes
-//! it charged to the budget's read storage.
+//! TC-472): each complete public read requests exactly the heap bytes it
+//! charged to its caller's read storage.
 //!
-//! A stage is isolated by the difference of two reads that stop inside it,
-//! each under its own read-storage limit: everything before the first stop
-//! is identical in both, so the requests between the stops are the stage's.
+//! Real request boundaries come from the public first-unpaid amount and locus;
+//! stage enumeration order is never treated as runtime order.
 //! The counter is per thread and armed only around the read.
 
 #[path = "it/support/checked_package.rs"]
@@ -16,9 +15,8 @@ mod checked_package;
 use checked_package::{canonical, evidence_for, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedPackageV2BudgetedReadResult, NativeJoinBudget, NativeJoinLocusSource,
-    PackageReadStage,
+    initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageV2,
+    CheckedPackageV2BudgetedReadResult, CheckedPackageV2ReadResult,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -68,184 +66,327 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-/// Where a request falls in the read's runtime order, by the stage and form
-/// of its locus. The stage enum is not that order: the interval-bound checks
-/// of `WireChecks` run after the node-index stage.
-fn phase(stage: PackageReadStage, form: &str) -> u8 {
-    match (stage, form) {
-        (PackageReadStage::Envelope, _) => 0,
-        (PackageReadStage::Canonical, _) => 1,
-        (PackageReadStage::WireDecode, _) => 2,
-        (PackageReadStage::WireChecks, "owner_schema") => 3,
-        (PackageReadStage::WireChecks, "interval_bounds") => 6,
-        (PackageReadStage::WireChecks, _) => 4,
-        (PackageReadStage::NodeIndex, _) => 5,
-        _ => 7,
+#[path = "it/support/read_allocation_proof.rs"]
+mod read_allocation_proof;
+use read_allocation_proof::{
+    accounted, drop_without_request, every_request, generous_limits, measure_read, Counter,
+    Expected,
+};
+
+struct ThreadCounter;
+impl Counter for ThreadCounter {
+    fn measure(read: impl FnOnce()) -> u64 {
+        REQUESTED.with(|counter| {
+            assert!(counter.get().is_none());
+            counter.set(Some(0));
+        });
+        read();
+        REQUESTED
+            .with(Cell::take)
+            .expect("counter armed around only the requested operation")
     }
 }
 
-const OWNER_SCHEMA: u8 = 3;
-const FLAT_WIRE: u8 = 4;
-const NODE_INDEX: u8 = 5;
-const DECODE: u8 = 2;
+fn whole_read(label: &str, bytes: &[u8], evidence: &CheckedPackageEvidence) {
+    read_allocation_proof::assert_read::<ThreadCounter>(label, bytes, evidence, Expected::Admitted);
+}
 
-/// The bytes one read requested and the bytes it charged, under `limit`, and
-/// the stage of its first unpaid request.
-fn read_under(limit: u64) -> (u64, u64, Option<(PackageReadStage, &'static str)>) {
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn whole_read_small_package_has_no_unpaid_allocation() {
+    let value = v2_all_families();
+    whole_read("all families", &canonical(&value), &evidence_for(&value));
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn whole_read_over_one_mebibyte_has_no_unpaid_allocation() {
+    let value = v2_all_families();
+    let (bytes, _) = checked_package::v2_reference_chain(4000);
+    assert!(bytes.len() > 1 << 20);
+    whole_read("over1MiB sequence", &bytes, &evidence_for(&value));
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn whole_read_each_actual_request_is_prepaid() {
+    let value = v2_all_families();
+    every_request::<ThreadCounter>(&canonical(&value), &evidence_for(&value));
+}
+
+#[trace("TC-472", "FR-038-AC-512")]
+#[test]
+fn malformed_first_fault_and_exact_budget_match_the_public_reader() {
+    initialize_operation_catalog().expect("catalogue gate");
+    let base = v2_all_families();
+    let evidence = evidence_for(&base);
+    let mut unknown = base.clone();
+    unknown["unexpected"] = serde_json::json!(true);
+    unknown["diagnostics"] = serde_json::json!(null);
+    let mut missing = base.clone();
+    missing.as_object_mut().expect("object").remove("name");
+    missing["diagnostics"] = serde_json::json!(null);
+    for bytes in [
+        b"{\"name\":\"first\",\"name\":\"duplicate\"}".to_vec(),
+        b"not json".to_vec(),
+        canonical(&unknown),
+        canonical(&missing),
+    ] {
+        let reference =
+            measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), u64::MAX);
+        let plain = CheckedPackageV2::read(&bytes, generous_limits(), &evidence);
+        let (
+            CheckedPackageV2ReadResult::Refused(expected),
+            CheckedPackageV2BudgetedReadResult::Refused(actual),
+        ) = (&plain, &reference.result)
+        else {
+            panic!(
+                "malformed input must refuse: {plain:?}/{:?}",
+                reference.result
+            );
+        };
+        assert_eq!(
+            actual, expected,
+            "code/cause/ordered loci/node/document pointer preserve first fault"
+        );
+        assert!(
+            !actual.loci.is_empty(),
+            "refusal retains ordered primary locations"
+        );
+        accounted("malformed/refused", &reference);
+        let exact = measure_read::<ThreadCounter>(
+            &bytes,
+            &evidence,
+            generous_limits(),
+            reference.budget.read_storage_consumed(),
+        );
+        assert_eq!(exact.result, reference.result);
+        accounted("exact malformed refusal", &exact);
+        drop_without_request::<ThreadCounter>(exact);
+        drop_without_request::<ThreadCounter>(reference);
+    }
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn even_a_warm_catalogs_first_owned_request_is_denied_before_allocation() {
+    initialize_operation_catalog().expect("catalogue gate");
     let value = v2_all_families();
     let bytes = canonical(&value);
     let evidence = evidence_for(&value);
-    let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
-    REQUESTED.with(|requested| requested.set(Some(0)));
-    let result = CheckedPackageV2::read_with_budget(
-        &bytes,
-        CheckedPackageReadLimits::bounded(),
-        &evidence,
-        &mut budget,
-    );
-    let requested = REQUESTED
-        .with(Cell::take)
-        .expect("the counter was armed for the read");
-    drop(result);
-    let stage = budget
-        .first_unpaid_locus()
-        .and_then(|locus| match locus.source {
-            NativeJoinLocusSource::PackageRead(stage, _) => Some((stage, locus.form)),
-            _ => None,
-        });
-    (requested, budget.read_storage_consumed(), stage)
-}
-
-/// The least limit at which the read is admitted or its first unpaid request
-/// falls in a runtime phase after `done`.
-fn limit_past(done: u8) -> u64 {
-    let past = |stage: PackageReadStage, form: &str| phase(stage, form) > done;
-    let (_, whole, _) = read_under(u64::MAX);
-    let (mut low, mut high) = (0, whole);
-    while low < high {
-        let middle = low + (high - low) / 2;
-        let (_, _, denied) = read_under(middle);
-        if denied.is_none_or(|(stage, form)| past(stage, form)) {
-            high = middle;
-        } else {
-            low = middle + 1;
-        }
+    for _ in 0..2 {
+        let stopped = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), 0);
+        assert_eq!(stopped.requested, 0);
+        assert_eq!(stopped.budget.read_storage_consumed(), 0);
+        let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(outcome) = &stopped.result else {
+            panic!(
+                "zero-cost pointer-free denial is affordable: {:?}",
+                stopped.result
+            );
+        };
+        assert_eq!(
+            outcome.denied.resource,
+            quire_contract_model::PackageReadResource::ReadStorage
+        );
+        assert!(outcome.denied.amount > 0);
+        assert_eq!(outcome.limit, 0);
+        assert_eq!(
+            outcome.consumed,
+            u64::try_from(outcome.denied.amount).expect("catalog request")
+        );
+        assert!(outcome.path.is_none());
+        assert_eq!(
+            stopped
+                .budget
+                .first_unpaid_locus()
+                .expect("denial locus")
+                .form,
+            "operation_catalog"
+        );
+        drop_without_request::<ThreadCounter>(stopped);
     }
-    low
 }
 
-/// Every heap request of the node-index stage is charged: between a read that
-/// stops at the stage's first request and one that stops at its last, the
-/// bytes requested equal the bytes charged.
-#[trace("TC-472", "FR-038-AC-500", "FR-038-AC-511")]
+#[trace("TC-472", "FR-038-AC-512")]
 #[test]
-fn node_index_requests_exactly_what_it_charges() {
-    let start = limit_past(FLAT_WIRE);
-    let end = limit_past(NODE_INDEX) - 1;
-    let (first_requested, first_charged, first_stage) = read_under(start);
-    let (last_requested, last_charged, last_stage) = read_under(end);
-    assert_eq!(
-        first_stage.map(|(stage, _)| stage),
-        Some(PackageReadStage::NodeIndex)
-    );
-    assert_eq!(
-        last_stage.map(|(stage, _)| stage),
-        Some(PackageReadStage::NodeIndex)
-    );
-    assert!(last_charged > first_charged, "the stage charges something");
-    assert_eq!(
-        last_requested - first_requested,
-        last_charged - first_charged
-    );
+fn duplicate_member_precedes_a_later_out_of_range_number() {
+    initialize_operation_catalog().expect("catalogue gate");
+    let evidence = CheckedPackageEvidence::new();
+    for bytes in [
+        br#"{"name":"first","name":"duplicate"}"#.as_slice(),
+        br#"{"name":"first","name":"duplicate","later":1e999}"#.as_slice(),
+    ] {
+        let read = measure_read::<ThreadCounter>(bytes, &evidence, generous_limits(), u64::MAX);
+        let CheckedPackageV2BudgetedReadResult::Refused(ref refusal) = read.result else {
+            panic!("duplicate member must refuse: {:?}", read.result);
+        };
+        assert_eq!(
+            refusal.code,
+            quire_contract_model::CheckedPackageRefusalCode::DuplicateMember
+        );
+        read_allocation_proof::assert_read::<ThreadCounter>(
+            "duplicate first fault",
+            bytes,
+            &evidence,
+            Expected::Refused(quire_contract_model::CheckedPackageRefusalCode::DuplicateMember),
+        );
+        accounted("first byte-stream fault", &read);
+        drop_without_request::<ThreadCounter>(read);
+    }
 }
 
-/// Every heap request of the slot resolution and the owner-schema check is
-/// charged: between a read that stops at their first request and one that
-/// stops at their last, the bytes requested equal the bytes charged.
-#[trace("TC-472", "FR-038-AC-499", "FR-038-AC-511")]
-#[test]
-fn owner_schema_requests_exactly_what_it_charges() {
-    let start = limit_past(DECODE);
-    let end = limit_past(OWNER_SCHEMA) - 1;
-    let (first_requested, first_charged, first_stage) = read_under(start);
-    let (last_requested, last_charged, last_stage) = read_under(end);
-    assert_eq!(
-        first_stage,
-        Some((PackageReadStage::WireChecks, "owner_schema"))
-    );
-    assert_eq!(
-        last_stage,
-        Some((PackageReadStage::WireChecks, "owner_schema"))
-    );
-    assert!(last_charged > first_charged, "the check charges something");
-    assert_eq!(
-        last_requested - first_requested,
-        last_charged - first_charged
-    );
-}
+#[path = "it/support/read_storage_inputs.rs"]
+mod read_storage_inputs;
 
-/// The bytes one whole read requested, the read storage it charged, and
-/// whether it admitted, under `limit`. The admitted package is held until the
-/// counter is disarmed, so only the read's own requests are counted.
-fn whole_read(bytes: &[u8], evidence: &CheckedPackageEvidence, limit: u64) -> (u64, u64, bool) {
-    let limits = CheckedPackageReadLimits {
-        bytes: 1 << 30,
-        nodes: 1 << 24,
-        edges: 1 << 24,
-        occurrences: 1 << 24,
-        diagnostics: 1 << 24,
-        work: 1 << 40,
-    };
-    let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
-    REQUESTED.with(|requested| requested.set(Some(0)));
-    let result = CheckedPackageV2::read_with_budget(bytes, limits, evidence, &mut budget);
-    let requested = REQUESTED
-        .with(Cell::take)
-        .expect("the counter was armed for the read");
-    let admitted = matches!(result, CheckedPackageV2BudgetedReadResult::Admitted(_));
-    drop(result);
-    (requested, budget.read_storage_consumed(), admitted)
-}
-
-/// The whole-read accounting of one input: under an unlimited budget the
-/// bytes requested equal the bytes charged; the exact limit admits; one byte
-/// short refuses and requests no more than it charged.
-fn assert_whole_read_accounted(label: &str, bytes: &[u8], evidence: &CheckedPackageEvidence) {
-    assert!(
-        initialize_operation_catalog().is_ok(),
-        "the operation catalog reads"
-    );
-    let (requested, charged, admitted) = whole_read(bytes, evidence, u64::MAX);
-    assert!(admitted, "{label}: the input admits");
-    assert_eq!(
-        requested, charged,
-        "{label}: requested bytes == charged bytes"
-    );
-    let (_, _, exact) = whole_read(bytes, evidence, charged);
-    assert!(exact, "{label}: the exact limit admits");
-    let (short_requested, short_charged, short) = whole_read(bytes, evidence, charged - 1);
-    assert!(!short, "{label}: one byte short refuses");
-    assert!(short_charged < charged, "{label}: the refusal stops early");
-    assert!(
-        short_requested <= short_charged + charged / 16 + 4096,
-        "{label}: a refusal requests only its charged bytes and its diagnostic"
-    );
-}
-
-/// A genuine package: every request is charged.
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
-fn a_genuine_package_requests_exactly_what_it_charges() {
-    let value = v2_all_families();
-    assert_whole_read_accounted("all families", &canonical(&value), &evidence_for(&value));
+fn whole_read_chain_100000() {
+    let input = read_storage_inputs::chain_100000();
+    whole_read("chain_100000", &input.bytes, &input.evidence);
 }
 
-/// A package whose graph sequence exceeds 1 MiB.
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
-fn a_package_with_a_sequence_over_one_mebibyte_requests_exactly_what_it_charges() {
+fn whole_read_flat_graph_and_source_map_10000() {
+    let input = read_storage_inputs::flat_graph_and_source_map_10000();
+    whole_read(
+        "flat_graph_and_source_map_10000",
+        &input.bytes,
+        &input.evidence,
+    );
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn whole_read_node_with_10000_dependencies() {
+    let input = read_storage_inputs::dependencies_10000();
+    whole_read("dependencies_10000", &input.bytes, &input.evidence);
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn whole_read_single_string_one_mebibyte() {
+    let input = read_storage_inputs::string_one_mebibyte();
+    whole_read("string_one_mebibyte", &input.bytes, &input.evidence);
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn whole_read_diagnostics_10000_with_details() {
+    let input = read_storage_inputs::diagnostics_10000();
+    whole_read("diagnostics_10000", &input.bytes, &input.evidence);
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn whole_read_direct_dependencies_64() {
+    let input = read_storage_inputs::direct_dependencies_64();
+    whole_read("direct_dependencies_64", &input.bytes, &input.evidence);
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn whole_read_two_selected_documents_512k() {
+    let input = read_storage_inputs::selected_models_two_512k();
+    whole_read("selected_models_two_512k", &input.bytes, &input.evidence);
+}
+
+/// Destructor accounting is independent of the still-red during-call proof.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn returned_admitted_refused_and_denied_outcomes_drop_without_allocating() {
+    initialize_operation_catalog().expect("catalog gate");
     let value = v2_all_families();
-    let (bytes, _) = checked_package::v2_reference_chain(4000);
-    assert!(bytes.len() > 1 << 20, "the chain exceeds 1 MiB");
-    assert_whole_read_accounted("reference chain", &bytes, &evidence_for(&value));
+    let bytes = canonical(&value);
+    let evidence = evidence_for(&value);
+    let admitted = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), u64::MAX);
+    assert!(matches!(
+        admitted.result,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    drop_without_request::<ThreadCounter>(admitted);
+    let refused =
+        measure_read::<ThreadCounter>(b"not JSON", &evidence, generous_limits(), u64::MAX);
+    assert!(matches!(
+        refused.result,
+        CheckedPackageV2BudgetedReadResult::Refused(_)
+    ));
+    drop_without_request::<ThreadCounter>(refused);
+    let denied = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), 0);
+    assert!(denied.budget.first_unpaid_read_storage().is_some());
+    drop_without_request::<ThreadCounter>(denied);
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn the_one_short_outcome_itself_has_no_unpaid_allocation() {
+    initialize_operation_catalog().expect("catalog gate");
+    let value = v2_all_families();
+    let bytes = canonical(&value);
+    let evidence = evidence_for(&value);
+    let reference = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), u64::MAX);
+    assert!(matches!(
+        reference.result,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    let required = reference.budget.read_storage_consumed();
+    assert!(required > 0);
+    let short = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), required - 1);
+    assert!(matches!(
+        short.result,
+        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_)
+            | CheckedPackageV2BudgetedReadResult::Exhausted(_)
+    ));
+    assert!(short.budget.first_unpaid_read_storage().is_some());
+    accounted("one short whole-read outcome", &short);
+    drop_without_request::<ThreadCounter>(short);
+    drop_without_request::<ThreadCounter>(reference);
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn counted_exact_and_denied_work_budgets_cover_a_genuine_package() {
+    let value = v2_all_families();
+    assert!(
+        read_allocation_proof::work_denials::<ThreadCounter>(
+            "genuine",
+            &canonical(&value),
+            &evidence_for(&value)
+        ),
+        "the genuine input reaches work charges"
+    );
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn counted_exact_and_denied_work_budgets_cover_a_malformed_body() {
+    let mut value = v2_all_families();
+    let node = value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "reference")
+        .expect("reference fixture");
+    node["body"] = serde_json::json!({"term":"reference"});
+    let bytes = canonical(&value);
+    let evidence = evidence_for(&value);
+    let result = CheckedPackageV2::read(&bytes, generous_limits(), &evidence);
+    assert!(
+        matches!(result,CheckedPackageV2ReadResult::Refused(ref refusal) if refusal.code==quire_contract_model::CheckedPackageRefusalCode::InvalidSemanticGraph),
+        "genuine malformed-body first fault: {result:?}"
+    );
+    assert!(
+        read_allocation_proof::work_denials::<ThreadCounter>("malformed body", &bytes, &evidence),
+        "malformed body reaches work charges before refusal"
+    );
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn consecutive_reads_charge_each_delta_to_the_same_caller_budget() {
+    let value = v2_all_families();
+    read_allocation_proof::shared_budget_reads::<ThreadCounter>(
+        &canonical(&value),
+        &evidence_for(&value),
+    );
 }

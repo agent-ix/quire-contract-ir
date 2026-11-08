@@ -378,7 +378,7 @@ fn qspec_role_port_member_cases_use_the_selected_declaration_kind() {
         let id = row["id"].as_str().unwrap();
         assert!(exercised.insert(id));
         assert_eq!(row["test_case"], "TC-947");
-        let (base, document, role) = fixture_support::role_port_fixture();
+        let (base, document, role) = fixture_support::protocol_ports::role_port_fixture();
         let read = |package: &Value| {
             CheckedPackageV2::read(
                 &fixture_support::canonical(package),

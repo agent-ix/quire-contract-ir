@@ -2208,7 +2208,7 @@ fn tc_048_a_nominal_name_mismatch_survives_a_shared_unit_dimension_name() {
 }
 
 /// Gives one node a source declaration and its authored structural path.
-fn declare(package: &mut Value, position: usize, name: &[&str], ordinal: u64) {
+pub(super) fn declare(package: &mut Value, position: usize, name: &[&str], ordinal: u64) {
     let source = package["lock"]["sources"][0].clone();
     let old = package["semantic_graph"]["nodes"][position]["node_id"].clone();
     let fresh = checked_package::structural_id(
