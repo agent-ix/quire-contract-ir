@@ -3510,8 +3510,8 @@ impl ContractPackageWireV1 {
             &self.package.source.lock,
             &[],
             &supplied,
+            &terms,
             &mut *meter,
-            limits.bytes,
         )?;
         let reference_pointer = |position: usize, reference: usize| match (
             self.semantic_graph.nodes.get(position),

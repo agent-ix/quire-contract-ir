@@ -193,7 +193,11 @@ fn validate_placement(
                 Step::Index(position),
                 Step::Key("body"),
             ];
-            let cursor = Cursor::at(&Trail::Base(&steps));
+            let meter = std::cell::RefCell::new(&mut *meter);
+            let cursor = Cursor::charged(&Trail::Base(&steps), &|bytes| {
+                meter.borrow_mut().reserve_as(bytes as u128, None)
+            })?;
+            let meter = meter.into_inner();
             let (body, _) = meter.body(position).expect("graph bodies are attached");
             let root = cursor.root(body, true);
             let mut placement = StateApplicationPlacement {
@@ -289,11 +293,11 @@ pub(super) type OperationResolution<'m> =
 /// The operation a model-owned context declares under `name`: `Ok(None)`
 /// when the context is not a model declaration node, else the owner and
 /// the operation, or the refusal FR-342's operation check determines.
-pub(super) fn resolve_operation<'m>(
-    context: &CheckedSemanticNodeV2,
+pub(super) fn resolve_operation<'m, Body: super::model_members::EmptyAggregateBody>(
+    context: &super::CheckedSemanticNodeV2<Body>,
     context_kind: CheckedNodeKind,
     name: &str,
-    graph: &StepGraph<'_, 'm>,
+    graph: &StepGraph<'_, 'm, Body>,
     meter: &mut WorkMeter,
 ) -> Result<OperationResolution<'m>, ValidationFailure> {
     if !graph
@@ -580,14 +584,23 @@ fn check_clause(
         else {
             return Err(signature_refusal());
         };
-        let expected = slot_type.node_id(&clause.node_id.package).ok_or_else(|| {
-            ValidationFailure::refused_at(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                arguments_at.clone().index(0),
-                None,
-                clause.node_id.clone(),
-            )
-        })?;
+        let expected = slot_type
+            .node_id_in(
+                &clause.node_id.package,
+                &mut super::model_members::Budget::new(
+                    meter,
+                    owner.package.root,
+                    owner.package.bytes,
+                ),
+            )?
+            .ok_or_else(|| {
+                ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    arguments_at.clone().index(0),
+                    None,
+                    clause.node_id.clone(),
+                )
+            })?;
         let actual = graph
             .index
             .get(&parameter.semantic_type)

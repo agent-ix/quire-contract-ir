@@ -7,9 +7,11 @@
 
 use super::checked_json::CheckedJson;
 use super::{
-    ApplicationOperator, BodyTerm, LawRole, LiteralKind, OperationConstraintKind,
-    OperationMemberKind, OperationModeKind, StateClauseKind,
+    ApplicationOperator, LawRole, LiteralKind, OperationConstraintKind, OperationMemberKind,
+    OperationModeKind, StateClauseKind,
 };
+#[cfg(test)]
+use super::BodyTerm;
 use super::{
     CheckedComponentClause, CheckedCompositionComponent, CheckedCompositionPremise,
     CheckedEnvironmentEntry, CheckedFairnessSupply, CheckedGuaranteeProgress,

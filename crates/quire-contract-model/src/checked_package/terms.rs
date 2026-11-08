@@ -12,10 +12,9 @@
 use super::common::{Step, TermField, TermTag, Trail, ValidationFailure, WireTerm};
 use super::shared::CheckedNodeId;
 use super::v2::read_charge::{Denied, ReadStorage, Site};
-use super::v2::{
-    ApplicationOperator, BodyTerm, CheckedTerm, CheckedTermView, NodeIdRead, TermNode,
-};
-use quire_walk::{walk, Children, Walk};
+use super::v2::{ApplicationOperator, BodyTerm, NodeIdRead, TermNode};
+#[cfg(test)]
+use super::v2::{CheckedTerm, CheckedTermView};
 use serde::Deserialize;
 use serde_json::Value;
 

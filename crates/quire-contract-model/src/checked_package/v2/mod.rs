@@ -2071,7 +2071,8 @@ fn validate_lock<'a>(
     let unit_refs = if roots.is_empty() {
         no_unit_refs(meter)?
     } else {
-        checked_unit_refs(&wire.semantic_graph.nodes, meter)?
+        let terms = identity::duration_terms(&wire.semantic_graph.nodes, meter)?;
+        checked_unit_refs(&wire.semantic_graph.nodes, &terms, meter)?
     };
     let (mut models, documents) =
         validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
@@ -3435,7 +3436,7 @@ fn validate_graph(
             Err(failure) => return Err(failure),
         });
     }
-    model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
+    model_root::validate_shape(&graph.nodes, &kinds, &terms, meter)?;
     let missing_protocol_temporal_selection =
         protocol_body::has_missing_temporal_selection(&kinds, &terms, &index, &wire.lock);
     let binding_result = temporal_binding::validate(
@@ -3540,6 +3541,7 @@ fn validate_graph(
         &references,
         &index,
         structural_keys,
+        meter,
     )?;
     refinement::validate_dependencies(
         &graph.nodes,
@@ -3556,8 +3558,8 @@ fn validate_graph(
         &wire.lock,
         models,
         dependencies,
+        &terms,
         meter,
-        limits.bytes,
     )?;
     validate_declaration_names(&graph.nodes, &kinds, &index)?;
     validate_recursion_group_paths(&graph.nodes)?;
@@ -3641,7 +3643,15 @@ fn validate_graph(
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, meter)?;
-    guarantee_composition::validate(&graph.nodes, &kinds, &index, &owners, dependencies, meter)?;
+    guarantee_composition::validate(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        &owners,
+        dependencies,
+        meter,
+    )?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     validate_hyperproperties(&graph.nodes, &kinds, &index, &owners, &terms, meter)?;

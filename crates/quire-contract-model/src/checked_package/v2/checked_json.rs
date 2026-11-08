@@ -224,21 +224,6 @@ impl CheckedJson {
     }
 }
 
-/// Model declaration checks borrow the closed empty aggregate directly from
-/// the retained document; no authored tree or semantic term is reconstructed.
-impl super::model_members::EmptyAggregateBody for CheckedJson {
-    #[ix_trace_rs::string_edge]
-    fn is_empty_aggregate(&self) -> bool {
-        let node = super::TermNode::of(self);
-        node.exact_members(&["term", "members"])
-            && node.get("term").and_then(super::TermNode::as_str) == Some("aggregate")
-            && node
-                .get("members")
-                .and_then(super::TermNode::items)
-                .is_some_and(|members| members.len() == 0)
-    }
-}
-
 impl Encode for CheckedJson {
     fn encode_into<S: Sink + ?Sized>(
         &self,

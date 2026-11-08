@@ -419,18 +419,18 @@ impl MeaningDefect {
 }
 
 /// The graph the frame and state steps read.
-pub(super) struct StepGraph<'a, 'm> {
-    pub(super) nodes: &'a [CheckedSemanticNodeV2],
+pub(super) struct StepGraph<'a, 'm, Body = super::CheckedJson> {
+    pub(super) nodes: &'a [super::CheckedSemanticNodeV2<Body>],
     pub(super) kinds: &'a [CheckedNodeKind],
     pub(super) index: &'a GraphIndex<'a>,
     pub(super) owners: &'a ModelOwners<'m>,
 }
 
-impl StepGraph<'_, '_> {
+impl<Body> StepGraph<'_, '_, Body> {
     pub(super) fn node(
         &self,
         id: &CheckedNodeId,
-    ) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
+    ) -> Option<(&super::CheckedSemanticNodeV2<Body>, CheckedNodeKind)> {
         let position = *self.index.get(id)?;
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
     }
@@ -439,7 +439,7 @@ impl StepGraph<'_, '_> {
     pub(super) fn each(
         &self,
         kind: CheckedNodeKind,
-    ) -> impl Iterator<Item = (usize, &CheckedSemanticNodeV2)> + '_ {
+    ) -> impl Iterator<Item = (usize, &super::CheckedSemanticNodeV2<Body>)> + '_ {
         self.index.values().filter_map(move |&position| {
             (self.kinds.get(position) == Some(&kind))
                 .then(|| self.nodes.get(position).map(|node| (position, node)))
@@ -451,12 +451,12 @@ impl StepGraph<'_, '_> {
 /// Joins a reference `target` held by `holder` to a declared dependency of
 /// the admitted kind: `missing-name` when it is not among `holder`'s
 /// `dependencies` or names no node, `malformed-declaration` for another kind.
-pub(super) fn join<'g>(
-    holder: &CheckedSemanticNodeV2,
+pub(super) fn join<'g, Body>(
+    holder: &super::CheckedSemanticNodeV2<Body>,
     target: &CheckedNodeId,
     admits: impl Fn(CheckedNodeKind) -> bool,
-    graph: &'g StepGraph<'_, '_>,
-) -> Result<(&'g CheckedSemanticNodeV2, CheckedNodeKind), ModelRefusal> {
+    graph: &'g StepGraph<'_, '_, Body>,
+) -> Result<(&'g super::CheckedSemanticNodeV2<Body>, CheckedNodeKind), ModelRefusal> {
     let (node, kind) = graph
         .node(target)
         .filter(|_| holder.dependencies.contains(target))
