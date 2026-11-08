@@ -1171,6 +1171,8 @@ fn finish_proof(
         });
     let row = serde_json::json!({"driver":location.file(),"line":location.line(),"column":location.column(),
         "test":test_name,"sequence":sequence,"mode":mode,"public_view_equivalence":views.label(),"outcome":kind,
+        "qualification":if mode == "sample" { "NOT_QUALIFIED" } else { "FULL_CORPUS_REQUIRED" },
+        "ac_512_credit":false,
         "input_bytes":bytes.len(),"work_limit":limits.work,"work":reference.budget.consumed().work,
         "read_storage":storage,"storage_boundaries":storage_boundaries,"work_boundaries":work_boundaries});
     let row = if let Some(provider) = provider {
@@ -1259,7 +1261,6 @@ pub(crate) fn read_budget_and_account(
 ) -> Budgeted {
     let location = std::panic::Location::caller();
     let provider = provider_for_input(bytes, evidence, location);
-    #[cfg(feature = "test-support")]
     let mode = crate::without_qspec_instrumentation(|| {
         let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
         assert!(
@@ -1268,7 +1269,6 @@ pub(crate) fn read_budget_and_account(
         );
         mode
     });
-    #[cfg(feature = "test-support")]
     let views = ReadViewScope::from_proof_mode(&mode);
     #[cfg(feature = "test-support")]
     let seed = budget.read_proof_snapshot();
@@ -1369,7 +1369,10 @@ pub(crate) fn read_budget_and_account(
         let row = serde_json::json!({"driver":location.file(),"line":location.line(),"column":location.column(),
             "test":std::env::var("IR1404_ORIGINAL_TEST_NAME").unwrap_or_else(|_| std::thread::current().name().unwrap_or("unnamed").to_owned()),"entry":"caller-budget",
             "input_bytes":bytes.len(),"work_limit":budget.work_limit(),
-            "storage_limit":budget.read_storage_limit(),"requested":requested});
+            "storage_limit":budget.read_storage_limit(),"requested":requested,
+            "mode":mode,"public_view_equivalence":views.label(),
+            "qualification":if mode == "sample" { "NOT_QUALIFIED" } else { "FULL_CORPUS_REQUIRED" },
+            "ac_512_credit":false});
         let row = if let Some(provider) = provider {
             let mut row = row;
             #[cfg(feature = "test-support")]
@@ -1397,8 +1400,6 @@ pub(crate) fn read_budget_and_account(
         #[cfg(feature = "test-support")]
         let row = {
             let mut row = row;
-            row["mode"] = mode.into();
-            row["public_view_equivalence"] = views.label().into();
             row["read_storage"] = requested.into();
             row["prior_read_storage"] = before.into();
             row["prior_logical_storage"] = logical_before.into();
@@ -1432,6 +1433,26 @@ mod caller_budget_tests {
         CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2, NativeJoinBudget,
         NativeJoinChargeKind,
     };
+
+    /// Exercise both log entry producers with the existing invalid-JSON fixture.
+    /// Process-level test configuration selects the log; no test mutates it.
+    #[ix_trace_rs::trace("TC-472")]
+    #[test]
+    fn qualification_metadata_entries_preserve_the_existing_invalid_json_outcome() {
+        quire_contract_model::initialize_operation_catalog().expect("catalogue reads");
+        let bytes = b"not json";
+        let evidence = CheckedPackageEvidence::new();
+        let limits = CheckedPackageReadLimits::bounded();
+        let plain = super::read_and_account(bytes, limits, &evidence);
+        let mut budget = NativeJoinBudget::unlimited();
+        let budgeted = super::read_budget_and_account(bytes, limits, &evidence, &mut budget);
+        let (super::Plain::Refused(plain), super::Budgeted::Refused(budgeted)) = (plain, budgeted)
+        else {
+            panic!("the existing invalid-JSON fixture must refuse through both entries");
+        };
+        assert_eq!(plain, budgeted);
+        assert!(budget.read_storage_consumed() > 0);
+    }
 
     #[cfg(feature = "test-support")]
     #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
