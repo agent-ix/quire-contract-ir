@@ -1336,7 +1336,7 @@ fn operation_defect(
         };
         let bound = admitted_arguments(application, graph)
             .and_then(|arguments| arguments.get(1))
-            .and_then(|binder| binder_bound(binder, graph));
+            .and_then(|binder| binder_bound(binder, operation, graph));
         for type_id in result.into_iter().chain(bound.as_ref()) {
             let pin = carried_unit_and_mode(type_id, graph)
                 .map(|(_, mode)| mode)
@@ -2379,7 +2379,7 @@ fn check_operands(
                     indices.iter().all(|position| {
                         typed_arguments
                             .get(*position)
-                            .and_then(|binder| binder_bound(binder, graph))
+                            .and_then(|binder| binder_bound(binder, operation, graph))
                             .as_ref()
                             == Some(member)
                     })
@@ -2452,10 +2452,28 @@ fn check_operands(
     Ok(None)
 }
 
-/// A binder's value names its summand; the summand's declared type is the bound.
-fn binder_bound(binder: &CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
+/// Resolve a binder's body type, including the two binders of a fold step.
+fn binder_bound(
+    binder: &CheckedTerm,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+) -> Option<CheckedNodeId> {
     let CheckedTerm::Binding { value, .. } = binder else {
         return None;
+    };
+    let value = match (operation.identity.as_ref(), value.as_ref()) {
+        (
+            "quire.op.collection.fold" | "quire.op.collection.reduce",
+            CheckedTerm::Aggregate { members },
+        ) => {
+            // The accumulator contains exactly one element binder. Its step,
+            // rather than the aggregate wrapper, determines the bound type.
+            let [CheckedTerm::Binding { value, .. }] = members.as_slice() else {
+                return None;
+            };
+            value.as_ref()
+        }
+        _ => value.as_ref(),
     };
     operand_type_node_typed(value, graph.nodes, graph.kinds, graph.index)
 }
