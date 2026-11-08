@@ -722,7 +722,18 @@ class Graph:
                 if len(fields) < 2:
                     self.block(caller, instruction, "unparsed compiler store", module)
                 else:
-                    changed |= self.store(self.operand(fields[1], state), self.operand(fields[0], state))
+                    address = self.operand(fields[1], state)
+                    stored = self.operand(fields[0], state)
+                    try:
+                        _, literal = take_type(re.sub(r"^(?:atomic |volatile )+", "", fields[0]))
+                        if literal.startswith(("{", "[", "<")):
+                            self.block(caller, instruction, "compound constant store has unmodeled field/pointer effects", module)
+                            stored = scalar(Atom("unknown", "compound constant store field provenance"))
+                    except EvidenceError:
+                        self.block(caller, instruction, "store type/byte effects are not represented", module)
+                    if any(atom.kind not in ("stack", "heap", "global") for atom in address.get((), set())):
+                        self.block(caller, instruction, "unknown-address store may alter callable memory; finite prior targets are not complete", module)
+                    changed |= self.store(address, stored)
             elif rhs.startswith("load "):
                 fields = split_fields(rhs[5:])
                 value = self.load(self.operand(fields[1], state)) if len(fields) > 1 else scalar(Atom("unknown", "unparsed load"))
@@ -845,6 +856,10 @@ class Graph:
                 break
         if not converged:
             self.block(root, None, "compiler pointer-flow resource bound reached before fixed point")
+        callable_cells = defaultdict(set)
+        for address, value in self.memory.items():
+            if any(atom.kind == "function" for atoms in value.values() for atom in atoms):
+                callable_cells[(address.kind, address.name)].add(address.offset)
         for state in self.states.values():
             for instruction in state.function.instructions:
                 call = self.call(instruction)
@@ -852,6 +867,22 @@ class Graph:
                     atoms = self.operand(call[0], state).get((), set())
                     if not atoms:
                         self.block(state.function.symbol, instruction, "indirect call has no compiler-proven finite targets")
+                if instruction.text.startswith("store "):
+                    fields = split_fields(instruction.text[6:])
+                    if len(fields) < 2 or not self.operand(fields[1], state).get((), set()):
+                        self.block(state.function.symbol, instruction, "store address has no compiler-proven memory provenance")
+                    elif len(fields) >= 2:
+                        stored = self.operand(fields[0], state)
+                        try:
+                            ty, _ = take_type(re.sub(r"^(?:atomic |volatile )+", "", fields[0]))
+                            width = state.function.module.size_align(ty)[0]
+                        except EvidenceError:
+                            width = None
+                        for address in self.operand(fields[1], state).get((), set()):
+                            cells = callable_cells.get((address.kind, address.name), ())
+                            overlaps = any(width is None or address.offset < cell + 8 and cell < address.offset + width for cell in cells)
+                            if overlaps and (not stored or width != 8):
+                                self.block(state.function.symbol, instruction, "unmodeled scalar/partial store overlaps callable memory; prior finite targets are not complete")
             if state.function.symbol in self.duplicates:
                 self.block(state.function.symbol, None, "multiple definitions require compiler/linker resolution")
         reached = set(self.states) | set(self.inline_functions)
@@ -986,17 +1017,41 @@ def recover_embedded_bitcode(archives: list[Path], llvm: Path, directory: Path,
     return bitcode, evidence
 
 
+def owned_target(requested: Path, source_root: Path, tool_root: Path) -> Path:
+    resolved = requested.resolve()
+    # Do not resolve the allowed `target` bases: a target symlink into another
+    # lane must not turn that other lane into an allowed ownership boundary.
+    bases = (source_root.resolve() / "target", tool_root.resolve() / "target")
+    if not any(resolved.is_relative_to(base) for base in bases):
+        raise EvidenceError("resolved compiler target escapes the owned source/tool target roots")
+    return resolved
+
+
+def reserve_report(requested: Path) -> Path:
+    output = requested.resolve()
+    output.mkdir(mode=0o700, parents=True, exist_ok=False)
+    return output
+
+
+def lower_process_priority() -> None:
+    if os.getpriority(os.PRIO_PROCESS, 0) < 10:
+        os.setpriority(os.PRIO_PROCESS, 0, 10)
+    subprocess.run(["/usr/bin/ionice", "-c", "3", "-p", str(os.getpid())],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+
+
 def production_run(arguments: argparse.Namespace) -> dict:
     source = arguments.source_root.resolve(strict=True)
     output = arguments.out_dir.resolve()
     toolchain = arguments.toolchain_bin.resolve(strict=True)
     llvm = arguments.llvm_bin.resolve(strict=True)
-    target = arguments.target_dir.resolve()
+    target = owned_target(arguments.target_dir, source, Path(__file__).resolve().parents[2])
     if not all((toolchain / name).is_file() for name in ("cargo", "rustc")):
         raise EvidenceError("absolute installed cargo/rustc are required")
     if not all((llvm / name).is_file() for name in ("llvm-as", "llvm-nm", "llvm-link", "opt", "llvm-ar", "llvm-objcopy", "llvm-objdump")):
         raise EvidenceError("matching absolute installed LLVM tools are required")
-    output.mkdir(parents=True, exist_ok=True)
+    if not output.is_dir() or any(output.iterdir()):
+        raise EvidenceError("report directory must be newly and exclusively reserved")
     target.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(target).free < 4 * 1024**3:
         raise EvidenceError("less than 4 GiB free on owned compiler-artifact filesystem")
@@ -1116,7 +1171,13 @@ def production_run(arguments: argparse.Namespace) -> dict:
     mir_files = [model_mir, root_output / "static_reader_adapter.mir"]
     # Cargo rlibs are real symbol-table sources, never substituted body evidence.
     objects = []
-    report = analyze_artifacts(llvm_files, mir_files, objects, llvm, env, "::static_reader_root")
+    provenance["analysis_lock_requested"] = time.time()
+    with open("/tmp/titan-cargo.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        provenance["analysis_lock_acquired"] = time.time()
+        report = analyze_artifacts(llvm_files, mir_files, objects, llvm, env, "::static_reader_root")
+    provenance["analysis_lock_released"] = time.time()
+    (output / "provenance.json").write_text(json.dumps(provenance, indent=2))
     report["provenance"] = provenance
     report["limitations"] = [
         "Prototype emits the selected model library and opaque adapter; missing runtime dependency bodies remain unresolved.",
@@ -1150,14 +1211,21 @@ def main() -> int:
         if not value.is_absolute():
             parser.error("--" + key.replace("_", "-") + " must be absolute")
     try:
+        arguments.out_dir = reserve_report(arguments.out_dir)
+    except OSError as error:
+        print(json.dumps({"result": {"static_ac513_proven": False}, "error": str(error),
+                          "report_written": False}), file=sys.stderr)
+        return 2
+    try:
+        lower_process_priority()
         report = production_run(arguments)
     except (EvidenceError, OSError, subprocess.SubprocessError) as error:
         report = {"root": None, "functions": [], "edges": [], "trusted_boundaries": [],
                   "result": {"static_ac513_proven": False, "source_bans_checked": False},
                   "unresolved": [{"caller_instance": None, "source_span": None, "reason": str(error)}]}
-    arguments.out_dir.mkdir(parents=True, exist_ok=True)
     report_file = arguments.out_dir / "compiler-reachability.json"
-    report_file.write_text(json.dumps(report, indent=2) + "\n")
+    with report_file.open("x") as output:
+        output.write(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"report": str(report_file), "result": report["result"]}))
     return 0 if report["result"]["static_ac513_proven"] else 2
 

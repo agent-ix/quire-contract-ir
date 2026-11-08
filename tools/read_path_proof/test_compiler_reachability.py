@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
+import tempfile
 import unittest
 
 import compiler_reachability as proof
@@ -20,8 +22,9 @@ class CompilerReachabilityTests(unittest.TestCase):
         cls.output = Path(os.environ["STATIC_PROOF_TEST_OUT"]).resolve()
         cls.output.mkdir(parents=True, exist_ok=True)
         cls.env = proof.safe_environment(cls.bin)
+        proof.lower_process_priority()
 
-    def compile(self, name, source, *, thir=False):
+    def compile(self, name, source, *, thir=False, run_test=False):
         directory = self.output / name
         directory.mkdir(exist_ok=True)
         source_file = directory / "control.rs"
@@ -43,12 +46,22 @@ class CompilerReachabilityTests(unittest.TestCase):
                                 "-Zunpretty=thir-tree", "-Ztrim-diagnostic-paths=no", "-Zverbose-internals=yes"]
                 proof.execute(["nice", "-n", "10", "ionice", "-c", "3"] + thir_command,
                               self.env, directory, directory / "compiler.thir")
+            if run_test:
+                executable = directory / "runtime-control"
+                runtime_command = [str(self.bin / "rustc"), str(source_file), "--crate-name", name,
+                                   "--edition=2024", "--test", "-Cdebuginfo=0", "-o", str(executable)]
+                proof.execute(["nice", "-n", "10", "ionice", "-c", "3"] + runtime_command,
+                              self.env, directory, directory / "runtime-compiler.log")
+                proof.execute([str(executable), "--exact", "valid_sequential_alias", "--nocapture"],
+                              self.env, directory, directory / "runtime-control.log")
         (directory / "invocation.json").write_text(json.dumps({
             "command": command, "lock_requested": requested, "lock_acquired": acquired,
         }, indent=2))
-        return proof.analyze_artifacts([directory / (name + ".ll")],
-            [directory / (name + ".mir")], [directory / (name + ".o")],
-            self.llvm, self.env, "::reader_root")
+        with open("/tmp/titan-cargo.lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return proof.analyze_artifacts([directory / (name + ".ll")],
+                [directory / (name + ".mir")], [directory / (name + ".o")],
+                self.llvm, self.env, "::reader_root")
 
     def test_monomorphic_callback_closure_drop_operator_and_finite_vtables(self):
         result = self.compile("finite", """
@@ -172,6 +185,53 @@ pub fn local_same_name()->serde_json::Value {serde_json::Value::Null}
                          {"qualified_types::benign::Value", "qualified_types::serde_json::Value"})
         self.assertTrue(all(item["source_span"] and item["owner_def_id"] for item in evidence))
         self.assertTrue(all(item["violation"] is None for item in evidence))
+
+    def test_unknown_raw_store_can_alias_a_known_function_cell(self):
+        result = self.compile("raw_alias", """
+fn initial(x:u8)->u8 {x ^ 1}
+fn other(x:u8)->u8 {x ^ 128}
+static mut TARGET:fn(u8)->u8=initial;
+pub unsafe fn reader_root(target:*mut fn(u8)->u8,x:u8)->u8 {
+ unsafe { *target=other; TARGET(x) }
+}
+#[test]
+fn valid_sequential_alias() {
+ assert_eq!(unsafe {reader_root(&raw mut TARGET,3)},131);
+}
+""", run_test=True)
+        self.assertFalse(result["result"]["static_ac513_proven"])
+        self.assertTrue(any("unknown-address store" in item["reason"] for item in result["unresolved"]), result)
+
+
+class ArtifactGuardsTests(unittest.TestCase):
+    def test_resolved_target_rejects_a_real_symlink_into_another_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, tool, other = root / "source", root / "tool", root / "other"
+            source.mkdir()
+            tool.mkdir()
+            other.mkdir()
+            sentinel = other / "preserved"
+            sentinel.write_bytes(b"other lane cache")
+            (source / "target").symlink_to(other, target_is_directory=True)
+            with self.assertRaisesRegex(proof.EvidenceError, "escapes"):
+                proof.owned_target(source / "target/proof", source, tool)
+            self.assertEqual(sentinel.read_bytes(), b"other lane cache")
+            self.assertEqual(proof.owned_target(tool / "target/proof", source, tool), tool / "target/proof")
+
+    def test_existing_report_is_never_overwritten_even_on_cli_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            report = proof.reserve_report(root / "report")
+            saved = report / "compiler-reachability.json"
+            saved.write_bytes(b"previous immutable evidence\n")
+            result = subprocess.run([sys.executable, str(Path(proof.__file__).resolve()),
+                                     "--source-root", str(root), "--out-dir", str(report),
+                                     "--toolchain-bin", "/usr/bin", "--llvm-bin", "/usr/bin"],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(json.loads(result.stderr)["report_written"])
+            self.assertEqual(saved.read_bytes(), b"previous immutable evidence\n")
 
 
 if __name__ == "__main__":
