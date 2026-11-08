@@ -38,6 +38,7 @@ use super::abstraction::{
     ascending, closed, conflict, entries, identifier, is_object_type, model_refusal, node_key,
     path, text, Defect, Site,
 };
+use super::dependency_references::SuppliedDependencies;
 use super::frame::{join, StepGraph};
 use super::model_members::{ModelOwners, ModelRefusal};
 use super::rust_spelling::is_rust_path;
@@ -46,10 +47,10 @@ use super::{
     BodyTerm, CheckedComponentClause, CheckedCompositionComponent, CheckedCompositionPremise,
     CheckedEnvironmentEntry, CheckedEnvironmentSupplies, CheckedFairnessGranularity,
     CheckedFairnessKind, CheckedFairnessSupply, CheckedGuaranteeMeasure, CheckedGuaranteeProgress,
-    CheckedNodeKind, CorrespondenceForm, FunctionForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
-    TemporalForm, WorkMeter,
+    CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2, CorrespondenceForm, FunctionForm,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{body_term, ValidationFailure};
+use crate::checked_package::common::{body_term, count, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -135,6 +136,20 @@ fn granularity_of(spelling: &str) -> Option<CheckedFairnessGranularity> {
         "whole" => Some(CheckedFairnessGranularity::Whole),
         "each" => Some(CheckedFairnessGranularity::Each),
         _ => None,
+    }
+}
+
+fn kind_spelling(kind: CheckedFairnessKind) -> &'static str {
+    match kind {
+        CheckedFairnessKind::Weak => "weak",
+        CheckedFairnessKind::Strong => "strong",
+    }
+}
+
+fn granularity_spelling(granularity: CheckedFairnessGranularity) -> &'static str {
+    match granularity {
+        CheckedFairnessGranularity::Whole => "whole",
+        CheckedFairnessGranularity::Each => "each",
     }
 }
 
@@ -321,6 +336,7 @@ pub(super) fn validate(
     kinds: &[CheckedNodeKind],
     index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
+    dependencies: &SuppliedDependencies<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let graph = StepGraph {
@@ -339,7 +355,7 @@ pub(super) fn validate(
         CorrespondenceForm::ComponentComposition,
     )) {
         let site = Site { node, position };
-        check_composition(&site)?;
+        check_composition(&site, &graph, dependencies, meter)?;
     }
     Ok(())
 }
@@ -415,6 +431,31 @@ fn selects_infinite_trace(clause: &CheckedSemanticNodeV2) -> bool {
     })
 }
 
+/// The identity of the domain package a node's `owner` declares it in.
+fn model_identity(node: &CheckedSemanticNodeV2) -> Option<&str> {
+    match node.owner.as_ref()? {
+        CheckedNodeOwner::Model { identity, .. } => Some(identity),
+        _ => None,
+    }
+}
+
+/// The model subject of a clause: the domain package of the type of the
+/// `value`/`parameter` its first argument ranges `over`. A clause over a
+/// parameter whose type is no model declaration has no model to compare.
+fn subject_model<'g>(
+    clause: &CheckedSemanticNodeV2,
+    graph: &'g StepGraph<'_, '_>,
+) -> Option<&'g str> {
+    let over = clause.body.get("arguments")?.get(0)?.get("target")?;
+    let over: CheckedNodeId = serde_json::from_value(over.clone()).ok()?;
+    let (parameter, kind) = graph.node(&over)?;
+    if kind != CheckedNodeKind::Value(ValueForm::Parameter) {
+        return None;
+    }
+    let (ty, _) = graph.node(&parameter.semantic_type)?;
+    model_identity(ty)
+}
+
 fn check_guarantee_targets(
     site: &Site<'_>,
     body: &GuaranteeBody,
@@ -481,10 +522,18 @@ fn check_guarantee_members(
             operations.push((at, &supply.context, &supply.operation));
         }
     }
+    let subject = graph
+        .node(&body.clause)
+        .and_then(|(clause, _)| subject_model(clause, graph));
     for (at, context, operation) in operations {
         let Some((context_node, kind)) = graph.node(context) else {
             continue;
         };
+        // The operation is one of the clause's model subject: its context is
+        // an object type of the model the clause ranges over.
+        if subject.is_some_and(|subject| model_identity(context_node) != Some(subject)) {
+            return Err(model_refusal(ModelRefusal::missing_name(), at, context));
+        }
         if let Err(refusal) = resolve_operation(context_node, kind, operation, graph, meter)? {
             return Err(model_refusal(refusal, at, context));
         }
@@ -521,7 +570,12 @@ fn check_guarantee_members(
     Ok(())
 }
 
-fn check_composition(site: &Site<'_>) -> Result<(), ValidationFailure> {
+fn check_composition<'e>(
+    site: &Site<'_>,
+    graph: &StepGraph<'_, '_>,
+    dependencies: &SuppliedDependencies<'e>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
     let node = site.node;
     if let Some(failure) = root_application(site) {
         return Err(failure);
@@ -530,7 +584,239 @@ fn check_composition(site: &Site<'_>) -> Result<(), ValidationFailure> {
         read_composition(&node.body, &site.body_at()).map_err(|d| defect_failure(d, node))?;
     check_identity(site, body.targets())?;
     check_composition_order(site, &body)?;
-    check_composition_members(site, &body)
+    let places = Places {
+        dependencies,
+        body: &body,
+    };
+    check_composition_targets(site, &body, &places, graph)?;
+    check_composition_members(site, &body)?;
+    check_composition_operations(site, &body, &places, meter)?;
+    check_environment_names(site, &body.environment)
+}
+
+/// A node of a directly selected component package: its kind, the package
+/// and its position there.
+type Found<'e> = (CheckedNodeKind, &'e CheckedPackageV2, usize);
+
+/// The lookup of composition targets. QSpec FR-491 resolves a target through
+/// FR-322's dependency packages: a component's subject and clauses in its
+/// package, a `context` in any component package.
+struct Places<'a, 'e> {
+    dependencies: &'a SuppliedDependencies<'e>,
+    body: &'a CompositionBody,
+}
+
+impl<'a, 'e> Places<'a, 'e> {
+    fn package_of(&self, component: &str) -> Option<&'a str> {
+        self.body
+            .components
+            .iter()
+            .find(|entry| entry.name.as_ref() == component)
+            .map(|entry| entry.package.as_ref())
+    }
+
+    fn find(&self, package: &str, id: &CheckedNodeId) -> Option<Found<'e>> {
+        let (selected, position) = self.dependencies.selected_node(package, id)?;
+        Some((*selected.node_kinds().get(position)?, selected, position))
+    }
+
+    fn context(&self, id: &CheckedNodeId) -> Option<Found<'e>> {
+        self.body
+            .components
+            .iter()
+            .find_map(|entry| self.find(&entry.package, id))
+    }
+}
+
+/// QSpec FR-490's target checks over a composition's targets, in body order:
+/// a target that names no node is `missing-name`, a node of another kind is
+/// `malformed-declaration`. A component's subject and clauses are looked up
+/// in its package, a `context` in any component package.
+fn check_composition_targets(
+    site: &Site<'_>,
+    body: &CompositionBody,
+    places: &Places<'_, '_>,
+    graph: &StepGraph<'_, '_>,
+) -> Result<(), ValidationFailure> {
+    let body_at = site.body_at();
+    let check = |at: JsonPointer,
+                 found: Option<CheckedNodeKind>,
+                 id: &CheckedNodeId,
+                 admits: fn(CheckedNodeKind) -> bool| match found {
+        None => Err(model_refusal(ModelRefusal::missing_name(), at, id)),
+        Some(kind) if admits(kind) => Ok(()),
+        Some(_) => Err(model_refusal(ModelRefusal::malformed(), at, id)),
+    };
+    let kind_of = |found: Option<Found<'_>>| found.map(|(kind, _, _)| kind);
+    let is_clause = |kind| kind == CheckedNodeKind::Temporal(TemporalForm::TemporalClause);
+    let is_predicate = |kind| kind == CheckedNodeKind::Function(FunctionForm::Predicate);
+    for (index, entry) in body.components.iter().enumerate() {
+        let at = body_at.clone().key("components").index(index);
+        // The component names an imported package.
+        if places
+            .dependencies
+            .selected_package(&entry.package)
+            .is_none()
+        {
+            let at = at.key("package");
+            return Err(model_refusal(
+                ModelRefusal::missing_name(),
+                at,
+                &entry.subject,
+            ));
+        }
+        let found = kind_of(places.find(&entry.package, &entry.subject));
+        check(at, found, &entry.subject, is_object_type)?;
+    }
+    let clause = |at: JsonPointer, entry: &CheckedComponentClause| {
+        // A clause of an undeclared component is the member check's refusal.
+        match places.package_of(&entry.component) {
+            Some(package) => {
+                let found = kind_of(places.find(package, &entry.clause));
+                check(at, found, &entry.clause, is_clause)
+            }
+            None => Ok(()),
+        }
+    };
+    for (index, entry) in body.guarantees.iter().enumerate() {
+        clause(body_at.clone().key("guarantees").index(index), entry)?;
+    }
+    for (member, premises) in [
+        ("relies", &body.relies),
+        ("liveness_dependencies", &body.liveness_dependencies),
+    ] {
+        for (index, premise) in premises.iter().enumerate() {
+            let at = body_at.clone().key(member).index(index);
+            clause(at.clone(), &premise.guarantee)?;
+            clause(at, &premise.on)?;
+        }
+    }
+    for (index, entry) in body.supplies.iter().enumerate() {
+        let at = body_at.clone().key("supplies").index(index);
+        check(
+            at,
+            kind_of(places.context(&entry.context)),
+            &entry.context,
+            is_object_type,
+        )?;
+    }
+    for (index, entry) in body.environment.iter().enumerate() {
+        let at = body_at.clone().key("environment").index(index);
+        match &entry.supplies {
+            CheckedEnvironmentSupplies::Fairness(supply) => {
+                let found = kind_of(places.context(&supply.context));
+                check(at, found, &supply.context, is_object_type)?;
+            }
+            CheckedEnvironmentSupplies::Assumption(predicate) => {
+                let found = graph.node(predicate).map(|(_, kind)| kind);
+                check(at, found, predicate, is_predicate)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// QSpec FR-491 static check 5: each `supplies` and scheduling `environment`
+/// operation is an operation of a component subject's model. Operations of
+/// one component package are resolved together over one rebuilt model owner
+/// index of that package.
+fn check_composition_operations(
+    site: &Site<'_>,
+    body: &CompositionBody,
+    places: &Places<'_, '_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let body_at = site.body_at();
+    let mut wanted = Vec::new();
+    for (index, entry) in body.supplies.iter().enumerate() {
+        let at = body_at.clone().key("supplies").index(index);
+        wanted.push((at, &entry.context, entry.operation.as_ref()));
+    }
+    for (index, entry) in body.environment.iter().enumerate() {
+        if let CheckedEnvironmentSupplies::Fairness(supply) = &entry.supplies {
+            let at = body_at.clone().key("environment").index(index);
+            wanted.push((at, &supply.context, supply.operation.as_ref()));
+        }
+    }
+    let mut foreign: BTreeMap<
+        &str,
+        (
+            &CheckedPackageV2,
+            Vec<(JsonPointer, &CheckedNodeId, usize, &str)>,
+        ),
+    > = BTreeMap::new();
+    for (at, context, operation) in wanted {
+        // A context no component package holds is the target check's refusal.
+        if let Some((_, package, position)) = places.context(context) {
+            foreign
+                .entry(package.name())
+                .or_insert_with(|| (package, Vec::new()))
+                .1
+                .push((at, context, position, operation));
+        }
+    }
+    for (package, operations) in foreign.into_values() {
+        check_foreign_operations(package, &operations, meter)?;
+    }
+    Ok(())
+}
+
+fn check_foreign_operations(
+    package: &CheckedPackageV2,
+    operations: &[(JsonPointer, &CheckedNodeId, usize, &str)],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let nodes_at = || JsonPointer::root().key("semantic_graph").key("nodes");
+    let nodes: Vec<CheckedSemanticNodeV2> = package
+        .resolved_graph()
+        .nodes
+        .iter()
+        .map(|node| node.to_raw())
+        .collect();
+    meter.charge(count(nodes.len()), nodes_at)?;
+    let index: BTreeMap<&CheckedNodeId, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(position, node)| (&node.node_id, position))
+        .collect();
+    let owners = ModelOwners::new(package.models.selected_models(), &nodes, |_| {
+        meter.charge(1, nodes_at)
+    })?;
+    let kinds = package.node_kinds();
+    let graph = StepGraph {
+        nodes: &nodes,
+        kinds,
+        index: &index,
+        owners: &owners,
+    };
+    for (at, context, position, operation) in operations {
+        if let Err(refusal) = resolve_operation(
+            &nodes[*position],
+            kinds[*position],
+            operation,
+            &graph,
+            meter,
+        )? {
+            return Err(model_refusal(refusal, at.clone(), context));
+        }
+    }
+    Ok(())
+}
+
+/// QSpec FR-490 static check 6 over a composition's `environment`: two
+/// members of one name.
+fn check_environment_names(
+    site: &Site<'_>,
+    environment: &[CheckedEnvironmentEntry],
+) -> Result<(), ValidationFailure> {
+    let mut names = BTreeSet::new();
+    for (index, entry) in environment.iter().enumerate() {
+        if !names.insert(entry.name.as_ref()) {
+            let at = site.body_at().key("environment").index(index);
+            return Err(conflict(at, &site.node.node_id));
+        }
+    }
+    Ok(())
 }
 
 fn check_composition_order(
@@ -557,8 +843,8 @@ fn check_composition_order(
         (
             &entry.context,
             entry.operation.as_ref(),
-            entry.kind as u8,
-            entry.granularity as u8,
+            kind_spelling(entry.kind),
+            granularity_spelling(entry.granularity),
         )
     })) {
         return Err(out_of_order(site, "supplies"));

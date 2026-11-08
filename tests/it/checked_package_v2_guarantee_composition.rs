@@ -14,13 +14,13 @@
 //! test. No QSL value is used: the node shapes are QSpec's.
 
 use crate::checked_package_v2_temporal::{
-    clause, model_key, node_id, node_with_key, push, read, select_profile, with_model, INFINITE,
-    ORDER_NODE, SUB_NODE,
+    clause, model_key, node_id, node_with_key, orders_document, push, read, select_profile,
+    with_model, INFINITE, LEFT_NODE, ORDERS, ORDER_NODE, SUB_NODE,
 };
-use crate::support::checked_package::{settle, v2_all_families};
+use crate::support::checked_package::{canonical, evidence_with_document, settle, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeKind, CheckedPackageRefusalCause as Cause,
+    CheckedNodeId, CheckedNodeKind, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
     CorrespondenceForm,
 };
@@ -28,7 +28,73 @@ use serde_json::{json, Value};
 
 const GUARANTEE: &str = "guarantee/G";
 const COMPOSITION: &str = "composition/S";
+const PREDICATE: &str = "guarantee/predicate";
+/// The package the fixture's nodes are in, and the component package a
+/// composition imports.
+const DEPENDENCY: &str = "test/families";
+const IMPORTER: &str = "test/importer";
 
+/// A node of the importing package.
+fn importer_id(label: &str) -> Value {
+    let mut id = node_id(label);
+    id["package"] = json!(IMPORTER);
+    id
+}
+
+/// Moves every structural node id of `value` from the dependency's package
+/// to the importer's.
+fn rekey(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if object.get("package") == Some(&json!(DEPENDENCY))
+                && object.contains_key("path")
+                && object.contains_key("ordinal")
+            {
+                object.insert("package".to_owned(), json!(IMPORTER));
+            }
+            object.values_mut().for_each(rekey);
+        }
+        Value::Array(items) => items.iter_mut().for_each(rekey),
+        _ => {}
+    }
+}
+
+/// The fixture as a package of its own that imports the same fixture, under
+/// another name, as the one component package: the importer's nodes are in
+/// `IMPORTER`, a composition's subjects and clauses in `DEPENDENCY`.
+fn importer() -> Value {
+    let mut package = base();
+    rekey(&mut package);
+    package["name"] = json!(IMPORTER);
+    package["lock"]["dependency_selections"] = json!([{"identity": DEPENDENCY}]);
+    settle(&mut package);
+    package
+}
+
+/// Reads `package`, supplying the component package when it holds a
+/// composition.
+fn read_any(package: &Value) -> CheckedPackageV2ReadResult {
+    let composes = nodes(package)
+        .iter()
+        .any(|node| node["semantic_form"] == "component_composition");
+    if composes {
+        let dependency = match read(&base()) {
+            CheckedPackageV2ReadResult::Admitted(dependency) => *dependency,
+            other => panic!("the component package admits, read {other:?}"),
+        };
+        let mut evidence = evidence_with_document(package, ORDERS, &orders_document());
+        evidence
+            .insert_dependency_package(DEPENDENCY, dependency)
+            .expect("dependency evidence declarations agree on admitted content");
+        CheckedPackageV2::read(
+            &canonical(package),
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+        )
+    } else {
+        read(package)
+    }
+}
 fn order() -> Value {
     node_id(&model_key(ORDER_NODE))
 }
@@ -103,8 +169,8 @@ fn environment_fairness(name: &str, context: &Value, operation: &str) -> Value {
         "supplies": {"fairness": fairness("weak", "whole", context, operation)}})
 }
 
-fn environment_assumption(name: &str) -> Value {
-    json!({"name": name, "supplier": "operator", "supplies": {"assumption": predicate()}})
+fn environment_assumption(name: &str, predicate: &Value) -> Value {
+    json!({"name": name, "supplier": "operator", "supplies": {"assumption": predicate}})
 }
 
 fn guarantee_body(package: &Value) -> Value {
@@ -119,7 +185,7 @@ fn guarantee_body(package: &Value) -> Value {
             {"context": order(), "operation": "scaled", "measure": {"bound": 3}},
         ],
         "environment": [
-            environment_assumption("env_ok"),
+            environment_assumption("env_ok", &predicate()),
             environment_fairness("fair_reset", &order(), "reset"),
         ],
     })
@@ -140,8 +206,8 @@ fn composition_body(package: &Value) -> Value {
         "term": "component_composition",
         "rule": "assume-guarantee",
         "components": [
-            {"name": "Consumer", "package": "acme/orders", "subject": sub()},
-            {"name": "Producer", "package": "acme/orders", "subject": order()},
+            {"name": "Consumer", "package": DEPENDENCY, "subject": sub()},
+            {"name": "Producer", "package": DEPENDENCY, "subject": order()},
         ],
         "guarantees": [
             clause_entry("Consumer", &clause),
@@ -149,8 +215,11 @@ fn composition_body(package: &Value) -> Value {
         ],
         "relies": [premise(("Consumer", &clause), ("Producer", &clause))],
         "liveness_dependencies": [premise(("Producer", &clause), ("Consumer", &clause))],
-        "supplies": [fairness("strong", "each", &order(), "reset")],
-        "environment": [environment_assumption("env_ok")],
+        "supplies": [
+            fairness("strong", "each", &order(), "reset"),
+            fairness("weak", "whole", &order(), "reset"),
+        ],
+        "environment": [environment_assumption("env_ok", &importer_id(PREDICATE))],
     })
 }
 
@@ -214,15 +283,24 @@ fn guaranteed(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
     with(package, guarantee_node(body))
 }
 
+/// The importer holding the composition node `edit` changes after it is
+/// built from `body`.
+fn composed_with(body: Value, edit: impl FnOnce(&mut Value)) -> (Value, usize) {
+    let mut node = composition_node(body);
+    node["node_id"]["package"] = json!(IMPORTER);
+    node["semantic_type"] = node["node_id"].clone();
+    edit(&mut node);
+    with(importer(), node)
+}
+
 fn composed(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
-    let package = base();
-    let mut body = composition_body(&package);
+    let mut body = composition_body(&base());
     edit(&mut body);
-    with(package, composition_node(body))
+    composed_with(body, |_| {})
 }
 
 fn admitted(case: &str, package: &Value) -> CheckedPackageV2 {
-    match read(package) {
+    match read_any(package) {
         CheckedPackageV2ReadResult::Admitted(package) => *package,
         other => panic!("{case}: expected admission, read {other:?}"),
     }
@@ -230,7 +308,7 @@ fn admitted(case: &str, package: &Value) -> CheckedPackageV2 {
 
 /// Asserts the refusal's code, cause and pointer.
 fn expect(case: &str, package: &Value, code: Code, cause: Option<Cause>, path: &str) {
-    let refusal = match read(package) {
+    let refusal = match read_any(package) {
         CheckedPackageV2ReadResult::Refused(refusal) => refusal,
         other => panic!("{case}: expected a refusal, read {other:?}"),
     };
@@ -304,6 +382,15 @@ fn tc_474_an_implementation_guarantee_node_admits_with_its_typed_term() {
         body["environment"] = json!([]);
     });
     admitted_ok("a guarantee with empty lists", &bare);
+    // A fairness context no progress member names is a dependency too.
+    let (left, _) = guaranteed(|body| {
+        body["environment"][1] = environment_fairness("fair_reset", &left_object(), "act");
+    });
+    admitted_ok("a fairness context of its own", &left);
+}
+
+fn left_object() -> Value {
+    node_id(&model_key(LEFT_NODE))
 }
 
 fn admitted_ok(case: &str, package: &Value) {
@@ -337,10 +424,10 @@ fn tc_474_a_component_composition_node_admits_with_its_typed_term() {
     assert_eq!(guarantees.len(), 2);
     // The premise lists stay separate.
     assert_eq!((relies.len(), liveness_dependencies.len()), (1, 1));
-    assert_eq!((supplies.len(), environment.len()), (1, 1));
+    assert_eq!((supplies.len(), environment.len()), (2, 1));
     assert_eq!(
         serde_json::to_value(&node.body).expect("typed body"),
-        composition_body(&package)
+        composition_body(&base())
     );
     for rule in ["protocol-refinement", "refinement-transfer", "interface"] {
         let (other, _) = composed(|body| body["rule"] = json!(rule));
@@ -456,16 +543,21 @@ fn tc_474_a_body_of_the_wrong_shape_refuses_at_the_offending_entry() {
 fn tc_474_semantic_type_and_dependencies_must_be_the_nodes_own_and_its_targets() {
     for form in ["guarantee", "composition"] {
         let build = |edit: &dyn Fn(&mut Value)| {
-            let package = base();
-            let mut node = if form == "guarantee" {
-                guarantee_node(guarantee_body(&package))
+            if form == "guarantee" {
+                let package = base();
+                let mut node = guarantee_node(guarantee_body(&package));
+                edit(&mut node);
+                with(package, node)
             } else {
-                composition_node(composition_body(&package))
-            };
-            edit(&mut node);
-            with(package, node)
+                composed_with(composition_body(&base()), edit)
+            }
         };
-        let (package, position) = build(&|node| node["semantic_type"] = clause_id_of(node));
+        let own = if form == "guarantee" {
+            node_id(PREDICATE)
+        } else {
+            importer_id(PREDICATE)
+        };
+        let (package, position) = build(&|node| node["semantic_type"] = own.clone());
         expect(form, &package, GRAPH, None, &at(position, ""));
         let (package, position) = build(&|node| {
             node["dependencies"]
@@ -489,8 +581,38 @@ fn tc_474_semantic_type_and_dependencies_must_be_the_nodes_own_and_its_targets()
     }
 }
 
-fn clause_id_of(node: &Value) -> Value {
-    node["dependencies"][0].clone()
+/// QSpec FR-490: `dependencies` are `clause`, `relation` and every `context`
+/// and `assumption` target, so a scheduling environment member's `context`
+/// is one too.
+#[trace("TC-474", "FR-038-AC-534")]
+#[test]
+fn tc_474_a_fairness_context_belongs_to_the_dependencies() {
+    let context = left_object();
+    let (package, position) = guaranteed(|body| {
+        body["environment"][1] = environment_fairness("fair_reset", &context, "act");
+    });
+    let mut package = package;
+    let node = &mut package["semantic_graph"]["nodes"][position];
+    let kept: Vec<Value> = node["dependencies"]
+        .as_array()
+        .expect("dependencies")
+        .iter()
+        .filter(|id| **id != context)
+        .cloned()
+        .collect();
+    assert_eq!(
+        kept.len() + 1,
+        node["dependencies"].as_array().expect("deps").len()
+    );
+    node["dependencies"] = Value::Array(kept);
+    settle(&mut package);
+    expect(
+        "an omitted fairness context",
+        &package,
+        GRAPH,
+        None,
+        &at(position, ""),
+    );
 }
 
 #[trace("TC-474", "FR-038-AC-535")]
@@ -561,6 +683,36 @@ fn tc_474_an_array_out_of_canonical_order_refuses_at_the_array() {
             },
             (GRAPH, None),
             "/body/liveness_dependencies",
+        ),
+        // The spellings order: `strong` before `weak`, `each` before `whole`.
+        (
+            "supplies by kind spelling",
+            |body| body["supplies"].as_array_mut().expect("supplies").reverse(),
+            (GRAPH, None),
+            "/body/supplies",
+        ),
+        (
+            "supplies by granularity spelling",
+            |body| {
+                body["supplies"] = json!([
+                    fairness("weak", "whole", &order(), "reset"),
+                    fairness("weak", "each", &order(), "reset"),
+                ]);
+            },
+            (GRAPH, None),
+            "/body/supplies",
+        ),
+        (
+            "environment",
+            |body| {
+                let predicate = importer_id(PREDICATE);
+                body["environment"] = json!([
+                    environment_assumption("b", &predicate),
+                    environment_assumption("a", &predicate),
+                ]);
+            },
+            (GRAPH, None),
+            "/body/environment",
         ),
     ]);
 }
@@ -726,6 +878,84 @@ fn tc_474_a_composition_member_must_name_its_components_and_guarantees() {
             |body| body["liveness_dependencies"][0]["on"]["component"] = json!("Producer"),
             MALFORMED,
             "/body/liveness_dependencies/0",
+        ),
+        (
+            "a component of a package the unit does not import",
+            |body| body["components"][0]["package"] = json!("acme/stranger"),
+            MISSING,
+            "/body/components/0/package",
+        ),
+        (
+            "a supplies operation no component subject declares",
+            |body| body["supplies"][0]["operation"] = json!("missing"),
+            MISSING,
+            "/body/supplies/0",
+        ),
+        (
+            "a scheduling operation no component subject declares",
+            |body| {
+                body["environment"] = json!([
+                    environment_assumption("env_ok", &importer_id(PREDICATE)),
+                    environment_fairness("fair", &order(), "missing"),
+                ]);
+            },
+            MISSING,
+            "/body/environment/1",
+        ),
+        (
+            "two environment members of one name",
+            |body| {
+                let predicate = importer_id(PREDICATE);
+                body["environment"] = json!([
+                    environment_assumption("env_ok", &predicate),
+                    environment_assumption("env_ok", &predicate),
+                ]);
+            },
+            CONFLICT,
+            "/body/environment/1",
+        ),
+    ]);
+}
+
+#[trace("TC-474", "FR-038-AC-539")]
+#[test]
+fn tc_474_a_composition_target_resolves_in_its_component_package() {
+    run_composition(&[
+        (
+            "a subject that is no object type",
+            |body| body["components"][0]["subject"] = relation(),
+            MALFORMED,
+            "/body/components/0",
+        ),
+        (
+            "a guarantee that is no temporal clause",
+            |body| body["guarantees"][0]["clause"] = order(),
+            MALFORMED,
+            "/body/guarantees/0",
+        ),
+        (
+            "a supplies context that is no object type",
+            |body| body["supplies"] = json!([fairness("strong", "each", &relation(), "reset")]),
+            MALFORMED,
+            "/body/supplies/0",
+        ),
+        (
+            "a supplies context in no component package",
+            |body| {
+                body["supplies"] =
+                    json!([fairness("strong", "each", &importer_id(PREDICATE), "reset")]);
+            },
+            MISSING,
+            "/body/supplies/0",
+        ),
+        (
+            "an assumption that is no predicate",
+            |body| {
+                body["environment"][0]["supplies"] =
+                    json!({"assumption": importer_id("guarantee/relation")});
+            },
+            MALFORMED,
+            "/body/environment/0",
         ),
     ]);
 }

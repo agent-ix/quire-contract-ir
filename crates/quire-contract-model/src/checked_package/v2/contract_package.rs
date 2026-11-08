@@ -3343,7 +3343,13 @@ impl ContractPackageWireV1 {
             }
             terms.push(match super::decode_admitted_body(kind, &node.body) {
                 Ok(term) => Some(term),
-                Err(_) if super::body_grammar(kind) == super::BodyGrammar::AbstractionRelation => {
+                Err(_)
+                    if matches!(
+                        super::body_grammar(kind),
+                        super::BodyGrammar::AbstractionRelation
+                            | super::BodyGrammar::FlatCorrespondence
+                    ) =>
+                {
                     None
                 }
                 Err(_) => {

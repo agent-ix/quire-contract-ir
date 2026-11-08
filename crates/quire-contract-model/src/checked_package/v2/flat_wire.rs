@@ -311,7 +311,7 @@ pub(super) fn check(
                 };
                 super::hybrid::check_wire(node, form, position)
             }
-            BodyGrammar::AbstractionRelation => {
+            BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence => {
                 if body_term(&node.body) == Some(BodyTerm::Application) {
                     check_term(&node.body, &at, Place::BodyRoot, false)
                 } else {
