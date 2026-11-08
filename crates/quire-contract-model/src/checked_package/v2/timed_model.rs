@@ -2339,6 +2339,38 @@ fn comparison_rank(value: &str) -> Option<u64> {
 
 /// A source-map entry may add an earlier region to an existing node. Keep
 /// the minimum across every occurrence and region, independently of node id.
+fn search_id_refs(
+    rows: &[&CheckedNodeId],
+    target: &CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<Result<usize, usize>, ValidationFailure> {
+    let mut lower = 0;
+    let mut upper = rows.len();
+    while lower < upper {
+        let middle = lower + (upper - lower) / 2;
+        match meter.compare_ids(rows[middle], target)? {
+            Ordering::Less => lower = middle + 1,
+            Ordering::Equal => return Ok(Ok(middle)),
+            Ordering::Greater => upper = middle,
+        }
+    }
+    Ok(Err(lower))
+}
+fn insert_id_ref<'a>(
+    rows: &mut Vec<&'a CheckedNodeId>,
+    target: &'a CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    match search_id_refs(rows, target, meter)? {
+        Ok(_) => Ok(false),
+        Err(position) => {
+            meter.room(rows, 1)?;
+            rows.insert(position, target);
+            Ok(true)
+        }
+    }
+}
+
 fn matches_id(
     actual: Option<&CheckedNodeId>,
     expected: &CheckedNodeId,
@@ -3480,15 +3512,22 @@ pub(super) fn validate_models<'a>(
         let mut listed_constraints: Vec<&CheckedNodeId> =
             meter.vec(listed.iter().filter_map(typed_target).count())?;
         listed_constraints.extend(listed.iter().filter_map(typed_target));
-        listed_constraints.sort_unstable();
-        listed_constraints.dedup();
+        let mut listed_order = paid_id_order(
+            listed_constraints.iter().copied(),
+            listed_constraints.len(),
+            meter,
+        )?;
+        listed_constraints
+            .sort_unstable_by(|left, right| listed_order.compare_bounded(left, right));
+        listed_constraints
+            .dedup_by(|left, right| listed_order.compare_bounded(left, right).is_eq());
         for guard in bound(body, 5).map(typed_members).unwrap_or_default() {
             let Some(&guard) = typed_target(guard).and_then(|id| index.get(id)) else {
                 continue;
             };
             let guard_body = graph.body(meter, guard)?;
             if let Some(anchor) = bound(guard_body, 0).and_then(typed_target) {
-                if !meter.insert_sorted(&mut anchors, anchor)? {
+                if !insert_id_ref(&mut anchors, anchor, meter)? {
                     return Err(graph.issue(
                         meter,
                         guard,
@@ -3514,7 +3553,10 @@ pub(super) fn validate_models<'a>(
                     .skip(first_constraint)
                 {
                     if let Some(target) = typed_target(member) {
-                        if listed_constraints.binary_search(&target).is_err() {
+                        if listed_constraints
+                            .binary_search_by(|id| listed_order.compare_bounded(id, target))
+                            .is_err()
+                        {
                             return Err(graph.issue(
                                 meter,
                                 guard,
@@ -3527,7 +3569,7 @@ pub(super) fn validate_models<'a>(
                                     .key("target"),
                             ));
                         }
-                        meter.insert_sorted(&mut used_constraints, target)?;
+                        insert_id_ref(&mut used_constraints, target, meter)?;
                     }
                 }
             }
@@ -3549,7 +3591,10 @@ pub(super) fn validate_models<'a>(
                 .enumerate()
             {
                 if let Some(target) = typed_target(member) {
-                    if listed_constraints.binary_search(&target).is_err() {
+                    if listed_constraints
+                        .binary_search_by(|id| listed_order.compare_bounded(id, target))
+                        .is_err()
+                    {
                         return Err(graph.issue(
                             meter,
                             invariant,
@@ -3560,7 +3605,7 @@ pub(super) fn validate_models<'a>(
                                 .key("target"),
                         ));
                     }
-                    meter.insert_sorted(&mut used_constraints, target)?;
+                    insert_id_ref(&mut used_constraints, target, meter)?;
                 }
             }
         }
@@ -3570,9 +3615,11 @@ pub(super) fn validate_models<'a>(
             .iter()
             .enumerate()
         {
-            if typed_target(constraint)
-                .is_some_and(|target| used_constraints.binary_search(&target).is_err())
-            {
+            let unused = match typed_target(constraint) {
+                Some(target) => search_id_refs(&used_constraints, target, meter)?.is_err(),
+                None => false,
+            };
+            if unused {
                 return Err(graph.issue(
                     meter,
                     root,
