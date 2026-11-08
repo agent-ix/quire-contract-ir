@@ -997,40 +997,68 @@ mod tests {
 
 #[cfg(test)]
 mod allocation_tests {
-    use super::{admit_dependencies, CheckedDependencySelection, CheckedPackageEvidence, WorkMeter};
+    use super::{
+        admit_dependencies, CheckedDependencySelection, CheckedPackageEvidence, WorkMeter,
+    };
     use crate::checked_package::common::ValidationFailure;
-    use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer};
-    use crate::checked_package::v2::budgeted_read::{CheckedPackagePendingOutcome, PackageReadResource};
-    use crate::checked_package::v2::native_join_budget::{NativeJoinBudget, NativeJoinLocusSource, PackageReadStage};
+    use crate::checked_package::shared::{
+        CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    };
+    use crate::checked_package::v2::budgeted_read::{
+        CheckedPackagePendingOutcome, PackageReadResource,
+    };
+    use crate::checked_package::v2::native_join_budget::{
+        NativeJoinBudget, NativeJoinLocusSource, PackageReadStage,
+    };
 
     #[ix_trace_rs::trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
     #[test]
     fn missing_dependency_refusal_is_prepaid_at_exact_and_short_storage_bounds() {
-        let selections = [CheckedDependencySelection { identity: "test/absent".into() }];
+        let selections = [CheckedDependencySelection {
+            identity: "test/absent".into(),
+        }];
         let evidence = CheckedPackageEvidence::new();
         let observe = |limit| {
-            let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX)
-                .with_read_storage_limit(limit);
+            let mut budget =
+                NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(limit);
             let mut result = None;
             let measured = allocation_counter::measure(|| {
                 let mut meter = WorkMeter::over(&mut budget);
                 result = Some(admit_dependencies(&selections, &evidence, &mut meter));
             });
-            (result.expect("the lock-stage read ran").expect_err("the first dependency is absent"),
-                budget, measured.bytes_total)
+            (
+                result
+                    .expect("the lock-stage read ran")
+                    .expect_err("the first dependency is absent"),
+                budget,
+                measured.bytes_total,
+            )
         };
         let (ample, budget, requested) = observe(u64::MAX);
-        assert_eq!(requested, budget.read_storage_consumed(), "every refusal allocation is admitted before construction");
+        assert_eq!(
+            requested,
+            budget.read_storage_consumed(),
+            "every refusal allocation is admitted before construction"
+        );
         let ValidationFailure::Refused(refusal) = &ample else {
             panic!("the ample read retains its semantic refusal: {ample:?}");
         };
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingImport);
-        assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingSelection));
-        assert_eq!(refusal.loci[0].path.as_ref().map(JsonPointer::as_str), Some("/lock/dependency_selections/0"));
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MissingSelection)
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(JsonPointer::as_str),
+            Some("/lock/dependency_selections/0")
+        );
         let total = budget.read_storage_consumed();
         assert!(total > 0);
         let (exact, exact_budget, exact_requested) = observe(total);
-        assert_eq!(exact, ample, "an exact allowance preserves the complete refusal");
+        assert_eq!(
+            exact, ample,
+            "an exact allowance preserves the complete refusal"
+        );
         assert_eq!(exact_requested, total);
         assert_eq!(exact_budget.read_storage_consumed(), total);
         let (short, mut short_budget, short_requested) = observe(total - 1);
@@ -1038,14 +1066,34 @@ mod allocation_tests {
         assert_eq!(short, repeated, "the same refused reservation repeats");
         assert_eq!(short_budget, repeated_budget);
         assert_eq!(short_requested, repeated_requested);
-        assert_eq!(short_requested, short_budget.read_storage_consumed(), "a denied diagnostic makes no unpaid request");
+        assert_eq!(
+            short_requested,
+            short_budget.read_storage_consumed(),
+            "a denied diagnostic makes no unpaid request"
+        );
         let ValidationFailure::Budget(stop) = short else {
             panic!("one byte short must deny the diagnostic: {short:?}");
         };
         assert_eq!(stop.resource, PackageReadResource::ReadStorage);
-        assert!(stop.path.is_none(), "the denied diagnostic builds no pointer");
-        let locus = short_budget.first_unpaid_locus().expect("the denied diagnostic has a locus");
-        assert_eq!((locus.source, locus.form), (NativeJoinLocusSource::PackageRead(PackageReadStage::Lock, 0), "diagnostic"));
-        assert_eq!(short_budget.take_pending(), Some(CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::MissingImport)));
+        assert!(
+            stop.path.is_none(),
+            "the denied diagnostic builds no pointer"
+        );
+        let locus = short_budget
+            .first_unpaid_locus()
+            .expect("the denied diagnostic has a locus");
+        assert_eq!(
+            (locus.source, locus.form),
+            (
+                NativeJoinLocusSource::PackageRead(PackageReadStage::Lock, 0),
+                "diagnostic"
+            )
+        );
+        assert_eq!(
+            short_budget.take_pending(),
+            Some(CheckedPackagePendingOutcome::Refused(
+                CheckedPackageRefusalCode::MissingImport
+            ))
+        );
     }
 }
