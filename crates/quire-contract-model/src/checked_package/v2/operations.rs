@@ -3520,11 +3520,11 @@ fn check_tuple_position(
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     // The published TW-18..20 wire cases locate tuple-project failures at
     // the application node as a whole.
-    let member_at = node_pointer(application.position);
+    let member_at = || node_pointer(application.position);
     let ineligible = || {
         Ok(Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            member_at.clone(),
+            member_at(),
             CheckedPackageRefusalCause::OperatorIneligible,
         )))
     };
@@ -3579,7 +3579,7 @@ fn check_tuple_position(
     )? {
         return Ok(Some(application.refuse(
             CheckedPackageRefusalCode::MissingDeclaration,
-            member_at,
+            member_at(),
             CheckedPackageRefusalCause::MissingName,
         )));
     }
