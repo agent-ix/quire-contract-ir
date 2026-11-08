@@ -471,11 +471,10 @@ fn an_unaffordable_refusal_diagnostic_is_exhausted_with_the_pending_refusal() {
     assert!(pointer > 0);
     // The public outcome moves the record out of its read-time box. Its
     // layout and the one owned location still determine that allocation.
-    let diagnostic = u64::try_from(
-        std::mem::size_of_val(&refusal) + std::mem::size_of_val(&refusal.loci[0]),
-    )
-    .expect("diagnostic layout fits u64")
-        + pointer;
+    let diagnostic =
+        u64::try_from(std::mem::size_of_val(&refusal) + std::mem::size_of_val(&refusal.loci[0]))
+            .expect("diagnostic layout fits u64")
+            + pointer;
     let paid = measure.read_storage_consumed() - diagnostic;
     let mut exact = storage_budget(paid + diagnostic);
     assert!(matches!(
