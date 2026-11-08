@@ -2584,14 +2584,13 @@ pub(super) fn validate_models<'a>(
                                         binding_at(target, 0),
                                     )
                                 })?;
-                            let place_model =
-                                index.get(&place_model).copied().ok_or_else(|| {
-                                    graph.issue(
-                                        target,
-                                        Cause::TimedNodeReference,
-                                        binding_at(target, 0),
-                                    )
-                                })?;
+                            let place_model = index.get(place_model).copied().ok_or_else(|| {
+                                graph.issue(
+                                    target,
+                                    Cause::TimedNodeReference,
+                                    binding_at(target, 0),
+                                )
+                            })?;
                             if place_model != model {
                                 return Err(graph.issue(
                                     target,

@@ -277,7 +277,6 @@ pub(super) fn validate(
                     meter,
                     position,
                     target,
-                    kinds[target_position],
                     nodes,
                     kinds,
                     terms,
@@ -525,14 +524,13 @@ fn actual_type<'a>(
     meter: &mut WorkMeter,
     position: usize,
     target: &'a CheckedSemanticNodeV2,
-    kind: CheckedNodeKind,
     nodes: &'a [CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     target_position: usize,
     index: &dyn NodeLookup,
 ) -> Result<Actual<'a>, ValidationFailure> {
-    if matches!(kind, CheckedNodeKind::Extension(_)) {
+    if matches!(kinds[target_position], CheckedNodeKind::Extension(_)) {
         return Ok(match terms.get(target_position).and_then(Option::as_ref) {
             Some(CheckedTerm::ExtensionForm { node_kind, .. }) => Actual::Text(node_kind),
             _ => Actual::Text("extension"),

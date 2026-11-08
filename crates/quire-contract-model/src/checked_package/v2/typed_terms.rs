@@ -2172,9 +2172,7 @@ fn map_operation_ids(
 /// the complete admitted tree is constructed.
 pub(in crate::checked_package) enum CheckedTermView<'a> {
     Application {
-        operator: ApplicationOperator,
         operation: &'a Value,
-        result_type: &'a Value,
         arguments: &'a [Value],
     },
     Aggregate {
@@ -2254,10 +2252,10 @@ impl CheckedTerm {
                     &["term", "operator", "operation", "result_type", "arguments"],
                 ) =>
             {
+                wire.operator()?;
+                wire.field(TermField::ResultType)?;
                 Some(CheckedTermView::Application {
-                    operator: wire.operator()?,
                     operation: wire.field(TermField::Operation)?,
-                    result_type: wire.field(TermField::ResultType)?,
                     arguments: wire.array(TermField::Arguments)?,
                 })
             }

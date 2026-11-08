@@ -166,7 +166,7 @@ fn validate_shape(
 ) -> Result<(), ValidationFailure> {
     for (index, row) in rows.iter().enumerate() {
         let at = || row_pointer(index);
-        meter.charge(1, &at)?;
+        meter.charge(1, at)?;
         if row.clock_name.is_empty() {
             return Err(malformed(at().key("clock_name")));
         }

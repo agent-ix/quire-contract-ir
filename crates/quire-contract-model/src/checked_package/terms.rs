@@ -15,11 +15,8 @@ use super::v2::read_charge::{Denied, ReadStorage, Site};
 use super::v2::{
     ApplicationOperator, BodyTerm, CheckedTerm, CheckedTermView, NodeIdRead, TermNode,
 };
-use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
-use std::marker::PhantomData;
-use std::ops::ControlFlow;
 
 /// One term below another and where it sits: the member `key` of the parent
 /// (`arguments`, `members` or `value`) and, for an array member, the `index`
@@ -473,7 +470,6 @@ mod tests {
     use crate::checked_package::common::Trail;
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
-    use std::ops::ControlFlow;
 
     fn leaf(name: &str) -> Value {
         json!({"term": "literal", "label": name})
