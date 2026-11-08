@@ -341,9 +341,11 @@ impl StructuralForm {
                 | ClaimForm::Schedulability
                 | ClaimForm::ProbabilisticClaim,
             ) => None,
-            K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
-                Some(Self::AbstractionRelation)
-            }
+            K::Correspondence(
+                CorrespondenceForm::AbstractionRelation
+                | CorrespondenceForm::ImplementationGuarantee
+                | CorrespondenceForm::ComponentComposition,
+            ) => Some(Self::AbstractionRelation),
             K::Correspondence(
                 CorrespondenceForm::SourceLocus
                 | CorrespondenceForm::ModelCorrespondence
@@ -2128,6 +2130,8 @@ pub(super) fn collect_application_dependencies(
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
             | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. }
             | CheckedTerm::NominalBody(_) => {}

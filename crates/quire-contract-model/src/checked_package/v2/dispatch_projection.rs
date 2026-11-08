@@ -446,7 +446,7 @@ impl CheckedPackageV2 {
         if application.package != self.wire.name {
             return Err(CheckedDispatchReadError::ForeignApplication);
         }
-        let Some(&position) = self.node_index.get(application) else {
+        let Some(position) = self.node_position(application) else {
             return Err(CheckedDispatchReadError::UnknownApplication);
         };
         if self.kinds.get(position) != Some(&CheckedNodeKind::Expression(ExpressionForm::Call)) {

@@ -5674,6 +5674,23 @@ NOT substitute for that selection. Reads SHALL expose the selected package's
 actual keys and referenced values, without merging equal-named plans or
 copying QSL execution semantics into IR.
 
+### Fold and reduce binder bounds
+
+For `quire.op.collection.fold` and `quire.op.collection.reduce`, the reader
+SHALL resolve `bound_is_member` through [QSL FR-093](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-093-lower-checked-value-expressions-to-fr-322-terms.md)'s
+two-binder encoding in [QSpec FR-322](https://github.com/agent-ix/quire-specification/blob/main/spec/objects/interfaces/FR-322-checked-package-artifact.md) terms: an accumulator `binding` whose value is an `aggregate`
+containing exactly one element `binding`, whose value names the final step.
+The final step's resolved type SHALL equal the `type_argument` declaration.
+An empty or multiple-member aggregate, a non-binding member, or a final step
+of a different type SHALL refuse `ill_typed`/`operator-ineligible` at the
+application node. A further nested aggregate step retains the earlier
+`malformed_wire` refusal at that step's value, without a cause. Direct single-binder
+bounds retain their existing meaning. This rule does not assign a type to
+arbitrary aggregate operands or change other operations' binder resolution.
+FR-038-AC-247 and FR-038-AC-251 include these positive and negative controls
+and strict admission of both genuine Integer-only QSL fold bytes and the
+complete original monitor-base document with its selected model evidence.
+
 ### Carried-quantity sum admission (IR-1398)
 
 When reading `quire.op.collection.sum.carried_quantity`, the strict V2 reader
@@ -5700,6 +5717,105 @@ application graph-node locus and primary pointer
 `/semantic_graph/nodes/{application-index}`, including a result-type mismatch;
 no partial admitted package is returned. This admission contract does not
 execute a sum or add evaluation results to the wire.
+
+### Implementation guarantee and component composition bodies
+
+When the strict V2 reader reads a `correspondence` node of `semantic_form`
+`implementation_guarantee` or `component_composition`, it SHALL admit the body
+exactly as QSpec FR-490 and FR-491 "Checked-package node" define it, as
+FR-346 admits the `abstraction_relation` body, and expose it as a typed term.
+The closed `correspondence` form vocabulary gains these two members, matched
+exhaustively with no catch-all arm, and an unrecognized form still refuses as
+`invalid_semantic_graph` at the node's `semantic_form`. Contract IR reads
+these nodes from the package alone; it reads nothing from QSL.
+
+An `implementation_guarantee` body is `{term, clause, relation, initial,
+progress, environment}`: `clause` and `relation` are node keys, `initial` a
+`RustPath`, each `progress` entry `{context, operation, measure}` with
+`measure` `{decreases: RustPath}` or `{bound: count}`, and each `environment`
+entry `{name, supplier, supplies}` with `supplies` `{fairness: {kind,
+granularity, context, operation}}` or `{assumption: node key}`. A
+`component_composition` body is `{term, rule, components, guarantees, relies,
+liveness_dependencies, supplies, environment}`: `rule` one of
+`assume-guarantee`, `protocol-refinement`, `refinement-transfer` and
+`interface`; `components` entries `{name, package, subject}`; `guarantees`
+entries `{component, clause}`; `relies` and `liveness_dependencies` entries
+`{guarantee: {component, clause}, on: {component, clause}}`, kept as separate
+lists; `supplies` entries the scheduling object above; and `environment` as in
+the guarantee. Every member is required and each shape is closed. The body is
+flat: it holds node keys, identifiers, Rust paths and fixed spellings and no
+application, aggregate, binding or literal term, and the per-node body loop
+validates it as it validates an `abstraction_relation` body.
+
+The guarantee step runs after the abstraction step, over the guarantee nodes
+and then the composition nodes, each in ascending structural node-id order.
+For one node the first failing check is its defect:
+
+1. **Shape.** A body that is not the closed shape, a `term` that is not the
+   node's form, a fairness spelling outside `weak`/`strong` and
+   `whole`/`each`, or a rule outside the four: `invalid_semantic_graph` at the
+   offending entry, else at the body. A malformed structural node key refuses
+   `malformed_wire` at the key. An `application` at the body root refuses
+   `ill_typed`/`operator-ineligible` at the node.
+2. **Identity.** `semantic_type` is the node's own id and `dependencies` are
+   exactly the unique, ascending set of every `clause`, `relation`,
+   `subject`, `context` and `assumption` target of the body; else
+   `invalid_semantic_graph` at the node.
+3. **Order.** A guarantee's `progress` ascends by `context` then `operation`
+   bytes and its `environment` by `name`; a composition's `components` ascend
+   by `name`, `guarantees` by `component` then `clause`, `relies` and
+   `liveness_dependencies` by the guarantee's then the peer's, `supplies` by
+   `context`, `operation`, `kind` spelling bytes then `granularity` spelling
+   bytes, and `environment` by
+   `name`. Equal keys are in order, and the member checks below refuse them.
+   Out of order refuses `invalid_semantic_graph` at the array.
+4. **Targets** (guarantee). `clause` joins a `temporal`/`temporal_clause`
+   node whose one `temporal_profile` law selects
+   `quire.temporal.infinite-trace/v1`, `relation` a `correspondence`/
+   `abstraction_relation` node, each `context` a `model`/`object_type` node
+   and each `assumption` a `function`/`predicate` node; a target that is not a
+   declared dependency refuses `missing_declaration`/`missing-name` and one of
+   another kind `invalid_model_binding`/`malformed-declaration`, at the
+   member holding it.
+5. **Members.** For a guarantee, in this order over the whole node: every
+   `progress` and fairness `operation` resolves to an operation its `context`
+   declares (FR-342 "Operation resolution", as a frame entry's does); `initial`
+   and each `decreases` path are Rust paths and no `bound` is 0
+   (`invalid_model_binding`/`malformed-declaration`); no two `progress`
+   members share a (`context`, `operation`) and no two `environment` members
+   a `name` (`invalid_model_binding`/`conflicting-binding` at the second). For
+   a composition: no two `components` share a `name` or a (`package`,
+   `subject`) (`conflicting-binding`); every component a `guarantees`,
+   `relies` or `liveness_dependencies` entry names is declared
+   (`missing_declaration`/`missing-name`); and a premise's `guarantee` is a
+   declared guarantee of a component other than its `on` peer
+   (`invalid_model_binding`/`malformed-declaration`).
+
+IR reading (QSpec FR-490 and FR-491 fix the refusal code and cause but no
+locus): the loci above are the entry or array, and the locus node key is the
+target or, where the entry names none, the node.
+A composition's component packages are the admitted dependency packages
+selected through FR-322. Each component subject resolves to an object type
+in its named package; each component clause resolves to a temporal clause
+of that package over the component's model subject. An absent selected
+package or subject refuses `missing_declaration`/`missing-name` at the
+component; a target of another kind refuses
+`invalid_model_binding`/`malformed-declaration` at the member. Scheduling
+contexts resolve in a component package and assumptions in the composing
+package. A scheduling operation outside every component's model subject
+refuses `missing_declaration`/`missing-name`.
+
+After component and premise membership checks, a `relies` peer classified
+by QSpec FR-363 as liveness, or a `liveness_dependencies` side not classified
+as liveness, refuses `invalid_model_binding`/`malformed-declaration` at the
+premise. Classification reads the admitted typed formula graph in negation
+normal form. Composition environment assumptions must be predicates and
+names must be unique, with the same target and duplicate-name refusals as
+guarantee environments. Operations resolve through the admitted component
+model declarations, using the guarantee operation checks above.
+
+QSpec FR-490's dependency set includes every scheduling environment
+`context`; FR-491's also includes every `supplies` context.
 
 ### Budget-charged strict read
 
@@ -6364,6 +6480,14 @@ the minimum the read uses.
 | FR-038-AC-527 | Implemented and qualified on the IR-1396 owner stack; merged-main qualification pending (IR-1398). With pinned mode agreeing, the reader refuses every CS-04 binder/member mismatch as ill_typed/operator-ineligible at the application: a different carrier bound Q4, unit Qc, carrier kind Qk, or unit-node Um; and binder and result both Qn under nearest-even while type_argument remains Q. The bound_is_member constraint compares the resolved bound against the member, not against the result alone. | Test |
 | FR-038-AC-528 | Implemented and qualified on the IR-1396 owner stack; merged-main qualification pending (IR-1398). With pinned mode agreeing, the reader refuses every CS-05 result/member mismatch as ill_typed/operator-ineligible at the application, for result Q4 and result Um. The primary pointer names the application node, never its body/result_type member. | Test |
 | FR-038-AC-529 | Implemented and qualified on the IR-1396 owner stack; merged-main qualification pending (IR-1398). For every CS-06 variant, the reader refuses ill_typed/operator-ineligible at the application: member, binder and result all Um, all compound-unit Cm, or all bounded-quantity Bm under exact mode; and sum.quantity over the otherwise valid carried member Q. Carried-sum membership consumes IR-1396 carried_member enforcement; ordinary sum.quantity cannot accept a carried type_argument even when operand and result checks otherwise pass. | Test |
+| FR-038-AC-531 | A package holding one `correspondence`/`implementation_guarantee` node over a clause selecting the infinite-trace profile, an `abstraction_relation` node, a `predicate` node and the `Order` object type admits for a body with `initial`, a `decreases` and a `bound` progress member and a fairness and an assumption environment member, and the typed term reproduces the body; a body with empty `progress` and `environment` lists admits. | Test (TC-474) |
+| FR-038-AC-532 | A package holding one `correspondence`/`component_composition` node admits for a body with two components, two guarantees, one `relies`, one `liveness_dependencies`, one `supplies` and one `environment` entry, the typed term keeps the premise lists separate, and each of the four rule spellings admits. | Test (TC-474) |
+| FR-038-AC-533 | A missing or extra body member, a `term` of the other form, an empty `initial` path, a measure of two members, an unknown fairness kind, a `supplies` of neither form, an unknown composition rule and a component without its package each refuse `invalid_semantic_graph` at the offending entry or the body; a malformed structural node key refuses `malformed_wire` at the key; an `application` at the body root refuses `ill_typed`/`operator-ineligible` at the node. | Test (TC-474) |
+| FR-038-AC-534 | For each form, a `semantic_type` that is not the node, a `dependencies` list that omits a body target and one that adds a target the body does not hold each refuse `invalid_semantic_graph` at the node. | Test (TC-474) |
+| FR-038-AC-535 | An out-of-order `progress`, `environment`, `components`, `guarantees`, `relies`, `liveness_dependencies` or `supplies` array refuses `invalid_semantic_graph` at that array. | Test (TC-474) |
+| FR-038-AC-536 | A guarantee whose `clause` is no temporal clause or selects another profile, whose `relation` is no abstraction relation, whose `progress` or fairness `context` is no object type or whose `assumption` is no predicate refuses `invalid_model_binding`/`malformed-declaration` at the member. | Test (TC-474) |
+| FR-038-AC-537 | A guarantee whose `progress` or fairness operation its context does not declare refuses `missing_declaration`/`missing-name`; an operation the context only inherits, a non-Rust `initial` or `decreases` path and `bound` 0 refuse `invalid_model_binding`/`malformed-declaration`; two `progress` members for one operation and two `environment` members of one name refuse `invalid_model_binding`/`conflicting-binding` at the second. | Test (TC-474) |
+| FR-038-AC-538 | A composition with two components of one name or over one subject refuses `invalid_model_binding`/`conflicting-binding` at the second; a guarantee or premise naming an undeclared component refuses `missing_declaration`/`missing-name`; a premise whose guarantee is undeclared, whose two sides name one component, a rely on liveness or a depends with a non-liveness side refuses `invalid_model_binding`/`malformed-declaration`; component subjects and clauses resolve through admitted dependency packages, clauses must belong to the component model subject, scheduling operations must belong to a component subject, and environment assumptions and names obey the guarantee checks. | Test (TC-474) |
 | FR-038-AC-495 | `CheckedPackageV2::read_with_budget(bytes, limits, evidence, &mut NativeJoinBudget)` and `read_checked_package_with_budget` are the budgeted V2 read entries, and `CheckedPackageV2::read(bytes, limits, evidence)` and `read_checked_package(bytes, limits, evidence)` keep their existing signatures, result types and outcomes. The call graph holds one read implementation: each unbudgeted entry creates `NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX)`, calls its budgeted entry and maps the result variant for variant, with no second decoder, fallback limit or private work meter. No existing in-repository or downstream caller of the unbudgeted entries changes. For every TC-048 input, including each fixture at its exact work limit and one below it, the unbudgeted entry's outcome equals today's outcome; one below the work requirement it returns `CheckedPackageIncomplete` with `Work`, `limits.work`, the same `consumed` and the same pointer. `read_checked_package_with_budget` has no V1 branch and passes the budget through unchanged. Changing `CheckedPackageReadLimits.work` changes no budgeted-entry outcome; each other member keeps its own `Incomplete` outcome and pointer on every entry. | Test, Inspection (TC-472) |
 | FR-038-AC-496 | A budgeted read clears the budget's previous success deltas and first-unpaid records, keeps cumulative consumption and the configured limits, and on admission records a work delta and a read-storage delta equal to its own charges and a logical storage delta of zero. A refused, `Incomplete`, `BudgetIncomplete` or `Exhausted` read leaves the deltas absent and its admitted charges in cumulative consumption. Two budgeted reads, each affordable alone, composed on one budget whose work or read-storage limit is below their sum, admit the first and stop the second at its first unpaid charge; an FR-358 native join after a read on the same budget has its own unchanged logical storage requirement and shares the work counter. | Test (TC-472) |
 | FR-038-AC-497 | Envelope stage. For a genuine admitted package and for the adverse shapes of FR-038-AC-511, a read-storage limit equal to the read's measured requirement admits the package, and a read-storage limit one below the cumulative read storage admitted through the shared reader's last package-bytes reservation refuses at that reservation: first unpaid `ReadStorage` with the reservation's byte amount, locus `PackageRead(Envelope, 0)` and form `"package_bytes"`, no document and no package. Each reader list class (arena nodes, child ids/members, decoded text, open-container stack and children, duplicate-name sort buffer) is the denied class in at least one one-below case, and the pointer and lexeme of a duplicate-name and of a number-out-of-range refusal are each charged before the refusal is returned. | Test (TC-472) |
@@ -6388,6 +6512,7 @@ the minimum the read uses.
 | FR-038-AC-516 | The read's term walks call quire-walk's caller-reservation entry, and every integer or rational the read parses, reduces or compares while validating is built and combined through quire-exact's caller-reservation entries. For a package whose canonical rational literals, dimension exponents, timed-model magnitudes and schedulability bounds hold multi-limb values, and for a term walk whose stack grows several times, each walker growth and each limb request is charged at its full requested size, and a one-below limit at each refuses with form `"walk"` or `"exact_number"` and no partial result. Canonical integer spellings are decided on text without a parse. | Test, Inspection (TC-472) |
 | FR-038-AC-517 | The existing public types `CheckedPackageV2ReadResult`, `CheckedPackageDispatchResult`, `CheckedPackageLimit`, `CheckedPackageIncomplete`, `NativeJoinChargeKind`, `NativeJoinCharge` and `NativeJoinDeniedCharge` keep exactly their variants and fields. The budgeted entries return `CheckedPackageV2BudgetedReadResult` and `CheckedPackageBudgetedDispatchResult`, each holding the unbudgeted result's variants plus `BudgetIncomplete(CheckedPackageBudgetIncomplete)` and `Exhausted(CheckedPackageReadExhausted)`, with `read_checked_package_with_budget` mapping each V2 variant to its dispatch variant; `PackageReadResource`, `PackageReadDeniedCharge`, `CheckedPackageBudgetIncomplete`, `CheckedPackageReadExhausted` and `CheckedPackagePendingOutcome` have the fields and variants FR-038's Outputs name. FR-019's public-item inventory lists each new item. The FR-035 contract-package reader returns none of the new outcomes. | Test, Inspection (TC-472) |
 | FR-038-AC-518 | The strict reader matches a `duration` aggregate bound's `type` against the clause's clock unit by `node_id.path` (`["scalar_type", "unit", T]`, `T` the `timestamp_unit` the clause's bindings name) alone, and never builds the clock unit's `node_id` from the clause node's package. A clause in package `example` whose `timestamp_unit` is `ix://acme/orders/unit/ms` admits bounds typed by the model-owned `acme/orders` node of that unit, and refuses an `upper` typed by the `ix://acme/orders/unit/s` node with `ill_typed`/`unit-mismatch` at `upper`'s value (QSpec FR-370-AC-20). | Test (TC-048; QSpec FR-370-AC-20, TC-303) |
+| FR-038-AC-530 | The strict reader's temporal step admits a `reference` to a `temporal`/`fairness` node as a direct member of a quantifier Group of a `claim`/`hyperproperty` node's `quantifiers` Tuple, and refuses `ill_typed`/`operator-ineligible` at the hyperproperty node a reference to a `temporal`/`fairness` node anywhere else in its body (`match`, `align_skip`, the `body` target, a Group `binding` value, a bare `quantifiers` Tuple member, a Group of another `claim` form) and a reference to a `temporal`/`formula` node anywhere in its body; this restates QSpec FR-370 "Placement" and FR-370-AC-21, whose enumeration of the refused places is not exhaustive. The hyperproperty step then runs after the step-relation step and before the hybrid step, over each `claim`/`hyperproperty` node in ascending node-id order, with QSpec FR-402 "Reader order" steps 1 to 4 in that order and the node's first defect the package's: step 1 refuses a body that is not the seven bindings in order, or a quantifier Group that is not `variable`, `quantifier`, `alias` (for a finite domain, whose `domain` is a `reference`, `variable` and `quantifier` only, with no `subjects` member, `alias` binding or fairness reference) and then references only, `invalid_semantic_graph` at the first member that breaks the layout, and a `quantifier` value other than `forall`/`exists` `invalid_package`/`invalid-value` at that value; step 2 refuses a `subjects` target that is no `model`/`model_root` node `invalid_model_binding`/`malformed-declaration` at the target, a Group `alias` naming no `subjects` binding `missing_declaration`/`missing-name` at the `alias` binding, and a `subjects` binding no Group names `invalid_semantic_graph` at the binding; step 4 resolves each Group reference as a clause's fairness member, located at the reference, refusing a non-`operation` target `invalid_model_binding`/`malformed-declaration`, FR-370 "Fairness resolution" steps 1 to 3 with their codes and causes, a declaring node outside the package of its alias's `model_root` `invalid_model_binding`/`malformed-declaration`, and a non-empty set under a body wrapper whose profile admits none `invalid_package`/`operation-member-mismatch`. Step 3 refuses a `behaviours` `body` target that is no `temporal`/`temporal_clause` node `ill_typed`/`operator-ineligible` at the hyperproperty node and a body wrapper whose fairness argument is not empty `invalid_semantic_graph` at the wrapper's `body/arguments/4`, and a finite domain's `body` target that is no `expression` node typed by the `scalar_type`/`boolean` node `ill_typed`/`non-boolean-root` at the target; this PR implements FR-402 "Reader order" in full. | Test (TC-346; QSpec FR-370-AC-21) |
 
 | FR-038-AC-492 | An admitted `CheckedPackageV2` shall issue a cloneable, opaque `AdmissionBinding` capability and report whether it retains that capability. Clones from one read are members; an independent read of equal canonical bytes is not. | Test (TC-048) |
 | FR-038-AC-493 | The public capability shall use the reader's original admission binding and expose no construction path, buffer contents, copied carrier, or compatibility representation. | Review (IR-1370) |

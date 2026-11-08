@@ -1097,7 +1097,10 @@ fn validate_one<'a, V: TermSource<'a>>(
         }
         // A frame and an abstraction relation are node bodies of their own,
         // never a nested term and never the body of a node of another form.
-        BodyTerm::Frame | BodyTerm::AbstractionRelation => Err(invalid(at)),
+        BodyTerm::Frame
+        | BodyTerm::AbstractionRelation
+        | BodyTerm::ImplementationGuarantee
+        | BodyTerm::ComponentComposition => Err(invalid(at)),
     }
 }
 
@@ -1151,6 +1154,17 @@ pub(in crate::checked_package) enum TermField {
     Definition,
     NodeKind,
     Clauses,
+    Clause,
+    Relation,
+    Initial,
+    Progress,
+    Environment,
+    Rule,
+    Components,
+    Guarantees,
+    Relies,
+    LivenessDependencies,
+    Supplies,
 }
 
 impl TermField {
@@ -1178,6 +1192,17 @@ impl TermField {
             Self::Definition => "definition",
             Self::NodeKind => "node_kind",
             Self::Clauses => "clauses",
+            Self::Clause => "clause",
+            Self::Relation => "relation",
+            Self::Initial => "initial",
+            Self::Progress => "progress",
+            Self::Environment => "environment",
+            Self::Rule => "rule",
+            Self::Components => "components",
+            Self::Guarantees => "guarantees",
+            Self::Relies => "relies",
+            Self::LivenessDependencies => "liveness_dependencies",
+            Self::Supplies => "supplies",
         }
     }
 }

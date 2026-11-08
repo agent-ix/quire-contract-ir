@@ -454,6 +454,14 @@ same-width and mismatched pairs and the count, sum, convert and narrow
 mismatched-result cases. Verify that selecting by member kind alone breaks the
 lookup/all-instances admitted controls, and that selecting an IEEE-only identity
 allow-list breaks a non-IEEE mismatched-result control.
+For fold and reduce, also read the accumulator binding whose aggregate holds
+one element binding and resolve the final step's type. Admit Integer steps
+and both the genuine QSL Integer fold fixture and the original complete
+monitor-base fixture with its selected model document. Refuse empty or multiple-member
+aggregates, non-binding members and a Boolean step when the member is Integer,
+at the application node. A further aggregate step retains its earlier
+malformed-wire refusal at its value. Keep direct binder controls.
+
 For fold and reduce, an unequal result must refuse at `result_type`. A wire
 member kind that disagrees with the current entry still refuses earlier at
 `operation.member` (AC-69 and AC-98; AC-65 defines the closed member-kind vocabulary).

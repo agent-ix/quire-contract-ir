@@ -701,6 +701,8 @@ fn literal_defect<'t>(
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
             | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. }
             | CheckedTerm::NominalBody(_) => {}
@@ -1523,7 +1525,7 @@ fn operation_defect(
         };
         let bound = admitted_arguments(application, graph)
             .and_then(|arguments| arguments.get(1))
-            .and_then(|binder| binder_bound(binder, graph));
+            .and_then(|binder| binder_bound(binder, &operation, graph));
         for type_id in result.into_iter().chain(bound.as_ref()) {
             let pin = carried_unit_and_mode(type_id, graph)
                 .map(|(_, mode)| mode)
@@ -1772,6 +1774,8 @@ fn argument_family(
         CheckedTerm::DependencyReference { .. }
         | CheckedTerm::Frame { .. }
         | CheckedTerm::AbstractionRelation { .. }
+        | CheckedTerm::ImplementationGuarantee { .. }
+        | CheckedTerm::ComponentComposition { .. }
         | CheckedTerm::Refinement { .. }
         | CheckedTerm::ExtensionForm { .. }
         | CheckedTerm::NominalBody(_) => None,
@@ -1953,7 +1957,9 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => None,
     }
 }
@@ -2108,7 +2114,9 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => false,
     }
 }
@@ -2414,6 +2422,8 @@ fn check_operands(
                         | CheckedTerm::Aggregate { .. }
                         | CheckedTerm::Frame { .. }
                         | CheckedTerm::AbstractionRelation { .. }
+                        | CheckedTerm::ImplementationGuarantee { .. }
+                        | CheckedTerm::ComponentComposition { .. }
                 )
             )
         {
@@ -2560,12 +2570,28 @@ fn check_operands(
                 }
             }
             OperationConstraintKind::BoundIsMember => {
+                if matches!(
+                    operation.identity.as_ref(),
+                    "quire.op.collection.fold" | "quire.op.collection.reduce"
+                ) {
+                    for position in &indices {
+                        if matches!(typed_arguments.get(*position),
+                            Some(CheckedTerm::Binding { value, .. })
+                                if matches!(value.as_ref(), CheckedTerm::Aggregate { .. }))
+                        {
+                            // Charge the two additional edges through the
+                            // singleton aggregate and its element binding.
+                            work.meter
+                                .charge(2, || node_pointer(application.position))?;
+                        }
+                    }
+                }
                 let member = member_declaration(operation);
                 let held = member.as_ref().is_some_and(|member| {
                     indices.iter().all(|position| {
                         typed_arguments
                             .get(*position)
-                            .and_then(|binder| binder_bound(binder, graph))
+                            .and_then(|binder| binder_bound(binder, operation, graph))
                             .as_ref()
                             == Some(member)
                     })
@@ -2638,10 +2664,29 @@ fn check_operands(
     Ok(None)
 }
 
-/// A binder's value names its summand; the summand's declared type is the bound.
-fn binder_bound(binder: &CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
+/// Resolve a binder's body type, including the two binders of a fold step.
+#[ix_trace_rs::string_edge]
+fn binder_bound(
+    binder: &CheckedTerm,
+    operation: &OperationWire,
+    graph: &Graph<'_>,
+) -> Option<CheckedNodeId> {
     let CheckedTerm::Binding { value, .. } = binder else {
         return None;
+    };
+    let value = match (operation.identity.as_ref(), value.as_ref()) {
+        (
+            "quire.op.collection.fold" | "quire.op.collection.reduce",
+            CheckedTerm::Aggregate { members },
+        ) => {
+            // The accumulator contains exactly one element binder. Its step,
+            // rather than the aggregate wrapper, determines the bound type.
+            let [CheckedTerm::Binding { value, .. }] = members.as_slice() else {
+                return None;
+            };
+            value.as_ref()
+        }
+        _ => value.as_ref(),
     };
     operand_type_node_typed(value, graph.nodes, graph.kinds, graph.index)
 }

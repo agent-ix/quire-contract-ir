@@ -8,7 +8,7 @@ use super::{
     CheckedNodeId, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2,
     CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion,
 };
-use std::collections::BTreeMap;
+use super::v2::PositionIndex;
 
 #[cfg(test)]
 mod source_probe {
@@ -57,29 +57,27 @@ mod source_probe {
 
 pub(in crate::checked_package) fn source_index(
     entries: &[CheckedSourceMapEntry],
-) -> BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize> {
+    budget: &mut super::v2::NativeJoinBudget,
+) -> Result<PositionIndex, super::common::ValidationFailure> {
     #[cfg(test)]
-    source_probe::built();
-    let mut positions = BTreeMap::new();
-    for (position, entry) in entries.iter().enumerate() {
-        #[cfg(test)]
-        source_probe::build_entry();
-        positions
-            .entry((entry.node_id.clone(), entry.role.clone(), entry.ordinal))
-            .or_insert(position);
+    {
+        source_probe::built();
+        for _ in entries {
+            source_probe::build_entry();
+        }
     }
-    positions
+    super::v2::retained_source_positions(entries, budget)
 }
 
 fn selected_source<'a>(
     entries: &'a [CheckedSourceMapEntry],
-    positions: &BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>,
+    positions: &PositionIndex,
     binding: &CheckedNodeId,
     ordinal: u64,
 ) -> Option<&'a CheckedSourceMapEntry> {
     positions
-        .get(&(binding.clone(), CheckedOccurrenceRole::Type, ordinal))
-        .and_then(|position| entries.get(*position))
+        .source(entries, binding, &CheckedOccurrenceRole::Type, ordinal)
+        .and_then(|position| entries.get(position))
         .inspect(|_| {
             #[cfg(test)]
             source_probe::visited();
@@ -436,7 +434,8 @@ mod source_index_tests {
                 })
                 .collect();
             source_probe::reset();
-            let positions = source_index(&sources);
+            let positions = source_index(&sources, &mut crate::NativeJoinBudget::unlimited())
+                .expect("unlimited budget");
             assert_eq!(source_probe::builds(), 1);
             assert_eq!(source_probe::build_entries(), entries as u64);
             for requests in [2, 4, 8] {

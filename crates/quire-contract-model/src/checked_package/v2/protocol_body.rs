@@ -53,7 +53,7 @@ impl CheckedPackageV2 {
         if self.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::Role) {
             return None;
         }
-        let CheckedTerm::Application { arguments, .. } = &self.terms[position] else {
+        let CheckedTerm::Application { arguments, .. } = &self.wire.semantic_graph.nodes[position].body else {
             return None;
         };
         role_member_texts(binding_value(arguments, "model_member")?)
@@ -69,7 +69,7 @@ impl CheckedPackageV2 {
             if self.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause) {
                 continue;
             }
-            let CheckedTerm::Application { arguments, .. } = &self.terms[position] else {
+            let CheckedTerm::Application { arguments, .. } = &self.wire.semantic_graph.nodes[position].body else {
                 unreachable!("admitted protocol clause has an application body");
             };
             let activation = binding_value(arguments, "activation")
@@ -4508,6 +4508,8 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                     | CheckedTerm::DependencyReference { .. }
                     | CheckedTerm::Frame { .. }
                     | CheckedTerm::AbstractionRelation { .. }
+                    | CheckedTerm::ImplementationGuarantee { .. }
+                    | CheckedTerm::ComponentComposition { .. }
                     | CheckedTerm::Refinement { .. }
                     | CheckedTerm::ExtensionForm { .. }
                     | CheckedTerm::NominalBody(_)

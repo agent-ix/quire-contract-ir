@@ -1280,7 +1280,9 @@ impl NominalKind {
                 | CorrespondenceForm::ModelCorrespondence
                 | CorrespondenceForm::BindingRole
                 | CorrespondenceForm::ProfileCorrespondence
-                | CorrespondenceForm::AbstractionRelation,
+                | CorrespondenceForm::AbstractionRelation
+                | CorrespondenceForm::ImplementationGuarantee
+                | CorrespondenceForm::ComponentComposition,
             ) => None,
         }
     }
