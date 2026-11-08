@@ -1401,6 +1401,7 @@ def production_run(arguments: argparse.Namespace) -> dict:
         "reason": "compiler evidence completeness not established: dependency bodies and fully qualified aggregate construction pass"})
     report["result"]["static_ac513_proven"] = False
     report["result"]["source_bans_checked"] = False
+    report["result"]["unresolved_records"] = len(report["unresolved"])
     final_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, env=env, text=True).strip()
     final_dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=source, env=env, text=True)
     if final_head != head or final_dirty:
