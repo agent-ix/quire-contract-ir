@@ -68,6 +68,9 @@ const BOX_TOKEN: &str = "$quire::Box";
 /// The name under which an exact vector announces its allocation.
 const SEQUENCE_TOKEN: &str = "$quire::Sequence";
 
+/// A closed internally tagged record decoded without serde content buffering.
+pub(in crate::checked_package) const CLOSED_ENUM_TOKEN: &str = "$quire::ClosedEnum";
+
 thread_local! {
     static BOX_BYTES: Cell<usize> = const { Cell::new(0) };
     static ELEMENT_BYTES: Cell<usize> = const { Cell::new(0) };
@@ -592,6 +595,7 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
                     parent: self,
                     path_slots,
                     name: "",
+                    skip_kind: false,
                 })
             }
         };
@@ -623,6 +627,14 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
         name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Error> {
+        if name == CLOSED_ENUM_TOKEN {
+            let node = super::TermNode::from_ref(self.node);
+            let tag = node
+                .get("kind")
+                .and_then(super::TermNode::as_str)
+                .ok_or(Error::Invalid)?;
+            return visitor.visit_enum(ClosedEnum { parent: self, tag });
+        }
         if name == super::typed_terms::OPERATION_TOKEN {
             let context = self.context;
             let mut record = if super::typed_terms::CheckedApplicationOperationRecord::wire_shape(
@@ -781,6 +793,78 @@ impl<'de, 'c> SeqAccess<'de> for Sequence<'c, 'de> {
     }
 }
 
+struct ClosedEnum<'c, 'd> {
+    parent: ValueDe<'c, 'd>,
+    tag: &'d str,
+}
+impl<'c, 'de> de::EnumAccess<'de> for ClosedEnum<'c, 'de> {
+    type Error = Error;
+    type Variant = ClosedFields<'c, 'de>;
+    fn variant_seed<V: DeserializeSeed<'de>>(
+        self,
+        seed: V,
+    ) -> Result<(V::Value, Self::Variant), Error> {
+        self.parent.context.push(Segment::Key("kind"));
+        let tag = seed.deserialize(serde::de::value::BorrowedStrDeserializer::<Error>::new(
+            self.tag,
+        ));
+        if let Err(error) = &tag {
+            self.parent.context.record_error(error);
+        }
+        self.parent.context.pop();
+        let tag = tag?;
+        Ok((
+            tag,
+            ClosedFields {
+                parent: self.parent,
+            },
+        ))
+    }
+}
+struct ClosedFields<'c, 'd> {
+    parent: ValueDe<'c, 'd>,
+}
+impl<'c, 'de> de::VariantAccess<'de> for ClosedFields<'c, 'de> {
+    type Error = Error;
+    fn unit_variant(self) -> Result<(), Error> {
+        Err(Error::Invalid)
+    }
+    fn newtype_variant_seed<T: DeserializeSeed<'de>>(self, seed: T) -> Result<T::Value, Error> {
+        seed.deserialize(self)
+    }
+    fn tuple_variant<V: Visitor<'de>>(
+        self,
+        _length: usize,
+        _visitor: V,
+    ) -> Result<V::Value, Error> {
+        Err(Error::Invalid)
+    }
+    fn struct_variant<V: Visitor<'de>>(
+        self,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Error> {
+        de::Deserializer::deserialize_any(self, visitor)
+    }
+}
+impl<'c, 'de> de::Deserializer<'de> for ClosedFields<'c, 'de> {
+    type Error = Error;
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        let Node::Object(members) = self.parent.node.node() else {
+            return Err(Error::Invalid);
+        };
+        visitor.visit_map(Mapping {
+            members,
+            value: None,
+            parent: self.parent,
+            path_slots: false,
+            name: "",
+            skip_kind: true,
+        })
+    }
+    serde::forward_to_deserialize_any! {bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf option unit unit_struct newtype_struct seq tuple tuple_struct map struct enum identifier ignored_any}
+}
+
 struct Mapping<'c, 'd> {
     members: Members<'d>,
     value: Option<NodeRef<'d>>,
@@ -788,6 +872,7 @@ struct Mapping<'c, 'd> {
     /// This object is a node ID read through an operand row: its `path`
     /// resolves operand slots.
     path_slots: bool,
+    skip_kind: bool,
     /// The name of the member whose value is next.
     name: &'d str,
 }
@@ -832,7 +917,11 @@ impl<'de, 'c> MapAccess<'de> for Mapping<'c, 'de> {
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, Error> {
-        let Some((name, value)) = self.members.next() else {
+        let Some((name, value)) = self
+            .members
+            .by_ref()
+            .find(|(name, _)| !(self.skip_kind && *name == "kind"))
+        else {
             return Ok(None);
         };
         self.value = Some(value);
