@@ -65,8 +65,8 @@ use super::model_members::{DomainModel, MemberType, ValueBounds};
 use super::node_index::resolve_id_charged;
 use super::term_view::{TermNode, TermView};
 use super::{
-    ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
-    OperationMemberKind, StateClauseKind, WorkMeter,
+    ApplicationOperator, CheckedTerm, ExecutionPoint, LiteralKind, OperationMemberKind,
+    StateClauseKind, WorkMeter,
 };
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedNodeTag, ClaimForm, CompositeTypeForm,
@@ -80,7 +80,6 @@ use crate::checked_package::shared::{
     JsonPointer,
 };
 use quire_exact::TextProfile;
-use serde_json::Value;
 use std::cmp::Ordering;
 
 /// The member of one node a structural defect is about.
@@ -1941,15 +1940,6 @@ pub(super) fn typed_clause_body(body: &super::CheckedTerm) -> Option<ClauseBody<
     })
 }
 
-/// A `composite_type`/`reference` type node's target: its body is exactly
-/// `aggregate{[reference(target)]}`.
-pub(super) fn reference_type_target(node: &CheckedSemanticNodeV2) -> Option<CheckedNodeId> {
-    let Some([target]) = aggregate_members(&node.body) else {
-        return None;
-    };
-    reference_target(target)
-}
-
 /// A `composite_type`/`reference` type node's target, borrowed from its typed
 /// body: exactly `aggregate{[reference(target)]}`.
 pub(super) fn reference_type_target_ref(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
@@ -2214,29 +2204,6 @@ fn member_id(
     }
 }
 
-/// An `aggregate` term's members.
-pub(super) fn aggregate_members(term: &Value) -> Option<&[Value]> {
-    match CheckedTerm::view(term)? {
-        CheckedTermView::Aggregate { members } => Some(members),
-        _ => None,
-    }
-}
-
-/// A `reference` term's target.
-pub(super) fn reference_target(term: &Value) -> Option<CheckedNodeId> {
-    let target = reference_selector(term)?;
-    target.is_well_formed().then_some(target)
-}
-
-/// A typed draft `reference` target before its provisional selector is replaced.
-/// The reader retains the exact structural target through [`reference_target`].
-pub(super) fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
-    match CheckedTerm::view(term)? {
-        CheckedTermView::Reference { target } => CheckedNodeId::from_value(target),
-        _ => None,
-    }
-}
-
 /// `^(0|[1-9][0-9]*)$`.
 #[ix_trace_rs::string_edge]
 pub(super) fn is_non_negative_integer(value: &str) -> bool {
@@ -2269,7 +2236,7 @@ mod tests {
     use super::*;
     use crate::checked_package::shared::checked_node_comparisons;
     use ix_trace_rs::trace;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::collections::BTreeSet;
 
     #[trace("TC-048", "FR-038-AC-380")]
@@ -2394,6 +2361,13 @@ mod tests {
 
     fn id(fill: char) -> Value {
         json!({"package": "structural-test", "path": [fill.to_string()], "ordinal": 0})
+    }
+
+    fn reference_selector(term: &Value) -> Option<CheckedNodeId> {
+        match CheckedTerm::decode_admitted(term).ok()? {
+            CheckedTerm::Reference { target } => Some(target),
+            _ => None,
+        }
     }
 
     #[trace("TC-048", "FR-038-AC-22")]
@@ -2571,7 +2545,7 @@ mod tests {
             json!([]),
             json!("pre"),
         ] {
-            let handle = super::super::CheckedJson::from_value(&point).expect("canonical");
+            let handle = super::super::CheckedJson::from_serializable(&point).expect("canonical");
             assert_eq!(
                 is_closed_execution_point(TermNode::of(&handle)),
                 ExecutionPoint::from_wire(&point).is_some(),

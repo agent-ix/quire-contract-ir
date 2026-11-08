@@ -647,7 +647,7 @@ pub(super) fn read_catalog_budgeted(
     ) {
         Ok(document) => document,
         Err(quire_canonical::ReadError::ReservationDenied { .. }) => {
-            return Err(CatalogStop::Budget(budgeted_read::denial(budget)))
+            return Err(CatalogStop::Budget(budgeted_read::denial(budget)));
         }
         Err(error) => return Err(catalog_error(budget, &error)),
     };
@@ -662,7 +662,7 @@ pub(super) fn read_catalog_budgeted(
     let wire = match decoded {
         Ok(wire) => wire,
         Err(CatalogDecodeError::Denied) => {
-            return Err(CatalogStop::Budget(budgeted_read::denial(budget)))
+            return Err(CatalogStop::Budget(budgeted_read::denial(budget)));
         }
         Err(CatalogDecodeError::Shape { message, word }) => {
             return Err(catalog_error_at(

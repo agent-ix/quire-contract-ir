@@ -1398,13 +1398,13 @@ fn operation_defect(
             return refuse(
                 application.body(&["operation", "mode", "kind"]),
                 CheckedPackageRefusalCause::OperationModeMismatch,
-            )
+            );
         }
         (None, Some(_)) | (Some(_), None) => {
             return refuse(
                 member_or_operation("mode"),
                 CheckedPackageRefusalCause::OperationModeMismatch,
-            )
+            );
         }
     }
     // Outer `Some` is a member on the wire; inner `None` is a `kind` outside
@@ -1434,7 +1434,7 @@ fn operation_defect(
             return refuse(
                 application.body(&[]),
                 CheckedPackageRefusalCause::OperationMemberMismatch,
-            )
+            );
         }
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
     }
@@ -2227,6 +2227,7 @@ pub(super) trait NominalEnumOrder {
     fn enum_ordered(&self) -> Option<bool>;
 }
 
+#[cfg(test)]
 impl NominalEnumOrder for serde_json::Value {
     fn enum_ordered(&self) -> Option<bool> {
         let body = super::identity::NominalBody::from_value(self, JsonPointer::root()).ok()?;
@@ -2246,6 +2247,16 @@ impl NominalEnumOrder for CheckedTerm {
             },
             _ => None,
         }
+    }
+}
+
+impl NominalEnumOrder for super::CheckedJson {
+    fn enum_ordered(&self) -> Option<bool> {
+        let body = super::TermNode::of(self);
+        if body.get("term").and_then(super::TermNode::as_str) != Some("enum") {
+            return None;
+        }
+        body.get("ordered").and_then(super::TermNode::as_bool)
     }
 }
 
@@ -3380,7 +3391,7 @@ fn check_reference_edge(
                 application,
                 member_at("declaration"),
                 refusal,
-            )))
+            )));
         }
     };
     if owner.object_type().is_none() {
@@ -3399,7 +3410,7 @@ fn check_reference_edge(
         {
             Ok(resolved) => resolved,
             Err(ModelFailure::Refused(refusal)) => {
-                return Ok(Some(model_refusal(application, member_at("name"), refusal)))
+                return Ok(Some(model_refusal(application, member_at("name"), refusal)));
             }
             Err(ModelFailure::Limit(failure)) => return Err(failure),
         }
@@ -3459,7 +3470,7 @@ fn check_reference_edge(
                 application,
                 argument_at(target),
                 refusal,
-            )))
+            )));
         }
     };
     if !std::ptr::eq(end_owner.package, owner.package) || end_owner.object_type().is_none() {
@@ -3642,10 +3653,10 @@ fn check_relationship_member(
     let selected = match relationship.select_ends(name) {
         Ok(selected) => selected,
         Err(EndSelectionError::MissingName) => {
-            return refuse(member_at("name"), ModelRefusal::missing_name())
+            return refuse(member_at("name"), ModelRefusal::missing_name());
         }
         Err(EndSelectionError::Ambiguous) => {
-            return refuse(member_at("name"), ModelRefusal::ambiguous())
+            return refuse(member_at("name"), ModelRefusal::ambiguous());
         }
     };
     let SelectedEnds {
@@ -5704,11 +5715,19 @@ mod tests {
         CheckedArtifactRef, CheckedPackageLimit, CheckedSelection, JsonPointer,
     };
     use ix_trace_rs::trace;
+    use serde_json::{json, Value};
+
+    fn edit_body(node: &mut CheckedSemanticNodeV2, edit: impl FnOnce(&mut Value)) {
+        let mut body = node.body.to_value();
+        edit(&mut body);
+        node.body =
+            super::super::CheckedJson::from_serializable(&body).expect("edited body is canonical");
+    }
 
     fn decoded_terms(nodes: &[CheckedSemanticNodeV2]) -> Vec<Option<super::CheckedTerm>> {
         nodes
             .iter()
-            .map(|node| super::CheckedTerm::decode_admitted(&node.body).ok())
+            .map(|node| super::CheckedTerm::decode_admitted(&node.body.to_value()).ok())
             .collect()
     }
 
@@ -5746,7 +5765,6 @@ mod tests {
         ValidationFailure::refused_at(code, pointer(path), cause, locus)
     }
     use super::super::graph_storage::GraphIndex;
-    use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
     fn relationship_member_outcome(
@@ -5839,12 +5857,16 @@ mod tests {
             vec![json!({"term": "reference", "target": id(&node_id('r'))})],
         );
         if operation_identity == "quire.op.model.reaches" {
-            application.body["arguments"]
-                .as_array_mut()
-                .expect("arguments")
-                .push(json!({"term": "reference", "target": id(&node_id('r'))}));
+            edit_body(&mut application, |body| {
+                body["arguments"]
+                    .as_array_mut()
+                    .expect("arguments")
+                    .push(json!({"term": "reference", "target": id(&node_id('r'))}));
+            });
         }
-        application.body["result_type"] = id(result_key);
+        edit_body(&mut application, |body| {
+            body["result_type"] = id(result_key)
+        });
         let object = |key: &CheckedNodeId, name: &str| {
             let mut node = graph_node(
                 'o',
@@ -5905,7 +5927,7 @@ mod tests {
         ];
         let mut kinds = kinds_of(&nodes);
         configure(&mut nodes, &mut kinds, &mut operation);
-        nodes[0].body["operation"] = operation.clone();
+        edit_body(&mut nodes[0], |body| body["operation"] = operation.clone());
         if !nodes.iter().any(|node| node.node_id == *result_key) {
             let boolean = result_key == &MemberType::Boolean.node_id("checked").expect("boolean");
             let mut result_node = graph_node(
@@ -6175,8 +6197,10 @@ mod tests {
                 "/semantic_graph/nodes/0/body/operation/member/population".into(),
             ))
         );
-        println!("relationship_population_caller baseline_work={} raw_mismatch_work={} typed_mismatch_work={}",
-            baseline.1, raw_nonpopulation.1, typed_nonpopulation.1);
+        println!(
+            "relationship_population_caller baseline_work={} raw_mismatch_work={} typed_mismatch_work={}",
+            baseline.1, raw_nonpopulation.1, typed_nonpopulation.1
+        );
     }
 
     #[trace(
@@ -6615,7 +6639,7 @@ mod tests {
         let mut node: CheckedSemanticNodeV2 =
             serde_json::from_value(value).expect("test fixture node is well-formed");
         node.semantic_type = semantic_type.clone();
-        node.body = body;
+        node.body = super::super::CheckedJson::from_serializable(&body).expect("canonical body");
         node
     }
 
@@ -6700,14 +6724,19 @@ mod tests {
     #[test]
     fn admitted_operation_identity_comes_from_the_retained_term() {
         let mut node = application_node(CATALOGUED_IDENTITY, "binary");
-        node.body["result_type"] = json!(node_id('2'));
-        node.body["arguments"] = json!([
-            {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "1"},
-            {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "2"}
-        ]);
+        edit_body(&mut node, |body| {
+            body["result_type"] = json!(node_id('2'));
+            body["arguments"] = json!([
+                {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "1"},
+                {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "2"}
+            ]);
+        });
         let expected = defect_for(&node);
-        let retained = super::CheckedTerm::decode_admitted(&node.body).expect("admitted term");
-        node.body["operation"]["identity"] = json!(UNCATALOGUED_IDENTITY);
+        let retained =
+            super::CheckedTerm::decode_admitted(&node.body.to_value()).expect("admitted term");
+        edit_body(&mut node, |body| {
+            body["operation"]["identity"] = json!(UNCATALOGUED_IDENTITY);
+        });
         let nodes = std::slice::from_ref(&node);
         let kinds = kinds_of(nodes);
         let index: GraphIndex<'_> = [(&node.node_id, 0)].into_iter().collect();
@@ -7181,7 +7210,9 @@ mod tests {
                 }}),
             ],
         );
-        application.body["result_type"] = json!(node_id('4'));
+        edit_body(&mut application, |body| {
+            body["result_type"] = json!(node_id('4'))
+        });
         let parameter = |id, name, type_id| {
             graph_node(
                 id,
@@ -8026,7 +8057,9 @@ mod tests {
             operands.into_iter().map(reference_to).collect(),
         );
         if let Some(result) = result {
-            root.body["result_type"] = json!(node_ref_of(result));
+            edit_body(&mut root, |body| {
+                body["result_type"] = json!(node_ref_of(result))
+            });
         }
         let locus = root.node_id.clone();
         let mut graph = vec![root];
@@ -9298,15 +9331,17 @@ mod tests {
     fn union_arms_propagates_structural_work_before_testing_its_constraint() {
         let mut application =
             custom_application_node("case", plain_operation("quire.op.control.case"), Vec::new());
-        application.body["result_type"] = json!(node_id('i'));
-        application.body["arguments"] = json!([
-            reference_to('p'),
-            { "term": "binding", "name": "Only", "value": {
-                "term": "aggregate", "members": [
-                    { "term": "aggregate", "members": [] }, reference_to('q'),
-                ],
-            } },
-        ]);
+        edit_body(&mut application, |body| {
+            body["result_type"] = json!(node_id('i'));
+            body["arguments"] = json!([
+                reference_to('p'),
+                { "term": "binding", "name": "Only", "value": {
+                    "term": "aggregate", "members": [
+                        { "term": "aggregate", "members": [] }, reference_to('q'),
+                    ],
+                } },
+            ]);
+        });
         let union = graph_node(
             'U',
             "composite_type",
@@ -9490,7 +9525,9 @@ mod tests {
             plain_operation("quire.op.collection.contains"),
             vec![reference_to('p'), reference_to('q')],
         );
-        contains.body["result_type"] = json!(node_id('b'));
+        edit_body(&mut contains, |body| {
+            body["result_type"] = json!(node_id('b'))
+        });
         let inner = vec![
             contains,
             forwarding_node('w', "composite_type", "alias", 's'),
@@ -9506,7 +9543,9 @@ mod tests {
             plain_operation("quire.op.collection.flatten"),
             vec![reference_to('p')],
         );
-        flatten.body["result_type"] = json!(node_id('w'));
+        edit_body(&mut flatten, |body| {
+            body["result_type"] = json!(node_id('w'))
+        });
         let result_inner = vec![
             flatten,
             forwarding_node('w', "composite_type", "alias", 's'),
@@ -9521,7 +9560,9 @@ mod tests {
             plain_operation("quire.op.structural.eq"),
             vec![reference_to('p'), reference_to('q')],
         );
-        record.body["result_type"] = json!(node_id('b'));
+        edit_body(&mut record, |body| {
+            body["result_type"] = json!(node_id('b'))
+        });
         let leaf_edge = vec![
             record,
             record_type_node('r', &[("value", 'w')]),
@@ -9540,9 +9581,13 @@ mod tests {
             let mut direct = nodes.clone();
             match route {
                 "inner:0" => direct[5].semantic_type = node_id('s'),
-                "result_inner" => direct[0].body["result_type"] = json!(node_id('s')),
+                "result_inner" => edit_body(&mut direct[0], |body| {
+                    body["result_type"] = json!(node_id('s'))
+                }),
                 "leaf edge" => {
-                    direct[1].body["members"][0]["value"]["target"] = json!(node_id('i'));
+                    edit_body(&mut direct[1], |body| {
+                        body["members"][0]["value"]["target"] = json!(node_id('i'));
+                    });
                 }
                 _ => unreachable!("the test lists every route"),
             }
@@ -11607,7 +11652,7 @@ mod tests {
                 structural_keys: &[],
             };
             let operation: super::OperationWire =
-                serde_json::from_value(nodes[0].body["operation"].clone())
+                serde_json::from_value(nodes[0].body.to_value()["operation"].clone())
                     .expect("published present operation");
             let actual = super::check_place_presence(
                 super::Application {

@@ -578,7 +578,8 @@ pub(super) fn validate_owner_joins(
                 .push((entry_index, entry));
         }
     }
-    let mut positions: Vec<_> = (0..wire.semantic_graph.nodes.len()).collect();
+    let mut positions = meter.vec(wire.semantic_graph.nodes.len())?;
+    positions.extend(0..wire.semantic_graph.nodes.len());
     positions.sort_unstable_by(|&left, &right| {
         wire.semantic_graph.nodes[left]
             .node_id
@@ -695,7 +696,7 @@ mod anonymous_lookup_tests {
             .semantic_graph
             .nodes
             .iter()
-            .map(|node| CheckedJson::from_value(&node.body).expect("test body"))
+            .map(|node| node.body.clone())
             .collect::<Vec<_>>();
         validate_owner_schema(wire, &bodies, &mut NativeJoinBudget::unlimited())
     }

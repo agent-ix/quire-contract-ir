@@ -378,7 +378,7 @@ pub(in crate::checked_package::v2) fn checked_member_type_bytes(
                 cursor = element;
             }
             super::MemberType::CarriedRational(_, unit) => {
-                return total + boxed + node_id_bytes(unit)
+                return total + boxed + node_id_bytes(unit);
             }
             super::MemberType::TextBounds(bounds) => return total + bounds.profile.len(),
             super::MemberType::Reference(id)

@@ -23,6 +23,7 @@ use crate::checked_package::shared::{
 };
 use quire_exact::Integer;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
 use std::cmp::Ordering;
 
@@ -261,6 +262,7 @@ impl CheckedDimensionOperand {
         }
     }
 
+    #[cfg(test)]
     fn from_value(value: &Value) -> Option<Self> {
         use crate::checked_package::common::exact_members;
         let object = value.as_object()?;
@@ -682,6 +684,7 @@ impl NominalBody {
     /// Decode without cloning a caller-authored nested NodeId path. The
     /// NodeId decoder itself walks those paths on the heap.
     #[ix_trace_rs::string_edge]
+    #[cfg(test)]
     pub(super) fn from_value(body: &Value, at: JsonPointer) -> Result<Self, ValidationFailure> {
         use crate::checked_package::common::exact_members;
         let malformed =
@@ -1815,7 +1818,7 @@ pub(super) fn validate_nominal_nodes<B>(
             // Required and absent: the node lacks the member.
             (Some(_), None) => return Err(invalid(node_pointer(position))),
             (Some(NominalKind::DimensionEquivalence), Some(_)) => {
-                return Err(invalid(site.pointer()))
+                return Err(invalid(site.pointer()));
             }
             _ => return Err(invalid(site.nominal_member(&[]))),
         };
@@ -3414,7 +3417,11 @@ mod tests {
         );
 
         let mut malformed = unit.clone();
-        malformed.body = json!({"term":"aggregate","members":[{"term":"literal","kind":"text","value":"extra"}]});
+        malformed.body = CheckedJson::from_serializable(&json!({
+            "term":"aggregate",
+            "members":[{"term":"literal","kind":"text","value":"extra"}]
+        }))
+        .expect("canonical malformed body");
         let malformed_bodies = super::super::graph_storage::OwnedBodies::of([&malformed])
             .expect("canonical malformed body");
         let mut malformed_meter = WorkMeter::new(u64::MAX);
@@ -3738,7 +3745,7 @@ mod tests {
         let at = || JsonPointer::root().key("body");
         let mut closed = 0;
         for (slotted, resolved) in &bodies {
-            let handle = CheckedJson::from_value(slotted).expect("canonical");
+            let handle = CheckedJson::from_serializable(slotted).expect("canonical");
             let mut meter = WorkMeter::new(u64::MAX);
             let read = NominalBody::from_document(TermNode::of(&handle), &row, &at, &mut meter);
             let expected = NominalBody::from_value(resolved, at());
@@ -3780,7 +3787,7 @@ mod tests {
         ];
         let handles: Vec<CheckedJson> = bodies
             .iter()
-            .map(|body| CheckedJson::from_value(body).expect("canonical"))
+            .map(|body| CheckedJson::from_serializable(body).expect("canonical"))
             .collect();
         let row = [4_u64];
         let at = || JsonPointer::root().key("body");

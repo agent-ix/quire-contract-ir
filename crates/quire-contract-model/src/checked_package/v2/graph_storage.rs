@@ -11,7 +11,9 @@
 
 use super::budgeted_read::{BudgetStop, PackageReadResource};
 use super::checked_json::CheckedJson;
-use super::native_join_budget::{NativeJoinLocus, NativeJoinLocusSource, PackageReadStage};
+use super::native_join_budget::{
+    NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+};
 use super::read_charge::{Denied, ReadStorage, Site};
 use super::stage_storage::Path;
 use super::term_view::{NodeIdRead, TermNode};
@@ -105,6 +107,38 @@ impl<'b> WorkMeter<'b> {
         Some((TermNode::of(handle), row))
     }
 
+    /// Decodes a node body from its retained document, charging every owned
+    /// term allocation through the active package budget when present.
+    pub(super) fn decode_body(
+        &mut self,
+        position: usize,
+    ) -> Result<
+        Result<super::CheckedTerm, super::typed_terms::TermConversionCause>,
+        ValidationFailure,
+    > {
+        let table = self.bodies.ok_or_else(|| {
+            ValidationFailure::refused(
+                super::CheckedPackageRefusalCode::InvalidSemanticGraph,
+                node_pointer(position).key("body"),
+            )
+        })?;
+        let handle = table.handles.get(position).ok_or_else(|| {
+            ValidationFailure::refused(
+                super::CheckedPackageRefusalCode::InvalidSemanticGraph,
+                node_pointer(position).key("body"),
+            )
+        })?;
+        let row = table.rows.get(position).map_or(&[][..], Vec::as_slice);
+        let node = TermNode::of(handle);
+        if let Some((budget, site)) = self.budget_and_site() {
+            node.decode_in(handle.document(), budget, site, row)
+        } else {
+            let mut budget = NativeJoinBudget::unlimited();
+            let site = Site::new(PackageReadStage::Graph, position, "body");
+            node.decode_in(handle.document(), &mut budget, site, row)
+        }
+    }
+
     /// The node ID `term` spells, its operand slots read through `row`; the
     /// package, path and names are charged at the site now charged before
     /// each is allocated.
@@ -125,10 +159,9 @@ impl<'b> WorkMeter<'b> {
     }
 }
 
-/// Node bodies built outside the strict read, from the `Value` bodies of
-/// nodes: a V1 contract package being expanded and a unit test that calls a
-/// validator directly. The handles come from a canonical encoding of each
-/// body, with empty operand rows, and are not charged.
+/// Node body handles attached to a package walk. V2's strict read retains
+/// each body in its shared document; V1 and test-only callers construct their
+/// handles outside that read.
 pub(super) struct OwnedBodies {
     handles: Vec<CheckedJson>,
     rows: Vec<Vec<u64>>,
@@ -139,10 +172,7 @@ impl OwnedBodies {
     pub(super) fn of<'a>(
         nodes: impl IntoIterator<Item = &'a super::RawSemanticNodeV2>,
     ) -> Option<Self> {
-        let handles: Vec<CheckedJson> = nodes
-            .into_iter()
-            .map(|node| CheckedJson::from_value(&node.body).ok())
-            .collect::<Option<_>>()?;
+        let handles: Vec<CheckedJson> = nodes.into_iter().map(|node| node.body.clone()).collect();
         let rows = vec![Vec::new(); handles.len()];
         Some(Self { handles, rows })
     }
@@ -152,7 +182,7 @@ impl OwnedBodies {
     pub(super) fn of_values(values: &[serde_json::Value], rows: Vec<Vec<u64>>) -> Self {
         let handles = values
             .iter()
-            .map(|value| CheckedJson::from_value(value).expect("a canonical body"))
+            .map(|value| CheckedJson::from_serializable(value).expect("a canonical body"))
             .collect();
         Self { handles, rows }
     }

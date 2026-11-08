@@ -790,7 +790,14 @@ pub(super) struct ReferenceSite {
 
 /// Receives each reference target a walk finds, the site that carried it and
 /// the walk's position at that target.
-pub(super) type ReferenceVisitor<'v> = dyn FnMut(&CheckedNodeId, ReferenceSite, &Trail<'_>) + 'v;
+pub(super) type ReferenceVisitor<'v> = dyn FnMut(
+        CheckedNodeId,
+        ReferenceSite,
+        &Trail<'_>,
+        &mut dyn ReadStorage,
+        Site,
+    ) -> Result<(), ValidationFailure>
+    + 'v;
 
 /// The literal-value grammar a semantic term is validated against.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -880,12 +887,18 @@ impl<'s, 'r> Ids<'s, 'r> {
 /// validation, which moves to the node views; the V1 reader's `Value` callers
 /// then use an unlimited budget of their own.
 pub(super) fn with_unmetered_ids<R>(body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
+    with_unmetered_ids_row(&[], body)
+}
+
+/// Runs an ID-aware validator without a read ceiling while preserving the
+/// node's document operand row.
+pub(super) fn with_unmetered_ids_row<R>(row: &[u64], body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
     let mut budget = super::v2::NativeJoinBudget::unlimited();
     let site = Site::new(super::v2::PackageReadStage::Graph, 0, "reference");
     body(Ids {
         sink: &mut budget,
         site,
-        row: &[],
+        row,
     })
 }
 
@@ -1090,7 +1103,7 @@ fn validate_one<'a, V: TermSource<'a>>(
                 Some(Ok(NodeIdRead::Id(_))) => {}
                 Some(Err(failure)) => return Err(failure),
                 Some(Ok(NodeIdRead::Invalid(_) | NodeIdRead::Malformed)) | None => {
-                    return Err(invalid(&at.key("node")))
+                    return Err(invalid(&at.key("node")));
                 }
             }
             Ok(1)
@@ -1267,8 +1280,8 @@ impl<'a> WireTerm<'a> {
 
 /// The `term` tag of a semantic term or frame body, decoded; `None` when the
 /// member is absent, not a string, or outside the vocabulary.
-pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
-    WireTerm::decode(value).kind()
+pub(super) fn body_term<'a, V: TermSource<'a>>(value: V) -> Option<BodyTerm> {
+    value.kind()
 }
 
 /// Reports the node reference held in `term[key]` (the term at `at`).
@@ -1314,14 +1327,17 @@ fn visit_reference_with<'a, V: TermSource<'a>>(
             at.pointer(),
         )),
         NodeIdRead::Id(target) => {
+            let mut sink = ids.0.borrow_mut();
             visit(
-                &target,
+                target,
                 ReferenceSite {
                     member,
                     is_body_root,
                 },
                 at,
-            );
+                &mut **sink,
+                ids.1,
+            )?;
             Ok(1)
         }
     }
@@ -1944,8 +1960,9 @@ mod tests {
                         TermGrammar::V2,
                         true,
                         &Trail::Base(&[]),
-                        &mut |target, site, _| {
+                        &mut |target, site, _, _, _| {
                             reported.push((target.path.len(), site.is_body_root));
+                            Ok(())
                         },
                         ids,
                     )

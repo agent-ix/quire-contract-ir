@@ -626,6 +626,63 @@ pub enum CheckedNodePathSegment {
     Operand(u64),
 }
 
+impl<'de> Deserialize<'de> for CheckedNodePathSegment {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::{Error as _, MapAccess, Visitor};
+
+        struct SegmentVisitor;
+        impl<'de> Visitor<'de> for SegmentVisitor {
+            type Value = CheckedNodePathSegment;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(
+                    "a path string or an object containing only a node index or operand slot",
+                )
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(CheckedNodePathSegment::Name(value.into()))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(CheckedNodePathSegment::Name(value.into()))
+            }
+
+            #[ix_trace_rs::string_edge]
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let name: String = map
+                    .next_key()?
+                    .ok_or_else(|| A::Error::missing_field("node"))?;
+                let is_operand = match name.as_str() {
+                    "node" => false,
+                    "operand" => true,
+                    _ => return Err(A::Error::unknown_field(&name, &["node", "operand"])),
+                };
+                let index: u64 = map.next_value()?;
+                if index > 9_007_199_254_740_991 {
+                    return Err(A::Error::custom("path segment exceeds I-JSON bound"));
+                }
+                if let Some(other) = map.next_key::<String>()? {
+                    return Err(if other == name {
+                        A::Error::duplicate_field(if is_operand { "operand" } else { "node" })
+                    } else if is_operand {
+                        A::Error::unknown_field(&other, &["operand"])
+                    } else {
+                        A::Error::unknown_field(&other, &["node"])
+                    });
+                }
+                Ok(if is_operand {
+                    CheckedNodePathSegment::Operand(index)
+                } else {
+                    CheckedNodePathSegment::Index(index)
+                })
+            }
+        }
+
+        deserializer.deserialize_any(SegmentVisitor)
+    }
+}
+
 impl Serialize for CheckedNodePathSegment {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
@@ -745,70 +802,16 @@ impl std::fmt::Debug for CheckedNodeId {
 
 impl<'de> Deserialize<'de> for CheckedNodeId {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::{Error as _, MapAccess, Visitor};
+        use serde::de::{MapAccess, Visitor};
 
         // Wire paths are flat: an operand is an index, never a nested ID.
-        // Decode through serde's data model so buffered enum content and
-        // borrowed JSON values work as well as the text deserializer.
-        struct Segment(CheckedNodePathSegment);
-        struct SegmentVisitor;
-        impl<'de> Visitor<'de> for SegmentVisitor {
-            type Value = Segment;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str(
-                    "a path string or an object containing only a node index or operand slot",
-                )
-            }
-
-            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Segment, E> {
-                Ok(Segment(CheckedNodePathSegment::Name(value.into())))
-            }
-
-            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Segment, E> {
-                Ok(Segment(CheckedNodePathSegment::Name(value.into())))
-            }
-
-            #[ix_trace_rs::string_edge]
-            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Segment, A::Error> {
-                let name: String = map
-                    .next_key()?
-                    .ok_or_else(|| A::Error::missing_field("node"))?;
-                let is_operand = match name.as_str() {
-                    "node" => false,
-                    "operand" => true,
-                    _ => return Err(A::Error::unknown_field(&name, &["node", "operand"])),
-                };
-                let index: u64 = map.next_value()?;
-                if index > 9_007_199_254_740_991 {
-                    return Err(A::Error::custom("path segment exceeds I-JSON bound"));
-                }
-                if let Some(other) = map.next_key::<String>()? {
-                    return Err(if other == name {
-                        A::Error::duplicate_field(if is_operand { "operand" } else { "node" })
-                    } else if is_operand {
-                        A::Error::unknown_field(&other, &["operand"])
-                    } else {
-                        A::Error::unknown_field(&other, &["node"])
-                    });
-                }
-                Ok(Segment(if is_operand {
-                    CheckedNodePathSegment::Operand(index)
-                } else {
-                    CheckedNodePathSegment::Index(index)
-                }))
-            }
-        }
-        impl<'de> Deserialize<'de> for Segment {
-            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                deserializer.deserialize_any(SegmentVisitor)
-            }
-        }
+        // Decode into the final segment vector so the document decoder's
+        // reservation covers the only outer allocation.
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct WireNodeId {
             package: Box<str>,
-            path: Vec<Segment>,
+            path: Vec<CheckedNodePathSegment>,
             ordinal: u64,
         }
         struct NodeVisitor;
@@ -840,7 +843,7 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                 let wire = deserializer.deserialize_map(NodeVisitor)?;
                 Ok(CheckedNodeId {
                     package: wire.package,
-                    path: wire.path.into_iter().map(|segment| segment.0).collect(),
+                    path: wire.path,
                     ordinal: wire.ordinal,
                 })
             }

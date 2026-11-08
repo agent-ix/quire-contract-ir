@@ -27,9 +27,8 @@ impl PositionIndex {
     ) -> Result<Self, ValidationFailure> {
         let mut positions: Vec<usize> = read_charge::with_capacity(budget, site, count)?;
         positions.extend(0..count);
-        positions.sort_unstable_by(|left, right| {
-            order(*left, *right).then_with(|| left.cmp(right))
-        });
+        positions
+            .sort_unstable_by(|left, right| order(*left, *right).then_with(|| left.cmp(right)));
         Ok(Self(positions.into_boxed_slice()))
     }
 
@@ -61,7 +60,13 @@ impl PositionIndex {
     /// This index without the row at `position`, as a damaged index.
     #[cfg(test)]
     pub(in crate::checked_package) fn without(&self, position: usize) -> Self {
-        Self(self.0.iter().copied().filter(|&at| at != position).collect())
+        Self(
+            self.0
+                .iter()
+                .copied()
+                .filter(|&at| at != position)
+                .collect(),
+        )
     }
 
     /// The identities of `nodes` in ascending order.

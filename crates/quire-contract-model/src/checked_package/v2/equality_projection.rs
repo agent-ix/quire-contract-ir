@@ -1342,7 +1342,7 @@ fn validate_dimension_terms(
                     Some(CheckedNodeOwner::Model { .. })
                 ) =>
             {
-                continue
+                continue;
             }
             _ => {
                 return Err(read_error(
@@ -1351,7 +1351,7 @@ fn validate_dimension_terms(
                     application,
                     &declaration.structural_node,
                     0,
-                ))
+                ));
             }
         };
         let Some(terms) = body.dimension_details() else {

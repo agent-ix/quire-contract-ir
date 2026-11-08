@@ -708,7 +708,7 @@ impl SelectedExactIdentities {
                         return Err(witness_error(
                             id,
                             ExactTypeProjectionErrorCode::UnavailableIdentityWitness,
-                        ))
+                        ));
                     }
                 }
             }
@@ -1290,7 +1290,12 @@ mod tests {
             let mut stale = package.clone();
             let position = stale.node_position(object).expect("indexed node");
             match changed {
-                0 => std::sync::Arc::make_mut(&mut stale.wire).semantic_graph.nodes[position].owner = None,
+                0 => {
+                    std::sync::Arc::make_mut(&mut stale.wire)
+                        .semantic_graph
+                        .nodes[position]
+                        .owner = None
+                }
                 1 => {
                     *Arc::make_mut(&mut stale.models) = Default::default();
                 }
@@ -1299,22 +1304,31 @@ mod tests {
                         CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)
                 }
                 3 => {
-                    std::sync::Arc::make_mut(&mut stale.wire).semantic_graph.nodes[position].body = CheckedTerm::Reference {
+                    std::sync::Arc::make_mut(&mut stale.wire)
+                        .semantic_graph
+                        .nodes[position]
+                        .body = CheckedTerm::Reference {
                         target: ids[&'1'].clone(),
                     }
                 }
                 4 => {
-                    *Arc::make_mut(&mut stale.node_index) = crate::checked_package::PositionIndex::default();
+                    *Arc::make_mut(&mut stale.node_index) =
+                        crate::checked_package::PositionIndex::default();
                 }
-                5 => *Arc::make_mut(&mut stale.source_index) = crate::checked_package::PositionIndex::default(),
+                5 => {
+                    *Arc::make_mut(&mut stale.source_index) =
+                        crate::checked_package::PositionIndex::default()
+                }
                 6 => Arc::make_mut(&mut stale.selected_documents).clear(),
                 7 => {
                     Arc::make_mut(&mut stale.wire).lock.sources[0].identity =
                         "changed-source".into()
                 }
                 8 => {
-                    std::sync::Arc::make_mut(&mut stale.wire).semantic_graph.nodes[position].semantic_type =
-                        ids[&'1'].clone()
+                    std::sync::Arc::make_mut(&mut stale.wire)
+                        .semantic_graph
+                        .nodes[position]
+                        .semantic_type = ids[&'1'].clone()
                 }
                 _ => unreachable!(),
             }

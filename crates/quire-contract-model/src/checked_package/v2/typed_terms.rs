@@ -22,9 +22,13 @@ use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedN
 use crate::identity::ExecutionPoint;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use quire_exact::Integer;
+#[cfg(test)]
+use serde::de::DeserializeOwned;
 use serde::ser::{SerializeMap, SerializeSeq};
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::{error::Category, Value};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::error::Category;
+#[cfg(test)]
+use serde_json::Value;
 
 /// An application operation whose state-clause point has a typed carrier.
 /// Equality compares the represented record and point; admission views are
@@ -274,16 +278,18 @@ impl Serialize for CheckedApplicationOperationRecord {
     }
 }
 
+#[cfg(test)]
 impl TryFrom<Value> for CheckedApplicationOperationRecord {
     type Error = serde_json::Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
-        let raw = CheckedJson::from_value(&value).map_err(serde::de::Error::custom)?;
+        let raw = CheckedJson::from_serializable(&value).map_err(serde::de::Error::custom)?;
         CheckedApplicationOperation::outside_read_raw(raw)
             .map(|operation| *operation.record)
             .map_err(serde::de::Error::custom)
     }
 }
 
+#[cfg(test)]
 impl TryFrom<Value> for Box<CheckedApplicationOperationRecord> {
     type Error = serde_json::Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -550,7 +556,7 @@ impl<'de> Deserialize<'de> for CheckedFairnessTarget {
                         _ => {
                             return Err(M::Error::custom(
                                 "unknown or duplicate fairness target member",
-                            ))
+                            ));
                         }
                     }
                 }
@@ -631,10 +637,11 @@ impl CheckedFairnessTarget {
 
     #[cfg(test)]
     #[ix_trace_rs::string_edge]
+    #[cfg(test)]
     fn from_validated_value(value: &Value) -> Option<Self> {
         let kind = value.get("kind")?.as_str()?;
-        let declaration = || structural_member_id(value.get("declaration")?);
-        let node = || structural_member_id(value.get("node")?);
+        let declaration = || structural_member_id_value(value.get("declaration")?);
+        let node = || structural_member_id_value(value.get("node")?);
         let name = || Some(Box::<str>::from(value.get("name")?.as_str()?));
         Some(match kind {
             "operation" => Self::Operation {
@@ -649,7 +656,7 @@ impl CheckedFairnessTarget {
             "attempt_node" => Self::AttemptNode { node: node()? },
             "compensation_template" => Self::CompensationTemplate { node: node()? },
             "parallel_branch" => Self::ParallelBranch {
-                parallel: structural_member_id(value.get("parallel")?)?,
+                parallel: structural_member_id_value(value.get("parallel")?)?,
                 branch: value.get("branch")?.as_str()?.into(),
             },
             _ => return None,
@@ -657,6 +664,18 @@ impl CheckedFairnessTarget {
     }
 
     pub(super) fn node_mut(&mut self) -> &mut CheckedNodeId {
+        match self {
+            Self::Operation { declaration, .. } | Self::HybridTransition { declaration, .. } => {
+                declaration
+            }
+            Self::ProtocolRoot { node }
+            | Self::AttemptNode { node }
+            | Self::CompensationTemplate { node } => node,
+            Self::ParallelBranch { parallel, .. } => parallel,
+        }
+    }
+
+    pub(super) fn node(&self) -> &CheckedNodeId {
         match self {
             Self::Operation { declaration, .. } | Self::HybridTransition { declaration, .. } => {
                 declaration
@@ -1029,11 +1048,12 @@ impl CheckedOperationMember {
     }
 
     #[cfg(test)]
+    #[cfg(test)]
     pub(super) fn from_validated_value(value: &Value) -> Option<Self> {
         let kind = OperationMemberKind::from_wire(value.get("kind")?.as_str()?)?;
-        let declaration = || structural_member_id(value.get("declaration")?);
+        let declaration = || structural_member_id_value(value.get("declaration")?);
         let name = || Some(Box::<str>::from(value.get("name")?.as_str()?));
-        let node = |key| structural_member_id(value.get(key)?);
+        let node = |key| structural_member_id_value(value.get(key)?);
         Some(match kind {
             OperationMemberKind::Field => Self::Field {
                 declaration: declaration()?,
@@ -1149,20 +1169,29 @@ fn decode_optional_decimal_integer<'de, D: Deserializer<'de>>(
 impl CheckedApplicationOperation {
     /// Construct the catalogued state-clause operation without a JSON payload.
     pub fn state_clause(clause: StateClauseKind, execution_point: Option<ExecutionPoint>) -> Self {
+        #[derive(Serialize)]
+        struct Member<'a> {
+            kind: &'static str,
+            clause: StateClauseKind,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            execution_point: Option<&'a ExecutionPoint>,
+        }
+        let member = CheckedJson::from_serializable(&Member {
+            kind: "state_clause",
+            clause,
+            execution_point: execution_point.as_ref(),
+        })
+        .expect("closed state-clause member");
         Self {
-            record: {
-                let mut member = serde_json::json!({"kind": "state_clause", "clause": clause});
-                if let Some(point) = &execution_point {
-                    member["execution_point"] =
-                        serde_json::to_value(point).expect("a typed point serializes");
-                }
-                serde_json::json!({
-                    "identity": "quire.op.state.clause", "laws": [], "mode": null,
-                    "member": member, "leaves": []
-                })
-                .try_into()
-                .expect("closed state-clause operation")
-            },
+            record: Box::new(CheckedApplicationOperationRecord {
+                identity: Some("quire.op.state.clause".into()),
+                laws: Vec::new(),
+                mode: None,
+                member: Some(member),
+                leaves: Vec::new(),
+                member_ids: CheckedOperationMemberIds::default(),
+                malformed: None,
+            }),
             execution_point,
             views: Some(CheckedOperationViews {
                 state_clause_kind: Some(clause),
@@ -1207,43 +1236,40 @@ impl CheckedApplicationOperation {
             return Err(FixtureError::InvalidMemberNodeId);
         }
 
-        let mut record = serde_json::Map::new();
-        if let Some(identity) = &fixture.identity {
-            record.insert("identity".into(), Value::String(identity.to_string()));
+        #[derive(Serialize)]
+        struct Member<'a> {
+            kind: &'static str,
+            declaration: &'a CheckedNodeId,
         }
-        record.insert(
-            "laws".into(),
-            Value::Array(
-                fixture
-                    .law_definitions
-                    .iter()
-                    .map(|definition| {
-                        serde_json::json!({
-                            "role": "integer_division", "definition": definition
-                        })
-                    })
-                    .collect(),
-            ),
-        );
-        record.insert(
-            "mode".into(),
-            fixture.mode.as_ref().map_or(
-                Value::Null,
-                |(kind, value)| serde_json::json!({"kind": kind, "value": value}),
-            ),
-        );
-        record.insert(
-            "member".into(),
-            fixture.member_declaration.as_ref().map_or(Value::Null, |declaration| {
-                serde_json::json!({"kind": "type_argument", "declaration": declaration})
-            }),
-        );
-        record.insert("leaves".into(), Value::Array(Vec::new()));
+        let member = fixture.member_declaration.as_ref().map(|declaration| {
+            CheckedJson::from_serializable(&Member {
+                kind: "type_argument",
+                declaration,
+            })
+            .expect("validated fixture member")
+        });
+        let laws = fixture
+            .law_definitions
+            .iter()
+            .map(|definition| CheckedOperationLawWire {
+                role: "integer_division".into(),
+                definition: definition.clone(),
+            })
+            .collect();
 
         Ok(Self {
-            record: Value::Object(record)
-                .try_into()
-                .expect("validated fixture operation"),
+            record: Box::new(CheckedApplicationOperationRecord {
+                identity: fixture.identity.map(Into::into),
+                laws,
+                mode: fixture.mode.map(|(kind, value)| CheckedOperationModeWire {
+                    kind: kind.as_wire().into(),
+                    value,
+                }),
+                member,
+                leaves: Vec::new(),
+                member_ids: CheckedOperationMemberIds::default(),
+                malformed: None,
+            }),
             execution_point: None,
             views: Some(CheckedOperationViews {
                 member_declaration: fixture.member_declaration,
@@ -1945,10 +1971,10 @@ fn push_refinement_key<'a>(work: &mut Vec<NodeMapWork<'a>>, key: &'a mut Refinem
 // Operation records retain their authored JSON, including structural IDs whose
 // path operands are whole node IDs. The wire decoder intentionally accepts only
 // flat IDs, so decode these retained member slots without recursive descent.
-fn structural_member_id(value: &Value) -> Option<CheckedNodeId> {
+fn structural_member_id(value: super::TermNode<'_>) -> Option<CheckedNodeId> {
     enum Task<'a> {
-        Node(&'a Value),
-        Segment(&'a Value),
+        Node(super::TermNode<'a>),
+        Segment(super::TermNode<'a>),
         Finish {
             package: &'a str,
             ordinal: u64,
@@ -1962,14 +1988,17 @@ fn structural_member_id(value: &Value) -> Option<CheckedNodeId> {
     while let Some(task) = pending.pop() {
         match task {
             Task::Node(value) => {
-                let object = value.as_object()?;
-                if object.len() != 3 {
+                if !value.exact_members(&["package", "path", "ordinal"]) {
                     return None;
                 }
-                let package = object.get("package")?.as_str()?;
-                let path = object.get("path")?.as_array()?;
-                let ordinal = object.get("ordinal")?.as_u64()?;
-                if package.is_empty() || path.is_empty() || ordinal > 9_007_199_254_740_991 {
+                let package = value.get("package")?.as_str()?;
+                let path = value.get("path")?.items()?;
+                let ordinal = value.get("ordinal")?.as_u64()?;
+                if package.is_empty() || ordinal > 9_007_199_254_740_991 {
+                    return None;
+                }
+                let path: Vec<_> = path.collect();
+                if path.is_empty() {
                     return None;
                 }
                 pending.push(Task::Finish {
@@ -1978,31 +2007,29 @@ fn structural_member_id(value: &Value) -> Option<CheckedNodeId> {
                     len: path.len(),
                 });
                 for segment in path.iter().rev() {
-                    pending.push(Task::Segment(segment));
+                    pending.push(Task::Segment(*segment));
                 }
             }
-            Task::Segment(Value::String(name)) => {
-                segments.push(CheckedNodePathSegment::Name(name.as_str().into()));
+            Task::Segment(segment) if segment.as_str().is_some() => {
+                segments.push(CheckedNodePathSegment::Name(segment.as_str()?.into()));
             }
-            Task::Segment(Value::Object(object))
-                if object.len() == 1 && object.contains_key("node") =>
-            {
-                let index = object.get("node")?.as_u64()?;
+            Task::Segment(segment) if segment.exact_members(&["node"]) => {
+                let index = segment.get("node")?.as_u64()?;
                 if index > 9_007_199_254_740_991 {
                     return None;
                 }
                 segments.push(CheckedNodePathSegment::Index(index));
             }
-            Task::Segment(Value::Object(object))
-                if object.len() == 1 && object.contains_key("operand") =>
-            {
-                let slot = object.get("operand")?.as_u64()?;
+            Task::Segment(segment) if segment.exact_members(&["operand"]) => {
+                let slot = segment.get("operand")?.as_u64()?;
                 if slot > 9_007_199_254_740_991 {
                     return None;
                 }
                 segments.push(CheckedNodePathSegment::Operand(slot));
             }
-            Task::Segment(value @ Value::Object(_)) => pending.push(Task::Node(value)),
+            Task::Segment(value) if value.exact_members(&["package", "path", "ordinal"]) => {
+                pending.push(Task::Node(value));
+            }
             Task::Segment(_) => return None,
             Task::Finish {
                 package,
@@ -2026,6 +2053,66 @@ fn structural_member_id(value: &Value) -> Option<CheckedNodeId> {
     root
 }
 
+#[cfg(test)]
+fn structural_member_id_value(value: &Value) -> Option<CheckedNodeId> {
+    let checked = CheckedJson::from_serializable(value).ok()?;
+    structural_member_id(super::TermNode::of(&checked))
+}
+
+struct RemapNode<'a> {
+    node: super::TermNode<'a>,
+    remapped: &'a [(CheckedNodeId, CheckedNodeId)],
+}
+
+impl Serialize for RemapNode<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if let Some(id) = structural_member_id(self.node) {
+            if let Some((_, replacement)) = self.remapped.iter().find(|(old, _)| *old == id) {
+                return replacement.serialize(serializer);
+            }
+        }
+        match self.node.node_ref().node() {
+            quire_canonical::Node::Null => serializer.serialize_unit(),
+            quire_canonical::Node::Bool(value) => serializer.serialize_bool(value),
+            quire_canonical::Node::Number(number) => {
+                if let Ok(value) = number.text().parse::<i64>() {
+                    serializer.serialize_i64(value)
+                } else if let Ok(value) = number.text().parse::<u64>() {
+                    serializer.serialize_u64(value)
+                } else {
+                    serializer.serialize_f64(number.value())
+                }
+            }
+            quire_canonical::Node::String(value) => serializer.serialize_str(value),
+            quire_canonical::Node::Array(_) => {
+                let items = self.node.items().expect("array node has items");
+                let mut sequence = serializer.serialize_seq(None)?;
+                for node in items {
+                    sequence.serialize_element(&Self {
+                        node,
+                        remapped: self.remapped,
+                    })?;
+                }
+                sequence.end()
+            }
+            quire_canonical::Node::Object(_) => {
+                let members = self.node.members().expect("object node has members");
+                let mut map = serializer.serialize_map(None)?;
+                for (name, node) in members {
+                    map.serialize_entry(
+                        name,
+                        &Self {
+                            node,
+                            remapped: self.remapped,
+                        },
+                    )?;
+                }
+                map.end()
+            }
+        }
+    }
+}
+
 #[ix_trace_rs::string_edge]
 fn map_operation_ids(
     operation: &mut CheckedApplicationOperation,
@@ -2034,77 +2121,29 @@ fn map_operation_ids(
     let Some(member_handle) = operation.record.member.as_ref() else {
         return;
     };
-    let mut member_value = member_handle.to_value();
-    let Some(member) = member_value.as_object_mut() else {
-        return;
-    };
-    let kind = member
-        .get("kind")
-        .and_then(Value::as_str)
-        .and_then(OperationMemberKind::from_wire);
-    let is_field = kind == Some(OperationMemberKind::Field);
-    let fields: &[&str] = match kind {
-        Some(OperationMemberKind::RelationshipEnd) => {
-            &["declaration", "destination_type", "population"]
-        }
-        Some(
-            OperationMemberKind::Field
-            | OperationMemberKind::Position
-            | OperationMemberKind::Element
-            | OperationMemberKind::Operation
-            | OperationMemberKind::TypeArgument,
-        ) => &["declaration"],
-        Some(
-            OperationMemberKind::Fairness
-            | OperationMemberKind::ProfileOperator
-            | OperationMemberKind::StateClause
-            | OperationMemberKind::TemporalInterval,
-        )
-        | None => &[],
-    };
-    let mut mapped_declaration = None;
-    let mut mapped_target = None;
-    if kind == Some(OperationMemberKind::Fairness) {
-        if let Some(target) = member.get_mut("target").and_then(Value::as_object_mut) {
-            for field in ["declaration", "node", "parallel"] {
-                if let Some(value) = target.get_mut(field) {
-                    if let Some(original) = structural_member_id(value) {
-                        let replacement = map(&original);
-                        if let Some(replacement) = &replacement {
-                            *value = node_id_value(replacement);
-                        }
-                        let replacement = replacement.unwrap_or(original);
-                        if field == "declaration" {
-                            mapped_declaration = Some(replacement.clone());
-                        }
-                        mapped_target = Some(replacement);
-                    }
-                }
+    let root = super::TermNode::of(member_handle);
+    let mut remapped_ids = Vec::new();
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if let Some(id) = structural_member_id(node) {
+            if let Some(replacement) = map(&id) {
+                remapped_ids.push((id, replacement));
+                continue;
             }
         }
-    }
-    let mut mapped_destination = None;
-    let mut mapped_population = None;
-    for field in fields {
-        if let Some(value) = member.get_mut(*field) {
-            if let Some(original) = structural_member_id(value) {
-                let replacement = map(&original);
-                if let Some(replacement) = &replacement {
-                    *value = node_id_value(replacement);
-                }
-                let mapped = replacement.unwrap_or(original);
-                match *field {
-                    "declaration" => mapped_declaration = Some(mapped),
-                    "destination_type" => mapped_destination = Some(mapped),
-                    "population" => mapped_population = Some(mapped),
-                    _ => {}
-                }
-            }
+        if let Some(items) = node.items() {
+            pending.extend(items);
+        } else if let Some(members) = node.members() {
+            pending.extend(members.map(|(_, value)| value));
         }
     }
-
-    operation.record.member =
-        Some(CheckedJson::from_value(&member_value).expect("remapped member remains canonical"));
+    operation.record.member = Some(
+        CheckedJson::from_serializable(&RemapNode {
+            node: root,
+            remapped: &remapped_ids,
+        })
+        .expect("remapped member remains canonical"),
+    );
 
     if let Some(member) = operation.record.member.clone() {
         let mut budget =
@@ -2115,6 +2154,9 @@ fn map_operation_ids(
     let Some(views) = &mut operation.views else {
         return;
     };
+    for (old, new) in &remapped_ids {
+        views.replace_node_id(old, new);
+    }
     if let Some(record) = &mut views.record {
         if let Some(member) = &mut record.member {
             match member {
@@ -2123,13 +2165,17 @@ fn map_operation_ids(
                 | CheckedOperationMember::Element { declaration }
                 | CheckedOperationMember::Operation { declaration, .. }
                 | CheckedOperationMember::TypeArgument { declaration } => {
-                    if let Some(mapped) = &mapped_declaration {
-                        *declaration = mapped.clone();
+                    for (old, new) in &remapped_ids {
+                        if *declaration == *old {
+                            *declaration = new.clone();
+                        }
                     }
                 }
                 CheckedOperationMember::Fairness { target, .. } => {
-                    if let Some(mapped) = &mapped_target {
-                        *target.node_mut() = mapped.clone();
+                    for (old, new) in &remapped_ids {
+                        if target.node() == old {
+                            *target.node_mut() = new.clone();
+                        }
                     }
                 }
                 CheckedOperationMember::RelationshipEnd {
@@ -2138,14 +2184,16 @@ fn map_operation_ids(
                     population,
                     ..
                 } => {
-                    if let Some(mapped) = &mapped_declaration {
-                        *declaration = mapped.clone();
-                    }
-                    if let Some(mapped) = &mapped_destination {
-                        *destination_type = mapped.clone();
-                    }
-                    if let (Some(population), Some(mapped)) = (population, &mapped_population) {
-                        *population = mapped.clone();
+                    for (old, new) in &remapped_ids {
+                        if *declaration == *old {
+                            *declaration = new.clone();
+                        }
+                        if *destination_type == *old {
+                            *destination_type = new.clone();
+                        }
+                        if population.as_ref() == Some(old) {
+                            *population = Some(new.clone());
+                        }
                     }
                 }
                 CheckedOperationMember::ProfileOperator { .. }
@@ -2154,42 +2202,32 @@ fn map_operation_ids(
             }
         }
     }
-    if let (Some((declaration, _)), Some(mapped)) =
-        (&mut views.projection_field, &mapped_declaration)
-    {
-        if is_field {
-            *declaration = mapped.clone();
+    if let Some((declaration, _)) = &mut views.projection_field {
+        for (old, new) in &remapped_ids {
+            if *declaration == *old {
+                *declaration = new.clone();
+            }
         }
     }
-    if let (Some(declaration), Some(mapped)) = (&mut views.member_declaration, &mapped_declaration)
-    {
-        *declaration = mapped.clone();
+    if let Some(declaration) = &mut views.member_declaration {
+        for (old, new) in &remapped_ids {
+            if *declaration == *old {
+                *declaration = new.clone();
+            }
+        }
     }
 }
 
 /// Borrowed, one-level decoding for early family wire checks. Children are
 /// checked in their original order, with their own refusal pointers, before
 /// the complete admitted tree is constructed.
+#[cfg(test)]
 pub(in crate::checked_package) enum CheckedTermView<'a> {
-    Application {
-        operation: &'a Value,
-        arguments: &'a [Value],
-    },
-    Aggregate {
-        members: &'a [Value],
-    },
-    Binding {
-        name: &'a str,
-        value: &'a Value,
-    },
-    Reference {
-        target: &'a Value,
-    },
-    Literal {
-        type_id: &'a Value,
-        value_kind: LiteralKind,
-        value: &'a Value,
-    },
+    Application { arguments: &'a [Value] },
+    Aggregate { members: &'a [Value] },
+    Binding { value: &'a Value },
+    Reference,
+    Literal,
 }
 
 /// An edge exposed by the bounded selected ordinary-term visitor.
@@ -2236,10 +2274,12 @@ impl CheckedTerm {
         })
     }
 
+    #[cfg(test)]
     pub(in crate::checked_package) fn view(value: &Value) -> Option<CheckedTermView<'_>> {
         Self::view_from_wire(crate::checked_package::common::WireTerm::decode(value))
     }
 
+    #[cfg(test)]
     pub(in crate::checked_package) fn view_from_wire(
         wire: crate::checked_package::common::WireTerm<'_>,
     ) -> Option<CheckedTermView<'_>> {
@@ -2252,10 +2292,7 @@ impl CheckedTerm {
                     &["term", "operator", "operation", "result_type", "arguments"],
                 ) =>
             {
-                wire.operator()?;
-                wire.field(TermField::ResultType)?;
                 Some(CheckedTermView::Application {
-                    operation: wire.field(TermField::Operation)?,
                     arguments: wire.array(TermField::Arguments)?,
                 })
             }
@@ -2268,23 +2305,16 @@ impl CheckedTerm {
                 if exact_members(object, &["term", "name", "value"]) =>
             {
                 Some(CheckedTermView::Binding {
-                    name: wire.field(TermField::Name)?.as_str()?,
                     value: wire.field(TermField::Value)?,
                 })
             }
             TermTag::Known(BodyTerm::Reference) if exact_members(object, &["term", "target"]) => {
-                Some(CheckedTermView::Reference {
-                    target: wire.field(TermField::Target)?,
-                })
+                Some(CheckedTermView::Reference)
             }
             TermTag::Known(BodyTerm::Literal)
                 if exact_members(object, &["term", "type", "value_kind", "value"]) =>
             {
-                Some(CheckedTermView::Literal {
-                    type_id: wire.field(TermField::Type)?,
-                    value_kind: wire.literal_kind()?,
-                    value: wire.field(TermField::Value)?,
-                })
+                Some(CheckedTermView::Literal)
             }
             _ => None,
         }
@@ -2530,10 +2560,30 @@ impl CheckedTerm {
                 arguments,
                 ..
             } => {
-                let mut record =
-                    serde_json::to_value(&operation.record).expect("typed operation serializes");
-                replace_node_ids_in_value(&mut record, old, new);
-                operation.record = record.try_into().expect("remapped operation shape");
+                let record = CheckedJson::from_serializable(&operation.record)
+                    .expect("typed operation serializes");
+                let root = super::TermNode::of(&record);
+                let mut ids = Vec::new();
+                let mut pending = vec![root];
+                while let Some(node) = pending.pop() {
+                    if structural_member_id(node).as_ref() == Some(old) {
+                        ids.push((old.clone(), new.clone()));
+                        continue;
+                    }
+                    if let Some(items) = node.items() {
+                        pending.extend(items);
+                    } else if let Some(members) = node.members() {
+                        pending.extend(members.map(|(_, value)| value));
+                    }
+                }
+                let remapped = CheckedJson::from_serializable(&RemapNode {
+                    node: root,
+                    remapped: &ids,
+                })
+                .expect("remapped operation is valid");
+                operation.record = CheckedApplicationOperation::outside_read_raw(remapped)
+                    .expect("remapped operation shape")
+                    .record;
                 if let Some(views) = &mut operation.views {
                     views.replace_node_id(old, new);
                 }
@@ -2813,7 +2863,7 @@ impl CheckedTerm {
         Self::Literal {
             type_id,
             value_kind: LiteralKind::Text,
-            value: CheckedJson::scalar(&Value::String(value.into().into())),
+            value: CheckedJson::scalar(&value.into()),
         }
     }
 
@@ -2822,7 +2872,7 @@ impl CheckedTerm {
         Self::Literal {
             type_id,
             value_kind: LiteralKind::Rational,
-            value: CheckedJson::scalar(&Value::String(value.into().into())),
+            value: CheckedJson::scalar(&value.into()),
         }
     }
 
@@ -2831,7 +2881,7 @@ impl CheckedTerm {
         Self::Literal {
             type_id,
             value_kind: LiteralKind::Quantity,
-            value: CheckedJson::scalar(&Value::String(value.into().into())),
+            value: CheckedJson::scalar(&value.into()),
         }
     }
 
@@ -2840,12 +2890,13 @@ impl CheckedTerm {
         Self::Literal {
             type_id,
             value_kind: LiteralKind::Integer,
-            value: CheckedJson::scalar(&Value::Number(value.into())),
+            value: CheckedJson::scalar(&value),
         }
     }
 
     /// Decodes only a body that the reader's flat and closed-shape checks
     /// already accepted. Public serde decoding does not provide that bound.
+    #[cfg(test)]
     pub(super) fn decode_admitted(value: &Value) -> Result<Self, TermConversionCause> {
         if value.get("term").and_then(Value::as_str) == Some("refinement") {
             return super::refinement::decode_body(
@@ -3286,101 +3337,6 @@ impl Encode for CheckedTerm {
     }
 }
 
-fn replace_node_ids_in_value(value: &mut Value, old: &CheckedNodeId, new: &CheckedNodeId) {
-    let mut pending = vec![value];
-    while let Some(current) = pending.pop() {
-        if value_is_node_id(current, old) {
-            *current = node_id_value(new);
-            continue;
-        }
-        match current {
-            Value::Array(items) => pending.extend(items.iter_mut()),
-            Value::Object(object) => pending.extend(object.values_mut()),
-            _ => {}
-        }
-    }
-}
-
-fn value_is_node_id(value: &Value, id: &CheckedNodeId) -> bool {
-    let mut pending = vec![(value, id)];
-    while let Some((value, id)) = pending.pop() {
-        let Some(object) = value.as_object() else {
-            return false;
-        };
-        if object.len() != 3
-            || object.get("package").and_then(Value::as_str) != Some(id.package.as_ref())
-            || object.get("ordinal").and_then(Value::as_u64) != Some(id.ordinal)
-        {
-            return false;
-        }
-        let Some(path) = object.get("path").and_then(Value::as_array) else {
-            return false;
-        };
-        if path.len() != id.path.len() {
-            return false;
-        }
-        for (segment, expected) in path.iter().zip(&id.path) {
-            match expected {
-                CheckedNodePathSegment::Name(name) if segment.as_str() == Some(name.as_ref()) => {}
-                CheckedNodePathSegment::Node(node) => pending.push((segment, node)),
-                CheckedNodePathSegment::Index(index)
-                    if segment.get("node").and_then(Value::as_u64) == Some(*index) => {}
-                CheckedNodePathSegment::Operand(slot)
-                    if segment.get("operand").and_then(Value::as_u64) == Some(*slot) => {}
-                _ => return false,
-            }
-        }
-    }
-    true
-}
-
-fn node_id_value(id: &CheckedNodeId) -> Value {
-    enum Task<'a> {
-        Node(&'a CheckedNodeId),
-        Name(&'a str),
-        Index(u64),
-        Operand(u64),
-        Finish(&'a CheckedNodeId),
-    }
-    let mut pending = vec![Task::Node(id)];
-    let mut values = Vec::new();
-    while let Some(task) = pending.pop() {
-        match task {
-            Task::Node(node) => {
-                pending.push(Task::Finish(node));
-                for segment in node.path.iter().rev() {
-                    pending.push(match segment {
-                        CheckedNodePathSegment::Name(name) => Task::Name(name),
-                        CheckedNodePathSegment::Node(child) => Task::Node(child),
-                        CheckedNodePathSegment::Index(index) => Task::Index(*index),
-                        CheckedNodePathSegment::Operand(slot) => Task::Operand(*slot),
-                    });
-                }
-            }
-            Task::Name(name) => values.push(Value::String(name.to_owned())),
-            Task::Index(index) => {
-                let mut object = serde_json::Map::new();
-                object.insert("node".into(), Value::Number(index.into()));
-                values.push(Value::Object(object));
-            }
-            Task::Operand(slot) => {
-                let mut object = serde_json::Map::new();
-                object.insert("operand".into(), Value::Number(slot.into()));
-                values.push(Value::Object(object));
-            }
-            Task::Finish(node) => {
-                let path = values.split_off(values.len() - node.path.len());
-                let mut object = serde_json::Map::new();
-                object.insert("package".into(), Value::String(node.package.to_string()));
-                object.insert("path".into(), Value::Array(path));
-                object.insert("ordinal".into(), Value::Number(node.ordinal.into()));
-                values.push(Value::Object(object));
-            }
-        }
-    }
-    values.pop().expect("one constructed node id")
-}
-
 /// One frame write grant.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -3593,7 +3549,7 @@ mod tests {
                 "identity":identity, "laws":[{"role":"text_profile", "definition":{"authority":"test", "identity":"profile"}}],
                 "mode":{"kind":"text_profile", "value":"nfc"}, "member":member, "leaves":[]
             }, "result_type":id, "arguments":[]});
-            let json = CheckedJson::from_value(&value).expect("canonical application");
+            let json = CheckedJson::from_serializable(&value).expect("canonical application");
             let run = |limit| {
                 let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
                 let mut result = None;

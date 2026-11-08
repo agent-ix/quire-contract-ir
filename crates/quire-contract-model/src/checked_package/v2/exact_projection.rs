@@ -4016,7 +4016,7 @@ impl CheckedPackageV2 {
                     _ => {
                         return Err(refuse_target!(
                             ExactTypeProjectionErrorCode::MismatchedIdentityWitness
-                        ))
+                        ));
                     }
                 }
             }
@@ -4080,7 +4080,7 @@ impl CheckedPackageV2 {
                             _ => {
                                 return Err(refuse!(
                                     ExactTypeProjectionErrorCode::UnsupportedExactType
-                                ))
+                                ));
                             }
                         }
                     } else {
