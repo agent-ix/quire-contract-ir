@@ -15,6 +15,7 @@ pub struct Function {
     pub owner: Option<String>,
     pub signature: syn::Signature,
     pub body: syn::Block,
+    lexical_functions: BTreeMap<String, String>,
 }
 
 #[derive(Default)]
@@ -143,6 +144,46 @@ fn external_standard(path: &str) -> bool {
     matches!(path.split("::").next(), Some("std" | "core" | "alloc"))
 }
 
+// Block numbers follow the same traversal for indexing and call resolution;
+// nested function bodies have their own lexical tree and numbering.
+struct NestedFunctions<'a> {
+    parent: &'a str,
+    next_block: usize,
+    functions: Vec<(String, syn::ItemFn, BTreeMap<String, String>)>,
+    scope: BTreeMap<String, String>,
+}
+impl<'ast> Visit<'ast> for NestedFunctions<'_> {
+    fn visit_block(&mut self, block: &'ast syn::Block) {
+        let number = self.next_block;
+        self.next_block += 1;
+        let outer = self.scope.clone();
+        for statement in &block.stmts {
+            if let syn::Stmt::Item(syn::Item::Fn(function)) = statement {
+                if !test_only(&function.attrs) {
+                    self.scope.insert(
+                        function.sig.ident.to_string(),
+                        format!("{}::__block_{number}::{}", self.parent, function.sig.ident),
+                    );
+                }
+            }
+        }
+        for statement in &block.stmts {
+            if let syn::Stmt::Item(syn::Item::Fn(function)) = statement {
+                if !test_only(&function.attrs) {
+                    self.functions.push((
+                        self.scope[&function.sig.ident.to_string()].clone(),
+                        function.clone(),
+                        self.scope.clone(),
+                    ));
+                }
+            }
+        }
+        visit::visit_block(self, block);
+        self.scope = outer;
+    }
+    fn visit_item_fn(&mut self, _: &'ast syn::ItemFn) {}
+}
+
 impl Graph {
     pub fn from_source(source: &str) -> Self {
         let mut graph = Self::default();
@@ -245,6 +286,7 @@ impl Graph {
                         owner: None,
                         signature: f.sig.clone(),
                         body: (*f.block).clone(),
+                        lexical_functions: BTreeMap::new(),
                     },
                 ),
                 syn::Item::Impl(i) if !test_only(&i.attrs) => {
@@ -270,6 +312,7 @@ impl Graph {
                                         owner: Some(owner.clone()),
                                         signature: f.sig.clone(),
                                         body: f.block.clone(),
+                                        lexical_functions: BTreeMap::new(),
                                     },
                                 );
                             }
@@ -338,8 +381,29 @@ impl Graph {
         }
     }
     fn insert(&mut self, key: String, function: Function) {
+        let mut nested = NestedFunctions {
+            parent: &key,
+            next_block: 0,
+            functions: Vec::new(),
+            scope: function.lexical_functions.clone(),
+        };
+        nested.visit_block(&function.body);
+        let children = nested.functions;
+        let module = function.module.clone();
         if self.functions.insert(key.clone(), function).is_some() {
             self.duplicate.insert(key);
+        }
+        for (key, child, lexical_functions) in children {
+            self.insert(
+                key,
+                Function {
+                    module: module.clone(),
+                    owner: None,
+                    signature: child.sig,
+                    body: *child.block,
+                    lexical_functions,
+                },
+            );
         }
     }
     pub fn resolve(&self, module: &str, path: &str) -> String {
@@ -445,6 +509,9 @@ impl Graph {
                 unresolved: BTreeSet::new(),
                 bindings: BTreeMap::new(),
                 local_names: BTreeSet::new(),
+                function_key: &key,
+                next_block: 0,
+                local_functions: function.lexical_functions.clone(),
             };
             for arg in &function.signature.inputs {
                 if let syn::FnArg::Typed(arg) = arg {
@@ -482,6 +549,9 @@ struct Calls<'a> {
     unresolved: BTreeSet<String>,
     bindings: BTreeMap<String, String>,
     local_names: BTreeSet<String>,
+    function_key: &'a str,
+    next_block: usize,
+    local_functions: BTreeMap<String, String>,
 }
 
 impl Calls<'_> {
@@ -558,6 +628,9 @@ impl Calls<'_> {
     }
     fn target(&self, path: &syn::Path) -> String {
         let text = path_text(path);
+        if let Some(target) = self.local_functions.get(&text) {
+            return target.clone();
+        }
         if let Some(suffix) = text.strip_prefix("Self::") {
             if let Some(owner) = &self.function.owner {
                 return format!("{owner}::{suffix}");
@@ -568,16 +641,31 @@ impl Calls<'_> {
 }
 
 impl<'ast> Visit<'ast> for Calls<'_> {
-    // Block-local functions are separate lexical items. Their names shadow
-    // module functions throughout the block, including before declaration.
-    // Until their own symbol/scope is indexed, calls remain proof gaps.
+    // Rust hoists block-local functions. Index only this block's declarations
+    // and restore the outer lexical scope on exit.
     fn visit_block(&mut self, block: &'ast syn::Block) {
+        let number = self.next_block;
+        self.next_block += 1;
+        let outer_functions = self.local_functions.clone();
+        let outer_names = self.local_names.clone();
+        let outer_bindings = self.bindings.clone();
         for statement in &block.stmts {
             if let syn::Stmt::Item(syn::Item::Fn(function)) = statement {
-                self.local_names.insert(function.sig.ident.to_string());
+                if !test_only(&function.attrs) {
+                    self.local_functions.insert(
+                        function.sig.ident.to_string(),
+                        format!(
+                            "{}::__block_{number}::{}",
+                            self.function_key, function.sig.ident
+                        ),
+                    );
+                }
             }
         }
         visit::visit_block(self, block);
+        self.local_functions = outer_functions;
+        self.local_names = outer_names;
+        self.bindings = outer_bindings;
     }
     fn visit_item_fn(&mut self, _: &'ast syn::ItemFn) {}
     fn visit_local(&mut self, local: &'ast syn::Local) {
