@@ -3984,7 +3984,7 @@ pub(in crate::checked_package::v2) mod tests {
         application_arguments(&mut later)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             later.composite_application_operands(&id('6'), &occurrence, 26),
@@ -4219,7 +4219,7 @@ pub(in crate::checked_package::v2) mod tests {
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             read(&p),
@@ -4259,7 +4259,7 @@ pub(in crate::checked_package::v2) mod tests {
         application_arguments(&mut p)[0] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             read(&p),
@@ -4367,7 +4367,7 @@ pub(in crate::checked_package::v2) mod tests {
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             read(&p),
@@ -4425,7 +4425,7 @@ pub(in crate::checked_package::v2) mod tests {
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(read(&p), Err(type_error(0, Some(id('9')))));
     }

@@ -638,7 +638,7 @@ mod tests {
             value: Box::new(CheckedTerm::Literal {
                 type_id: integer,
                 value_kind: LiteralKind::Integer,
-                value: json!("0"),
+                value: crate::checked_package::CheckedJson::scalar(&json!("0")),
             }),
         };
         let aggregate = CheckedTerm::Aggregate {
@@ -680,7 +680,7 @@ mod tests {
         let literal = |kind, value| CheckedTerm::Literal {
             type_id: id.clone(),
             value_kind: kind,
-            value,
+            value: crate::checked_package::CheckedJson::scalar(&value),
         };
         let binding = |name: &str, value| CheckedTerm::Binding {
             name: name.into(),

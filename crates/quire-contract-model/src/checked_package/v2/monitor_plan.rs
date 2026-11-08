@@ -716,11 +716,10 @@ fn literal(term: &CheckedTerm, kind: LiteralKind) -> bool {
 }
 fn integer(term: &CheckedTerm) -> Option<Box<str>> {
     match term {
-        CheckedTerm::Literal { value, .. } => match value {
-            serde_json::Value::String(s) => Some(s.as_str().into()),
-            serde_json::Value::Number(n) => Some(n.to_string().into()),
-            _ => None,
-        },
+        CheckedTerm::Literal { value, .. } => value
+            .as_str()
+            .or_else(|| value.number_text())
+            .map(Into::into),
         _ => None,
     }
 }

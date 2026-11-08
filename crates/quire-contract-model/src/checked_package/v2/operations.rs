@@ -607,7 +607,7 @@ fn literal_defect(
 /// `None` keeps scalar Text literals outside the bounded-membership rule.
 fn text_literal_membership(
     type_id: &CheckedNodeId,
-    value: &Value,
+    value: &super::CheckedJson,
     graph: &Graph<'_>,
 ) -> Result<Option<bool>, ValidationFailure> {
     let Some(&position) = graph.index.get(type_id) else {

@@ -4700,7 +4700,12 @@ mod tests {
                 wire.semantic_graph.nodes[0].body = super::CheckedTerm::Literal {
                     type_id: super::test_support::node_id('b'),
                     value_kind: super::LiteralKind::Integer,
-                    value: nested(DEEP),
+                    value: {
+                        let mut deep = nested(DEEP);
+                        let held = super::CheckedJson::from_value(&deep).expect("a deep value");
+                        quire_canonical::drop_value(std::mem::take(&mut deep));
+                        held
+                    },
                 };
 
                 let result = (|| {
@@ -4730,11 +4735,6 @@ mod tests {
                 })();
 
                 quire_canonical::drop_value(std::mem::take(&mut private_wire_value));
-                if let super::CheckedTerm::Literal { value, .. } =
-                    &mut wire.semantic_graph.nodes[0].body
-                {
-                    quire_canonical::drop_value(std::mem::take(value));
-                }
                 result
             })
             .expect("small-stack thread spawns")

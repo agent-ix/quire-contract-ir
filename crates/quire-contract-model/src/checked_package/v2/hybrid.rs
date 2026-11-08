@@ -82,14 +82,10 @@ fn decode_word<T: DeserializeOwned>(wire: &str) -> Option<T> {
 }
 
 fn literal_word_as<T: DeserializeOwned>(term: &CheckedTerm) -> Option<T> {
-    let CheckedTerm::Literal {
-        value: Value::String(value),
-        ..
-    } = term
-    else {
+    let CheckedTerm::Literal { value, .. } = term else {
         return None;
     };
-    decode_word(value)
+    decode_word(value.as_str()?)
 }
 
 fn model_variable_class(term: &CheckedTerm, slot: usize) -> Option<HybridVariableClass> {
@@ -118,9 +114,9 @@ fn is_rational_one(term: &CheckedTerm) -> bool {
         term,
         CheckedTerm::Literal {
             value_kind: LiteralKind::Rational,
-            value: Value::String(value),
+            value,
             ..
-        } if value.len() == 1 && value.as_bytes().first() == Some(&b'1')
+        } if value.as_str().is_some_and(|text| text == "1")
     )
 }
 
@@ -138,10 +134,7 @@ fn target(value: &CheckedTerm) -> Option<CheckedNodeId> {
 
 fn number(value: &CheckedTerm) -> Option<usize> {
     match value {
-        CheckedTerm::Literal {
-            value: Value::String(value),
-            ..
-        } => value.parse().ok(),
+        CheckedTerm::Literal { value, .. } => value.as_str()?.parse().ok(),
         _ => None,
     }
 }
@@ -258,10 +251,7 @@ fn model_pointer(position: usize, binding: usize) -> JsonPointer {
 fn parameter_name_level(term: &CheckedTerm) -> Option<(&str, usize)> {
     let body = members(term);
     let name = match term_value(body.first()?)? {
-        CheckedTerm::Literal {
-            value: Value::String(value),
-            ..
-        } => value.as_str(),
+        CheckedTerm::Literal { value, .. } => value.as_str()?,
         _ => return None,
     };
     let level = number(term_value(body.get(1)?)?)?;
@@ -527,9 +517,9 @@ pub(super) fn validate_models(
                                 terms.get(position).and_then(Option::as_ref),
                                 Some(CheckedTerm::Literal {
                                     value_kind: LiteralKind::Boolean,
-                                    value: Value::Bool(true),
+                                    value,
                                     ..
-                                })
+                                }) if value.as_bool() == Some(true)
                             )
                         })
                     {
