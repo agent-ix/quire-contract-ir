@@ -930,7 +930,10 @@ pub(super) fn validate_claims(
         else {
             continue;
         };
-        let Some(over) = arguments.first().and_then(reference_target) else {
+        let Some(over) = arguments
+            .first()
+            .and_then(super::structural::typed_reference)
+        else {
             continue;
         };
         let Some((_, over_node)) = node_at(&over, nodes, index) else {

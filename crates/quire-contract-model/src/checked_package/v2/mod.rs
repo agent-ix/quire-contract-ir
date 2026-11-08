@@ -366,7 +366,7 @@ pub struct CheckedDeclaration {
 }
 
 /// The closed owner of a structural checked node.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckedNodeOwner {
     /// The selected domain package as a whole, named by its identity.
@@ -1666,7 +1666,6 @@ impl CheckedPackageV2 {
             catalog,
         };
         let package = package.retain_admission(budget)?;
-        read_charge::charge(budget, site("result"), std::mem::size_of::<Self>() as u128)?;
         Ok(package)
     }
 
@@ -2117,58 +2116,63 @@ fn validate_domain_packages(
 ) -> Result<(Vec<DomainModel>, Vec<Arc<quire_canonical::Document>>), ValidationFailure> {
     let row = |root: usize| node_pointer(root).key("owner");
     let at = |root: usize, member: &str| row(root).key(member);
-    roots
-        .iter()
-        .enumerate()
-        .map(|(position, (identity, root))| {
-            let root = *root;
-            let mut budget =
-                Budget::new(meter, root, bytes).at(PackageReadStage::ModelDocument, position);
-            admit_selection(identity, checked_package, evidence, &mut budget, unit_refs).map_err(
-                |failure| {
-                    match failure {
-                        SelectionFailure::Limit(failure) => failure,
-                        SelectionFailure::InexactNumber {
+    let site = stage_storage::Site::new(
+        PackageReadStage::ModelDocument,
+        0,
+        "model_documents",
+        stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes"),
+    );
+    let mut models = stage_storage::vec(meter, &site, roots.len())?;
+    let mut documents = stage_storage::vec(meter, &site, roots.len())?;
+    for (position, (identity, root)) in roots.iter().enumerate() {
+        let root = *root;
+        let mut budget =
+            Budget::new(meter, root, bytes).at(PackageReadStage::ModelDocument, position);
+        let selected = admit_selection(identity, checked_package, evidence, &mut budget, unit_refs)
+            .map_err(|failure| {
+                match failure {
+                    SelectionFailure::Limit(failure) => failure,
+                    SelectionFailure::InexactNumber {
+                        document_pointer,
+                        cause,
+                    } => ValidationFailure::refused_number_in_document(
+                        at(root, "identity"),
+                        document_pointer,
+                        cause,
+                    ),
+                    SelectionFailure::Refused(refused) => {
+                        let model_members::SelectionRefusal {
+                            refusal,
+                            member,
+                            declaration_identity,
+                            declaration_origin,
+                            declaration_path,
                             document_pointer,
-                            cause,
-                        } => ValidationFailure::refused_number_in_document(
-                            at(root, "identity"),
-                            document_pointer,
-                            cause,
-                        ),
-                        SelectionFailure::Refused(refused) => {
-                            let model_members::SelectionRefusal {
-                                refusal,
-                                member,
-                                declaration_identity,
-                                declaration_origin,
-                                declaration_path,
+                        } = *refused;
+                        // Intake metadata is private. Its owning lifetime ends at
+                        // this projection; none is attached to the public refusal.
+                        drop((declaration_identity, declaration_origin, declaration_path));
+                        let path = member.map_or_else(|| row(root), |member| at(root, member));
+                        if let Some(document_pointer) = document_pointer {
+                            ValidationFailure::refused_because_in_document(
+                                refusal.code,
+                                path,
+                                refusal.cause,
                                 document_pointer,
-                            } = *refused;
-                            // Intake metadata is private. Its owning lifetime ends at
-                            // this projection; none is attached to the public refusal.
-                            drop((declaration_identity, declaration_origin, declaration_path));
-                            let path = member.map_or_else(|| row(root), |member| at(root, member));
-                            if let Some(document_pointer) = document_pointer {
-                                ValidationFailure::refused_because_in_document(
-                                    refusal.code,
-                                    path,
-                                    refusal.cause,
-                                    document_pointer,
-                                )
-                            } else {
-                                ValidationFailure::refused_because(
-                                    refusal.code,
-                                    path,
-                                    refusal.cause,
-                                )
-                            }
+                            )
+                        } else {
+                            ValidationFailure::refused_because(refusal.code, path, refusal.cause)
                         }
                     }
-                },
-            )
-        })
-        .collect()
+                }
+            })?;
+        let (model, document) = selected;
+        models.push(model);
+        documents.push(document);
+    }
+    Ok((models, documents))
 }
 
 /// [`validate_node_id_charged`] under a budget that charges nothing, for the
@@ -2663,7 +2667,14 @@ fn validate_body<'a, V: TermSource<'a>>(
         BodyGrammar::Extension => {
             extension::read_body(node, at.pointer(), ids).map(|body| extension::body_work(&body))
         }
-        BodyGrammar::Frame => Ok(["modifies", "creates", "deletes", "deletes_scoped"].into_iter().map(|key| body.member(key).and_then(TermSource::items).map_or(0, |rows| rows.count() as u64)).fold(1_u64, u64::saturating_add)),
+        BodyGrammar::Frame => Ok(["modifies", "creates", "deletes", "deletes_scoped"]
+            .into_iter()
+            .map(|key| {
+                body.member(key)
+                    .and_then(TermSource::items)
+                    .map_or(0, |rows| rows.count() as u64)
+            })
+            .fold(1_u64, u64::saturating_add)),
         BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence => {
             abstraction::scan_body(node, at, visit, ids)
         }
@@ -2892,95 +2903,148 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
 /// name, so a source unit with the same type reference is ambiguous. The
 /// later structural node id is refused. Protocol duplicates run in their own
 /// later stage. Names were charged by the preceding graph walk.
+#[derive(Clone, Copy)]
+enum DeclarationName<'a> {
+    Source(&'a [Box<str>]),
+    Unit(&'a str, &'a str),
+}
+impl<'a> DeclarationName<'a> {
+    fn part(self, index: usize) -> Option<&'a str> {
+        match self {
+            Self::Source(parts) => parts.get(index).map(AsRef::as_ref),
+            Self::Unit(identity, name) => match index {
+                0 => Some(identity),
+                1 => Some(name),
+                _ => None,
+            },
+        }
+    }
+    fn bytes(self) -> impl Iterator<Item = u8> + 'a {
+        let mut part = 0;
+        let mut offset = 0;
+        std::iter::from_fn(move || loop {
+            let text = self.part(part)?;
+            if let Some(&byte) = text.as_bytes().get(offset) {
+                offset += 1;
+                return Some(byte);
+            }
+            part += 1;
+            offset = 0;
+            if self.part(part).is_some() {
+                return Some(b'/');
+            }
+        })
+    }
+}
+fn declaration_name<'a>(
+    node: &'a RawSemanticNodeV2,
+    kind: Option<&CheckedNodeKind>,
+) -> Option<(u8, DeclarationName<'a>)> {
+    if matches!(kind, Some(CheckedNodeKind::Protocol(_))) {
+        return None;
+    }
+    let namespace = match (node.node_tag.as_ref(), node.semantic_form.as_ref()) {
+        ("scalar_type", "dimension") => 0,
+        ("scalar_type", "unit") => 1,
+        _ => 2,
+    };
+    let name = match (&node.declaration, &node.owner, namespace) {
+        (Some(declaration), _, _) => DeclarationName::Source(&declaration.qualified_name),
+        (None, Some(CheckedNodeOwner::Model { identity, node }), 1) => {
+            let name = node
+                .strip_prefix("ix://")?
+                .strip_prefix(identity.as_ref())?
+                .strip_prefix("/unit/")?;
+            DeclarationName::Unit(identity, name)
+        }
+        _ => return None,
+    };
+    Some((namespace, name))
+}
+fn declaration_name_failure(
+    meter: &mut WorkMeter,
+    position: usize,
+    path: stage_storage::Path<'_>,
+    code: CheckedPackageRefusalCode,
+    cause: CheckedPackageRefusalCause,
+    id: &CheckedNodeId,
+) -> ValidationFailure {
+    let site =
+        stage_storage::Site::new(PackageReadStage::Graph, position, "declaration_names", path);
+    stage_storage::refuse(
+        meter,
+        &site,
+        stage_storage::Refusal::new(code, path)
+            .because(cause)
+            .at_node(id),
+    )
+}
 fn validate_declaration_names(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let name_pointer = |position: usize| {
-        node_pointer(position)
-            .key("declaration")
-            .key("qualified_name")
+    let at = |position| {
+        stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position)
     };
     for (&node_id, &position) in index {
         let node = &nodes[position];
         let Some(declaration) = &node.declaration else {
             continue;
         };
-        let path_matches = node.node_id.path.len() == declaration.qualified_name.len()
-            && node
-                .node_id
-                .path
-                .iter()
-                .zip(&declaration.qualified_name)
-                .all(|(part, name)| matches!(part, CheckedNodePathSegment::Name(value) if value == name));
+        let path_matches=node.node_id.path.len()==declaration.qualified_name.len() && node.node_id.path.iter().zip(&declaration.qualified_name).all(|(part,name)|matches!(part,CheckedNodePathSegment::Name(value) if value==name));
         if !path_matches {
-            return Err(refuse_at(
+            return Err(declaration_name_failure(
+                meter,
+                position,
+                at(position).key("node_id").key("path"),
                 CheckedPackageRefusalCode::InvalidPackage,
-                node_pointer(position).key("node_id").key("path"),
-                Some(CheckedPackageRefusalCause::DeclarationNominalMismatch),
-                node_id.clone(),
+                CheckedPackageRefusalCause::DeclarationNominalMismatch,
+                node_id,
             ));
         }
     }
-    let mut holders = Vec::<(u8, String)>::new();
+    meter.at_node(0, "declaration_names");
+    let count = index
+        .values()
+        .filter(|&&position| declaration_name(&nodes[position], kinds.get(position)).is_some())
+        .count();
+    let mut holders = meter.vec::<(u8, DeclarationName<'_>)>(count)?;
     for (&node_id, &position) in index {
-        if matches!(kinds.get(position), Some(CheckedNodeKind::Protocol(_))) {
-            continue;
-        }
         let node = &nodes[position];
-        let namespace = match (node.node_tag.as_ref(), node.semantic_form.as_ref()) {
-            ("scalar_type", "dimension") => 0_u8,
-            ("scalar_type", "unit") => 1,
-            _ => 2,
-        };
-        let name = match (&node.declaration, &node.owner, namespace) {
-            (Some(declaration), _, _) => declaration
-                .qualified_name
-                .iter()
-                .map(AsRef::as_ref)
-                .collect::<Vec<&str>>()
-                .join("/"),
-            (
-                None,
-                Some(CheckedNodeOwner::Model {
-                    identity,
-                    node: owner_node,
-                }),
-                1,
-            ) => {
-                let prefix = format!("ix://{identity}/unit/");
-                let Some(unit_name) = owner_node.strip_prefix(&prefix) else {
-                    continue;
-                };
-                format!("{identity}/{unit_name}")
-            }
-            _ => continue,
+        let Some((namespace, name)) = declaration_name(node, kinds.get(position)) else {
+            continue;
         };
         let insertion = holders.binary_search_by(|(prior_namespace, prior_name)| {
-            (*prior_namespace, prior_name.as_str()).cmp(&(namespace, name.as_str()))
+            prior_namespace
+                .cmp(&namespace)
+                .then_with(|| prior_name.bytes().cmp(name.bytes()))
         });
-        if let Ok(_) = insertion {
-            let path = if node.declaration.is_some() {
-                name_pointer(position)
-            } else {
-                node_pointer(position)
-            };
-            return Err(refuse_at(
-                CheckedPackageRefusalCode::AmbiguousDeclaration,
-                path,
-                Some(CheckedPackageRefusalCause::AmbiguousName),
-                node_id.clone(),
-            ));
+        match insertion {
+            Ok(_) => {
+                let path = if node.declaration.is_some() {
+                    at(position).key("declaration").key("qualified_name")
+                } else {
+                    at(position)
+                };
+                return Err(declaration_name_failure(
+                    meter,
+                    position,
+                    path,
+                    CheckedPackageRefusalCode::AmbiguousDeclaration,
+                    CheckedPackageRefusalCause::AmbiguousName,
+                    node_id,
+                ));
+            }
+            Err(position) => holders.insert(position, (namespace, name)),
         }
-        let Err(position) = insertion else {
-            unreachable!("duplicate declaration returned above")
-        };
-        holders.insert(position, (namespace, name));
     }
     Ok(())
 }
-
 /// Which member of a node supplied one graph edge, so a charge on that edge
 /// can name the value that carried it.
 #[derive(Clone, Copy, Debug)]
@@ -3636,7 +3700,7 @@ fn validate_graph(
         &terms,
         meter,
     )?;
-    validate_declaration_names(&graph.nodes, &kinds, &index)?;
+    validate_declaration_names(&graph.nodes, &kinds, &index, meter)?;
     validate_recursion_group_paths(&graph.nodes)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
