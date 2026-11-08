@@ -16,13 +16,19 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 
 pub(crate) fn map_package() -> (Value, usize) {
+    keyed_map_package("text", "integer")
+}
+
+/// A package with a `Map<key, value>` node over fresh scalar type nodes of
+/// the two forms, which must differ.
+fn keyed_map_package(key: &str, value: &str) -> (Value, usize) {
     let mut package = v2_all_families();
     let name = package["name"].clone();
     let nodes = package["semantic_graph"]["nodes"]
         .as_array_mut()
         .expect("nodes");
     let mut ids = Vec::new();
-    for form in ["text", "integer"] {
+    for form in [key, value] {
         let id = json!({"package": name, "path": ["scalar_type", form], "ordinal": 0});
         ids.push(id.clone());
         nodes.push(json!({
@@ -318,39 +324,111 @@ fn changing_either_operand_changes_the_admitted_map_identity() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-488", "FR-038-AC-489")]
-#[test]
-fn non_text_scalar_key_admits_but_has_no_exact_projection() {
-    let (mut package, position) = map_package();
-    let boolean = package["semantic_graph"]["nodes"][0]["node_id"].clone();
-    let integer = package["semantic_graph"]["nodes"][position - 1]["node_id"].clone();
-    package["semantic_graph"]["nodes"][position]["node_id"]["path"][2] = json!({"node": 0});
-    let map = package["semantic_graph"]["nodes"][position]["node_id"].clone();
-    package["semantic_graph"]["nodes"][position]["semantic_type"] = map.clone();
-    package["semantic_graph"]["nodes"][position]["body"]["members"][0]["value"]["target"] =
-        boolean.clone();
-    package["semantic_graph"]["nodes"][position]["dependencies"] = json!([boolean, integer]);
-    settle(&mut package);
-    let admitted = match read(&package) {
-        CheckedPackageV2ReadResult::Admitted(value) => value,
-        other => panic!("Map<Boolean,Integer> must admit: {other:?}"),
+/// Every scalar key form of a package map and the Exact key it projects as.
+fn scalar_key_forms() -> [(&'static str, quire_exact::ValueType); 6] {
+    use quire_exact::ValueType;
+    [
+        ("text", ValueType::String),
+        ("string", ValueType::String),
+        ("boolean", ValueType::Boolean),
+        ("integer", ValueType::Integer),
+        ("uuid", ValueType::Uuid),
+        ("timestamp", ValueType::Timestamp),
+    ]
+}
+
+fn keyed_map(key: &str) -> (CheckedPackageV2, CheckedNodeId) {
+    let value = if key == "integer" {
+        "boolean"
+    } else {
+        "integer"
     };
-    let id: CheckedNodeId = serde_json::from_value(map).expect("Map id");
-    assert_eq!(
-        admitted.node_kind(&id),
-        Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
-    );
-    let refusal = admitted
-        .project_exact_type(
+    let (wire, position) = keyed_map_package(key, value);
+    let CheckedPackageV2ReadResult::Admitted(package) = read(&wire) else {
+        panic!("Map<{key},{value}> must admit");
+    };
+    let id: CheckedNodeId =
+        serde_json::from_value(wire["semantic_graph"]["nodes"][position]["node_id"].clone())
+            .expect("map id");
+    (*package, id)
+}
+
+#[trace("TC-473", "FR-357-AC-24")]
+#[test]
+fn scalar_key_projects_its_own_exact_key_type() {
+    for (form, key) in scalar_key_forms() {
+        let (package, id) = keyed_map(form);
+        let projection = package
+            .project_exact_type(
+                &id,
+                &SelectedExactIdentities::empty(),
+                &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
+            )
+            .unwrap_or_else(|why| panic!("{form} key has an Exact projection: {why:?}"));
+        let quire_exact::ValueType::Map(projected) = projection.value_type() else {
+            panic!("exact Map type");
+        };
+        assert_eq!(projected.key(), &key, "{form}");
+        assert_eq!(projected.bound(), None, "{form}");
+    }
+}
+
+/// A source map row joins only when its Exact map key is the Exact type of
+/// its emitted key node.
+#[trace("TC-473", "FR-357-AC-24")]
+#[test]
+fn source_map_row_joins_a_scalar_key_only_with_its_own_exact_key() {
+    for (form, key) in scalar_key_forms() {
+        let (package, id) = keyed_map(form);
+        let value = package.project_exact_type(
             &id,
             &SelectedExactIdentities::empty(),
             &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
-        )
-        .expect_err("Exact Map requires a Text key");
-    assert_eq!(
-        refusal.code,
-        ExactTypeProjectionErrorCode::UnsupportedExactType
-    );
+        );
+        let element = value.expect("projects").value_type().clone();
+        let quire_exact::ValueType::Map(map) = &element else {
+            panic!("exact Map type");
+        };
+        let row = quire_contract_model::SelectedSourceCollectionRow {
+            value_type: quire_exact::ValueType::map(
+                quire_exact::MapType::new(key.clone(), map.values().clone(), None)
+                    .expect("a scalar key is a leaf"),
+            ),
+            ..source_map_row(&package, &id, map.values().clone())
+        };
+        let mut budget = quire_contract_model::NativeJoinBudget::new(1_000_000, 1_000_000);
+        let joined = SelectedExactIdentities::empty()
+            .with_source_collection_rows(&package, [row.clone()], &mut budget)
+            .unwrap_or_else(|why| panic!("{form}: matching row joins: {why:?}"));
+        let projected = package
+            .project_exact_type(&id, &joined, &mut budget)
+            .expect("joined map projects");
+        assert_eq!(projected.value_type(), &row.value_type, "{form}");
+        // A row whose Exact key is another scalar type does not join.
+        let other = if key == quire_exact::ValueType::Integer {
+            quire_exact::ValueType::Boolean
+        } else {
+            quire_exact::ValueType::Integer
+        };
+        let wrong = quire_contract_model::SelectedSourceCollectionRow {
+            value_type: quire_exact::ValueType::map(
+                quire_exact::MapType::new(other, map.values().clone(), None).expect("a leaf"),
+            ),
+            ..row
+        };
+        let refusal = SelectedExactIdentities::empty()
+            .with_source_collection_rows(
+                &package,
+                [wrong],
+                &mut quire_contract_model::NativeJoinBudget::new(1_000_000, 1_000_000),
+            )
+            .expect_err("a row with another key does not join");
+        assert_eq!(
+            refusal.code,
+            ExactTypeProjectionErrorCode::MismatchedIdentityWitness,
+            "{form}"
+        );
+    }
 }
 
 fn sort_map_fixture_dependencies(wire: &mut Value) {

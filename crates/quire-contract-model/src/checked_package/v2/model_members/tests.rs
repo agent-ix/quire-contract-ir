@@ -1703,6 +1703,7 @@ fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {
 
 mod budgeted_charge;
 mod intake_retention;
+mod map_types;
 
 /// Runtime helper ownership is charged before scalar, unit, alias and wrapper copies.
 #[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]

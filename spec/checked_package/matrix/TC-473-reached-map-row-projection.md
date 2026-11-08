@@ -62,3 +62,11 @@ No fresh budget or charge replay hides the denial. Zero-storage denial
 allocates nothing, including owned diagnostic material, and returns the
 existing compact typed refusal. The later reached row retains its original
 channel index rather than a compacted selected-row index.
+
+## Package map key type and bound
+
+Replay every `package_map_types` case of the owner's `map-type-vectors.json`
+through the selected-document reader and compare each admitted case's
+rendered type, minimum and maximum, and each refused case's code, cause,
+declaration and member with the published expectation. Project a map whose key
+node is `Boolean` and assert the Exact map carries a `Boolean` key.

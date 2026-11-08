@@ -3,7 +3,7 @@
 
 use super::*;
 
-fn at(
+pub(super) fn at(
     refusal: ModelRefusal,
     declaration: View<'_>,
     pointer: JsonPointer,
@@ -15,7 +15,7 @@ fn at(
 }
 
 /// Resolve only the existing typeRef forms, charging every followed alias.
-fn reference(
+pub(super) fn reference(
     model: &DomainModel,
     text: &str,
     budget: &mut Budget<'_, '_>,
@@ -71,6 +71,8 @@ pub(super) fn read(
             "items",
             "values",
             "target",
+            "keys",
+            "bound",
         ] {
             if declared.get(forbidden).is_some() {
                 return Err(at(
@@ -116,7 +118,10 @@ pub(super) fn read(
         return Err(at(refusal, declared, pointer, budget)?.into());
     }
     if kind == meaning::Kind::ReferenceType {
-        if !matches!(&selected,SelectedTypeRef::Declared(name) if scope.objects.contains(name.as_ref()))
+        // A reference names an object, or a clock place as `Reference<Clock>`.
+        let names_place = matches!(&selected, SelectedTypeRef::Native(NativeTypeRef::Clock));
+        if !names_place
+            && !matches!(&selected, SelectedTypeRef::Declared(name) if scope.objects.contains(name.as_ref()))
         {
             return Err(at(ModelRefusal::malformed(), declared, pointer, budget)?.into());
         }

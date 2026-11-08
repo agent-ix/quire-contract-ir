@@ -1026,7 +1026,24 @@ pub(super) fn source_map_key_matches(
     };
     typed_binding(key, "key").and_then(typed_reference) == Some(key_node)
         && typed_binding(value, "value").and_then(typed_reference) == Some(&row.element_node)
-        && package.node_kind(key_node) == Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
+        && matches!(&row.value_type, ValueType::Map(map)
+            if map_key_type(package.node_kind(key_node)).as_ref() == Some(map.key()))
+}
+
+/// The Exact key type of a package map whose emitted key node has `kind`: the
+/// scalar key types with a canonical key and no further declaration. `Text`
+/// is keyed as the native string.
+fn map_key_type(kind: Option<CheckedNodeKind>) -> Option<ValueType> {
+    match kind? {
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Text | ScalarTypeForm::String) => {
+            Some(ValueType::String)
+        }
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => Some(ValueType::Boolean),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Integer) => Some(ValueType::Integer),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Uuid) => Some(ValueType::Uuid),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Timestamp) => Some(ValueType::Timestamp),
+        _ => None,
+    }
 }
 
 fn validate_source_collection_row(
@@ -3953,18 +3970,16 @@ impl CheckedPackageV2 {
                             refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType)
                         })?;
                     charge_work(requested, key, "map_key", work, work_limit)?;
-                    if self.node_kind(key)
-                        != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Text))
-                    {
+                    let Some(key_type) = map_key_type(self.node_kind(key)) else {
                         return Err(refuse!(ExactTypeProjectionErrorCode::UnsupportedExactType));
-                    }
+                    };
                     let projected = project_collection_element(
                         self, identities, requested, value, work, work_limit,
                     )?;
                     charge_native_storage(work, requested, type_id, "map_result", 2)?;
                     ValueType::map(
-                        MapType::new(ValueType::String, projected, None)
-                            .expect("a string map key is a leaf"),
+                        MapType::new(key_type, projected, None)
+                            .expect("a scalar map key is a leaf"),
                     )
                 }
             }

@@ -239,11 +239,16 @@ existing element meaning. A map row's value SHALL be the complete producer
 
 The existing source-collection row join and Exact projection path SHALL
 accept a structurally corresponding map row and return its complete map type.
-This row support SHALL retain the existing admitted map key-type restrictions
-and cardinality rules; it SHALL NOT admit a new key domain. The IR package
-map type carries `values` only and its keys are the package's native string,
-so every projected `ValueType::Map` SHALL carry a `ValueType::String` key, and
-a projection rebuilt from an existing map SHALL forward that map's key
+This row support SHALL retain the existing cardinality rules. The admitted map
+key domain is the package's scalar key types (QSpec FR-154 "Map types"); a
+package map type declares its key type, its value type and its entry-count
+bound, and a projected `ValueType::Map` SHALL carry the Exact type of the
+emitted key node, not a fixed key: a `Text` or `String` key projects as
+`ValueType::String`, and a `Boolean`, `Integer`, `UUID` or `Timestamp` key as
+its own Exact type. Row support SHALL NOT admit a key outside that domain. A key node of any other form SHALL keep
+the existing `UnsupportedExactType` refusal. A source map row whose Exact map
+key differs from the Exact type of its key node SHALL NOT join. A projection
+rebuilt from an existing map SHALL forward that map's key and bound
 unchanged. An ordinary
 standalone map projection that already requires no producer collection row
 SHALL retain its existing projection path and result.
@@ -397,6 +402,8 @@ result alone SHALL NOT authorize either construction.
 | FR-357-AC-20 | Map row selection, acquisition and projection compose on one caller-owned `NativeJoinBudget`. Their measured exact combined work and storage allowances return the same complete map facts as ample limits; one unit below either refuses before its first unpaid operation with the original bound, native kind, full amount, row/key/value locus, consumed prefix and no partial output or success delta. Zero storage refuses before any owned allocation, including diagnostic material. A selected row after an unrelated earlier row retains its original `ReachedRow` index; preceding caller charges retain their supplied native locus. Existing non-map typed refusals and non-map collection values are unchanged. | Test |
 | FR-357-AC-21 | Implemented (IR-1399; TC-470). The closure requires one FR-353 equality decision at each `expression`-role occurrence of a reached equality application. A `claim`-role occurrence of the same node is the clause's registration of the interned application, not an evaluation site, and neither needs nor receives a decision. A reached equality application with no `expression` occurrence still returns `UnavailableEqualityDecision` at that node. | Test |
 | FR-357-AC-22 | Implemented (IR-1399; TC-470). Given a bounded collection row whose `structural_node` is the `collection_bounds` wrapper and whose `base_node` is the unbounded collection node, the closure projects the wrapper from that row and does not project the base on its own. A base node that another reached node is typed by still requires its own row and returns `UnavailableIdentityWitness` without one. | Test |
+| FR-357-AC-23 | The selected-document reader retains a package map type's key type (with its authored reference), value type and `bound` `{lower, upper?}`. The key must be a scalar key type with a canonical key: a native other than `Rational`, `Decimal` and `Clock`, a unit, an `integer`, `string` or `rational` value type, or a variant with no payload-bearing case, through any alias chain. A clock, `Decimal`, record, object, tuple, union, option, sequence, map or reference key refuses `ill_typed`/`operator-ineligible` at `TypeDefinition.keys`. A missing, non-string or malformed `keys`, `values` or `bound`, a `bound` with a member other than `lower` and `upper`, a negative or non-integer bound, a member of another kind (including `items`) on a map, a `keys` or `bound` member on a sequence or option, and a key naming a non-type refuse `invalid_model_binding`/`malformed-declaration` at that member. A key naming no node refuses `missing_declaration`/`missing-name`. A `lower` above `upper`, or a `lower` above 0 with no `upper`, refuses `invalid_model_binding`/`unpreserved-model-meaning` at `TypeDefinition.bound`. A `reference` whose target is `Clock` or an alias of it reads as `Reference<Clock>`. Every `package_map_types` case of the owner's `map-type-vectors.json` (PM-01..PM-34) is read by reference from the owning QSpec checkout. | Test |
+| FR-357-AC-24 | The timed field-type rendering of a package map is `Map<K, V>` with `K` the native key name or, for any other key, the authored `keys` reference, and the map slot's `minimum` and `maximum` are the map type's declared `bound` (`unbounded` when it has no `upper`). A projected `ValueType::Map` carries the Exact type of its key node. | Test |
 
 ## Dependencies
 
