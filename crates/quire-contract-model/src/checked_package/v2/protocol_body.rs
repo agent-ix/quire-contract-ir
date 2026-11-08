@@ -3967,8 +3967,8 @@ fn check_clause(
             .enumerate()
         {
             node_work(meter, check.position)?;
-            let path = check.argument_path(ordinal).key("members").index(entry);
-            let position = check.check_target(target, || path.clone(), |_| true)?;
+            let path = || check.argument_path(ordinal).key("members").index(entry);
+            let position = check.check_target(target, path, |_| true)?;
             if !check.is(position, expected) {
                 let cause = if ordinal == 4 {
                     Cause::WrongExport
@@ -3977,7 +3977,7 @@ fn check_clause(
                 };
                 return Err(ValidationFailure::refused_at(
                     Code::InvalidModelBinding,
-                    path.key("target"),
+                    path().key("target"),
                     Some(cause),
                     check.nodes[position].node_id.clone(),
                 ));
@@ -4031,8 +4031,8 @@ fn check_clause_slots(
     let scope = ProtocolScope::new(check, arguments, validated, meter)?;
     let activation = check.at(arguments, 1);
     if let Some(guard) = group_value(activation, "guard") {
-        let path = check.argument_path(1).key("members").index(2).key("value");
-        check_member_targets(check, guard, &|| path.clone())?;
+        let path = || check.argument_path(1).key("members").index(2).key("value");
+        check_member_targets(check, guard, &path)?;
         let triggers: &[usize] = match &scope.activation {
             Some(trigger) => std::slice::from_ref(trigger),
             None => &[],
@@ -4047,20 +4047,22 @@ fn check_clause_slots(
             None,
             meter,
         )?;
-        check.boolean(guard, || path)?;
+        check.boolean(guard, path)?;
     }
     let captures = members(check.at(arguments, 2)).expect("validated captures");
     for (entry, record) in captures.iter().enumerate() {
         node_work(meter, check.position)?;
         let initializer = group_value(record, "initializer").expect("validated initializer");
-        let path = check
-            .argument_path(2)
-            .key("members")
-            .index(entry)
-            .key("members")
-            .index(1)
-            .key("value");
-        check_member_targets(check, initializer, &|| path.clone())?;
+        let path = || {
+            check
+                .argument_path(2)
+                .key("members")
+                .index(entry)
+                .key("members")
+                .index(1)
+                .key("value")
+        };
+        check_member_targets(check, initializer, &path)?;
         let allowed = PositionSet::of(
             &[
                 &scope.c0[..1 + usize::from(scope.activation.is_some())],
@@ -6375,6 +6377,292 @@ mod tests {
     use crate::checked_package::v2::CheckedTerm;
     use ix_trace_rs::trace;
     use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn healthy_clause_members_guards_and_captures_build_no_diagnostic_paths() {
+        let reference = |name| json!({"term":"reference", "target":id(name)});
+        let truth = || {
+            json!({"term":"literal", "type":id('b'),
+            "value_kind":"boolean", "value":true})
+        };
+        let parameter = |name: &str, level: usize| {
+            json!({"term":"aggregate", "members":[
+                {"term":"binding", "name":"name", "value":{
+                    "term":"literal", "type":id('r'), "value_kind":"text", "value":name}},
+                {"term":"binding", "name":"level", "value":{
+                    "term":"literal", "type":id('q'), "value_kind":"integer", "value":level.to_string()}}
+            ]})
+        };
+        let catalog = super::super::operation_catalog::owned_operation_catalog();
+        let profile = serde_json::from_value(selected()).expect("protocol profile");
+        for (slot_checks, listed, captures) in [
+            (false, false, false),
+            (false, true, false),
+            (true, false, false),
+            (true, false, true),
+        ] {
+            let mut clause = body(ProtocolForm::ProtocolClause, "protocol");
+            clause["arguments"][0]["value"] = reference('a');
+            clause["arguments"][11]["value"] = reference('e');
+            clause["arguments"][12]["value"] = reference('f');
+            if listed {
+                for (ordinal, name) in [(3, 'h'), (4, 'i'), (5, 'j'), (6, 'k'), (7, 'l'), (8, 'm')]
+                {
+                    clause["arguments"][ordinal]["value"]["members"] = json!([reference(name)]);
+                }
+                clause["arguments"][3]["value"]["members"] =
+                    json!([reference('h'), reference('n')]);
+            }
+            if captures {
+                clause["arguments"][1]["value"]["members"] = json!([
+                    {"term":"binding", "name":"kind", "value":text("each")},
+                    {"term":"binding", "name":"trigger", "value":reference('o')},
+                    {"term":"binding", "name":"guard", "value":truth()}
+                ]);
+                clause["arguments"][2]["value"]["members"] = json!([
+                    {"term":"aggregate", "members":[
+                        {"term":"binding", "name":"binder", "value":reference('d')},
+                        {"term":"binding", "name":"initializer", "value":truth()}
+                    ]}
+                ]);
+            }
+            let mut finish = body(ProtocolForm::Obligation, "finish");
+            finish["arguments"][0]["value"] = reference('c');
+            finish["arguments"][1]["value"] = truth();
+            let mut definitions = vec![
+                (
+                    'b',
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean),
+                    "scalar_type",
+                    "boolean",
+                    json!({"term":"aggregate", "members":[]}),
+                ),
+                (
+                    'q',
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Integer),
+                    "scalar_type",
+                    "integer",
+                    json!({"term":"aggregate", "members":[]}),
+                ),
+                (
+                    'r',
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Text),
+                    "scalar_type",
+                    "text",
+                    json!({"term":"aggregate", "members":[]}),
+                ),
+                (
+                    'a',
+                    CheckedNodeKind::Value(ValueForm::Parameter),
+                    "value",
+                    "parameter",
+                    parameter("subject", 0),
+                ),
+                (
+                    'c',
+                    CheckedNodeKind::Value(ValueForm::Parameter),
+                    "value",
+                    "parameter",
+                    parameter("finished", 1 + 2 * usize::from(captures)),
+                ),
+                (
+                    'd',
+                    CheckedNodeKind::Value(ValueForm::Parameter),
+                    "value",
+                    "parameter",
+                    parameter("captured", 1 + usize::from(captures)),
+                ),
+                (
+                    'o',
+                    CheckedNodeKind::Value(ValueForm::Parameter),
+                    "value",
+                    "parameter",
+                    parameter("trigger", 1),
+                ),
+                (
+                    'e',
+                    CheckedNodeKind::Protocol(ProtocolForm::Control),
+                    "protocol",
+                    "control",
+                    body(ProtocolForm::Control, "sequence"),
+                ),
+                (
+                    'f',
+                    CheckedNodeKind::Protocol(ProtocolForm::Obligation),
+                    "protocol",
+                    "obligation",
+                    finish,
+                ),
+                (
+                    'g',
+                    CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
+                    "protocol",
+                    "protocol_clause",
+                    clause,
+                ),
+            ];
+            if listed {
+                for (name, kind, tag, form) in [
+                    (
+                        'h',
+                        CheckedNodeKind::Protocol(ProtocolForm::Role),
+                        "protocol",
+                        "role",
+                    ),
+                    (
+                        'i',
+                        CheckedNodeKind::Relation(RelationForm::Relationship),
+                        "relation",
+                        "relationship",
+                    ),
+                    (
+                        'j',
+                        CheckedNodeKind::Protocol(ProtocolForm::Channel),
+                        "protocol",
+                        "channel",
+                    ),
+                    (
+                        'k',
+                        CheckedNodeKind::Protocol(ProtocolForm::Queue),
+                        "protocol",
+                        "queue",
+                    ),
+                    (
+                        'l',
+                        CheckedNodeKind::Temporal(TemporalForm::TemporalClause),
+                        "temporal",
+                        "temporal_clause",
+                    ),
+                    (
+                        'm',
+                        CheckedNodeKind::Protocol(ProtocolForm::Compensation),
+                        "protocol",
+                        "compensation",
+                    ),
+                    (
+                        'n',
+                        CheckedNodeKind::Protocol(ProtocolForm::Role),
+                        "protocol",
+                        "role",
+                    ),
+                ] {
+                    definitions.push((
+                        name,
+                        kind,
+                        tag,
+                        form,
+                        json!({"term":"aggregate", "members":[]}),
+                    ));
+                }
+            }
+            let nodes: Vec<RawSemanticNodeV2> = definitions
+                .iter()
+                .map(|(name, _, tag, form, body)| {
+                    serde_json::from_value(json!({
+                        "node_id":id(*name), "schema_version":"quire.checked-semantic-graph/v2",
+                        "node_tag":tag, "semantic_form":form, "semantic_type":id('b'),
+                        "dependencies":[], "occurrences":[], "body":body
+                    }))
+                    .expect("typed protocol fixture node")
+                })
+                .collect();
+            let kinds: Vec<_> = definitions.iter().map(|(_, kind, _, _, _)| *kind).collect();
+            let terms: Vec<_> = definitions
+                .iter()
+                .map(|(_, _, _, _, term)| {
+                    Some(CheckedTerm::decode_admitted(term).expect("typed protocol fixture term"))
+                })
+                .collect();
+            let index: GraphIndex<'_> = nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            let position = 9;
+            let validated: Vec<_> = terms
+                .iter()
+                .enumerate()
+                .map(|(position, term)| match (kinds[position], term) {
+                    (
+                        CheckedNodeKind::Protocol(form),
+                        Some(term @ CheckedTerm::Application { .. }),
+                    ) => {
+                        let (operator, arguments) = validate_envelope(
+                            form,
+                            term,
+                            &nodes[position].semantic_type,
+                            Some(&profile),
+                        )
+                        .expect("validated protocol fixture envelope");
+                        validate_layout(form, operator, arguments)
+                            .expect("validated protocol fixture layout");
+                        Some((operator, arguments))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let check = MemberCheck {
+                catalog: &catalog,
+                position,
+                nodes: &nodes,
+                kinds: &kinds,
+                terms: &terms,
+                index: &index,
+                profile: &profile,
+            };
+            let arguments = validated[position].expect("clause arguments").1;
+            let run = |budget: &mut super::super::NativeJoinBudget| {
+                let before = budget.read_storage_consumed();
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(budget);
+                    meter.at_node(position, "protocol");
+                    result = Some(if slot_checks {
+                        check_clause_slots(&check, arguments, &validated, &mut meter)
+                    } else {
+                        check_clause(&check, arguments, &validated, &mut meter)
+                    });
+                })
+                .bytes_total;
+                assert_eq!(
+                    allocated,
+                    budget.read_storage_consumed() - before,
+                    "only actual charged scratch requests are made on healthy clauses"
+                );
+                result.expect("measured clause result")
+            };
+            let mut ample =
+                super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let ample_result = run(&mut ample);
+            assert!(ample_result.is_ok(), "healthy clause must validate (slots={slot_checks}, listed={listed}, captures={captures}): {ample_result:?}");
+            let required = ample.read_storage_consumed();
+            assert!(required > 0, "real clause scratch blocks are exercised");
+            let work = ample.consumed().work;
+            let mut exact =
+                super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+            assert!(run(&mut exact).is_ok());
+            assert_eq!(exact.consumed().work, work);
+            for limit in [0, required - 1] {
+                let mut denied =
+                    super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let Err(ValidationFailure::Budget(stop)) = run(&mut denied) else {
+                    panic!("scratch allocation must be denied")
+                };
+                assert_eq!(
+                    stop.resource,
+                    super::super::PackageReadResource::ReadStorage
+                );
+                assert!(denied.first_unpaid_read_storage().is_some());
+            }
+            let mut repeated = super::super::NativeJoinBudget::new(u64::MAX, 0)
+                .with_read_storage_limit(2 * required);
+            assert!(run(&mut repeated).is_ok());
+            assert!(run(&mut repeated).is_ok());
+            assert_eq!(repeated.read_storage_consumed(), 2 * required);
+            assert_eq!(repeated.consumed().work, 2 * work);
+        }
+    }
 
     /// The position set agrees with the ordered set it replaces on every
     /// operation the binder scopes use, and each block is charged first
