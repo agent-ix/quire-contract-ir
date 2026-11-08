@@ -66,6 +66,34 @@ impl Application<'_> {
         )
     }
 
+    fn read_node(self) -> super::stage_storage::Path<'static> {
+        super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(self.position)
+    }
+
+    fn refuse_read(
+        self,
+        code: CheckedPackageRefusalCode,
+        path: super::stage_storage::Path<'_>,
+        cause: CheckedPackageRefusalCause,
+        meter: &mut WorkMeter,
+    ) -> ValidationFailure {
+        super::stage_storage::refuse(
+            meter,
+            &super::stage_storage::Site::new(
+                super::PackageReadStage::Graph,
+                self.position,
+                super::graph_storage::node_form(&self.node.node_tag),
+                path,
+            ),
+            super::stage_storage::Refusal::new(code, path)
+                .because(cause)
+                .at_node(&self.node.node_id),
+        )
+    }
+
     fn refuse(
         self,
         code: CheckedPackageRefusalCode,
@@ -948,6 +976,7 @@ fn check_bounded_dimensions(
     application: Application<'_>,
     operation: &OperationWire,
     graph: &Graph<'_>,
+    meter: &mut WorkMeter,
 ) -> Option<ValidationFailure> {
     if !matches!(
         operation.identity.as_ref(),
@@ -1009,10 +1038,11 @@ fn check_bounded_dimensions(
         _ => return None,
     };
     (operand_mismatch || result_mismatch).then(|| {
-        application.refuse(
+        application.refuse_read(
             CheckedPackageRefusalCode::IllTyped,
-            node_pointer(application.position),
+            application.read_node(),
             CheckedPackageRefusalCause::OperatorIneligible,
+            meter,
         )
     })
 }
@@ -1732,7 +1762,7 @@ fn operation_defect(
     if let Some(failure) = check_quantity_conversion(application, &operation, graph) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_bounded_dimensions(application, &operation, graph) {
+    if let Some(failure) = check_bounded_dimensions(application, &operation, graph, meter) {
         return Ok(Some(failure));
     }
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
