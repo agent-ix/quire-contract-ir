@@ -206,7 +206,8 @@ def select_original_tests(compiled, selectors, controls=False, class_controls=Fa
 def selection_metadata(args):
     selected = bool(getattr(args, "original_test", []))
     return {"scope": "selected-only original tests" if selected else "declared original corpus",
-            "full_corpus": not selected and not getattr(args,"controls",False) and not getattr(args,"class_controls",False)}
+            "full_corpus": False,
+            "complete_declared_inventory": not selected and not getattr(args,"controls",False) and not getattr(args,"class_controls",False)}
 
 
 def select_tc048(args, compiled):
@@ -527,7 +528,64 @@ def run_class_controls(args,binary,config,env,compiled_tests):
     return [result]
 
 
+def complete_full_manifest(manifest_path):
+    """Revalidate retained compiler evidence; never trust a manifest's pass flags."""
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("schema") != "ac511-full-completion/v1":
+        raise RunError("missing full-completion manifest schema")
+    bundle = {"schema": manifest["schema"], "runs": []}
+    for directory in manifest.get("runs", []):
+        directory = Path(directory).resolve()
+        config = json.loads((directory / "config.json").read_text())
+        report = json.loads((directory / "test-report.json").read_text())
+        records = [json.loads(line) for line in (directory / "driver-sites.jsonl").read_text().splitlines() if line.strip()]
+        repo = Path(manifest["repo"]).resolve()
+        if git(repo, "rev-parse", "HEAD") != config.get("source_head") or git(repo, "status", "--porcelain"):
+            raise RunError("completion requires the same clean frozen source for compiler/source joins")
+        export_path = directory / "coverage.json"
+        opener = export_path.open if export_path.exists() else (directory / "coverage.json.gz").open
+        if export_path.exists():
+            with opener("r") as source: export = json.load(source)
+        else:
+            with gzip.open(directory / "coverage.json.gz", "rt") as source: export = json.load(source)
+        result = census.check_run(export, repo, report, records, config.get("mode"))
+        declared = (config.get("compiled_test_inventory") if config.get("corpus") == "qspec" else
+                    list(json.loads((directory / "tc048-selected-tests.json").read_text())))
+        bundle["runs"].append({"config": config, "report": report, "records": records,
+                               "census": result, "declared_inventory": declared})
+    class_dir = Path(manifest["canonical_classes"]).resolve()
+    bundle["canonical_classes"] = json.loads((class_dir / "class-proof.json").read_text())
+    bundle["canonical_config"] = json.loads((class_dir / "config.json").read_text())
+    source = (repo / "crates/quire-contract-model/src/checked_package/shared.rs").read_text()
+    body = source.split("pub enum CheckedPackageRefusalCode {", 1)[1].split("}", 1)[0]
+    variants = []
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or line.startswith("//"):
+            continue
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*,", line):
+            raise RunError("refusal-code inventory needs explicit support for changed source enum grammar")
+        variants.append(line[:-1])
+    bundle["expected_refusal_codes"] = variants
+    return census.validate_full_completion(bundle)
+
+
 def main():
+    if sys.argv[1:2] == ["complete-full"]:
+        completion = argparse.ArgumentParser(description="Revalidate the exact two full corpus runs and class proof")
+        completion.add_argument("manifest", type=Path)
+        completion.add_argument("--out", type=Path, required=True)
+        selected = completion.parse_args(sys.argv[2:])
+        if selected.out.exists():
+            raise SystemExit("completion output already exists; preserve prior evidence")
+        try:
+            result = complete_full_manifest(selected.manifest)
+        except (RunError, census.CensusError, OSError, ValueError, KeyError) as error:
+            write_json(selected.out, {"passed": False, "full_corpus": False,
+                       "normative_boundary_proof": False, "error": str(error)})
+            raise SystemExit(str(error)) from error
+        write_json(selected.out, {"passed": True, **result})
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -601,12 +659,18 @@ def main():
             intended = select_tc048(args, intended)
         intended = select_original_tests(intended, args.original_test, args.controls, args.class_controls)
         config["intended_tests"] = intended
+        # This is the actual compiled proof-harness module namespace. These
+        # tests still execute and every public entry remains in the arithmetic;
+        # they are not original consumer fixtures or provider-role evidence.
+        config["auxiliary_tests"] = [name for name in intended if name.startswith("qspec_read_proof::")]
+        config["original_driver_tests"] = [name for name in intended if name not in config["auxiliary_tests"]]
         write_json(args.out / "config.json", config)
         results = (run_class_controls(args,binary,config,env,intended) if args.class_controls else
                    run_controls(args, binary, config, env, intended) if args.controls
                    else run_original_corpus(args, binary, config, env, intended))
         write_json(args.out / "result.json", {"passed": True, "results": results, **selection_metadata(args),
-                   "normative_boundary_proof": args.mode == "full" and not args.controls and not args.class_controls and not args.original_test,
+                   "normative_boundaries_verified": args.mode == "full",
+                   "normative_boundary_proof": False,
                    "static_ac513_proven": False})
     except (RunError, census.CensusError, OSError, ValueError, subprocess.CalledProcessError) as error:
         write_json(args.out / "result.json", {"passed": False, "error": str(error), **selection_metadata(args)})

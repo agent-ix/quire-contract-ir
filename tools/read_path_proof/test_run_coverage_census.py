@@ -35,7 +35,9 @@ class OriginalSelection(unittest.TestCase):
     def test_unfiltered_selection_preserves_inventory_and_scope(self):
         inventory = ["b", "a"]
         self.assertEqual(runner.select_original_tests(inventory, []), inventory)
-        self.assertTrue(runner.selection_metadata(SimpleNamespace(original_test=[], controls=False, class_controls=False))["full_corpus"])
+        metadata = runner.selection_metadata(SimpleNamespace(original_test=[], controls=False, class_controls=False))
+        self.assertTrue(metadata["complete_declared_inventory"])
+        self.assertFalse(metadata["full_corpus"])
 
 
 class ArtifactCustody(unittest.TestCase):

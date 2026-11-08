@@ -301,8 +301,128 @@ def check_run(export, root, report, records, mode):
         if not requested_roles <= reached_roles:
             raise CensusError("a designated source growth role was never reached by any original input")
     result.update({"original_tests_passed": len(passed), "mode": mode,
-                   "normative_boundary_proof": mode == "full"})
+                   "normative_boundaries_verified": mode == "full",
+                   "normative_boundary_proof": False})
     return result
+
+
+# These names denote normative obligations, not invented fixture identities.
+# Input-shape facts must be computed by the original provider, whose source and
+# compiler-executed callsite are retained in the original invocation record.
+REQUIRED_PROVIDER_FACTS = {
+    "reference_chain": ("reference_chain_nodes", 100000),
+    "flat_graph": ("flat_graph_nodes", 10000),
+    "node_dependencies": ("maximum_node_dependencies", 10000),
+    "string_member": ("string_member_utf8_bytes", 1048576),
+    "source_maps": ("source_map_entries", 10000),
+    "diagnostic_details": ("diagnostics_with_detail_terms", 10000),
+    "direct_dependencies": ("direct_dependencies", 64),
+    "selected_models": ("selected_model_documents_at_least_524288_bytes", 2),
+    "term_walk_multigrowth": ("same_term_walk_stack_growth_requests", 3),
+    "canonical_rational_multilimb": ("canonical_rational_max_bits", 129),
+    "dimension_exponent_multilimb": ("dimension_exponent_max_bits", 129),
+    "timed_magnitude_multilimb": ("timed_magnitude_max_bits", 129),
+    "schedulability_bound_multilimb": ("schedulability_bound_max_bits", 129),
+}
+COHORT_FIELDS = ("source_head", "rustc", "llvm", "features", "environment", "qspec")
+
+
+def validate_full_completion(bundle):
+    """Combine actual full runs; presence of a full mode flag alone proves nothing.
+
+    The runner loads the referenced original artifacts without rewriting them.
+    Missing provider facts remain blockers, never empty-set success.
+    """
+    if bundle.get("schema") != "ac511-full-completion/v1":
+        raise CensusError("missing full-completion artifact schema")
+    runs = bundle.get("runs", [])
+    if len(runs) != 2 or {run.get("config", {}).get("corpus") for run in runs} != {"qspec", "tc048"}:
+        raise CensusError("full completion requires exactly QSpec and TC048 original inventories")
+    baseline = runs[0]["config"]
+    if any(not baseline.get(key) for key in COHORT_FIELDS):
+        raise CensusError("incomplete frozen source/tool/input cohort")
+    records = []
+    for run in runs:
+        config, report, result = run["config"], run["report"], run["census"]
+        if any(config.get(key) != baseline[key] for key in COHORT_FIELDS):
+            raise CensusError("full corpus artifacts mix source/tool/input cohorts")
+        if (config.get("original_tests") or config.get("controls") or config.get("class_controls")
+                or config.get("mode") != "full" or config.get("complete_declared_inventory") is not True
+                or result.get("normative_boundaries_verified") is not True):
+            raise CensusError("selected-only, partial or core-only artifacts cannot complete full corpus")
+        inventory = run.get("declared_inventory")
+        intended = config.get("intended_tests")
+        if (not inventory or len(set(inventory)) != len(inventory)
+                or not intended or set(inventory) != set(intended)
+                or len(intended) != len(inventory)
+                or report.get("intended_tests") != intended
+                or report.get("exit_code") != 0 or report.get("failed_tests") or report.get("ignored_tests")
+                or sorted(report.get("passed_tests", [])) != sorted(intended)
+                or result.get("original_tests_passed") != len(intended)):
+            raise CensusError("full completion lacks exact successful declared original inventories")
+        auxiliary = config.get("auxiliary_tests", [])
+        originals = config.get("original_driver_tests", [])
+        if (not originals or len(set(auxiliary + originals)) != len(auxiliary + originals)
+                or set(auxiliary + originals) != set(intended)
+                or any(not name.startswith("qspec_read_proof::") for name in auxiliary)):
+            raise CensusError("original and auxiliary executed-test scopes are missing or overlap")
+        rows = run.get("records", [])
+        if not rows or any(row.get("test") not in intended for row in rows):
+            raise CensusError("full completion lacks original invocation records")
+        if (sum(row.get("entry", "plain") == "plain" for row in rows) != result.get("measured_plain")
+                or sum(row.get("entry") == "caller-budget" for row in rows) != result.get("caller_budget")):
+            raise CensusError("completion invocation rows do not match compiler boundary counts")
+        for row in rows:
+            validate_normative_boundaries(row)
+        records.extend(rows)
+    classes = bundle.get("canonical_classes", {})
+    class_config = bundle.get("canonical_config", {})
+    if (any(class_config.get(key) != baseline[key] for key in COHORT_FIELDS)
+            or classes.get("qualified") is not True
+            or not canonical_classes_complete(classes.get("classes", []), classes.get("negative_controls", []))):
+        raise CensusError("missing qualified same-cohort five-class denial proof")
+    reached = set()
+    for row in records:
+        for evidence in row.get("provider_obligation_evidence", []):
+            if row.get("test", "").startswith("qspec_read_proof::"):
+                raise CensusError("auxiliary proof controls cannot supply original provider roles")
+            role = evidence.get("role")
+            if role not in REQUIRED_PROVIDER_FACTS:
+                raise CensusError("unknown provider obligation role")
+            field, minimum = REQUIRED_PROVIDER_FACTS[role]
+            source = evidence.get("source", {})
+            fact = evidence.get("input_facts", {}).get(field)
+            if (type(fact) is not int or fact < minimum or not source.get("symbol")
+                    or source.get("file") != row.get("driver") or source.get("line") != row.get("line")):
+                raise CensusError("provider obligation lacks source-bound measured input facts")
+            # Growth obligations need actual event-selected requests, not input
+            # size guesses. The provider must prove one walk instance separately.
+            if role.endswith("multilimb") or role == "term_walk_multigrowth":
+                kind = "walker_growth" if role == "term_walk_multigrowth" else "exact_reservation"
+                events = row["native_budget_events"]
+                selected = {item["event_index"] for item in row["boundary_results"]}
+                indices = evidence.get("request_event_indices", [])
+                if (len(indices) < (3 if kind == "walker_growth" else 1)
+                        or len(set(indices)) != len(indices)
+                        or any(type(i) is not int or i < 0 or i >= len(events) or i not in selected
+                               or events[i].get("allocation_class") != kind for i in indices)
+                        or not evidence.get("reservation_source")
+                        or (kind == "walker_growth" and not evidence.get("same_walk_instance_source"))):
+                    raise CensusError("growth obligation lacks actual selected source-bound reservations")
+            reached.add(role)
+    missing = set(REQUIRED_PROVIDER_FACTS) - reached
+    if missing:
+        raise CensusError(f"missing real adverse/growth provider obligations: {sorted(missing)}")
+    expected_refusals = bundle.get("expected_refusal_codes")
+    if not expected_refusals or len(set(expected_refusals)) != len(expected_refusals):
+        raise CensusError("missing source-derived refusal-code inventory")
+    actual_refusals = {row.get("complete_reference", {}).get("refusal_code") for row in records
+                       if row.get("complete_reference", {}).get("outcome") == "refused"}
+    if not set(expected_refusals) <= actual_refusals:
+        raise CensusError("not every source refusal code has a measured complete-reference refusal")
+    return {"schema": "ac511-full-completion/v1", "full_corpus": True,
+            "normative_boundary_proof": True, "static_ac513_proven": False,
+            "provider_roles": sorted(reached), "source_head": baseline["source_head"]}
 
 
 def main():
