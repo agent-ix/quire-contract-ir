@@ -1605,7 +1605,7 @@ fn tc_058_fixture_operation_does_not_bypass_strict_package_admission() {
     };
     use quire_contract_model::{
         CheckedApplicationOperation, CheckedApplicationOperationFixture, CheckedPackageReadLimits,
-        CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+        CheckedPackageRefusalCode, CheckedPackageV2ReadResult,
     };
 
     let fixture = CheckedApplicationOperation::from_test_fixture(
@@ -1669,7 +1669,7 @@ fn tc_058_both_test_features_export_their_independent_items() {
 fn tc_058_reader_admitted_operation_has_no_fixture_provenance() {
     use crate::support::checked_package::{canonical, evidence_for, v2_all_families};
     use quire_contract_model::{
-        CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
+        CheckedPackageReadLimits, CheckedPackageV2ReadResult, CheckedTerm,
     };
 
     let package = v2_all_families();
