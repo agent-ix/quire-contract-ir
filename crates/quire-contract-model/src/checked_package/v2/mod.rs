@@ -238,11 +238,11 @@ use super::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry,
     CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
+use super::terms::TermSource;
 use lock_tables::{
     checked_unit_refs, no_unit_refs, resolve_model_durations, selected_model_roots,
     validate_dependency_selections, validate_refinement_internals, validate_required_features,
 };
-use super::terms::TermSource;
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
     admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure, UnitRefs,
@@ -3004,6 +3004,7 @@ pub(super) fn structural_key<'a>(
 // `wire.semantic_graph.nodes[position].body` is the uncharged bridge for a
 // validator that has not moved to the views.
 #[allow(unused_variables)]
+#[allow(clippy::too_many_arguments)] // the catalog and the node bodies are two inputs of one graph check
 fn validate_graph(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
