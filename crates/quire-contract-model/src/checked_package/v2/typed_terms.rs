@@ -6,12 +6,12 @@
 //! byte length.
 
 use super::checked_json::CheckedJson;
+#[cfg(test)]
+use super::BodyTerm;
 use super::{
     ApplicationOperator, LawRole, LiteralKind, OperationConstraintKind, OperationMemberKind,
     OperationModeKind, StateClauseKind,
 };
-#[cfg(test)]
-use super::BodyTerm;
 use super::{
     CheckedComponentClause, CheckedCompositionComponent, CheckedCompositionPremise,
     CheckedEnvironmentEntry, CheckedFairnessSupply, CheckedGuaranteeProgress,
@@ -156,36 +156,42 @@ impl CheckedApplicationOperationRecord {
                 })
     }
 
-    pub(super) fn decode_member_ids(&mut self, context: &super::document_de::DecodeContext<'_>) {
+    pub(super) fn decode_member_ids(
+        &mut self,
+        context: &super::document_de::DecodeContext<'_>,
+    ) -> Result<(), super::document_de::Error> {
         let Some(member) = self.member.as_ref().map(super::TermNode::of) else {
-            return;
+            return Ok(());
         };
         let decode = |value: Option<super::TermNode<'_>>| {
-            value
-                .and_then(|value| {
-                    context
-                        .value_by_id(value.node_ref().id())
-                        .and_then(|value| CheckedNodeId::deserialize(value).ok())
-                })
-                .filter(CheckedNodeId::is_well_formed)
+            let Some(value) = value.and_then(|value| context.value_by_id(value.node_ref().id()))
+            else {
+                return Ok(None);
+            };
+            match CheckedNodeId::deserialize(value) {
+                Ok(id) if id.is_well_formed() => Ok(Some(id)),
+                Ok(_) | Err(super::document_de::Error::Decode(_)) => Ok(None),
+                Err(error @ super::document_de::Error::Denied) => Err(error),
+            }
         };
         self.member_ids = CheckedOperationMemberIds {
-            declaration: decode(member.get("declaration")),
-            context: decode(member.get("context")),
-            destination_type: decode(member.get("destination_type")),
-            population: decode(member.get("population")),
+            declaration: decode(member.get("declaration"))?,
+            context: decode(member.get("context"))?,
+            destination_type: decode(member.get("destination_type"))?,
+            population: decode(member.get("population"))?,
             target_declaration: decode(
                 member
                     .get("target")
                     .and_then(|target| target.get("declaration")),
-            ),
-            target_node: decode(member.get("target").and_then(|target| target.get("node"))),
+            )?,
+            target_node: decode(member.get("target").and_then(|target| target.get("node")))?,
             target_parallel: decode(
                 member
                     .get("target")
                     .and_then(|target| target.get("parallel")),
-            ),
+            )?,
         };
+        Ok(())
     }
 
     pub(super) fn copy_member_context(
@@ -1499,7 +1505,9 @@ impl CheckedApplicationOperation {
             let mut budget =
                 super::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
             let context = super::document_de::DecodeContext::new(member.document(), &mut budget);
-            record.decode_member_ids(&context);
+            record
+                .decode_member_ids(&context)
+                .expect("unlimited member-ID decode cannot be denied");
             if record.identity.as_deref() == Some("quire.op.state.clause") {
                 super::TermNode::of(&member)
                     .get("execution_point")
@@ -2151,7 +2159,10 @@ fn map_operation_ids(
         let mut budget =
             super::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
         let context = super::document_de::DecodeContext::new(member.document(), &mut budget);
-        operation.record.decode_member_ids(&context);
+        operation
+            .record
+            .decode_member_ids(&context)
+            .expect("unlimited member-ID decode cannot be denied");
     }
     let Some(views) = &mut operation.views else {
         return;

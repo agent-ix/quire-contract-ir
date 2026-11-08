@@ -576,7 +576,7 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
                     self.node.id(),
                 ))
             };
-            record.decode_member_ids(context);
+            record.decode_member_ids(context)?;
             let point = if record.identity.as_deref() == Some("quire.op.state.clause") {
                 record.member.as_ref().and_then(|member| {
                     let point = super::TermNode::of(member).get("execution_point")?;
