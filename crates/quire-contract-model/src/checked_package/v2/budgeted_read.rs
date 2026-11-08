@@ -465,7 +465,6 @@ impl quire_canonical::Encode for PackageDocument<'_> {
     }
 }
 
-const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
 const SERDE_JSON_RECURSION_LIMIT: usize = 128;
 
 /// The deepest container nesting of bytes the shared reader accepted, counted

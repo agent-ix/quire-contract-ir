@@ -315,6 +315,12 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
             NativeJoinLocusSource::PackageRead(stage, 0) => stage,
             other => panic!("limit {limit}: {other:?}"),
         };
+        // Past the canonical comparison the decode's denials carry the pointer of
+        // the value being decoded, whose bytes are charged after the denial, so
+        // the request sequence is read at the envelope and canonical requests.
+        if stage > PackageReadStage::Canonical {
+            break;
+        }
         if let Some((last_consumed, last_end, last_stage)) = previous {
             if consumed == last_consumed {
                 assert_eq!(consumed + asked, last_end, "limit {limit}: same request");
@@ -332,7 +338,8 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
         boundaries.insert(consumed + asked);
         previous = Some((consumed, consumed + asked, stage));
     }
-    assert_eq!(previous.map(|(_, end, _)| end), Some(required));
+    assert!(previous
+        .is_some_and(|(_, end, stage)| end < required && stage == PackageReadStage::Canonical));
     assert!(envelope_end > 0 && envelope_end < required);
     // The envelope's last package-bytes request: one below its end is denied
     // there, at the envelope's locus.
