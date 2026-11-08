@@ -1436,18 +1436,18 @@ const AGGREGATE_NAMES: [&str; 11] = [
     "threshold",
 ];
 
-#[ix_trace_rs::string_edge]
-fn aggregate_literal<'a>(term: &'a CheckedTerm, kind: &str) -> Option<&'a str> {
+/// The payload text of a literal of exactly the `expected` kind. A rational
+/// or quantity payload is `numerator/denominator` text; an integer payload is
+/// decimal text or a JSON number.
+fn aggregate_literal(term: &CheckedTerm, expected: LiteralKind) -> Option<&str> {
     match term {
         CheckedTerm::Literal {
             value_kind, value, ..
-        } if matches!(
-            (kind, value_kind),
-            ("text", LiteralKind::Text) | ("rational", LiteralKind::Rational)
-        ) =>
-        {
-            value.as_str()
-        }
+        } if *value_kind == expected => match expected {
+            LiteralKind::Integer => value.as_str().or_else(|| value.number_text()),
+            LiteralKind::Text | LiteralKind::Rational | LiteralKind::Quantity => value.as_str(),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -1745,7 +1745,7 @@ fn check_aggregate(
         _ => unreachable!("the aggregate member was checked as a binding"),
     };
     let value_pointer = |at: usize| argument.key("members").index(at).key("value");
-    let Some(kind_text) = aggregate_literal(value_of("kind"), "text") else {
+    let Some(kind_text) = aggregate_literal(value_of("kind"), LiteralKind::Text) else {
         return Err(fail(
             meter,
             Code::InvalidPackage,
@@ -1798,7 +1798,7 @@ fn check_aggregate(
         let pointer = value_pointer(at);
         match name {
             "q" => {
-                let Some(text) = aggregate_literal(term, "rational") else {
+                let Some(text) = aggregate_literal(term, LiteralKind::Rational) else {
                     return Err(fail(
                         meter,
                         Code::InvalidPackage,
@@ -1854,7 +1854,7 @@ fn check_aggregate(
                 }
             }
             "window_kind" | "comparison" => {
-                let Some(text) = aggregate_literal(term, "text") else {
+                let Some(text) = aggregate_literal(term, LiteralKind::Text) else {
                     return Err(fail(
                         meter,
                         Code::InvalidPackage,
@@ -1884,9 +1884,9 @@ fn check_aggregate(
             }
             "lower" | "upper" => {
                 let required = if window == AggregateWindow::Positions {
-                    "integer"
+                    LiteralKind::Integer
                 } else {
-                    "quantity"
+                    LiteralKind::Quantity
                 };
                 let Some(text) = aggregate_literal(term, required) else {
                     return Err(fail(
@@ -1944,7 +1944,7 @@ fn check_aggregate(
                 }
             }
             "min_count" => {
-                let Some(text) = aggregate_literal(term, "integer") else {
+                let Some(text) = aggregate_literal(term, LiteralKind::Integer) else {
                     return Err(fail(
                         meter,
                         Code::InvalidPackage,
