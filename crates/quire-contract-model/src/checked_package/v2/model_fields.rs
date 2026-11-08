@@ -142,14 +142,25 @@ impl FieldTables {
         self.components.get(*self.by_type.get(node)?)
     }
 
-    pub(super) fn exposed_names(&self, node: &str) -> Option<BTreeSet<Box<str>>> {
-        Some(
-            self.of(node)?
-                .exposed
-                .iter()
-                .map(|field| Box::from(field.name()))
-                .collect(),
-        )
+    /// The names of the exposed fields of the object type `node`, borrowed
+    /// from its table.
+    pub(super) fn exposed_names(&self, node: &str) -> Option<ExposedNames<'_>> {
+        Some(ExposedNames(self.of(node)?))
+    }
+}
+
+/// The exposed field names of one table, read in place.
+pub(super) struct ExposedNames<'t>(&'t FieldTable);
+
+impl ExposedNames<'_> {
+    /// Whether an exposed field bears `name`.
+    pub(super) fn contains(&self, name: &str) -> bool {
+        self.iter().any(|exposed| exposed == name)
+    }
+
+    /// The name of each exposed field; a name two fields share repeats.
+    pub(super) fn iter(&self) -> impl Iterator<Item = &str> {
+        self.0.exposed.iter().map(|entry| entry.name())
     }
 }
 
@@ -1341,6 +1352,7 @@ impl RetainedModels {
             .get(declared.selection)?
             .fields
             .exposed_names(&declared.node)
+            .map(|names| names.iter().map(Box::from).collect())
     }
     #[cfg(test)]
     /// The retained tables of `models` with nothing charged to a read-storage

@@ -65,6 +65,7 @@ mod owner;
 mod parameter_declaration;
 mod protocol_body;
 mod protocol_locations;
+mod raw_body;
 mod reaches_population;
 mod refinement;
 mod relationship_end;
@@ -74,6 +75,7 @@ mod scalar_operands;
 mod schedulability;
 mod selected_document;
 mod selected_facts;
+mod selection_equality;
 mod state;
 mod step_relation;
 mod structural;
@@ -1107,7 +1109,7 @@ impl PartialEq for CheckedPackageV2 {
     fn eq(&self, other: &Self) -> bool {
         self.wire == other.wire
             && self.kinds == other.kinds
-            && selected_document::equal_selections(
+            && selection_equality::equal_selections(
                 &self.selected_documents,
                 &other.selected_documents,
             )

@@ -3264,13 +3264,9 @@ impl ContractPackageWireV1 {
         meter: &mut super::WorkMeter,
         frames: &ContractFrameKeys,
     ) -> Result<Vec<Option<CheckedTerm>>, ValidationFailure> {
-        let admitted: BTreeMap<&str, &CheckedPackageV2> = dependencies
-            .iter()
-            .map(|(identity, input)| (*identity, input.package))
-            .collect();
         let supplied = SuppliedDependencies::from_admitted(
             &self.package.source.lock.dependency_selections,
-            &admitted,
+            |identity| dependencies.get(identity).map(|input| input.package),
         )
         .map_err(|index| {
             ValidationFailure::refused_because(
