@@ -15,8 +15,8 @@ mod checked_package;
 use checked_package::{canonical, evidence_for, v2_all_families, v2_nominal};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageV2,
-    CheckedPackageV2BudgetedReadResult, CheckedPackageV2ReadResult,
+    CheckedPackageEvidence, CheckedPackageV2, CheckedPackageV2BudgetedReadResult,
+    CheckedPackageV2ReadResult, initialize_operation_catalog,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -69,8 +69,8 @@ static ALLOCATOR: Counting = Counting;
 #[path = "it/support/read_allocation_proof.rs"]
 mod read_allocation_proof;
 use read_allocation_proof::{
-    accounted, drop_without_request, every_request, generous_limits, measure_read, Counter,
-    Expected,
+    Counter, Expected, accounted, drop_without_request, every_request, generous_limits,
+    measure_read,
 };
 
 struct ThreadCounter;
@@ -444,11 +444,13 @@ fn full_native_boundaries_cover_seeded_work_on_the_original_genuine_package() {
         results.iter().any(|row| row["resource"] == "Work"),
         "real selected Work denials executed"
     );
-    assert!(results
-        .iter()
-        .filter(|row| row["resource"] == "Work")
-        .all(|row| row["denial"]["resource"] == "Work"
-            && row["denial"]["entire_repeat_budget_equal"] == true));
+    assert!(
+        results
+            .iter()
+            .filter(|row| row["resource"] == "Work")
+            .all(|row| row["denial"]["resource"] == "Work"
+                && row["denial"]["entire_repeat_budget_equal"] == true)
+    );
     assert_eq!(seed.consumed().work, 3);
     assert_eq!(seed.consumed().storage, 2);
     drop_without_request::<ThreadCounter>(reference);
@@ -626,9 +628,9 @@ fn nominal_validation_work_denial_prepays_its_original_body_pointer() {
     assert_eq!(exhausted.locus, locus);
     assert!(exhausted.pending.is_none());
     assert_eq!(short.budget.first_unpaid(), Some(denied));
-    assert_eq!(
-        short.budget.first_unpaid_read_storage(),
-        Some(u128::from(pointer_bytes))
+    assert!(
+        short.budget.first_unpaid_read_storage().is_none(),
+        "the original Work denial remains first when its diagnostic storage is denied"
     );
     assert_eq!(
         short.requested, prefix,
