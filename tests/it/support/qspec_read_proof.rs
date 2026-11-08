@@ -1446,7 +1446,8 @@ mod caller_budget_tests {
         let plain = super::read_and_account(bytes, limits, &evidence);
         let mut budget = NativeJoinBudget::unlimited();
         let budgeted = super::read_budget_and_account(bytes, limits, &evidence, &mut budget);
-        let (super::Plain::Refused(plain), super::Budgeted::Refused(budgeted)) = (plain, budgeted) else {
+        let (super::Plain::Refused(plain), super::Budgeted::Refused(budgeted)) = (plain, budgeted)
+        else {
             panic!("the existing invalid-JSON fixture must refuse through both entries");
         };
         assert_eq!(plain, budgeted);
