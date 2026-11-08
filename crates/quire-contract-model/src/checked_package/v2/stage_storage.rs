@@ -571,6 +571,21 @@ impl<'a> Refusal<'a> {
             .saturating_add(self.locus.map_or(0, node_id_clone_bytes))
             .saturating_add(self.extra)
     }
+
+    /// Builds only after the caller has admitted the complete diagnostic.
+    fn build(self) -> ValidationFailure {
+        let path = self.path.build();
+        if let (true, Some(locus)) = (self.unheld_definition, self.locus) {
+            return ValidationFailure::unknown_extension_definition(path, locus.clone());
+        }
+        match (self.cause, self.locus) {
+            (cause, Some(locus)) => {
+                ValidationFailure::refused_at(self.code, path, cause, locus.clone())
+            }
+            (Some(cause), None) => ValidationFailure::refused_because(self.code, path, cause),
+            (None, None) => ValidationFailure::refused(self.code, path),
+        }
+    }
 }
 
 /// The refusal, its owned diagnostic charged to the budget before any of it is
@@ -588,17 +603,27 @@ pub(super) fn refuse(
     ) {
         return stop;
     }
-    let path = refusal.path.build();
-    if let (true, Some(locus)) = (refusal.unheld_definition, refusal.locus) {
-        return ValidationFailure::unknown_extension_definition(path, locus.clone());
+    refusal.build()
+}
+
+/// A walk's refusal, paid through its existing caller-owned diagnostic sink
+/// before the pointer, record, location or node clone is built.
+pub(super) fn refuse_charged(
+    meter: &dyn super::read_charge::ChargeAt,
+    site: super::read_charge::Site,
+    refusal: Refusal<'_>,
+) -> ValidationFailure {
+    if meter
+        .reserve_diagnostic(
+            site,
+            refusal.bytes() as u128,
+            CheckedPackagePendingOutcome::Refused(refusal.code),
+        )
+        .is_err()
+    {
+        return meter.denial();
     }
-    match (refusal.cause, refusal.locus) {
-        (cause, Some(locus)) => {
-            ValidationFailure::refused_at(refusal.code, path, cause, locus.clone())
-        }
-        (Some(cause), None) => ValidationFailure::refused_because(refusal.code, path, cause),
-        (None, None) => ValidationFailure::refused(refusal.code, path),
-    }
+    refusal.build()
 }
 
 /// Moves a pointer whose String buffer was already paid by the canonical
