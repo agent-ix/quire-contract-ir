@@ -1907,9 +1907,16 @@ fn imported_nominals<'e>(
         }
         meter.room(&mut pending, package.direct_dependencies.len())?;
         pending.extend(package.direct_dependencies.iter().map(AsRef::as_ref));
-        meter.charge(
+        let at = super::natural::site(
+            meter,
+            super::stage_storage::Path::root()
+                .key("semantic_graph")
+                .key("nodes"),
+        );
+        super::natural::work_at(
+            meter,
+            at,
             u64::try_from(package.resolved_graph().nodes.len()).unwrap_or(u64::MAX),
-            || JsonPointer::root().key("semantic_graph").key("nodes"),
         )?;
         let model_nodes = model_node_table(
             package
