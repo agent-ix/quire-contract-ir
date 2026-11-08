@@ -478,7 +478,6 @@ pub(super) fn validate(
         ));
     }
     for (row_index, (row, &position)) in rows.iter().zip(&resolved).enumerate() {
-        let node = &nodes[position];
         let at = row_pointer(row_index);
         if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
             if clock_name(meter, position, 4) != Some(row.clock_name.as_ref()) {

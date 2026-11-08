@@ -38,8 +38,9 @@ impl ModelLookup for SortedTable<&str, &DomainModel> {
 /// A source Time has a declared nominal body; a selected model Time is
 /// identified by its FCD declaration and has no declaration or body terms.
 #[ix_trace_rs::string_edge]
-pub(super) fn is_base_time_dimension(
-    node: &CheckedSemanticNodeV2,
+pub(super) fn is_base_time_dimension<Body>(
+    node: &super::CheckedSemanticNodeV2<Body>,
+    term: Option<&CheckedTerm>,
     models: &impl ModelLookup,
 ) -> bool {
     match node.owner.as_ref() {
@@ -54,18 +55,15 @@ pub(super) fn is_base_time_dimension(
                     .is_some_and(|dimension| dimension.name.as_ref() == "Time" && dimension.base)
         }
         Some(CheckedNodeOwner::Source { .. }) => {
-            super::identity::NominalBody::from_value(&node.body, JsonPointer::root()).is_ok_and(
-                |body| {
-                    matches!(
-                        body.kind(),
-                        super::identity::NominalBodyKind::Dimension { base: true, .. }
-                    )
-                },
-            ) && node
-                .declaration
-                .as_ref()
-                .and_then(|declaration| declaration.qualified_name.last())
-                .is_some_and(|name| name.as_ref() == "Time")
+            matches!(term,
+                Some(CheckedTerm::NominalBody(body))
+                    if matches!(body.kind(),
+                        super::identity::NominalBodyKind::Dimension { base: true, .. }))
+                && node
+                    .declaration
+                    .as_ref()
+                    .and_then(|declaration| declaration.qualified_name.last())
+                    .is_some_and(|name| name.as_ref() == "Time")
         }
         _ => false,
     }
@@ -2491,7 +2489,11 @@ pub(super) fn validate_models<'a>(
                     binding_at(source, 1),
                     |kind| kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
                 )?;
-                let is_base_time = is_base_time_dimension(&nodes[dimension], &models_by_identity);
+                let is_base_time = is_base_time_dimension(
+                    &nodes[dimension],
+                    graph.body(dimension).ok(),
+                    &models_by_identity,
+                );
                 if !is_base_time || nodes[unit].semantic_type != nodes[dimension].node_id {
                     return Err(graph.issue(
                         source,
@@ -3033,7 +3035,7 @@ pub(super) fn validate_models<'a>(
             }
         }
     }
-    for (position, node) in nodes.iter().enumerate() {
+    for (position, _) in nodes.iter().enumerate() {
         if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
             || super::temporal_binding::profile_law(position, meter)?
                 .as_ref()
@@ -3120,9 +3122,10 @@ mod tests {
             .expect("model-owned dimension node")
         };
         let time = dimension("ix://acme/rpc/dimension/Time");
-        assert!(is_base_time_dimension(&time, &models));
+        assert!(is_base_time_dimension(&time, None, &models));
         assert!(!is_base_time_dimension(
             &dimension("ix://acme/rpc/dimension/Length"),
+            None,
             &models
         ));
         let mut wrong_package = time.clone();
@@ -3130,7 +3133,7 @@ mod tests {
             identity: "acme/other".into(),
             node: "ix://acme/rpc/dimension/Time".into(),
         });
-        assert!(!is_base_time_dimension(&wrong_package, &models));
+        assert!(!is_base_time_dimension(&wrong_package, None, &models));
     }
 
     /// Provenance: IR-1083, QSpec STD-526 SL-01..08 and SR-01..04.

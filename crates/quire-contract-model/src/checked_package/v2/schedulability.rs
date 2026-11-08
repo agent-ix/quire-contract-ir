@@ -702,7 +702,11 @@ pub(super) fn validate_bodies(
                 kinds[u] == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
                     && index.get(&nodes[u].semantic_type).is_some_and(|&d| {
                         kinds[d] == CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension)
-                            && super::timed_model::is_base_time_dimension(&nodes[d], &models)
+                            && super::timed_model::is_base_time_dimension(
+                                &nodes[d],
+                                terms.get(d).and_then(Option::as_ref),
+                                &models,
+                            )
                     })
             });
             if !valid || common_unit.is_some_and(|unit| unit != read.type_id) {

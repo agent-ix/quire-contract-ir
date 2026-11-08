@@ -45,7 +45,6 @@ use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use std::collections::BTreeMap;
 
 /// The form of every request the dependency checks make.
 const F: &str = "dependencies";
@@ -838,7 +837,6 @@ mod tests {
     /// before they are made.
     #[trace("TC-472", "FR-038-AC-502")]
     #[test]
-    #[ignore = "fill_table sorts the dependency graph ids with CheckedNodeId::cmp, whose pre-D heap stack allocates per comparison; passes once D 911aa4da (shared.rs) is folded"]
     fn tc_472_dependency_admission_allocates_exactly_what_it_requests() {
         let dependency = package();
         let name = dependency.name().to_owned();
@@ -882,7 +880,6 @@ mod tests {
     /// referring node, whichever node's closure is walked.
     #[trace("TC-472", "FR-038-AC-502")]
     #[test]
-    #[ignore = "SuppliedDependency::position binary-searches ids with CheckedNodeId::cmp/<=, whose pre-D heap stack allocates per comparison; passes once D 911aa4da (shared.rs) is folded"]
     fn tc_472_signature_closure_allocates_exactly_what_it_requests() {
         let dependency = package();
         let mut evidence = CheckedPackageEvidence::new();
