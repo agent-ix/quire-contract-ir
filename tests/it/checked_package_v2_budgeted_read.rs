@@ -93,8 +93,8 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
 }
 
 /// The charged stages' reservations are exact: the measured requirement
-/// admits, one byte below is denied at the last request (today the node-index
-/// key table), at its locus, with the bytes asked.
+/// admits, one byte below is denied at the last request (today a graph body
+/// walk's stack), at its locus, with the bytes asked.
 #[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
 fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
@@ -118,10 +118,14 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
         .expect("a denial is recorded");
     assert!(asked > 0);
     assert_eq!(short.first_unpaid(), None);
-    assert_eq!(
+    // The last request the read makes is a body walk's stack growth.
+    assert!(matches!(
         short.first_unpaid_locus(),
-        Some(envelope_locus(PackageReadStage::NodeIndex, "node_index"))
-    );
+        Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, _),
+            form: "walk",
+        })
+    ));
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
     let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {

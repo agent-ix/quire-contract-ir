@@ -726,7 +726,7 @@ impl CheckedPackageV2 {
                     Step::Key("body"),
                 ];
                 let body = serde_json::to_value(&node.body).expect("typed test body");
-                let terms = super::validate_body(
+                let terms = super::validate_value_body(
                     *kind,
                     &body,
                     &Trail::Base(&body_steps),

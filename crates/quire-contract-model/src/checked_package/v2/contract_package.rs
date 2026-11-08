@@ -858,7 +858,7 @@ impl ContractPackageV1 {
             let body_units = json_value_count(&node.body).unwrap_or(u64::MAX);
             work.charge(body_units.saturating_mul(4))
                 .map_err(ContractRootViewError::Incomplete)?;
-            super::validate_body(
+            super::validate_value_body(
                 kind,
                 &node.body,
                 &Trail::Base(&steps),
@@ -2879,8 +2879,12 @@ impl ContractPackageWireV1 {
                 Step::Index(index),
                 Step::Key("body"),
             ];
-            let work =
-                super::validate_body(kind, &node.body, &Trail::Base(&steps), &mut |_, _, _| {})?;
+            let work = super::validate_value_body(
+                kind,
+                &node.body,
+                &Trail::Base(&steps),
+                &mut |_, _, _| {},
+            )?;
             work_meter.charge(work, || at.clone().key("body"))?;
             edges =
                 edges.saturating_add(u64::try_from(node.dependencies.len()).unwrap_or(u64::MAX));
@@ -3333,7 +3337,7 @@ impl ContractPackageWireV1 {
             let mut body_references = Vec::new();
             let mut edges = node.dependencies.clone();
             edges.push(node.semantic_type.clone());
-            super::validate_body(
+            super::validate_value_body(
                 kind,
                 &node.body,
                 &Trail::Base(&steps),

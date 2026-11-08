@@ -85,6 +85,24 @@ impl<'d> TermNode<'d> {
         matches!(self.node.node(), Node::Null)
     }
 
+    /// Whether this is a literal payload the V2 grammar admits: a boolean, a
+    /// string, `null`, or an integer token within the 64-bit range.
+    pub(in crate::checked_package) fn literal_value_ok(self) -> bool {
+        match self.node.node() {
+            Node::Bool(_) | Node::String(_) | Node::Null => true,
+            Node::Number(number) => {
+                number.text().parse::<i64>().is_ok() || number.text().parse::<u64>().is_ok()
+            }
+            Node::Array(_) | Node::Object(_) => false,
+        }
+    }
+
+    /// The value as a `serde_json::Value`: an uncharged copy, the bridge for a
+    /// reader that has not moved to the views. Not on the charged read path.
+    pub(in crate::checked_package) fn uncharged_value(self) -> serde_json::Value {
+        super::checked_json::value_of(self.node)
+    }
+
     pub(in crate::checked_package) fn is_object(self) -> bool {
         matches!(self.node.node(), Node::Object(_))
     }

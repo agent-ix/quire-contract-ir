@@ -57,7 +57,7 @@ mod natural;
 mod node_index;
 pub(in crate::checked_package) use node_index::StructuralOrder;
 mod operation_catalog;
-mod read_charge;
+pub(in crate::checked_package) mod read_charge;
 pub use operation_catalog::{initialize_operation_catalog, CatalogReadError};
 mod operation_effects;
 mod operation_witness;
@@ -226,8 +226,8 @@ use temporal::{validate_temporal, validate_timed_bounds_reduced, TemporalContext
 
 use super::common::{
     count, exceeds, is_nonempty, node_pointer, validate_definition_ref, validate_locked_source,
-    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
-    Step, TermGrammar, Trail, ValidationFailure,
+    validate_source_map_entries, validate_term, Ids, ReferenceMember, ReferenceSite,
+    ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -237,6 +237,7 @@ use super::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry,
     CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
+use super::terms::TermSource;
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
     admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure, UnitRefs,
@@ -1131,6 +1132,28 @@ pub(super) struct WorkMeter<'b> {
 enum WorkSource<'b> {
     Own { consumed: u64, limit: u64 },
     Budget(&'b mut NativeJoinBudget),
+}
+
+impl read_charge::ReadStorage for WorkMeter<'_> {
+    /// Heap requests charge the caller's budget; a meter with a limit of its
+    /// own (lowering, unit tests) holds no read-storage account.
+    fn reserve(&mut self, bytes: u128, site: read_charge::Site) -> Result<(), read_charge::Denied> {
+        match &mut self.source {
+            WorkSource::Own { .. } => Ok(()),
+            WorkSource::Budget(budget) => budget.reserve(bytes, site),
+        }
+    }
+
+    fn denial(&self) -> ValidationFailure {
+        match &self.source {
+            WorkSource::Own { .. } => ValidationFailure::Budget(BudgetStop {
+                resource: PackageReadResource::ReadStorage,
+                amount: 0,
+                path: None,
+            }),
+            WorkSource::Budget(budget) => budgeted_read::denial(budget),
+        }
+    }
 }
 
 impl<'b> WorkMeter<'b> {
@@ -2580,11 +2603,13 @@ fn source_nominal_body(kind: CheckedNodeKind, body: &Value) -> bool {
 /// [`abstraction::validate_abstraction`]), never through the generic
 /// reference edges `validate_graph` resolves for every other body.
 /// `at` is the body's own position, `/semantic_graph/nodes/{n}/body`.
-fn validate_body(
+fn validate_body<'a, V: TermSource<'a>>(
     kind: CheckedNodeKind,
-    body: &Value,
-    at: &Trail<'_>,
+    body: &'a Value,
+    node: V,
+    at: &Trail<'a>,
     visit: &mut ReferenceVisitor<'_>,
+    ids: Ids<'_, '_>,
 ) -> Result<u64, ValidationFailure> {
     #[cfg(test)]
     lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
@@ -2669,21 +2694,32 @@ fn validate_body(
             refuse(CheckedPackageRefusalCode::MalformedWire, at.pointer()),
         ),
         BodyGrammar::Term if kind == CheckedNodeKind::State(StateForm::OperationAnchor) => {
-            execution_point::validate_anchor_body(body, at, visit)
+            execution_point::validate_anchor_body(node, at, visit, ids)
         }
         BodyGrammar::Extension => {
             extension::read_body(body, at.pointer()).map(|body| extension::body_work(&body))
         }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
-        BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
+        BodyGrammar::AbstractionRelation => abstraction::scan_body(node, at, visit, ids),
         BodyGrammar::Refinement => refinement::validate_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
         BodyGrammar::Literal
         | BodyGrammar::Term
         | BodyGrammar::TimedModel
-        | BodyGrammar::Hybrid => validate_term(body, TermGrammar::V2, true, at, visit),
+        | BodyGrammar::Hybrid => validate_term(node, TermGrammar::V2, true, at, visit, ids),
     }
+}
+
+/// [`validate_body`] for a body held as a `Value` and no budget: the V1
+/// reader's, and the re-walk that finds a reference's pointer.
+fn validate_value_body(
+    kind: CheckedNodeKind,
+    body: &Value,
+    at: &Trail<'_>,
+    visit: &mut ReferenceVisitor<'_>,
+) -> Result<u64, ValidationFailure> {
+    super::common::with_unmetered_ids(|ids| validate_body(kind, body, body, at, visit, ids))
 }
 
 /// The grammar a node's `body` is validated against (QSpec FR-322
@@ -3017,7 +3053,7 @@ fn body_reference_pointer(
     let mut seen = 0_usize;
     let mut found = None;
     // The walk already succeeded once; a failure here only means no pointer.
-    let _ = validate_body(
+    let _ = validate_value_body(
         kind,
         &node.body,
         &Trail::Base(&body_steps),
@@ -3328,10 +3364,19 @@ fn validate_graph(
             | BodyGrammar::AbstractionRelation => validate_body(
                 kind,
                 &node.body,
+                TermNode::of(&bodies[position]),
                 &Trail::Base(&body_steps),
                 &mut |target, site, _target_at| {
                     targets.push((target.clone(), site));
                 },
+                read_charge::ids(
+                    &mut *meter,
+                    PackageReadStage::Graph,
+                    position,
+                    CheckedNodeTag::from_wire(&node.node_tag)
+                        .map_or("node", CheckedNodeTag::as_wire),
+                    &wire.semantic_graph.operand_rows[position],
+                ),
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
@@ -4178,7 +4223,6 @@ fn validate_diagnostics(
         .collect::<BTreeSet<_>>();
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
-            let detail = &detail.to_value();
             let detail_steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),
@@ -4189,7 +4233,7 @@ fn validate_diagnostics(
             let detail_at = Trail::Base(&detail_steps);
             let mut unresolved = None;
             let work = validate_term(
-                detail,
+                TermNode::of(detail),
                 TermGrammar::V2,
                 false,
                 &detail_at,
@@ -4197,6 +4241,15 @@ fn validate_diagnostics(
                     if unresolved.is_none() && !nodes.contains(target) {
                         unresolved = Some(target_at.pointer());
                     }
+                },
+                Ids {
+                    sink: &mut *meter,
+                    site: read_charge::Site::new(
+                        PackageReadStage::Diagnostics,
+                        entry_index,
+                        "diagnostics.entries",
+                    ),
+                    row: &[],
                 },
             )?;
             meter.charge(work, || detail_at.pointer())?;
@@ -4329,8 +4382,8 @@ mod test_support {
 #[cfg(test)]
 mod tests {
     use super::{
-        body_grammar, node_pointer, reference_requires_cycle_edge, validate_body,
-        validate_recursion, validate_recursion_group_paths, BodyGrammar,
+        body_grammar, node_pointer, reference_requires_cycle_edge, validate_recursion,
+        validate_recursion_group_paths, validate_value_body, BodyGrammar,
         CheckedDependencySelection, CheckedNodeKind, CheckedPackageRefusalCode,
         CheckedSemanticNodeV2, CorrespondenceForm, EdgeSite, ExpressionForm, ReferenceMember,
         ReferenceSite, StateForm, Step, Trail, ValidationFailure, WorkMeter,
@@ -4988,7 +5041,7 @@ mod tests {
         ];
         for (body, requires_edge) in bodies {
             let mut sites = Vec::new();
-            validate_body(
+            validate_value_body(
                 CheckedNodeKind::Expression(ExpressionForm::Reference),
                 &body,
                 &Trail::Base(&[Step::Key("body")]),
