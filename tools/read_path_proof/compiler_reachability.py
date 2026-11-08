@@ -556,6 +556,7 @@ class Graph:
         self.blockers: dict[tuple, dict] = {}
         self.boundaries: dict[str, dict] = {}
         self.inline_functions: dict[str, tuple[Module, int]] = {}
+        self.logical_callers: dict[tuple[str, int], str] = {}
         self.mir_functions = self.read_mir(mir_files)
         self.mir_by_name: dict[str, list[dict]] = defaultdict(list)
         for body in self.mir_functions:
@@ -755,6 +756,9 @@ class Graph:
 
     def logical_caller(self, state: State, instruction: Instruction) -> str:
         module = state.function.module
+        key = state.function.symbol, instruction.ir_line
+        if key in self.logical_callers:
+            return self.logical_callers[key]
         location = instruction.location
         caller = state.function.symbol
         chain = []
@@ -773,6 +777,7 @@ class Graph:
                 self.inline_functions[symbol] = module, program
                 self.edge(caller, symbol, instruction, module, evidence="llvm.inlinedAt")
                 caller = symbol
+        self.logical_callers[key] = caller
         return caller
 
     @staticmethod
@@ -1111,6 +1116,10 @@ class Graph:
                 "scope": "compiler-derived closure of the named opaque root",
                 "pointer_flow_fixed_point": converged,
                 "dirty_function_visits": visits,
+                "pending_dirty_functions": len(self.queue),
+                "reached_functions": len(records),
+                "observed_forbidden_instances": len(violations),
+                "unresolved_records": len(self.blockers),
                 "widened_object_offsets": len(self.widened_offsets),
                 "source_bans_checked": False,
                 "resolved_graph_without_reported_bans": converged and not self.blockers and not violations,
