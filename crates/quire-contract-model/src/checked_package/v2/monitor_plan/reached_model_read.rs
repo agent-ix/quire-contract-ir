@@ -2625,7 +2625,7 @@ mod tests {
         assert_eq!(shared.last_success_delta(), None);
     }
 
-    #[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5")]
+    #[trace("TC-470", "FR-360-AC-2", "FR-360-AC-3", "FR-360-AC-5", "FR-352-AC-30")]
     #[test]
     fn reached_enum_shape_uses_the_same_budget_as_model_and_unit_reads() {
         use crate::SelectedModelEnumShapeCaseRow;
@@ -2707,6 +2707,76 @@ mod tests {
             NativeJoinChargeKind::Storage
         );
         assert!(exhausted.first_unpaid_locus().is_some());
+
+        // These are authored IR fixture identities, not QSL producer evidence.
+        let requested = &enum_shapes[0].structural_node;
+        let projected = package
+            .project_exact_type(requested, &complete.identities, &mut budget)
+            .expect("the installed selected model enum projects directly");
+        assert_eq!(
+            projected.value_type(),
+            &ValueType::Enum(enum_shapes[0].shape.clone())
+        );
+        assert_eq!(projected.type_node(), requested);
+        let total = budget.consumed();
+        assert!(total.work > used.work && total.storage > used.storage);
+        let mut exact = NativeJoinBudget::new(total.work, total.storage);
+        let exact_rows = read(&mut exact).expect("reached read fits cumulative budget");
+        assert_eq!(
+            package.project_exact_type(requested, &exact_rows.identities, &mut exact),
+            Ok(projected.clone())
+        );
+        assert_eq!(exact.consumed(), total);
+        assert_eq!(
+            package.clone().project_exact_type(
+                requested,
+                &complete.identities,
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            ),
+            Ok(projected)
+        );
+        for kind in [NativeJoinChargeKind::Work, NativeJoinChargeKind::Storage] {
+            let (work, storage) = match kind {
+                NativeJoinChargeKind::Work => (total.work - 1, u64::MAX),
+                NativeJoinChargeKind::Storage => (u64::MAX, total.storage - 1),
+            };
+            let mut short = NativeJoinBudget::new(work, storage);
+            let reached = read(&mut short).expect("prefix is affordable");
+            let error = package
+                .project_exact_type(requested, &reached.identities, &mut short)
+                .expect_err("projection cannot reset the shared allowance");
+            assert_eq!(error.denied, short.first_unpaid());
+            assert_eq!(error.denied.unwrap().kind, kind);
+            assert_eq!(
+                error.configured_bound,
+                Some(match kind {
+                    NativeJoinChargeKind::Work => work,
+                    NativeJoinChargeKind::Storage => storage,
+                })
+            );
+            assert!(short.first_unpaid_locus().is_some());
+            assert_eq!(short.last_success_delta(), None);
+        }
+        let missing = package
+            .project_exact_type(
+                requested,
+                &SelectedExactIdentities::empty(),
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .expect_err("declaration alone supplies no opaque enum shape");
+        assert_eq!(
+            missing.code,
+            ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+        );
+        let independently_admitted = admitted_monitor_with_variant(true);
+        let foreign = independently_admitted
+            .project_exact_type(
+                requested,
+                &complete.identities,
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .expect_err("an installed shape remains bound to its admission");
+        assert_eq!(foreign.code, ExactTypeProjectionErrorCode::ForeignNode);
     }
     #[trace("TC-470", "FR-357-AC-13", "FR-357-AC-14", "FR-360-AC-2")]
     #[test]
