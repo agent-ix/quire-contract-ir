@@ -594,12 +594,30 @@ pub(super) fn decode_closed_document<'d, T: Deserialize<'d>>(
     document: &'d std::sync::Arc<quire_canonical::Document>,
     budget: &mut crate::checked_package::v2::NativeJoinBudget,
 ) -> Result<T, ValidationFailure> {
+    decode_closed_document_with_classifier(
+        document,
+        budget,
+        crate::checked_package::v2::DecodeContext::materialize_schema_failure,
+    )
+}
+
+/// Classify the decoder's borrowed first fault before its one prepaid
+/// diagnostic is materialized. The policy must use the actual caller meter.
+pub(super) fn decode_closed_document_with_classifier<'d, T: Deserialize<'d>>(
+    document: &'d std::sync::Arc<quire_canonical::Document>,
+    budget: &mut crate::checked_package::v2::NativeJoinBudget,
+    classify: impl FnOnce(
+        CheckedPackageRefusalCode,
+        &[Step<'d>],
+        &mut crate::checked_package::v2::WorkMeter,
+    ) -> ValidationFailure,
+) -> Result<T, ValidationFailure> {
     use crate::checked_package::v2::DecodeContext;
     let context = DecodeContext::new(document, budget);
     let outcome = match T::deserialize(context.root()) {
         Ok(decoded) => Ok(decoded),
         Err(_) if context.denied() => Err(None),
-        Err(_) => Err(Some(context.schema_failure())),
+        Err(_) => Err(Some(context.schema_failure_with_classifier(classify))),
     };
     let at = context.denied_at();
     *budget = context.finish();

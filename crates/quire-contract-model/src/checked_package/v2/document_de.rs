@@ -181,7 +181,7 @@ where
 
 /// How many path segments the decode tracks for its locus. The closed wire is
 /// shallower than this; a deeper position keeps its enclosing locus.
-const TRACKED_DEPTH: usize = 12;
+pub(super) const TRACKED_DEPTH: usize = 12;
 
 #[derive(Clone, Copy)]
 enum Segment<'d> {
@@ -318,12 +318,44 @@ impl<'d> DecodeContext<'d> {
         *self.schema_at.borrow_mut() = Some(*self.path.borrow());
     }
 
-    /// Materialize the first closed-schema fault after its diagnostic is paid.
-    pub(in crate::checked_package) fn schema_failure(
-        &self,
+    /// The default policy preserves the decoder's first code and path.
+    pub(in crate::checked_package) fn materialize_schema_failure(
+        code: crate::checked_package::shared::CheckedPackageRefusalCode,
+        steps: &[crate::checked_package::common::Step<'_>],
+        meter: &mut super::WorkMeter,
     ) -> crate::checked_package::common::ValidationFailure {
         use super::stage_storage::{self, Path, Refusal, Site};
         use crate::checked_package::common::{Step, Trail};
+        let index = steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Index(index) => Some(*index),
+                _ => None,
+            })
+            .next_back()
+            .unwrap_or(0);
+        stage_storage::refuse(
+            meter,
+            &Site::new(
+                super::PackageReadStage::WireDecode,
+                index,
+                "wire",
+                Path::root(),
+            ),
+            Refusal::new(code, Trail::Base(steps)),
+        )
+    }
+
+    /// Materialize the first closed-schema fault after its diagnostic is paid.
+    pub(in crate::checked_package) fn schema_failure_with_classifier(
+        &self,
+        classify: impl FnOnce(
+            crate::checked_package::shared::CheckedPackageRefusalCode,
+            &[crate::checked_package::common::Step<'d>],
+            &mut super::WorkMeter,
+        ) -> crate::checked_package::common::ValidationFailure,
+    ) -> crate::checked_package::common::ValidationFailure {
+        use crate::checked_package::common::Step;
         use crate::checked_package::shared::CheckedPackageRefusalCode;
         let (snapshot, count) = self
             .schema_at
@@ -333,14 +365,10 @@ impl<'d> DecodeContext<'d> {
             .unwrap_or(([None; TRACKED_DEPTH], 0));
         let mut steps = [Step::Index(0); TRACKED_DEPTH];
         let mut length = 0;
-        let mut index = 0;
         for segment in snapshot.iter().take(count).flatten() {
             steps[length] = match segment {
                 Segment::Key(key) => Step::Key(key),
-                Segment::Index(i) => {
-                    index = *i;
-                    Step::Index(*i)
-                }
+                Segment::Index(i) => Step::Index(*i),
             };
             length += 1;
         }
@@ -349,19 +377,9 @@ impl<'d> DecodeContext<'d> {
         } else {
             CheckedPackageRefusalCode::MalformedWire
         };
-        let site = Site::new(
-            super::PackageReadStage::WireDecode,
-            index,
-            "wire",
-            Path::root(),
-        );
         let mut budget = self.budget.borrow_mut();
         let mut meter = super::WorkMeter::over(&mut budget);
-        stage_storage::refuse(
-            &mut meter,
-            &site,
-            Refusal::new(code, Trail::Base(&steps[..length])),
-        )
+        classify(code, &steps[..length], &mut meter)
     }
 
     /// The pointer of the value being decoded when the budget refused.
