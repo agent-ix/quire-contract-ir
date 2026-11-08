@@ -19,3 +19,10 @@ impl NodeLookup for [(&CheckedNodeId, usize)] {
         self.get(at).map(|(_, position)| position)
     }
 }
+
+/// The graph validator's charged index uses the same node-position lookup.
+impl NodeLookup for super::graph_storage::GraphIndex<'_> {
+    fn position(&self, id: &CheckedNodeId) -> Option<&usize> {
+        self.get(id)
+    }
+}
