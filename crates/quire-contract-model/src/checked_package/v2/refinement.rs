@@ -4124,4 +4124,64 @@ mod tests {
         assert_eq!(channel_classes("[2,2]"), Some(Vec::new()));
         assert_eq!(channel_classes("[2,1]"), None);
     }
+
+    /// The refinement's local-dependency vector is built from charged blocks
+    /// only: the bytes the allocator is asked for equal the bytes charged, the
+    /// measured requirement admits and one byte below is denied
+    /// (FR-038-AC-504). Reference targets and member IDs are flat wire IDs.
+    /// An application's member IDs are read out of Value members and charged
+    /// only after they are parsed until the body migration lands.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn local_dependencies_allocate_exactly_what_they_charge() {
+        let id = |fill: char| json!({"package": "refinement-test", "path": [fill.to_string()], "ordinal": 0});
+        let profile = json!({"authority": "test", "identity": "quire.temporal.infinite-trace/v1"});
+        let body = CheckedTerm::decode_admitted(&json!({
+            "term": "refinement", "abstract": id('a'), "profile": profile,
+            "populations": [{"abstract": id('b'), "concrete": id('c')}],
+            "objects": [{"abstract_type": id('d'), "concrete_type": id('e'), "fields": []}],
+            "steps": [],
+            "histories": [{
+                "concrete_type": id('e'), "name": "past", "type": id('f'),
+                "initial": {"term": "reference", "target": id('g')},
+                "updates": [{"operation": id('h'),
+                    "expression": {"term": "reference", "target": id('a')}}]
+            }],
+            "assume": [{"operation": id('h'), "kind": "weak", "granularity": "whole"}],
+            "ensure": []
+        }))
+        .expect("closed refinement");
+        let run = |limit: u64| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut found = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = super::super::WorkMeter::over(&mut budget);
+                found = Some(local_dependencies(&body, &mut meter));
+            });
+            (
+                found.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (found, allocated, charged) = run(u64::MAX);
+        let expected: Vec<CheckedNodeId> = "abcdefgh"
+            .chars()
+            .map(|fill| CheckedNodeId::from_value(&id(fill)).expect("node id"))
+            .collect();
+        let found = found.expect("ran").expect("a refinement body");
+        assert_eq!(
+            found, expected,
+            "abstract, rows, types, history and operations"
+        );
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(
+            run(charged).0,
+            Some(Some(found)),
+            "the measured limit admits"
+        );
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
 }
