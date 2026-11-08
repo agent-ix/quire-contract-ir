@@ -1575,6 +1575,16 @@ pub(super) fn typed_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeI
     }
 }
 
+/// Borrow a reference from the strict reader's authenticated term table.
+/// Its node ID was already checked by the retained-document decoder. Unlike
+/// `typed_reference`, this must not be used for arbitrary caller-built terms.
+pub(super) fn typed_admitted_reference(term: &super::CheckedTerm) -> Option<&CheckedNodeId> {
+    match term {
+        super::CheckedTerm::Reference { target } => Some(target),
+        _ => None,
+    }
+}
+
 fn typed_literal<'a>(
     term: &'a super::CheckedTerm,
     value_kind: LiteralKind,
@@ -1995,7 +2005,10 @@ pub(super) fn typed_union_type_body<'a>(
         let Some(payload) = typed_aggregate(value) else {
             return Ok(None);
         };
-        if payload.iter().any(|term| typed_reference(term).is_none()) {
+        if payload
+            .iter()
+            .any(|term| typed_admitted_reference(term).is_none())
+        {
             return Ok(None);
         }
     }
@@ -2007,7 +2020,7 @@ pub(super) fn typed_union_type_body<'a>(
         let entries = typed_aggregate(value).expect("shape checked above");
         let mut payload = meter.vec(entries.len())?;
         for entry in entries {
-            let id = typed_reference(entry).expect("shape checked above");
+            let id = typed_admitted_reference(entry).expect("shape checked above");
             payload.push(meter.clone_id(id)?);
         }
         output.push(UnionMember { name, payload });
@@ -2268,6 +2281,30 @@ mod tests {
             ]
         }))
         .expect("closed union body");
+        let mut body = body;
+        let mut target = CheckedNodeId {
+            package: "deep-union".into(),
+            path: vec![CheckedNodePathSegment::Name("base".into())],
+            ordinal: 0,
+        };
+        for _ in 0..512 {
+            target = CheckedNodeId {
+                package: "deep-union".into(),
+                path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(target))],
+                ordinal: 0,
+            };
+        }
+        assert!(target.is_well_formed());
+        let super::super::CheckedTerm::Aggregate { members } = &mut body else {
+            unreachable!()
+        };
+        let super::super::CheckedTerm::Binding { value, .. } = &mut members[0] else {
+            unreachable!()
+        };
+        let super::super::CheckedTerm::Aggregate { members } = value.as_mut() else {
+            unreachable!()
+        };
+        members[0] = super::super::CheckedTerm::Reference { target };
         let run = |limit| {
             let mut budget =
                 crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
