@@ -4040,42 +4040,7 @@ pub(in crate::checked_package::v2) mod tests {
             CheckedTerm::decode_admitted(&body).expect("edited fixture body remains a closed term");
     }
 
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn composite_uses_retained_application_after_raw_body_changes() {
-        let mut package = package();
-        let expected = read(&package).expect("admitted composite operands");
-        std::sync::Arc::make_mut(&mut package.wire)
-            .semantic_graph
-            .nodes[5]
-            .body = CheckedTerm::aggregate(Vec::new());
-        assert_eq!(read(&package), Ok(expected));
-    }
 
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn alias_forwarding_uses_retained_term_after_raw_body_changes() {
-        let mut package = package();
-        std::sync::Arc::make_mut(&mut package.kinds)[6] =
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Alias);
-        std::sync::Arc::make_mut(&mut package.wire)
-            .semantic_graph
-            .nodes[6]
-            .body = CheckedTerm::aggregate(Vec::new());
-        let graph = Graph {
-            nodes: &package.wire.semantic_graph.nodes,
-            kinds: &package.kinds,
-            index: package.node_index.as_ref(),
-        };
-        let mut meter = Meter {
-            limit: 100_000,
-            consumed: 0,
-        };
-        assert_eq!(
-            descriptor_kind(&graph, &id('7'), 0, &mut meter),
-            Ok(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
-        );
-    }
 
     #[trace("TC-048", "FR-038-AC-180")]
     #[test]

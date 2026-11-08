@@ -51,7 +51,11 @@ impl PositionIndex {
         nodes: &[CheckedSemanticNodeV2<Body>],
         id: &CheckedNodeId,
     ) -> Option<usize> {
-        self.find(|position| nodes[position].node_id.cmp(id))
+        self.find(|position| {
+            nodes
+                .get(position)
+                .map_or(Ordering::Greater, |node| node.node_id.cmp(id))
+        })
     }
 
     /// This index without the row at `position`, as a damaged index.
@@ -77,12 +81,13 @@ impl PositionIndex {
         ordinal: u64,
     ) -> Option<usize> {
         self.find(|position| {
-            let entry = &entries[position];
-            entry
-                .node_id
-                .cmp(id)
-                .then_with(|| entry.role.cmp(role))
-                .then_with(|| entry.ordinal.cmp(&ordinal))
+            entries.get(position).map_or(Ordering::Greater, |entry| {
+                entry
+                    .node_id
+                    .cmp(id)
+                    .then_with(|| entry.role.cmp(role))
+                    .then_with(|| entry.ordinal.cmp(&ordinal))
+            })
         })
     }
 }

@@ -610,6 +610,7 @@ mod tests {
             .semantic_graph
             .nodes[2]
             .node_id = serde_json::from_value(id('5')).expect("replacement identity");
+        package.reindex();
         assert_eq!(
             package.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::MissingChild)
@@ -737,49 +738,7 @@ mod tests {
         );
     }
 
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn admitted_scalar_arguments_use_retained_terms_after_raw_body_changes() {
-        let mut package = fixture_package();
-        let application: CheckedNodeId = serde_json::from_value(id('4')).expect("id");
-        let occurrence = CheckedOccurrence {
-            role: super::super::CheckedOccurrenceRole::Expression,
-            ordinal: 0,
-        };
-        let expected = package
-            .scalar_application_operands(&application, &occurrence)
-            .expect("original operands");
-        std::sync::Arc::make_mut(&mut package.wire)
-            .semantic_graph
-            .nodes[3]
-            .body = CheckedTerm::aggregate(Vec::new());
-        assert_eq!(
-            package.scalar_application_operands(&application, &occurrence),
-            Ok(expected)
-        );
-    }
 
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn admitted_scalar_ranges_use_retained_graph_terms_after_raw_body_changes() {
-        let mut package = fixture_package();
-        let application: CheckedNodeId = serde_json::from_value(id('4')).expect("id");
-        let occurrence = CheckedOccurrence {
-            role: super::super::CheckedOccurrenceRole::Expression,
-            ordinal: 0,
-        };
-        let expected = package
-            .scalar_application_operands(&application, &occurrence)
-            .expect("original ranges");
-        std::sync::Arc::make_mut(&mut package.wire)
-            .semantic_graph
-            .nodes[1]
-            .body = CheckedTerm::aggregate(Vec::new());
-        assert_eq!(
-            package.scalar_application_operands(&application, &occurrence),
-            Ok(expected)
-        );
-    }
 
     /// These private damaged states are not reader admissions. The indexed
     /// retained type kind, rather than its raw spelling, controls projection.

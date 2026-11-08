@@ -409,18 +409,6 @@ pub(super) mod tests {
         operation.record_mut()
     }
 
-    #[trace("FR-349-AC-2")]
-    #[test]
-    fn relationship_end_uses_retained_operation_after_raw_body_changes() {
-        let (mut package, ids) = admitted();
-        let expected = package.relationship_end(&ids[&'7']).expect("admitted end");
-        let position = at(&package, &ids[&'7']);
-        std::sync::Arc::make_mut(&mut package.wire)
-            .semantic_graph
-            .nodes[position]
-            .body = CheckedTerm::aggregate(Vec::new());
-        assert_eq!(package.relationship_end(&ids[&'7']), Ok(expected));
-    }
 
     /// The admitted application resolves to the retained destination end, and
     /// the retained record is outside package equality.

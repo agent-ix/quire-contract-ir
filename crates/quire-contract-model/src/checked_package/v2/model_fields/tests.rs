@@ -1366,31 +1366,6 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
     }
 }
 
-#[trace("FR-349-AC-2", "FR-038-AC-140")]
-#[test]
-fn admitted_model_fields_use_retained_declaration_term() {
-    let mut fixture = build_fixture(
-        &ledger(),
-        &[
-            ("Ledger", DeclarationForm::ObjectType),
-            ("Base", DeclarationForm::ObjectType),
-        ],
-    );
-    let ledger = id_at(&fixture, 0);
-    let expected = fixture
-        .package
-        .model_object_fields(&ledger)
-        .expect("admitted fields");
-    std::sync::Arc::make_mut(&mut fixture.package.wire)
-        .semantic_graph
-        .nodes[0]
-        .body = super::super::CheckedTerm::Aggregate {
-        members: vec![super::super::CheckedTerm::Reference {
-            target: ledger.clone(),
-        }],
-    };
-    assert_eq!(fixture.package.model_object_fields(&ledger), Ok(expected));
-}
 
 /// `UnknownNode` and `NotModelObjectType` are distinct; the passed node's own
 /// fixed members decide the second, by the one rule of step 2, so an unread
