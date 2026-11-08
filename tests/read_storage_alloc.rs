@@ -881,3 +881,36 @@ fn dependency_closure_work_denial_prepays_original_lock_pointer() {
     drop_without_request::<ThreadCounter>(zero);
     drop_without_request::<ThreadCounter>(zero_repeat);
 }
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn nonidentifier_enum_member_refusal_is_paid_before_construction() {
+    let mut wire = v2_nominal();
+    wire["semantic_graph"]["nodes"][0]["body"]["value"] = serde_json::json!("Gold Plus");
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let observation = read_allocation_proof::measure_at::<ThreadCounter>(
+        &bytes,
+        &evidence,
+        generous_limits(),
+        u64::MAX,
+        u64::MAX,
+    );
+    let CheckedPackageV2BudgetedReadResult::Refused(refusal) = &observation.result else {
+        panic!(
+            "nonidentifier scalar enum must refuse: {:?}",
+            observation.result
+        );
+    };
+    assert_eq!(
+        refusal.code,
+        quire_contract_model::CheckedPackageRefusalCode::InvalidSemanticGraph
+    );
+    assert!(refusal.cause.is_none());
+    assert_eq!(refusal.loci.len(), 1);
+    assert_eq!(
+        refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+        Some("/semantic_graph/nodes/0/body/value")
+    );
+    drop_without_request::<ThreadCounter>(observation);
+}
