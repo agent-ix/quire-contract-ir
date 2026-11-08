@@ -170,7 +170,9 @@ pub use model_population_catalog::{
 pub use monitor_plan::{
     CheckedMonitorBufferRef, CheckedMonitorClock, CheckedMonitorClockRead,
     CheckedMonitorClockReadError, CheckedMonitorClockReadErrorCode, CheckedMonitorEntryRef,
-    CheckedMonitorPlanRef, SelectedMonitorClosureRows, SelectedMonitorTypeClosure,
+    CheckedMonitorPlanRef, SelectedMonitorAuthorityComponent, SelectedMonitorAuthorityErrorCode,
+    SelectedMonitorAuthorityReceipt, SelectedMonitorAuthorityRow, SelectedMonitorAuthorityRowError,
+    SelectedMonitorClosureRows, SelectedMonitorTimeSource, SelectedMonitorTypeClosure,
     SelectedMonitorTypeClosureError, SelectedMonitorTypeClosureErrorCode,
 };
 #[cfg(feature = "test-support")]

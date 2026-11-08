@@ -3,6 +3,9 @@
 
 //! Atomic selected monitor type closure (FR-357-AC-1..4).
 
+use super::authority::{
+    SelectedMonitorAuthorityErrorCode, SelectedMonitorAuthorityReceipt, SelectedMonitorAuthorityRow,
+};
 use super::reached_model_read::{ReachedModelError, ReachedProducerRows};
 use super::selected_closure_walk::{RuntimeWalkError, SelectedGraphWalkErrorCode};
 use super::{
@@ -59,6 +62,8 @@ pub struct SelectedMonitorClosureRows<'a> {
     pub equality_applications: &'a [SelectedEqualityApplicationRow],
     /// Same-emission facts for reached admitted equality decisions.
     pub equality_facts: &'a [SelectedEqualityFactRow],
+    /// The order and progress authority QSL admitted for this final emission.
+    pub authority: &'a SelectedMonitorAuthorityRow<'a>,
 }
 
 /// A complete result for one admitted monitor root, with no executable plan.
@@ -70,6 +75,7 @@ pub struct SelectedMonitorTypeClosure<'a> {
     identities: SelectedExactIdentities,
     exact_types: Vec<ExactTypeProjection>,
     clocks: Vec<CheckedMonitorClockRead<'a>>,
+    authority: SelectedMonitorAuthorityReceipt<'a>,
     equalities: Vec<SelectedFactEquality>,
     work: u64,
 }
@@ -83,6 +89,7 @@ impl std::fmt::Debug for SelectedMonitorTypeClosure<'_> {
             .field("identities", &self.identities)
             .field("exact_types", &self.exact_types)
             .field("clocks", &self.clocks)
+            .field("authority", &self.authority)
             .field("equalities", &self.equalities)
             .field("work", &self.work)
             .finish()
@@ -113,6 +120,10 @@ impl<'a> SelectedMonitorTypeClosure<'a> {
     /// Selected clause clocks in admitted claim-occurrence order.
     pub fn clocks(&self) -> &[CheckedMonitorClockRead<'a>] {
         &self.clocks
+    }
+    /// The receipt binding QSL's same-emission order and progress authority.
+    pub fn authority(&self) -> &SelectedMonitorAuthorityReceipt<'a> {
+        &self.authority
     }
     /// Complete reached equality decisions in structural node and occurrence order.
     pub fn equalities(&self) -> &[SelectedFactEquality] {
@@ -147,6 +158,8 @@ pub enum SelectedMonitorTypeClosureErrorCode {
     Clock(CheckedMonitorClockReadErrorCode),
     /// A reached admitted equality decision refused.
     Equality(AdmittedEqualityReadErrorCode),
+    /// The same-emission authority row does not bind this plan.
+    Authority(SelectedMonitorAuthorityErrorCode),
     /// The next work charge exceeds the allowance.
     WorkLimit,
     /// The next owned storage charge exceeds the allowance.
@@ -171,7 +184,7 @@ pub struct SelectedMonitorTypeClosureError {
     pub denied_locus: Option<NativeJoinLocus>,
 }
 
-fn native_error(budget: &NativeJoinBudget) -> SelectedMonitorTypeClosureError {
+pub(super) fn native_error(budget: &NativeJoinBudget) -> SelectedMonitorTypeClosureError {
     let denied = budget.first_unpaid();
     SelectedMonitorTypeClosureError {
         code: match denied.map(|charge| charge.kind) {
@@ -188,7 +201,7 @@ fn native_error(budget: &NativeJoinBudget) -> SelectedMonitorTypeClosureError {
     }
 }
 
-fn semantic_error(
+pub(super) fn semantic_error(
     code: SelectedMonitorTypeClosureErrorCode,
     at: Option<Box<CheckedNodeId>>,
     budget: &NativeJoinBudget,
@@ -660,7 +673,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
     /// values are carried without deriving replacement identities.
     pub fn project_selected_type_closure(
         &self,
-        rows: SelectedMonitorClosureRows<'_>,
+        rows: SelectedMonitorClosureRows<'a>,
         budget: &mut NativeJoinBudget,
     ) -> Result<SelectedMonitorTypeClosure<'a>, SelectedMonitorTypeClosureError> {
         let before = budget.begin();
@@ -704,6 +717,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                     .map_err(|_| native_error(budget))?;
                 clocks.push(clock);
             }
+            let authority = self.bind_authority(rows.authority, &clocks, budget)?;
             budget.set_active_locus(Some(NativeJoinLocus {
                 source: NativeJoinLocusSource::MonitorSeed(0),
                 form: "selected_equality_output",
@@ -1007,6 +1021,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 identities,
                 exact_types,
                 clocks,
+                authority,
                 equalities,
                 work: budget.consumed().work - before.work,
             })

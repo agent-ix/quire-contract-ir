@@ -21,6 +21,7 @@ use crate::checked_package::shared::{
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+mod authority;
 #[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
 mod reached_model_read;
 #[cfg(test)]
@@ -28,6 +29,11 @@ pub(in crate::checked_package::v2) use reached_model_read::fixture_support as mo
 #[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
 mod selected_closure_walk;
 mod selected_type_closure;
+pub use authority::{
+    SelectedMonitorAuthorityComponent, SelectedMonitorAuthorityErrorCode,
+    SelectedMonitorAuthorityReceipt, SelectedMonitorAuthorityRow, SelectedMonitorAuthorityRowError,
+    SelectedMonitorTimeSource,
+};
 pub use selected_type_closure::{
     SelectedMonitorClosureRows, SelectedMonitorTypeClosure, SelectedMonitorTypeClosureError,
     SelectedMonitorTypeClosureErrorCode,

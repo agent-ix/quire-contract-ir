@@ -7,8 +7,9 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     ApplicationOperator, CheckedCallableIdentity, CheckedCallableReadErrorCode,
     CheckedMonitorBufferRef, CheckedMonitorEntryRef, CheckedMonitorPlanRef, CheckedNodeId,
-    CheckedNodeKind, CheckedPackageV2, CheckedRational, CheckedTerm, ExpressionForm,
-    NativeJoinBudget, SelectedMonitorClosureRows, SelectedMonitorTypeClosure,
+    CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2, CheckedRational,
+    CheckedTerm, ExpressionForm, NativeJoinBudget, SelectedMonitorAuthorityRow,
+    SelectedMonitorClosureRows, SelectedMonitorTimeSource, SelectedMonitorTypeClosure,
     SelectedMonitorTypeClosureError, SelectedMonitorTypeClosureErrorCode,
 };
 
@@ -24,7 +25,7 @@ fn buffer<'a>(buffer: CheckedMonitorBufferRef<'a>) {
     let _: &'a CheckedNodeId = buffer.subformula();
     let _: &'a str = buffer.capacity();
 }
-fn plan<'a>(plan: CheckedMonitorPlanRef<'a>) {
+fn plan<'a>(package: &CheckedPackageV2, plan: CheckedMonitorPlanRef<'a>) {
     let _: &'a CheckedNodeId = plan.node_id();
     let _: &'a CheckedNodeId = plan.structural_key();
     let _: &'a CheckedNodeId = plan.clause();
@@ -46,6 +47,18 @@ fn plan<'a>(plan: CheckedMonitorPlanRef<'a>) {
     entry(plan.on_gap());
     fn buffers<'a>(_: impl ExactSizeIterator<Item = CheckedMonitorBufferRef<'a>>) {}
     buffers(plan.buffers());
+    let authority = SelectedMonitorAuthorityRow::try_new(
+        package.admission_binding(),
+        plan.clause().clone(),
+        CheckedOccurrence {
+            role: CheckedOccurrenceRole::Claim,
+            ordinal: 0,
+        },
+        SelectedMonitorTimeSource::Dense,
+        b"order",
+        b"progress",
+    )
+    .expect("a claim row with both values");
     let rows = SelectedMonitorClosureRows {
         declarations: &[],
         fields: &[],
@@ -61,8 +74,9 @@ fn plan<'a>(plan: CheckedMonitorPlanRef<'a>) {
         source_collections: &[],
         equality_applications: &[],
         equality_facts: &[],
+        authority: &authority,
     };
-    let result: Result<SelectedMonitorTypeClosure<'a>, SelectedMonitorTypeClosureError> =
+    let result: Result<SelectedMonitorTypeClosure<'_>, SelectedMonitorTypeClosureError> =
         plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(0, 0));
     assert_eq!(
         result.expect_err("zero native storage refuses").code,
@@ -171,7 +185,7 @@ fn default_feature_consumer_reads_an_actual_admitted_monitor_plan() {
     let view = package.monitor_plans().next().unwrap();
     // Every helper above takes the exact specified borrowed signatures and
     // executes against this selected admitted package in a default build.
-    plan(view);
+    plan(&package, view);
     entry(view.on_gap());
     buffer(view.buffers().next().unwrap());
     assert_eq!(view.counter_width_bits(), 32);
