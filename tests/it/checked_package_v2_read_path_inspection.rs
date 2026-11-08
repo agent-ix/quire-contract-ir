@@ -19,6 +19,8 @@ use syn::visit::{self, Visit};
 /// documents, graph validators, source map, extension, diagnostics, retained
 /// structures) and the budgeted entry and its charging helpers.
 const READ_PATH: &[&str] = &[
+    "abstraction.rs",
+    "claim_terminal.rs",
     "budgeted_read.rs",
     "read_charge.rs",
     "graph_storage.rs",
@@ -31,6 +33,12 @@ const READ_PATH: &[&str] = &[
     "lossless.rs",
     "flat_wire.rs",
     "typed_terms.rs",
+    "execution_point.rs",
+    "frame.rs",
+    "guarantee_composition.rs",
+    "guarantee_terms.rs",
+    "hybrid.rs",
+    "lock_tables.rs",
     "node_index.rs",
     "identity.rs",
     "closure_index.rs",
@@ -45,18 +53,34 @@ const READ_PATH: &[&str] = &[
     "model_members/option_types.rs",
     "model_members/view.rs",
     "model_fields.rs",
+    "model_enum_witness.rs",
+    "monitor_plan.rs",
     "model_root.rs",
+    "native_join_budget.rs",
+    "native_join_storage.rs",
     "selected_document.rs",
     "dependency_references.rs",
     "model_population_catalog.rs",
     "structural.rs",
     "operations.rs",
+    "operation_witness.rs",
+    "owner.rs",
+    "parameter_declaration.rs",
     "temporal.rs",
     "timed_model.rs",
     "protocol_body.rs",
     "protocol_locations.rs",
     "natural.rs",
     "refinement.rs",
+    "relationship_end.rs",
+    "rust_spelling.rs",
+    "scalar_operands.rs",
+    "schedulability.rs",
+    "selected_facts.rs",
+    "selection_equality.rs",
+    "temporal_binding.rs",
+    "temporal_clause_names.rs",
+    "term_json.rs",
     "state.rs",
     "step_relation.rs",
     "extension.rs",
@@ -65,6 +89,29 @@ const READ_PATH: &[&str] = &[
     "stage_storage.rs",
     "operation_effects.rs",
     "checked_term_data.rs",
+    "exact_projection.rs",
+];
+
+/// Validators called directly by `validate_graph`; keeping this set separate
+/// makes an omitted scanner entry fail even when the omitted file has no
+/// banned spelling in the current implementation.
+const GRAPH_VALIDATORS: &[&str] = &[
+    "abstraction.rs",
+    "claim_terminal.rs",
+    "execution_point.rs",
+    "frame.rs",
+    "guarantee_composition.rs",
+    "hybrid.rs",
+    "monitor_plan.rs",
+    "operations.rs",
+    "owner.rs",
+    "protocol_body.rs",
+    "refinement.rs",
+    "schedulability.rs",
+    "step_relation.rs",
+    "temporal.rs",
+    "temporal_binding.rs",
+    "temporal_clause_names.rs",
 ];
 
 /// The banned spellings of FR-038-AC-513.
@@ -263,6 +310,19 @@ fn inspection_continues_after_test_only_items() {
         assert!(
             hits.iter().any(|hit| hit.contains(word)),
             "{word}: {hits:?}"
+        );
+    }
+}
+
+/// Every graph validator is inspected for AC-513, even before it acquires a
+/// banned spelling that would make the source scan fail.
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn every_graph_validator_is_in_the_read_path_scan() {
+    for validator in GRAPH_VALIDATORS {
+        assert!(
+            READ_PATH.contains(validator),
+            "graph validator omitted from AC-513 scan: {validator}"
         );
     }
 }
