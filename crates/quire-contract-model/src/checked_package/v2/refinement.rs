@@ -4134,7 +4134,7 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
-    #[trace("TC-472", "FR-038-AC-499", "FR-038-AC-511")]
+    #[trace("TC-472", "FR-038-AC-500", "FR-038-AC-511")]
     #[test]
     fn refinement_row_walks_charge_the_callers_budget() {
         let id = |name| json!({"package":"refinement-test","path":[name],"ordinal":0});
@@ -4164,7 +4164,7 @@ mod tests {
                     "refinement",
                 );
                 outcome = Some(check_wire(
-                    TermNode::of(&document),
+                    super::super::TermNode::of(&document),
                     Some(&typed),
                     &Trail::Base(&[]),
                     &mut meter.reservation(site),
