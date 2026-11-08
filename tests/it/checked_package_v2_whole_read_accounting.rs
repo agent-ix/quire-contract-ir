@@ -707,7 +707,7 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
     initialize_operation_catalog().expect("catalog gate");
     let mut seen = BTreeSet::new();
     let mut problems = Vec::new();
-    let (mut admitted, mut refused) = (0, 0);
+    let (mut admitted, mut refused, mut stage_contracts) = (0, 0, 0);
     let mut positives = positive_cases();
     let (published, _) = qspec_cases();
     positives.extend(published);
@@ -725,7 +725,9 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
                 seen.insert(format!("{:?}", actual.code));
                 refused += 1;
             }
-            (Expected::OriginalOracle(oracle), actual) if oracle(actual) => {}
+            (Expected::OriginalOracle(oracle), actual) if oracle(actual) => {
+                stage_contracts += 1;
+            }
             _ => problems.push(format!(
                 "{}: fixture expectation differs from {outcome:?}",
                 input.label
@@ -736,7 +738,7 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
         .difference(&seen)
         .cloned()
         .collect::<Vec<_>>();
-    eprintln!("Registered candidates {}; confirmed admitted {}; confirmed refused {}; confirmed refusal-code classes {}",positives.len()+refusals.len(),admitted,refused,seen.len());
+    eprintln!("Registered candidates {}; confirmed admitted {}; confirmed refused {}; confirmed stage contracts {}; confirmed refusal-code classes {}",positives.len()+refusals.len(),admitted,refused,stage_contracts,seen.len());
     assert!(
         problems.is_empty() && missing.is_empty(),
         "Fixture defects:\n{}\nPublic refusal codes with no genuine input provider: {missing:?}",
