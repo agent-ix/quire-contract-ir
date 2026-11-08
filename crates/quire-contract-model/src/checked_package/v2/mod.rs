@@ -3283,12 +3283,15 @@ fn validate_graph(
         let mut frame_term = None;
         let view = TermNode::of(&bodies[position]);
         let nominal = if source_nominal_body(kind, view.get("term").and_then(TermNode::as_str)) {
-            Some(identity::NominalBody::from_document(
-                view,
-                &wire.semantic_graph.operand_rows[position],
-                &|| at("body"),
-                meter,
-            )?)
+            Some(
+                identity::NominalBody::from_document(
+                    view,
+                    &wire.semantic_graph.operand_rows[position],
+                    &|| at("body"),
+                    meter,
+                )
+                .map_err(|failure| with_node_locus(failure, &node.node_id))?,
+            )
         } else {
             None
         };
