@@ -802,15 +802,26 @@ pub(super) fn validate_step_relations(
                         .and_then(super::structural::reference_type_target_ref)
                         == Some(anchor.context)
                 } else {
-                    operation
+                    let mut budget = super::model_members::Budget::new(
+                        meter,
+                        owner.package.root,
+                        owner.package.bytes,
+                    );
+                    let expected = if let Some(slot) = operation
                         .result
                         .iter()
                         .chain(&operation.parameters)
                         .nth(j - 1)
-                        .and_then(|slot| owner.package.slot_type(slot))
-                        .and_then(|kind| kind.node_id(&parameter.node_id.package))
-                        .as_ref()
-                        == Some(&parameter.semantic_type)
+                    {
+                        if let Some(kind) = owner.package.slot_type_in(slot, &mut budget)? {
+                            kind.node_id_in(&parameter.node_id.package, &mut budget)?
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    expected.as_ref() == Some(&parameter.semantic_type)
                 };
                 let declared_ok = declared.map(|(name, text)| (name, spells(text, level)))
                     == expected_name.map(|name| (name, true));
