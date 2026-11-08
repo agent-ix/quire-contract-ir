@@ -263,7 +263,7 @@ impl Rational {
         &self,
         other: &Self,
         meter: &mut WorkMeter,
-        at: &dyn Fn() -> JsonPointer,
+        at: super::stage_storage::Site<'_>,
     ) -> Result<Ordering, ValidationFailure> {
         compare_rationals(
             (self.numerator.digits(), self.denominator.digits()),
@@ -442,7 +442,16 @@ pub(super) fn validate_timed_bounds_reduced(
                 rational.numerator.digits(),
                 rational.denominator.digits(),
                 meter,
-                &at_body,
+                super::stage_storage::Site::new(
+                    super::PackageReadStage::Graph,
+                    position,
+                    "temporal",
+                    super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(position)
+                        .key("body"),
+                ),
             )? {
                 return Err(ValidationFailure::refused_at(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -1011,7 +1020,20 @@ fn check_bounds(
             lower_end,
             upper_end,
         } => match upper {
-            Some(upper) => match lower.compare(upper, meter, &at_body)? {
+            Some(upper) => match lower.compare(
+                upper,
+                meter,
+                super::stage_storage::Site::new(
+                    super::PackageReadStage::Graph,
+                    position,
+                    "temporal",
+                    super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(position)
+                        .key("body"),
+                ),
+            )? {
                 Ordering::Greater => true,
                 Ordering::Equal => {
                     *lower_end == IntervalEnd::Open || *upper_end == IntervalEnd::Open
@@ -1568,13 +1590,30 @@ fn check_aggregate(
     use CheckedPackageRefusalCause as Cause;
     use CheckedPackageRefusalCode as Code;
 
-    let body = node_pointer(formula).key("body");
+    let body = super::stage_storage::Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(formula)
+        .key("body");
     let argument = body.clone().key("arguments").index(0);
-    let fail = |code, cause, at| aggregate_refusal(formula, at, code, cause, graph);
+    let fail = |meter: &mut WorkMeter, code, cause, at: super::stage_storage::Path<'_>| {
+        super::stage_storage::refuse(
+            meter,
+            &super::stage_storage::Site::new(
+                super::PackageReadStage::Graph,
+                formula,
+                "temporal",
+                at,
+            ),
+            super::stage_storage::Refusal::new(code, at)
+                .because(cause)
+                .at_node(&graph.nodes[formula].node_id),
+        )
+    };
     let window = match profile {
         Some(TemporalProfile::EventPositionFalseExtension) => AggregateWindow::Positions,
         Some(TemporalProfile::TimestampedEventFiniteWindow) => AggregateWindow::Duration,
-        _ => return Err(fail(Code::InvalidPackage, Cause::InvalidValue, body)),
+        _ => return Err(fail(meter, Code::InvalidPackage, Cause::InvalidValue, body)),
     };
     let Some(CheckedTerm::Application { arguments, .. }) =
         terms.get(formula).and_then(Option::as_ref)
@@ -1599,20 +1638,40 @@ fn check_aggregate(
         };
         let pointer = argument.clone().key("members").index(at);
         let Some(rank) = rank else {
-            return Err(fail(Code::InvalidPackage, Cause::UnknownMember, pointer));
+            return Err(fail(
+                meter,
+                Code::InvalidPackage,
+                Cause::UnknownMember,
+                pointer,
+            ));
         };
         let name = AGGREGATE_NAMES[rank];
         if held.contains_key(name) {
-            return Err(fail(Code::InvalidPackage, Cause::DuplicateMember, pointer));
+            return Err(fail(
+                meter,
+                Code::InvalidPackage,
+                Cause::DuplicateMember,
+                pointer,
+            ));
         }
         if last_rank.is_some_and(|last| rank < last) {
-            return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+            return Err(fail(
+                meter,
+                Code::InvalidPackage,
+                Cause::InvalidValue,
+                pointer,
+            ));
         }
         held.insert(name, at);
         last_rank = Some(rank);
     }
     let Some(&kind_at) = held.get("kind") else {
-        return Err(fail(Code::InvalidPackage, Cause::MissingMember, argument));
+        return Err(fail(
+            meter,
+            Code::InvalidPackage,
+            Cause::MissingMember,
+            argument,
+        ));
     };
     let value_of = |name: &str| match &members[held[name]] {
         CheckedTerm::Binding { value, .. } => value.as_ref(),
@@ -1621,6 +1680,7 @@ fn check_aggregate(
     let value_pointer = |at: usize| argument.clone().key("members").index(at).key("value");
     let Some(kind_text) = aggregate_literal(value_of("kind"), "text") else {
         return Err(fail(
+            meter,
             Code::InvalidPackage,
             Cause::WrongValueKind,
             value_pointer(kind_at),
@@ -1628,6 +1688,7 @@ fn check_aggregate(
     };
     let Some(kind) = AggregateKind::from_wire(kind_text) else {
         return Err(fail(
+            meter,
             Code::InvalidPackage,
             Cause::InvalidValue,
             value_pointer(kind_at),
@@ -1643,6 +1704,7 @@ fn check_aggregate(
         };
         if !aggregate_presence(kind, name).0 {
             return Err(fail(
+                meter,
                 Code::InvalidPackage,
                 Cause::UnknownMember,
                 argument.clone().key("members").index(at),
@@ -1651,7 +1713,12 @@ fn check_aggregate(
     }
     for name in AGGREGATE_NAMES {
         if aggregate_presence(kind, name).1 && !held.contains_key(name) {
-            return Err(fail(Code::InvalidPackage, Cause::MissingMember, argument));
+            return Err(fail(
+                meter,
+                Code::InvalidPackage,
+                Cause::MissingMember,
+                argument,
+            ));
         }
     }
 
@@ -1665,16 +1732,34 @@ fn check_aggregate(
         match name {
             "q" => {
                 let Some(text) = aggregate_literal(term, "rational") else {
-                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::WrongValueKind,
+                        pointer,
+                    ));
                 };
                 let (numerator, denominator) = magnitude(text);
                 if numerator == "0"
                     || numerator.starts_with('-')
-                    || compare_rationals((numerator, denominator), ("1", "1"), meter, &|| {
-                        pointer.clone()
-                    })? != Ordering::Less
+                    || compare_rationals(
+                        (numerator, denominator),
+                        ("1", "1"),
+                        meter,
+                        super::stage_storage::Site::new(
+                            super::PackageReadStage::Graph,
+                            formula,
+                            "temporal",
+                            pointer,
+                        ),
+                    )? != Ordering::Less
                 {
-                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::InvalidValue,
+                        pointer,
+                    ));
                 }
             }
             "predicate" | "filter" => {
@@ -1683,7 +1768,7 @@ fn check_aggregate(
                     .map(|family| family.kind)
                     != Some(AggregateFamilyKind::Boolean)
                 {
-                    return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::TypeMismatch, pointer));
                 }
             }
             "value" => {
@@ -1698,12 +1783,17 @@ fn check_aggregate(
                         )
                     })
                 {
-                    return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::TypeMismatch, pointer));
                 }
             }
             "window_kind" | "comparison" => {
                 let Some(text) = aggregate_literal(term, "text") else {
-                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::WrongValueKind,
+                        pointer,
+                    ));
                 };
                 let parsed_window = (name == "window_kind")
                     .then(|| AggregateWindow::from_wire(text))
@@ -1714,10 +1804,15 @@ fn check_aggregate(
                     matches!(text, "<" | "<=" | "=" | ">=" | ">")
                 };
                 if !valid {
-                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::InvalidValue,
+                        pointer,
+                    ));
                 }
                 if name == "window_kind" && parsed_window != Some(window) {
-                    return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
             }
             "lower" | "upper" => {
@@ -1727,7 +1822,12 @@ fn check_aggregate(
                     "quantity"
                 };
                 let Some(text) = aggregate_literal(term, required) else {
-                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::WrongValueKind,
+                        pointer,
+                    ));
                 };
                 let bound_type = match term {
                     CheckedTerm::Literal { type_id, .. } => Some(type_id),
@@ -1736,35 +1836,64 @@ fn check_aggregate(
                 if window == AggregateWindow::Duration
                     && !is_clock_unit_path(bound_type.map(|id| id.path.as_slice()), clock_unit)
                 {
-                    return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
                 if text.starts_with('-') {
-                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::InvalidValue,
+                        pointer,
+                    ));
                 }
                 if name == "upper" {
                     let Some(lower) = aggregate_literal(value_of("lower"), required) else {
                         return Err(fail(
+                            meter,
                             Code::InvalidPackage,
                             Cause::WrongValueKind,
                             value_pointer(held["lower"]),
                         ));
                     };
-                    if compare_rationals(magnitude(lower), magnitude(text), meter, &|| {
-                        argument.clone()
-                    })? == Ordering::Greater
+                    if compare_rationals(
+                        magnitude(lower),
+                        magnitude(text),
+                        meter,
+                        super::stage_storage::Site::new(
+                            super::PackageReadStage::Graph,
+                            formula,
+                            "temporal",
+                            argument,
+                        ),
+                    )? == Ordering::Greater
                     {
-                        return Err(fail(Code::InvalidPackage, Cause::InvalidValue, argument));
+                        return Err(fail(
+                            meter,
+                            Code::InvalidPackage,
+                            Cause::InvalidValue,
+                            argument,
+                        ));
                     }
                 }
             }
             "min_count" => {
                 let Some(text) = aggregate_literal(term, "integer") else {
-                    return Err(fail(Code::InvalidPackage, Cause::WrongValueKind, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::WrongValueKind,
+                        pointer,
+                    ));
                 };
                 if text.starts_with('-')
                     || (text == "0" && !matches!(kind, AggregateKind::Count | AggregateKind::Sum))
                 {
-                    return Err(fail(Code::InvalidPackage, Cause::InvalidValue, pointer));
+                    return Err(fail(
+                        meter,
+                        Code::InvalidPackage,
+                        Cause::InvalidValue,
+                        pointer,
+                    ));
                 }
             }
             "threshold" => {
@@ -1788,10 +1917,10 @@ fn check_aggregate(
                         .is_some_and(|family| family.kind == AggregateFamilyKind::Quantity)
                     && expected != actual
                 {
-                    return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
                 if expected != actual {
-                    return Err(fail(Code::IllTyped, Cause::TypeMismatch, pointer));
+                    return Err(fail(meter, Code::IllTyped, Cause::TypeMismatch, pointer));
                 }
             }
             _ => {}

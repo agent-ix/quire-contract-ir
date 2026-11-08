@@ -1418,9 +1418,9 @@ impl Graph<'_> {
         let value = term.and_then(spelling).ok_or_else(|| invalid(meter))?;
         let exact = ExactMagnitude::from_wire(value).ok_or_else(|| invalid(meter))?;
         // The strict shape has checked nonnegative decimal syntax. Shared
-        // natural arithmetic accounts for the exact reduction work.
+        // reserved arithmetic charges a conservative reduction-work bound.
         if positive && exact.zero
-            || !super::natural::coprime_at(exact.numerator, exact.denominator, meter, at.site())?
+            || !super::natural::coprime(exact.numerator, exact.denominator, meter, at.site())?
         {
             return Err(invalid(meter));
         }

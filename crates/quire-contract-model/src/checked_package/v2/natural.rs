@@ -1,24 +1,20 @@
-//! Arbitrary-precision natural numbers sufficient to decide whether a
-//! canonical decimal rational is reduced, with every limb operation charged as
-//! work so the metered cost bounds the real cost.
+//! Exact nonnegative arithmetic through quire-exact's caller reservations.
+//! Parse and GCD work use conservative bounds in the former 32-bit-limb units;
+//! multiplication keeps its original operand-limb product charge.
 
-use super::stage_storage::Site;
+use super::stage_storage::{Position, Site};
 use super::WorkMeter;
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::JsonPointer;
+use quire_exact::Integer;
 use std::cmp::Ordering;
 
-enum WorkAt<'a> {
-    Legacy(&'a dyn Fn() -> JsonPointer),
-    Paid(&'a Site<'a>),
-}
-impl WorkAt<'_> {
-    fn charge(&self, meter: &mut WorkMeter, amount: u64) -> Result<(), ValidationFailure> {
-        match self {
-            Self::Legacy(at) => meter.charge(amount, at),
-            Self::Paid(site) => work_at(meter, **site, amount),
-        }
-    }
+/// A borrowed arithmetic position at the caller's current graph site.
+pub(super) fn site<'a>(meter: &WorkMeter, at: impl Into<Position<'a>>) -> Site<'a> {
+    let (index, form) = meter
+        .site()
+        .map_or((0, "graph"), |site| (site.index, site.form));
+    Site::new(super::PackageReadStage::Graph, index, form, at)
 }
 
 /// Charges work at the caller's original active locus, preserving its amount
@@ -46,230 +42,102 @@ pub(super) fn work_at(
     }
 }
 
-/// Little-endian base-2^32 limbs with no most-significant zero limbs.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Natural(Vec<u32>);
-
-impl Natural {
-    /// Parses ASCII decimal digits already validated by the caller. Each digit
-    /// touches every limb accumulated so far, and is charged that many units.
-    fn parse(
-        digits: &str,
-        meter: &mut WorkMeter,
-        at: &dyn Fn() -> JsonPointer,
-    ) -> Result<Self, ValidationFailure> {
-        Self::parse_at(digits, meter, &WorkAt::Legacy(at))
-    }
-
-    fn parse_at(
-        digits: &str,
-        meter: &mut WorkMeter,
-        at: &WorkAt<'_>,
-    ) -> Result<Self, ValidationFailure> {
-        // Ten digits per 33.2 bits: the limbs the whole number can need,
-        // asked for once, before the first digit is read.
-        let bits = digits.len().saturating_mul(10).div_ceil(3);
-        let mut limbs: Vec<u32> = meter.vec(bits.div_ceil(32))?;
-        for byte in digits.bytes() {
-            at.charge(meter, limb_work(limbs.len()))?;
-            let mut carry = u64::from(byte.wrapping_sub(b'0'));
-            for limb in &mut limbs {
-                let product = u64::from(*limb) * 10 + carry;
-                *limb = low32(product);
-                carry = product >> 32;
-            }
-            if carry != 0 {
-                limbs.push(low32(carry));
-            }
-        }
-        Ok(Self(limbs))
-    }
-
-    /// The work of one pass over this number's limbs (at least one unit).
-    fn work(&self) -> u64 {
-        limb_work(self.0.len())
-    }
-
-    fn is_zero(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    fn is_even(&self) -> bool {
-        self.0.first().is_none_or(|limb| limb & 1 == 0)
-    }
-
-    fn is_one(&self) -> bool {
-        self.0.as_slice() == [1]
-    }
-
-    fn halve(&mut self) {
-        let mut carry = 0_u32;
-        for limb in self.0.iter_mut().rev() {
-            let next = *limb & 1;
-            *limb = (*limb >> 1) | (carry << 31);
-            carry = next;
-        }
-        self.normalize();
-    }
-
-    /// Replaces `self` with `self - smaller`; requires `self >= smaller`.
-    fn subtract(&mut self, smaller: &Self) {
-        let mut borrow = 0_i64;
-        for (index, limb) in self.0.iter_mut().enumerate() {
-            let right = i64::from(smaller.0.get(index).copied().unwrap_or(0));
-            let mut difference = i64::from(*limb) - right - borrow;
-            if difference < 0 {
-                difference += 1 << 32;
-                borrow = 1;
-            } else {
-                borrow = 0;
-            }
-            *limb = low32(u64::try_from(difference).unwrap_or(0));
-        }
-        self.normalize();
-    }
-
-    fn normalize(&mut self) {
-        while self.0.last() == Some(&0) {
-            self.0.pop();
-        }
-    }
-
-    /// The product of two numbers, schoolbook: every limb pair is one unit, all
-    /// charged at `at` before the product is formed.
-    fn multiply(
-        &self,
-        other: &Self,
-        meter: &mut WorkMeter,
-        at: &dyn Fn() -> JsonPointer,
-    ) -> Result<Self, ValidationFailure> {
-        meter.charge(self.work().saturating_mul(other.work()), at)?;
-        let mut limbs = meter.filled(self.0.len().saturating_add(other.0.len()), 0_u32)?;
-        for (left_at, left) in self.0.iter().enumerate() {
-            let mut carry = 0_u64;
-            for (right_at, right) in other.0.iter().enumerate() {
-                let slot = left_at.saturating_add(right_at);
-                let current = limbs.get(slot).copied().unwrap_or(0);
-                // At most (2^32 - 1)^2 + 2 * (2^32 - 1), which fits 64 bits.
-                let product = u64::from(*left) * u64::from(*right) + u64::from(current) + carry;
-                if let Some(limb) = limbs.get_mut(slot) {
-                    *limb = low32(product);
-                }
-                carry = product >> 32;
-            }
-            if let Some(limb) = limbs.get_mut(left_at.saturating_add(other.0.len())) {
-                *limb = low32(carry);
-            }
-        }
-        let mut product = Self(limbs);
-        product.normalize();
-        Ok(product)
-    }
+/// The decimal parse cannot touch more than this many 32-bit limbs per digit:
+/// n digits need at most ceil(10n/3) bits. Saturation becomes a work denial.
+fn parse_work(digits: usize) -> u64 {
+    let digits = u64::try_from(digits).unwrap_or(u64::MAX);
+    digits.saturating_mul(digits.saturating_mul(10).div_ceil(3).div_ceil(32).max(1))
 }
 
-/// Compares the exact rationals `left` and `right`, each a canonical decimal
-/// `(numerator, denominator)` pair of magnitudes, by cross-multiplication
-/// (`a/b` against `c/d` is `a*d` against `c*b`): exact at any size, never
-/// through a float or a fixed-width integer. Parsing and both products are
-/// charged to `meter` at `at`.
-pub(super) fn compare_rationals(
-    left: (&str, &str),
-    right: (&str, &str),
-    meter: &mut WorkMeter,
-    at: &dyn Fn() -> JsonPointer,
-) -> Result<Ordering, ValidationFailure> {
-    let left_numerator = Natural::parse(left.0, meter, at)?;
-    let left_denominator = Natural::parse(left.1, meter, at)?;
-    let right_numerator = Natural::parse(right.0, meter, at)?;
-    let right_denominator = Natural::parse(right.1, meter, at)?;
-    let scaled_left = left_numerator.multiply(&right_denominator, meter, at)?;
-    let scaled_right = right_numerator.multiply(&left_denominator, meter, at)?;
-    Ok(scaled_left.cmp(&scaled_right))
+fn limbs(value: &Integer) -> u64 {
+    value.magnitude_bits().div_ceil(32).max(1)
 }
 
-/// One unit per limb touched, and at least one unit per operation.
-fn limb_work(limbs: usize) -> u64 {
-    u64::try_from(limbs).unwrap_or(u64::MAX).max(1)
+/// Each old halving decreases the sum S of operand bit lengths; every unequal
+/// odd comparison/subtraction is followed by at least one such halving. There
+/// are at most S halvings and S+1 comparisons, each touching at most L limbs.
+fn gcd_work(left: &Integer, right: &Integer) -> u64 {
+    left.magnitude_bits()
+        .saturating_add(right.magnitude_bits())
+        .saturating_mul(2)
+        .saturating_add(1)
+        .saturating_mul(limbs(left).max(limbs(right)))
 }
 
-/// The low 32 bits of a limb computation, without a lossy cast.
-fn low32(value: u64) -> u32 {
-    u32::try_from(value & u64::from(u32::MAX)).unwrap_or(u32::MAX)
+fn parse(digits: &str, meter: &mut WorkMeter, at: Site<'_>) -> Result<Integer, ValidationFailure> {
+    work_at(meter, at, parse_work(digits.len()))?;
+    meter.exact_integer(digits)?.ok_or_else(|| {
+        super::stage_storage::refuse(
+            meter,
+            &at,
+            super::stage_storage::Refusal::new(
+                super::CheckedPackageRefusalCode::MalformedWire,
+                at.at,
+            ),
+        )
+    })
 }
 
-impl Ord for Natural {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0
-            .len()
-            .cmp(&other.0.len())
-            .then_with(|| self.0.iter().rev().cmp(other.0.iter().rev()))
-    }
-}
-
-impl PartialOrd for Natural {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// Returns whether `gcd(numerator, denominator) == 1` for canonical decimal
-/// magnitudes (no sign). Binary GCD; each halving costs the limbs it shifts and
-/// each compare-and-subtract step costs the limbs of the larger operand, all
-/// charged at `at`, the rational whose reduction is being decided.
+/// Decide reduction from validated canonical decimal magnitudes. Zero and the
+/// both-even shortcut do not run a GCD and therefore charge no GCD bound.
 pub(super) fn coprime(
     numerator: &str,
     denominator: &str,
     meter: &mut WorkMeter,
-    at: &dyn Fn() -> JsonPointer,
+    at: Site<'_>,
 ) -> Result<bool, ValidationFailure> {
-    coprime_core(numerator, denominator, meter, &WorkAt::Legacy(at))
+    let previous = meter.site();
+    meter.at_node(at.index, at.form);
+    let result = (|| {
+        let left = parse(numerator, meter, at)?;
+        let right = parse(denominator, meter, at)?;
+        if left.is_zero() {
+            return Ok(right == Integer::one());
+        }
+        if right.is_zero() {
+            return Ok(left == Integer::one());
+        }
+        if left.is_even() && right.is_even() {
+            return Ok(false);
+        }
+        work_at(meter, at, gcd_work(&left, &right))?;
+        Ok(meter.exact_gcd(&left, &right)? == Integer::one())
+    })();
+    meter.restore_site(previous);
+    result
 }
 
-/// The same binary GCD with borrowed diagnostic position and caller-paid work
-/// denials. Arithmetic operations and their work charges are shared with the
-/// postread callback API.
-pub(super) fn coprime_at(
-    numerator: &str,
-    denominator: &str,
+/// Cross multiplication through reserved integers, retaining the former
+/// max(1, left32limbs) * max(1, right32limbs) work before each product.
+pub(super) fn compare_rationals(
+    left: (&str, &str),
+    right: (&str, &str),
     meter: &mut WorkMeter,
-    site: Site<'_>,
-) -> Result<bool, ValidationFailure> {
-    coprime_core(numerator, denominator, meter, &WorkAt::Paid(&site))
-}
-
-fn coprime_core(
-    numerator: &str,
-    denominator: &str,
-    meter: &mut WorkMeter,
-    at: &WorkAt<'_>,
-) -> Result<bool, ValidationFailure> {
-    let mut left = Natural::parse_at(numerator, meter, at)?;
-    let mut right = Natural::parse_at(denominator, meter, at)?;
-    if left.is_zero() {
-        return Ok(right.is_one());
-    }
-    if right.is_zero() {
-        return Ok(left.is_one());
-    }
-    if left.is_even() && right.is_even() {
-        return Ok(false);
-    }
-    loop {
-        while left.is_even() {
-            at.charge(meter, left.work())?;
-            left.halve();
-        }
-        while right.is_even() {
-            at.charge(meter, right.work())?;
-            right.halve();
-        }
-        at.charge(meter, left.work().max(right.work()))?;
-        match left.cmp(&right) {
-            Ordering::Equal => return Ok(left.is_one()),
-            Ordering::Less => right.subtract(&left),
-            Ordering::Greater => left.subtract(&right),
-        }
-    }
+    at: Site<'_>,
+) -> Result<Ordering, ValidationFailure> {
+    let previous = meter.site();
+    meter.at_node(at.index, at.form);
+    let result = (|| {
+        let left_numerator = parse(left.0, meter, at)?;
+        let left_denominator = parse(left.1, meter, at)?;
+        let right_numerator = parse(right.0, meter, at)?;
+        let right_denominator = parse(right.1, meter, at)?;
+        work_at(
+            meter,
+            at,
+            limbs(&left_numerator).saturating_mul(limbs(&right_denominator)),
+        )?;
+        let scaled_left = meter.exact_mul(&left_numerator, &right_denominator)?;
+        work_at(
+            meter,
+            at,
+            limbs(&right_numerator).saturating_mul(limbs(&left_denominator)),
+        )?;
+        let scaled_right = meter.exact_mul(&right_numerator, &left_denominator)?;
+        Ok(scaled_left.cmp(&scaled_right))
+    })();
+    meter.restore_site(previous);
+    result
 }
 
 #[cfg(test)]
@@ -278,110 +146,104 @@ mod tests {
     use crate::checked_package::shared::CheckedPackageLimit;
     use ix_trace_rs::trace;
 
-    #[trace("TC-472", "FR-038-AC-511")]
+    #[trace("TC-472", "FR-038-AC-508", "FR-038-AC-516")]
     #[test]
-    fn borrowed_gcd_preserves_work_and_prepays_affordable_denial_pointers() {
-        let path = super::super::stage_storage::Path::root()
-            .key("semantic_graph")
-            .key("nodes")
-            .index(45)
-            .key("body");
-        let site = Site::new(
-            super::super::PackageReadStage::Graph,
-            45,
-            "timed_model",
-            path,
-        );
-        let mut legacy = WorkMeter::new(u64::MAX);
-        assert!(coprime("18446744073709551617", "1", &mut legacy, &at).unwrap());
-        let mut borrowed = WorkMeter::new(u64::MAX);
-        assert!(coprime_at("18446744073709551617", "1", &mut borrowed, site).unwrap());
-        assert_eq!(borrowed.consumed(), legacy.consumed());
-        // The first limb block is four bytes; the first digit then denies
-        // work. Its diagnostic pointer is independently affordable or not.
-        for allowance in [4, 4 + path.pointer_len() as u64] {
-            let mut budget =
-                super::super::NativeJoinBudget::new(0, 0).with_read_storage_limit(allowance);
-            let mut outcome = None;
-            let allocated = allocation_counter::measure(|| {
-                outcome = Some(coprime_at(
-                    "1",
-                    "1",
-                    &mut WorkMeter::over(&mut budget),
-                    site,
-                ));
-            });
-            let Err(ValidationFailure::Budget(stop)) = outcome.expect("ran") else {
-                panic!("work denial");
-            };
-            assert_eq!(stop.resource, super::super::PackageReadResource::Work);
-            assert_eq!(stop.amount, 1);
-            assert_eq!(allocated.bytes_total, budget.read_storage_consumed());
-            assert_eq!(
-                stop.path.as_ref().map(JsonPointer::as_str),
-                if allowance == 4 {
-                    None
-                } else {
-                    Some("/semantic_graph/nodes/45/body")
-                }
-            );
-        }
-    }
-
-    #[trace("TC-472", "FR-038-AC-511")]
-    #[test]
-    fn borrowed_gcd_keeps_legacy_first_unpaid_work_and_locus() {
+    fn reserved_gcd_work_denials_preserve_the_active_locus_and_pay_the_pointer() {
         use super::super::native_join_budget::{
             NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
         };
         let path = super::super::stage_storage::Path::root().key("scale");
-        let site = Site::new(PackageReadStage::Graph, 45, "timed_model", path);
+        let at = Site::new(PackageReadStage::Graph, 45, "timed_model", path);
         let original = NativeJoinLocus {
             source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 4),
             form: "scalar_type",
         };
-        let mut legacy =
-            super::super::NativeJoinBudget::new(1, 0).with_read_storage_limit(u64::MAX);
-        legacy.set_active_locus(Some(original));
-        assert!(coprime("1", "1", &mut WorkMeter::over(&mut legacy), &at).is_err());
-        for allowance in [
-            8,
-            8 + path.pointer_len() as u64 - 1,
-            8 + path.pointer_len() as u64,
-        ] {
-            let mut paid =
+        for allowance in [0, path.pointer_len() as u64 - 1, path.pointer_len() as u64] {
+            let mut budget =
                 super::super::NativeJoinBudget::new(1, 0).with_read_storage_limit(allowance);
-            paid.set_active_locus(Some(original));
+            budget.set_active_locus(Some(original));
             let mut outcome = None;
             let allocated = allocation_counter::measure(|| {
-                outcome = Some(coprime_at("1", "1", &mut WorkMeter::over(&mut paid), site))
+                outcome = Some(coprime("1", "1", &mut WorkMeter::over(&mut budget), at));
             });
-            let Err(ValidationFailure::Budget(stop)) = outcome.expect("ran") else {
-                panic!("work denial");
+            let Err(ValidationFailure::Budget(stop)) = outcome.unwrap() else {
+                panic!("work denial")
             };
-            assert_eq!(paid.first_unpaid(), legacy.first_unpaid());
-            assert_eq!(paid.first_unpaid_locus(), legacy.first_unpaid_locus());
-            assert_eq!(paid.first_unpaid_locus(), Some(original));
-            assert_eq!(allocated.bytes_total, paid.read_storage_consumed());
+            assert_eq!(stop.resource, super::super::PackageReadResource::Work);
+            assert_eq!(stop.amount, 1);
+            assert_eq!(budget.first_unpaid_locus(), Some(original));
+            assert_eq!(allocated.bytes_total, budget.read_storage_consumed());
             assert_eq!(
                 stop.path.as_ref().map(JsonPointer::as_str),
-                if allowance == 8 + path.pointer_len() as u64 {
-                    Some("/scale")
-                } else {
-                    None
-                }
+                (allowance == path.pointer_len() as u64).then_some("/scale")
             );
         }
     }
 
+    #[trace("TC-472", "FR-038-AC-516", "FR-038-AC-511")]
+    #[test]
+    fn reserved_multilimb_gcd_pays_every_parse_and_reduction_request() {
+        let numerator = "340282366920938463463374607431768211457";
+        let denominator = "340282366920938463463374607431768211459";
+        let run = |limit| {
+            let mut budget =
+                super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(coprime(
+                    numerator,
+                    denominator,
+                    &mut WorkMeter::over(&mut budget),
+                    at(),
+                ));
+            });
+            (result.unwrap(), allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert_eq!(result, Ok(true));
+        assert_eq!(allocated, budget.read_storage_consumed());
+        // Both parses and both GCD copies request six 32-bit limbs each.
+        assert_eq!(allocated, 4 * 6 * 4);
+        assert_eq!(run(allocated).0, Ok(true));
+        for limit in [23, 47, 71, 95] {
+            let (result, allocated, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+            assert_eq!(budget.first_unpaid_read_storage(), Some(24));
+            let locus = budget.first_unpaid_locus().unwrap();
+            assert_eq!(locus.form, "exact_number");
+            assert_eq!(
+                locus.source,
+                super::super::NativeJoinLocusSource::PackageRead(
+                    super::super::PackageReadStage::Graph,
+                    0
+                )
+            );
+        }
+        assert_eq!(
+            coprime(
+                "680564733841876926926749214863536422914",
+                numerator,
+                &mut WorkMeter::new(u64::MAX),
+                at()
+            ),
+            Ok(false)
+        );
+    }
+
     /// The rational a charge is reported at in these tests.
-    fn at() -> JsonPointer {
-        JsonPointer::root().key("scale")
+    fn at() -> Site<'static> {
+        Site::new(
+            super::super::PackageReadStage::Graph,
+            0,
+            "timed_model",
+            super::super::stage_storage::Path::root().key("scale"),
+        )
     }
 
     fn check(numerator: &str, denominator: &str) -> bool {
         let mut meter = WorkMeter::new(u64::MAX);
-        coprime(numerator, denominator, &mut meter, &at).expect("unbounded work")
+        coprime(numerator, denominator, &mut meter, at()).expect("unbounded work")
     }
 
     #[trace("TC-048", "FR-038-AC-121")]
@@ -404,7 +266,7 @@ mod tests {
 
     fn work_of(numerator: &str, denominator: &str) -> u64 {
         let mut meter = WorkMeter::new(u64::MAX);
-        coprime(numerator, denominator, &mut meter, &at).expect("unbounded work");
+        coprime(numerator, denominator, &mut meter, at()).expect("unbounded work");
         meter.consumed()
     }
 
@@ -412,32 +274,25 @@ mod tests {
     #[test]
     fn tc_048_charges_work_and_stops_at_the_limit() {
         let mut meter = WorkMeter::new(3);
-        assert!(coprime("12345", "7", &mut meter, &at).is_err());
+        assert!(coprime("12345", "7", &mut meter, at()).is_err());
 
-        // Exact and one-over budgets for a multi-limb decision, computed by
-        // hand for 2^64 + 1 over 1:
-        // - parse "18446744073709551617": digit 1 costs 1; digits 2..=11 see
-        //   one limb (10); digits 12..=20 see two limbs (9 * 2 = 18) => 29.
-        // - parse "1" => 1.
-        // - step 2^64 + 1 vs 1 (three limbs) => 3; left becomes 2^64.
-        // - halve 2^64 (three limbs) => 3; 2^63..=2^32 (two limbs) => 32 * 2;
-        //   2^31..=2^1 (one limb) => 31 => 98.
-        // - step 1 vs 1 => 1.
-        // Total 29 + 1 + 3 + 98 + 1 = 132; one unit per operation would be 87.
+        // The old digit/limb binary implementation cost 132 here. The new
+        // operand-size bound is 60 + 1 parse units plus 399 GCD units.
         let numerator = "18446744073709551617";
         let denominator = "1";
-        let exact = 132;
+        let exact = 460;
+        assert!(exact >= 132);
         assert_eq!(work_of(numerator, denominator), exact);
         let mut meter = WorkMeter::new(exact);
-        assert_eq!(coprime(numerator, denominator, &mut meter, &at), Ok(true));
+        assert_eq!(coprime(numerator, denominator, &mut meter, at()), Ok(true));
         let mut meter = WorkMeter::new(exact - 1);
         assert_eq!(
-            coprime(numerator, denominator, &mut meter, &at),
+            coprime(numerator, denominator, &mut meter, at()),
             Err(ValidationFailure::incomplete(
                 CheckedPackageLimit::Work,
                 exact - 1,
                 exact,
-                Some(at())
+                Some(at().at.build())
             ))
         );
     }
@@ -449,10 +304,10 @@ mod tests {
         // a long magnitude costs superlinearly more than its digit count.
         let digits = "9".repeat(2_000);
         let mut meter = WorkMeter::new(u64::MAX);
-        let limbs = Natural::parse(&digits, &mut meter, &at)
+        let limbs = parse(&digits, &mut meter, at())
             .expect("unbounded work")
-            .0
-            .len();
+            .magnitude_bits()
+            .div_ceil(32);
         assert!(limbs > 200, "{limbs} limbs");
         assert!(meter.consumed() > 100 * 2_000, "{}", meter.consumed());
 
@@ -461,17 +316,17 @@ mod tests {
         let budget = 1_000_000;
         let mut meter = WorkMeter::new(budget);
         assert!(matches!(
-            coprime(&huge, "1", &mut meter, &at),
+            coprime(&huge, "1", &mut meter, at()),
             Err(ValidationFailure::Incomplete(incomplete))
                 if incomplete.limit_kind == CheckedPackageLimit::Work
                     && incomplete.limit == 1_000_000
-                    && incomplete.path == Some(at())
+                    && incomplete.path == Some(at().at.build())
         ));
     }
 
     fn compare(left: (&str, &str), right: (&str, &str)) -> Ordering {
         let mut meter = WorkMeter::new(u64::MAX);
-        compare_rationals(left, right, &mut meter, &at).expect("unbounded work")
+        compare_rationals(left, right, &mut meter, at()).expect("unbounded work")
     }
 
     /// The cross-multiplied comparison is exact beyond 64 bits and orders
@@ -504,17 +359,17 @@ mod tests {
         let right = ("18446744073709551616", "3");
         let mut meter = WorkMeter::new(u64::MAX);
         assert_eq!(
-            compare_rationals(left, right, &mut meter, &at),
+            compare_rationals(left, right, &mut meter, at()),
             Ok(Ordering::Greater)
         );
         let exact = meter.consumed();
         assert!(exact > 0);
         let mut meter = WorkMeter::new(exact - 1);
         assert!(matches!(
-            compare_rationals(left, right, &mut meter, &at),
+            compare_rationals(left, right, &mut meter, at()),
             Err(ValidationFailure::Incomplete(incomplete))
                 if incomplete.limit_kind == CheckedPackageLimit::Work
-                    && incomplete.path == Some(at())
+                    && incomplete.path == Some(at().at.build())
         ));
     }
 }

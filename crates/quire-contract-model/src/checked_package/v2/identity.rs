@@ -1995,7 +1995,14 @@ fn validate_dimension_equivalence(
         }),
         || site.pointer(),
     )?;
-    validate_rational(&equivalence.root_scale, meter, &|| site.pointer())?;
+    validate_rational(
+        &equivalence.root_scale,
+        meter,
+        super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(site.position),
+    )?;
     require(site.node.semantic_type == site.node.node_id, || {
         site.pointer()
     })?;
@@ -2925,21 +2932,41 @@ fn positive_integer(value: &str) -> bool {
 fn validate_rational(
     rational: &CheckedRational,
     meter: &mut WorkMeter,
-    at: &dyn Fn() -> JsonPointer,
+    at: super::stage_storage::Path<'_>,
 ) -> Result<(), ValidationFailure> {
     validate_rational_parts(&rational.numerator, &rational.denominator, meter, at)
 }
 
-/// Shared signed exact-rational syntax and metered reduction check.
+/// Shared signed exact-rational syntax and reserved reduction check.
 pub(super) fn validate_rational_parts(
     numerator: &str,
     denominator: &str,
     meter: &mut WorkMeter,
-    at: &dyn Fn() -> JsonPointer,
+    at: super::stage_storage::Path<'_>,
 ) -> Result<(), ValidationFailure> {
-    let numerator = integer_magnitude(numerator).ok_or_else(|| invalid(at().key("numerator")))?;
-    require(positive_integer(denominator), || at().key("denominator"))?;
-    require(coprime(numerator.digits, denominator, meter, at)?, at)
+    let fail = |meter: &mut WorkMeter, path| {
+        super::stage_storage::refuse(
+            meter,
+            &super::natural::site(meter, path),
+            super::stage_storage::Refusal::new(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                path,
+            ),
+        )
+    };
+    let numerator = integer_magnitude(numerator).ok_or_else(|| fail(meter, at.key("numerator")))?;
+    if !positive_integer(denominator) {
+        return Err(fail(meter, at.key("denominator")));
+    }
+    if !coprime(
+        numerator.digits,
+        denominator,
+        meter,
+        super::natural::site(meter, at),
+    )? {
+        return Err(fail(meter, at));
+    }
+    Ok(())
 }
 
 fn validate_enum_declaration(
@@ -3099,8 +3126,26 @@ fn validate_unit(
         ),
         || site.nominal_member(&["dimension_node_id"]),
     )?;
-    validate_rational(&unit.scale, meter, &|| site.nominal_member(&["scale"]))?;
-    validate_rational(&unit.offset, meter, &|| site.nominal_member(&["offset"]))?;
+    validate_rational(
+        &unit.scale,
+        meter,
+        super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(site.position)
+            .key("body")
+            .key("scale"),
+    )?;
+    validate_rational(
+        &unit.offset,
+        meter,
+        super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(site.position)
+            .key("body")
+            .key("offset"),
+    )?;
     require(node.semantic_type == &unit.dimension_node_id, || {
         site.member("semantic_type")
     })?;
