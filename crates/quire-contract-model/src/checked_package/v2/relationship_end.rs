@@ -393,7 +393,7 @@ pub(super) mod tests {
 
     /// The graph position of `id`.
     fn at(package: &CheckedPackageV2, id: &CheckedNodeId) -> usize {
-        package.node_index[id]
+        package.node_position(id).expect("indexed node")
     }
 
     fn operation<'a>(
@@ -402,7 +402,7 @@ pub(super) mod tests {
     ) -> &'a mut Value {
         let position = at(package, &ids[&'7']);
         let super::super::CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.terms)[position]
+            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body
         else {
             panic!("admitted reaches application term");
         };
@@ -495,7 +495,7 @@ pub(super) mod tests {
                 "declaration node no longer has the declaration shape",
                 Box::new(|p, ids| {
                     let position = at(p, &ids[&'c']);
-                    std::sync::Arc::make_mut(&mut p.terms)[position] = CheckedTerm::Aggregate {
+                    std::sync::Arc::make_mut(&mut p.wire).semantic_graph.nodes[position].body = CheckedTerm::Aggregate {
                         members: vec![CheckedTerm::Reference {
                             target: ids[&'1'].clone(),
                         }],

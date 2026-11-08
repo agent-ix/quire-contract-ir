@@ -1,88 +1,73 @@
-//! An exact, structurally shared identity index for admitted dependency closures.
+//! An exact index of an admitted package's dependency closure.
 
-use super::{CheckedDependencySelection, CheckedPackageV2};
-use std::collections::{BTreeMap, BTreeSet};
+use super::read_charge::{self, Site};
+use super::{CheckedPackageV2, NativeJoinBudget, PackageReadStage};
+use crate::checked_package::common::ValidationFailure;
 use std::sync::Arc;
 
-#[derive(Clone, Default)]
-struct Node {
-    package: Option<Arc<CheckedPackageV2>>,
-    children: BTreeMap<u8, Arc<Self>>,
-}
-
-impl Drop for Node {
-    fn drop(&mut self) {
-        let mut pending: Vec<_> = std::mem::take(&mut self.children).into_values().collect();
-        while let Some(child) = pending.pop() {
-            if let Ok(mut unique) = Arc::try_unwrap(child) {
-                pending.extend(std::mem::take(&mut unique.children).into_values());
-            }
-        }
-    }
-}
-
-/// A persistent byte trie. Extending a one-edge chain copies only the new
-/// identity's path; ancestor packages share every other node.
+/// The packages reachable through a package's direct dependencies, one per
+/// identity, sorted by package name and searched by binary search.
 #[derive(Clone, Default)]
 pub(super) struct ClosureIndex {
-    root: Arc<Node>,
+    /// `None` when the closure is empty, which owns no heap.
+    packages: Option<Arc<[Arc<CheckedPackageV2>]>>,
+}
+
+/// The bytes of the block `Arc<[T]>` requests for `count` items: the strong
+/// and weak counts and the items.
+fn arc_slice_bytes<T>(count: usize) -> u128 {
+    let align = std::mem::align_of::<T>().max(std::mem::align_of::<usize>());
+    let bytes = 2 * std::mem::size_of::<usize>() + count.saturating_mul(std::mem::size_of::<T>());
+    bytes.next_multiple_of(align) as u128
 }
 
 impl ClosureIndex {
     pub(super) fn get(&self, identity: &str) -> Option<&Arc<CheckedPackageV2>> {
-        let mut node = self.root.as_ref();
-        for byte in identity.bytes() {
-            node = node.children.get(&byte)?.as_ref();
-        }
-        node.package.as_ref()
+        let packages = self.packages.as_deref()?;
+        packages
+            .binary_search_by(|package| package.name().cmp(identity))
+            .ok()
+            .map(|position| &packages[position])
     }
 
-    fn insert(&mut self, identity: &str, package: &Arc<CheckedPackageV2>) {
-        let mut ancestors = Vec::with_capacity(identity.len());
-        let mut node = Some(self.root.as_ref());
-        for byte in identity.bytes() {
-            ancestors.push((node, byte));
-            node = node.and_then(|parent| parent.children.get(&byte).map(AsRef::as_ref));
-        }
-        let mut replacement = Arc::new(Node {
-            package: Some(Arc::clone(package)),
-            children: node.map(|leaf| leaf.children.clone()).unwrap_or_default(),
-        });
-        for (parent, byte) in ancestors.into_iter().rev() {
-            let mut copy = parent.cloned().unwrap_or_default();
-            copy.children.insert(byte, replacement);
-            replacement = Arc::new(copy);
-        }
-        self.root = replacement;
+    fn len(&self) -> usize {
+        self.packages.as_deref().map_or(0, <[_]>::len)
     }
 
-    /// Builds the index after exact closure conflict validation. The common
-    /// one-direct-dependency case shares its child's index and adds one key.
-    pub(super) fn from_direct<'a>(
-        selections: &'a [CheckedDependencySelection],
-        packages: &'a [Arc<CheckedPackageV2>],
-    ) -> Self {
-        if let (Some(selection), [package]) = (selections.first(), packages) {
-            let mut index = package.closure_index.clone();
-            index.insert(&selection.identity, package);
-            return index;
+    fn iter(&self) -> impl Iterator<Item = &Arc<CheckedPackageV2>> {
+        self.packages.as_deref().unwrap_or_default().iter()
+    }
+
+    /// Builds the index after exact closure conflict validation: every direct
+    /// package and each package its own closure holds, once per identity. The
+    /// candidate list and the index are charged to `budget` before they are
+    /// allocated.
+    pub(super) fn from_direct(
+        packages: &[Arc<CheckedPackageV2>],
+        budget: &mut NativeJoinBudget,
+    ) -> Result<Self, ValidationFailure> {
+        if packages.is_empty() {
+            return Ok(Self::default());
         }
-        let mut index = Self::default();
-        let mut seen = BTreeSet::new();
-        let mut pending: Vec<_> = selections.iter().zip(packages).collect();
-        while let Some((selection, package)) = pending.pop() {
-            if !seen.insert(selection.identity.as_ref()) {
-                continue;
-            }
-            index.insert(&selection.identity, package);
-            pending.extend(
-                package
-                    .lock()
-                    .dependency_selections
-                    .iter()
-                    .zip(&package.direct_dependencies),
-            );
+        let site = Site::new(PackageReadStage::Retained, 0, "closure_index");
+        let candidates = packages
+            .iter()
+            .fold(0usize, |sum, package| {
+                sum.saturating_add(1)
+                    .saturating_add(package.closure_index.len())
+            });
+        let mut unique: Vec<&Arc<CheckedPackageV2>> =
+            read_charge::with_capacity(budget, site, candidates)?;
+        for package in packages {
+            unique.push(package);
+            unique.extend(package.closure_index.iter());
         }
-        index
+        unique.sort_unstable_by(|left, right| left.name().cmp(right.name()));
+        unique.dedup_by(|left, right| left.name() == right.name());
+        read_charge::charge(budget, site, arc_slice_bytes::<Arc<CheckedPackageV2>>(unique.len()))?;
+        let packages: Arc<[Arc<CheckedPackageV2>]> = unique.iter().copied().cloned().collect();
+        Ok(Self {
+            packages: Some(packages),
+        })
     }
 }

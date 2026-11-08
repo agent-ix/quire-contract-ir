@@ -2107,7 +2107,7 @@ impl CheckedPackageV2 {
                 0,
             ));
         }
-        let Some(&position) = self.node_index.get(application) else {
+        let Some(position) = self.node_position(application) else {
             return Err(read_error(
                 work,
                 AdmittedEqualityReadErrorCode::UnknownApplication,
@@ -2129,7 +2129,7 @@ impl CheckedPackageV2 {
             operator: ApplicationOperator::Binary,
             operation,
             ..
-        }) = self.terms.get(position)
+        }) = self.term_at(position)
         else {
             return Err(read_error(
                 work,
@@ -2154,11 +2154,7 @@ impl CheckedPackageV2 {
             application,
             super::native_join_storage::node(application),
         )?;
-        let source_position = self.source_index.get(&(
-            application.clone(),
-            occurrence.role.clone(),
-            occurrence.ordinal,
-        ));
+        let source_position = self.source_position(application, &occurrence.role, occurrence.ordinal);
         if !self.wire.semantic_graph.nodes[position]
             .occurrences
             .contains(occurrence)
@@ -2229,25 +2225,24 @@ impl CheckedPackageV2 {
                 &candidate.application,
                 super::native_join_storage::node(&candidate.application),
             )?;
-            let candidate_source = self.source_index.get(&(
-                candidate.application.clone(),
-                candidate.occurrence.role.clone(),
+            let candidate_source = self.source_position(
+                &candidate.application,
+                &candidate.occurrence.role,
                 candidate.occurrence.ordinal,
-            ));
+            );
             for _ in &candidate.source_map_entry.regions {
                 charge_work(work, application, &candidate.application)?;
             }
             let candidate_valid =
-                self.node_index
-                    .get(&candidate.application)
+                self.node_position(&candidate.application)
                     .is_some_and(|position| {
-                        self.kinds.get(*position)
+                        self.kinds.get(position)
                             == Some(&CheckedNodeKind::Expression(ExpressionForm::Binary))
-                            && matches!(self.terms.get(*position), Some(CheckedTerm::Application {
+                            && matches!(self.term_at(position), Some(CheckedTerm::Application {
                         operator: ApplicationOperator::Binary, operation, ..
                     }) if operation.identity().and_then(equality_operator).is_some())
                     })
-                    && candidate_source.and_then(|position| self.wire.source_map.get(*position))
+                    && candidate_source.and_then(|position| self.wire.source_map.get(position))
                         == Some(&candidate.source_map_entry)
                     && *candidate.location.node() == candidate.node_key
                     && candidate.location.occurrence().ordinal() == candidate.occurrence.ordinal
