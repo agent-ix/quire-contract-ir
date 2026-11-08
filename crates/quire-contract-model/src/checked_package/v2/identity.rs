@@ -3209,7 +3209,6 @@ mod tests {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let mut meter = WorkMeter::over(&mut budget);
             let same = same_ids(expected.iter().copied(), expected.len(), actual, &mut meter).ok();
-            drop(meter);
             (same, budget.read_storage_consumed())
         };
         let cases: [(&[&CheckedNodeId], Vec<CheckedNodeId>); 5] = [
@@ -3222,13 +3221,12 @@ mod tests {
         let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
         let mut meter = WorkMeter::over(&mut budget);
         assert_eq!(meter.clone_id(&a).ok(), Some(a.clone()));
-        drop(meter);
         let spent = budget.read_storage_consumed();
         assert!(spent > 0, "a cloned id is charged");
         let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(spent - 1);
         assert!(WorkMeter::over(&mut short).clone_id(&a).is_err());
         for (expected, actual) in &cases {
-            let mut left: Vec<_> = expected.iter().copied().collect();
+            let mut left: Vec<_> = expected.to_vec();
             let mut right: Vec<_> = actual.iter().collect();
             left.sort();
             right.sort();
@@ -3801,7 +3799,7 @@ mod tests {
             });
             let complete = read.len() == handles.len();
             (
-                complete.then(|| read.len()),
+                complete.then_some(read.len()),
                 measured.bytes_total,
                 budget.read_storage_consumed(),
                 budget.first_unpaid_locus(),

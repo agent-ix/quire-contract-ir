@@ -786,9 +786,9 @@ mod tests {
         ));
         let required = measured.read_storage_consumed();
         assert!(required > 0);
-        let (exact, _) = join.run_budgeted(u64::try_from(required).expect("fits"));
+        let (exact, _) = join.run_budgeted(required);
         assert!(matches!(exact, Err(ValidationFailure::Refused(_))));
-        let (short, mut budget) = join.run_budgeted(u64::try_from(required).expect("fits") - 1);
+        let (short, mut budget) = join.run_budgeted(required - 1);
         assert!(
             matches!(short, Err(ValidationFailure::Budget(_))),
             "{short:?}"

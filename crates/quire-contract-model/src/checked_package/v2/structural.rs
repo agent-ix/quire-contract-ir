@@ -2340,11 +2340,8 @@ mod tests {
             &structural,
             &mut meter,
         )
-        .ok()
         .expect("keys build");
-        let order = DependencyKeyOrder::new(&keys, &mut meter)
-            .ok()
-            .expect("order builds");
+        let order = DependencyKeyOrder::new(&keys, &mut meter).expect("order builds");
         assert_eq!(
             order
                 .matches(&actual, &expected, &index, &structural, &mut meter)
@@ -2464,7 +2461,6 @@ mod tests {
                 crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let mut meter = WorkMeter::over(&mut budget);
             let joined = application_dependencies(&term, &mut meter);
-            drop(meter);
             (joined.ok(), budget.read_storage_consumed())
         };
         let (found, spent) = measure(u64::MAX);
