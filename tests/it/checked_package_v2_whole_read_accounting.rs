@@ -17,6 +17,8 @@ mod qspec_option_inputs;
 mod qspec_protocol_location_inputs;
 #[path = "support/qspec_text_inputs.rs"]
 mod qspec_text_inputs;
+#[path = "support/qspec_tuple_inputs.rs"]
+mod qspec_tuple_inputs;
 use crate::support::checked_package::{
     canonical, evidence_for, index_fixture_node_ids, positive_operation_identities, settle,
     v2_all_families, v2_nominal,
@@ -597,6 +599,46 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
         providers.insert(format!("conformance_qspec/model_option_types.rs: model-option-type-vectors.json#/intake_cases#{id}"));
         cases.push(Case {
             label: format!("QSpec/option/{id}"),
+            bytes: canonical(&wire),
+            evidence,
+            expected,
+        });
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple/union vectors");
+    assert_eq!(vectors["base"], "fixtures/positive-model-tuple-union.json");
+    let base = qspec_inputs::read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published tuple/union base");
+    let selected = qspec_inputs::read_json(&proposal.join(qspec_inputs::positive_document(
+        "positive-model-tuple-union.json",
+        &selections,
+    )))
+    .expect("selected tuple/union document");
+    for row in vectors["wire_cases"]
+        .as_array()
+        .expect("tuple/union wire cases")
+    {
+        let id = row["id"].as_str().expect("tuple/union case id");
+        let mut wire = base.clone();
+        for patch in row["patch"].as_array().expect("tuple/union patches") {
+            qspec_tuple_inputs::apply_wire_patch(&mut wire, patch);
+        }
+        let expected = match row["outcome"].as_str().expect("tuple/union outcome") {
+            "admitted" => Expected::Admitted,
+            outcome => Expected::Refused(
+                serde_json::from_value(Value::String(
+                    outcome
+                        .strip_prefix("refused:")
+                        .expect("published tuple/union refusal")
+                        .into(),
+                ))
+                .expect("published tuple/union code"),
+            ),
+        };
+        let evidence = qspec_tuple_inputs::selected_evidence(&selected);
+        providers.insert(format!("conformance_qspec/model_tuple_union.rs: model-tuple-union-vectors.json#/wire_cases#{id}"));
+        cases.push(Case {
+            label: format!("QSpec/tuple-union/wire/{id}"),
             bytes: canonical(&wire),
             evidence,
             expected,
