@@ -961,23 +961,30 @@ fn check_bounded_dimensions(
         return None;
     };
     let arguments = admitted_arguments(application, graph)?;
-    let types = arguments
-        .iter()
-        .map(|argument| operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index))
-        .collect::<Option<Vec<_>>>()?;
-    if !types
-        .iter()
+    let types = || {
+        arguments.iter().map(|argument| {
+            operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index)
+        })
+    };
+    // As before, an unresolved operand leaves this check inapplicable before
+    // any dimension comparison. Borrow resolved IDs without a temporary Vec.
+    if types().any(|type_id| type_id.is_none()) {
+        return None;
+    }
+    if !types()
+        .flatten()
         .any(|type_id| bounded_unit(type_id, graph).is_some())
         && bounded_unit(result_type, graph).is_none()
     {
         return None;
     }
-    let first = types
-        .first()
+    let first = types()
+        .next()
+        .flatten()
         .and_then(|type_id| quantity_unit(type_id, graph))?;
     let first_dimension = &graph.nodes[*graph.index.get(first)?].semantic_type;
-    let operand_mismatch = types
-        .iter()
+    let operand_mismatch = types()
+        .flatten()
         .skip(1)
         .filter_map(|type_id| quantity_unit(type_id, graph))
         .filter_map(|unit| graph.index.get(unit))
