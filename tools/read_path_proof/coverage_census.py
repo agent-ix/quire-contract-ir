@@ -10,6 +10,7 @@ The trusted test helpers retain their original source and semantic oracles.
 """
 
 import argparse
+from functools import lru_cache
 import json
 from pathlib import Path
 import re
@@ -64,7 +65,13 @@ def tally(export, root):
         raise CensusError("expected the compiler's full llvm-cov JSON export")
     if not export.get("data"):
         raise CensusError("empty compiler coverage export")
+    root = root.resolve()
+    @lru_cache(maxsize=None)
+    def source_identity(filename):
+        path = Path(filename)
+        return (path if path.is_absolute() else root / path).resolve()
     wanted = {**BOUNDARIES, **PRODUCTION}
+    source_paths = {key: source_identity(key[0]) for key in wanted}
     result = {key: 0 for key in wanted}
     definitions = {key: function_line((root / key[0]).read_text(), key[1])
                    for key in wanted}
@@ -83,11 +90,11 @@ def tally(export, root):
                 continue
             for key in wanted:
                 file, source_name = key
+                if not symbol_mentions(name, source_name):
+                    continue
                 files = function.get("filenames", [])
-                matching = [i for i, filename in enumerate(files)
-                            if (Path(filename) if Path(filename).is_absolute() else root / filename).resolve()
-                            == (root / file).resolve()]
-                if not matching or not symbol_mentions(name, source_name):
+                matching = [i for i, filename in enumerate(files) if source_identity(filename) == source_paths[key]]
+                if not matching:
                     continue
                 # Region file ids are compiler supplied. Require this exact
                 # source definition, not an equally named function elsewhere.

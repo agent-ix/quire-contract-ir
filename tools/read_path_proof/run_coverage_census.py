@@ -205,7 +205,11 @@ def select_original_tests(compiled, selectors, controls=False, class_controls=Fa
 
 def selection_metadata(args):
     selected = bool(getattr(args, "original_test", []))
-    return {"scope": "selected-only original tests" if selected else "declared original corpus",
+    scope = ("selected-only original tests" if selected else
+             "minimal canonical class-denial controls only" if getattr(args, "class_controls", False) else
+             "executed malformed-input reader entry controls only" if getattr(args, "controls", False) else
+             "declared original corpus")
+    return {"scope": scope,
             "full_corpus": False,
             "complete_declared_inventory": not selected and not getattr(args,"controls",False) and not getattr(args,"class_controls",False)}
 
@@ -533,6 +537,9 @@ def complete_full_manifest(manifest_path):
     manifest = json.loads(manifest_path.read_text())
     if manifest.get("schema") != "ac511-full-completion/v1":
         raise RunError("missing full-completion manifest schema")
+    if not isinstance(manifest.get("runs"), list) or len(manifest["runs"]) != 2:
+        raise RunError("full completion requires exactly two retained original corpus runs")
+    repo = Path(manifest["repo"]).resolve()
     bundle = {"schema": manifest["schema"], "runs": []}
     for directory in manifest.get("runs", []):
         directory = Path(directory).resolve()

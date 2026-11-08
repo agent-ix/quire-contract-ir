@@ -5,6 +5,7 @@
 import copy
 from pathlib import Path
 import unittest
+import tempfile
 
 import coverage_census as census
 
@@ -70,6 +71,22 @@ class ActualEntryCensus(unittest.TestCase):
         next(row for row in data["data"][0]["functions"] if "read_with_budget" in row["name"])["count"] += 1
         with self.assertRaisesRegex(census.CensusError, "unaccounted budgeted"):
             census.check(data, ROOT)
+
+    def test_relative_and_symlink_source_aliases_keep_exact_identity_per_call(self):
+        data = export_counts()
+        for row in data["data"][0]["functions"]:
+            row["filenames"] = [str(Path(name).relative_to(ROOT)) for name in row["filenames"]]
+        self.assertEqual(census.check(data, ROOT)["budgeted"], 38)
+        with tempfile.TemporaryDirectory() as directory:
+            link = Path(directory) / "source-alias.rs"
+            link.symlink_to(ROOT / "tests/it/support/qspec_read_proof.rs")
+            data["data"][0]["functions"][0]["filenames"] = [str(link)]
+            self.assertEqual(census.check(data, ROOT)["measured_plain"], 3)
+            foreign = Path(directory) / "qspec_read_proof.rs"
+            foreign.write_text("fn read_and_account() {}")
+            link.unlink(); link.symlink_to(foreign)
+            with self.assertRaisesRegex(census.CensusError, "missing compiled function"):
+                census.check(data, ROOT)
 
     def test_equal_suffix_in_other_source_tree_cannot_supply_boundary(self):
         data = export_counts()

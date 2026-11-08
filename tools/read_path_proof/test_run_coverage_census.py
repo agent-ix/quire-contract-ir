@@ -3,6 +3,7 @@
 
 """Artifact custody and execution resource controls; no compiler proof claim."""
 import gzip
+import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -38,6 +39,21 @@ class OriginalSelection(unittest.TestCase):
         metadata = runner.selection_metadata(SimpleNamespace(original_test=[], controls=False, class_controls=False))
         self.assertTrue(metadata["complete_declared_inventory"])
         self.assertFalse(metadata["full_corpus"])
+
+
+class CompletionCustody(unittest.TestCase):
+    def test_empty_completion_manifest_cannot_emit_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "manifest.json"
+            manifest.write_text(json.dumps({"schema":"ac511-full-completion/v1", "runs":[]}))
+            with self.assertRaisesRegex(runner.RunError, "exactly two"):
+                runner.complete_full_manifest(manifest)
+
+    def test_support_controls_are_explicitly_scoped_without_corpus_credit(self):
+        metadata = runner.selection_metadata(SimpleNamespace(controls=True, class_controls=False))
+        self.assertEqual(metadata["scope"], "executed malformed-input reader entry controls only")
+        self.assertFalse(metadata["full_corpus"])
+        self.assertFalse(metadata["complete_declared_inventory"])
 
 
 class ArtifactCustody(unittest.TestCase):
