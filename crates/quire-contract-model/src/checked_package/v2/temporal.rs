@@ -35,10 +35,10 @@ use super::operations::{resolve_family, OperationWire};
 use super::structural::reference_target;
 use super::{
     member_pointer, ApplicationOperator, CheckedDiagnosticV2, CheckedNodeKind,
-    CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm, CheckedTermView, ClockConfiguration,
-    FairnessGranularity, FairnessKind, HybridForm, IntervalEnd, IntervalFit, LawRole, ModelForm,
-    OperationMemberKind, RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalBinding, TemporalForm,
-    TemporalProfile, ValueForm, WorkMeter,
+    CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm, CheckedTermView, ClaimForm,
+    ClockConfiguration, FairnessGranularity, FairnessKind, HybridForm, IntervalEnd, IntervalFit,
+    LawRole, ModelForm, OperationMemberKind, RawSemanticNodeV2 as CheckedSemanticNodeV2,
+    TemporalBinding, TemporalForm, TemporalProfile, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -623,8 +623,15 @@ enum Slot {
     Formula,
     /// The members of a clause's fairness argument.
     FairnessList,
-    /// A `temporal`/`fairness` node: a member of a clause's fairness argument.
+    /// A `temporal`/`fairness` node: a member of a clause's fairness argument,
+    /// or a `reference` member of a hyperproperty quantifier Group.
     Fairness,
+    /// The members of a hyperproperty claim's body root.
+    HyperMembers,
+    /// The Tuple a hyperproperty claim's `quantifiers` binding holds.
+    Quantifiers,
+    /// One quantifier Group of that Tuple.
+    QuantifierGroup,
 }
 
 /// The slot of argument `index` of the application at the root of a node of
@@ -722,10 +729,15 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                 }));
             }
             Some(CheckedTermView::Aggregate { members }) => {
-                let member = if slot == Slot::FairnessList {
-                    Slot::Fairness
-                } else {
-                    Slot::Other
+                let member = match slot {
+                    Slot::FairnessList | Slot::QuantifierGroup => Slot::Fairness,
+                    Slot::Quantifiers => Slot::QuantifierGroup,
+                    _ if is_root
+                        && self.kind == CheckedNodeKind::Claim(ClaimForm::Hyperproperty) =>
+                    {
+                        Slot::HyperMembers
+                    }
+                    _ => Slot::Other,
                 };
                 children.extend(
                     members
@@ -733,8 +745,13 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                         .map(|member_term| (member_term, false, member)),
                 );
             }
-            Some(CheckedTermView::Binding { value, .. }) => {
-                children.extend(std::iter::once((value, false, Slot::Other)));
+            Some(CheckedTermView::Binding { name, value }) => {
+                let slot = if slot == Slot::HyperMembers && name == "quantifiers" {
+                    Slot::Quantifiers
+                } else {
+                    Slot::Other
+                };
+                children.extend(std::iter::once((value, false, slot)));
             }
             Some(CheckedTermView::Reference { .. }) => {
                 let target = reference_target(term).and_then(|target| self.graph.node(&target));
@@ -759,6 +776,90 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
     fn exit(&mut self, (): ()) -> ControlFlow<ValidationFailure> {
         ControlFlow::Continue(())
     }
+}
+
+/// The `reference` members of every quantifier Group of a hyperproperty
+/// claim's body, as `(group, member, reference)` in body order. The temporal
+/// step has already placed each one (QSpec FR-370-AC-21).
+fn quantifier_references(body: &Value) -> Vec<(usize, usize, &Value)> {
+    let groups = aggregate_members(body)
+        .and_then(|members| members.get(3))
+        .and_then(|member| match CheckedTerm::view(member)? {
+            CheckedTermView::Binding {
+                name: "quantifiers",
+                value,
+            } => aggregate_members(value),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let mut references = Vec::new();
+    for (group, term) in groups.iter().enumerate() {
+        for (at, member) in aggregate_members(term)
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+        {
+            if matches!(
+                CheckedTerm::view(member),
+                Some(CheckedTermView::Reference { .. })
+            ) {
+                references.push((group, at, member));
+            }
+        }
+    }
+    references
+}
+
+/// The fairness check of the hyperproperty step (QSpec FR-402 "Reader order",
+/// check 4): each quantifier fairness reference's target must be an
+/// `operation` target (`invalid_model_binding`/`malformed-declaration`), and
+/// its operation must resolve on its declaring node as a clause's fairness
+/// member does. Every refusal is located at the reference.
+pub(super) fn validate_hyperproperty_fairness(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let graph = StepGraph {
+        nodes,
+        kinds,
+        index,
+        owners,
+    };
+    for (position, node) in graph.each(CheckedNodeKind::Claim(ClaimForm::Hyperproperty)) {
+        for (group, at, reference) in quantifier_references(&node.body) {
+            let Some((_, member)) = fairness_member(reference, &graph) else {
+                continue;
+            };
+            let refusal = if let super::CheckedFairnessTarget::Operation { declaration, name } =
+                &member.target
+            {
+                match resolve_fairness(declaration, name, &graph, meter)? {
+                    Ok(()) => continue,
+                    Err(failure) => failure.refusal,
+                }
+            } else {
+                ModelRefusal::malformed()
+            };
+            return Err(ValidationFailure::refused_at(
+                refusal.code,
+                node_pointer(position)
+                    .key("body")
+                    .key("members")
+                    .index(3)
+                    .key("value")
+                    .key("members")
+                    .index(group)
+                    .key("members")
+                    .index(at),
+                Some(refusal.cause),
+                node.node_id.clone(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The wire `operation` of the application at the root of `node`'s body.

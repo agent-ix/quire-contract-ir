@@ -3330,3 +3330,128 @@ fn tc_048_the_first_non_reduced_bound_is_the_lower_key_nodes() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// AC-519
+// ---------------------------------------------------------------------------
+
+fn text(value: &str) -> Value {
+    json!({"term": "literal", "type": node_id(&family_key("a1a1")),
+        "value_kind": "text", "value": value})
+}
+
+fn named(name: &str, value: Value) -> Value {
+    json!({"term": "binding", "name": name, "value": value})
+}
+
+fn aggregate(members: Vec<Value>) -> Value {
+    json!({"term": "aggregate", "members": members})
+}
+
+/// A quantifier Group of trace variable `variable` over alias `V`, holding
+/// `references` after its three bindings.
+fn group(variable: &str, references: Vec<Value>) -> Value {
+    let mut members = vec![
+        named("variable", text(variable)),
+        named("quantifier", text("forall")),
+        named("alias", text("V")),
+    ];
+    members.extend(references);
+    aggregate(members)
+}
+
+/// The model-enabled fixture with a `claim`/`hyperproperty` node over the
+/// selected package's `model_root` (QSpec FR-402), whose variable `a` holds one
+/// reference to a fairness node over `member`. The positions of the
+/// hyperproperty and fairness nodes.
+fn with_hyperproperty(member: Value) -> (Value, usize, usize) {
+    let mut package = v2_all_families();
+    select_profile(&mut package, INFINITE);
+    with_model(&mut package);
+    let fair = push(&mut package, fairness(member));
+    let root = json!({"term": "reference",
+        "target": {"package": ORDERS, "path": ["model", "model_root"], "ordinal": 0}});
+    let fair_key = node_label(&package, fair);
+    let body = aggregate(vec![
+        named("domain", text("behaviours")),
+        named("subjects", aggregate(vec![named("V", root)])),
+        named("parameters", aggregate(vec![])),
+        named(
+            "quantifiers",
+            aggregate(vec![group("a", vec![refer(&fair_key)]), group("b", vec![])]),
+        ),
+        named("match", aggregate(vec![])),
+        named("align_skip", aggregate(vec![])),
+        named("body", refer(&aaaa())),
+    ]);
+    let hyper = push(
+        &mut package,
+        node_with_key(&fresh(), "claim", "hyperproperty", body),
+    );
+    settle(&mut package);
+    (package, hyper, fair)
+}
+
+/// Puts a reference where the hyperproperty body may not hold it.
+type Mover = fn(&mut Value, Value);
+
+/// QSpec FR-370-AC-21 and FR-402-AC-5: a fairness reference in a quantifier
+/// Group is placed, a `model_root` subject admits, and a fairness reference
+/// anywhere else in the hyperproperty body refuses at the node.
+#[trace("TC-048", "FR-038-AC-519")]
+#[test]
+fn tc_048_a_quantifier_group_places_a_fairness_reference() {
+    let order = model_key(ORDER_NODE);
+    let (package, hyper, fair) = with_hyperproperty(fairness_member(&order, "scaled"));
+    admitted("fairness in a quantifier group", &package);
+
+    let fair_key = node_label(&package, fair);
+    let moves: [(&str, Mover); 3] = [
+        ("match", |body, reference| {
+            body["members"][4]["value"] = aggregate(vec![reference]);
+        }),
+        ("body target", |body, reference| {
+            body["members"][6]["value"] = reference;
+        }),
+        ("binding value", |body, reference| {
+            body["members"][3]["value"]["members"][0]["members"][3] = named("fair", reference);
+        }),
+    ];
+    for (case, place) in moves {
+        let mut moved = package.clone();
+        place(
+            &mut moved["semantic_graph"]["nodes"][hyper]["body"],
+            refer(&fair_key),
+        );
+        settle(&mut moved);
+        misplaced(case, &moved, hyper);
+    }
+
+    let mut formula_in_body = package.clone();
+    let formula_key = node_label(
+        &package,
+        find_identity(&package, &temporal_identity("eventually")),
+    );
+    formula_in_body["semantic_graph"]["nodes"][hyper]["body"]["members"][4]["value"] =
+        aggregate(vec![refer(&formula_key)]);
+    settle(&mut formula_in_body);
+    misplaced("formula reference", &formula_in_body, hyper);
+}
+
+/// QSpec FR-402-AC-7: the hyperproperty step re-checks the operation target of
+/// each quantifier fairness reference, at the reference.
+#[trace("TC-048", "FR-038-AC-519")]
+#[test]
+fn tc_048_a_quantifier_fairness_reference_resolves_its_operation() {
+    let order = model_key(ORDER_NODE);
+    let reference = |hyper: usize| at_node(hyper, "/body/members/3/value/members/0/members/3");
+
+    let (package, hyper, _) = with_hyperproperty(fairness_member(&order, "absent"));
+    expect(
+        "no such operation",
+        &package,
+        Code::MissingDeclaration,
+        Cause::MissingName,
+        &reference(hyper),
+    );
+}

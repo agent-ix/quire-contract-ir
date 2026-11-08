@@ -2832,6 +2832,17 @@ clause's `timestamp_unit` naming the `ms` identity. Require admission. Then
 type `upper` by the `s` node and require `ill_typed`/`unit-mismatch` at that
 bound's value.
 
+## Hyperproperty quantifier fairness (FR-038-AC-519)
+
+Add a `claim`/`hyperproperty` node whose `subjects` binding references the
+selected package's `model_root` node and whose first quantifier Group holds one
+reference to a `temporal`/`fairness` node over an `Order` operation. Require
+admission. Move that reference into `match`, into `body` and into a Group
+`binding`, and reference a `temporal`/`formula` node from `match`; require
+`ill_typed`/`operator-ineligible` at the hyperproperty node for each. Name an
+operation `Order` does not declare and require `missing_declaration`/
+`missing-name` at the reference.
+
 ## Anonymous Map type admission (FR-038-AC-488 through FR-038-AC-491)
 
 Status: IMPLEMENTED (IR-1356; focused reader and QSpec MT controls pass). Read QSpec's current

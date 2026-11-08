@@ -3512,6 +3512,7 @@ fn validate_graph(
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, meter)?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    temporal::validate_hyperproperty_fairness(&graph.nodes, &kinds, &index, &owners, meter)?;
     refinement::validate_step_rows(
         &graph.nodes,
         &kinds,
