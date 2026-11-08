@@ -1622,7 +1622,7 @@ fn check_hyper_fairness(
     };
     let binding_value = |at: usize, wanted: &str| match members
         .get(at)
-        .and_then(|member| CheckedTerm::view(member))
+        .and_then(CheckedTerm::view)
     {
         Some(CheckedTermView::Binding { name, value }) if name == wanted => Some(value),
         _ => None,
