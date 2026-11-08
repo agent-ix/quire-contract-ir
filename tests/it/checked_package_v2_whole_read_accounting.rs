@@ -64,6 +64,126 @@ fn positive(label: impl Into<String>, wire: Value) -> Case {
     case(label, wire, evidence, Expected::Admitted)
 }
 
+/// IR-native witness: uniformly scale the original response-claim times by
+/// (2^129 + 1) / 2^129. Odd authored numerators remain coprime to the
+/// power-of-two denominator, and every original timing inequality is retained.
+fn multilimb_schedulability_wire() -> Value {
+    let mut wire =
+        crate::checked_package_v2_schedulability::package("fixed-priority", true, true, 1);
+    fn scale(value: &mut Value) {
+        match value {
+            Value::Object(fields) => {
+                if fields.get("value_kind").and_then(Value::as_str) == Some("quantity") {
+                    let spelling = fields["value"].as_str().expect("quantity spelling");
+                    let numerator = match spelling {
+                        "3/2" => "2041694201525630780780247644590609268739",
+                        "5/2" => "3402823669209384634633746074317682114565",
+                        "7/2" => "4763953136893138488487244504044754960391",
+                        "17/2" => "11569600475311907757754736652680119189521",
+                        "19/2" => "12930729942995661611608235082407192035347",
+                        "0/1" => return,
+                        other => panic!("unexpected original time {other}"),
+                    };
+                    fields.insert(
+                        "value".into(),
+                        json!(format!(
+                            "{numerator}/1361129467683753853853498429727072845824"
+                        )),
+                    );
+                } else {
+                    for child in fields.values_mut() {
+                        scale(child);
+                    }
+                }
+            }
+            Value::Array(values) => {
+                for child in values {
+                    scale(child);
+                }
+            }
+            _ => {}
+        }
+    }
+    scale(&mut wire);
+    index_fixture_node_ids(&mut wire);
+    wire
+}
+
+/// A fractional variant of the existing native bounded-quantity constructor.
+/// Both endpoints have odd numerators and denominator 2^129, so canonical
+/// reduction reaches the actual reserved GCD path with two heap-sized inputs.
+fn multilimb_canonical_rational_wire() -> Value {
+    let (mut wire, _, _, _) = crate::checked_package_v2_map_type::nested_bounded_quantity_wire();
+    fn fractional(value: &mut Value) {
+        match value {
+            Value::String(text) => {
+                let numerator = match text.as_str() {
+                    "170141183460469231731687303715884105728" => {
+                        "680564733841876926926749214863536422913"
+                    }
+                    "680564733841876926926749214863536422913" => {
+                        "680564733841876926926749214863536422915"
+                    }
+                    _ => return,
+                };
+                *text = format!("{numerator}/680564733841876926926749214863536422912");
+            }
+            Value::Array(values) => {
+                for child in values {
+                    fractional(child);
+                }
+            }
+            Value::Object(fields) => {
+                for child in fields.values_mut() {
+                    fractional(child);
+                }
+            }
+            _ => {}
+        }
+    }
+    fractional(&mut wire);
+    index_fixture_node_ids(&mut wire);
+    wire
+}
+
+/// Reuse the nominal preimage constructor for an actual derived dimension,
+/// whose exponent 2^129 + 1 exceeds the SDK integer inline capacity.
+fn multilimb_dimension_wire() -> Value {
+    use crate::support::checked_package::{node_id, nominal_fixture_members, nominal_package};
+    let mut members = nominal_fixture_members();
+    let mut derived = members
+        .iter()
+        .find(|(v, _)| v["version"] == "quire.dimension-node/v1")
+        .expect("base dimension")
+        .0
+        .clone();
+    derived["qualified_declaration"] = json!(["Example", "WidePower"]);
+    derived["terms"] = json!([{"dimension_node_id":node_id("qualified:Example/Length"),"exponent":"680564733841876926926749214863536422913"}]);
+    members.push((derived, "qualified:Example/WidePower".into()));
+    nominal_package(&members)
+}
+
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-516")]
+#[test]
+fn native_multilimb_witnesses_admit_before_role_designation() {
+    use quire_contract_model::CheckedPackageReadLimits;
+    for (name, wire) in [
+        ("canonical rational", multilimb_canonical_rational_wire()),
+        ("schedulability bound", multilimb_schedulability_wire()),
+        ("dimension exponent", multilimb_dimension_wire()),
+    ] {
+        let result = crate::read_and_account(
+            &canonical(&wire),
+            CheckedPackageReadLimits::bounded(),
+            &evidence_for(&wire),
+        );
+        assert!(
+            matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+            "{name}: {result:?}"
+        );
+    }
+}
+
 /// The same wire and evidence preparation used by the original wide-bound
 /// native control. No additional normalization or replacement recipe.
 fn wide_bounded_quantity_case() -> Case {
