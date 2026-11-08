@@ -437,8 +437,12 @@ impl<'a> Cursor<'a> {
 /// `visit` returns [`ControlFlow::Break`].
 pub(super) fn visit_terms<'a, B>(
     root: &'a Value,
-    visit: impl FnMut(&'a Value) -> ControlFlow<B>,
-) -> ControlFlow<B> {
+    visit: impl FnMut(&'a Value) -> std::ops::ControlFlow<B>,
+) -> std::ops::ControlFlow<B> {
+    use quire_walk::{walk, Children, Walk};
+    use std::marker::PhantomData;
+    use std::ops::ControlFlow;
+
     struct Visit<'a, B, F>(F, PhantomData<fn(&'a Value) -> B>);
 
     impl<'a, B, F: FnMut(&'a Value) -> ControlFlow<B>> Walk for Visit<'a, B, F> {
@@ -470,6 +474,7 @@ mod tests {
     use crate::checked_package::common::Trail;
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
+    use std::ops::ControlFlow;
 
     fn leaf(name: &str) -> Value {
         json!({"term": "literal", "label": name})
