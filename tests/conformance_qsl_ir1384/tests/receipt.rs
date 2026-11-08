@@ -7,6 +7,7 @@
 
 use std::{env, fs, path::PathBuf};
 
+use ix_trace_rs::trace;
 use qsl_analyze::monitor_root::{
     emit_plan_root, AdmittedPlanAuthority, PlanAuthoritySelection, PlanAuthorityValidationCaps,
     PlanRoot, PlanRootRequest,
@@ -18,15 +19,15 @@ use qsl_semantics::check::TimeSourceKind;
 use qsl_semantics::library::LibraryName;
 use quire_contract_model::{
     read_checked_package, CheckedMonitorClock, CheckedNodeId, CheckedOccurrence,
-    CheckedOccurrenceRole, CheckedPackageDispatchResult, CheckedPackageReadLimits, CheckedPackageV2,
-    CheckedRational, NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource,
+    CheckedOccurrenceRole, CheckedPackageDispatchResult, CheckedPackageReadLimits,
+    CheckedPackageV2, CheckedRational, NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource,
     SelectedMonitorAuthorityComponent, SelectedMonitorAuthorityErrorCode,
     SelectedMonitorAuthorityRow, SelectedMonitorClosureRows, SelectedMonitorTimeSource,
-    SelectedMonitorTypeClosure, SelectedMonitorTypeClosureError, SelectedMonitorTypeClosureErrorCode,
+    SelectedMonitorTypeClosure, SelectedMonitorTypeClosureError,
+    SelectedMonitorTypeClosureErrorCode,
 };
 use quire_exact::{Cancel, Integer, Rational};
 use quire_observation::authority::{self, clock, progress, SubjectSelection};
-use ix_trace_rs::trace;
 use serde_json::{json, Value};
 
 #[path = "support/observation.rs"]
@@ -41,7 +42,8 @@ const LIMITS: CheckedPackageReadLimits = CheckedPackageReadLimits {
     work: 1_000_000_000,
 };
 
-const FORMULA: &str = "always (holds(c.versionNumber = 2) implies eventually[0 ms, 3 ms] holds(c.versionNumber = 3))";
+const FORMULA: &str =
+    "always (holds(c.versionNumber = 2) implies eventually[0 ms, 3 ms] holds(c.versionNumber = 3))";
 
 fn ratio(numerator: i64, denominator: i64) -> Rational {
     Rational::new(Integer::from(numerator), Integer::from(denominator)).expect("nonzero")
@@ -315,7 +317,11 @@ fn genuine_qsl_authority_binds_dense_and_tick_emissions() {
     let qsl = qsl_dir();
     let qsl = qsl.as_path();
     for (label, declaration, period) in [
-        ("tick", "time M tick M::ConfigVersion::attemptUpdate period 2 ms unit ms;", Some(("2", "1"))),
+        (
+            "tick",
+            "time M tick M::ConfigVersion::attemptUpdate period 2 ms unit ms;",
+            Some(("2", "1")),
+        ),
         ("dense", "time M dense unit ms;", None),
     ] {
         let emitted = emitted(qsl, declaration);
@@ -328,26 +334,49 @@ fn genuine_qsl_authority_binds_dense_and_tick_emissions() {
         let receipt = closure.authority();
         let plan = package.monitor_plans().next().unwrap();
         assert_eq!(receipt.clause(), plan.clause(), "{label}");
-        assert_eq!(receipt.order_value(), emitted.expected_order.as_slice(), "{label}");
+        assert_eq!(
+            receipt.order_value(),
+            emitted.expected_order.as_slice(),
+            "{label}"
+        );
         assert_eq!(
             receipt.progress_association(),
             emitted.expected_progress.as_slice(),
             "{label}"
         );
-        assert_eq!(receipt.occurrence(), receipt.clock().occurrence(), "{label}");
-        assert_eq!(receipt.occurrence().role, CheckedOccurrenceRole::Claim, "{label}");
-        assert_eq!(receipt.clock().clause(), plan.clause(), "{label}");
-        assert!(
-            matches!(receipt.clock().clock(), CheckedMonitorClock::ModelTime { .. }),
+        assert_eq!(
+            receipt.occurrence(),
+            receipt.clock().occurrence(),
             "{label}"
         );
-        assert_eq!(authority.checked_tick_period().map(|p| (&*p.numerator, &*p.denominator)), period);
+        assert_eq!(
+            receipt.occurrence().role,
+            CheckedOccurrenceRole::Claim,
+            "{label}"
+        );
+        assert_eq!(receipt.clock().clause(), plan.clause(), "{label}");
+        assert!(
+            matches!(
+                receipt.clock().clock(),
+                CheckedMonitorClock::ModelTime { .. }
+            ),
+            "{label}"
+        );
+        assert_eq!(
+            authority
+                .checked_tick_period()
+                .map(|p| (&*p.numerator, &*p.denominator)),
+            period
+        );
 
         // The exact measured work and storage allowance succeeds; one unit
         // below either refuses at a charge, with no closure.
         let spent = budget.consumed();
         let exact = &mut NativeJoinBudget::new(spent.work, spent.storage);
-        assert!(project(authority, package, &row, exact).is_ok(), "{label}: exact allowance");
+        assert!(
+            project(authority, package, &row, exact).is_ok(),
+            "{label}: exact allowance"
+        );
         let below = project(
             authority,
             package,
@@ -355,7 +384,11 @@ fn genuine_qsl_authority_binds_dense_and_tick_emissions() {
             &mut NativeJoinBudget::new(spent.work - 1, spent.storage),
         )
         .expect_err("one unit of work below the allowance");
-        assert_eq!(below.code, SelectedMonitorTypeClosureErrorCode::WorkLimit, "{label}");
+        assert_eq!(
+            below.code,
+            SelectedMonitorTypeClosureErrorCode::WorkLimit,
+            "{label}"
+        );
         let below = project(
             authority,
             package,
@@ -363,7 +396,11 @@ fn genuine_qsl_authority_binds_dense_and_tick_emissions() {
             &mut NativeJoinBudget::new(spent.work, spent.storage - 1),
         )
         .expect_err("one unit of storage below the allowance");
-        assert_eq!(below.code, SelectedMonitorTypeClosureErrorCode::StorageLimit, "{label}");
+        assert_eq!(
+            below.code,
+            SelectedMonitorTypeClosureErrorCode::StorageLimit,
+            "{label}"
+        );
     }
 }
 
@@ -382,19 +419,28 @@ fn mismatched_emissions_refuse_with_typed_authority_errors() {
     let genuine = ir_row(authority);
     let claim = CheckedOccurrence {
         role: CheckedOccurrenceRole::Claim,
-        ordinal: u64::from(authority.root().plan().subject().occurrence().origin().ordinal()),
+        ordinal: u64::from(
+            authority
+                .root()
+                .plan()
+                .subject()
+                .occurrence()
+                .origin()
+                .ordinal(),
+        ),
     };
-    let with = |clause: CheckedNodeId, occurrence: CheckedOccurrence, time: SelectedMonitorTimeSource| {
-        SelectedMonitorAuthorityRow::try_new(
-            authority.admission_binding(),
-            clause,
-            occurrence,
-            time,
-            authority.admitted_order(),
-            authority.progress_context(),
-        )
-        .unwrap()
-    };
+    let with =
+        |clause: CheckedNodeId, occurrence: CheckedOccurrence, time: SelectedMonitorTimeSource| {
+            SelectedMonitorAuthorityRow::try_new(
+                authority.admission_binding(),
+                clause,
+                occurrence,
+                time,
+                authority.admitted_order(),
+                authority.progress_context(),
+            )
+            .unwrap()
+        };
     let tick = |numerator: &str, denominator: &str| SelectedMonitorTimeSource::Tick {
         period: CheckedRational {
             numerator: numerator.into(),
@@ -417,36 +463,61 @@ fn mismatched_emissions_refuse_with_typed_authority_errors() {
     };
     let error = project(authority, &independent, &genuine, &mut big())
         .expect_err("equal bytes of another admission are foreign");
-    assert_eq!(code(&error), SelectedMonitorAuthorityErrorCode::ForeignEmission);
-    assert_eq!(error.at.as_deref(), Some(independent.monitor_plans().next().unwrap().node_id()));
+    assert_eq!(
+        code(&error),
+        SelectedMonitorAuthorityErrorCode::ForeignEmission
+    );
+    assert_eq!(
+        error.at.as_deref(),
+        Some(independent.monitor_plans().next().unwrap().node_id())
+    );
     assert!(error.work > 0);
 
     let other_clause = with(plan.state().clone(), claim.clone(), tick("2", "1"));
     let error = project(authority, package, &other_clause, &mut big()).expect_err("clause");
-    assert_eq!(code(&error), SelectedMonitorAuthorityErrorCode::ClauseMismatch);
+    assert_eq!(
+        code(&error),
+        SelectedMonitorAuthorityErrorCode::ClauseMismatch
+    );
     assert_eq!(error.at.as_deref(), Some(plan.node_id()));
 
-    let absent = CheckedOccurrence { role: CheckedOccurrenceRole::Claim, ordinal: claim.ordinal + 7 };
+    let absent = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Claim,
+        ordinal: claim.ordinal + 7,
+    };
     let other_occurrence = with(plan.clause().clone(), absent.clone(), tick("2", "1"));
     let error = project(authority, package, &other_occurrence, &mut big()).expect_err("ordinal");
-    assert_eq!(code(&error), SelectedMonitorAuthorityErrorCode::OccurrenceMismatch);
+    assert_eq!(
+        code(&error),
+        SelectedMonitorAuthorityErrorCode::OccurrenceMismatch
+    );
     assert_eq!(error.at.as_deref(), Some(plan.clause()));
     assert_eq!(error.occurrence, Some(absent));
 
     for (label, time) in [
-        ("dense row against a tick source", SelectedMonitorTimeSource::Dense),
+        (
+            "dense row against a tick source",
+            SelectedMonitorTimeSource::Dense,
+        ),
         ("different exact period", tick("3", "1")),
         ("different denominator", tick("2", "3")),
     ] {
         let wrong = with(plan.clause().clone(), claim.clone(), time);
         let error = project(authority, package, &wrong, &mut big()).expect_err(label);
-        assert_eq!(code(&error), SelectedMonitorAuthorityErrorCode::TimeSourceMismatch, "{label}");
+        assert_eq!(
+            code(&error),
+            SelectedMonitorAuthorityErrorCode::TimeSourceMismatch,
+            "{label}"
+        );
         assert_eq!(error.at.as_deref(), Some(plan.clause()), "{label}");
         assert_eq!(error.occurrence, Some(claim.clone()), "{label}");
         assert!(
             matches!(
                 error.denied_locus,
-                None | Some(NativeJoinLocus { source: NativeJoinLocusSource::MonitorSeed(_), .. })
+                None | Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::MonitorSeed(_),
+                    ..
+                })
             ),
             "{label}: {:?}",
             error.denied_locus
@@ -456,13 +527,19 @@ fn mismatched_emissions_refuse_with_typed_authority_errors() {
     // The foreign check precedes the clause check.
     let foreign_and_wrong = with(plan.state().clone(), claim.clone(), tick("2", "1"));
     let error = project(authority, &independent, &foreign_and_wrong, &mut big()).unwrap_err();
-    assert_eq!(code(&error), SelectedMonitorAuthorityErrorCode::ForeignEmission);
+    assert_eq!(
+        code(&error),
+        SelectedMonitorAuthorityErrorCode::ForeignEmission
+    );
 
     // The dense emission's authority refuses the tick emission's package.
     let dense = emitted(qsl, "time M dense unit ms;");
     let dense_row = ir_row(&dense.authority);
     let error = project(authority, package, &dense_row, &mut big()).unwrap_err();
-    assert_eq!(code(&error), SelectedMonitorAuthorityErrorCode::ForeignEmission);
+    assert_eq!(
+        code(&error),
+        SelectedMonitorAuthorityErrorCode::ForeignEmission
+    );
 
     // try_new refuses, in order, a non-claim role, an empty order and an empty association.
     let build = |role, order: &[u8], progress: &[u8]| {
@@ -490,4 +567,3 @@ fn mismatched_emissions_refuse_with_typed_authority_errors() {
         SelectedMonitorAuthorityComponent::ProgressAssociation
     );
 }
-
