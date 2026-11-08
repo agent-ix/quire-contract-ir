@@ -70,6 +70,20 @@ class CompletionCustody(unittest.TestCase):
         self.assertFalse(metadata["full_corpus"])
         self.assertFalse(metadata["complete_declared_inventory"])
 
+    def test_persisted_summary_keeps_counts_without_test_identity(self):
+        summary = runner.persisted_test_summary({
+            "intended_tests": ["module::case"],
+            "passed_tests": ["module::case"],
+            "failed_tests": [],
+            "ignored_tests": [],
+            "scope": "selected-only original tests",
+            "full_corpus": False,
+        })
+        self.assertEqual(summary["test_count"], 1)
+        self.assertEqual(summary["passed_count"], 1)
+        self.assertNotIn("module::case", json.dumps(summary))
+        self.assertNotIn("intended_tests", summary)
+
 
 class ArtifactCustody(unittest.TestCase):
     def test_archive_retains_entire_unfiltered_export_losslessly(self):
@@ -112,13 +126,16 @@ class ArtifactCustody(unittest.TestCase):
             args = SimpleNamespace(out=root, mode="sample", repo=root)
             with patch.object(runner, "LOCKED", []), patch.object(runner, "validate_snapshot"), patch.object(runner, "require_space"):
                 output, report, profiles, records = runner.execute_one(
-                    args, binary, {"source_head": "unit-artifact-control"}, {},
+                    args, binary, {}, {},
                     "original::red", 0, preserve_failure=True)
             self.assertEqual(report["exit_code"], 1)
             self.assertEqual(report["failed_tests"], ["original::red"])
             self.assertTrue(report["evidence_errors"])
             self.assertEqual(profiles[0].read_bytes(), b"profile-preserved")
-            self.assertIn("FAILED", (output / "run.log").read_text())
+            summary = json.loads((output / "test-report.json").read_text())
+            self.assertEqual(summary["failed_count"], 1)
+            self.assertFalse((output / "run.log").exists())
+            self.assertFalse((output / "driver-sites.jsonl").exists())
             self.assertEqual(records, [])
 
     def test_timeout_records_incomplete_and_terminates_only_owned_process(self):
@@ -129,12 +146,13 @@ class ArtifactCustody(unittest.TestCase):
             binary.chmod(0o700)
             args = SimpleNamespace(out=root,mode="sample",repo=root,test_timeout_seconds=0.05)
             with patch.object(runner,"LOCKED",[]), patch.object(runner,"validate_snapshot"), patch.object(runner,"require_space"):
-                output,report,_,_ = runner.execute_one(args,binary,{"source_head":"unit-artifact-control"},{},
+                output,report,_,_ = runner.execute_one(args,binary,{}, {},
                                                      "original::slow",0,preserve_failure=True)
             self.assertTrue(report["timed_out"])
             self.assertNotEqual(report["exit_code"],0)
             self.assertFalse(report["passed_tests"])
             self.assertTrue((output / "timeout.json").exists())
+            self.assertFalse((output / "run.log").exists())
             self.assertTrue(any("timeout; incomplete" in error for error in report["evidence_errors"]))
 
     def test_config_never_copies_registry_credentials(self):

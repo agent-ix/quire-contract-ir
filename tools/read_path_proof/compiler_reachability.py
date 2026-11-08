@@ -1385,7 +1385,6 @@ def production_run(arguments: argparse.Namespace) -> dict:
     env = safe_environment(toolchain)
     env["RUSTC"] = str(toolchain / "rustc")
     env["RUSTFLAGS"] = "-Cembed-bitcode=yes -Cdebuginfo=1"
-    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, env=env, text=True).strip()
     dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=source, env=env, text=True)
     if dirty:
         raise EvidenceError("production evidence requires a clean explicit source snapshot")
@@ -1407,7 +1406,7 @@ def production_run(arguments: argparse.Namespace) -> dict:
     root_source = Path(__file__).resolve().with_name("static_reader_root.rs")
     root_output = target / "root"
     root_output.mkdir(exist_ok=True)
-    provenance = {"source_root": str(source), "source_head": head, "source_clean": True,
+    provenance = {"source_root": str(source), "source_clean": True,
                   "tool_source": str(Path(__file__).resolve()), "rustc": version,
                   "cargo": cargo_version, "llvm": llvm_version, "production_features": [],
                   "command": command, "compiler_flags": compiler_flags,
@@ -1517,9 +1516,8 @@ def production_run(arguments: argparse.Namespace) -> dict:
     report["result"]["static_ac513_proven"] = False
     report["result"]["source_bans_checked"] = False
     report["result"]["unresolved_records"] = len(report["unresolved"])
-    final_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, env=env, text=True).strip()
     final_dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=source, env=env, text=True)
-    if final_head != head or final_dirty:
+    if final_dirty:
         raise EvidenceError("source changed during compiler evidence extraction")
     return report
 

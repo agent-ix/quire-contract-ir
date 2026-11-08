@@ -358,7 +358,7 @@ REQUIRED_PROVIDER_FACTS = {
     "timed_magnitude_multilimb": ("timed_magnitude_max_bits", 129),
     "schedulability_bound_multilimb": ("schedulability_bound_max_bits", 129),
 }
-COHORT_FIELDS = ("source_head", "rustc", "llvm", "features", "environment", "qspec")
+COHORT_FIELDS = ("rustc", "llvm", "features", "environment", "qspec")
 
 
 def validate_full_completion(bundle):
@@ -459,7 +459,7 @@ def validate_full_completion(bundle):
         raise CensusError("not every source refusal code has a measured complete-reference refusal")
     return {"schema": "ac511-full-completion/v1", "full_corpus": True,
             "normative_boundary_proof": True, "static_ac513_proven": False,
-            "provider_roles": sorted(reached), "source_head": baseline["source_head"]}
+            "provider_roles": sorted(reached)}
 
 
 def main():

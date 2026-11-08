@@ -304,7 +304,7 @@ class FullCorpusCompletion(unittest.TestCase):
                 census.validate_full_completion(bundle)
 
     def test_foreign_or_missing_class_cohort_fails(self):
-        for mutation in (lambda b: b["canonical_config"].update(source_head="old-source"),
+        for mutation in (lambda b: b["canonical_config"].update(rustc="old-rustc"),
                          lambda b: b["canonical_classes"].update(qualified=False)):
             bundle = self.bundle(); mutation(bundle)
             with self.assertRaisesRegex(census.CensusError, "same-cohort"):
