@@ -5,8 +5,6 @@
 //! canonical form identically regardless of which closed schema is decoded
 //! from the resulting value.
 
-mod closed_members;
-
 use super::shared::{push_index, push_key};
 use super::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit,
@@ -16,7 +14,6 @@ use super::shared::{
 use super::terms::{At, Cursor, TermSource};
 use super::v2::read_charge::{ReadStorage, Site};
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, NodeIdRead};
-use closed_members::ClosedMemberProvenance;
 use quire_walk::{Children, Walk};
 use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
@@ -602,22 +599,7 @@ pub(super) fn decode_closed_document<'d, T: Deserialize<'d>>(
     let outcome = match T::deserialize(context.root()) {
         Ok(decoded) => Ok(decoded),
         Err(_) if context.denied() => Err(None),
-        Err(_) => {
-            context.pause_charging();
-            let provenance = ClosedMemberProvenance::new();
-            Err(Some(
-                serde_path_to_error::deserialize::<_, T>(provenance.trace(context.root()))
-                    .err()
-                    .map_or_else(
-                        || {
-                            ValidationFailure::refused_bytes(
-                                CheckedPackageRefusalCode::MalformedWire,
-                            )
-                        },
-                        |error| classify_closed_error(error, provenance.unknown_member()),
-                    ),
-            ))
-        }
+        Err(_) => Err(Some(context.schema_failure())),
     };
     let at = context.denied_at();
     *budget = context.finish();
@@ -632,18 +614,6 @@ pub(super) fn decode_closed_document<'d, T: Deserialize<'d>>(
             other => other,
         }),
     }
-}
-
-fn classify_closed_error<E>(
-    error: serde_path_to_error::Error<E>,
-    unknown_member: bool,
-) -> ValidationFailure {
-    let code = if unknown_member {
-        CheckedPackageRefusalCode::UnknownMember
-    } else {
-        CheckedPackageRefusalCode::MalformedWire
-    };
-    ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
 }
 
 /// The decoder's position below `base` (the value it decoded) as a pointer.
