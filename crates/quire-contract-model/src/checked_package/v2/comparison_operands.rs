@@ -4,7 +4,6 @@
 //! Typed, clause-context operands of admitted direct integer comparisons.
 
 use super::model_fields::OperationTypes;
-use super::operation_catalog::operation_catalog;
 use super::structural::{
     reference_type_target_typed, typed_anchor_body, typed_clause_body, typed_reference,
 };
@@ -304,9 +303,8 @@ impl CheckedPackageV2 {
             ));
         }
         let body = self
-            .node_index
-            .get(clause)
-            .and_then(|&position| self.terms.get(position))
+            .position_of(clause)
+            .and_then(|position| self.terms.get(position))
             .and_then(typed_clause_body)
             .ok_or_else(|| {
                 context.error(Refusal::NotStateClause, Path::Clause, Some(clause.clone()))
@@ -375,7 +373,7 @@ impl CheckedPackageV2 {
                     Some(condition.clone()),
                 )
             })?;
-        if operation_catalog().entry(identity).is_none() {
+        if self.catalog.entry(identity).is_none() {
             return Err(context.error(
                 Refusal::UnknownOperator,
                 Path::Comparison,
@@ -780,6 +778,7 @@ mod tests {
             timed_model_roots: Vec::new(),
             node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
             structural_keys: Vec::new(),
+            slot_graph: Default::default(),
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),
@@ -796,6 +795,7 @@ mod tests {
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
             admission_binding: Default::default(),
         }
         .retain_original_admission();

@@ -154,7 +154,7 @@ impl<'v> OriginView<'v> {
 
 /// The shallow origin grammar has at most one branch; only its input list is
 /// variable-length. Charge its members and text bytes before validation/copy.
-fn charge_origin(value: &Value, budget: &mut Budget<'_>) -> Result<(), ValidationFailure> {
+fn charge_origin(value: &Value, budget: &mut Budget<'_, '_>) -> Result<(), ValidationFailure> {
     budget.charge(1)?;
     let Some(origin) = value.as_object() else {
         return Ok(());
@@ -185,7 +185,7 @@ fn charge_origin(value: &Value, budget: &mut Budget<'_>) -> Result<(), Validatio
 
 pub(super) fn retained_origin(
     value: Option<&Value>,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<Option<IntakeDeclarationOrigin>, ValidationFailure> {
     let Some(value) = value else {
         return Ok(None);

@@ -126,6 +126,12 @@ or generated-source declaration closure is complete.
 
 ### Complete selected monitor closure read
 
+Equality decisions are read per evaluation site: the closure selects each
+`expression`-role occurrence of a reached equality application and reads its
+FR-353 decision. A `claim`-role occurrence is the clause's registration of the
+interned application and is not selected. A bounded collection row projects its
+unbounded base node together with the `collection_bounds` wrapper.
+
 The one bounded read on `CheckedMonitorPlanRef` SHALL seed a fixed traversal
 from State, Inputs, Scope, Results, the `tick_unit` premise and the four entry signatures and bodies in
 `init`, `on_event`, `on_watermark`, `on_gap` order. It SHALL use an iterative
@@ -385,6 +391,8 @@ result alone SHALL NOT authorize either construction.
 | FR-357-AC-18 | The closure read seeds the plan's `tick_unit` premise with its unit and dimension facts and exposes `SelectedMonitorTypeClosure::tick_unit_dimension() -> &CheckedNodeId`, the admitted dimension node of that unit. For a source tick unit and for a model tick unit, it returns that unit's own admitted dimension; a tick unit whose admitted dimension is not the base Time dimension refuses at strict admission before any closure exists; the seeded facts are charged and succeed at the exact allowance and refuse one unit below at the first unpaid seed charge. | Test |
 | FR-357-AC-19 | The public `SelectedSourceCollectionRow` carries `key_node: Option<CheckedNodeId>`. With one strictly admitted reached map whose key is scalar and whose value is a record, the collection row join and Exact projection return its complete producer `ValueType::Map`, preserving structural/base/key/value nodes and key-then-value order. The monitor closure retains that map row and follows both type dependencies; an unrelated map row is not selected. Existing sequence, set, bag and ordered-set rows retain `key_node: None` and their existing complete values. A row with a non-collection/non-map Exact value keeps the existing `MismatchedIdentityWitness` refusal rather than being admitted as a map. | Test, Inspection |
 | FR-357-AC-20 | Map row selection, acquisition and projection compose on one caller-owned `NativeJoinBudget`. Their measured exact combined work and storage allowances return the same complete map facts as ample limits; one unit below either refuses before its first unpaid operation with the original bound, native kind, full amount, row/key/value locus, consumed prefix and no partial output or success delta. Zero storage refuses before any owned allocation, including diagnostic material. A selected row after an unrelated earlier row retains its original `ReachedRow` index; preceding caller charges retain their supplied native locus. Existing non-map typed refusals and non-map collection values are unchanged. | Test |
+| FR-357-AC-21 | Implemented (IR-1399; TC-470). The closure requires one FR-353 equality decision at each `expression`-role occurrence of a reached equality application. A `claim`-role occurrence of the same node is the clause's registration of the interned application, not an evaluation site, and neither needs nor receives a decision. A reached equality application with no `expression` occurrence still returns `UnavailableEqualityDecision` at that node. | Test |
+| FR-357-AC-22 | Implemented (IR-1399; TC-470). Given a bounded collection row whose `structural_node` is the `collection_bounds` wrapper and whose `base_node` is the unbounded collection node, the closure projects the wrapper from that row and does not project the base on its own. A base node that another reached node is typed by still requires its own row and returns `UnavailableIdentityWitness` without one. | Test |
 
 ## Dependencies
 

@@ -983,8 +983,8 @@ impl From<ValidationFailure> for ModelFailure {
 /// Work charged to the reader's `work` limit on behalf of one
 /// selected package root; an exhausted limit is the read's
 /// `incomplete` result at that row.
-pub(super) struct Budget<'w> {
-    meter: &'w mut WorkMeter,
+pub(super) struct Budget<'w, 'b> {
+    meter: &'w mut WorkMeter<'b>,
     /// Node position of the selected package's `model_root`.
     root: usize,
     /// The reader's byte limit: the ceiling of every encode the row's
@@ -1035,12 +1035,12 @@ fn runtime_declaration_storage(identity: &str, form: DeclarationForm, node: &str
         .saturating_add(1)
 }
 
-impl<'w> Budget<'w> {
-    pub(super) fn new(meter: &'w mut WorkMeter, root: usize, bytes: u64) -> Self {
+impl<'w, 'b> Budget<'w, 'b> {
+    pub(super) fn new(meter: &'w mut WorkMeter<'b>, root: usize, bytes: u64) -> Self {
         Self { meter, root, bytes }
     }
 
-    pub(super) const fn work(&self) -> u64 {
+    pub(super) fn work(&self) -> u64 {
         self.meter.consumed()
     }
 
@@ -1151,7 +1151,7 @@ impl DomainModel {
     fn ancestors(
         &self,
         node: &str,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<BTreeSet<&str>, ValidationFailure> {
         #[cfg(test)]
         probe::walked();
@@ -1177,7 +1177,7 @@ impl DomainModel {
         &self,
         a: &str,
         b: &str,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<bool, ValidationFailure> {
         Ok(a == b
             || self.ancestors(a, budget)?.contains(b)
@@ -1190,7 +1190,7 @@ impl DomainModel {
         &self,
         sub: &str,
         sup: &str,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<bool, ValidationFailure> {
         Ok(sub == sup || self.ancestors(sub, budget)?.contains(sup))
     }
@@ -1202,7 +1202,7 @@ impl DomainModel {
         context: &str,
         declaring: &str,
         name: &str,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<bool, ValidationFailure> {
         if !self.conforms_to(context, declaring, budget)? {
             return Ok(false);
@@ -1269,7 +1269,7 @@ impl DomainModel {
         node: &str,
         kind: MemberKind,
         name: &str,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<Resolved<'_>, ModelFailure> {
         let Some((owner_node, declared)) = self
             .object_types
@@ -1767,7 +1767,7 @@ impl DomainModel {
         &self,
         object: &str,
         name: &str,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
         if self.state_machines.contains(object) {
             return Ok(None);
@@ -1780,7 +1780,7 @@ impl DomainModel {
         &self,
         object: &str,
         name: &str,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
         let Some(declaration) = self.object_types.get(object) else {
             return Ok(None);
@@ -1827,7 +1827,7 @@ impl DomainModel {
     pub(super) fn operation_candidate_names(
         &self,
         object: &str,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<BTreeSet<Box<str>>, ValidationFailure> {
         let mut candidates = BTreeSet::new();
         let ancestors = self.ancestors(object, budget)?;
@@ -1849,7 +1849,7 @@ impl DomainModel {
     pub(super) fn effective_operation_names(
         &self,
         object: &str,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<BTreeSet<Box<str>>, ValidationFailure> {
         let candidates = self.operation_candidate_names(object, budget)?;
         let mut names = BTreeSet::new();
@@ -2258,7 +2258,7 @@ impl SelectionRefusal {
     fn located(
         refusal: ModelRefusal,
         node: &Value,
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<Self, ValidationFailure> {
         let identity = node.get("identity").and_then(Value::as_str);
         budget.charge(1_u64.saturating_add(identity.map_or(0, |value| units(value.len()))))?;
@@ -2275,7 +2275,7 @@ impl SelectionRefusal {
     fn group(
         refusal: ModelRefusal,
         nodes: &[&Value],
-        budget: &mut Budget<'_>,
+        budget: &mut Budget<'_, '_>,
     ) -> Result<Self, ValidationFailure> {
         let Some(first) = nodes.first() else {
             return Ok(Self::at(refusal.code, refusal.cause, None));
@@ -2300,7 +2300,7 @@ fn unsupported_variant_payload(
     case: &Value,
     type_index: usize,
     case_index: usize,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<SelectionRefusal, ValidationFailure> {
     let mut refusal = SelectionRefusal::located(
         ModelRefusal::new(
@@ -2328,7 +2328,7 @@ fn selected_tuple_refusal(
     node: &Value,
     type_index: usize,
     position_index: Option<usize>,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<SelectionRefusal, ValidationFailure> {
     let mut selected = SelectionRefusal::located(refusal, node, budget)?;
     let mut pointer = JsonPointer::root().key("types").index(type_index);
@@ -2388,7 +2388,7 @@ pub(super) fn admit_document(
     identity: &str,
     supplied: Option<&[u8]>,
     identity_of: fn(&Value) -> Option<&str>,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
 ) -> Result<(Value, Arc<quire_canonical::Document>), SelectionFailure> {
     use CheckedPackageRefusalCause as Cause;
     use CheckedPackageRefusalCode as Code;
@@ -2737,7 +2737,7 @@ pub(super) fn admit_selection(
     identity: &str,
     checked_package: &str,
     evidence: &CheckedPackageEvidence,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
     unit_refs: &UnitRefs,
 ) -> Result<(DomainModel, Arc<quire_canonical::Document>), SelectionFailure> {
     let (document, selected) = admit_document(
@@ -3510,7 +3510,7 @@ fn node_size(value: &Value) -> u64 {
 pub(super) fn read_semantic_ir(
     document: &Value,
     checked_package: &str,
-    budget: &mut Budget<'_>,
+    budget: &mut Budget<'_, '_>,
     unit_refs: &UnitRefs,
 ) -> Result<DomainModel, SelectionFailure> {
     let identity = semantic_ir_identity(document).ok_or_else(ModelRefusal::malformed)?;

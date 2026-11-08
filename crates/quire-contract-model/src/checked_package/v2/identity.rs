@@ -1178,7 +1178,7 @@ fn model_record_from_node(
         .map(|part| match part {
             Segment::Name(name) => Some(name.as_ref()),
             Segment::Node(_) => None,
-            Segment::Index(_) => None,
+            Segment::Index(_) | Segment::Operand(_) => None,
         })
         .collect::<Option<Vec<_>>>();
     require(
@@ -1378,11 +1378,11 @@ fn imported_nominals(
         }
         pending.extend(package.direct_dependencies.iter().map(AsRef::as_ref));
         meter.charge(
-            u64::try_from(package.graph().nodes.len()).unwrap_or(u64::MAX),
+            u64::try_from(package.resolved_graph().nodes.len()).unwrap_or(u64::MAX),
             || JsonPointer::root().key("semantic_graph").key("nodes"),
         )?;
         let model_nodes = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .filter_map(|node| match node.owner.as_ref() {
@@ -1394,7 +1394,7 @@ fn imported_nominals(
             })
             .collect::<BTreeMap<_, _>>();
         for (position, (node, kind)) in package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .zip(package.node_kinds())

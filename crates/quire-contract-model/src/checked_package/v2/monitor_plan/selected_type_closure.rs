@@ -13,16 +13,16 @@ use crate::checked_package::v2::equality_projection::equality_operator;
 use crate::checked_package::v2::native_join_budget::read_charge;
 use crate::checked_package::v2::native_join_storage as storage;
 use crate::checked_package::v2::{
-    AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, ApplicationOperator, CheckedNodeId,
-    CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole, CheckedTerm, EqualityFactWitness,
-    ExactTypeProjection, ExactTypeProjectionError, ExactTypeProjectionErrorCode, NativeJoinBudget,
-    NativeJoinChargeKind, NativeJoinDeniedCharge, NativeJoinLocus, NativeJoinLocusSource,
-    ScalarTypeForm, SelectedEqualityApplicationRow, SelectedEqualityFactRow,
-    SelectedExactDeclarationRow, SelectedExactFieldRow, SelectedExactIdentities,
-    SelectedFactEquality, SelectedFactEqualityId, SelectedModelEnumDeclarationRow,
-    SelectedModelEnumErrorCode, SelectedModelEnumMemberRow, SelectedModelEnumShapeRow,
-    SelectedSourceCollectionRow, SelectedSourceEnumRow, SelectedSourceRecordRow,
-    SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
+    AdmittedEqualityReadError, AdmittedEqualityReadErrorCode, ApplicationOperator,
+    BoundedDomainForm, CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedTerm, EqualityFactWitness, ExactTypeProjection, ExactTypeProjectionError,
+    ExactTypeProjectionErrorCode, NativeJoinBudget, NativeJoinChargeKind, NativeJoinDeniedCharge,
+    NativeJoinLocus, NativeJoinLocusSource, ScalarTypeForm, SelectedEqualityApplicationRow,
+    SelectedEqualityFactRow, SelectedExactDeclarationRow, SelectedExactFieldRow,
+    SelectedExactIdentities, SelectedFactEquality, SelectedFactEqualityId,
+    SelectedModelEnumDeclarationRow, SelectedModelEnumErrorCode, SelectedModelEnumMemberRow,
+    SelectedModelEnumShapeRow, SelectedSourceCollectionRow, SelectedSourceEnumRow,
+    SelectedSourceRecordRow, SelectedSourceTupleRow, SelectedSourceUnionRow, SelectedSourceUnitRow,
     SelectedTupleDeclarationRow, SelectedTypeDeclarations, SelectedTypeDeclarationsError,
 };
 use quire_exact::{NodeKey, PathSegmentView};
@@ -741,7 +741,23 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 read_charge(budget, NativeJoinChargeKind::Storage, storage::node(id))
                     .map_err(|_| native_error(budget))?;
                 equality_ids.insert(id.clone());
-                if node.occurrences.is_empty() {
+                // A decision belongs to an evaluation site of the application.
+                // The clause's claim registration of an interned application is
+                // the same computation and carries no decision of its own.
+                let mut has_site = false;
+                for occurrence in &node.occurrences {
+                    budget.set_locus_form("reached_equality_occurrence");
+                    read_charge(budget, NativeJoinChargeKind::Work, 1)
+                        .map_err(|_| native_error(budget))?;
+                    if occurrence.role != CheckedOccurrenceRole::Expression {
+                        continue;
+                    }
+                    read_charge(budget, NativeJoinChargeKind::Storage, 1)
+                        .map_err(|_| native_error(budget))?;
+                    has_site = true;
+                    equality_occurrences.push((id, occurrence));
+                }
+                if !has_site {
                     read_charge(budget, NativeJoinChargeKind::Storage, storage::node(id))
                         .map_err(|_| native_error(budget))?;
                     return Err(semantic_error(
@@ -751,14 +767,6 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                         Some(Box::new(id.clone())),
                         budget,
                     ));
-                }
-                for occurrence in &node.occurrences {
-                    budget.set_locus_form("reached_equality_occurrence");
-                    read_charge(budget, NativeJoinChargeKind::Work, 1)
-                        .map_err(|_| native_error(budget))?;
-                    read_charge(budget, NativeJoinChargeKind::Storage, 1)
-                        .map_err(|_| native_error(budget))?;
-                    equality_occurrences.push((id, occurrence));
                 }
             }
             let equality_applications = select_rows(
@@ -915,6 +923,37 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                     .map_err(|_| native_error(budget))?;
                 required_types.insert(&row.element_node);
             }
+            // A bounded collection row projects its unbounded base node as part
+            // of the wrapper. The base is projected on its own only when some
+            // other reached node is typed by it, and then it needs its own row.
+            let mut row_nodes = BTreeSet::new();
+            for row in identities.source_collection_rows() {
+                read_charge(budget, NativeJoinChargeKind::Work, 1)
+                    .map_err(|_| native_error(budget))?;
+                read_charge(budget, NativeJoinChargeKind::Storage, 1)
+                    .map_err(|_| native_error(budget))?;
+                row_nodes.insert(&row.structural_node);
+            }
+            let mut wrapped_bases = BTreeSet::new();
+            for row in identities.source_collection_rows() {
+                read_charge(budget, NativeJoinChargeKind::Work, 1)
+                    .map_err(|_| native_error(budget))?;
+                if row.structural_node != row.base_node && !row_nodes.contains(&row.base_node) {
+                    read_charge(budget, NativeJoinChargeKind::Storage, 1)
+                        .map_err(|_| native_error(budget))?;
+                    wrapped_bases.insert(&row.base_node);
+                }
+            }
+            for id in &reached.reached {
+                let Some(node) = self.package.node(id) else {
+                    continue;
+                };
+                read_charge(budget, NativeJoinChargeKind::Work, 1)
+                    .map_err(|_| native_error(budget))?;
+                if node.semantic_type != *id && !row_nodes.contains(id) {
+                    wrapped_bases.remove(&node.semantic_type);
+                }
+            }
             budget.set_active_locus(Some(NativeJoinLocus {
                 source: NativeJoinLocusSource::MonitorSeed(0),
                 form: "selected_type_output",
@@ -945,9 +984,12 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                     Some(CheckedNodeKind::ScalarType(_) | CheckedNodeKind::CompositeType(_)) => {
                         true
                     }
+                    Some(CheckedNodeKind::BoundedDomain(BoundedDomainForm::CollectionBounds)) => {
+                        row_nodes.contains(id)
+                    }
                     _ => false,
                 };
-                if !is_exact_type {
+                if !is_exact_type || wrapped_bases.contains(id) {
                     continue;
                 }
                 let projection = self

@@ -184,7 +184,7 @@ impl Budget<'_> {
                         self.storage(1, root)?;
                         pending.push(child);
                     }
-                    CheckedNodePathSegment::Index(_) => {}
+                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {}
                 }
             }
         }

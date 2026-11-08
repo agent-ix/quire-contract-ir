@@ -775,7 +775,7 @@ impl SelectedExactIdentities {
                 .expect("admitted graph is nonempty");
             charge_native_work(budget, at, at, "complete_selected_model_candidate", 1)?;
             let root = package
-                .graph()
+                .resolved_graph()
                 .nodes
                 .get(model.root)
                 .map(|node| &node.node_id)

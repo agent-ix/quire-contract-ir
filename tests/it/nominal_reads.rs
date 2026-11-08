@@ -75,7 +75,7 @@ fn minimal_enum_fixture(ordered: bool) -> Box<CheckedPackageV2> {
 }
 fn node<'a>(package: &'a CheckedPackageV2, form: &str, name: &str) -> &'a CheckedSemanticNodeV2 {
     package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {
@@ -725,7 +725,7 @@ fn selected_source_units_join_owner_declaration_and_complete_conversion() {
         .unwrap_err();
     let dimension = &view.dimensions()[0].structural_node;
     let position = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .position(|node| &node.node_id == dimension)
@@ -941,7 +941,7 @@ fn member_rows<'a>(
         .zip(keys)
         .map(|(case, identity)| {
             let member = package
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .find(|node| {
@@ -1024,7 +1024,7 @@ fn unit_read_borrows_root_target_exact_scale_offset_and_stage_identity() {
         assert!(
             requested.iter().any(|id| id == denied.node)
                 || package
-                    .graph()
+                    .resolved_graph()
                     .nodes
                     .iter()
                     .any(|node| &node.node_id == denied.node)

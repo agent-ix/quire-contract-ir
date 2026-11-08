@@ -382,7 +382,7 @@ pub(super) mod tests {
             )
             .expect("evidence");
         match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("fixture bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence,
         ) {

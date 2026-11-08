@@ -230,7 +230,7 @@ fn every_published_guard_case_uses_the_strict_reader() {
                 panic!("GD-01 must admit: {result:?}");
             };
             let root = package
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .find(|node| {
@@ -293,8 +293,8 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
     let (wire, vectors, fixtures) = published_slots();
     let package = admitted_slots(&wire, &fixtures);
     let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
-    assert_eq!(package.graph().nodes.len(), nodes.len());
-    for (admitted, authored) in package.graph().nodes.iter().zip(nodes) {
+    assert_eq!(package.resolved_graph().nodes.len(), nodes.len());
+    for (admitted, authored) in package.resolved_graph().nodes.iter().zip(nodes) {
         assert_eq!(
             admitted.semantic_form.as_ref(),
             authored["semantic_form"].as_str().unwrap()
@@ -312,7 +312,7 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
         .filter(|row| row["expected"] == "admitted")
     {
         let position = usize::try_from(case["package_node"].as_u64().unwrap()).unwrap();
-        let node = &package.graph().nodes[position];
+        let node = &package.resolved_graph().nodes[position];
         assert_eq!(node.semantic_form.as_ref(), "presence_read");
         assert_eq!(
             node.node_id,
@@ -352,7 +352,7 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
             )
             .unwrap();
             assert_eq!(
-                package.graph().nodes[slot].semantic_type,
+                package.resolved_graph().nodes[slot].semantic_type,
                 fixture_support::resolved_fixture_id(&vectors["type_nodes"]["integer"], nodes)
             );
         }
@@ -360,7 +360,8 @@ fn admitted_presence_retains_boolean_owner_slot_and_resolved_path_facts() {
     for name in ["v", "q"] {
         let place = &vectors["presence"]["places"][name];
         let position = usize::try_from(place["package_node"].as_u64().unwrap()).unwrap();
-        let CheckedTerm::Aggregate { members } = &package.graph().nodes[position].body else {
+        let CheckedTerm::Aggregate { members } = &package.resolved_graph().nodes[position].body
+        else {
             panic!("place body")
         };
         assert_eq!(members.len(), 3);
@@ -525,18 +526,18 @@ fn removing_a_guard_preserves_the_real_place_template() {
         .retain(|id| *id != fresh);
     let after = admitted_slots(&wire, &fixtures);
     assert_ne!(
-        before.graph().nodes[root].body,
-        after.graph().nodes[root].body
+        before.resolved_graph().nodes[root].body,
+        after.resolved_graph().nodes[root].body
     );
     assert_ne!(
-        before.graph().nodes[guard].body,
-        after.graph().nodes[guard].body
+        before.resolved_graph().nodes[guard].body,
+        after.resolved_graph().nodes[guard].body
     );
     for (left, right) in before
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
-        .zip(after.graph().nodes.iter())
+        .zip(after.resolved_graph().nodes.iter())
         .filter(|(left, _)| left.semantic_form.as_ref() == "clock_place")
     {
         assert_eq!(left.node_id, right.node_id);
@@ -615,7 +616,7 @@ fn public_reader_keeps_the_one_operand_option_presence_form() {
     let CheckedPackageV2ReadResult::Admitted(package) = result else {
         panic!("one-operand Option form must admit: {result:?}")
     };
-    let node = package.graph().nodes.last().unwrap();
+    let node = package.resolved_graph().nodes.last().unwrap();
     assert_eq!(node.node_id, serde_json::from_value(app_id).unwrap());
     let CheckedTerm::Application {
         operation,

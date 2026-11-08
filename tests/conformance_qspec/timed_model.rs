@@ -114,6 +114,8 @@ fn model_owned_time_dimension_reads_and_wrong_fcd_name_refuses_at_source_unit() 
 }
 
 pub(super) fn apply_published_timed_patch(package: &mut Value, patch: &Value) {
+    // Published patches address the wire: operand rows and operand slots.
+    fixture_support::wire_operands(package);
     let path = patch["path"].as_str().expect("published patch path");
     let (parent, member) = path.rsplit_once('/').expect("published patch member");
     let target = package.pointer_mut(parent).expect("published patch parent");
@@ -174,7 +176,8 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
     let encoded: Value =
         serde_json::from_slice(&encode_package(&package)).expect("typed clause writer JSON");
     assert_eq!(
-        encoded, wire,
+        encoded,
+        crate::fixture_support::wire_form(&wire),
         "all admitted clause bodies retain their exact wire form"
     );
     for (form, kind) in [
@@ -184,7 +187,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
         ("clock_reset", "parameter"),
     ] {
         assert!(
-            package.graph().nodes.iter().any(|node| {
+            package.resolved_graph().nodes.iter().any(|node| {
                 node.semantic_form.as_ref() == form
                     && matches!(
                         member(&node.body, "kind"),
@@ -197,7 +200,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
     for form in ["clock_guard", "time_invariant", "clock_place"] {
         assert!(
             package
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .any(|node| node.semantic_form.as_ref() == form),
@@ -205,7 +208,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
         );
     }
     for place in package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .filter(|node| node.semantic_form.as_ref() == "clock_place")
@@ -224,7 +227,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
         let clause_id = id_at(&wire, clause_position);
         let anchor_id = id_at(&wire, anchor_position);
         assert!(package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .any(|node| node.node_id == clause_id));
@@ -233,7 +236,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
             CheckedTerm::Reference { target } if target == &anchor_id
         ));
         let anchors: Vec<_> = package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .filter(|node| node.node_id == anchor_id)
@@ -264,7 +267,7 @@ fn timed_clause_admission_retains_one_anchor_occurrence_and_operation_urgency() 
 
     let urgency_id = id_at(&wire, 50);
     let urgency = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_id == urgency_id)
@@ -406,7 +409,8 @@ fn timed_clause_published_vectors_match_reader() {
                 let encoded: Value = serde_json::from_slice(&encode_package(&package))
                     .expect("admitted clause writer JSON");
                 assert_eq!(
-                    encoded, candidate,
+                    encoded,
+                    crate::fixture_support::wire_form(&candidate),
                     "{id}: clause body and identity retention"
                 );
                 if matches!(id, "CL-57" | "CL-59") {
@@ -455,8 +459,10 @@ fn timed_clause_published_vectors_match_reader() {
                     );
                     if matches!(id, "CL-58" | "CL-60" | "CL-62") {
                         let node_index = if id == "CL-60" { 87 } else { 47 };
+                        let mut resolved = candidate.clone();
+                        crate::fixture_support::resolve_operands(&mut resolved);
                         let node_id: CheckedNodeId = serde_json::from_value(
-                            candidate["semantic_graph"]["nodes"][node_index]["node_id"].clone(),
+                            resolved["semantic_graph"]["nodes"][node_index]["node_id"].clone(),
                         )
                         .expect("published timed node identity");
                         assert_eq!(refusal.locus, Some(node_id), "{id}: timed node locus");
@@ -671,6 +677,7 @@ fn timed_clause_first_of_two_unlisted_nodes_follows_structural_id_order() {
 }
 
 fn sort_timed_graph_dependencies(package: &mut Value) {
+    fixture_support::resolve_operands(package);
     let ids = node_index::fixture_graph_ids(package);
     for node in package["semantic_graph"]["nodes"]
         .as_array_mut()
@@ -845,6 +852,7 @@ fn timed_aggregate_order_preserves_earlier_refusal_stages() {
         );
 
         let mut duplicate = ordered_defect.clone();
+        fixture_support::resolve_operands(&mut duplicate);
         let nodes = duplicate["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("nodes");
@@ -1172,13 +1180,14 @@ fn timed_clause_equal_regions_use_structural_order_before_refusing_repetition() 
         };
         let expected = package["semantic_graph"]["nodes"][root]["body"].clone();
         assert_eq!(
-            serde_json::to_value(&admitted.graph().nodes[root].body).expect("typed body"),
+            serde_json::to_value(&admitted.resolved_graph().nodes[root].body).expect("typed body"),
             expected
         );
         let encoded = encode_package(&admitted);
         let written: Value = serde_json::from_slice(&encoded).expect("writer JSON");
         assert_eq!(
-            written["semantic_graph"]["nodes"][root]["body"], expected,
+            written["semantic_graph"]["nodes"][root]["body"],
+            crate::fixture_support::wire_form(&package)["semantic_graph"]["nodes"][root]["body"],
             "binding {binding}: writer changed root order"
         );
         let CheckedPackageV2ReadResult::Admitted(reread) =
@@ -1236,12 +1245,12 @@ fn timed_slot_selected_package_admits_nested_and_optional_clock_places() {
         panic!("selected timed slot package must admit: {result:?}");
     };
     assert_eq!(
-        package.graph().nodes.len(),
+        package.resolved_graph().nodes.len(),
         wire["semantic_graph"]["nodes"].as_array().unwrap().len()
     );
     assert_eq!(Some(package.name()), wire["name"].as_str());
     let order = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {
@@ -1338,7 +1347,7 @@ fn timed_model_published_tick_retains_typed_operation_anchor() {
         );
     }
     let anchor = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {
@@ -1355,7 +1364,8 @@ fn timed_model_published_tick_retains_typed_operation_anchor() {
     let bytes = encode_package(&package);
     let encoded: Value = serde_json::from_slice(&bytes).expect("writer JSON");
     assert_eq!(
-        encoded, wire,
+        encoded,
+        crate::fixture_support::wire_form(&wire),
         "typed writer preserves the published tick package"
     );
     assert!(encoded.get("identity_preimage").is_none());
@@ -1393,7 +1403,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
         );
     };
     let timed: Vec<_> = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .filter(|n| n.node_tag.as_ref() == "timed_model")
@@ -1412,7 +1422,7 @@ fn timed_model_published_fixture_round_trips_complete_nodes() {
     }
     let bytes = encode_package(&package);
     let encoded: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(encoded, wire);
+    assert_eq!(encoded, crate::fixture_support::wire_form(&wire));
     assert_eq!(encoded["semantic_graph"]["nodes"][42]["body"]["base"], true);
     assert!(encoded.get("identity_preimage").is_none());
     let CheckedPackageV2ReadResult::Admitted(again) = read_package(&encoded).unwrap() else {
@@ -2020,7 +2030,7 @@ fn timed_source_occurrence_reordering_retains_structural_node_ids() {
         panic!("reordered source occurrences must admit: {read:?}");
     };
     let after: Vec<_> = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .map(|node| serde_json::to_value(&node.node_id).expect("node id JSON"))

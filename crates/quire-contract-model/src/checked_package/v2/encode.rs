@@ -165,6 +165,16 @@ impl<Body: Encode> Encode for CheckedSemanticGraphV2<Body> {
         writer.begin_object()?;
         member(writer, "graph_version", &self.graph_version)?;
         elements(writer, "nodes", &self.nodes)?;
+        writer.name("operand_rows")?;
+        writer.begin_array()?;
+        for row in &self.operand_rows {
+            writer.begin_array()?;
+            for entry in row {
+                writer.integer(i128::from(*entry))?;
+            }
+            writer.end_array()?;
+        }
+        writer.end_array()?;
         writer.end_object()
     }
 }

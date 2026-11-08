@@ -7,7 +7,16 @@
 //! definition selections retain the owning names and exact structure.
 
 mod abstraction;
+mod budgeted_read;
+pub(in crate::checked_package) use budgeted_read::BudgetStop;
+pub use budgeted_read::{
+    CheckedPackageBudgetIncomplete, CheckedPackageBudgetedDispatchResult,
+    CheckedPackagePendingOutcome, CheckedPackageReadExhausted, CheckedPackageV2BudgetedReadResult,
+    PackageReadDeniedCharge, PackageReadResource,
+};
 mod callable;
+mod checked_json;
+pub use checked_json::{CheckedJson, CheckedJsonError};
 mod model_operations;
 pub use model_operations::{
     CheckedModelOperation, CheckedModelOperations, CheckedOperationParameter,
@@ -44,6 +53,7 @@ mod native_join_storage;
 mod natural;
 mod node_index;
 mod operation_catalog;
+pub use operation_catalog::{initialize_operation_catalog, CatalogReadError};
 mod operation_effects;
 mod operation_witness;
 mod operations;
@@ -136,7 +146,7 @@ pub use monitor_plan::{
 };
 pub use native_join_budget::{
     NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
-    NativeJoinLocus, NativeJoinLocusSource,
+    NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
 };
 pub use protocol_locations::CheckedProtocolLocationReadError;
 pub use selected_facts::{
@@ -203,9 +213,9 @@ use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
 use temporal::{validate_temporal, validate_timed_bounds_reduced, TemporalContext};
 
 use super::common::{
-    count, exceeds, is_nonempty, node_pointer, read_typed_prefix, validate_definition_ref,
-    validate_locked_source, validate_source_map_entries, validate_term, ReferenceMember,
-    ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
+    count, exceeds, is_nonempty, node_pointer, validate_definition_ref, validate_locked_source,
+    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
+    Step, TermGrammar, Trail, ValidationFailure,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -561,6 +571,9 @@ pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     pub graph_version: Box<str>,
     /// Complete closed graph.
     pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
+    /// One operand row per node, in graph order: slot `k` of node `i` names
+    /// `nodes[operand_rows[i][k]]`. Required on read.
+    pub operand_rows: Vec<Vec<u64>>,
 }
 
 type RawSemanticGraphV2 = CheckedSemanticGraphV2<Value>;
@@ -666,7 +679,7 @@ pub struct CheckedDiagnosticV2 {
     /// Closed cause tag.
     pub cause_tag: CheckedDiagnosticCause,
     /// Typed semantic-term details.
-    pub details: Vec<Value>,
+    pub details: Vec<CheckedJson>,
     /// Source loci under locked sources.
     pub loci: Vec<CheckedSourceRegion>,
 }
@@ -796,6 +809,13 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
 
 type RawCheckedPackageWireV2 = CheckedPackageWireV2<Value>;
 
+/// The wire as the charged Document-based decode produces it: node bodies and
+/// diagnostic details are handles into the one retained package document, and
+/// every container holds exactly its final length. The validators still read
+/// [`RawCheckedPackageWireV2`] until each moves to the node API.
+#[allow(dead_code)]
+type DecodedWireV2 = CheckedPackageWireV2<CheckedJson>;
+
 /// Source correspondence supplied to the canonical V2 writer.
 #[derive(Clone, Copy, Debug)]
 pub struct CheckedPackageSourceCorrespondenceRef<'a> {
@@ -883,6 +903,18 @@ pub enum CheckedPackageV2ReadResult {
     Refused(CheckedPackageRefusal),
     /// The input exceeded a caller limit.
     Incomplete(CheckedPackageIncomplete),
+    /// The reader's operation catalog is unreadable, so no package can be
+    /// checked: a skew between the reader and its catalog dependency, not a
+    /// verdict on the input.
+    CatalogUnavailable(CatalogReadError),
+}
+
+/// The graph in its wire form and the positions of the nodes whose own ID
+/// holds an operand slot, by those bytes.
+struct SlotView {
+    graph: CheckedSemanticGraphV2,
+    /// `None` when several nodes have the same bytes.
+    positions: BTreeMap<CheckedNodeId, Option<usize>>,
 }
 
 /// Immutable, admitted `quire.checked-package/v2` data.
@@ -904,6 +936,9 @@ pub struct CheckedPackageV2 {
     node_index: Arc<BTreeMap<CheckedNodeId, usize>>,
     /// Graph-local wire IDs rebuilt as shared, document-independent keys.
     structural_keys: Vec<std::sync::Arc<CheckedNodeId>>,
+    /// The graph in its wire form, node-held operands as operand slots,
+    /// built on first use from the resolved graph in `wire`.
+    slot_graph: Arc<std::sync::OnceLock<SlotView>>,
     /// Admission-derived position of each exact source occurrence.
     pub(in crate::checked_package) source_index:
         Arc<BTreeMap<(CheckedNodeId, CheckedOccurrenceRole, u64), usize>>,
@@ -922,6 +957,8 @@ pub struct CheckedPackageV2 {
     direct_dependencies: Vec<std::sync::Arc<CheckedPackageV2>>,
     /// Exact identities reachable through the direct edges, shared with children.
     closure_index: ClosureIndex,
+    /// The operation catalog this package was admitted against.
+    catalog: &'static operation_catalog::OperationCatalog,
 }
 
 /// The original immutable buffers read by native identity validation. No
@@ -1071,20 +1108,47 @@ fn retained_source_index(
     super::selected_population::source_index(&wire.source_map)
 }
 
-/// Cumulative validation work against one caller limit.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct WorkMeter {
-    consumed: u64,
-    limit: u64,
+/// Cumulative validation work, charged either to the caller's budget (the
+/// strict read) or against one limit of its own (lowering and unit tests).
+#[derive(Debug)]
+pub(super) struct WorkMeter<'b> {
+    source: WorkSource<'b>,
 }
 
-impl WorkMeter {
+#[derive(Debug)]
+enum WorkSource<'b> {
+    Own { consumed: u64, limit: u64 },
+    Budget(&'b mut NativeJoinBudget),
+}
+
+impl<'b> WorkMeter<'b> {
     pub(super) const fn new(limit: u64) -> Self {
-        Self { consumed: 0, limit }
+        Self {
+            source: WorkSource::Own { consumed: 0, limit },
+        }
     }
 
-    pub(super) const fn consumed(&self) -> u64 {
-        self.consumed
+    /// A meter that charges the caller's budget work counter.
+    pub(super) fn over(budget: &'b mut NativeJoinBudget) -> Self {
+        Self {
+            source: WorkSource::Budget(budget),
+        }
+    }
+
+    /// Names the stage the following charges belong to, so a denial records
+    /// its `PackageRead` locus. A meter over its own limit has no budget to
+    /// record it in.
+    pub(super) fn at_stage(&mut self, stage: PackageReadStage, form: &'static str) {
+        if let WorkSource::Budget(budget) = &mut self.source {
+            budgeted_read::at_stage(budget, stage, form);
+        }
+    }
+
+    pub(super) fn consumed(&self) -> u64 {
+        match &self.source {
+            WorkSource::Own { consumed, .. } => *consumed,
+            WorkSource::Budget(budget) => budget.consumed().work,
+        }
     }
 
     /// Charges `work` for the value at `at`, which an exhausted budget
@@ -1094,18 +1158,35 @@ impl WorkMeter {
         work: u64,
         at: impl FnOnce() -> JsonPointer,
     ) -> Result<(), ValidationFailure> {
-        self.consumed = self.consumed.saturating_add(work);
-        if exceeds(self.consumed, self.limit) {
-            #[cfg(test)]
-            work_probe::charge_denied();
-            Err(ValidationFailure::incomplete(
-                CheckedPackageLimit::Work,
-                self.limit,
-                self.consumed,
-                Some(at()),
-            ))
-        } else {
-            Ok(())
+        match &mut self.source {
+            WorkSource::Own { consumed, limit } => {
+                *consumed = consumed.saturating_add(work);
+                if exceeds(*consumed, *limit) {
+                    #[cfg(test)]
+                    work_probe::charge_denied();
+                    Err(ValidationFailure::incomplete(
+                        CheckedPackageLimit::Work,
+                        *limit,
+                        *consumed,
+                        Some(at()),
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            WorkSource::Budget(budget) => {
+                if budget.charge(NativeJoinChargeKind::Work, u128::from(work)) {
+                    Ok(())
+                } else {
+                    #[cfg(test)]
+                    work_probe::charge_denied();
+                    Err(ValidationFailure::Budget(BudgetStop {
+                        resource: PackageReadResource::Work,
+                        amount: u128::from(work),
+                        path: Some(at()),
+                    }))
+                }
+            }
         }
     }
 }
@@ -1290,7 +1371,7 @@ impl CheckedPackageV2 {
         &self,
         id: &CheckedNodeId,
     ) -> Option<(usize, &CheckedSemanticNodeV2)> {
-        let position = *self.node_index.get(id)?;
+        let position = self.position_of(id)?;
         self.wire
             .semantic_graph
             .nodes
@@ -1299,31 +1380,21 @@ impl CheckedPackageV2 {
                 #[cfg(test)]
                 model_fields::probe::node_visited();
             })
-            .filter(|candidate| &candidate.node_id == id)
+            .filter(|candidate| node_index::holds_slot(id) || &candidate.node_id == id)
             .map(|node| (position, node))
     }
 
-    /// Reads one canonical V2 value without exposing a partial package.
-    pub fn read(
-        bytes: &[u8],
-        limits: CheckedPackageReadLimits,
-        evidence: &CheckedPackageEvidence,
-    ) -> CheckedPackageV2ReadResult {
-        match Self::admit_bytes(bytes, limits, evidence) {
-            Ok(package) => CheckedPackageV2ReadResult::Admitted(Box::new(package)),
-            Err(stop) => stop.into_result(
-                CheckedPackageV2ReadResult::Refused,
-                CheckedPackageV2ReadResult::Incomplete,
-            ),
-        }
-    }
-
     fn admit_bytes(
+        catalog: &'static operation_catalog::OperationCatalog,
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
+        budget: &mut NativeJoinBudget,
     ) -> Result<Self, ValidationFailure> {
-        read_typed_prefix(bytes, limits)?;
+        // The document the shared reader built is the grammar and canonical
+        // proof of the bytes; the typed decode below still reads the bytes.
+        drop(budgeted_read::read_envelope(bytes, limits, budget)?);
+        budgeted_read::at_stage(budget, PackageReadStage::WireDecode, "wire_decode");
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
             Some(Value::String(version))
                 if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {
@@ -1350,10 +1421,15 @@ impl CheckedPackageV2 {
                 member_pointer(&["name"]),
             ));
         }
-        let wire = intake::decode_borrowed_wire(bytes)
+        let mut wire = intake::decode_borrowed_wire(bytes)
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
+        // Every later stage compares operands by graph index, so each node-held
+        // slot is read through its row once here; `slot_ids` keeps the nodes'
+        // own IDs as written for the operand checks.
+        let slot_ids = node_index::slot_ids(&wire);
+        node_index::resolve_slots(&mut wire);
         validate_owner_schema(&wire)?;
         let ValidatedPackage {
             kinds,
@@ -1364,7 +1440,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(&wire, bytes, limits, evidence)?;
+        } = validate(catalog, &wire, &slot_ids, bytes, limits, evidence, budget)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1413,6 +1489,7 @@ impl CheckedPackageV2 {
                 .zip(terms.iter().cloned())
                 .map(|(node, term)| node.into_typed(term))
                 .collect(),
+            operand_rows: semantic_graph.operand_rows,
         };
         let wire = CheckedPackageEnvelope {
             contract_version,
@@ -1455,6 +1532,7 @@ impl CheckedPackageV2 {
             terms,
             node_index,
             structural_keys,
+            slot_graph: Arc::default(),
             source_index,
             lowering_facts,
             bytes: limits.bytes,
@@ -1462,6 +1540,7 @@ impl CheckedPackageV2 {
             selected_documents,
             direct_dependencies,
             closure_index,
+            catalog,
         }
         .retain_original_admission())
     }
@@ -1494,8 +1573,44 @@ impl CheckedPackageV2 {
         self.direct_dependencies.iter().map(std::sync::Arc::as_ref)
     }
 
-    /// The complete closed checked graph.
+    /// The complete closed checked graph as the wire holds it: each
+    /// node-held operand is an operand slot read through the node's row of
+    /// `operand_rows`, each document-held one an index segment.
     pub fn graph(&self) -> &CheckedSemanticGraphV2 {
+        &self.slot_view().graph
+    }
+
+    fn slot_view(&self) -> &SlotView {
+        self.slot_graph.get_or_init(|| {
+            let graph = node_index::slot_graph(&self.wire.semantic_graph);
+            let mut positions = BTreeMap::new();
+            for (position, node) in graph.nodes.iter().enumerate() {
+                if node_index::holds_slot(&node.node_id) {
+                    positions
+                        .entry(node.node_id.clone())
+                        .and_modify(|first| *first = None)
+                        .or_insert(Some(position));
+                }
+            }
+            SlotView { graph, positions }
+        })
+    }
+
+    /// The graph position of `id`: a resolved index-form ID by the retained
+    /// index, or a node ID as `graph()` shows it, operand slots included, when
+    /// exactly one node has those bytes. Equal bytes name different nodes
+    /// when their rows differ, so such an ID names none.
+    fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
+        if node_index::holds_slot(id) {
+            return self.slot_view().positions.get(id).copied().flatten();
+        }
+        self.node_index.get(id).copied()
+    }
+
+    /// The graph with every node-held operand resolved to the index segment of
+    /// the node it names, the form the reader checks and the typed views
+    /// borrow from. Its `operand_rows` are the wire's.
+    pub fn resolved_graph(&self) -> &CheckedSemanticGraphV2 {
         &self.wire.semantic_graph
     }
 
@@ -1505,10 +1620,49 @@ impl CheckedPackageV2 {
         self.structural_keys.get(index).map(std::sync::Arc::as_ref)
     }
 
+    /// The ID of the graph node at `position` as a document-held ID, the form
+    /// a request, report or sidecar row names a node by: each operand is the
+    /// index segment of the node it names rather than a slot of the node's row.
+    pub fn document_held_id(&self, position: usize) -> Option<&CheckedNodeId> {
+        self.wire
+            .semantic_graph
+            .nodes
+            .get(position)
+            .map(|node| &node.node_id)
+    }
+
+    /// The structural key of a node-held ID written in the node at graph
+    /// `holder`, as `graph()` shows it: each operand slot is read through the
+    /// holder's operand row, each index segment against the graph. `None` when
+    /// a slot or index names no node.
+    pub fn resolve_node_held(&self, holder: usize, id: &CheckedNodeId) -> Option<CheckedNodeId> {
+        let row = self.wire.semantic_graph.operand_rows.get(holder)?;
+        let mut path = Vec::with_capacity(id.path.len());
+        for segment in &id.path {
+            path.push(match segment {
+                CheckedNodePathSegment::Operand(slot) => {
+                    let entry = row.get(usize::try_from(*slot).ok()?)?;
+                    CheckedNodePathSegment::Node(Arc::clone(
+                        self.structural_keys.get(usize::try_from(*entry).ok()?)?,
+                    ))
+                }
+                CheckedNodePathSegment::Index(index) => CheckedNodePathSegment::Node(Arc::clone(
+                    self.structural_keys.get(usize::try_from(*index).ok()?)?,
+                )),
+                other => other.clone(),
+            });
+        }
+        Some(CheckedNodeId {
+            package: id.package.clone(),
+            path,
+            ordinal: id.ordinal,
+        })
+    }
+
     /// Resolve an ID written by this package against this package's graph.
     /// The ID's `package` names its owner and does not select the graph.
     pub fn structural_key(&self, id: &CheckedNodeId) -> Option<&CheckedNodeId> {
-        self.structural_key_at(*self.node_index.get(id)?)
+        self.structural_key_at(self.position_of(id)?)
     }
 
     /// Each graph node's decoded family and form, in graph order.
@@ -1519,12 +1673,12 @@ impl CheckedPackageV2 {
     /// The retained admitted family and form of one graph node by its ID.
     /// Returns `None` for an ID absent from this package.
     pub fn node_kind(&self, id: &CheckedNodeId) -> Option<CheckedNodeKind> {
-        self.kinds.get(*self.node_index.get(id)?).copied()
+        self.kinds.get(self.position_of(id)?).copied()
     }
 
     /// The typed body of an admitted node.
     pub fn term(&self, id: &CheckedNodeId) -> Option<&CheckedTerm> {
-        self.terms.get(*self.node_index.get(id)?)
+        self.terms.get(self.position_of(id)?)
     }
 
     /// The exact source map.
@@ -1618,23 +1772,29 @@ struct ValidatedGraph {
 }
 
 fn validate(
+    catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
+    slot_ids: &[CheckedNodeId],
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
+    budget: &mut NativeJoinBudget,
 ) -> Result<ValidatedPackage, ValidationFailure> {
+    budgeted_read::at_stage(budget, PackageReadStage::WireChecks, "wire_checks");
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
     let flat_kinds = flat_wire::check(wire)?;
-    let structural_keys = node_index::check(bytes, wire, evidence)?;
+    let structural_keys = node_index::check(bytes, wire, slot_ids, evidence)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds)?;
-    let mut meter = WorkMeter::new(limits.work);
+    let mut meter = WorkMeter::over(budget);
+    meter.at_stage(PackageReadStage::Lock, "lock");
     let LockAdmission {
         models,
         documents,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
+    meter.at_stage(PackageReadStage::Graph, "graph");
     let ValidatedGraph {
         kinds,
         schedulability_claim_index,
@@ -1643,6 +1803,7 @@ fn validate(
         declarations,
         lowering_facts,
     } = validate_graph(
+        catalog,
         wire,
         limits,
         &mut meter,
@@ -1660,13 +1821,17 @@ fn validate(
         &wire.lock.sources,
         limits,
     )?;
+    meter.at_stage(PackageReadStage::Equivalence, "equivalence");
     identity::validate_equivalence_occurrences(wire, &kinds, &mut meter)?;
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
+    meter.at_stage(PackageReadStage::Diagnostics, "diagnostics");
     validate_diagnostics(wire, limits, &mut meter)?;
     let models = RetainedModels::new(declarations, models);
+    meter.at_stage(PackageReadStage::OperationEffects, "operation_effects");
     operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
     if let Some(data) = wire.checked_term_data.as_ref() {
+        meter.at_stage(PackageReadStage::CheckedTermData, "checked_term_data");
         dispatch_projection::validate_checked_term_data(
             data, wire, &kinds, &terms, &models, &mut meter,
         )?;
@@ -2916,6 +3081,7 @@ pub(super) fn structural_key<'a>(
 }
 
 fn validate_graph(
+    catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
@@ -2983,7 +3149,7 @@ fn validate_graph(
                     .is_some_and(|(selected_position, selected_package)| {
                         imported_node_matches(
                             node,
-                            &selected_package.graph().nodes[selected_position].to_raw(),
+                            &selected_package.resolved_graph().nodes[selected_position].to_raw(),
                             structural_keys,
                             &selected_package.structural_keys,
                         )
@@ -3208,6 +3374,7 @@ fn validate_graph(
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     schedulability::validate_graph(&graph.nodes, &kinds, &terms, &index, meter)?;
     validate_derived_type_shapes(
+        catalog,
         &graph.nodes,
         &kinds,
         &terms,
@@ -3296,6 +3463,7 @@ fn validate_graph(
         &index,
         &owners,
         TemporalContext {
+            catalog,
             lock: &wire.lock,
             diagnostics: &wire.diagnostics.entries,
             bindings: wire.temporal_bindings.as_deref(),
@@ -3319,6 +3487,7 @@ fn validate_graph(
                 &graph.nodes,
                 &kinds,
                 OperationNodeOrder {
+                    catalog,
                     wire_index: &index,
                     structural_keys,
                 },
@@ -3466,10 +3635,13 @@ fn validate_graph(
         &kinds,
         &terms,
         &index,
-        &wire.lock,
+        protocol_body::ProtocolPass {
+            catalog,
+            lock: &wire.lock,
+            bytes: limits.bytes,
+        },
         &owners,
         meter,
-        limits.bytes,
     )?;
     schedulability::validate_bodies(
         &graph.nodes,
@@ -3499,6 +3671,7 @@ fn validate_graph(
             &graph.nodes,
             &kinds,
             OperationNodeOrder {
+                catalog,
                 wire_index: &index,
                 structural_keys,
             },
@@ -3952,6 +4125,7 @@ fn validate_diagnostics(
         .collect::<BTreeSet<_>>();
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
+            let detail = &detail.to_value();
             let detail_steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),
@@ -4002,6 +4176,63 @@ mod test_support {
     use super::{CheckedNodeId, CheckedPackageWireV2, CheckedTerm};
     use serde_json::{json, Value};
 
+    /// Bytes of a package a test authored in resolved index form, written as
+    /// the V2 wire: each node-held index segment becomes an operand slot,
+    /// numbered by first occurrence in the node's canonical order, beside
+    /// the node's operand row. A package that already has rows is left alone.
+    pub(super) fn canonical(package: &Value) -> Vec<u8> {
+        fn walk(value: &mut Value, row: &mut Vec<u64>) {
+            match value {
+                Value::Array(items) => items.iter_mut().for_each(|item| walk(item, row)),
+                Value::Object(object) => {
+                    if object.len() == 2 && object.contains_key("package") {
+                        return;
+                    }
+                    if object.len() == 3 && object.contains_key("path") {
+                        if let Some(Value::Array(path)) = object.get_mut("path") {
+                            for segment in path {
+                                let index = segment
+                                    .as_object()
+                                    .filter(|member| member.len() == 1)
+                                    .and_then(|member| member.get("node"))
+                                    .and_then(Value::as_u64);
+                                if let Some(index) = index {
+                                    let slot = row
+                                        .iter()
+                                        .position(|entry| *entry == index)
+                                        .unwrap_or_else(|| {
+                                            row.push(index);
+                                            row.len() - 1
+                                        });
+                                    *segment = json!({ "operand": slot });
+                                }
+                            }
+                        }
+                    }
+                    object.values_mut().for_each(|member| walk(member, row));
+                }
+                _ => {}
+            }
+        }
+        let mut wire = package.clone();
+        if wire["semantic_graph"]["nodes"].is_array()
+            && wire["semantic_graph"].get("operand_rows").is_none()
+        {
+            let rows = wire["semantic_graph"]["nodes"]
+                .as_array_mut()
+                .expect("graph nodes")
+                .iter_mut()
+                .map(|node| {
+                    let mut row = Vec::new();
+                    walk(node, &mut row);
+                    json!(row)
+                })
+                .collect::<Vec<_>>();
+            wire["semantic_graph"]["operand_rows"] = Value::Array(rows);
+        }
+        serde_json::to_vec(&wire).expect("canonical test JSON")
+    }
+
     /// The JSON of a distinct structural node identity.
     pub(super) fn id(digit: char) -> Value {
         json!({"package": "test", "path": [digit.to_string()], "ordinal": 0})
@@ -4017,6 +4248,12 @@ mod test_support {
     /// deserializer cannot decode nested structural node IDs from a buffered
     /// JSON value.
     pub(super) fn private_wire(mut value: Value) -> CheckedPackageWireV2 {
+        // Test graphs name operands by graph index, so their rows are empty.
+        let count = value["semantic_graph"]["nodes"]
+            .as_array()
+            .expect("test nodes")
+            .len();
+        value["semantic_graph"]["operand_rows"] = json!(vec![Vec::<u64>::new(); count]);
         let nodes = value["semantic_graph"]["nodes"]
             .as_array_mut()
             .expect("test nodes");
@@ -4361,7 +4598,7 @@ mod tests {
                 "definition_selections": [],
                 "required_features": [], "dependency_selections": []
             },
-            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": []},
+            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": [], "operand_rows": []},
             "source_map": [], "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []}
         }))
@@ -4401,6 +4638,7 @@ mod tests {
                     timed_model_roots: Vec::new(),
                     node_index: std::sync::Arc::new(Default::default()),
                     structural_keys: keys,
+                    slot_graph: Default::default(),
                     source_index: std::sync::Arc::new(Default::default()),
                     lowering_facts: Vec::new(),
                     wire: std::sync::Arc::new(wire),
@@ -4411,6 +4649,7 @@ mod tests {
                     selected_documents: std::sync::Arc::new(Vec::new()),
                     direct_dependencies: Vec::new(),
                     closure_index: Default::default(),
+                    catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
                     admission_binding: Default::default(),
                 }
                 .retain_original_admission();

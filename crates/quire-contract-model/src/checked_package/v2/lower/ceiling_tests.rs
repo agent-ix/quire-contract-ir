@@ -41,6 +41,7 @@ fn retain_graph_indices(package: &mut CheckedPackageV2) {
         .collect::<Vec<_>>();
     package.structural_keys = super::super::node_index::rebuild_keys(
         &ids,
+        None,
         |_, _| unreachable!("fixture graph has only valid node IDs"),
         |_| unreachable!("fixture graph has only valid node IDs"),
     )
@@ -124,7 +125,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
             "required_features": [],
             "dependency_selections": [],
         },
-        "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
+        "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes, "operand_rows": vec![Vec::<u64>::new(); nodes.as_array().map_or(0, Vec::len)]},
         "source_map": [],
         "capability_report": [],
         "diagnostics": {"catalog": artifact("diagnostics"), "entries": []},
@@ -137,6 +138,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         timed_model_roots: Vec::new(),
         node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
         structural_keys: Vec::new(),
+        slot_graph: Default::default(),
         source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
         lowering_facts: Vec::new(),
         wire: std::sync::Arc::new(wire),
@@ -147,12 +149,13 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         selected_documents: std::sync::Arc::new(Vec::new()),
         direct_dependencies: Vec::new(),
         closure_index: Default::default(),
+        catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
         admission_binding: Default::default(),
     }
     .retain_original_admission();
     retain_graph_indices(&mut package);
     let index = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .enumerate()
@@ -213,7 +216,7 @@ fn shared_closure_package(roots: usize, shared: usize) -> (CheckedPackageV2, Vec
     retain_graph_indices(&mut package);
     BODY_WALKS.with(|walks| walks.set(0));
     let index = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .enumerate()
@@ -380,7 +383,7 @@ fn grouped_recursive_shared_closure_keeps_independent_records() {
         .nodes[1]
         .recursion_group = Some("shared".into());
     let index = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .enumerate()

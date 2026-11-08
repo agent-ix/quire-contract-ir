@@ -28,7 +28,7 @@ fn corrected_qspec_grouped_fixtures_admit_with_declared_paths() {
         let nodes = wire["semantic_graph"]["nodes"]
             .as_array()
             .expect("published graph nodes");
-        assert_eq!(admitted.graph().nodes.len(), nodes.len(), "{name}");
+        assert_eq!(admitted.resolved_graph().nodes.len(), nodes.len(), "{name}");
         let mut grouped = 0;
         for (index, published) in nodes.iter().enumerate() {
             if published.get("recursion_group").is_none_or(Value::is_null) {
@@ -44,8 +44,13 @@ fn corrected_qspec_grouped_fixtures_admit_with_declared_paths() {
                 "{name}: node {index}"
             );
             assert_eq!(
-                serde_json::to_value(&admitted.graph().nodes[index].node_id)
-                    .expect("typed node id"),
+                serde_json::to_value(
+                    &admitted
+                        .document_held_id(index)
+                        .expect("graph node")
+                        .clone()
+                )
+                .expect("typed node id"),
                 published["node_id"],
                 "{name}: node {index} retains its authored ordinal"
             );
@@ -111,7 +116,8 @@ fn authoritative_owner_declaration_and_group_forms_are_retained_and_fail_closed(
         let document = proposal.join(super::positive_document(name, &documents));
         let (wire, admitted) =
             read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{name}: {why}"));
-        let published = wire["semantic_graph"]["nodes"]
+        let wire_form = crate::fixture_support::wire_form(&wire);
+        let published = wire_form["semantic_graph"]["nodes"]
             .as_array()
             .expect("published nodes");
         assert_eq!(admitted.graph().nodes.len(), published.len(), "{name}");
@@ -252,6 +258,7 @@ fn grouped_member_and_outside_application_references_retain_exact_targets() {
     let mut outside = nodes[application].clone();
     outside.as_object_mut().expect("node").remove("declaration");
     outside["node_id"] = outside_id.clone();
+    outside["node_tag"] = serde_json::json!("value");
     outside["semantic_form"] = serde_json::json!("record_value");
     outside["semantic_type"] = record_id.clone();
     outside["occurrences"] = serde_json::json!([{"role":"expression", "ordinal":0}]);
@@ -277,7 +284,7 @@ fn grouped_member_and_outside_application_references_retain_exact_targets() {
         panic!("group projection and finite outside value must admit: {outcome:?}");
     };
     for (position, body) in group_bodies {
-        let node = &admitted.graph().nodes[position];
+        let node = &admitted.resolved_graph().nodes[position];
         assert_eq!(serde_json::to_value(&node.body).expect("body"), body);
         assert_eq!(node.recursion_group.as_deref(), Some("List"));
         assert_eq!(
@@ -286,14 +293,23 @@ fn grouped_member_and_outside_application_references_retain_exact_targets() {
         );
     }
     assert_ne!(
-        admitted.graph().nodes[option].node_id,
-        admitted.graph().nodes[record].node_id
+        admitted
+            .document_held_id(option)
+            .expect("graph node")
+            .clone(),
+        admitted
+            .document_held_id(record)
+            .expect("graph node")
+            .clone()
     );
     assert_eq!(
-        admitted.graph().nodes[outside_position].recursion_group,
+        admitted.resolved_graph().nodes[outside_position].recursion_group,
         None
     );
-    let application_id = &admitted.graph().nodes[application].node_id;
+    let application_id = &admitted
+        .document_held_id(application)
+        .expect("graph node")
+        .clone();
     let Some(quire_contract_model::CheckedTerm::Application {
         operation,
         arguments,
@@ -303,7 +319,13 @@ fn grouped_member_and_outside_application_references_retain_exact_targets() {
     else {
         panic!("typed grouped projection");
     };
-    assert_eq!(result_type, &admitted.graph().nodes[option].node_id);
+    assert_eq!(
+        result_type,
+        &admitted
+            .document_held_id(option)
+            .expect("graph node")
+            .clone()
+    );
     let quire_contract_model::CheckedOperationMember::Field { declaration, .. } = operation
         .read()
         .expect("operation view")
@@ -312,22 +334,40 @@ fn grouped_member_and_outside_application_references_retain_exact_targets() {
     else {
         panic!("record field member");
     };
-    assert_eq!(declaration, &admitted.graph().nodes[record].node_id);
+    assert_eq!(
+        declaration,
+        &admitted
+            .document_held_id(record)
+            .expect("graph node")
+            .clone()
+    );
     let [quire_contract_model::CheckedTerm::Reference { target }] = arguments.as_slice() else {
         panic!("one outside reference");
     };
-    assert_eq!(target, &admitted.graph().nodes[outside_position].node_id);
     assert_eq!(
-        admitted.graph().nodes[outside_position].semantic_type,
-        admitted.graph().nodes[record].node_id
+        target,
+        &admitted
+            .document_held_id(outside_position)
+            .expect("graph node")
+            .clone()
     );
-    let Some(quire_contract_model::CheckedTerm::Aggregate { members }) =
-        admitted.term(&admitted.graph().nodes[option].node_id)
-    else {
+    assert_eq!(
+        admitted.resolved_graph().nodes[outside_position].semantic_type,
+        admitted
+            .document_held_id(record)
+            .expect("graph node")
+            .clone()
+    );
+    let Some(quire_contract_model::CheckedTerm::Aggregate { members }) = admitted.term(
+        &admitted
+            .document_held_id(option)
+            .expect("graph node")
+            .clone(),
+    ) else {
         panic!("typed option body");
     };
     assert!(
-        matches!(members.as_slice(), [quire_contract_model::CheckedTerm::Reference { target }] if target == &admitted.graph().nodes[record].node_id)
+        matches!(members.as_slice(), [quire_contract_model::CheckedTerm::Reference { target }] if target == &admitted.document_held_id(record).expect("graph node").clone())
     );
 
     let mut malformed = wire.clone();

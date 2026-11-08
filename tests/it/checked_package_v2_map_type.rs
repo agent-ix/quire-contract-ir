@@ -1164,7 +1164,7 @@ fn unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads(
     let (package, outer, inner, bounded) = nested_bounded_quantity_maps();
     assert_eq!(
         package.node_kinds()[package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .position(|node| node.node_id == bounded)
@@ -1321,7 +1321,7 @@ fn unsupported_nested_bounded_quantities_refuse_without_comparing_cold_payloads(
                 locus.source,
                 NativeJoinLocusSource::GraphNode(
                     package
-                        .graph()
+                        .resolved_graph()
                         .nodes
                         .iter()
                         .position(|node| node.node_id == outer)
@@ -1373,10 +1373,14 @@ fn unsupported_nested_compound_quantities_refuse_without_comparing_cold_exponent
     let CheckedPackageV2ReadResult::Admitted(package) = admitted else {
         panic!("existing compound-unit fixture with nested maps must strictly admit: {admitted:?}");
     };
-    let outer = package.graph().nodes[outer_position].node_id.clone();
-    let inner = package.graph().nodes[inner_position].node_id.clone();
+    let outer = package.resolved_graph().nodes[outer_position]
+        .node_id
+        .clone();
+    let inner = package.resolved_graph().nodes[inner_position]
+        .node_id
+        .clone();
     let compound = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.semantic_form.as_ref() == "compound_unit")

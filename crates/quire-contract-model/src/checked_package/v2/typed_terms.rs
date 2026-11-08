@@ -1367,6 +1367,15 @@ fn structural_member_id(value: &Value) -> Option<CheckedNodeId> {
                 }
                 segments.push(CheckedNodePathSegment::Index(index));
             }
+            Task::Segment(Value::Object(object))
+                if object.len() == 1 && object.contains_key("operand") =>
+            {
+                let slot = object.get("operand")?.as_u64()?;
+                if slot > 9_007_199_254_740_991 {
+                    return None;
+                }
+                segments.push(CheckedNodePathSegment::Operand(slot));
+            }
             Task::Segment(value @ Value::Object(_)) => pending.push(Task::Node(value)),
             Task::Segment(_) => return None,
             Task::Finish {
@@ -2606,6 +2615,8 @@ fn value_is_node_id(value: &Value, id: &CheckedNodeId) -> bool {
                 CheckedNodePathSegment::Node(node) => pending.push((segment, node)),
                 CheckedNodePathSegment::Index(index)
                     if segment.get("node").and_then(Value::as_u64) == Some(*index) => {}
+                CheckedNodePathSegment::Operand(slot)
+                    if segment.get("operand").and_then(Value::as_u64) == Some(*slot) => {}
                 _ => return false,
             }
         }
@@ -2618,6 +2629,7 @@ fn node_id_value(id: &CheckedNodeId) -> Value {
         Node(&'a CheckedNodeId),
         Name(&'a str),
         Index(u64),
+        Operand(u64),
         Finish(&'a CheckedNodeId),
     }
     let mut pending = vec![Task::Node(id)];
@@ -2631,6 +2643,7 @@ fn node_id_value(id: &CheckedNodeId) -> Value {
                         CheckedNodePathSegment::Name(name) => Task::Name(name),
                         CheckedNodePathSegment::Node(child) => Task::Node(child),
                         CheckedNodePathSegment::Index(index) => Task::Index(*index),
+                        CheckedNodePathSegment::Operand(slot) => Task::Operand(*slot),
                     });
                 }
             }
@@ -2638,6 +2651,11 @@ fn node_id_value(id: &CheckedNodeId) -> Value {
             Task::Index(index) => {
                 let mut object = serde_json::Map::new();
                 object.insert("node".into(), Value::Number(index.into()));
+                values.push(Value::Object(object));
+            }
+            Task::Operand(slot) => {
+                let mut object = serde_json::Map::new();
+                object.insert("operand".into(), Value::Number(slot.into()));
                 values.push(Value::Object(object));
             }
             Task::Finish(node) => {

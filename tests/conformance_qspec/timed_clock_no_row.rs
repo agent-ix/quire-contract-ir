@@ -89,16 +89,28 @@ fn timed_clock_no_row_vectors_join_model_and_refuse_extra_row() {
     let wire = timed_model_clause();
     assert!(wire.get("temporal_bindings").is_none(), "TN-01 has no row");
     let package = admitted(&wire);
-    let clause = &package.graph().nodes[8];
+    let clause = &package.resolved_graph().nodes[8];
     let binding = package
         .model_time_for_clause(&clause.node_id, 100)
         .expect("bounded model-time read")
         .expect("model subject");
     assert_eq!(binding.clause(), &clause.node_id);
-    assert_eq!(binding.timed_root(), &package.graph().nodes[52].node_id);
-    assert_eq!(binding.model(), &package.graph().nodes[53].node_id);
-    assert_eq!(binding.source(), &package.graph().nodes[44].node_id);
-    assert_eq!(binding.unit(), &package.graph().nodes[43].node_id);
+    assert_eq!(
+        binding.timed_root(),
+        &package.document_held_id(52).expect("graph node").clone()
+    );
+    assert_eq!(
+        binding.model(),
+        &package.document_held_id(53).expect("graph node").clone()
+    );
+    assert_eq!(
+        binding.source(),
+        &package.document_held_id(44).expect("graph node").clone()
+    );
+    assert_eq!(
+        binding.unit(),
+        &package.document_held_id(43).expect("graph node").clone()
+    );
     assert_eq!(
         package
             .model_time_for_clause(&clause.node_id, binding.work())
@@ -135,7 +147,10 @@ fn timed_clock_no_row_vectors_join_model_and_refuse_extra_row() {
     fixture_support::refresh_temporal_bindings(&mut trace);
     fixture_support::refresh_identity(&mut trace);
     let trace_package = admitted(&trace);
-    let trace_clause = &trace_package.graph().nodes[8].node_id;
+    let trace_clause = &trace_package
+        .document_held_id(8)
+        .expect("graph node")
+        .clone();
     assert!(trace_package
         .model_time_for_clause(trace_clause, 100)
         .unwrap()

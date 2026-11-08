@@ -1,6 +1,6 @@
 //! Typed, position-preserving operands of admitted scalar integer applications.
 
-use super::operation_catalog::operation_catalog;
+use super::operation_catalog::OperationCatalog;
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedPackageV2, CheckedSemanticNodeV2,
     CheckedTerm, LiteralKind, ValueForm,
@@ -154,6 +154,7 @@ fn graph_node<'a, Body>(
 /// Per-position laziness preserves the checked view's first-error order when
 /// an early range is absent and a later argument is malformed.
 pub(super) fn scalar_arguments<'a, Body: ScalarBody>(
+    catalog: &OperationCatalog,
     nodes: &'a [CheckedSemanticNodeV2<Body>],
     positions: &'a BTreeMap<CheckedNodeId, usize>,
     kinds: &'a [CheckedNodeKind],
@@ -179,7 +180,7 @@ pub(super) fn scalar_arguments<'a, Body: ScalarBody>(
         .get("identity")
         .and_then(Value::as_str)
         .ok_or(Error::UnknownOperator)?;
-    if operation_catalog().entry(identity).is_none() {
+    if catalog.entry(identity).is_none() {
         return Err(Error::UnknownOperator);
     }
     if !matches!(
@@ -305,6 +306,7 @@ impl CheckedPackageV2 {
             return Err(Error::MissingOccurrence);
         }
         scalar_arguments(
+            self.catalog,
             nodes,
             &self.node_index,
             &self.kinds,
@@ -480,6 +482,7 @@ mod tests {
             timed_model_roots: Vec::new(),
             node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
             structural_keys: Vec::new(),
+            slot_graph: Default::default(),
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),
@@ -497,6 +500,7 @@ mod tests {
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
             admission_binding: Default::default(),
         }
         .retain_original_admission()
@@ -915,6 +919,7 @@ mod tests {
             }
             let node = &package.wire.semantic_graph.nodes[3];
             let mut arguments = scalar_arguments(
+                package.catalog,
                 &package.wire.semantic_graph.nodes,
                 &package.node_index,
                 &package.kinds,

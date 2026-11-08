@@ -95,8 +95,13 @@ fn qspec_node_ordinal_uniqueness_cases_read_exactly() {
                 };
                 for position in positions {
                     assert_eq!(
-                        serde_json::to_value(&admitted.graph().nodes[position].node_id)
-                            .expect("retained node id"),
+                        serde_json::to_value(
+                            &admitted
+                                .document_held_id(position)
+                                .expect("graph node")
+                                .clone()
+                        )
+                        .expect("retained node id"),
                         package["semantic_graph"]["nodes"][position]["node_id"],
                         "{id}: producer ordinal retained"
                     );

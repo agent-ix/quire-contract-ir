@@ -193,7 +193,13 @@ fn entry_keys_published_paths_and_admission_cover_optional_measure() {
         .expect("selected genuine model accessor");
     let package = admit(&wire);
     assert_eq!(
-        serde_json::to_value(&package.graph().nodes[accessor].node_id).unwrap()["path"],
+        serde_json::to_value(
+            &package
+                .document_held_id(accessor)
+                .expect("graph node")
+                .clone()
+        )
+        .unwrap()["path"],
         row["expected_path"]
     );
 }
@@ -212,7 +218,9 @@ fn entry_keys_measure_function_is_admitted_without_a_monitor_root() {
     let n = function(&mut wire, &nodes, row);
     finish(&mut wire);
     let package = admit(&wire);
-    let body = package.term(&package.graph().nodes[n].node_id).unwrap();
+    let body = package
+        .term(&package.document_held_id(n).expect("graph node").clone())
+        .unwrap();
     assert_eq!(
         serde_json::to_value(body).unwrap()["members"][2]["name"],
         "measure"

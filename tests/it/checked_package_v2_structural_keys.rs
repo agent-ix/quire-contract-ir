@@ -695,12 +695,21 @@ fn structural_identity_is_retained_without_body_derivation() {
         panic!("changed scalar must admit: {:?}", read(&changed));
     };
     assert_eq!(
-        first_read.graph().nodes[0].node_id,
-        changed_read.graph().nodes[0].node_id
+        first_read.document_held_id(0).expect("graph node").clone(),
+        changed_read
+            .document_held_id(0)
+            .expect("graph node")
+            .clone()
     );
     assert_ne!(first_read.graph().nodes[0], changed_read.graph().nodes[0]);
     assert_eq!(
-        serde_json::to_value(&changed_read.graph().nodes[0].node_id).expect("node id"),
+        serde_json::to_value(
+            changed_read
+                .document_held_id(0)
+                .expect("graph node")
+                .clone()
+        )
+        .expect("node id"),
         first["semantic_graph"]["nodes"][0]["node_id"]
     );
 }
@@ -748,8 +757,8 @@ fn a_distinct_path_is_a_distinct_node_even_with_equal_bodies() {
         panic!("distinct structural path must admit: {:?}", read(&package));
     };
     assert_ne!(
-        admitted.graph().nodes[0].node_id,
-        admitted.graph().nodes[1].node_id
+        admitted.document_held_id(0).expect("graph node").clone(),
+        admitted.document_held_id(1).expect("graph node").clone()
     );
     assert_eq!(
         admitted.graph().nodes[0].body,
@@ -1383,7 +1392,13 @@ fn structural_group_members_retain_exact_paths_and_references() {
     };
     for (position, expected_id) in [(option, &option_id), (record, &record_id)] {
         assert_eq!(
-            serde_json::to_value(&original.graph().nodes[position].node_id).expect("typed id"),
+            serde_json::to_value(
+                original
+                    .document_held_id(position)
+                    .expect("graph node")
+                    .clone()
+            )
+            .expect("typed id"),
             *expected_id
         );
         assert_eq!(
