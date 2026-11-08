@@ -128,7 +128,7 @@ def check(export, root):
     if budgeted != expected_budgeted:
         raise CensusError(f"unaccounted budgeted entries: production {budgeted}, expected {expected_budgeted} "
                           f"(plain {plain} + probes {probes} + caller-budget {caller_budget} + calibration {calibration})")
-    return {"scope": "executed QSpec original-driver corpus only",
+    return {"scope": "executed source-snapshot reader invocation census only",
             "plain": plain, "budgeted": budgeted, "measured_plain": measured_plain,
             "measured_probes": probes, "caller_budget": caller_budget,
             "private_counter_calibration": calibration,

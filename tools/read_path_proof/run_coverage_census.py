@@ -7,6 +7,7 @@ All Cargo/build and original-driver runs are serialized by the shared lock.
 This tool neither installs toolchains nor changes manifests or global config.
 """
 import argparse
+import gzip
 import json
 import os
 from pathlib import Path
@@ -36,7 +37,7 @@ class RunError(ValueError):
 SAFE_ENVIRONMENT = ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_PROFILE_DEV_DEBUG",
                     "CARGO_PROFILE_TEST_DEBUG", "CARGO_PROFILE_DEV_OPT_LEVEL",
                     "CARGO_PROFILE_TEST_OPT_LEVEL", "CARGO_TARGET_DIR", "RUSTFLAGS",
-                    "RUSTC", "RUSTDOC", "CARGO"]
+                    "RUSTC", "RUSTDOC", "CARGO", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"]
 
 
 def safe_environment(env):
@@ -58,6 +59,33 @@ def owned_target(repo, target):
     if not resolved.is_relative_to(tree):
         raise RunError("resolved target directory escaped the owned target tree")
     return resolved
+
+
+
+MIN_FREE_BYTES = 20 * 1024**3
+MAX_EXPORT_BYTES = 2 * 1024**3
+
+
+def require_space(path, phase):
+    free = shutil.disk_usage(path).free
+    if free < MIN_FREE_BYTES:
+        raise RunError(f"{phase}: less than 20 GiB free; preserve artifacts and stop")
+
+
+def archive_export(output):
+    source = output / "coverage.json"
+    compressed = output / "coverage.json.gz"
+    with source.open("rb") as original, gzip.open(compressed, "wb") as archive:
+        shutil.copyfileobj(original, archive)
+    # Verify lossless retention before removing this run's uncompressed copy.
+    with source.open("rb") as original, gzip.open(compressed, "rb") as archive:
+        while True:
+            expected = original.read(1024 * 1024)
+            if expected != archive.read(1024 * 1024):
+                raise RunError("compressed compiler evidence failed lossless readback")
+            if not expected:
+                break
+    source.unlink()
 
 
 def git(root, *args):
@@ -186,19 +214,43 @@ def select_tc048(args, compiled):
 
 
 def merge_export(args, output, profiles, binary, env):
+    require_space(output, "before profile merge/export")
     merged = output / "driver.profdata"
-    checked([str(args.llvm_bin / "llvm-profdata"), "merge", "-sparse", *map(str, profiles), "-o", str(merged)],
-            output / "profile-merge.log", cwd=args.repo, env=env)
+    merge = [str(args.llvm_bin / "llvm-profdata"), "merge", "-sparse", *map(str, profiles), "-o", str(merged)]
+    export = [str(args.llvm_bin / "llvm-cov"), "export", str(binary), "-instr-profile=" + str(merged)]
+    write_json(output / "compiler-evidence-commands.json", {"merge": merge, "export": export,
+               "maximum_export_bytes": MAX_EXPORT_BYTES, "minimum_free_bytes": MIN_FREE_BYTES})
+    checked(merge, output / "profile-merge.log", cwd=args.repo, env=env)
     exported = output / "coverage.json"
-    with exported.open("w") as data, (output / "coverage.stderr").open("w") as error:
-        result = subprocess.run([str(args.llvm_bin / "llvm-cov"), "export", str(binary),
-                                 "-instr-profile=" + str(merged)], stdout=data, stderr=error, env=env)
-    if result.returncode or (output / "coverage.stderr").read_text().strip():
+    with exported.open("wb") as data, (output / "coverage.stderr").open("wb") as error:
+        process = subprocess.Popen(export, stdout=subprocess.PIPE, stderr=error, env=env)
+        try:
+            total = 0
+            while chunk := process.stdout.read(1024 * 1024):
+                total += len(chunk)
+                if total > MAX_EXPORT_BYTES:
+                    raise RunError("compiler export exceeded 2 GiB evidence budget; partial evidence retained")
+                require_space(output, "during compiler export")
+                data.write(chunk)
+            code = process.wait()
+        except BaseException:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise
+        finally:
+            process.stdout.close()
+    if code or (output / "coverage.stderr").read_text().strip():
         raise RunError("compiler coverage export failed or reported an evidence warning")
+    require_space(output, "after compiler export")
     return json.loads(exported.read_text())
 
 
-def execute_one(args, binary, config, env, name, index):
+def execute_one(args, binary, config, env, name, index, *, preserve_failure=False):
+    require_space(args.out, "before exact original test process")
     output = args.out / f"case-{index:05d}"
     output.mkdir()
     profiles = output / "profiles"
@@ -211,23 +263,42 @@ def execute_one(args, binary, config, env, name, index):
     # original test identity and retain first-read startup as observable work.
     command = LOCKED + [str(binary), "--exact", name, "--test-threads=1", "--nocapture"]
     start = time.monotonic()
-    pid = checked(command, output / "run.log", cwd=args.repo, env=run_env)
+    with (output / "run.log").open("w") as log_output:
+        process = subprocess.Popen(command, cwd=args.repo, env=run_env,
+                                   stdout=log_output, stderr=subprocess.STDOUT)
+        code = process.wait()
+        pid = process.pid
     validate_snapshot(args.repo, config)
-    outcomes = test_results((output / "run.log").read_text(), [name])
-    report = {"intended_tests": [name], **outcomes, "exit_code": 0, "test_threads": 1,
+    require_space(output, "after exact original test process")
+    parse_errors = []
+    try:
+        outcomes = test_results((output / "run.log").read_text(), [name])
+    except RunError as error:
+        outcomes = {"passed_tests": [], "failed_tests": [name], "ignored_tests": []}
+        parse_errors.append(str(error))
+    report = {"intended_tests": [name], **outcomes, "exit_code": code, "test_threads": 1,
               "command": command, "pid": pid, "elapsed_seconds": time.monotonic() - start,
               "source_head": config["source_head"]}
     write_json(output / "test-report.json", report)
-    if outcomes["passed_tests"] != [name] or outcomes["failed_tests"] or outcomes["ignored_tests"]:
-        raise RunError("the intended original-driver test did not execute successfully once")
+    errors = list(parse_errors)
+    if code or outcomes["passed_tests"] != [name] or outcomes["failed_tests"] or outcomes["ignored_tests"]:
+        errors.append("the intended original-driver test did not execute successfully once")
     raw = sorted(profiles.glob("*.profraw"))
     if not raw:
-        raise RunError("no actual compiler profiles were emitted")
+        errors.append("no actual compiler profiles were emitted")
     if any(f"driver-{pid}-" not in path.name for path in raw):
-        raise RunError("child-process compiler profile requires its own binary/source census")
-    records = [json.loads(line) for line in log.read_text().splitlines() if line.strip()] if log.exists() else []
+        errors.append("child-process compiler profile requires its own binary/source census")
+    try:
+        records = [json.loads(line) for line in log.read_text().splitlines() if line.strip()] if log.exists() else []
+    except json.JSONDecodeError as error:
+        errors.append(f"invalid original-site records retained at {log}: {error}")
+        records = []
     if any(record.get("test") != name for record in records):
-        raise RunError("captured read provenance does not belong to its exact original test")
+        errors.append("captured read provenance does not belong to its exact original test")
+    report["evidence_errors"] = errors
+    write_json(output / "test-report.json", report)
+    if errors and not preserve_failure:
+        raise RunError("; ".join(errors))
     return output, report, raw, records
 
 
@@ -248,7 +319,9 @@ def run_controls(args, binary, config, env, compiled_tests):
         else:
             if not should_pass:
                 raise RunError("a deliberate real-reader bypass incorrectly passed compiler census")
+        result["scope"]="executed malformed-input reader entry controls only"
         write_json(output / "census.json", result)
+        archive_export(output)
         results.append({"control": name, "oracle_passed": True, "census": result})
     return results
 
@@ -256,21 +329,28 @@ def run_controls(args, binary, config, env, compiled_tests):
 def run_original_corpus(args, binary, config, env, intended):
     reports, profiles, records = [], [], []
     for index, name in enumerate(intended):
-        _, report, raw, captured = execute_one(args, binary, config, env, name, index)
+        _, report, raw, captured = execute_one(args, binary, config, env, name, index, preserve_failure=True)
         reports.append(report)
         profiles.extend(raw)
         records.extend(captured)
     report = {"intended_tests": intended,
               "passed_tests": [name for item in reports for name in item["passed_tests"]],
-              "failed_tests": [], "ignored_tests": [], "exit_code": 0, "test_threads": 1,
-              "per_test_processes": reports, "source_head": config["source_head"]}
+              "failed_tests": [name for item in reports for name in item["failed_tests"]],
+              "ignored_tests": [name for item in reports for name in item["ignored_tests"]],
+              "exit_code": int(any(item["exit_code"] or item["evidence_errors"] for item in reports)),
+              "test_threads": 1, "per_test_processes": reports, "source_head": config["source_head"]}
     write_json(args.out / "test-report.json", report)
     with (args.out / "driver-sites.jsonl").open("w") as log:
         for record in records:
             log.write(json.dumps(record) + "\n")
+    if any(item["evidence_errors"] for item in reports):
+        raise RunError("all intended original tests attempted; failures/evidence errors retained in per-test reports")
     evidence = merge_export(args, args.out, profiles, binary, env)
     result = census.check_run(evidence, args.repo, report, records, args.mode)
+    result["scope"]=("executed original TC-048 integration tests only" if args.corpus == "tc048"
+                     else "executed original QSpec driver tests only")
     write_json(args.out / "census.json", result)
+    archive_export(args.out)
     return [result]
 
 
@@ -300,8 +380,7 @@ def main():
             raise RunError("freeze and commit the source before compiler evidence")
         if git(args.qspec_dir, "status", "--porcelain"):
             raise RunError("select a clean QSpec checkout for the one recorded input snapshot")
-        if shutil.disk_usage(args.repo).free < 20 * 1024**3:
-            raise RunError("less than 20 GiB free; do not start a new compiler job")
+        require_space(args.repo, "before compiler build")
         rustc = subprocess.check_output([str(args.toolchain_bin / "rustc"), "-vV"], text=True)
         llvm = subprocess.check_output([str(args.llvm_bin / "llvm-cov"), "--version"], text=True)
         version = re.search(r"LLVM version:\s*(\S+)", rustc)
@@ -310,7 +389,9 @@ def main():
         flags = "-Cinstrument-coverage -Csymbol-mangling-version=v0"
         if os.environ.get("CARGO_ENCODED_RUSTFLAGS") or os.environ.get("RUSTFLAGS", flags) != flags:
             raise RunError("conflicting inherited rustflags; select the explicit recorded proof configuration")
-        env = dict(os.environ, CARGO_BUILD_JOBS="2", CARGO_INCREMENTAL="0",
+        if os.environ.get("RUSTC_WRAPPER") or os.environ.get("RUSTC_WORKSPACE_WRAPPER"):
+            raise RunError("select the actual recorded compiler without inherited compiler wrappers")
+        env = dict(os.environ, RUSTC_WRAPPER="", RUSTC_WORKSPACE_WRAPPER="", CARGO_BUILD_JOBS="2", CARGO_INCREMENTAL="0",
                    CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0",
                    CARGO_PROFILE_DEV_OPT_LEVEL="0", CARGO_PROFILE_TEST_OPT_LEVEL="0",
                    CARGO_TARGET_DIR=str(args.target_dir), RUSTFLAGS=flags,
