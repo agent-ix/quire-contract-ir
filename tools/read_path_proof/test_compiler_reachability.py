@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -52,8 +53,11 @@ class CompilerReachabilityTests(unittest.TestCase):
                                    "--edition=2024", "--test", "-Cdebuginfo=0", "-o", str(executable)]
                 proof.execute(["nice", "-n", "10", "ionice", "-c", "3"] + runtime_command,
                               self.env, directory, directory / "runtime-compiler.log")
-                proof.execute([str(executable), "--exact", "valid_sequential_alias", "--nocapture"],
-                              self.env, directory, directory / "runtime-control.log")
+                test_name = run_test if isinstance(run_test, str) else "valid_sequential_alias"
+                observed = proof.execute([str(executable), "--exact", test_name, "--nocapture"],
+                                         self.env, directory, directory / "runtime-control.log")
+                if not re.search(r"test result: ok\. 1 passed; 0 failed;", observed):
+                    raise proof.EvidenceError("runtime control did not execute exactly one value-asserting test")
         (directory / "invocation.json").write_text(json.dumps({
             "command": command, "lock_requested": requested, "lock_acquired": acquired,
         }, indent=2))
@@ -201,6 +205,64 @@ fn valid_sequential_alias() {
 """, run_test=True)
         self.assertFalse(result["result"]["static_ac513_proven"])
         self.assertTrue(any("unknown-address store" in item["reason"] for item in result["unresolved"]), result)
+
+    def test_callee_return_delta_preserves_both_selected_targets(self):
+        result = self.compile("returned_callback", """
+#[inline(never)] fn a(x:u8)->u8 {x ^ 1}
+#[inline(never)] fn b(x:u8)->u8 {x ^ 128}
+#[inline(never)] fn select(flag:bool)->fn(u8)->u8 {if flag {a} else {b}}
+pub fn reader_root(flag:bool,x:u8)->u8 {select(flag)(x)}
+""")
+        self.assertTrue(result["result"]["pointer_flow_fixed_point"], result["result"])
+        targets = {item["def_path"] for item in result["functions"]}
+        self.assertTrue({"returned_callback::a", "returned_callback::b"} <= targets, targets)
+
+    def test_object_local_pointer_iteration_converges_without_unrelated_targets(self):
+        result = self.compile("pointer_iteration", """
+#[inline(never)] fn a(x:u8)->u8 {x ^ 1}
+#[inline(never)] fn b(x:u8)->u8 {x ^ 128}
+#[inline(never)] fn unrelated(x:u8)->u8 {x ^ 42}
+static CALLBACKS:[fn(u8)->u8;2]=[a,b];
+pub static UNRELATED:[fn(u8)->u8;1]=[unrelated];
+pub fn reader_root(count:usize,x:u8)->u8 {
+ if count>CALLBACKS.len() {return x;}
+ let mut result=x;
+ let mut cursor=CALLBACKS.as_ptr();
+ let end=cursor.wrapping_add(count);
+ while cursor!=end {
+  let callback=unsafe {*cursor};
+  result=callback(result);
+  cursor=cursor.wrapping_add(1);
+ }
+ result
+}
+#[test] fn valid_pointer_iteration() {
+ assert_eq!(reader_root(0,3),3);
+ assert_eq!(reader_root(1,3),2);
+ assert_eq!(reader_root(2,3),130);
+}
+""", run_test="valid_pointer_iteration")
+        self.assertTrue(result["result"]["pointer_flow_fixed_point"], result["result"])
+        self.assertGreater(result["result"]["widened_object_offsets"], 0)
+        targets = {item["def_path"] for item in result["functions"]}
+        self.assertTrue({"pointer_iteration::a", "pointer_iteration::b"} <= targets, targets)
+        self.assertNotIn("pointer_iteration::unrelated", targets)
+
+    def test_recursive_memory_delta_reaches_the_new_global_target(self):
+        result = self.compile("recursive_memory", """
+#[inline(never)] fn initial(x:u8)->u8 {x ^ 1}
+#[inline(never)] fn changed(x:u8)->u8 {x ^ 128}
+static mut CELL:fn(u8)->u8=initial;
+#[inline(never)] unsafe fn fill(slot:*mut fn(u8)->u8,depth:u8) {
+ if depth==0 {unsafe {*slot=changed;}} else {unsafe {fill(slot,depth-1);}}
+}
+pub fn reader_root(depth:u8,x:u8)->u8 {
+ unsafe {fill(&raw mut CELL,depth); CELL(x)}
+}
+#[test] fn valid_recursive_memory() {assert_eq!(reader_root(5,7),135);}
+""", run_test="valid_recursive_memory")
+        self.assertTrue(result["result"]["pointer_flow_fixed_point"], result["result"])
+        self.assertTrue(any(item["def_path"] == "recursive_memory::changed" for item in result["functions"]))
 
 
 class ArtifactGuardsTests(unittest.TestCase):

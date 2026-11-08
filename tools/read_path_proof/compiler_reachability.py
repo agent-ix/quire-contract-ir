@@ -11,9 +11,10 @@ pointer flows remain explicit blockers. Merely producing a graph is not proof.
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 import fcntl
+from functools import lru_cache
 import json
 import os
 from pathlib import Path
@@ -117,7 +118,7 @@ def take_type(text: str) -> tuple[str, str]:
 class Atom:
     kind: str
     name: str
-    offset: int = 0
+    offset: int | None = 0
     origin: str = ""
 
 
@@ -176,6 +177,8 @@ class Module:
         self.global_slots: dict[tuple[str, int], Value] = {}
         self.aliases: dict[str, str] = {}
         self.vtables: set[str] = set()
+        self.object_sizes: dict[str, int] = {}
+        self.complete_pointer_objects: set[str] = set()
         self.parse()
 
     def parse(self) -> None:
@@ -238,6 +241,7 @@ class Module:
     def meta(self, number: int | None) -> str:
         return self.metadata.get(number, "") if number is not None else ""
 
+    @lru_cache(maxsize=131_072)
     def subprogram(self, number: int | None) -> int | None:
         visited = set()
         while number is not None and number not in visited:
@@ -249,6 +253,7 @@ class Module:
             number = int(parent[1]) if parent else None
         return None
 
+    @lru_cache(maxsize=131_072)
     def span(self, number: int | None) -> dict | None:
         text = self.meta(number)
         program = self.subprogram(number)
@@ -275,6 +280,7 @@ class Module:
             "origin": "llvm.DILocation" if "!DILocation(" in text else "llvm.DISubprogram",
         }
 
+    @lru_cache(maxsize=131_072)
     def linkage(self, number: int | None) -> str | None:
         text = self.meta(self.subprogram(number))
         match = re.search(r'linkageName: ("(?:\\.|[^"])*")', text)
@@ -332,6 +338,34 @@ class Module:
         raise EvidenceError("missing compiler field")
 
     def initialize_globals(self, functions: set[str]) -> None:
+        def pointer_cells(ty: str, start: int = 0) -> set[int] | None:
+            ty = self.types.get(ty, ty)
+            if ty == "ptr":
+                return {start}
+            if array := re.fullmatch(r"\[(\d+) x (.*)]", ty):
+                count = int(array[1])
+                if count > 65_536:
+                    return None
+                width = self.size_align(array[2])[0]
+                result = set()
+                for index in range(count):
+                    cells = pointer_cells(array[2], start + index * width)
+                    if cells is None:
+                        return None
+                    result.update(cells)
+                return result
+            if ty.startswith(("{", "<{")):
+                fields, _ = self.structure(ty)
+                result = set()
+                for index, field in enumerate(fields):
+                    offset, _ = self.field_offset(ty, index)
+                    cells = pointer_cells(field, start + offset)
+                    if cells is None:
+                        return None
+                    result.update(cells)
+                return result
+            return None
+
         def constant(ty: str, value: str, symbol: str, offset: int) -> None:
             if ty.startswith("ptr"):
                 tokens = TOKEN.findall(value)
@@ -381,6 +415,10 @@ class Module:
                 ty, expression = take_type(match[1])
                 expression = split_fields(expression)[0]
                 constant(ty, expression, symbol, 0)
+                self.object_sizes[symbol] = self.size_align(ty)[0]
+                cells = pointer_cells(ty)
+                if cells is not None and all((symbol, offset) in self.global_slots for offset in cells):
+                    self.complete_pointer_objects.add(symbol)
             except EvidenceError:
                 # A later load from an unrepresented slot is unresolved.
                 continue
@@ -500,6 +538,19 @@ class Graph:
         self.functions: dict[str, Function] = {}
         self.duplicates: set[str] = set()
         self.memory: dict[Atom, Value] = {}
+        self.cells: dict[tuple[str, str], dict[int | None, Value]] = defaultdict(dict)
+        self.object_sizes: dict[tuple[str, str], int] = {}
+        self.complete_objects: set[tuple[str, str]] = set()
+        self.invalidated_objects: set[tuple[str, str]] = set()
+        self.queue: deque[str] = deque()
+        self.scheduled: set[str] = set()
+        self.callers: dict[str, set[str]] = defaultdict(set)
+        self.load_watchers: dict[tuple[str, str, int | None], set[str]] = defaultdict(set)
+        self.object_watchers: dict[tuple[str, str], set[str]] = defaultdict(set)
+        self.wildcard_watchers: dict[tuple[str, str], set[str]] = defaultdict(set)
+        self.offset_history: dict[tuple, set[int]] = defaultdict(set)
+        self.widened_offsets: set[tuple] = set()
+        self.active_function = ""
         self.states: dict[str, State] = {}
         self.edges: dict[tuple, dict] = {}
         self.blockers: dict[tuple, dict] = {}
@@ -520,8 +571,10 @@ class Graph:
                     self.functions[symbol] = function
         for module in modules:
             module.initialize_globals(set(self.functions))
+            self.object_sizes.update({("global", name): size for name, size in module.object_sizes.items()})
+            self.complete_objects.update(("global", name) for name in module.complete_pointer_objects)
             for (symbol, offset), value in module.global_slots.items():
-                join_into(self.memory.setdefault(Atom("global", symbol, offset), {}), value)
+                self.store(scalar(Atom("global", symbol, offset)), value)
 
     @staticmethod
     def read_mir(paths: list[Path]) -> list[dict]:
@@ -628,27 +681,76 @@ class Graph:
                     offsets = {offset + displacement for offset in offsets}
         except EvidenceError as error:
             return scalar(Atom("unknown", str(error)))
-        return scalar(*(
-            Atom(atom.kind, atom.name, atom.offset + offset, atom.origin)
-            if atom.kind in ("stack", "heap", "global") else
-            Atom("unknown", f"GEP base has {atom.kind} provenance")
-            for atom in base for offset in offsets
-        ))
+        result = set()
+        for atom in base:
+            if atom.kind not in ("stack", "heap", "global"):
+                result.add(Atom("unknown", f"GEP base has {atom.kind} provenance"))
+                continue
+            key = state.function.symbol, expression, atom.kind, atom.name
+            for offset in offsets:
+                if atom.offset is None or key in self.widened_offsets:
+                    result.add(Atom(atom.kind, atom.name, None, atom.origin))
+                    continue
+                value = atom.offset + offset
+                history = self.offset_history[key]
+                history.add(value)
+                if len(history) > 16:
+                    self.widened_offsets.add(key)
+                    result.add(Atom(atom.kind, atom.name, None, atom.origin))
+                else:
+                    result.add(Atom(atom.kind, atom.name, value, atom.origin))
+        return scalar(*result)
+
+    def schedule(self, symbol: str) -> None:
+        if symbol in self.states and symbol not in self.scheduled:
+            self.scheduled.add(symbol)
+            self.queue.append(symbol)
 
     def load(self, address: Value) -> Value:
         result: Value = {}
         for atom in address.get((), set()):
             if atom.kind in ("stack", "heap", "global"):
-                join_into(result, self.memory.get(atom, {}))
+                obj = atom.kind, atom.name
+                self.object_watchers[obj].add(self.active_function)
+                cells = self.cells[obj]
+                if atom.offset is None:
+                    self.wildcard_watchers[obj].add(self.active_function)
+                    for value in cells.values():
+                        join_into(result, value)
+                    size = self.object_sizes.get(obj)
+                    complete_stack = size is not None and size % 8 == 0 and all(
+                        cells.get(offset, {}).get(()) for offset in range(0, min(size, 65_536 * 8), 8)
+                    ) and size <= 65_536 * 8
+                    if obj in self.invalidated_objects or not (obj in self.complete_objects or complete_stack):
+                        join_into(result, scalar(Atom("unknown", "wildcard object has incomplete pointer-cell contents")))
+                else:
+                    self.load_watchers[(atom.kind, atom.name, atom.offset)].add(self.active_function)
+                    join_into(result, cells.get(atom.offset, {}))
+                    join_into(result, cells.get(None, {}))
+            elif atom.kind == "null":
+                # A load through null has no defined execution in the ordinary
+                # Rust address space. The valid-null LLVM attribute is checked
+                # at the load site below; a null *call target* is never cleared.
+                continue
             else:
-                join_into(result, scalar(Atom("unknown", f"load through {atom.kind}: {atom.name}")))
+                join_into(result, scalar(Atom("unknown", "load through unresolved memory",
+                                              origin=atom.origin or atom.name)))
         return result
 
     def store(self, address: Value, value: Value) -> bool:
         changed = False
         for atom in address.get((), set()):
             if atom.kind in ("stack", "heap", "global"):
-                changed |= join_into(self.memory.setdefault(atom, {}), value)
+                obj = atom.kind, atom.name
+                cell = self.cells[obj].setdefault(atom.offset, {})
+                self.memory[Atom(atom.kind, atom.name, atom.offset)] = cell
+                if join_into(cell, value):
+                    changed = True
+                    readers = self.wildcard_watchers[obj] | self.load_watchers[(atom.kind, atom.name, atom.offset)]
+                    if atom.offset is None:
+                        readers |= self.object_watchers[obj]
+                    for reader in readers:
+                        self.schedule(reader)
         return changed
 
     def logical_caller(self, state: State, instruction: Instruction) -> str:
@@ -708,13 +810,27 @@ class Graph:
     def process(self, state: State) -> bool:
         changed = False
         function, module = state.function, state.function.module
+        self.active_function = function.symbol
         for instruction in function.instructions:
             text = instruction.text
             rhs = text.split(" = ", 1)[1] if instruction.result else text
             value: Value = {}
             caller = self.logical_caller(state, instruction)
             if " alloca " in " " + rhs:
-                value = scalar(Atom("stack", function.symbol + ":" + str(instruction.result)))
+                name = function.symbol + ":" + str(instruction.result)
+                value = scalar(Atom("stack", name))
+                try:
+                    fields = split_fields(rhs[len("alloca "):])
+                    ty, _ = take_type(fields[0])
+                    count = 1
+                    if len(fields) > 1 and fields[1].startswith("i"):
+                        literal = re.fullmatch(r"i\d+ (\d+)", fields[1])
+                        if not literal:
+                            raise EvidenceError("dynamic stack object extent")
+                        count = int(literal[1])
+                    self.object_sizes[("stack", name)] = module.size_align(ty)[0] * count
+                except EvidenceError:
+                    pass
             elif rhs.startswith("getelementptr "):
                 value = self.gep(rhs, state)
             elif rhs.startswith("store "):
@@ -725,7 +841,15 @@ class Graph:
                     address = self.operand(fields[1], state)
                     stored = self.operand(fields[0], state)
                     try:
-                        _, literal = take_type(re.sub(r"^(?:atomic |volatile )+", "", fields[0]))
+                        ty, literal = take_type(re.sub(r"^(?:atomic |volatile )+", "", fields[0]))
+                        width = module.size_align(ty)[0]
+                        if width != 8:
+                            for atom in address.get((), set()):
+                                obj = atom.kind, atom.name
+                                if obj not in self.invalidated_objects:
+                                    self.invalidated_objects.add(obj)
+                                    for reader in self.wildcard_watchers[obj]:
+                                        self.schedule(reader)
                         if literal.startswith(("{", "[", "<")):
                             self.block(caller, instruction, "compound constant store has unmodeled field/pointer effects", module)
                             stored = scalar(Atom("unknown", "compound constant store field provenance"))
@@ -733,10 +857,21 @@ class Graph:
                         self.block(caller, instruction, "store type/byte effects are not represented", module)
                     if any(atom.kind not in ("stack", "heap", "global") for atom in address.get((), set())):
                         self.block(caller, instruction, "unknown-address store may alter callable memory; finite prior targets are not complete", module)
+                    if not stored:
+                        stored = scalar(Atom("unknown", "scalar/byte store contents not modeled"))
                     changed |= self.store(address, stored)
             elif rhs.startswith("load "):
                 fields = split_fields(rhs[5:])
                 value = self.load(self.operand(fields[1], state)) if len(fields) > 1 else scalar(Atom("unknown", "unparsed load"))
+                attributes = " ".join(module.attributes.get(int(group), "") for group in re.findall(r"#(\d+)", function.header))
+                if "null_pointer_is_valid" in attributes or "addrspace(" in rhs:
+                    self.block(caller, instruction, "load requires unsupported valid-null/address-space memory semantics", module)
+                    join_into(value, scalar(Atom("unknown", "nonstandard address-space load contents")))
+                integer_type = re.match(r"i(\d+)\b", fields[0])
+                if integer_type and int(integer_type[1]) != 64 and any(
+                    atom.kind in ("function", "stack", "heap", "global") for atoms in value.values() for atom in atoms
+                ):
+                    value = scalar(Atom("unknown", "partial/non-pointer-width integer load of pointer contents"))
             elif rhs.startswith("select "):
                 fields = split_fields(rhs[7:])
                 value = joined(*(self.operand(field, state) for field in fields[1:3]))
@@ -759,7 +894,10 @@ class Graph:
                 for key, atoms in self.operand(fields[1], state).items():
                     value.setdefault(path + key, set()).update(atoms)
             elif rhs.startswith("ret "):
-                changed |= join_into(state.returns, self.operand(rhs[4:], state))
+                if join_into(state.returns, self.operand(rhs[4:], state)):
+                    changed = True
+                    for parent in self.callers[function.symbol]:
+                        self.schedule(parent)
             if call := self.call(instruction):
                 target_expression, arguments = call
                 if target_expression in ("inline-assembly", "unparsed-call"):
@@ -787,11 +925,15 @@ class Graph:
                             if atom.name not in self.states:
                                 self.states[atom.name] = State(callee)
                                 changed = True
+                                self.schedule(atom.name)
                             child = self.states[atom.name]
+                            self.callers[atom.name].add(function.symbol)
                             if len(callee.parameters) != len(arguments):
                                 self.block(caller, instruction, f"ABI argument mismatch for {self.name(atom.name)}", module)
                             for formal, argument in zip(callee.parameters, arguments):
-                                changed |= join_into(child.values.setdefault(formal, {}), self.operand(argument, state))
+                                if join_into(child.values.setdefault(formal, {}), self.operand(argument, state)):
+                                    changed = True
+                                    self.schedule(atom.name)
                             join_into(value, child.returns)
                     # Empty flows are deferred until the fixed point. Unknown
                     # flows never become known merely because candidates exist.
@@ -802,6 +944,8 @@ class Graph:
                 if not value and "ptr" in rhs and not self.call(instruction) and not rhs.startswith(("load ", "getelementptr ", "select ", "phi ")):
                     value = scalar(Atom("unknown", f"unsupported pointer instruction: {rhs[:120]}"))
                 changed |= join_into(state.values.setdefault(instruction.result, {}), value)
+        if changed:
+            self.schedule(function.symbol)
         return changed
 
     def mir_evidence(self, record: dict) -> tuple[dict | None, list[dict]]:
@@ -838,22 +982,18 @@ class Graph:
         for parameter in initial.function.parameters:
             initial.values[parameter] = scalar(Atom("unknown", f"opaque root argument {parameter}"))
         self.states[root] = initial
+        self.schedule(root)
         converged = False
         deadline = time.monotonic() + 45
-        for _ in range(512):
-            changed = False
-            for state in list(self.states.values()):
-                if time.monotonic() >= deadline:
-                    break
-                changed |= self.process(state)
-            if time.monotonic() >= deadline:
-                self.block(root, None, "compiler pointer-flow analysis time bound reached")
-                break
-            if not changed:
-                converged = True
-                break
-            if len(self.states) > 50_000:
-                break
+        visits = 0
+        while self.queue and time.monotonic() < deadline and len(self.states) <= 50_000:
+            symbol = self.queue.popleft()
+            self.scheduled.remove(symbol)
+            self.process(self.states[symbol])
+            visits += 1
+        converged = not self.queue
+        if self.queue and time.monotonic() >= deadline:
+            self.block(root, None, "compiler pointer-flow analysis time bound reached")
         if not converged:
             self.block(root, None, "compiler pointer-flow resource bound reached before fixed point")
         callable_cells = defaultdict(set)
@@ -880,7 +1020,8 @@ class Graph:
                             width = None
                         for address in self.operand(fields[1], state).get((), set()):
                             cells = callable_cells.get((address.kind, address.name), ())
-                            overlaps = any(width is None or address.offset < cell + 8 and cell < address.offset + width for cell in cells)
+                            overlaps = any(width is None or address.offset is None or cell is None or
+                                           address.offset < cell + 8 and cell < address.offset + width for cell in cells)
                             if overlaps and (not stored or width != 8):
                                 self.block(state.function.symbol, instruction, "unmodeled scalar/partial store overlaps callable memory; prior finite targets are not complete")
             if state.function.symbol in self.duplicates:
@@ -914,6 +1055,8 @@ class Graph:
                 "static_ac513_proven": False,
                 "scope": "compiler-derived closure of the named opaque root",
                 "pointer_flow_fixed_point": converged,
+                "dirty_function_visits": visits,
+                "widened_object_offsets": len(self.widened_offsets),
                 "source_bans_checked": False,
                 "resolved_graph_without_reported_bans": converged and not self.blockers and not violations,
             },
@@ -957,6 +1100,9 @@ def demangle(objects: list[Path], llvm_bin: Path, env: dict[str, str]) -> dict[s
 
 def analyze_artifacts(llvm_files: list[Path], mir_files: list[Path], objects: list[Path],
                       llvm_bin: Path, env: dict[str, str], root_suffix: str) -> dict:
+    llvm_files = [path.resolve(strict=True) for path in llvm_files]
+    mir_files = [path.resolve(strict=True) for path in mir_files]
+    objects = [path.resolve(strict=True) for path in objects]
     names = demangle(objects, llvm_bin, env)
     modules = [Module(path) for path in llvm_files]
     missing = set()
