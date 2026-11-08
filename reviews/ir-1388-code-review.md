@@ -39,3 +39,7 @@ source-enum row or fallback shape SHALL substitute for it.
 ## Evidence
 
 Production branch borrows the private installed shape, checks admission binding, preflights inspected case bytes, charges owned Enum storage, then clones. Existing native storage policy counts shared opaque NodeKeys as handles. No dependency or gate change. Genuine fixture preserves producer component identities; authored refusal fixture is explicitly separate. Both exact-filtered workspace library tests independently passed. Existing coder logs show genuine pre-fix UnsupportedExactType and post-fix pass, workspace library/tests Clippy with conformance-cli pass, and formatter pass. Final aggregate gate remains lead-owned. Fixture/provenance additions are expressly required by the owner brief; no new implementation or QSL dependency is copied. No applicable AssuranceProfile exists.
+
+## Disposition pass 1 evidence
+
+The fix changes only the AC-30 table separator and adds the six original review artifacts unchanged. Production code and test fixtures match the reviewed candidate. The original findings and historical evidence above remain unchanged. Scoped FR-352 validation passes with 30 criteria. The independently recomputed matrix recognizes AC-30 and both genuine-Tier and authored-owner test binders. No new defects found. No Cargo or aggregate gate was run for this prose-only fix; final aggregate verification remains lead-owned.
