@@ -176,6 +176,27 @@ def validate_normative_boundaries(record):
     if (record.get("proof_schema") != "native-budget-events/v1"
             or not isinstance(events, list) or not isinstance(results, list)):
         raise CensusError("full proof requires actual passive-event normative boundary results")
+    complete=record.get("complete_reference",{})
+    counters=("prior_work","prior_read_storage","work","read_storage","requested")
+    if (complete.get("native_budget")!="unlimited"
+            or complete.get("outcome") not in {"admitted","refused","incomplete","catalog-unavailable"}
+            or any(type(complete.get(key)) is not int or complete[key]<0 for key in counters)
+            or complete.get("logical_storage_delta")!=0
+            or not complete.get("exact_outcome_equal") or not complete.get("exact_counts_equal")
+            or not complete.get("complete_repeat_equal")):
+        raise CensusError("full proof lacks measured unlimited complete-reference/exact-repeat evidence")
+    if any(type(event.get("amount")) is not int or not 0 <= event["amount"] < 2**128 for event in events):
+        raise CensusError("invalid full native event amount")
+    if any(not event.get("admitted") for event in events):
+        raise CensusError("complete-reference events contain an early native-budget denial")
+    work=sum(event["amount"] for event in events if event.get("resource")=="Work")
+    storage=sum(event["amount"] for event in events if event.get("resource")=="ReadStorage")
+    if (complete["work"]!=complete["prior_work"]+work
+            or complete["read_storage"]!=complete["prior_read_storage"]+storage
+            or complete["requested"]!=storage
+            or complete.get("exact_work_limit")!=complete["work"]
+            or complete.get("exact_read_storage_limit")!=complete["read_storage"]):
+        raise CensusError("unlimited complete-reference totals disagree with actual native events")
     selected = set()
     stage_last, class_first, class_last = {}, {}, {}
     designated = record.get("designated_growth_case")
@@ -187,10 +208,17 @@ def validate_normative_boundaries(record):
                 or not designated.get("provider")
                 or not isinstance(designated.get("classes"), dict)):
             raise CensusError("designated growth case lacks exact original-provider provenance")
-        exhaustive = designated["classes"]
-        if not exhaustive or any(kind not in {"walker_growth", "exact_reservation", "exact_limb"}
-                                 for kind in exhaustive.values()):
+        requested = designated.get("requested_classes", designated["classes"])
+        if (not isinstance(requested, dict) or not requested
+                or any(kind not in {"walker_growth", "exact_reservation", "exact_limb"}
+                       for kind in requested.values())):
             raise CensusError("designated growth classes require source-derived walker/limb roles")
+        exhaustive = {name: role for name, role in requested.items()
+                      if any(event.get("admitted") and event.get("amount", 0) > 0
+                             and event.get("resource") == "ReadStorage"
+                             and event.get("allocation_class") == name for event in events)}
+        if designated["classes"] != exhaustive:
+            raise CensusError("designated reached classes do not match actual native reservations")
     seen_exhaustive = set()
     for index, event in enumerate(events):
         if not event.get("admitted") or event.get("amount", 0) == 0:
@@ -219,7 +247,7 @@ def validate_normative_boundaries(record):
     selected.update(stage_last.values())
     selected.update(class_first.values())
     selected.update(class_last.values())
-    if record.get("read_storage", 0) > 0 and not selected:
+    if complete["requested"] > 0 and not selected:
         raise CensusError("nonempty read has no actual event-selected boundaries")
     observed = set()
     for result in results:
@@ -263,8 +291,15 @@ def check_run(export, root, report, records, mode):
     if mode == "full":
         # A caller-budget original entry is not a probe exemption. It must
         # carry actual full-boundary evidence too; core-only captures stay RED.
+        requested_roles, reached_roles = set(), set()
         for record in records:
             validate_normative_boundaries(record)
+            designated=record.get("designated_growth_case")
+            if designated:
+                requested_roles.update(designated.get("requested_classes",designated["classes"]).values())
+                reached_roles.update(designated["classes"].values())
+        if not requested_roles <= reached_roles:
+            raise CensusError("a designated source growth role was never reached by any original input")
     result.update({"original_tests_passed": len(passed), "mode": mode,
                    "normative_boundary_proof": mode == "full"})
     return result

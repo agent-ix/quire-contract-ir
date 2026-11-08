@@ -154,7 +154,12 @@ class DesignatedGrowthEvidence(unittest.TestCase):
                       "test": "actual::case", "driver": "actual.rs", "line": 17,
                       "designated_growth_case": {"test": "actual::case", "driver": "actual.rs", "line": 17,
                            "provider": "original_source_builder", "classes": {"actual_source_class": role}},
-                      "native_budget_events": events}
+                      "native_budget_events": events,
+                      "original_context_outcome":"budget-incomplete",
+                      "complete_reference":{"native_budget":"unlimited","outcome":"admitted",
+                        "prior_work":0,"prior_read_storage":0,"work":0,"read_storage":24,"requested":24,
+                        "logical_storage_delta":0,"exact_work_limit":0,"exact_read_storage_limit":24,
+                        "exact_outcome_equal":True,"exact_counts_equal":True,"complete_repeat_equal":True}}
             def result(i):
                 e = events[i]
                 return {"event_index": i, "exact_bound": (i+1)*8, "one_below_bound": (i+1)*8-1,

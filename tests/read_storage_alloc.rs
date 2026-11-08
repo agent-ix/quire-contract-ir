@@ -251,7 +251,11 @@ mod read_storage_inputs;
 #[test]
 fn whole_read_chain_100000() {
     let input = read_storage_inputs::chain_100000();
-    whole_read("chain_100000", &input.bytes, &input.evidence);
+    qspec_read_proof::with_designated_read_provider(
+        "read_storage_inputs::chain_100000",
+        &["walker_growth"],
+        || whole_read("chain_100000", &input.bytes, &input.evidence),
+    );
 }
 
 #[trace("TC-472", "FR-038-AC-511")]

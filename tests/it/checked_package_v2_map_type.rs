@@ -1552,11 +1552,12 @@ fn bounded_quantity_bound_arithmetic_is_charged_to_the_read_budget() {
     let bytes = canonical(&wire);
     let evidence = evidence_for(&wire);
     let read = |budget: &mut NativeJoinBudget| {
-        crate::qspec_read_proof::read_budget_and_account(
-            &bytes,
-            CheckedPackageReadLimits::bounded(),
-            &evidence,
-            budget,
+        crate::qspec_read_proof::with_designated_read_provider(
+            "checked_package_v2_map_type::bounded_quantity_bound_arithmetic_is_charged_to_the_read_budget",
+            &["exact_reservation"],
+            || crate::qspec_read_proof::read_budget_and_account(
+                &bytes, CheckedPackageReadLimits::bounded(), &evidence, budget,
+            ),
         )
     };
     let requests = stage_requests(&read, PackageReadStage::Graph);
