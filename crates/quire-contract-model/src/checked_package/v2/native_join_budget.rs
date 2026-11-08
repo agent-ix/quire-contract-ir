@@ -140,6 +140,45 @@ pub struct NativeJoinBudget {
 }
 
 impl NativeJoinBudget {
+    /// Exact test-only capture of every caller-budget field, without a
+    /// production Clone contract or reconstructed accounting state.
+    #[cfg(feature = "test-support")]
+    pub fn read_proof_snapshot(&self) -> Self {
+        Self {
+            work_limit: self.work_limit,
+            storage_limit: self.storage_limit,
+            consumed: self.consumed,
+            last_success_delta: self.last_success_delta,
+            first_unpaid: self.first_unpaid,
+            read_storage_limit: self.read_storage_limit,
+            read_storage_consumed: self.read_storage_consumed,
+            last_read_storage_delta: self.last_read_storage_delta,
+            first_unpaid_read_storage: self.first_unpaid_read_storage,
+            unlimited: self.unlimited,
+            exact_diagnostics: self.exact_diagnostics,
+            active_locus: self.active_locus,
+            denied_locus: self.denied_locus,
+            prepaid_diagnostic: self.prepaid_diagnostic,
+            pending_outcome: self.pending_outcome,
+            paid_outcome: self.paid_outcome,
+        }
+    }
+
+    /// Replays the captured caller state under explicitly selected work and
+    /// read-storage ceilings. Every other field is retained unchanged.
+    #[cfg(feature = "test-support")]
+    pub fn read_proof_rebound(
+        mut self,
+        work_limit: u64,
+        read_storage_limit: u64,
+        unlimited: bool,
+    ) -> Self {
+        self.work_limit = work_limit;
+        self.read_storage_limit = read_storage_limit;
+        self.unlimited = unlimited;
+        self
+    }
+
     /// Construct a caller-owned finite allowance.
     pub fn new(work_limit: u64, storage_limit: u64) -> Self {
         Self {
@@ -663,5 +702,62 @@ mod tests {
             budget.first_unpaid().unwrap().kind,
             NativeJoinChargeKind::Work
         );
+    }
+}
+
+#[cfg(all(test, feature = "test-support"))]
+mod proof_snapshot_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    #[test]
+    #[trace("TC-472", "FR-038-AC-511")]
+    fn proof_snapshot_and_rebound_retain_all_prior_caller_state() {
+        let mut original = NativeJoinBudget::new(13, 17).with_read_storage_limit(23);
+        original.consumed = NativeJoinCharge {
+            work: 3,
+            storage: 5,
+        };
+        original.last_success_delta = Some(NativeJoinCharge {
+            work: 1,
+            storage: 2,
+        });
+        original.first_unpaid = Some(NativeJoinDeniedCharge {
+            kind: NativeJoinChargeKind::Work,
+            amount: 29,
+        });
+        original.read_storage_consumed = 7;
+        original.last_read_storage_delta = Some(4);
+        original.first_unpaid_read_storage = Some(31);
+        original.unlimited = true;
+        original.exact_diagnostics = true;
+        original.active_locus = Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 11),
+            form: "active",
+        });
+        original.denied_locus = Some(NativeJoinLocus {
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Lock, 19),
+            form: "denied",
+        });
+        original.prepaid_diagnostic = Some(false);
+        original.pending_outcome = Some(super::super::CheckedPackagePendingOutcome::Incomplete(
+            super::super::CheckedPackageLimit::Work,
+        ));
+        original.paid_outcome = Some(super::super::CheckedPackagePendingOutcome::Refused(
+            super::super::CheckedPackageRefusalCode::MalformedWire,
+        ));
+        assert_eq!(original.read_proof_snapshot(), original);
+        let mut expected = original.read_proof_snapshot();
+        expected.work_limit = 37;
+        expected.read_storage_limit = 41;
+        expected.unlimited = false;
+        assert_eq!(
+            original
+                .read_proof_snapshot()
+                .read_proof_rebound(37, 41, false),
+            expected
+        );
+        assert!(original.unlimited);
+        assert_eq!(original.work_limit, 13);
+        assert_eq!(original.read_storage_limit, 23);
     }
 }
