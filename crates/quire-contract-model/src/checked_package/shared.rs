@@ -912,12 +912,40 @@ impl CheckedNodeId {
 impl Drop for CheckedNodeId {
     fn drop(&mut self) {
         let mut pending = std::mem::take(&mut self.path);
-        while let Some(segment) = pending.pop() {
-            if let CheckedNodePathSegment::Node(node) = segment {
-                if let Ok(mut node) = std::sync::Arc::try_unwrap(node) {
-                    pending.append(&mut node.path);
+        let mut current = pending.pop();
+        while let Some(segment) = current {
+            if let CheckedNodePathSegment::Node(mut node) = segment {
+                if let Some(inner) = std::sync::Arc::get_mut(&mut node) {
+                    let mut children = std::mem::take(&mut inner.path);
+                    if pending.is_empty() {
+                        // With no siblings there is no continuation to keep.
+                        // This also releases the continuation after its child
+                        // buffer has been exhausted.
+                        pending = children;
+                        current = pending.pop();
+                        continue;
+                    }
+                    if let Some(next) = children.pop() {
+                        // The popped child leaves one slot for this existing
+                        // Arc, whose path now holds the parent's continuation.
+                        // No path buffer grows and no recursive drop is needed.
+                        inner.path = std::mem::take(&mut pending);
+                        // Visit the children before returning to the parent.
+                        // Every original path shifts once; a continuation is
+                        // recognized by the empty-pending case above.
+                        children.insert(0, CheckedNodePathSegment::Node(node));
+                        pending = children;
+                        current = Some(next);
+                        continue;
+                    }
+                } else if let Ok(mut inner) = std::sync::Arc::try_unwrap(node) {
+                    // A unique strong owner with public Weak observers cannot
+                    // lend its Arc mutably. Preserve its existing iterative
+                    // destruction; the strict reader never creates Weak.
+                    pending.append(&mut inner.path);
                 }
             }
+            current = pending.pop();
         }
     }
 }
@@ -1982,5 +2010,120 @@ mod node_id_serde_token_tests {
             serde_json::from_value(json!({"package":"", "path":[], "ordinal":0}))
                 .expect("ordinary serde does not perform the later well-formedness check");
         assert!(!unchecked.is_well_formed());
+    }
+}
+
+#[cfg(test)]
+mod node_id_drop_storage_tests {
+    use super::{CheckedNodeId, CheckedNodePathSegment as Segment};
+    use ix_trace_rs::trace;
+    use std::sync::Arc;
+
+    fn named(name: &str) -> CheckedNodeId {
+        CheckedNodeId {
+            package: "drop".into(),
+            path: vec![Segment::Name(name.into())],
+            ordinal: 0,
+        }
+    }
+    fn receiver() -> CheckedNodeId {
+        let declaration = CheckedNodeId {
+            package: "drop".into(),
+            path: vec![
+                Segment::Name("model".into()),
+                Segment::Name("object_type".into()),
+                Segment::Name("Widget".into()),
+            ],
+            ordinal: 0,
+        };
+        CheckedNodeId {
+            package: "drop".into(),
+            path: vec![
+                Segment::Name("composite_type".into()),
+                Segment::Name("reference".into()),
+                Segment::Node(Arc::new(declaration)),
+            ],
+            ordinal: 0,
+        }
+    }
+    fn chain(
+        depth: usize,
+        retain_weak: bool,
+    ) -> (CheckedNodeId, Vec<std::sync::Weak<CheckedNodeId>>) {
+        let mut root = named("leaf");
+        let mut weak = Vec::new();
+        for _ in 0..depth {
+            let child = Arc::new(root);
+            if retain_weak {
+                weak.push(Arc::downgrade(&child));
+            }
+            root = CheckedNodeId {
+                package: "drop".into(),
+                path: vec![
+                    Segment::Name("outer".into()),
+                    Segment::Node(child),
+                    Segment::Name("tail".into()),
+                ],
+                ordinal: 0,
+            };
+        }
+        (root, weak)
+    }
+    fn assert_free_drop(root: CheckedNodeId) {
+        let measured = allocation_counter::measure(|| drop(root));
+        assert_eq!(measured.bytes_total, 0, "destruction requests no storage");
+        assert_eq!(measured.count_total, 0);
+    }
+
+    /// Reader-created structural operands use Arc::new and never create Weak.
+    /// The produced IDs are destroyed inside the measured interval.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn reader_node_ids_drop_without_allocating_for_nested_sibling_and_shared_paths() {
+        assert_free_drop(receiver());
+        let shared = Arc::new(receiver());
+        let root = CheckedNodeId {
+            package: "drop".into(),
+            path: vec![
+                Segment::Node(Arc::new(receiver())),
+                Segment::Name("between".into()),
+                Segment::Node(Arc::clone(&shared)),
+                Segment::Node(Arc::clone(&shared)),
+                Segment::Node(Arc::new(receiver())),
+            ],
+            ordinal: 0,
+        };
+        assert_free_drop(root);
+        assert_eq!(Arc::strong_count(&shared), 1);
+        assert_free_drop(Arc::try_unwrap(shared).expect("last strong owner"));
+    }
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn deep_reader_paths_drop_without_heap_or_call_stack_growth() {
+        let (root, _) = chain(100_000, false);
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(move || assert_free_drop(root))
+            .expect("small-stack thread")
+            .join()
+            .expect("iterative drop");
+    }
+
+    /// Weak is a public Arc ownership case, outside the strict reader. Its
+    /// pre-existing iterative fallback keeps weak observers safe and expires
+    /// every observer when the last strong root is destroyed.
+    #[test]
+    fn weak_observers_preserve_last_owner_destruction_and_deep_stack_safety() {
+        let (root, weak) = chain(10_000, true);
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(move || {
+                drop(root);
+                assert!(weak.iter().all(|observer| observer.upgrade().is_none()));
+            })
+            .expect("small-stack thread")
+            .join()
+            .expect("iterative weak drop");
     }
 }
