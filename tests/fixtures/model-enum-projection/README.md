@@ -9,7 +9,8 @@ These first-party test artifacts were exported on 2026-11-07 from
 `budgeted_converted_model_enum_shapes_are_joined_by_the_native_monitor_closure`.
 The source fixture uses the existing `ClauseSource` renderer with a genuine
 `Inputs.tier: M::Tier` field and a Boolean atom. The unrelated authored enum
-helper remains unreachable. `monitor.native` is the compiler's actual input;
+helper remains unreachable. `monitor.native` retains the compiler's actual input with its extra terminal
+blank line removed;
 `domain.json` is the supplied `example/config-version` domain evidence;
 `checked.json` is the unmodified final emission.
 

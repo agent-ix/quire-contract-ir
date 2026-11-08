@@ -130,4 +130,3 @@ function onGapR using v(s: State, gap: Integer): StepR pure { let now2 = s.now +
 function monitorOnEvent using v(s: State, delta: Integer, i: Inputs): Step pure { let r = onEventR(s, delta, i) in Step(r.state, r.results) }
 function monitorOnWatermark using v(s: State, boundary: Integer, scope_in: Scope): Step pure { let r = onWatermarkR(s, boundary, scope_in) in Step(r.state, r.results) }
 function monitorOnGap using v(s: State, gap: Integer): Step pure { let r = onGapR(s, gap) in Step(r.state, r.results) }
-
