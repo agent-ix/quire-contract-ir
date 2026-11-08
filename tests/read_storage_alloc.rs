@@ -15,8 +15,8 @@ mod checked_package;
 use checked_package::{canonical, evidence_for, v2_all_families, v2_nominal};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageEvidence, CheckedPackageV2, CheckedPackageV2BudgetedReadResult,
-    CheckedPackageV2ReadResult, initialize_operation_catalog,
+    initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageV2,
+    CheckedPackageV2BudgetedReadResult, CheckedPackageV2ReadResult,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -69,8 +69,8 @@ static ALLOCATOR: Counting = Counting;
 #[path = "it/support/read_allocation_proof.rs"]
 mod read_allocation_proof;
 use read_allocation_proof::{
-    Counter, Expected, accounted, drop_without_request, every_request, generous_limits,
-    measure_read,
+    accounted, drop_without_request, every_request, generous_limits, measure_read, Counter,
+    Expected,
 };
 
 struct ThreadCounter;
@@ -444,13 +444,11 @@ fn full_native_boundaries_cover_seeded_work_on_the_original_genuine_package() {
         results.iter().any(|row| row["resource"] == "Work"),
         "real selected Work denials executed"
     );
-    assert!(
-        results
-            .iter()
-            .filter(|row| row["resource"] == "Work")
-            .all(|row| row["denial"]["resource"] == "Work"
-                && row["denial"]["entire_repeat_budget_equal"] == true)
-    );
+    assert!(results
+        .iter()
+        .filter(|row| row["resource"] == "Work")
+        .all(|row| row["denial"]["resource"] == "Work"
+            && row["denial"]["entire_repeat_budget_equal"] == true));
     assert_eq!(seed.consumed().work, 3);
     assert_eq!(seed.consumed().storage, 2);
     drop_without_request::<ThreadCounter>(reference);
