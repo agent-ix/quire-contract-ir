@@ -1303,13 +1303,9 @@ pub(super) fn validate_body(
 ) -> Result<u64, ValidationFailure> {
     let mut work = 1_u64;
     row_terms(body, at, |term, term_at| {
-        work = work.saturating_add(validate_term(
-            term,
-            TermGrammar::V2,
-            true,
-            term_at,
-            visitor,
-        )?);
+        work = work.saturating_add(crate::checked_package::common::with_unmetered_ids(|ids| {
+            validate_term(term, TermGrammar::V2, true, term_at, visitor, ids)
+        })?);
         Ok(())
     })?;
     Ok(work)

@@ -9,9 +9,14 @@
 //! entered node ([`Cursor`], [`At`]), and the plain pre-order visit
 //! ([`visit_terms`]).
 
-use super::common::{Step, TermField, Trail, ValidationFailure, WireTerm};
-use super::v2::{ApplicationOperator, BodyTerm, CheckedTerm, CheckedTermView, TermNode};
+use super::common::{Step, TermField, TermTag, Trail, ValidationFailure, WireTerm};
+use super::shared::CheckedNodeId;
+use super::v2::read_charge::{Denied, ReadStorage, Site};
+use super::v2::{
+    ApplicationOperator, BodyTerm, CheckedTerm, CheckedTermView, NodeIdRead, TermNode,
+};
 use quire_walk::{walk, Children, Walk};
+use serde::Deserialize;
 use serde_json::Value;
 use std::marker::PhantomData;
 use std::ops::ControlFlow;
@@ -116,6 +121,27 @@ pub(super) trait TermSource<'a>: Copy {
     fn items(self) -> Option<impl Iterator<Item = Self>>;
     /// The text of a string.
     fn text(self) -> Option<&'a str>;
+    /// Whether this is an object.
+    fn is_object(self) -> bool;
+    /// The value as a `serde_json::Value`: a clone or an uncharged copy, the
+    /// bridge for a reader that takes a `Value`.
+    fn to_value_uncharged(self) -> Value;
+    /// The `term` discriminator, decoded.
+    fn tag(self) -> TermTag;
+    /// Whether this is an object with exactly the members `expected`.
+    fn exact_members(self, expected: &[&str]) -> bool;
+    /// Whether this is a literal payload the V2 grammar admits: a boolean, a
+    /// string, `null`, or an integer token within the 64-bit range.
+    fn literal_value_ok(self) -> bool;
+    /// Reads this value as a node ID. A `Value` reads through the uncharged
+    /// bridge, ignoring `sink`; a [`TermNode`] charges `sink` and reads its
+    /// operand slots through `row`.
+    fn node_id(
+        self,
+        sink: &mut dyn ReadStorage,
+        site: Site,
+        row: &[u64],
+    ) -> Result<NodeIdRead, Denied>;
 }
 
 impl<'a> TermSource<'a> for &'a Value {
@@ -179,6 +205,44 @@ impl<'a> TermSource<'a> for &'a Value {
     fn text(self) -> Option<&'a str> {
         self.as_str()
     }
+
+    fn is_object(self) -> bool {
+        self.is_object()
+    }
+
+    fn to_value_uncharged(self) -> Value {
+        self.clone()
+    }
+
+    fn tag(self) -> TermTag {
+        WireTerm::decode(self).tag()
+    }
+
+    fn exact_members(self, expected: &[&str]) -> bool {
+        self.as_object()
+            .is_some_and(|object| super::common::exact_members(object, expected))
+    }
+
+    fn literal_value_ok(self) -> bool {
+        match self {
+            Value::Bool(_) | Value::String(_) | Value::Null => true,
+            Value::Number(number) => number.is_i64() || number.is_u64(),
+            Value::Array(_) | Value::Object(_) => false,
+        }
+    }
+
+    fn node_id(
+        self,
+        _sink: &mut dyn ReadStorage,
+        _site: Site,
+        _row: &[u64],
+    ) -> Result<NodeIdRead, Denied> {
+        Ok(match CheckedNodeId::deserialize(self) {
+            Ok(id) if id.is_well_formed() => NodeIdRead::Id(id),
+            Ok(id) => NodeIdRead::Invalid(id),
+            Err(_) => NodeIdRead::Malformed,
+        })
+    }
 }
 
 impl<'a> TermSource<'a> for TermNode<'a> {
@@ -236,6 +300,35 @@ impl<'a> TermSource<'a> for TermNode<'a> {
 
     fn text(self) -> Option<&'a str> {
         self.as_str()
+    }
+
+    fn is_object(self) -> bool {
+        TermNode::is_object(self)
+    }
+
+    fn to_value_uncharged(self) -> Value {
+        self.uncharged_value()
+    }
+
+    fn tag(self) -> TermTag {
+        TermNode::tag(self)
+    }
+
+    fn exact_members(self, expected: &[&str]) -> bool {
+        TermNode::exact_members(self, expected)
+    }
+
+    fn literal_value_ok(self) -> bool {
+        TermNode::literal_value_ok(self)
+    }
+
+    fn node_id(
+        self,
+        sink: &mut dyn ReadStorage,
+        site: Site,
+        row: &[u64],
+    ) -> Result<NodeIdRead, Denied> {
+        self.node_id_in(sink, site, row)
     }
 }
 

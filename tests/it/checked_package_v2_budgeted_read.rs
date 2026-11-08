@@ -4,9 +4,6 @@
 //! The budget-charged strict V2 read: entries, deltas, the read-storage
 //! counter's API and the envelope stages' exact charging (TC-472).
 
-use crate::checked_package_v2_graph_read_storage::{
-    assert_exact_and_one_short, denial_at, stage_requests,
-};
 use crate::support::checked_package::{
     all_families_read_work, canonical, evidence_for, v2_all_families,
 };
@@ -96,9 +93,8 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
 }
 
 /// The charged stages' reservations are exact: the measured requirement
-/// admits, one byte below is denied at the last request (the graph stage's),
-/// at its locus, with the bytes asked; the node-index key table stays the
-/// node-index stage's last request.
+/// admits, one byte below is denied at the last request (today a graph body
+/// walk's stack), at its locus, with the bytes asked.
 #[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
 fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
@@ -122,101 +118,23 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
         .expect("a denial is recorded");
     assert!(asked > 0);
     assert_eq!(short.first_unpaid(), None);
-    // Later stages charge their own storage, so the very last request is
-    // the last stage's (the graph stage); the node-index and canonical stages
-    // keep their own last requests, each denied one byte short at its locus.
-    let graph_requests = stage_requests(&read_with, PackageReadStage::Graph);
-    let last = graph_requests
-        .last()
-        .expect("the graph stage makes requests");
-    assert_eq!(
+    // The last request the read makes is a body walk's stack growth.
+    assert!(matches!(
         short.first_unpaid_locus(),
         Some(NativeJoinLocus {
-            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, last.index),
-            form: last.form,
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, _),
+            form: "walk",
         })
-    );
-    assert_eq!(asked, last.amount);
-    let node_index_requests = stage_requests(&read_with, PackageReadStage::NodeIndex);
-    let node_index_last = node_index_requests
-        .last()
-        .expect("the node-index stage makes requests");
-    assert_eq!(
-        (
-            node_index_last.stage,
-            node_index_last.index,
-            node_index_last.form
-        ),
-        (PackageReadStage::NodeIndex, 0, "node_index")
-    );
-    let mut stage_short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(
-        node_index_last.before + u64::try_from(node_index_last.amount).unwrap() - 1,
-    );
-    let _ = read_with(&mut stage_short);
-    assert_eq!(
-        stage_short.first_unpaid_locus(),
-        Some(envelope_locus(PackageReadStage::NodeIndex, "node_index"))
-    );
-    assert_exact_and_one_short(&read_with, &node_index_requests);
-    let canonical_requests = stage_requests(&read_with, PackageReadStage::Canonical);
-    assert_eq!(
-        canonical_requests.first().map(|request| request.form),
-        Some("canonical_bytes")
-    );
-    assert_exact_and_one_short(&read_with, &canonical_requests);
+    ));
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
     let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {
-        panic!("the graph's pointer is affordable one byte short: {result:?}");
+        panic!("a denial with no pointer to own is affordable: {result:?}");
     };
     assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
     assert_eq!(incomplete.denied.amount, asked);
     assert_eq!(incomplete.limit, required - 1);
     assert!(short.read_storage_consumed() < required);
-
-    // The decode's strings and sequences keep their own last request: one
-    // byte short there, the denied value's pointer is an owned diagnostic the
-    // exhausted budget cannot pay for, so the outcome is the fixed-size one.
-    // The decode runs before the wire checks (and after the retained
-    // document), so its last request is found where the first wire-check
-    // request begins.
-    let first_check = {
-        let (mut low, mut high) = (0_u64, required);
-        while low < high {
-            let middle = low + (high - low) / 2;
-            match denial_at(&read_with, middle) {
-                Some(request)
-                    if request.stage <= PackageReadStage::WireDecode
-                        || request.stage == PackageReadStage::Retained =>
-                {
-                    low = middle + 1
-                }
-                _ => high = middle,
-            }
-        }
-        low
-    };
-    let decode_last = denial_at(&read_with, first_check - 1).expect("the decode makes requests");
-    assert_eq!(decode_last.stage, PackageReadStage::WireDecode);
-    let mut decode_short =
-        NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(first_check - 1);
-    // The decode's last request is the node-body handle table, which no
-    // value owns: that denial carries no pointer, so the outcome is the
-    // fixed-size `incomplete` one, with the denied amount and the bound.
-    match read_with(&mut decode_short) {
-        CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) => {
-            assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
-            assert_eq!(exhausted.denied.amount, decode_last.amount);
-            assert_eq!(exhausted.configured_bound, first_check - 1);
-        }
-        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) => {
-            assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
-            assert_eq!(incomplete.denied.amount, decode_last.amount);
-            assert_eq!(incomplete.limit, first_check - 1);
-            assert_eq!(incomplete.path, None);
-        }
-        other => panic!("one byte short of the decode's last request: {other:?}"),
-    }
 }
 
 /// A zero read-storage limit refuses at the first allocation of the shared

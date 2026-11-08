@@ -352,7 +352,7 @@ impl<'de> Deserialize<'de> for CheckedJson {
 
 /// The `Value` of one document node, built from an explicit heap stack so a
 /// value of any depth converts on any thread stack.
-fn value_of(root: NodeRef<'_>) -> Value {
+pub(in crate::checked_package) fn value_of(root: NodeRef<'_>) -> Value {
     use quire_canonical::{Items, Members};
     enum Open<'d> {
         Array(Vec<Value>, Items<'d>),
