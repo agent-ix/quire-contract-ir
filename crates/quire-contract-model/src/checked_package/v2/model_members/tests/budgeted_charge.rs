@@ -12,6 +12,7 @@ use crate::checked_package::v2::PackageReadStage;
 const POSITION: usize = 3;
 
 /// What one read under a read-storage allowance did.
+#[derive(Debug, Eq, PartialEq)]
 struct Outcome {
     admitted: bool,
     consumed: u64,
@@ -134,6 +135,67 @@ fn wide_fixture() -> Value {
         "identity":"ix://quire/unit/acme/orders/s","name":"s",
         "dimension":"ix://acme/orders/dimension/Time","scale":"1","offset":"0"}]);
     selected
+}
+
+/// Both retained population indexes own their identity, and each copy must be
+/// reserved before the selected-model reader constructs it.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn population_keys_are_paid_before_both_retained_copies_are_allocated() {
+    const POPULATION: &str = "ix://acme/orders/widgets";
+    let mut selected = document(vec![object_type(WIDGET, &[], vec![])]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct rows")
+        .push(json!({
+            "kind": {"module": "acme/orders", "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
+        }));
+    selected["populations"] = json!([{
+        "identity": POPULATION,
+        "kind": {"module": "acme/orders", "name": "population"},
+        "members": [WIDGET],
+    }]);
+    let model = read(&selected).expect("selected population reads");
+    assert!(model.populations.contains(POPULATION));
+    assert!(model
+        .population_members
+        .get(POPULATION)
+        .expect("retained population members")
+        .contains(WIDGET));
+
+    let unlimited = run(&selected, u64::MAX);
+    assert!(unlimited.admitted);
+    assert_eq!(
+        unlimited.allocated, unlimited.consumed,
+        "both owned population keys must be paid before allocation"
+    );
+    assert_eq!(run(&selected, u64::MAX), unlimited, "the read repeats");
+    assert_eq!(
+        run(&selected, unlimited.consumed),
+        unlimited,
+        "the exact charged allowance admits the same read"
+    );
+    let short = run(&selected, unlimited.consumed - 1);
+    assert!(!short.admitted, "one byte short must stop the read");
+    assert_eq!(short.allocated, short.consumed);
+    assert!(short.consumed < unlimited.consumed);
+    assert_eq!(
+        short.locus.map(|locus| locus.source),
+        Some(NativeJoinLocusSource::PackageRead(
+            PackageReadStage::ModelDocument,
+            POSITION
+        ))
+    );
+    assert_eq!(
+        run(&selected, unlimited.consumed - 1),
+        short,
+        "the short read repeats its exact accounting and denial locus"
+    );
+    let zero = run(&selected, 0);
+    assert!(!zero.admitted);
+    assert_eq!((zero.allocated, zero.consumed), (0, 0));
+    assert_eq!(run(&selected, 0), zero, "the zero allowance repeats");
 }
 
 /// An exact allowance admits the read and a byte less refuses it at the
