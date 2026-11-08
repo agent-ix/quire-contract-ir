@@ -26,7 +26,6 @@ use quire_exact::Integer;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
 
 /// Reader-owned view assembled from a node's body, owner and declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -528,11 +527,8 @@ impl NominalBody {
                     return Err(malformed(at().key("members")));
                 }
                 if !names_checked {
-                    let mut names = BTreeSet::new();
-                    for (index, member) in members.iter().enumerate() {
-                        if !is_identifier(member) || !names.insert(member.as_ref()) {
-                            return Err(malformed(at().key("members").index(index)));
-                        }
+                    if let Some(index) = first_bad_name(members.iter().map(AsRef::as_ref)) {
+                        return Err(malformed(at().key("members").index(index)));
                     }
                 }
             }
@@ -643,14 +639,15 @@ impl NominalBody {
                     .as_array()
                     .filter(|items| !items.is_empty())
                     .ok_or_else(|| malformed(at.clone().key("members")))?;
-                let mut unique = BTreeSet::new();
-                let mut members = Vec::with_capacity(values.len());
+                let mut members: Vec<Box<str>> = Vec::with_capacity(values.len());
                 for (index, value) in values.iter().enumerate() {
                     let member = value
                         .as_str()
-                        .filter(|text| is_identifier(text) && unique.insert(*text))
                         .ok_or_else(|| malformed(at.clone().key("members").index(index)))?;
                     members.push(member.into());
+                }
+                if let Some(index) = first_bad_name(members.iter().map(AsRef::as_ref)) {
+                    return Err(malformed(at.clone().key("members").index(index)));
                 }
                 Ok(NominalBodyKind::Enum { ordered, members })
             }
@@ -2625,6 +2622,26 @@ fn validate_owner(
     require(joined, at)
 }
 
+/// The position of the first name that is not an identifier or repeats an
+/// earlier name, as a front-to-back scan with a set would find it. The names
+/// are ordered once, unstably, with their positions.
+fn first_bad_name<'a>(names: impl Iterator<Item = &'a str>) -> Option<usize> {
+    let mut ordered: Vec<(&str, usize)> = names.zip(0..).collect();
+    let mut first = ordered
+        .iter()
+        .find(|(name, _)| !is_identifier(name))
+        .map(|&(_, index)| index);
+    ordered.sort_unstable();
+    for pair in ordered.windows(2) {
+        if pair[0].0 == pair[1].0 {
+            // Ordered by position within a name, `pair[1]` is a repeat.
+            let index = pair[1].1;
+            first = Some(first.map_or(index, |held| held.min(index)));
+        }
+    }
+    first
+}
+
 /// ASCII identifier grammar shared with the closed `Declaration` member:
 /// the schema's `Identifier`, `^[A-Za-z_][A-Za-z0-9_]*$`.
 pub(super) fn is_identifier(value: &str) -> bool {
@@ -3389,6 +3406,34 @@ mod tests {
     /// does on the same JSON, operand slots resolved through the node's row:
     /// the same body when it is closed, the same refusal when it is not
     /// (FR-038-AC-504).
+    /// The first bad enum name is the one a front-to-back scan with a set
+    /// finds: a non-identifier, or a repeat of an earlier name.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn first_bad_name_agrees_with_the_set_scan() {
+        let pool = ["a", "b", "", "a1", "9", "_x"];
+        let mut cases: Vec<Vec<&str>> = vec![vec![]];
+        for _ in 0..4 {
+            cases = cases
+                .into_iter()
+                .flat_map(|prefix| {
+                    pool.iter().map(move |name| {
+                        let mut next = prefix.clone();
+                        next.push(name);
+                        next
+                    })
+                })
+                .collect();
+            for names in &cases {
+                let mut seen = std::collections::BTreeSet::new();
+                let expected = names
+                    .iter()
+                    .position(|name| !(is_identifier(name) && seen.insert(*name)));
+                assert_eq!(first_bad_name(names.iter().copied()), expected, "{names:?}");
+            }
+        }
+    }
+
     #[trace("TC-472", "FR-038-AC-504")]
     #[test]
     fn nominal_body_reads_as_the_value_reader_does() {

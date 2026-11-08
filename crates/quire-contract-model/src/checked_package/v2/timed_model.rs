@@ -1694,7 +1694,9 @@ fn term_key<'g>(
                     // number as written, `true`/`false`, or `null`.
                     let spelled = match (value.as_str(), value.number_text(), value.as_bool()) {
                         (Some(text), _, _) | (None, Some(text), _) => Word::Borrowed(text),
-                        (None, None, Some(flag)) => Word::Borrowed(if flag { "true" } else { "false" }),
+                        (None, None, Some(flag)) => {
+                            Word::Borrowed(if flag { "true" } else { "false" })
+                        }
                         (None, None, None) if value.is_null() => Word::Borrowed("null"),
                         (None, None, None) => {
                             Word::Owned(meter.formatted(format_args!("{:?}", value))?)
@@ -3040,7 +3042,7 @@ pub(super) fn validate_models<'a>(
     }
     for (position, node) in nodes.iter().enumerate() {
         if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
-            || super::temporal_binding::profile_law(node)
+            || super::temporal_binding::profile_law(position, meter)?
                 .as_ref()
                 .and_then(|law| TemporalProfile::from_wire(&law.identity))
                 != Some(TemporalProfile::Timed)
@@ -3049,7 +3051,7 @@ pub(super) fn validate_models<'a>(
         }
         let at = node_pointer(position).key("body");
         meter.charge(1, || at.clone())?;
-        if super::temporal_binding::clock_name(node, 1) != Some("model-time") {
+        if super::temporal_binding::clock_name(meter, position, 1) != Some("model-time") {
             return Err(graph.issue(position, Cause::TimedNodeReference, at));
         }
         let Some(subject) = clause_model_subject(&graph, position) else {

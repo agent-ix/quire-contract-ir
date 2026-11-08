@@ -9,8 +9,8 @@ use super::model_members::ModelOwners;
 use super::structural::{typed_anchor_body, typed_clause_body, typed_parameter_binding};
 use super::{
     CheckedNodeKind, CheckedNodeOwner, CheckedSemanticNodeV2, CheckedTerm, ClaimForm,
-    CompositeTypeForm, CorrespondenceForm, LiteralKind, ModelForm, ScalarTypeForm, StateClauseKind,
-    StateForm, ValueForm, WorkMeter,
+    CompositeTypeForm, CorrespondenceForm, LiteralKind, ModelForm, RawSemanticNodeV2,
+    ScalarTypeForm, StateClauseKind, StateForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -390,18 +390,14 @@ fn malformed(path: JsonPointer, node: &CheckedNodeId) -> ValidationFailure {
     )
 }
 
-fn subject_model(node: &CheckedSemanticNodeV2<serde_json::Value>) -> Option<&str> {
+fn subject_model(node: &RawSemanticNodeV2) -> Option<&str> {
     match &node.owner {
         Some(CheckedNodeOwner::ModelRoot { identity, .. }) => Some(identity),
         _ => None,
     }
 }
 
-fn same_model(
-    node: &CheckedSemanticNodeV2<serde_json::Value>,
-    model: &str,
-    graph: &StepGraph<'_, '_>,
-) -> bool {
+fn same_model(node: &RawSemanticNodeV2, model: &str, graph: &StepGraph<'_, '_>) -> bool {
     graph
         .owners
         .owner_by_key(&node.node_id)
@@ -462,7 +458,7 @@ fn clauses_are(
 
 /// Validate the body step after terminal and before protocol.
 pub(super) fn validate_step_relations(
-    nodes: &[CheckedSemanticNodeV2<serde_json::Value>],
+    nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &GraphIndex<'_>,
