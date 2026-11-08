@@ -9,6 +9,63 @@ use quire_contract_model::{
     CheckedPackageV2BudgetedReadResult, CompleteLoweringProfileV2, LoweringProfileRef,
 };
 
+/// Core accounting checks the complete retained outcome. Full proof additionally
+/// exercises admission-derived consumers and every independent lowering root.
+#[derive(Clone, Copy)]
+pub(crate) enum ReadViewScope {
+    Core,
+    Full,
+}
+impl ReadViewScope {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Core => "retained-content",
+            Self::Full => "derived-views-and-per-node-lowering",
+        }
+    }
+    pub(crate) fn from_proof_mode(mode: &str) -> Self {
+        match mode {
+            "sample" => Self::Core,
+            "full" => Self::Full,
+            _ => panic!("unknown read-proof comparison mode"),
+        }
+    }
+    pub(crate) fn admitted(self, left: &CheckedPackageV2, right: &CheckedPackageV2, label: &str) {
+        match self {
+            Self::Core => assert_eq!(left, right, "{label}: retained outcome"),
+            Self::Full => super::assert_admitted_views_equal(left, right, label),
+        }
+    }
+    pub(crate) fn budgeted(
+        self,
+        left: &CheckedPackageV2BudgetedReadResult,
+        right: &CheckedPackageV2BudgetedReadResult,
+        label: &str,
+    ) {
+        match self {
+            Self::Core => assert_eq!(left, right, "{label}: complete retained outcome"),
+            Self::Full => super::assert_budgeted_results_equal(left, right, label),
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct OracleVisits {
+    pub(crate) comparisons: usize,
+    pub(crate) nodes: usize,
+    pub(crate) lower_calls: usize,
+}
+#[cfg(test)]
+thread_local! {
+    static ORACLE_VISITS: std::cell::Cell<OracleVisits> = const { std::cell::Cell::new(OracleVisits {comparisons:0,nodes:0,lower_calls:0}) };
+}
+/// Calling-thread test observations only; never a reader budget or allocator.
+#[cfg(test)]
+pub(crate) fn take_oracle_visits() -> OracleVisits {
+    ORACLE_VISITS.with(|visits| visits.replace(OracleVisits::default()))
+}
+
 /// Content equality excludes admission-derived model tables and lowering facts.
 /// Exercise their public consumers as well as the retained document content.
 pub(crate) fn assert_admitted_views_equal(
@@ -16,6 +73,12 @@ pub(crate) fn assert_admitted_views_equal(
     right: &CheckedPackageV2,
     label: &str,
 ) {
+    #[cfg(test)]
+    {
+        let mut value = take_oracle_visits();
+        value.comparisons += 1;
+        ORACLE_VISITS.with(|visits| visits.set(value));
+    }
     assert_eq!(
         left, right,
         "{label}: retained content and selected documents"
@@ -83,6 +146,13 @@ pub(crate) fn assert_admitted_views_equal(
             right.model_operations(id, u64::MAX),
             "{label}: retained model operations {id:?}"
         );
+        #[cfg(test)]
+        ORACLE_VISITS.with(|visits| {
+            let mut value = visits.replace(OracleVisits::default());
+            value.nodes += 1;
+            value.lower_calls += 2;
+            visits.set(value);
+        });
         let request = std::slice::from_ref(id);
         let expected = left.lower(request, &profile);
         let actual = right.lower(request, &profile);

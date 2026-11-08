@@ -3,7 +3,7 @@
 
 //! Passive charge observations. Buffer allocation occurs outside measured reads.
 
-use super::{measure_at, Counter, Observation};
+use super::{measure_at, Counter, Observation, ReadViewScope};
 use quire_contract_model::{
     with_native_budget_observer, CheckedPackageEvidence, CheckedPackageReadLimits,
     NativeBudgetEvent,
@@ -50,11 +50,11 @@ fn scoped<T>(recorder: Recorder, read: impl FnOnce() -> T) -> (T, Recorder) {
     drop(restore);
     (result, recorded)
 }
-fn unchanged(off: &Observation, on: &Observation) {
-    super::assert_budgeted_results_equal(
+fn unchanged(off: &Observation, on: &Observation, views: ReadViewScope) {
+    views.budgeted(
         &off.result,
         &on.result,
-        "observer preserves full typed outcome and admitted views",
+        "observer preserves typed outcome under the explicit comparison scope",
     );
     assert_eq!(
         off.budget, on.budget,
@@ -69,6 +69,8 @@ fn unchanged(off: &Observation, on: &Observation) {
 /// The first read is observer-OFF, before either observed read. This diagnostic
 /// passes through the checked measurement boundary on all three reads. A real
 /// accounting defect fails before this consumer can provide normative evidence.
+/// This explicit observer API retains its full public-view oracle; ordinary
+/// accounting selects Core through checked_with_scope instead.
 pub(crate) fn checked<C: Counter>(
     bytes: &[u8],
     evidence: &CheckedPackageEvidence,
@@ -76,7 +78,27 @@ pub(crate) fn checked<C: Counter>(
     work: u64,
     storage: u64,
 ) -> (Observation, Vec<NativeBudgetEvent>) {
-    trace(|| measure_at::<C>(bytes, evidence, limits, work, storage))
+    trace(
+        || measure_at::<C>(bytes, evidence, limits, work, storage),
+        ReadViewScope::Full,
+    )
+}
+
+pub(crate) fn checked_with_scope<C: Counter>(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limits: CheckedPackageReadLimits,
+    work: u64,
+    storage: u64,
+    views: ReadViewScope,
+) -> (Observation, Vec<NativeBudgetEvent>) {
+    match views {
+        ReadViewScope::Core => trace(
+            || measure_at::<C>(bytes, evidence, limits, work, storage),
+            ReadViewScope::Core,
+        ),
+        ReadViewScope::Full => super::observe_native::<C>(bytes, evidence, limits, work, storage),
+    }
 }
 
 pub(crate) fn checked_seeded(
@@ -85,13 +107,35 @@ pub(crate) fn checked_seeded(
     limits: CheckedPackageReadLimits,
     seed: &quire_contract_model::NativeJoinBudget,
 ) -> (Observation, Vec<NativeBudgetEvent>) {
-    trace(|| super::measure_seeded(bytes, evidence, limits, seed.read_proof_snapshot()))
+    trace(
+        || super::measure_seeded(bytes, evidence, limits, seed.read_proof_snapshot()),
+        ReadViewScope::Full,
+    )
 }
 
-fn trace(read: impl Fn() -> Observation) -> (Observation, Vec<NativeBudgetEvent>) {
+pub(crate) fn checked_seeded_with_scope(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limits: CheckedPackageReadLimits,
+    seed: &quire_contract_model::NativeJoinBudget,
+    views: ReadViewScope,
+) -> (Observation, Vec<NativeBudgetEvent>) {
+    match views {
+        ReadViewScope::Core => trace(
+            || super::measure_seeded(bytes, evidence, limits, seed.read_proof_snapshot()),
+            ReadViewScope::Core,
+        ),
+        ReadViewScope::Full => checked_seeded(bytes, evidence, limits, seed),
+    }
+}
+
+fn trace(
+    read: impl Fn() -> Observation,
+    views: ReadViewScope,
+) -> (Observation, Vec<NativeBudgetEvent>) {
     let off = read();
     let (counted, count) = scoped(Recorder::Count(0), &read);
-    unchanged(&off, &counted);
+    unchanged(&off, &counted, views);
     let Recorder::Count(count) = count else {
         unreachable!("count recorder")
     };
@@ -105,7 +149,7 @@ fn trace(read: impl Fn() -> Observation) -> (Observation, Vec<NativeBudgetEvent>
         },
         read,
     );
-    unchanged(&off, &recorded);
+    unchanged(&off, &recorded, views);
     let Recorder::Record { events, overflow } = trace else {
         unreachable!("event recorder")
     };
