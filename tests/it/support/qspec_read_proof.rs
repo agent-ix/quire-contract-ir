@@ -187,10 +187,12 @@ pub(crate) fn read_and_account(
         );
         (
             mode,
-            std::thread::current()
-                .name()
-                .unwrap_or("unnamed")
-                .to_owned(),
+            std::env::var("IR1404_ORIGINAL_TEST_NAME").unwrap_or_else(|_| {
+                std::thread::current()
+                    .name()
+                    .unwrap_or("unnamed")
+                    .to_owned()
+            }),
         )
     });
     // The first public read is measured on a fresh worker. Only worker
@@ -303,7 +305,7 @@ fn finish_proof(
         .unwrap_or_else(|| {
             std::env::temp_dir().join(format!("ir1404-read-sites-{}.jsonl", std::process::id()))
         });
-    let row = serde_json::json!({"driver":location.file(),"line":location.line(),
+    let row = serde_json::json!({"driver":location.file(),"line":location.line(),"column":location.column(),
         "test":test_name,"sequence":sequence,"mode":mode,"outcome":kind,
         "input_bytes":bytes.len(),"work_limit":limits.work,"work":reference.budget.consumed().work,
         "read_storage":storage,"storage_boundaries":storage_boundaries,"work_boundaries":work_boundaries});
@@ -386,8 +388,8 @@ pub(crate) fn read_budget_and_account(
             .unwrap_or_else(|| {
                 std::env::temp_dir().join(format!("ir1404-read-sites-{}.jsonl", std::process::id()))
             });
-        let row = serde_json::json!({"driver":location.file(),"line":location.line(),
-            "test":std::thread::current().name(),"entry":"caller-budget",
+        let row = serde_json::json!({"driver":location.file(),"line":location.line(),"column":location.column(),
+            "test":std::env::var("IR1404_ORIGINAL_TEST_NAME").unwrap_or_else(|_| std::thread::current().name().unwrap_or("unnamed").to_owned()),"entry":"caller-budget",
             "input_bytes":bytes.len(),"work_limit":budget.work_limit(),
             "storage_limit":budget.read_storage_limit(),"requested":requested});
         let mut output = std::fs::OpenOptions::new()
