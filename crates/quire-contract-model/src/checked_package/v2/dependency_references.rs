@@ -42,7 +42,8 @@ use super::{
 use crate::checked_package::common::{count, node_pointer, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    JsonPointer,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -57,6 +58,35 @@ pub(super) struct SuppliedDependency<'e> {
     identity: &'e str,
     package: &'e CheckedPackageV2,
     index: BTreeMap<&'e CheckedNodeId, usize>,
+}
+
+impl SuppliedDependency<'_> {
+    /// The position of the node `id` names in this dependency's graph. The
+    /// dependency's own ids hold index segments of its graph; an importing
+    /// document names those as `{package, node}` dependency positions of this
+    /// dependency, and a local index segment names no node here.
+    fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
+        let mut path = Vec::with_capacity(id.path.len());
+        for segment in &id.path {
+            path.push(match segment {
+                CheckedNodePathSegment::Dependency { package, node }
+                    if package.as_ref() == self.identity =>
+                {
+                    CheckedNodePathSegment::Index(*node)
+                }
+                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Dependency { .. } => {
+                    return None
+                }
+                other => other.clone(),
+            });
+        }
+        let document_held = CheckedNodeId {
+            package: id.package.clone(),
+            path,
+            ordinal: id.ordinal,
+        };
+        self.index.get(&document_held).copied()
+    }
 }
 
 /// The dependency packages the caller supplied, one per
@@ -96,7 +126,7 @@ impl<'e> SuppliedDependencies<'e> {
     pub(super) fn holds_node(&self, id: &CheckedNodeId) -> bool {
         self.packages
             .iter()
-            .any(|supplied| supplied.index.contains_key(id))
+            .any(|supplied| supplied.position_of(id).is_some())
     }
 
     /// The node `id` of the directly selected package `package`: the package
@@ -107,7 +137,7 @@ impl<'e> SuppliedDependencies<'e> {
         id: &CheckedNodeId,
     ) -> Option<(&'e CheckedPackageV2, usize)> {
         let supplied = self.resolve(package)?;
-        Some((supplied.package, *supplied.index.get(id)?))
+        Some((supplied.package, supplied.position_of(id)?))
     }
 
     /// The admitted directly selected package with this exact identity.

@@ -624,6 +624,37 @@ pub enum CheckedNodePathSegment {
     /// A node-held operand slot on the V2 wire: entry `k` of the holding
     /// node's operand row, before key resolution.
     Operand(u64),
+    /// The graph position `node` in the graph of the directly selected
+    /// dependency `package`: what an operand slot resolves to when its row
+    /// entry is a [`CheckedOperandEntry::Dependency`]. The wire carries it
+    /// only as a row entry, never as a path segment.
+    Dependency {
+        /// The selected dependency whose graph `node` indexes.
+        package: Box<str>,
+        /// The position in that dependency's graph.
+        node: u64,
+    },
+}
+
+/// One entry of a node's operand row.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CheckedOperandEntry {
+    /// A position in the importing package's own graph.
+    Node(u64),
+    /// A position in the graph of a directly selected dependency, for an id
+    /// that names one of that dependency's nodes by its own operands.
+    Dependency(CheckedDependencyOperand),
+}
+
+/// A position in a selected dependency's graph: `{package, node}`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedDependencyOperand {
+    /// The selected dependency's identity.
+    pub package: Box<str>,
+    /// The position in that dependency's graph.
+    pub node: u64,
 }
 
 impl Serialize for CheckedNodePathSegment {
@@ -639,6 +670,12 @@ impl Serialize for CheckedNodePathSegment {
             Self::Operand(slot) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("operand", slot)?;
+                map.end()
+            }
+            Self::Dependency { package, node } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("package", package)?;
+                map.serialize_entry("node", node)?;
                 map.end()
             }
             Self::Node(node) => node.serialize(serializer),
@@ -721,6 +758,9 @@ impl std::fmt::Debug for CheckedNodeTableDebug<'_> {
                     CheckedNodePathSegment::Name(name) => write!(formatter, "Name({name:?})")?,
                     CheckedNodePathSegment::Index(index) => write!(formatter, "Index({index})")?,
                     CheckedNodePathSegment::Operand(slot) => write!(formatter, "Operand({slot})")?,
+                    CheckedNodePathSegment::Dependency { package, node } => {
+                        write!(formatter, "Dependency({package:?}, {node})")?
+                    }
                     CheckedNodePathSegment::Node(child) => write!(
                         formatter,
                         "Node(#{})",
@@ -774,6 +814,12 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                 let name: String = map
                     .next_key()?
                     .ok_or_else(|| A::Error::missing_field("node"))?;
+                // `{package, node}` in either member order is the dependency
+                // position; every other segment object has one member.
+                if name == "package" {
+                    let package: Box<str> = map.next_value()?;
+                    return Self::dependency(&mut map, package);
+                }
                 let is_operand = match name.as_str() {
                     "node" => false,
                     "operand" => true,
@@ -784,6 +830,16 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                     return Err(A::Error::custom("path segment exceeds I-JSON bound"));
                 }
                 if let Some(other) = map.next_key::<String>()? {
+                    if !is_operand && other == "package" {
+                        let package: Box<str> = map.next_value()?;
+                        if let Some(extra) = map.next_key::<String>()? {
+                            return Err(A::Error::unknown_field(&extra, &["node", "package"]));
+                        }
+                        return Ok(Segment(CheckedNodePathSegment::Dependency {
+                            package,
+                            node: index,
+                        }));
+                    }
                     return Err(if other == name {
                         A::Error::duplicate_field(if is_operand { "operand" } else { "node" })
                     } else if is_operand {
@@ -796,6 +852,32 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                     CheckedNodePathSegment::Operand(index)
                 } else {
                     CheckedNodePathSegment::Index(index)
+                }))
+            }
+        }
+        impl SegmentVisitor {
+            /// The rest of a `{package, node}` segment whose `package` came first.
+            fn dependency<'de, A: MapAccess<'de>>(
+                map: &mut A,
+                package: Box<str>,
+            ) -> Result<Segment, A::Error> {
+                match map.next_key::<String>()? {
+                    Some(name) if name == "node" => {}
+                    Some(other) => {
+                        return Err(A::Error::unknown_field(&other, &["node", "package"]))
+                    }
+                    None => return Err(A::Error::missing_field("node")),
+                }
+                let node: u64 = map.next_value()?;
+                if node > 9_007_199_254_740_991 {
+                    return Err(A::Error::custom("path segment exceeds I-JSON bound"));
+                }
+                if let Some(extra) = map.next_key::<String>()? {
+                    return Err(A::Error::unknown_field(&extra, &["node", "package"]));
+                }
+                Ok(Segment(CheckedNodePathSegment::Dependency {
+                    package,
+                    node,
                 }))
             }
         }
@@ -858,6 +940,9 @@ impl CheckedNodeId {
                     CheckedNodePathSegment::Index(_) => return false,
                     CheckedNodePathSegment::Operand(slot) if *slot <= 9_007_199_254_740_991 => {}
                     CheckedNodePathSegment::Operand(_) => return false,
+                    CheckedNodePathSegment::Dependency { package, node }
+                        if !package.is_empty() && *node <= 9_007_199_254_740_991 => {}
+                    CheckedNodePathSegment::Dependency { .. } => return false,
                     CheckedNodePathSegment::Node(node) => pending.push(node),
                 }
             }
@@ -903,6 +988,43 @@ impl PartialOrd for CheckedNodeId {
     }
 }
 
+/// The order of two path segments short of comparing nested operand keys:
+/// names, then index segments, operand slots, dependency positions and
+/// nested keys, each kind by its own members. Two nested keys compare equal
+/// here and are compared by the caller.
+fn segment_order(
+    left: &CheckedNodePathSegment,
+    right: &CheckedNodePathSegment,
+) -> std::cmp::Ordering {
+    use CheckedNodePathSegment as Segment;
+    let rank = |segment: &Segment| match segment {
+        Segment::Name(_) => 0,
+        Segment::Index(_) => 1,
+        Segment::Operand(_) => 2,
+        Segment::Dependency { .. } => 3,
+        Segment::Node(_) => 4,
+    };
+    rank(left)
+        .cmp(&rank(right))
+        .then_with(|| match (left, right) {
+            (Segment::Name(a), Segment::Name(b)) => a.cmp(b),
+            (Segment::Index(a), Segment::Index(b)) | (Segment::Operand(a), Segment::Operand(b)) => {
+                a.cmp(b)
+            }
+            (
+                Segment::Dependency {
+                    package: a,
+                    node: x,
+                },
+                Segment::Dependency {
+                    package: b,
+                    node: y,
+                },
+            ) => a.cmp(b).then(x.cmp(y)),
+            _ => std::cmp::Ordering::Equal,
+        })
+}
+
 impl Ord for CheckedNodeId {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
@@ -934,70 +1056,19 @@ impl Ord for CheckedNodeId {
                     (Some(_), None) => return Ordering::Greater,
                     (Some((head_left, rest_left)), Some((head_right, rest_right))) => {
                         tasks.push(Task::Path(rest_left, rest_right));
-                        match (head_left, head_right) {
-                            (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => {
-                                match a.cmp(b) {
-                                    Ordering::Equal => {}
-                                    order => return order,
+                        match segment_order(head_left, head_right) {
+                            Ordering::Equal => {
+                                if let (
+                                    CheckedNodePathSegment::Node(a),
+                                    CheckedNodePathSegment::Node(b),
+                                ) = (head_left, head_right)
+                                {
+                                    if !std::sync::Arc::ptr_eq(a, b) {
+                                        tasks.push(Task::Node(a, b));
+                                    }
                                 }
                             }
-                            (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Node(_)) => {
-                                return Ordering::Less
-                            }
-                            (
-                                CheckedNodePathSegment::Name(_),
-                                CheckedNodePathSegment::Index(_)
-                                | CheckedNodePathSegment::Operand(_),
-                            ) => return Ordering::Less,
-                            (
-                                CheckedNodePathSegment::Index(_)
-                                | CheckedNodePathSegment::Operand(_),
-                                CheckedNodePathSegment::Name(_),
-                            ) => return Ordering::Greater,
-                            (
-                                CheckedNodePathSegment::Index(_),
-                                CheckedNodePathSegment::Operand(_),
-                            ) => return Ordering::Less,
-                            (
-                                CheckedNodePathSegment::Operand(_),
-                                CheckedNodePathSegment::Index(_),
-                            ) => return Ordering::Greater,
-                            (
-                                CheckedNodePathSegment::Operand(a),
-                                CheckedNodePathSegment::Operand(b),
-                            ) => match a.cmp(b) {
-                                Ordering::Equal => {}
-                                order => return order,
-                            },
-                            (
-                                CheckedNodePathSegment::Operand(_),
-                                CheckedNodePathSegment::Node(_),
-                            ) => return Ordering::Less,
-                            (
-                                CheckedNodePathSegment::Node(_),
-                                CheckedNodePathSegment::Operand(_),
-                            ) => return Ordering::Greater,
-                            (
-                                CheckedNodePathSegment::Index(a),
-                                CheckedNodePathSegment::Index(b),
-                            ) => match a.cmp(b) {
-                                Ordering::Equal => {}
-                                order => return order,
-                            },
-                            (CheckedNodePathSegment::Index(_), CheckedNodePathSegment::Node(_)) => {
-                                return Ordering::Less
-                            }
-                            (CheckedNodePathSegment::Node(_), CheckedNodePathSegment::Index(_)) => {
-                                return Ordering::Greater
-                            }
-                            (CheckedNodePathSegment::Node(_), CheckedNodePathSegment::Name(_)) => {
-                                return Ordering::Greater
-                            }
-                            (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
-                                if !std::sync::Arc::ptr_eq(a, b) {
-                                    tasks.push(Task::Node(a, b));
-                                }
-                            }
+                            order => return order,
                         }
                     }
                 },
@@ -1057,24 +1128,12 @@ pub(crate) fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> V
             }
             for (a, b) in left.path.iter().zip(&right.path) {
                 let order = match (a, b) {
-                    (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => a.cmp(b),
-                    (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b))
-                    | (CheckedNodePathSegment::Operand(a), CheckedNodePathSegment::Operand(b)) => {
-                        a.cmp(b)
-                    }
                     (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
                         let a = self.by_pointer[&std::sync::Arc::as_ptr(a)];
                         let b = self.by_pointer[&std::sync::Arc::as_ptr(b)];
                         self.position(a).cmp(&self.position(b))
                     }
-                    (CheckedNodePathSegment::Name(_), _) => Ordering::Less,
-                    (_, CheckedNodePathSegment::Name(_)) => Ordering::Greater,
-                    (CheckedNodePathSegment::Index(_), _) => Ordering::Less,
-                    (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Index(_)) => {
-                        Ordering::Greater
-                    }
-                    (CheckedNodePathSegment::Operand(_), _) => Ordering::Less,
-                    (CheckedNodePathSegment::Node(_), _) => Ordering::Greater,
+                    _ => segment_order(a, b),
                 };
                 if order != Ordering::Equal {
                     return order;
@@ -1265,6 +1324,14 @@ impl Encode for CheckedNodeId {
                     writer.begin_object()?;
                     writer.name("operand")?;
                     writer.integer(i128::from(*slot))?;
+                    writer.end_object()?;
+                }
+                Event::Segment(CheckedNodePathSegment::Dependency { package, node }) => {
+                    writer.begin_object()?;
+                    writer.name("node")?;
+                    writer.integer(i128::from(*node))?;
+                    writer.name("package")?;
+                    writer.string(package)?;
                     writer.end_object()?;
                 }
                 Event::Segment(CheckedNodePathSegment::Node(node)) => {

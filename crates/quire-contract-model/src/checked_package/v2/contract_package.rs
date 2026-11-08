@@ -743,9 +743,9 @@ impl ContractSourceKeyV1 {
                 match segment {
                     CheckedNodePathSegment::Name(_) => {}
                     CheckedNodePathSegment::Node(operand) => pending.push(operand),
-                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
-                        return None
-                    }
+                    CheckedNodePathSegment::Index(_)
+                    | CheckedNodePathSegment::Operand(_)
+                    | CheckedNodePathSegment::Dependency { .. } => return None,
                 }
             }
         }
@@ -772,6 +772,7 @@ impl ContractSourceKeyV1 {
                 }
                 CheckedNodePathSegment::Index(_)
                 | CheckedNodePathSegment::Operand(_)
+                | CheckedNodePathSegment::Dependency { .. }
                 | CheckedNodePathSegment::Node(_) => return None,
             });
         }

@@ -6,7 +6,7 @@
 
 use super::{CheckedNodePathSegment, RawCheckedPackageWireV2, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
-use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
+use crate::checked_package::shared::{CheckedOperandEntry, CheckedPackageRefusalCode, JsonPointer};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -14,6 +14,7 @@ use std::sync::Arc;
 enum TokenSegment {
     Name(Box<str>),
     Operand(usize),
+    Dependency(Box<str>, u64),
 }
 
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
@@ -70,6 +71,9 @@ impl StructuralInterner {
                                 CheckedNodePathSegment::Node(operand) => TokenSegment::Operand(
                                     *self.pointers.get(&Arc::as_ptr(operand))?,
                                 ),
+                                CheckedNodePathSegment::Dependency { package, node } => {
+                                    TokenSegment::Dependency(package.clone(), *node)
+                                }
                                 CheckedNodePathSegment::Index(_)
                                 | CheckedNodePathSegment::Operand(_) => return None,
                             });
@@ -112,7 +116,7 @@ struct SegmentSite {
 /// One entry of an operand row.
 struct RowSite {
     offset: usize,
-    value: u64,
+    entry: CheckedOperandEntry,
     at: JsonPointer,
 }
 
@@ -388,6 +392,9 @@ pub(super) fn resolve_id(
             CheckedNodePathSegment::Index(index) => {
                 CheckedNodePathSegment::Node(Arc::clone(keys.get(usize::try_from(*index).ok()?)?))
             }
+            // A dependency position names a node of another graph; it stays
+            // as written, the resolved form of a foreign operand.
+            CheckedNodePathSegment::Dependency { .. } => segment.clone(),
             CheckedNodePathSegment::Node(_) | CheckedNodePathSegment::Operand(_) => return None,
         });
     }
@@ -468,7 +475,7 @@ pub(super) fn equivalent_values(
 #[ix_trace_rs::string_edge]
 pub(super) fn rebuild_graph_keys(
     nodes: &[super::RawSemanticNodeV2],
-    rows: Option<&[Vec<u64>]>,
+    rows: Option<&[Vec<CheckedOperandEntry>]>,
     refuse: impl Fn(JsonPointer) -> ValidationFailure,
 ) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
     let operand = if rows.is_some() { "operand" } else { "node" };
@@ -500,7 +507,7 @@ pub(super) fn rebuild_graph_keys(
 /// table-specific pointer for an operand.
 pub(super) fn rebuild_keys(
     ids: &[&super::CheckedNodeId],
-    rows: Option<&[Vec<u64>]>,
+    rows: Option<&[Vec<CheckedOperandEntry>]>,
     pointer: impl Fn(usize, usize) -> JsonPointer,
     refuse: impl Fn(JsonPointer) -> ValidationFailure,
 ) -> Result<Vec<Arc<super::CheckedNodeId>>, ValidationFailure> {
@@ -514,11 +521,17 @@ pub(super) fn rebuild_keys(
                 Some(Some(usize::try_from(*index).ok()?))
             }
             (Some(rows), CheckedNodePathSegment::Operand(slot)) => {
-                let entry = rows.get(position)?.get(usize::try_from(*slot).ok()?)?;
+                // A node's own id names only nodes of its own graph.
+                let CheckedOperandEntry::Node(entry) =
+                    rows.get(position)?.get(usize::try_from(*slot).ok()?)?
+                else {
+                    return None;
+                };
                 Some(Some(usize::try_from(*entry).ok()?))
             }
             (None, CheckedNodePathSegment::Operand(_))
-            | (Some(_), CheckedNodePathSegment::Index(_)) => None,
+            | (Some(_), CheckedNodePathSegment::Index(_))
+            | (_, CheckedNodePathSegment::Dependency { .. }) => None,
         }
     };
     let mut edges: Vec<Vec<(usize, usize)>> = Vec::with_capacity(node_count);
@@ -593,7 +606,9 @@ pub(super) fn rebuild_keys(
             .map(|segment| match segment {
                 CheckedNodePathSegment::Name(name) => CheckedNodePathSegment::Name(name.clone()),
                 CheckedNodePathSegment::Node(key) => CheckedNodePathSegment::Node(Arc::clone(key)),
-                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
+                CheckedNodePathSegment::Index(_)
+                | CheckedNodePathSegment::Operand(_)
+                | CheckedNodePathSegment::Dependency { .. } => {
                     let target = target_of(node, segment)
                         .flatten()
                         .expect("operand was checked in bounds");
@@ -680,6 +695,13 @@ fn collect_sites(
                         }
                         let object = object_members(segment)
                             .ok_or_else(|| malformed(at.clone().key("path").index(slot)))?;
+                        // A dependency position is an operand row entry only.
+                        let dependency_position = object.len() == 2
+                            && object.iter().any(|(name, _)| name == "package")
+                            && object.iter().any(|(name, _)| name == "node");
+                        if dependency_position {
+                            return Err(malformed(at.clone().key("path").index(slot)));
+                        }
                         if object.len() != 1 || !matches!(object[0].0.as_str(), "node" | "operand")
                         {
                             continue;
@@ -743,11 +765,11 @@ fn collect_sites(
                         _ => Scope::Other,
                     };
                     if let Scope::Row = walk.scope {
-                        let value: u64 = serde_json::from_slice(child)
+                        let entry: CheckedOperandEntry = serde_json::from_slice(child)
                             .map_err(|_| malformed(at.clone().index(position)))?;
                         row_sites.push(RowSite {
                             offset: offset_of(child),
-                            value,
+                            entry,
                             at: at.clone().index(position),
                         });
                         continue;
@@ -801,10 +823,20 @@ pub(super) fn check(
             .is_none_or(|value| value >= limit)
             .then_some((site.offset, &site.at))
     });
+    // A row entry names a node of this graph, or of a supplied dependency's.
     let bad_entry = row_sites.iter().find_map(|site| {
-        usize::try_from(site.value)
+        let (value, limit) = match &site.entry {
+            CheckedOperandEntry::Node(value) => (*value, node_count),
+            CheckedOperandEntry::Dependency(operand) => (
+                operand.node,
+                evidence
+                    .dependency_package(&operand.package)
+                    .map_or(0, |package| package.resolved_graph().nodes.len()),
+            ),
+        };
+        usize::try_from(value)
             .ok()
-            .is_none_or(|value| value >= node_count)
+            .is_none_or(|value| value >= limit)
             .then_some((site.offset, &site.at))
     });
     if let Some((_, at)) = [out_of_range, bad_entry]
@@ -832,7 +864,7 @@ pub(super) fn check(
         let mut distinct = std::collections::BTreeSet::new();
         for (position, entry) in rows[node].iter().enumerate() {
             let unnamed = u64::try_from(position).ok().is_none_or(|p| p >= named);
-            if unnamed || !distinct.insert(*entry) {
+            if unnamed || !distinct.insert(entry) {
                 return Err(malformed(
                     graph_at().key("operand_rows").index(node).index(position),
                 ));
@@ -878,7 +910,17 @@ pub(super) fn resolve_slots(wire: &mut RawCheckedPackageWireV2) {
                 if let CheckedNodePathSegment::Operand(slot) = segment {
                     if let Some(entry) = usize::try_from(*slot).ok().and_then(|slot| row.get(slot))
                     {
-                        *segment = CheckedNodePathSegment::Index(*entry);
+                        *segment = match entry {
+                            CheckedOperandEntry::Node(entry) => {
+                                CheckedNodePathSegment::Index(*entry)
+                            }
+                            CheckedOperandEntry::Dependency(operand) => {
+                                CheckedNodePathSegment::Dependency {
+                                    package: operand.package.clone(),
+                                    node: operand.node,
+                                }
+                            }
+                        };
                     }
                 }
             }
@@ -893,7 +935,7 @@ pub(super) fn resolve_slots(wire: &mut RawCheckedPackageWireV2) {
     }
 }
 
-fn resolve_value_slots(body: &mut serde_json::Value, row: &[u64]) {
+fn resolve_value_slots(body: &mut serde_json::Value, row: &[CheckedOperandEntry]) {
     let mut pending = vec![body];
     while let Some(value) = pending.pop() {
         match value {
@@ -915,7 +957,17 @@ fn resolve_value_slots(body: &mut serde_json::Value, row: &[u64]) {
                                 .and_then(|slot| usize::try_from(slot).ok())
                                 .and_then(|slot| row.get(slot))
                             {
-                                *segment = serde_json::json!({ "node": entry });
+                                *segment = match entry {
+                                    CheckedOperandEntry::Node(entry) => {
+                                        serde_json::json!({ "node": entry })
+                                    }
+                                    CheckedOperandEntry::Dependency(operand) => {
+                                        serde_json::json!({
+                                            "package": operand.package,
+                                            "node": operand.node,
+                                        })
+                                    }
+                                };
                             }
                         }
                     }
@@ -940,10 +992,12 @@ pub(super) fn slot_graph(graph: &super::CheckedSemanticGraphV2) -> super::Checke
     let mut out = graph.clone();
     for (node, row) in out.nodes.iter_mut().zip(&graph.operand_rows) {
         node.map_node_ids(|id| {
-            let held = id
-                .path
-                .iter()
-                .any(|segment| matches!(segment, CheckedNodePathSegment::Index(_)));
+            let held = id.path.iter().any(|segment| {
+                matches!(
+                    segment,
+                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Dependency { .. }
+                )
+            });
             held.then(|| {
                 let mut restored = id.clone();
                 restore_slots(&mut restored, row);
@@ -956,14 +1010,22 @@ pub(super) fn slot_graph(graph: &super::CheckedSemanticGraphV2) -> super::Checke
 
 /// The inverse of [`resolve_slots`] for one node: write each document index
 /// segment of a node-held id as the slot the node's row names it by.
-pub(super) fn restore_slots(id: &mut super::CheckedNodeId, row: &[u64]) {
+pub(super) fn restore_slots(id: &mut super::CheckedNodeId, row: &[CheckedOperandEntry]) {
     for segment in &mut id.path {
-        if let CheckedNodePathSegment::Index(index) = segment {
-            if let Some(slot) = row.iter().position(|entry| entry == index) {
-                *segment = CheckedNodePathSegment::Operand(
-                    u64::try_from(slot).expect("a row position fits in u64"),
-                );
+        let entry = match segment {
+            CheckedNodePathSegment::Index(index) => CheckedOperandEntry::Node(*index),
+            CheckedNodePathSegment::Dependency { package, node } => {
+                CheckedOperandEntry::Dependency(super::CheckedDependencyOperand {
+                    package: package.clone(),
+                    node: *node,
+                })
             }
+            _ => continue,
+        };
+        if let Some(slot) = row.iter().position(|candidate| *candidate == entry) {
+            *segment = CheckedNodePathSegment::Operand(
+                u64::try_from(slot).expect("a row position fits in u64"),
+            );
         }
     }
 }

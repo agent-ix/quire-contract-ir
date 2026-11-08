@@ -21,7 +21,7 @@ use super::{
     CheckedDeclaration, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner,
     CheckedNodeProjectionV2, CheckedSemanticGraphV2, CheckedSemanticNodeV2,
 };
-use crate::checked_package::shared::CheckedNodeId;
+use crate::checked_package::shared::{CheckedNodeId, CheckedOperandEntry};
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 
 /// Writes the member `name` whose value has a depth fixed by its type.
@@ -170,7 +170,17 @@ impl<Body: Encode> Encode for CheckedSemanticGraphV2<Body> {
         for row in &self.operand_rows {
             writer.begin_array()?;
             for entry in row {
-                writer.integer(i128::from(*entry))?;
+                match entry {
+                    CheckedOperandEntry::Node(node) => writer.integer(i128::from(*node))?,
+                    CheckedOperandEntry::Dependency(operand) => {
+                        writer.begin_object()?;
+                        writer.name("node")?;
+                        writer.integer(i128::from(operand.node))?;
+                        writer.name("package")?;
+                        writer.string(&operand.package)?;
+                        writer.end_object()?;
+                    }
+                }
             }
             writer.end_array()?;
         }

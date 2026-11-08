@@ -20,8 +20,8 @@ use super::{
 };
 use crate::checked_package::common::{decode_closed_bytes, node_pointer, strict_parse};
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSourceMapEntry,
-    CheckedSourceRegion,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOperandEntry,
+    CheckedSourceMapEntry, CheckedSourceRegion,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
 use serde::{Deserialize, Deserializer};
@@ -101,7 +101,7 @@ struct BorrowedGraph<'a> {
     graph_version: Box<str>,
     #[serde(borrow)]
     nodes: Vec<BorrowedNode<'a>>,
-    operand_rows: Vec<Vec<u64>>,
+    operand_rows: Vec<Vec<CheckedOperandEntry>>,
 }
 
 // Keep native wire errors at the logical ID boundary. The refinement below

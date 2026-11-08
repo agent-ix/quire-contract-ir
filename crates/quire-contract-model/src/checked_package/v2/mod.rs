@@ -228,11 +228,11 @@ use super::common::{
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedNodePathSegment,
-    CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry,
-    CheckedSourceRef, CheckedSourceRegion, JsonPointer,
+    CheckedArtifactRef, CheckedCapability, CheckedDependencyOperand, CheckedNodeId,
+    CheckedNodePathSegment, CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedOperandEntry, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection,
+    CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
@@ -581,8 +581,10 @@ pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     /// Complete closed graph.
     pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
     /// One operand row per node, in graph order: slot `k` of node `i` names
-    /// `nodes[operand_rows[i][k]]`. Required on read.
-    pub operand_rows: Vec<Vec<u64>>,
+    /// `nodes[operand_rows[i][k]]`, or, for a `{package, node}` entry, the
+    /// node at that position in the selected dependency's graph. Required on
+    /// read.
+    pub operand_rows: Vec<Vec<CheckedOperandEntry>>,
 }
 
 type RawSemanticGraphV2 = CheckedSemanticGraphV2<Value>;
@@ -1613,6 +1615,27 @@ impl CheckedPackageV2 {
         if node_index::holds_slot(id) {
             return self.slot_view().positions.get(id).copied().flatten();
         }
+        if id
+            .path
+            .iter()
+            .any(|segment| matches!(segment, CheckedNodePathSegment::Dependency { .. }))
+        {
+            // An importing document names this package's graph positions as
+            // dependency positions of this package.
+            let mut own = id.clone();
+            for segment in &mut own.path {
+                match segment {
+                    CheckedNodePathSegment::Dependency { package, node }
+                        if package.as_ref() == self.name() =>
+                    {
+                        *segment = CheckedNodePathSegment::Index(*node);
+                    }
+                    CheckedNodePathSegment::Dependency { .. } => return None,
+                    _ => {}
+                }
+            }
+            return self.node_index.get(&own).copied();
+        }
         self.node_index.get(id).copied()
     }
 
@@ -1650,10 +1673,17 @@ impl CheckedPackageV2 {
         for segment in &id.path {
             path.push(match segment {
                 CheckedNodePathSegment::Operand(slot) => {
-                    let entry = row.get(usize::try_from(*slot).ok()?)?;
-                    CheckedNodePathSegment::Node(Arc::clone(
-                        self.structural_keys.get(usize::try_from(*entry).ok()?)?,
-                    ))
+                    match row.get(usize::try_from(*slot).ok()?)? {
+                        CheckedOperandEntry::Node(entry) => CheckedNodePathSegment::Node(
+                            Arc::clone(self.structural_keys.get(usize::try_from(*entry).ok()?)?),
+                        ),
+                        CheckedOperandEntry::Dependency(operand) => {
+                            CheckedNodePathSegment::Dependency {
+                                package: operand.package.clone(),
+                                node: operand.node,
+                            }
+                        }
+                    }
                 }
                 CheckedNodePathSegment::Index(index) => CheckedNodePathSegment::Node(Arc::clone(
                     self.structural_keys.get(usize::try_from(*index).ok()?)?,
