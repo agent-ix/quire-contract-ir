@@ -1207,6 +1207,18 @@ impl read_charge::ReadStorage for WorkMeter<'_> {
         }
     }
 
+    fn reserve_diagnostic(
+        &mut self,
+        bytes: u128,
+        site: read_charge::Site,
+        pending: CheckedPackagePendingOutcome,
+    ) -> Result<(), read_charge::Denied> {
+        match &mut self.source {
+            WorkSource::Own { .. } => Ok(()),
+            WorkSource::Budget(budget) => budget.reserve_diagnostic(bytes, site, pending),
+        }
+    }
+
     fn denial(&self) -> ValidationFailure {
         match &self.source {
             WorkSource::Own { .. } => ValidationFailure::Budget(BudgetStop {
@@ -2691,7 +2703,8 @@ fn validate_body<'a, V: TermSource<'a>>(
             execution_point::validate_anchor_body(node, at, visit, ids)
         }
         BodyGrammar::Extension => {
-            extension::read_body(node, at.pointer(), ids).map(|body| extension::body_work(&body))
+            extension::read_body(node, stage_storage::Position::Trail(*at), ids)
+                .map(|body| extension::body_work(&body))
         }
         BodyGrammar::Frame => Ok(["modifies", "creates", "deletes", "deletes_scoped"]
             .into_iter()
@@ -3459,7 +3472,7 @@ fn validate_graph(
             BodyGrammar::Extension => {
                 let body = extension::read_body(
                     TermNode::of(&bodies[position]),
-                    at("body"),
+                    stage_storage::Position::Trail(Trail::Base(&body_steps)),
                     read_charge::ids(
                         &mut *meter,
                         PackageReadStage::Graph,
