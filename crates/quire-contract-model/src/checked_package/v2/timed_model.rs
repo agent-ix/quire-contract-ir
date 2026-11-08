@@ -3804,7 +3804,7 @@ mod tests {
                 .expect("published slot vectors"),
         )
         .expect("vector JSON");
-        let wire: super::super::RawCheckedPackageWireV2 = serde_json::from_slice(
+        let mut wire: super::super::RawCheckedPackageWireV2 = serde_json::from_slice(
             &std::fs::read(
                 proposal.join(
                     vectors["selected_package"]
@@ -3822,6 +3822,15 @@ mod tests {
         .expect("selected JSON");
         let models = [super::super::model_members::tests::read(&selected)
             .expect("original selected model intake")];
+        let bodies: Vec<_> = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| node.body.clone())
+            .collect();
+        let mut setup = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        super::super::node_index::resolve_slots(&mut wire, &bodies, &mut setup)
+            .expect("original wire slot resolution");
         let nodes = &wire.semantic_graph.nodes;
         let owners = ModelOwners::new(&models, nodes, |_| Ok(())).expect("actual model owners");
         let kinds: Vec<_> = nodes
@@ -3832,23 +3841,21 @@ mod tests {
                     .expect("published node kind")
             })
             .collect();
-        let mut setup = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
         let terms: Vec<_> = nodes
             .iter()
             .enumerate()
-            .map(|(position, node)| {
-                TermNode::of(&node.body)
-                    .decode_in(
-                        node.body.document(),
-                        &mut setup,
-                        Site::new(super::super::PackageReadStage::Graph, position, "body"),
-                        wire.semantic_graph
-                            .operand_rows
-                            .get(position)
-                            .map_or(&[][..], Vec::as_slice),
-                    )
-                    .expect("paid setup decode")
-                    .ok()
+            .map(|(position, _)| {
+                super::super::decode_admitted_body(
+                    kinds[position],
+                    &bodies[position],
+                    wire.semantic_graph
+                        .operand_rows
+                        .get(position)
+                        .map_or(&[][..], Vec::as_slice),
+                    position,
+                    &mut WorkMeter::over(&mut setup),
+                )
+                .ok()
             })
             .collect();
         let index: GraphIndex<'_> = nodes
@@ -3896,7 +3903,6 @@ mod tests {
             );
         }
         assert!(checked > 1, "published nested and optional places");
-        let bodies: Vec<_> = nodes.iter().map(|node| node.body.clone()).collect();
         let run = |limit| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let mut result = None;
