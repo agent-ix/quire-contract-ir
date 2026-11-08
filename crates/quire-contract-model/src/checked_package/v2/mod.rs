@@ -5645,8 +5645,13 @@ mod tests {
                     value_kind: super::LiteralKind::Integer,
                     value: {
                         let mut deep = nested(DEEP);
-                        let held =
-                            super::CheckedJson::from_serializable(&deep).expect("a deep value");
+                        let bytes = quire_canonical::to_vec(
+                            &deep,
+                            quire_canonical::Limits::new(u64::MAX),
+                        )
+                        .expect("deep canonical bytes");
+                        let held = super::CheckedJson::from_canonical_bytes(&bytes, u64::MAX)
+                            .expect("a deep value");
                         quire_canonical::drop_value(std::mem::take(&mut deep));
                         held
                     },
