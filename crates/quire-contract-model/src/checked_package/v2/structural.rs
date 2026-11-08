@@ -887,6 +887,7 @@ fn text_bounds_shape(term: Option<&CheckedTerm>, graph: &Graph<'_>) -> bool {
 
 /// FR-038-AC-124/125: validate the closed bodies of the ten derived type
 /// forms independently of their producer-assigned structural node IDs.
+#[ix_trace_rs::string_edge]
 pub(super) fn validate_derived_type_shapes(
     catalog: &super::operation_catalog::OperationCatalog,
     nodes: &[CheckedSemanticNodeV2],
@@ -1781,6 +1782,7 @@ fn typed_compound_unit_term<'t>(
 
 /// Whether a state clause's `execution_point` is a closed point: a `kind`
 /// and the one nonempty name its variant carries, and nothing else.
+#[ix_trace_rs::string_edge]
 fn is_closed_execution_point(point: TermNode<'_>) -> bool {
     let Some(kind) = point.get("kind").and_then(TermNode::as_str) else {
         return false;

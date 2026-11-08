@@ -126,6 +126,7 @@ impl<'a> MemberProjection<'a> {
             _ => None,
         }
     }
+    #[ix_trace_rs::string_edge]
     fn child(self, name: &str, node: quire_canonical::NodeRef<'a>) -> Self {
         Self {
             node,
@@ -392,6 +393,7 @@ impl CheckedApplicationOperationRecord {
             .transpose()
     }
 
+    #[ix_trace_rs::string_edge]
     pub(super) fn member_id(&self, field: &str) -> Option<&CheckedNodeId> {
         match field {
             "declaration" => self.member_ids.declaration.as_ref(),
@@ -778,6 +780,7 @@ impl<'de> Deserialize<'de> for CheckedFairnessTarget {
 }
 
 impl CheckedFairnessTarget {
+    #[ix_trace_rs::string_edge]
     pub(super) fn from_validated_node(
         value: super::TermNode<'_>,
         ids: &CheckedOperationMemberIds,

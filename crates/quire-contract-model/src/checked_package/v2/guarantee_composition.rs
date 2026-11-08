@@ -130,6 +130,7 @@ impl CompositionBody {
     }
 }
 
+#[ix_trace_rs::string_edge]
 fn kind_of(spelling: &str) -> Option<CheckedFairnessKind> {
     match spelling {
         "weak" => Some(CheckedFairnessKind::Weak),
@@ -138,6 +139,7 @@ fn kind_of(spelling: &str) -> Option<CheckedFairnessKind> {
     }
 }
 
+#[ix_trace_rs::string_edge]
 fn granularity_of(spelling: &str) -> Option<CheckedFairnessGranularity> {
     match spelling {
         "whole" => Some(CheckedFairnessGranularity::Whole),
@@ -489,6 +491,7 @@ fn check_guarantee<Body: super::model_members::EmptyAggregateBody>(
 
 /// Whether the clause node's operation selects the infinite-trace temporal
 /// profile through its one `temporal_profile` law.
+#[ix_trace_rs::string_edge]
 fn selects_infinite_trace<Body>(
     clause: &CheckedSemanticNodeV2<Body>,
     graph: &StepGraph<'_, '_, Body>,
@@ -857,6 +860,7 @@ fn component_clause_model<'a>(
 /// without constructing a second formula: negative always/release introduce
 /// eventually/until, and implication reverses its left operand's polarity.
 /// Each referenced formula and polarity is visited at most once.
+#[ix_trace_rs::string_edge]
 fn clause_is_liveness(
     package: &CheckedPackageV2,
     clause: &CheckedNodeId,

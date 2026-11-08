@@ -276,6 +276,7 @@ impl UnitName<'_> {
 }
 
 /// The reference name a unit declaration node is a candidate under.
+#[ix_trace_rs::string_edge]
 fn unit_name<B>(node: &super::CheckedSemanticNodeV2<B>) -> Option<UnitName<'_>> {
     if CheckedNodeTag::from_wire(&node.node_tag)
         .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))

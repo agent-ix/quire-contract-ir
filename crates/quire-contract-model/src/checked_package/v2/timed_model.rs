@@ -385,6 +385,7 @@ pub(super) fn check_wire(
     })
 }
 
+#[ix_trace_rs::string_edge]
 fn check_wire_shape(
     node: &CheckedSemanticNodeV2,
     form: TimedModelForm,

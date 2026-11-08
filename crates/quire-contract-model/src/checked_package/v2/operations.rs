@@ -123,6 +123,7 @@ impl OperationWire {
     fn member_node(&self) -> Option<super::TermNode<'_>> {
         self.member.as_ref().map(super::TermNode::of)
     }
+    #[ix_trace_rs::string_edge]
     fn member_key(&self, field: &str) -> Option<&CheckedNodeId> {
         match field {
             "declaration" => self.member_ids.declaration.as_ref(),

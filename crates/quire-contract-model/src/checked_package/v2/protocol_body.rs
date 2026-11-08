@@ -895,6 +895,7 @@ fn argument_text(term: &CheckedTerm, position: usize) -> Option<&str> {
         })
 }
 
+#[ix_trace_rs::string_edge]
 fn validate_envelope<'a>(
     form: ProtocolForm,
     body: &'a CheckedTerm,

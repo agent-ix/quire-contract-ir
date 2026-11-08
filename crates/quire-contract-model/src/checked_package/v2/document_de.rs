@@ -676,6 +676,7 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
         }
     }
 
+    #[ix_trace_rs::string_edge]
     fn deserialize_newtype_struct<V: Visitor<'de>>(
         self,
         name: &'static str,
@@ -1047,6 +1048,7 @@ impl<'de> MapAccess<'de> for ResolvedSlot<'_, 'de> {
 impl<'de, 'c> MapAccess<'de> for Mapping<'c, 'de> {
     type Error = Error;
 
+    #[ix_trace_rs::string_edge]
     fn next_key_seed<K: DeserializeSeed<'de>>(
         &mut self,
         seed: K,
@@ -1068,6 +1070,7 @@ impl<'de, 'c> MapAccess<'de> for Mapping<'c, 'de> {
         decoded.map(Some)
     }
 
+    #[ix_trace_rs::string_edge]
     fn next_value_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<T::Value, Error> {
         let value = self
             .value
