@@ -29,12 +29,6 @@ pub(super) trait ModelLookup {
     fn model(&self, identity: &str) -> Option<&DomainModel>;
 }
 
-impl ModelLookup for BTreeMap<&str, &DomainModel> {
-    fn model(&self, identity: &str) -> Option<&DomainModel> {
-        self.get(identity).copied()
-    }
-}
-
 impl ModelLookup for SortedTable<&str, &DomainModel> {
     fn model(&self, identity: &str) -> Option<&DomainModel> {
         self.get(&identity).copied()
@@ -595,7 +589,6 @@ use super::{
 };
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
 
 fn typed_members(term: &CheckedTerm) -> &[CheckedTerm] {
     match term {
@@ -3111,7 +3104,9 @@ mod tests {
             &crate::checked_package::v2::model_members::UnitRefs::default(),
         )
         .expect("selected FCD dimensions");
-        let models = BTreeMap::from([(model.identity.as_ref(), &model)]);
+        let models = SortedTable::from_vec(vec![(model.identity.as_ref(), &model)], |_, _| {
+            Ordering::Equal
+        });
         let dimension = |owner: &str| {
             serde_json::from_value::<CheckedSemanticNodeV2>(json!({
                 "node_id":{"package":"acme/rpc","path":["scalar_type","dimension",owner],"ordinal":0},

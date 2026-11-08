@@ -83,6 +83,9 @@ struct EnumMemberRecord {
     pub declaration_node_id: CheckedNodeId,
     /// Exact semantic case name; model variants also admit nonidentifier UTF-8.
     pub case: Box<str>,
+    /// Whether the node's body is exactly the enum literal of this member:
+    /// `{term: literal, type: <declaring enum>, value_kind: enum, value: case}`.
+    pub body_is_literal: bool,
 }
 
 /// Dimension semantic view.
@@ -1297,6 +1300,42 @@ impl<'a> BodyInput<'a> {
         }
     }
 
+    /// Whether the body is exactly the enum literal of `case` of the enum
+    /// `declaration`: its `type` spells that node ID, read through the node's
+    /// operand row with the ID's allocations charged.
+    fn is_enum_literal(
+        self,
+        declaration: &CheckedNodeId,
+        case: &str,
+        position: usize,
+        meter: &mut WorkMeter,
+    ) -> Result<bool, ValidationFailure> {
+        match self {
+            Self::Document(Some((body, row))) => {
+                if !(body.exact_members(&["term", "type", "value_kind", "value"])
+                    && body.get("term").and_then(TermNode::as_str) == Some("literal")
+                    && body.get("value_kind").and_then(TermNode::as_str) == Some("enum")
+                    && body.get("value").and_then(TermNode::as_str) == Some(case))
+                {
+                    return Ok(false);
+                }
+                meter.at_node(position, "enum_member");
+                let Some(spelled) = body.get("type") else {
+                    return Ok(false);
+                };
+                Ok(meter.read_id(spelled, row)?.spelled().as_ref() == Some(declaration))
+            }
+            Self::Document(None) => Ok(false),
+            Self::Value(body) => Ok(body.as_object().is_some_and(|body| {
+                body.len() == 4
+                    && body.get("term").and_then(Value::as_str) == Some("literal")
+                    && body.get("value_kind").and_then(Value::as_str) == Some("enum")
+                    && body.get("value").and_then(Value::as_str) == Some(case)
+                    && body.get("type") == serde_json::to_value(declaration).ok().as_ref()
+            })),
+        }
+    }
+
     /// Whether the body is exactly the empty aggregate term.
     fn is_empty_aggregate(self) -> bool {
         match self {
@@ -1374,9 +1413,11 @@ fn record_from_node(
         let case = body
             .string_member("value")
             .ok_or_else(|| invalid(at().key("body").key("value")))?;
+        let body_is_literal = body.is_enum_literal(&node.semantic_type, case, position, meter)?;
         return Ok(NominalRecord::EnumMember(EnumMemberRecord {
             declaration_node_id: meter.clone_id(&node.semantic_type)?,
             case: meter.boxed_str(case)?,
+            body_is_literal,
         }));
     }
     if let Some(super::CheckedNodeOwner::Model {
@@ -2793,18 +2834,7 @@ fn validate_enum_member(
         node.dependencies.as_slice() == std::slice::from_ref(&member.declaration_node_id),
         || site.member("dependencies"),
     )?;
-    let declared_type = serde_json::to_value(&member.declaration_node_id)
-        .map_err(|_| invalid(site.nominal_member(&["declaration_node_id"])))?;
-    require(
-        node.body
-            == json!({
-                "term": "literal",
-                "type": declared_type,
-                "value_kind": "enum",
-                "value": member.case.as_ref(),
-            }),
-        || site.member("body"),
-    )
+    require(member.body_is_literal, || site.member("body"))
 }
 
 fn validate_dimension(
