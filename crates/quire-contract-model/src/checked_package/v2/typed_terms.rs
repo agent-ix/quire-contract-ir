@@ -346,8 +346,7 @@ impl CheckedApplicationOperationRecord {
                 Ok(id) if id.is_well_formed() => Ok(Some(id)),
                 Ok(_)
                 | Err(
-                    super::document_de::Error::Invalid
-                    | super::document_de::Error::UnknownMember,
+                    super::document_de::Error::Invalid | super::document_de::Error::UnknownMember,
                 ) => Ok(None),
                 Err(error @ super::document_de::Error::Denied) => Err(error),
             }
@@ -3132,13 +3131,9 @@ impl CheckedTerm {
             }),
             TermTag::Known(BodyTerm::Reference) => {
                 let target = field(wire, TermField::Target)?;
-                if wire
-                    .object()
-                    .is_some_and(|object| !crate::checked_package::common::exact_members(
-                        object,
-                        &["term", "target"],
-                    ))
-                {
+                if wire.object().is_some_and(|object| {
+                    !crate::checked_package::common::exact_members(object, &["term", "target"])
+                }) {
                     return Err(TermConversionCause::MalformedMember {
                         member: "members",
                         category: Category::Data,
@@ -3752,7 +3747,7 @@ mod tests {
                         json.document(),
                         &mut budget,
                         Site::new(PackageReadStage::Graph, 7, "application"),
-                        &[9],
+                        &[crate::CheckedOperandEntry::Node(9)],
                     ));
                 })
                 .bytes_total;

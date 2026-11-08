@@ -24,8 +24,8 @@ use crate::checked_package::common::{
 };
 use crate::checked_package::shared::CheckedPackageRefusalCode;
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSourceMapEntry,
-    CheckedSourceRegion,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOperandEntry,
+    CheckedSourceMapEntry, CheckedSourceRegion,
 };
 use quire_canonical::Document;
 use serde::{Deserialize, Deserializer};
@@ -110,7 +110,7 @@ struct BorrowedGraph {
     #[serde(deserialize_with = "super::document_de::exact_vec")]
     nodes: Vec<BorrowedNode>,
     #[serde(deserialize_with = "super::document_de::exact_rows")]
-    operand_rows: Vec<Vec<u64>>,
+    operand_rows: Vec<Vec<CheckedOperandEntry>>,
 }
 
 // Keep native wire errors at the logical ID boundary. The refinement below
@@ -349,6 +349,19 @@ fn classify_wire_fault(
         })
         .next_back()
         .unwrap_or(0);
+    if matches!(
+        original,
+        [
+            Step::Key("semantic_graph"),
+            Step::Key("operand_rows"),
+            Step::Index(_),
+            Step::Index(_),
+            ..
+        ]
+    ) {
+        code = MalformedWire;
+        length = 4;
+    }
     if code == UnknownMember {
         match original {
             [Step::Key("temporal_clause_names" | "schedulability_claims"), Step::Index(_), ..] => {

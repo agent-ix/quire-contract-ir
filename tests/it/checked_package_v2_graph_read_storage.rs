@@ -175,7 +175,7 @@ fn the_graph_index_state_tables_and_walks_are_charged_at_graph_loci() {
 /// The canonical key of an id: bytes whose lexicographic order is the id
 /// order. A string is its bytes with `0x00` written `0x00 0xFF` and ended
 /// by `0x00 0x01`; a segment is a kind tag (name 1, index 2, operand 3,
-/// node 4) and its value, a nested node being its own whole key; a path
+/// dependency position 4, node 5) and its value, a nested node being its own whole key; a path
 /// ends with tag 0; the ordinal comes last.
 fn canonical_key(id: &quire_contract_model::CheckedNodeId, out: &mut Vec<u8>) {
     use quire_contract_model::CheckedNodePathSegment as Segment;
@@ -203,8 +203,13 @@ fn canonical_key(id: &quire_contract_model::CheckedNodeId, out: &mut Vec<u8>) {
                 out.push(3);
                 out.extend(slot.to_be_bytes());
             }
-            Segment::Node(node) => {
+            Segment::Dependency { package, node } => {
                 out.push(4);
+                text(package, out);
+                out.extend(node.to_be_bytes());
+            }
+            Segment::Node(node) => {
+                out.push(5);
                 canonical_key(node, out);
             }
         }

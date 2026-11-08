@@ -279,10 +279,10 @@ use super::common::{
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedNodePathSegment,
-    CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole, CheckedOperandEntry,
+    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry,
-    CheckedSourceRef, CheckedSourceRegion, JsonPointer,
+    CheckedSourceRef, CheckedSourceRegion, ForeignNodeKey, JsonPointer,
 };
 use super::terms::TermSource;
 use lock_tables::{
@@ -647,9 +647,9 @@ pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     #[serde(deserialize_with = "document_de::exact_vec")]
     pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
     /// One operand row per node, in graph order: slot `k` of node `i` names
-    /// `nodes[operand_rows[i][k]]`. Required on read.
+    /// A local graph index or a position in a directly supplied dependency. Required on read.
     #[serde(deserialize_with = "document_de::exact_rows")]
-    pub operand_rows: Vec<Vec<u64>>,
+    pub operand_rows: Vec<Vec<CheckedOperandEntry>>,
 }
 
 type RawSemanticGraphV2 = CheckedSemanticGraphV2<CheckedJson>;
@@ -1845,6 +1845,28 @@ impl CheckedPackageV2 {
                 .is_none_or(|&next| nodes[next].node_id != *id);
             return unique.then_some(*found);
         }
+        if id
+            .path
+            .iter()
+            .any(|segment| matches!(segment, CheckedNodePathSegment::Dependency { .. }))
+        {
+            // An importing document names this package's graph positions as
+            // dependency positions of this package; a position of another
+            // package names no node here.
+            if id.path.iter().any(|segment| {
+                matches!(
+                    segment,
+                    CheckedNodePathSegment::Dependency { package, .. }
+                        if package.as_ref() != self.name()
+                )
+            }) {
+                return None;
+            }
+            let key = ForeignNodeKey::new(id, self.name());
+            return self
+                .node_index
+                .node_probe(&self.wire.semantic_graph.nodes, &key);
+        }
         self.node_position(id)
     }
 
@@ -1882,10 +1904,17 @@ impl CheckedPackageV2 {
         for segment in &id.path {
             path.push(match segment {
                 CheckedNodePathSegment::Operand(slot) => {
-                    let entry = row.get(usize::try_from(*slot).ok()?)?;
-                    CheckedNodePathSegment::Node(Arc::clone(
-                        self.structural_keys.get(usize::try_from(*entry).ok()?)?,
-                    ))
+                    match row.get(usize::try_from(*slot).ok()?)? {
+                        CheckedOperandEntry::Node(entry) => CheckedNodePathSegment::Node(
+                            Arc::clone(self.structural_keys.get(usize::try_from(*entry).ok()?)?),
+                        ),
+                        CheckedOperandEntry::Dependency(operand) => {
+                            CheckedNodePathSegment::Dependency {
+                                package: operand.package.clone(),
+                                node: operand.node,
+                            }
+                        }
+                    }
                 }
                 CheckedNodePathSegment::Index(index) => CheckedNodePathSegment::Node(Arc::clone(
                     self.structural_keys.get(usize::try_from(*index).ok()?)?,
@@ -2621,7 +2650,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
 fn decode_admitted_body(
     kind: CheckedNodeKind,
     body: &CheckedJson,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
     position: usize,
     meter: &mut WorkMeter,
 ) -> Result<CheckedTerm, ValidationFailure> {
@@ -3261,8 +3290,8 @@ fn imported_node_matches<B>(
     selected_body: TermNode<'_>,
     importer_keys: &[Arc<CheckedNodeId>],
     selected_keys: &[Arc<CheckedNodeId>],
-    importer_row: &[u64],
-    selected_row: &[u64],
+    importer_row: &[CheckedOperandEntry],
+    selected_row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
     let mut same_id =
@@ -3440,9 +3469,24 @@ fn validate_graph(
                 false
             };
             if !imported {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    at("node_id").key("package"),
+                let path = stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position)
+                    .key("node_id")
+                    .key("package");
+                return Err(stage_storage::refuse(
+                    meter,
+                    &stage_storage::Site::new(
+                        PackageReadStage::Graph,
+                        position,
+                        graph_storage::node_form(&node.node_tag),
+                        path,
+                    ),
+                    stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        path,
+                    ),
                 ));
             }
         }
@@ -3463,9 +3507,20 @@ fn validate_graph(
             1,
         )?;
         if repeated_id == Some(position) {
-            return Err(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                at("node_id"),
+            let path = stage_storage::Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+                .key("node_id");
+            return Err(stage_storage::refuse(
+                meter,
+                &stage_storage::Site::new(
+                    PackageReadStage::Graph,
+                    position,
+                    graph_storage::node_form(&node.node_tag),
+                    path,
+                ),
+                stage_storage::Refusal::new(CheckedPackageRefusalCode::InvalidSemanticGraph, path),
             ));
         }
         let kind = decode_node_kind(node, at)?;
@@ -4318,7 +4373,7 @@ fn validate_protocol_references(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
-    rows: &[Vec<u64>],
+    rows: &[Vec<CheckedOperandEntry>],
     meter: &mut WorkMeter<'_>,
 ) -> Result<(), ValidationFailure> {
     for (&carrier_id, &position) in index {
@@ -5838,7 +5893,13 @@ mod admitted_document_bridge_tests {
                 let measured = allocation_counter::measure(|| {
                     let mut meter = WorkMeter::over(&mut budget);
                     meter.at_node(7, "body");
-                    outcome = Some(decode_admitted_body(kind, &body, &[19], 7, &mut meter));
+                    outcome = Some(decode_admitted_body(
+                        kind,
+                        &body,
+                        &[CheckedOperandEntry::Node(19)],
+                        7,
+                        &mut meter,
+                    ));
                 });
                 (
                     outcome.expect("ran"),
@@ -6045,3 +6106,133 @@ mod missing_claim_sidecar_tests {
 mod retained_fixture;
 #[cfg(test)]
 use retained_fixture::{retained_node_index, retained_source_index};
+
+#[cfg(test)]
+mod namespace_fault_storage_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-504", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn foreign_namespace_fault_is_paid_before_materialization_and_keeps_work_order() {
+        paid_graph_fault(false);
+    }
+
+    #[trace("TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn duplicate_id_fault_is_paid_after_the_graph_visit() {
+        paid_graph_fault(true);
+    }
+
+    fn paid_graph_fault(duplicate: bool) {
+        let id = test_support::id('a');
+        let definition = json!({"authority":"test", "identity":"edition"});
+        // No selected dependency owns this otherwise well-formed foreign ID.
+        // The namespace fault precedes this node's graph visit and body checks.
+        let mut wire: RawCheckedPackageWireV2 = serde_json::from_value(json!({
+            "contract_version": CHECKED_PACKAGE_V2, "name":"local",
+            "lock":{"sources":[],"edition":{"role":"edition","definition":definition},
+                "profile_selections":[],"definition_selections":[],
+                "required_features":[],"dependency_selections":[]},
+            "semantic_graph":{"graph_version":"quire.checked-semantic-graph/v2",
+                "operand_rows":[[]],"nodes":[{"node_id":id,
+                    "schema_version":"quire.checked-semantic-graph/v2",
+                    "node_tag":"scalar_type","semantic_form":"boolean",
+                    "semantic_type":id,"dependencies":[],"occurrences":[{"role":"type","ordinal":0}],
+                    "body":{"term":"aggregate","members":[]}}]},
+            "source_map":[],"capability_report":[],
+            "diagnostics":{"catalog":definition,"entries":[]}
+        })).expect("closed graph input");
+        if duplicate {
+            wire.name = "test".into();
+            wire.semantic_graph
+                .nodes
+                .push(wire.semantic_graph.nodes[0].clone());
+            wire.semantic_graph.operand_rows.push(Vec::new());
+        }
+        // Two graph visits plus the first node's aggregate-body visit.
+        let expected_work = if duplicate { 3 } else { 0 };
+        let catalog = operation_catalog::read_catalog(operation_catalog::CATALOG_BYTES).unwrap();
+        let dependencies = SuppliedDependencies::default();
+        let evidence = CheckedPackageEvidence::default();
+        let bodies: Vec<_> = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| node.body.clone())
+            .collect();
+        let run = |budget: &mut NativeJoinBudget| {
+            let mut result = None;
+            let actual = allocation_counter::measure(|| {
+                result = Some(
+                    match validate_graph(
+                        &catalog,
+                        &wire,
+                        &bodies,
+                        CheckedPackageReadLimits::bounded(),
+                        &mut WorkMeter::over(budget),
+                        &[],
+                        &dependencies,
+                        &evidence,
+                        &[],
+                    ) {
+                        Err(failure) => failure,
+                        Ok(_) => panic!("foreign unselected namespace must refuse"),
+                    },
+                );
+            });
+            (result.unwrap(), actual.bytes_total)
+        };
+        let mut ample = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let (expected, actual) = run(&mut ample);
+        let ValidationFailure::Refused(refusal) = &expected else {
+            panic!("namespace fault")
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(refusal.cause, None);
+        assert_eq!(refusal.locus, None);
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().as_str(),
+            if duplicate {
+                "/semantic_graph/nodes/1/node_id"
+            } else {
+                "/semantic_graph/nodes/0/node_id/package"
+            }
+        );
+        let required = ample.read_storage_consumed();
+        assert_eq!(actual, required);
+        assert_eq!(
+            ample.consumed().work,
+            expected_work,
+            "namespace rejection precedes visits; duplicate rejection follows its visit"
+        );
+        let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+        assert_eq!(run(&mut exact), (expected.clone(), required));
+        let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required - 1);
+        let (failure, actual) = run(&mut short);
+        assert!(matches!(failure, ValidationFailure::Budget(_)));
+        assert_eq!(actual, short.read_storage_consumed());
+        assert_eq!(
+            short.first_unpaid_locus(),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(
+                    PackageReadStage::Graph,
+                    if duplicate { 1 } else { 0 }
+                ),
+                form: "diagnostic",
+            })
+        );
+        let mut zero = NativeJoinBudget::new(u64::MAX, 0);
+        assert!(matches!(run(&mut zero), (ValidationFailure::Budget(_), 0)));
+        let mut repeated = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(2 * required);
+        assert_eq!(run(&mut repeated), (expected.clone(), required));
+        assert_eq!(run(&mut repeated), (expected, required));
+        assert_eq!(repeated.read_storage_consumed(), 2 * required);
+        assert_eq!(repeated.consumed().work, 2 * expected_work);
+        assert_eq!(repeated.first_unpaid_read_storage(), None);
+    }
+}

@@ -18,11 +18,13 @@ use crate::checked_package_v2_temporal::{
     with_model, INFINITE, LEFT_NODE, ORDERS, ORDER_NODE, SUB_NODE,
 };
 use crate::support::checked_package::{
-    canonical, evidence_with_document, index_fixture_node_ids, settle, v2_all_families,
+    canonical, evidence_with_document, index_fixture_node_ids, reassign_node_id, settle,
+    v2_all_families, wire_form,
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeKind, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
+    CheckedDependencyOperand, CheckedNodeId, CheckedNodeKind, CheckedNodePathSegment,
+    CheckedOperandEntry, CheckedPackageReadLimits, CheckedPackageRefusalCause as Cause,
     CheckedPackageRefusalCode as Code, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedTerm,
     CorrespondenceForm,
 };
@@ -97,7 +99,7 @@ fn read_composition_with_dependency(
     evidence
         .insert_dependency_package(DEPENDENCY, dependency)
         .expect("dependency evidence agrees on admitted content");
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -1251,5 +1253,227 @@ fn every_composition_rule_retains_its_rule_and_distinct_premise_lists() {
             serde_json::to_value(term).expect("typed composition"),
             expected
         );
+    }
+}
+
+const ANCHOR: &str = "guarantee/anchor";
+const LIVE_CLAUSE: &str = "guarantee/live-clause";
+
+/// The component package with its `live` clause named by an operand: the
+/// clause's id is derived from an anchor node only this package holds, placed
+/// last, so the anchor's position is past the end of the importer's graph.
+fn derived_dependency() -> (Value, u64) {
+    let mut dependency = base();
+    let mut anchor = nodes(&dependency)
+        .iter()
+        .find(|node| node["node_id"] == predicate())
+        .expect("predicate")
+        .clone();
+    // Two further nodes before it keep its position past the importer's end.
+    for label in ["guarantee/filler-0", "guarantee/filler-1"] {
+        let mut filler = anchor.clone();
+        filler["node_id"] = node_id(label);
+        push(&mut dependency, filler);
+    }
+    anchor["node_id"] = node_id(ANCHOR);
+    let position = push(&mut dependency, anchor);
+    let derived = json!({"package": DEPENDENCY,
+        "path": ["temporal", "temporal_clause", node_id(ANCHOR)], "ordinal": 0});
+    reassign_node_id(&mut dependency, &node_id(LIVE_CLAUSE), &derived);
+    index_fixture_node_ids(&mut dependency);
+    settle(&mut dependency);
+    (dependency, u64::try_from(position).expect("position"))
+}
+
+/// A clause of the derived dependency as the importer names it: the
+/// derived path holds the anchor's position in the dependency's graph.
+fn foreign_clause(package: &str, anchor: u64) -> Value {
+    json!({"package": DEPENDENCY,
+        "path": ["temporal", "temporal_clause", {"package": package, "node": anchor}],
+        "ordinal": 0})
+}
+
+/// The importer holding a composition whose live clause is the foreign
+/// clause `clause`, and the composition's position.
+fn foreign_composition(clause: &Value) -> (Value, usize) {
+    let mut body = composition_body(&base());
+    reassign_node_id(&mut body, &node_id(LIVE_CLAUSE), clause);
+    composed_with(body, |_| {})
+}
+
+fn read_with(package: &Value, dependency: &Value) -> CheckedPackageV2ReadResult {
+    read_composition_with_dependency(package, dependency)
+}
+
+#[trace("TC-474", "FR-038-AC-539")]
+#[test]
+fn tc_474_a_composition_admits_foreign_clauses_named_by_dependency_positions() {
+    let (dependency, anchor) = derived_dependency();
+    let (package, position) = foreign_composition(&foreign_clause(DEPENDENCY, anchor));
+    let CheckedPackageV2ReadResult::Admitted(admitted) = read_with(&package, &dependency) else {
+        panic!("a clause of the dependency named by its own position admits");
+    };
+    // The dependency's nodes are not copied into the importer: its graph holds
+    // none, and the anchor's position is not one of the importer's.
+    let graph = admitted.graph();
+    assert!(graph.nodes.iter().all(|node| node
+        .node_id
+        .path
+        .iter()
+        .all(|segment| *segment != CheckedNodePathSegment::Name(ANCHOR.into()))));
+    assert!(anchor >= u64::try_from(graph.nodes.len()).expect("count"));
+    // The row names the dependency position, and the typed body keeps it.
+    let wanted = CheckedOperandEntry::Dependency(CheckedDependencyOperand {
+        package: DEPENDENCY.into(),
+        node: anchor,
+    });
+    assert!(graph.operand_rows[position].contains(&wanted));
+    let node = &admitted.resolved_graph().nodes[position];
+    let Some(CheckedTerm::ComponentComposition { guarantees, .. }) = admitted.term(&node.node_id)
+    else {
+        panic!("an admitted composition has a typed body");
+    };
+    let held = guarantees
+        .iter()
+        .flat_map(|entry| &entry.clause.path)
+        .any(|segment| {
+            *segment
+                == CheckedNodePathSegment::Dependency {
+                    package: DEPENDENCY.into(),
+                    node: anchor,
+                }
+        });
+    assert!(held, "the foreign clause keeps its dependency position");
+    // The graph as shown is the wire form the reader admits again.
+    let canonical_bytes = canonical(&wire_form(&package));
+    let reread = crate::read_and_account(
+        &canonical_bytes,
+        CheckedPackageReadLimits::bounded(),
+        &{
+            let mut evidence = evidence_with_document(&package, ORDERS, &orders_document());
+            let dependency = match read(&dependency) {
+                CheckedPackageV2ReadResult::Admitted(dependency) => *dependency,
+                other => panic!("the dependency admits, read {other:?}"),
+            };
+            evidence
+                .insert_dependency_package(DEPENDENCY, dependency)
+                .expect("dependency evidence");
+            evidence
+        },
+    );
+    assert!(matches!(reread, CheckedPackageV2ReadResult::Admitted(_)));
+}
+
+#[trace("TC-474", "FR-038-AC-540")]
+#[test]
+fn tc_474_a_dependency_position_naming_no_dependency_node_is_malformed() {
+    let (dependency, anchor) = derived_dependency();
+    let count = u64::try_from(nodes(&dependency).len()).expect("count");
+    let clause = foreign_clause(DEPENDENCY, anchor);
+    let (_, position) = foreign_composition(&clause);
+    let row_entry = format!("/semantic_graph/operand_rows/{position}/0");
+    // An unknown package.
+    let unknown = foreign_clause("no/such-package", anchor);
+    let (package, _) = foreign_composition(&unknown);
+    assert_eq!(
+        match read_with(&package, &dependency) {
+            CheckedPackageV2ReadResult::Refused(refusal) => (
+                refusal.code,
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(|path| path.as_str().to_owned()),
+            ),
+            other => panic!("an unknown dependency package must refuse, read {other:?}"),
+        },
+        (Code::MalformedWire, Some(row_entry.clone()))
+    );
+    // A position past the dependency's last node.
+    let past = foreign_clause(DEPENDENCY, count);
+    let (package, _) = foreign_composition(&past);
+    assert_eq!(
+        match read_with(&package, &dependency) {
+            CheckedPackageV2ReadResult::Refused(refusal) => (
+                refusal.code,
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(|path| path.as_str().to_owned()),
+            ),
+            other => panic!("a position past the dependency must refuse, read {other:?}"),
+        },
+        (Code::MalformedWire, Some(row_entry.clone()))
+    );
+    // A local index in a foreign id names no node of the dependency.
+    let local = json!({"package": DEPENDENCY,
+        "path": ["temporal", "temporal_clause", {"node": 0}], "ordinal": 0});
+    let (package, position) = foreign_composition(&local);
+    match read_with(&package, &dependency) {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            assert_eq!(refusal.code, Code::MissingDeclaration, "{refusal:?}");
+            assert_eq!(refusal.cause, Some(Cause::MissingName), "{refusal:?}");
+            assert!(
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .is_some_and(|path| path.as_str().starts_with(&at(position, "/body"))),
+                "{refusal:?}"
+            );
+        }
+        other => panic!("a local index in a foreign id must refuse, read {other:?}"),
+    }
+    // A `{package, node}` segment is a row entry only: written in an id's
+    // path on the wire it is refused as malformed.
+    let (package, position) = foreign_composition(&clause);
+    let mut wire = wire_form(&package);
+    wire["semantic_graph"]["nodes"][position]["dependencies"][0]["path"] =
+        json!([{"package": DEPENDENCY, "node": anchor}]);
+    match read_with(&wire, &dependency) {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
+            assert_eq!(
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(|path| path.as_str().to_owned()),
+                Some(format!(
+                    "/semantic_graph/nodes/{position}/dependencies/0/path/0"
+                )),
+                "{refusal:?}"
+            );
+        }
+        other => panic!("a dependency position in a path must refuse, read {other:?}"),
+    }
+}
+
+#[trace("TC-474", "FR-038-AC-540")]
+#[test]
+fn tc_474_a_node_own_id_refuses_a_slot_naming_a_dependency_position() {
+    let (dependency, anchor) = derived_dependency();
+    let (package, position) = foreign_composition(&foreign_clause(DEPENDENCY, anchor));
+    let mut wire = wire_form(&package);
+    // Row entry 0 of this node is the dependency position; its own id now
+    // holds slot 0, which can name only a node of its own graph.
+    assert_eq!(
+        wire["semantic_graph"]["operand_rows"][position][0],
+        json!({"node": anchor, "package": DEPENDENCY})
+    );
+    wire["semantic_graph"]["nodes"][position]["node_id"]["path"] =
+        json!(["composition", {"operand": 0}]);
+    match read_with(&wire, &dependency) {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
+            assert_eq!(
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(|path| path.as_str().to_owned()),
+                Some(format!(
+                    "/semantic_graph/nodes/{position}/node_id/path/1/operand"
+                )),
+                "{refusal:?}"
+            );
+        }
+        other => panic!("a node's own id naming a dependency position must refuse, read {other:?}"),
     }
 }

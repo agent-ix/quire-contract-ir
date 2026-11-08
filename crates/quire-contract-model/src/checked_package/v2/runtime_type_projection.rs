@@ -611,9 +611,9 @@ impl ProjectionBudget<'_> {
                 self.charge(at, form)?;
                 match segment {
                     CheckedNodePathSegment::Name(name) => self.charge_work(at, form, name.len())?,
-                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
-                        self.charge_work(at, form, 8)?
-                    }
+                    CheckedNodePathSegment::Index(_)
+                    | CheckedNodePathSegment::Operand(_)
+                    | CheckedNodePathSegment::Dependency { .. } => self.charge_work(at, form, 8)?,
                     CheckedNodePathSegment::Node(child) => {
                         self.charge_storage(1)?;
                         pending.push(child);
