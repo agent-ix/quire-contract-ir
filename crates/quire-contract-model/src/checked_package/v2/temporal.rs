@@ -550,13 +550,6 @@ pub(super) fn validate_temporal(
             )?;
         }
     }
-    for &position in index.values() {
-        if graph.kinds.get(position)
-            == Some(&CheckedNodeKind::Claim(super::ClaimForm::Hyperproperty))
-        {
-            check_hyper_fairness(position, &graph, meter)?;
-        }
-    }
     // A formula node no clause reaches is no clause's to fit, but its
     // interval is an interval all the same.
     for &position in index.values() {
@@ -1608,6 +1601,190 @@ fn resolve_fairness(
     )
 }
 
+/// The text a `literal` term holds, when it is one.
+fn text_literal(term: &Value) -> Option<&str> {
+    match CheckedTerm::view(term)? {
+        CheckedTermView::Literal { value, .. } => value.as_str(),
+        _ => None,
+    }
+}
+
+/// QSpec FR-402 "Reader order" for every `behaviours`-domain
+/// `claim`/`hyperproperty` node in ascending node-id order: step 1 (shape),
+/// step 2 (subjects) and step 4 (fairness) run per node, each node's first
+/// defect the package's. Step 3 (body) and a finite domain's checks are not
+/// implemented here; a node of a finite domain is skipped. The step runs after
+/// the step-relation step and before the hybrid step.
+pub(super) fn validate_hyperproperties(
+    nodes: &[CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+    owners: &ModelOwners<'_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let graph = StepGraph {
+        nodes,
+        kinds,
+        index,
+        owners,
+    };
+    for &position in index.values() {
+        if graph.kinds.get(position)
+            == Some(&CheckedNodeKind::Claim(super::ClaimForm::Hyperproperty))
+        {
+            check_hyper_shape(position, &graph)?;
+            check_hyper_fairness(position, &graph, meter)?;
+        }
+    }
+    Ok(())
+}
+
+/// FR-402 steps 1 and 2 of one node with a `behaviours` domain.
+fn check_hyper_shape(position: usize, graph: &StepGraph<'_, '_>) -> Result<(), ValidationFailure> {
+    const NAMES: [&str; 7] = [
+        "domain",
+        "subjects",
+        "parameters",
+        "quantifiers",
+        "match",
+        "align_skip",
+        "body",
+    ];
+    let node = &graph.nodes[position];
+    let at_body = node_pointer(position).key("body");
+    let graph_defect = |at: JsonPointer| {
+        ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidSemanticGraph,
+            at,
+            None,
+            node.node_id.clone(),
+        )
+    };
+    let Some(members) = aggregate_members(&node.body) else {
+        return Err(graph_defect(at_body));
+    };
+    fn binding(term: &Value) -> Option<(&str, &Value)> {
+        match CheckedTerm::view(term) {
+            Some(CheckedTermView::Binding { name, value }) => Some((name, value)),
+            _ => None,
+        }
+    }
+    // A finite domain is another step's.
+    if members
+        .first()
+        .and_then(|member| binding(member))
+        .is_some_and(|(name, value)| name == "domain" && text_literal(value) != Some("behaviours"))
+    {
+        return Ok(());
+    }
+    for (at, member) in members.iter().enumerate().take(NAMES.len()) {
+        if binding(member).map(|(name, _)| name) != Some(NAMES[at]) {
+            return Err(graph_defect(at_body.clone().key("members").index(at)));
+        }
+    }
+    if members.len() != NAMES.len() {
+        let at = members.len().min(NAMES.len());
+        let pointer = if members.len() < NAMES.len() {
+            at_body.clone()
+        } else {
+            at_body.clone().key("members").index(at)
+        };
+        return Err(graph_defect(pointer));
+    }
+    let value_of = |at: usize| binding(&members[at]).map(|(_, value)| value);
+    let at_value = |at: usize| at_body.clone().key("members").index(at).key("value");
+    if text_literal(value_of(0).unwrap_or(&Value::Null)) != Some("behaviours") {
+        return Err(graph_defect(at_value(0)));
+    }
+    let Some(subjects) = value_of(1).and_then(aggregate_members) else {
+        return Err(graph_defect(at_value(1)));
+    };
+    let Some(quantifiers) = value_of(3).and_then(aggregate_members) else {
+        return Err(graph_defect(at_value(3)));
+    };
+    // Step 1: each quantifier Group.
+    let mut aliases = Vec::new();
+    for (group_at, group) in quantifiers.iter().enumerate() {
+        let at_group = at_value(3).key("members").index(group_at);
+        let Some(group_members) = aggregate_members(group) else {
+            return Err(graph_defect(at_group));
+        };
+        for (at, member) in group_members.iter().enumerate() {
+            let at_member = at_group.clone().key("members").index(at);
+            let expected = ["variable", "quantifier", "alias"].get(at).copied();
+            let layout_ok = match (expected, binding(member)) {
+                (Some(name), Some((found, _))) => name == found,
+                (None, None) => reference_target(member).is_some(),
+                _ => false,
+            };
+            if !layout_ok {
+                return Err(graph_defect(at_member));
+            }
+        }
+        if group_members.len() < 3 {
+            return Err(graph_defect(at_group));
+        }
+        let quantifier = binding(&group_members[1]).map(|(_, value)| value);
+        if quantifier
+            .and_then(text_literal)
+            .is_none_or(|word| !matches!(word, "forall" | "exists"))
+        {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidPackage,
+                at_group.key("members").index(1).key("value"),
+                Some(CheckedPackageRefusalCause::InvalidValue),
+                node.node_id.clone(),
+            ));
+        }
+        aliases.push(
+            binding(&group_members[2])
+                .and_then(|(_, value)| text_literal(value))
+                .unwrap_or_default(),
+        );
+    }
+    // Step 2: subjects.
+    let mut subject_names = Vec::new();
+    for (subject_at, subject) in subjects.iter().enumerate() {
+        let Some((name, value)) = binding(subject) else {
+            return Err(graph_defect(at_value(1).key("members").index(subject_at)));
+        };
+        let is_root = reference_target(value)
+            .and_then(|target| graph.node(&target))
+            .is_some_and(|(_, kind)| kind == CheckedNodeKind::Model(ModelForm::ModelRoot));
+        if !is_root {
+            return Err(ValidationFailure::refused_at(
+                CheckedPackageRefusalCode::InvalidModelBinding,
+                at_value(1).key("members").index(subject_at).key("value"),
+                Some(CheckedPackageRefusalCause::MalformedDeclaration),
+                node.node_id.clone(),
+            ));
+        }
+        subject_names.push(name);
+    }
+    if let Some(group_at) = aliases
+        .iter()
+        .position(|alias| !subject_names.contains(alias))
+    {
+        return Err(ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::MissingDeclaration,
+            at_value(3)
+                .key("members")
+                .index(group_at)
+                .key("members")
+                .index(2),
+            Some(CheckedPackageRefusalCause::MissingName),
+            node.node_id.clone(),
+        ));
+    }
+    if let Some(subject_at) = subject_names
+        .iter()
+        .position(|name| !aliases.contains(name))
+    {
+        return Err(graph_defect(at_value(1).key("members").index(subject_at)));
+    }
+    Ok(())
+}
+
 /// QSpec FR-402 "Reader order" step 4, for a `claim`/`hyperproperty` node: each
 /// fairness reference of a quantifier Group resolves as a clause's fairness
 /// member does, located at the reference. Layout defects are not this check's;
@@ -1620,9 +1797,7 @@ fn check_hyper_fairness(
     let Some(members) = aggregate_members(&graph.nodes[position].body) else {
         return Ok(());
     };
-    let binding_value = |at: usize, wanted: &str| match members
-        .get(at)
-        .and_then(CheckedTerm::view)
+    let binding_value = |at: usize, wanted: &str| match members.get(at).and_then(CheckedTerm::view)
     {
         Some(CheckedTermView::Binding { name, value }) if name == wanted => Some(value),
         _ => None,

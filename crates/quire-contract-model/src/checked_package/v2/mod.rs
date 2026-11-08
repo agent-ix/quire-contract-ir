@@ -200,7 +200,7 @@ use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
 use structural::{validate_derived_type_shapes, validate_selected_type_bounds};
-use temporal::{validate_temporal, validate_timed_bounds_reduced, TemporalContext};
+use temporal::{validate_hyperproperties, validate_temporal, validate_timed_bounds_reduced, TemporalContext};
 
 use super::common::{
     count, exceeds, is_nonempty, node_pointer, read_typed_prefix, validate_definition_ref,
@@ -3343,6 +3343,7 @@ fn validate_graph(
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, meter)?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    validate_hyperproperties(&graph.nodes, &kinds, &index, &owners, meter)?;
     refinement::validate_step_rows(
         &graph.nodes,
         &kinds,

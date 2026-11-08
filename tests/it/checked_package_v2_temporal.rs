@@ -3364,7 +3364,14 @@ fn hyperproperty(
     let aggregate = |members: Vec<Value>| json!({"term": "aggregate", "members": members});
     let members = vec![
         named("domain", text("behaviours")),
-        named("subjects", aggregate(vec![])),
+        named(
+            "subjects",
+            aggregate(vec![named(
+                "m",
+                json!({"term": "reference", "target":
+                    {"package": ORDERS, "path": ["model", "model_root"], "ordinal": 0}}),
+            )]),
+        ),
         named("parameters", aggregate(vec![])),
         named("quantifiers", aggregate(quantifiers)),
         named("match", aggregate(matched)),
@@ -3520,6 +3527,36 @@ fn tc_346_a_formula_reference_anywhere_in_a_hyperproperty_refuses_at_the_node() 
                 refer(formula_key),
             ),
         ),
+        (
+            "in the align_skip aggregate",
+            hyperproperty(
+                "hyperproperty",
+                vec![group(vec![])],
+                vec![],
+                vec![refer(formula_key)],
+                refer(clause_key),
+            ),
+        ),
+        (
+            "as the value of a Group's binding",
+            hyperproperty(
+                "hyperproperty",
+                vec![group(vec![named("extra", refer(formula_key))])],
+                vec![],
+                vec![],
+                refer(clause_key),
+            ),
+        ),
+        (
+            "directly in the quantifiers Tuple",
+            hyperproperty(
+                "hyperproperty",
+                vec![refer(formula_key)],
+                vec![],
+                vec![],
+                refer(clause_key),
+            ),
+        ),
     ];
     for (case, node) in cases {
         let mut package = base.clone();
@@ -3602,5 +3639,158 @@ fn tc_346_a_group_fairness_reference_resolves_as_a_clause_member_does() {
         Code::InvalidPackage,
         Cause::OperationMemberMismatch,
         &at_hyper_reference(at),
+    );
+}
+
+/// The resolving hyperproperty package of [`hyper_resolution`], its node's body
+/// edited by `edit`.
+fn hyper_edited(edit: impl FnOnce(&mut Value)) -> (Value, usize) {
+    let (mut package, at) = hyper_resolution(
+        INFINITE,
+        fairness_member(&model_key(ORDER_NODE), "scaled"),
+        ORDERS,
+    );
+    edit(&mut package["semantic_graph"]["nodes"][at]["body"]);
+    settle(&mut package);
+    (package, at)
+}
+
+fn at_body(at: usize, tail: &str) -> String {
+    at_node(at, &format!("/body{tail}"))
+}
+
+/// The first refusal of `package`: code, cause and pointer.
+fn first_refusal(case: &str, package: &Value) -> Outcome {
+    refusal_of(case, package).0
+}
+
+fn outcome(code: Code, cause: Option<Cause>, path: String) -> Outcome {
+    (code, cause, Some(path))
+}
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_the_hyperproperty_shape_is_refused_at_the_first_member_that_breaks_it() {
+    let (package, _) = hyper_edited(|_| {});
+    admitted("the unedited hyperproperty", &package);
+
+    let (package, at) = hyper_edited(|body| {
+        body["members"].as_array_mut().expect("members").pop();
+    });
+    assert_eq!(
+        first_refusal("six bindings", &package),
+        outcome(Code::InvalidSemanticGraph, None, at_body(at, ""))
+    );
+    let (package, at) = hyper_edited(|body| {
+        body["members"].as_array_mut().expect("members").swap(4, 5);
+    });
+    assert_eq!(
+        first_refusal("match and align_skip swapped", &package),
+        outcome(Code::InvalidSemanticGraph, None, at_body(at, "/members/4"))
+    );
+    let (package, at) = hyper_edited(|body| {
+        body["members"][3]["value"]["members"][0]["members"][1]["value"]["value"] =
+            json!("sometimes");
+    });
+    assert_eq!(
+        first_refusal("a quantifier word", &package),
+        outcome(
+            Code::InvalidPackage,
+            Some(Cause::InvalidValue),
+            at_body(at, "/members/3/value/members/0/members/1/value")
+        )
+    );
+    let (package, at) = hyper_edited(|body| {
+        body["members"][3]["value"]["members"][0]["members"][3] = text("x");
+    });
+    assert_eq!(
+        first_refusal("a non-reference after the bindings", &package),
+        outcome(
+            Code::InvalidSemanticGraph,
+            None,
+            at_body(at, "/members/3/value/members/0/members/3")
+        )
+    );
+}
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_the_hyperproperty_subjects_are_checked_before_its_fairness() {
+    let (package, at) = hyper_edited(|body| {
+        body["members"][1]["value"]["members"][0]["value"]["target"] = node_id(&aaaa());
+    });
+    assert_eq!(
+        first_refusal("a subject that is no model_root", &package),
+        outcome(
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            at_body(at, "/members/1/value/members/0/value")
+        )
+    );
+    let (package, at) = hyper_edited(|body| {
+        body["members"][3]["value"]["members"][0]["members"][2]["value"]["value"] = json!("other");
+    });
+    assert_eq!(
+        first_refusal("an alias naming no subject", &package),
+        outcome(
+            Code::MissingDeclaration,
+            Some(Cause::MissingName),
+            at_body(at, "/members/3/value/members/0/members/2")
+        )
+    );
+    let (package, at) = hyper_edited(|body| {
+        body["members"][3]["value"]["members"] = json!([]);
+    });
+    assert_eq!(
+        first_refusal("a subject no Group names", &package),
+        outcome(
+            Code::InvalidSemanticGraph,
+            None,
+            at_body(at, "/members/1/value/members/0")
+        )
+    );
+    // A subjects defect and an unresolvable fairness reference together: the
+    // earlier step decides.
+    let (mut package, at) = hyper_resolution(
+        INFINITE,
+        fairness_member(&model_key(ORDER_NODE), "nope"),
+        ORDERS,
+    );
+    package["semantic_graph"]["nodes"][at]["body"]["members"][1]["value"]["members"][0]["value"]
+        ["target"] = node_id(&aaaa());
+    settle(&mut package);
+    assert_eq!(
+        first_refusal("a subjects and a fairness defect", &package),
+        outcome(
+            Code::InvalidModelBinding,
+            Some(Cause::MalformedDeclaration),
+            at_body(at, "/members/1/value/members/0/value")
+        )
+    );
+}
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_a_temporal_step_defect_precedes_a_hyperproperty_fairness_defect() {
+    let (mut package, _) = hyper_resolution(
+        INFINITE,
+        fairness_member(&model_key(ORDER_NODE), "nope"),
+        ORDERS,
+    );
+    let holds = node_label(
+        &package,
+        find_identity(&package, &temporal_identity("holds")),
+    );
+    let bad = push(
+        &mut package,
+        formula("once", closed("3", "0"), vec![refer(&holds)]),
+    );
+    settle(&mut package);
+    let (code, _, path) = first_refusal("two defects", &package);
+    assert_eq!(code, Code::InvalidPackage);
+    let path = path.expect("path");
+    assert!(
+        path.starts_with(&at_node(bad, "/")),
+        "the temporal step's refusal comes first, got {path}"
     );
 }
