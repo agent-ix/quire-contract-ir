@@ -69,6 +69,8 @@ fn unchanged(off: &Observation, on: &Observation, views: ReadViewScope) {
 /// The first read is observer-OFF, before either observed read. This diagnostic
 /// passes through the checked measurement boundary on all three reads. A real
 /// accounting defect fails before this consumer can provide normative evidence.
+/// This explicit observer API retains its full public-view oracle; ordinary
+/// accounting selects Core through checked_with_scope instead.
 pub(crate) fn checked<C: Counter>(
     bytes: &[u8],
     evidence: &CheckedPackageEvidence,
@@ -78,7 +80,7 @@ pub(crate) fn checked<C: Counter>(
 ) -> (Observation, Vec<NativeBudgetEvent>) {
     trace(
         || measure_at::<C>(bytes, evidence, limits, work, storage),
-        ReadViewScope::Core,
+        ReadViewScope::Full,
     )
 }
 
@@ -91,11 +93,11 @@ pub(crate) fn checked_with_scope<C: Counter>(
     views: ReadViewScope,
 ) -> (Observation, Vec<NativeBudgetEvent>) {
     match views {
-        ReadViewScope::Core => super::observe_native::<C>(bytes, evidence, limits, work, storage),
-        ReadViewScope::Full => trace(
+        ReadViewScope::Core => trace(
             || measure_at::<C>(bytes, evidence, limits, work, storage),
-            ReadViewScope::Full,
+            ReadViewScope::Core,
         ),
+        ReadViewScope::Full => super::observe_native::<C>(bytes, evidence, limits, work, storage),
     }
 }
 
@@ -107,7 +109,7 @@ pub(crate) fn checked_seeded(
 ) -> (Observation, Vec<NativeBudgetEvent>) {
     trace(
         || super::measure_seeded(bytes, evidence, limits, seed.read_proof_snapshot()),
-        ReadViewScope::Core,
+        ReadViewScope::Full,
     )
 }
 
@@ -119,11 +121,11 @@ pub(crate) fn checked_seeded_with_scope(
     views: ReadViewScope,
 ) -> (Observation, Vec<NativeBudgetEvent>) {
     match views {
-        ReadViewScope::Core => checked_seeded(bytes, evidence, limits, seed),
-        ReadViewScope::Full => trace(
+        ReadViewScope::Core => trace(
             || super::measure_seeded(bytes, evidence, limits, seed.read_proof_snapshot()),
-            ReadViewScope::Full,
+            ReadViewScope::Core,
         ),
+        ReadViewScope::Full => checked_seeded(bytes, evidence, limits, seed),
     }
 }
 

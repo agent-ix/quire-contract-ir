@@ -378,6 +378,23 @@ fn core_observer_keeps_reader_values_and_full_observer_checks_every_node() {
     );
     assert_eq!(full_visits.nodes, 2 * nodes);
     assert_eq!(full_visits.lower_calls, 4 * nodes);
+    // Existing explicit AC512 providers use this unscoped API. Its strong
+    // semantics remain independent of any process proof-mode environment.
+    let (legacy, legacy_events) = crate::qspec_read_proof::observe_native::<ScopeCounter>(
+        &input.bytes,
+        &input.evidence,
+        input.limits,
+        u64::MAX,
+        u64::MAX,
+    );
+    assert_eq!(legacy.result, full.result);
+    assert_eq!(legacy.requested, full.requested);
+    assert_eq!(legacy.budget, full.budget);
+    assert_eq!(legacy_events, full_events);
+    let legacy_visits = take_oracle_visits();
+    assert_eq!(legacy_visits.comparisons, 2);
+    assert_eq!(legacy_visits.nodes, 2 * nodes);
+    assert_eq!(legacy_visits.lower_calls, 4 * nodes);
 }
 
 #[cfg(feature = "test-support")]
