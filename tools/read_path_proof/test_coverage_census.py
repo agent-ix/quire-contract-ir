@@ -5,6 +5,7 @@
 import copy
 from pathlib import Path
 import unittest
+import tempfile
 
 import coverage_census as census
 
@@ -42,6 +43,19 @@ def export_counts(plain=3, probes=20, caller=2, calibration=1):
     return {"type": "llvm.coverage.json.export", "data": [{"functions": functions}]}
 
 
+class ExactNativeAmounts(unittest.TestCase):
+    def test_native_and_overflow_amounts_are_exact(self):
+        for value in (0, 2**64 - 1, str(2**64), str(2**128 - 1)):
+            self.assertEqual(census.native_amount(value), int(value))
+
+    def test_rounded_noncanonical_and_out_of_range_amounts_fail(self):
+        for value in (True, -1, 1.0, 2**64, None, "1", "0", "01", "+18446744073709551616",
+                      " 18446744073709551616", "1e30", str(2**128), "9" * 5000):
+            with self.subTest(value=repr(value)[:60]):
+                with self.assertRaises(census.CensusError):
+                    census.native_amount(value)
+
+
 class ActualEntryCensus(unittest.TestCase):
     def test_accounted_invocations_match(self):
         result = census.check(export_counts(), ROOT)
@@ -57,6 +71,22 @@ class ActualEntryCensus(unittest.TestCase):
         next(row for row in data["data"][0]["functions"] if "read_with_budget" in row["name"])["count"] += 1
         with self.assertRaisesRegex(census.CensusError, "unaccounted budgeted"):
             census.check(data, ROOT)
+
+    def test_relative_and_symlink_source_aliases_keep_exact_identity_per_call(self):
+        data = export_counts()
+        for row in data["data"][0]["functions"]:
+            row["filenames"] = [str(Path(name).relative_to(ROOT)) for name in row["filenames"]]
+        self.assertEqual(census.check(data, ROOT)["budgeted"], 38)
+        with tempfile.TemporaryDirectory() as directory:
+            link = Path(directory) / "source-alias.rs"
+            link.symlink_to(ROOT / "tests/it/support/qspec_read_proof.rs")
+            data["data"][0]["functions"][0]["filenames"] = [str(link)]
+            self.assertEqual(census.check(data, ROOT)["measured_plain"], 3)
+            foreign = Path(directory) / "qspec_read_proof.rs"
+            foreign.write_text("fn read_and_account() {}")
+            link.unlink(); link.symlink_to(foreign)
+            with self.assertRaisesRegex(census.CensusError, "missing compiled function"):
+                census.check(data, ROOT)
 
     def test_equal_suffix_in_other_source_tree_cannot_supply_boundary(self):
         data = export_counts()
@@ -161,6 +191,141 @@ class FullRunEvidence(unittest.TestCase):
             census.check_run(export_counts(), ROOT, self.report(), records, "sample")
 
 
+class FullCorpusCompletion(unittest.TestCase):
+    def bundle(self):
+        cohort = {key: "unit-cohort" for key in census.COHORT_FIELDS}
+        row = {"test": "original", "driver": "original.rs", "line": 7,
+               "proof_schema": "native-budget-events/v1", "native_budget_events": [], "boundary_results": [],
+               "complete_reference": {"native_budget": "unlimited", "outcome": "incomplete",
+                   "prior_work": 0, "prior_read_storage": 0, "work": 0, "read_storage": 0,
+                   "requested": 0, "logical_storage_delta": 0, "exact_work_limit": 0,
+                   "exact_read_storage_limit": 0, "exact_outcome_equal": True,
+                   "exact_counts_equal": True, "complete_repeat_equal": True, "above_work_limit": 1,
+                   "above_read_storage_limit": 1, "above_outcome_equal": True, "above_counts_equal": True, "above_budget_equal": True}}
+        runs = []
+        for corpus in ("qspec", "tc048"):
+            runs.append({"config": dict(cohort, corpus=corpus, mode="full", original_tests=[],
+                         complete_declared_inventory=True, intended_tests=["original"],
+                         auxiliary_tests=[], original_driver_tests=["original"]),
+                         "declared_inventory": ["original"], "records": [copy.deepcopy(row)],
+                         "report": {"intended_tests": ["original"], "passed_tests": ["original"], "exit_code": 0},
+                         "census": {"normative_boundaries_verified": True, "original_tests_passed": 1,
+                                    "measured_plain": 1, "caller_budget": 0}})
+        return {"schema": "ac511-full-completion/v1", "runs": runs,
+                "canonical_config": cohort,
+                "canonical_classes": {"qualified": True,
+                   "classes": [{"class": name, "qualified": True} for name in census.CANONICAL_CLASS_SITES],
+                   "negative_controls": [{"test": name, "rejected": True, "rust_oracle_passed": True} for name in
+                     ("negative_empty_string_is_not_text_growth", "negative_empty_array_is_not_retained_children",
+                      "negative_scratch_child_is_not_retained_children")]}}
+
+    def complete_bundle(self):
+        bundle = self.bundle()
+        row = bundle["runs"][0]["records"][0]
+        row["native_budget_events"] = [
+            {"resource": "ReadStorage", "amount": 8, "consumed_before": i * 8, "admitted": True,
+             "allocation_class": "walker_growth" if i < 3 else "exact_reservation",
+             "locus": {"source": "PackageRead(Graph, 0)", "form": "walk" if i < 3 else "exact_number"}}
+            for i in range(4)]
+        row["boundary_results"] = [
+            dict(event, event_index=i, exact_bound=(i + 1) * 8, one_below_bound=(i + 1) * 8 - 1,
+                 exact_event_admitted=True, above_bound=(i + 1) * 8 + 1, above_event_admitted=True,
+                 denial={"outcome":"exhausted","resource":"ReadStorage","amount":8,"configured_bound":(i+1)*8-1,
+                         "locus":event["locus"],"entire_repeat_budget_equal":True},
+                 one_below_event_denied=True, full_repeat_equal=True, accounting_equal=True)
+            for i, event in enumerate(row["native_budget_events"])]
+        row["designated_growth_case"] = {"test": "original", "driver": "original.rs", "line": 7,
+            "provider": "unit-schema-provider", "input_binding":"exact-borrowed-input-evidence-and-callsite", "classes": {"walker_growth": "walker_growth", "exact_reservation": "exact_reservation"}}
+        row["complete_reference"].update(read_storage=32, requested=32, exact_read_storage_limit=32,
+                                          outcome="refused", refusal_code="UnitRefusal", above_read_storage_limit=33)
+        row["provider_obligation_evidence"] = [
+            {"role": role, "source": {"file": "original.rs", "line": 7, "symbol": "unit_schema_provider"},
+             "input_binding":"exact-borrowed-input-evidence-and-callsite", "fact_source":"unit schema input assertion",
+             "reservation_locus": {"source":"PackageRead(Graph, 0)","form":"walk" if role=="term_walk_multigrowth" else "exact_number"},
+             "input_facts": {field: minimum}, "request_event_indices": [0, 1, 2] if role == "term_walk_multigrowth" else [3],
+             "reservation_source": "unit schema reservation source", "same_walk_instance_source": "unit schema single walk"}
+            for role, (field, minimum) in census.REQUIRED_PROVIDER_FACTS.items()]
+        bundle["expected_refusal_codes"] = ["UnitRefusal"]
+        return bundle
+
+    def test_complete_schema_passes_only_with_all_obligations_and_refusals(self):
+        bundle = self.complete_bundle()
+        result = census.validate_full_completion(bundle)
+        self.assertTrue(result["full_corpus"])
+        self.assertFalse(result["static_ac513_proven"])
+        bundle["expected_refusal_codes"].append("MissingActualRefusal")
+        with self.assertRaisesRegex(census.CensusError, "every source refusal code"):
+            census.validate_full_completion(bundle)
+
+    def test_unknown_reservation_classes_remain_unknown_without_waiving_boundaries(self):
+        row = self.complete_bundle()["runs"][0]["records"][0]
+        row.pop("designated_growth_case")
+        for event in row["native_budget_events"]:
+            event["allocation_class"] = None
+        for result in row["boundary_results"]:
+            result["allocation_class"] = None
+        row["boundary_results"] = [row["boundary_results"][i] for i in (0, 2, 3)]
+        census.validate_normative_boundaries(row)
+        row["boundary_results"].pop()
+        with self.assertRaisesRegex(census.CensusError, "missing normative"):
+            census.validate_normative_boundaries(row)
+
+    def test_relabeling_a_growth_event_at_an_unrelated_role_locus_fails(self):
+        bundle = self.complete_bundle()
+        row = bundle["runs"][0]["records"][0]
+        row["provider_obligation_evidence"][-1]["reservation_locus"] = {
+            "source":"PackageRead(Graph, 99)","form":"exact_number"}
+        with self.assertRaisesRegex(census.CensusError, "actual selected source-bound"):
+            census.validate_full_completion(bundle)
+
+    def test_missing_walk_instance_and_omitted_intermediate_boundary_fail(self):
+        for remove in ("walk-instance", "intermediate-event"):
+            bundle = self.complete_bundle()
+            row = bundle["runs"][0]["records"][0]
+            if remove == "walk-instance":
+                for evidence in row["provider_obligation_evidence"]:
+                    evidence.pop("same_walk_instance_source", None)
+            else:
+                row["boundary_results"].pop(1)
+            with self.assertRaises(census.CensusError):
+                census.validate_full_completion(bundle)
+
+    def test_empty_provider_roles_never_complete(self):
+        with self.assertRaisesRegex(census.CensusError, "missing real adverse/growth"):
+            census.validate_full_completion(self.bundle())
+
+    def test_one_corpus_selected_subset_and_failed_original_fail_closed(self):
+        for mutation in (lambda b: b["runs"].pop(),
+                         lambda b: b["runs"][0]["config"].update(original_tests=["original"]),
+                         lambda b: b["runs"][0]["report"].update(exit_code=1),
+                         lambda b: b["runs"][0].update(declared_inventory=["original", "omitted"])):
+            bundle = self.bundle(); mutation(bundle)
+            with self.assertRaises(census.CensusError):
+                census.validate_full_completion(bundle)
+
+    def test_foreign_or_missing_class_cohort_fails(self):
+        for mutation in (lambda b: b["canonical_config"].update(source_head="old-source"),
+                         lambda b: b["canonical_classes"].update(qualified=False)):
+            bundle = self.bundle(); mutation(bundle)
+            with self.assertRaisesRegex(census.CensusError, "same-cohort"):
+                census.validate_full_completion(bundle)
+
+    def test_provider_label_without_real_size_fact_or_source_fails(self):
+        bundle = self.bundle()
+        bundle["runs"][0]["records"][0]["provider_obligation_evidence"] = [{"role": "reference_chain"}]
+        with self.assertRaisesRegex(census.CensusError, "source-bound measured input"):
+            census.validate_full_completion(bundle)
+
+    def test_large_graph_is_not_evidence_of_one_growing_term_walk(self):
+        bundle = self.bundle()
+        bundle["runs"][0]["records"][0]["provider_obligation_evidence"] = [{
+            "role": "term_walk_multigrowth", "source": {"file": "original.rs", "line": 7, "symbol": "graph_builder"},
+            "input_binding":"exact-borrowed-input-evidence-and-callsite", "fact_source":"unit size assertion",
+            "input_facts": {"same_term_walk_stack_growth_requests": 100000}}]
+        with self.assertRaisesRegex(census.CensusError, "actual selected source-bound reservations"):
+            census.validate_full_completion(bundle)
+
+
 class DesignatedGrowthEvidence(unittest.TestCase):
     def test_missing_intermediate_walker_or_limb_boundary_fails(self):
         for role in ("walker_growth", "exact_reservation", "exact_limb"):
@@ -170,16 +335,20 @@ class DesignatedGrowthEvidence(unittest.TestCase):
             record = {"proof_schema": "native-budget-events/v1", "read_storage": 24,
                       "test": "actual::case", "driver": "actual.rs", "line": 17,
                       "designated_growth_case": {"test": "actual::case", "driver": "actual.rs", "line": 17,
-                           "provider": "original_source_builder", "classes": {"actual_source_class": role}},
+                           "provider": "original_source_builder", "input_binding":"exact-borrowed-input-evidence-and-callsite", "classes": {"actual_source_class": role}},
                       "native_budget_events": events,
                       "original_context_outcome":"budget-incomplete",
                       "complete_reference":{"native_budget":"unlimited","outcome":"admitted",
                         "prior_work":0,"prior_read_storage":0,"work":0,"read_storage":24,"requested":24,
                         "logical_storage_delta":0,"exact_work_limit":0,"exact_read_storage_limit":24,
-                        "exact_outcome_equal":True,"exact_counts_equal":True,"complete_repeat_equal":True}}
+                        "exact_outcome_equal":True,"exact_counts_equal":True,"complete_repeat_equal":True,
+                        "above_work_limit":1,"above_read_storage_limit":25,"above_outcome_equal":True,"above_counts_equal":True,"above_budget_equal":True}}
             def result(i):
                 e = events[i]
                 return {"event_index": i, "exact_bound": (i+1)*8, "one_below_bound": (i+1)*8-1,
+                        "above_bound": (i+1)*8+1, "above_event_admitted": True,
+                        "denial":{"outcome":"exhausted","resource":"ReadStorage","amount":8,"configured_bound":(i+1)*8-1,
+                                  "locus":e["locus"],"entire_repeat_budget_equal":True},
                         "exact_event_admitted": True, "one_below_event_denied": True,
                         "full_repeat_equal": True, "accounting_equal": True,
                         "amount": 8, "locus": e["locus"], "allocation_class": e["allocation_class"]}

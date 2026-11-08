@@ -209,6 +209,183 @@ fn original_wide_bounded_quantity_provider_has_exact_core_accounting() {
     eprintln!("Original wide bounded-quantity builder: admitted; exact core accounting; no all-family FR-038-AC-516 or source-site census claim");
 }
 
+/// The already registered all-families input contains one protocol body
+/// with thirteen direct children. It is not a chain of graph references.
+/// This covers AC-516's term-walk growth leg; its numeric families remain separate.
+#[cfg(feature = "test-support")]
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512", "FR-038-AC-516")]
+#[test]
+fn original_protocol_term_tree_prepays_each_reserved_walk_growth() {
+    use quire_contract_model::{
+        CheckedNodeId, CheckedPackageReadLimits, CheckedPackageV2BudgetedReadResult as Budgeted,
+        CheckedTerm, NativeBudgetResource, NativeJoinLocusSource, PackageReadStage,
+    };
+    let wire = v2_all_families();
+    let nodes = wire["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("original graph");
+    let (protocol, node) = nodes
+        .iter()
+        .enumerate()
+        .find(|(_, node)| node["semantic_form"] == "protocol_clause")
+        .expect("the original protocol clause");
+    assert_eq!(
+        node["body"]["arguments"]
+            .as_array()
+            .expect("original arguments")
+            .len(),
+        13
+    );
+    let id: CheckedNodeId = serde_json::from_value(node["node_id"].clone())
+        .expect("the original declared protocol identity");
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let limits = CheckedPackageReadLimits::bounded();
+    let plain = crate::read_and_account(&bytes, limits, &evidence);
+    let (reference, events) = crate::qspec_read_proof::observe_native::<IntegrationCounter>(
+        &bytes,
+        &evidence,
+        limits,
+        limits.work,
+        u64::MAX,
+    );
+    let (CheckedPackageV2ReadResult::Admitted(plain), Budgeted::Admitted(checked)) =
+        (&plain, &reference.result)
+    else {
+        panic!("the original provider must admit");
+    };
+    assert_eq!(
+        plain, checked,
+        "observer and budget preserve the complete original package"
+    );
+    let Some(CheckedTerm::Application { arguments, .. }) = checked.term(&id) else {
+        panic!("the retained protocol body is the original application");
+    };
+    assert_eq!(
+        arguments.len(),
+        13,
+        "the actual admitted tree has thirteen direct children"
+    );
+    assert!(
+        matches!(arguments.first(), Some(CheckedTerm::Binding { .. })),
+        "the first child has its own value child"
+    );
+
+    let growths = events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| {
+            event.resource == NativeBudgetResource::ReadStorage
+                && event.admitted
+                && event.amount > 0
+                && event.allocation_class == Some("walker_growth")
+                && event.locus.is_some_and(|locus| {
+                    locus.form == "walk"
+                        && locus.source
+                            == NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, protocol)
+                })
+        })
+        .collect::<Vec<_>>();
+    // Instance/list IDs are not part of NativeBudgetEvent. Attribution is
+    // source-bound: state/temporal placement enqueue every child, with no
+    // SkipChildren, and quire-walk extends per child into one pending list.
+    // This admitted thirteen-child enter therefore requires capacities
+    // 4/8/16 in that list; the task stack has its separate full-capacity costs.
+    assert!(
+        growths.len() >= 6,
+        "one wide term walk needs both growing lists"
+    );
+    // At this enter the SDK's task list grows from four elements to the
+    // root frame plus thirteen children (fourteen). The first binding then
+    // needs fifteen elements, so that list doubles to twenty-eight.
+    // These are source-bound capacity patterns, not fabricated instance IDs.
+    let wide_patterns = growths
+        .windows(6)
+        .filter(|sequence| {
+            sequence[1].1.amount.checked_mul(2) == Some(sequence[2].1.amount)
+                && sequence[2].1.amount.checked_mul(2) == Some(sequence[3].1.amount)
+                && sequence[0].1.amount.checked_mul(14) == sequence[4].1.amount.checked_mul(4)
+                && sequence[4].1.amount.checked_mul(2) == Some(sequence[5].1.amount)
+        })
+        .count();
+    assert!(
+        wide_patterns > 0,
+        "actual full-capacity requests must match pending 4/8/16 and task 4/14/28 growth"
+    );
+    eprintln!("Source-bound wide-enter capacity patterns: {wide_patterns}; no list/invocation IDs are present in the events");
+    eprintln!("One existing all-families provider; protocol node {protocol}; thirteen typed children; {} actual growth requests. Per-walk attribution is source-bound, not invocation-tagged.", growths.len());
+    for (index, event) in &growths {
+        let (index, event) = (*index, **event);
+        eprintln!("Actual walker growth event {index}: {event:?}");
+        let exact_bound = event
+            .consumed_before
+            .checked_add(u64::try_from(event.amount).expect("bounded growth request"))
+            .expect("bounded cumulative read storage");
+        let (exact, exact_events) = crate::qspec_read_proof::observe_native::<IntegrationCounter>(
+            &bytes,
+            &evidence,
+            limits,
+            limits.work,
+            exact_bound,
+        );
+        assert_eq!(
+            exact_events.get(..=index),
+            events.get(..=index),
+            "the exact allowance admits the same complete event prefix"
+        );
+        let (short, short_events) = crate::qspec_read_proof::observe_native::<IntegrationCounter>(
+            &bytes,
+            &evidence,
+            limits,
+            limits.work,
+            exact_bound - 1,
+        );
+        assert_eq!(short_events.get(..index), events.get(..index));
+        let mut denied = event;
+        denied.admitted = false;
+        assert_eq!(
+            short_events.get(index),
+            Some(&denied),
+            "one below denies the actual full-size callback request"
+        );
+        assert_eq!(short.budget.first_unpaid_read_storage(), Some(event.amount));
+        assert_eq!(short.budget.first_unpaid_locus(), event.locus);
+        assert!(
+            matches!(
+                &short.result,
+                Budgeted::BudgetIncomplete(_) | Budgeted::Exhausted(_)
+            ),
+            "the denied growth returns no partial admitted package"
+        );
+        assert!(
+            !short_events[index + 1..].iter().any(|later| {
+                later.resource == NativeBudgetResource::ReadStorage
+                    && later.allocation_class == Some("walker_growth")
+                    && later.locus.is_some_and(|locus| locus.form == "walk")
+            }),
+            "no later walker allocation runs after the unpaid growth"
+        );
+        let (repeat, repeat_events) = crate::qspec_read_proof::observe_native::<IntegrationCounter>(
+            &bytes,
+            &evidence,
+            limits,
+            limits.work,
+            exact_bound - 1,
+        );
+        assert_eq!(short.result, repeat.result);
+        assert_eq!(
+            short.budget, repeat.budget,
+            "the entire fresh caller state repeats"
+        );
+        assert_eq!(short.requested, repeat.requested);
+        assert_eq!(short_events, repeat_events);
+        for observation in [exact, short, repeat] {
+            proof::drop_without_request::<IntegrationCounter>(observation);
+        }
+    }
+    proof::drop_without_request::<IntegrationCounter>(reference);
+}
+
 /// Reuses the exact builder dispatch of the existing catalogue admission
 /// test, including its model-document controls. No copied wire builders.
 fn positive_cases() -> Vec<Case> {
