@@ -284,7 +284,6 @@ impl<'d> DecodeContext<'d> {
         ValueDe {
             node,
             context: self,
-            prepaid: false,
             slots: false,
             prepaid: false,
         }

@@ -11,10 +11,9 @@ use super::model_members::DomainModel;
 use super::natural::coprime;
 use super::term_view::TermNode;
 use super::{
-    BoundedDomainForm, CheckedNodeKind, ClaimForm, CompositeTypeForm, CorrespondenceForm,
-    ExpressionForm, FunctionForm, ModelForm, ProtocolForm,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateForm,
-    TemporalForm, ValueForm, WorkMeter,
+    BoundedDomainForm, CheckedNodeKind, CheckedSemanticNodeV2, ClaimForm, CompositeTypeForm,
+    CorrespondenceForm, ExpressionForm, FunctionForm, ModelForm, ProtocolForm, RelationForm,
+    ScalarTypeForm, StateForm, TemporalForm, ValueForm, WorkMeter,
 };
 use super::{CheckedPackageLockV2, RawCheckedPackageWireV2};
 use crate::checked_package::common::{node_pointer, ValidationFailure};
@@ -1312,8 +1311,25 @@ fn require(condition: bool, at: impl FnOnce() -> JsonPointer) -> Result<(), Vali
 
 /// One node under validation: the node, its graph position and pointers to
 /// the members of its body, owner and declaration.
+#[derive(Clone, Copy)]
+struct NominalNode<'a> {
+    node_id: &'a CheckedNodeId,
+    semantic_type: &'a CheckedNodeId,
+    dependencies: &'a [CheckedNodeId],
+    occurrences: &'a [crate::checked_package::shared::CheckedOccurrence],
+}
+impl<'a> NominalNode<'a> {
+    fn of<B>(node: &'a CheckedSemanticNodeV2<B>) -> Self {
+        Self {
+            node_id: &node.node_id,
+            semantic_type: &node.semantic_type,
+            dependencies: &node.dependencies,
+            occurrences: &node.occurrences,
+        }
+    }
+}
 struct Site<'a> {
-    node: &'a CheckedSemanticNodeV2,
+    node: NominalNode<'a>,
     position: usize,
 }
 
@@ -1724,16 +1740,17 @@ fn model_record_from_node<B>(
 /// Validates every node's nominal owner join, semantic rules and cross-field
 /// joins. `kinds` holds each node's decoded kind. Equivalence refusals point
 /// at their node; other nominal refusals point at the member at fault.
-pub(super) fn validate_nominal_nodes<'e>(
-    nodes: &[CheckedSemanticNodeV2],
+pub(super) fn validate_nominal_nodes<B>(
+    nodes: &[CheckedSemanticNodeV2<B>],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
     lock: &CheckedPackageLockV2,
     models: &[DomainModel],
-    dependencies: &SuppliedDependencies<'e>,
+    dependencies: &SuppliedDependencies<'_>,
+    terms: &[Option<super::CheckedTerm>],
     meter: &mut WorkMeter,
     bytes: u64,
-) -> Result<ImportedNominals<'e>, ValidationFailure> {
+) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
     let model_nodes = model_node_table(
         nodes
             .iter()
@@ -1746,7 +1763,14 @@ pub(super) fn validate_nominal_nodes<'e>(
         if let Some(required) = NominalKind::required_by(kinds[position]) {
             records[position] = Some(record_from_node(
                 &nodes[position],
-                BodyInput::of_graph(position, meter),
+                BodyInput::Typed(terms.get(position).and_then(Option::as_ref).ok_or_else(
+                    || {
+                        ValidationFailure::refused(
+                            CheckedPackageRefusalCode::MalformedWire,
+                            node_pointer(position).key("body"),
+                        )
+                    },
+                )?),
                 required,
                 position,
                 models,
@@ -1763,9 +1787,15 @@ pub(super) fn validate_nominal_nodes<'e>(
     });
     let imported = imported_nominals(dependencies, meter)?;
     let mut imported_ids = meter.vec(imported.len())?;
-    imported_ids.extend(imported.iter().map(|(id, _)| *id));
+    for (id, _) in imported.iter() {
+        imported_ids.push(meter.clone_id(id)?);
+    }
+    imported_ids.sort_unstable();
+    imported_ids.dedup();
+    let mut owners = meter.vec(nodes.len())?;
+    owners.extend(nodes.iter().map(|node| node.owner.as_ref()));
     let graph = NominalGraph {
-        nodes,
+        owners,
         kinds,
         index,
         records: &records,
@@ -1778,7 +1808,10 @@ pub(super) fn validate_nominal_nodes<'e>(
     for &position in index.values() {
         let node = &nodes[position];
         let kind = kinds[position];
-        let site = Site { node, position };
+        let site = Site {
+            node: NominalNode::of(node),
+            position,
+        };
         meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
         let required = NominalKind::required_by(kind);
         let record = match (required, records[position].as_ref()) {
@@ -1827,17 +1860,7 @@ pub(super) fn validate_nominal_nodes<'e>(
         }
     }
     validate_equivalence_graph(&graph, &equivalences, meter)?;
-    Ok(ImportedNominals(imported_ids))
-}
-
-/// The ids of the nominal nodes imported from admitted dependencies, in id
-/// order, as one block charged before it is requested.
-pub(super) struct ImportedNominals<'e>(Vec<&'e CheckedNodeId>);
-
-impl ImportedNominals<'_> {
-    pub(super) fn contains(&self, id: &CheckedNodeId) -> bool {
-        self.0.binary_search_by(|held| (*held).cmp(id)).is_ok()
-    }
+    Ok(imported_ids)
 }
 
 /// Reuses admitted dependency meanings for cross-package nominal references.
@@ -1973,7 +1996,7 @@ fn validate_dimension_equivalence(
         site.pointer()
     })?;
     require(
-        matches!(site.node.occurrences.as_slice(), [occurrence]
+        matches!(site.node.occurrences, [occurrence]
             if occurrence.role == crate::checked_package::shared::CheckedOccurrenceRole::Anchor),
         || site.pointer(),
     )?;
@@ -2163,8 +2186,42 @@ impl ExactRatio {
 /// Time dimension. The graph's nominal checks subsequently authenticate the
 /// body, owner, and path; this projection only resolves the member's type.
 #[ix_trace_rs::string_edge]
-pub(super) fn duration_unit_key(
-    nodes: &[CheckedSemanticNodeV2],
+/// The lock-stage duration lookup reads only nominal candidates from the
+/// same retained document. Malformed candidates remain absent until the graph
+/// stage owns their shape refusal; a denied reservation always stops the read.
+pub(super) fn duration_terms<B>(
+    nodes: &[CheckedSemanticNodeV2<B>],
+    meter: &mut WorkMeter,
+) -> Result<Vec<Option<super::CheckedTerm>>, ValidationFailure> {
+    let mut terms = meter.vec(nodes.len())?;
+    for (position, node) in nodes.iter().enumerate() {
+        let body = if node.node_tag.as_ref() == "scalar_type"
+            && matches!(node.semantic_form.as_ref(), "unit" | "dimension")
+        {
+            nominal_body_if_closed(position, meter)?
+        } else {
+            None
+        };
+        terms.push(if let Some(body) = body {
+            meter.reserve(std::mem::size_of::<NominalBody>())?;
+            Some(super::CheckedTerm::NominalBody(Box::new(body)))
+        } else {
+            None
+        });
+    }
+    Ok(terms)
+}
+
+fn nominal_term(terms: &[Option<super::CheckedTerm>], position: usize) -> Option<&NominalBody> {
+    match terms.get(position)?.as_ref()? {
+        super::CheckedTerm::NominalBody(body) => Some(body),
+        _ => None,
+    }
+}
+
+pub(super) fn duration_unit_key<B>(
+    nodes: &[CheckedSemanticNodeV2<B>],
+    terms: &[Option<super::CheckedTerm>],
     name: &str,
     meter: &mut WorkMeter,
 ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
@@ -2180,7 +2237,7 @@ pub(super) fn duration_unit_key(
     }) else {
         return Ok(None);
     };
-    let Some(body) = nominal_body_if_closed(position, meter)? else {
+    let Some(body) = nominal_term(terms, position) else {
         return Ok(None);
     };
     let NominalBodyKind::Unit {
@@ -2188,7 +2245,7 @@ pub(super) fn duration_unit_key(
         target_unit_node_id,
         scale: unit_scale,
         offset: unit_offset,
-    } = body.into_kind()
+    } = body.kind()
     else {
         return Ok(None);
     };
@@ -2210,14 +2267,14 @@ pub(super) fn duration_unit_key(
     let Some((dimension_position, dimension)) = nodes
         .iter()
         .enumerate()
-        .find(|(_, candidate)| candidate.node_id == dimension_node_id)
+        .find(|(_, candidate)| &candidate.node_id == dimension_node_id)
     else {
         return Ok(None);
     };
-    let Some(body) = nominal_body_if_closed(dimension_position, meter)? else {
+    let Some(body) = nominal_term(terms, dimension_position) else {
         return Ok(None);
     };
-    let NominalBodyKind::Dimension { base, .. } = body.into_kind() else {
+    let NominalBodyKind::Dimension { base, .. } = body.kind() else {
         return Ok(None);
     };
     if dimension.owner != node.owner
@@ -2229,7 +2286,7 @@ pub(super) fn duration_unit_key(
             .flatten()
             .last()
             .is_none_or(|name| name.as_ref() != "Time")
-        || !base
+        || !*base
     {
         return Ok(None);
     }
@@ -2244,8 +2301,8 @@ pub(super) fn duration_unit_key(
     let mut seen: Vec<usize> = Vec::new();
     loop {
         meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
-        let edge_scale = ExactRatio::parse(&current.2, meter, &at)?;
-        let edge_offset = ExactRatio::parse(&current.3, meter, &at)?;
+        let edge_scale = ExactRatio::parse(current.2, meter, &at)?;
+        let edge_offset = ExactRatio::parse(current.3, meter, &at)?;
         offset = offset
             .multiply(&edge_scale, meter, &at)?
             .add(&edge_offset, meter, &at)?;
@@ -2264,7 +2321,7 @@ pub(super) fn duration_unit_key(
         if !meter.insert_sorted(&mut seen, next_position)? {
             return Ok(None);
         }
-        let Some(body) = nominal_body_if_closed(next_position, meter)? else {
+        let Some(body) = nominal_term(terms, next_position) else {
             return Ok(None);
         };
         let NominalBodyKind::Unit {
@@ -2272,7 +2329,7 @@ pub(super) fn duration_unit_key(
             target_unit_node_id: next_target,
             scale: next_scale,
             offset: next_offset,
-        } = body.into_kind()
+        } = body.kind()
         else {
             return Ok(None);
         };
@@ -2291,8 +2348,8 @@ pub(super) fn duration_unit_key(
 /// The model-owned unit body is intentionally empty; conversion values come
 /// from the selected declaration and the graph supplies exact structural IDs.
 #[ix_trace_rs::string_edge]
-pub(super) fn model_duration_unit_key(
-    nodes: &[CheckedSemanticNodeV2],
+pub(super) fn model_duration_unit_key<B>(
+    nodes: &[CheckedSemanticNodeV2<B>],
     model: &DomainModel,
     meter: &mut WorkMeter,
 ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
@@ -2402,9 +2459,10 @@ fn equivalence_potentials<'a>(
     base_only: bool,
     meter: &mut WorkMeter,
 ) -> Result<Potentials<'a>, ValidationFailure> {
-    meter.charge(u64::try_from(graph.nodes.len()).unwrap_or(u64::MAX), || {
-        JsonPointer::root().key("semantic_graph").key("nodes")
-    })?;
+    meter.charge(
+        u64::try_from(graph.owners.len()).unwrap_or(u64::MAX),
+        || JsonPointer::root().key("semantic_graph").key("nodes"),
+    )?;
     // Every id the walk can reach: the graph's, the imported, and each
     // edge's two ends.
     let reachable = graph
@@ -2689,7 +2747,7 @@ pub(super) fn validate_equivalence_occurrences(
 }
 
 struct NominalGraph<'a> {
-    nodes: &'a [CheckedSemanticNodeV2],
+    owners: Vec<Option<&'a super::CheckedNodeOwner>>,
     kinds: &'a [CheckedNodeKind],
     index: &'a GraphIndex<'a>,
     records: &'a [Option<NominalRecord>],
@@ -2716,11 +2774,10 @@ impl NominalGraph<'_> {
         {
             return None;
         }
-        let node = self.nodes.get(position)?;
         let Some(super::CheckedNodeOwner::Model {
             identity,
             node: owner_node,
-        }) = &node.owner
+        }) = self.owners.get(position).copied().flatten()
         else {
             return None;
         };
@@ -2734,12 +2791,10 @@ impl NominalGraph<'_> {
             return false;
         };
         self.kinds.get(position) == Some(&CheckedNodeKind::Model(super::ModelForm::VariantType))
-            && self.nodes.get(position).is_some_and(|node| {
-                matches!(
-                    node.owner.as_ref(),
-                    Some(super::CheckedNodeOwner::Model { .. })
-                )
-            })
+            && matches!(
+                self.owners.get(position).copied().flatten(),
+                Some(super::CheckedNodeOwner::Model { .. })
+            )
     }
 }
 
@@ -2935,11 +2990,11 @@ fn validate_enum_member(
             site.nominal_member(&["case"])
         })?;
     }
-    require(node.semantic_type == member.declaration_node_id, || {
+    require(node.semantic_type == &member.declaration_node_id, || {
         site.member("semantic_type")
     })?;
     require(
-        node.dependencies.as_slice() == std::slice::from_ref(&member.declaration_node_id),
+        node.dependencies == std::slice::from_ref(&member.declaration_node_id),
         || site.member("dependencies"),
     )?;
     require(member.body_is_literal, || site.member("body"))
@@ -3031,7 +3086,7 @@ fn validate_unit(
     )?;
     validate_rational(&unit.scale, meter, &|| site.nominal_member(&["scale"]))?;
     validate_rational(&unit.offset, meter, &|| site.nominal_member(&["offset"]))?;
-    require(node.semantic_type == unit.dimension_node_id, || {
+    require(node.semantic_type == &unit.dimension_node_id, || {
         site.member("semantic_type")
     })?;
     match &unit.target_unit_node_id {
@@ -3097,7 +3152,7 @@ fn validate_unit_path(
             .key("target_unit_node_id")
     };
     let mut visited: Vec<&CheckedNodeId> = meter.vec(1)?;
-    visited.push(&site.node.node_id);
+    visited.push(site.node.node_id);
     let mut from = site.position;
     let mut next = unit.target_unit_node_id.as_ref();
     while let Some(target) = next {
@@ -3121,6 +3176,7 @@ fn validate_unit_path(
 #[cfg(test)]
 mod tests {
     use super::super::checked_json::CheckedJson;
+    use super::super::RawSemanticNodeV2 as CheckedSemanticNodeV2;
     use super::*;
     use crate::NativeJoinBudget;
     use ix_trace_rs::trace;
@@ -3225,10 +3281,18 @@ mod tests {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let bodies =
                 super::super::graph_storage::OwnedBodies::of(nodes).expect("canonical bodies");
-            let mut meter = WorkMeter::over(&mut budget);
-            bodies.attach(&mut meter);
-            let found = duration_unit_key(nodes, "ix://quire/unit/s", &mut meter);
-            drop(meter);
+            let mut found = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                bodies.attach(&mut meter);
+                found = Some(duration_terms(nodes, &mut meter).and_then(|terms| {
+                    duration_unit_key(nodes, &terms, "ix://quire/unit/s", &mut meter)
+                }));
+            });
+            let found = found.expect("ran");
+            if limit == u64::MAX {
+                assert_eq!(measured.bytes_total, budget.read_storage_consumed());
+            }
             (found.ok(), budget.read_storage_consumed())
         };
         for (nodes, resolves) in [

@@ -1983,7 +1983,8 @@ fn validate_lock<'a>(
     let unit_refs = if roots.is_empty() {
         no_unit_refs(meter)?
     } else {
-        checked_unit_refs(&wire.semantic_graph.nodes, meter)?
+        let duration_terms = identity::duration_terms(&wire.semantic_graph.nodes, meter)?;
+        checked_unit_refs(&wire.semantic_graph.nodes, &duration_terms, meter)?
     };
     let (mut models, documents) =
         validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
@@ -2398,35 +2399,36 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
     }
 }
 
-/// Retain an anchor's bare point through its dedicated body decoder.
+/// Decode a validated body directly from the retained package document.
 fn decode_admitted_body(
     kind: CheckedNodeKind,
-    body: &Value,
-) -> Result<CheckedTerm, typed_terms::TermConversionCause> {
-    if source_nominal_body(kind, body) {
-        identity::NominalBody::from_value(body, JsonPointer::root())
-            .map(|body| CheckedTerm::NominalBody(Box::new(body)))
-            .map_err(|_| typed_terms::TermConversionCause::MalformedMember {
-                member: "body",
-                category: serde_json::error::Category::Data,
-            })
-    } else if kind == CheckedNodeKind::State(StateForm::Frame) {
-        frame::read_frame_body(body, &Trail::Base(&[]))
-            .map(|(frame, _)| frame.into_checked_term())
-            .map_err(|_| typed_terms::TermConversionCause::MalformedMember {
-                member: "body",
-                category: serde_json::error::Category::Data,
-            })
-    } else if kind == CheckedNodeKind::State(StateForm::OperationAnchor) {
-        execution_point::decode_anchor_body(body)
-    } else {
-        CheckedTerm::decode_admitted(body)
+    body: &CheckedJson,
+    row: &[u64],
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<CheckedTerm, ValidationFailure> {
+    let at = || node_pointer(position).key("body");
+    let node = TermNode::of(body);
+    if source_nominal_body(kind, node.get("term").and_then(TermNode::as_str)) {
+        let nominal = identity::NominalBody::from_document(node, row, &at, meter)?;
+        meter.reserve(std::mem::size_of::<identity::NominalBody>())?;
+        return Ok(CheckedTerm::NominalBody(Box::new(nominal)));
     }
+    let site = read_charge::Site::new(PackageReadStage::Graph, position, kind.tag().as_wire());
+    let mut unlimited = NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
+    let budget = meter.budget_mut().unwrap_or(&mut unlimited);
+    let result = if kind == CheckedNodeKind::State(StateForm::OperationAnchor) {
+        node.decode_anchor_in(body.document(), budget, site, row)?
+    } else {
+        node.decode_in(body.document(), budget, site, row)?
+    };
+    result.map_err(|_| refuse(CheckedPackageRefusalCode::MalformedWire, at()))
 }
 
-fn source_nominal_body(kind: CheckedNodeKind, body: &Value) -> bool {
+#[ix_trace_rs::string_edge]
+fn source_nominal_body(kind: CheckedNodeKind, term: Option<&str>) -> bool {
     matches!(
-        (kind, body.get("term").and_then(Value::as_str)),
+        (kind, term),
         (
             CheckedNodeKind::ScalarType(ScalarTypeForm::Enum),
             Some("enum")
@@ -2462,6 +2464,7 @@ fn validate_body<'a, V: TermSource<'a>>(
     at: &Trail<'a>,
     visit: &mut ReferenceVisitor<'_>,
     ids: Ids<'_, '_>,
+    nominal: Option<&identity::NominalBody>,
 ) -> Result<u64, ValidationFailure> {
     #[cfg(test)]
     lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
@@ -2486,8 +2489,7 @@ fn validate_body<'a, V: TermSource<'a>>(
             ));
         }
     }
-    if source_nominal_body(kind, body) {
-        let nominal = identity::NominalBody::from_value(body, at.pointer())?;
+    if let Some(nominal) = nominal {
         let site = ReferenceSite {
             member: ReferenceMember::Target,
             is_body_root: false,
@@ -2571,7 +2573,14 @@ fn validate_value_body(
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
-    super::common::with_unmetered_ids(|ids| validate_body(kind, body, body, at, visit, ids))
+    let nominal = if source_nominal_body(kind, body.get("term").and_then(Value::as_str)) {
+        Some(identity::NominalBody::from_value(body, at.pointer())?)
+    } else {
+        None
+    };
+    super::common::with_unmetered_ids(|ids| {
+        validate_body(kind, body, body, at, visit, ids, nominal.as_ref())
+    })
 }
 
 /// The grammar a node's `body` is validated against (QSpec FR-322
@@ -3197,6 +3206,17 @@ fn validate_graph(
             Step::Key("body"),
         ];
         let mut frame_term = None;
+        let view = TermNode::of(&bodies[position]);
+        let nominal = if source_nominal_body(kind, view.get("term").and_then(TermNode::as_str)) {
+            Some(identity::NominalBody::from_document(
+                view,
+                &wire.semantic_graph.operand_rows[position],
+                &|| at("body"),
+                meter,
+            )?)
+        } else {
+            None
+        };
         let work = match body_grammar(kind) {
             BodyGrammar::Extension => {
                 let body = extension::read_body(
@@ -3262,6 +3282,7 @@ fn validate_graph(
                         .map_or("node", CheckedNodeTag::as_wire),
                     &wire.semantic_graph.operand_rows[position],
                 ),
+                nominal.as_ref(),
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
@@ -3286,14 +3307,29 @@ fn validate_graph(
         // typed decode cannot preempt that step.
         let typed_term = match frame_term {
             Some(term) => Ok(term),
-            None => decode_admitted_body(kind, &node.body),
+            None => {
+                if let Some(nominal) = nominal {
+                    meter.reserve(std::mem::size_of::<identity::NominalBody>())?;
+                    Ok(CheckedTerm::NominalBody(Box::new(nominal)))
+                } else {
+                    decode_admitted_body(
+                        kind,
+                        &bodies[position],
+                        &wire.semantic_graph.operand_rows[position],
+                        position,
+                        meter,
+                    )
+                }
+            }
         };
         terms.push(match typed_term {
             Ok(term) => Some(term),
-            Err(_) if body_grammar(kind) == BodyGrammar::AbstractionRelation => None,
-            Err(_) => {
-                return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
+            Err(ValidationFailure::Refused(_))
+                if body_grammar(kind) == BodyGrammar::AbstractionRelation =>
+            {
+                None
             }
+            Err(failure) => return Err(failure),
         });
     }
     model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
@@ -3417,6 +3453,7 @@ fn validate_graph(
         &wire.lock,
         models,
         dependencies,
+        &terms,
         meter,
         limits.bytes,
     )?;
@@ -3729,7 +3766,7 @@ fn validate_graph(
                         | ScalarTypeForm::Unit
                         | ScalarTypeForm::DimensionEquivalence
                 )
-            ) || !imported_nominals.contains(dependency)
+            ) || imported_nominals.binary_search(dependency).is_err()
             {
                 return Err(refuse(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -3747,7 +3784,7 @@ fn validate_graph(
                             | ScalarTypeForm::DimensionEquivalence
                     )
                 )
-                && imported_nominals.contains(target)
+                && imported_nominals.binary_search(target).is_ok()
             {
                 // A selected nominal in an admitted dependency is validated
                 // by the nominal join above. It is outside this local graph's
@@ -3810,14 +3847,13 @@ fn validate_graph(
         .enumerate()
         .map(|(position, term)| match term {
             Some(term) => Ok(term),
-            None => {
-                decode_admitted_body(kinds[position], &graph.nodes[position].body).map_err(|_| {
-                    refuse(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    )
-                })
-            }
+            None => decode_admitted_body(
+                kinds[position],
+                &bodies[position],
+                &wire.semantic_graph.operand_rows[position],
+                position,
+                meter,
+            ),
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ValidatedGraph {
@@ -5115,5 +5151,82 @@ mod tests {
                 CorrespondenceForm::AbstractionRelation
             )]
         );
+    }
+}
+
+#[cfg(test)]
+mod admitted_document_bridge_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn admitted_document_bridge_prepays_retention_and_preserves_operand_rows() {
+        let cases = [
+            (
+                CheckedNodeKind::Value(ValueForm::Reference),
+                json!({"term":"reference","target":{"package":"fixture","path":[{"operand":0}],"ordinal":0}}),
+            ),
+            (
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension),
+                json!({"term":"dimension","base":true,"terms":[]}),
+            ),
+            (
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+                json!({"term":"unit",
+                "dimension_node_id":{"package":"fixture","path":[{"operand":0}],"ordinal":0},
+                "target_unit_node_id":null,"scale":{"numerator":"1","denominator":"1"},
+                "offset":{"numerator":"0","denominator":"1"}}),
+            ),
+        ];
+        for (kind, wire) in cases {
+            let body = CheckedJson::from_value(&wire).expect("fixture document");
+            let run = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut outcome = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut budget);
+                    meter.at_node(7, "body");
+                    outcome = Some(decode_admitted_body(kind, &body, &[19], 7, &mut meter));
+                });
+                (
+                    outcome.expect("ran"),
+                    measured.bytes_total,
+                    budget.read_storage_consumed(),
+                )
+            };
+            let (term, allocated, charged) = run(u64::MAX);
+            let term = term.expect("closed body");
+            assert!(charged > 0);
+            assert_eq!(allocated, charged, "{kind:?}");
+            if let CheckedTerm::Reference { target } = &term {
+                assert_eq!(target.path, [CheckedNodePathSegment::Index(19)]);
+            }
+            assert_eq!(run(charged).0.expect("exact allowance"), term);
+            assert!(
+                matches!(run(charged - 1).0, Err(ValidationFailure::Budget(_))),
+                "one short: {kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_nominal_bridge_preserves_the_body_member_refusal() {
+        let body = CheckedJson::from_value(&json!({"term":"unit",
+            "dimension_node_id":{"package":"fixture","path":["Time"],"ordinal":0},
+            "target_unit_node_id":null,"scale":{"numerator":1,"denominator":"1"},
+            "offset":{"numerator":"0","denominator":"1"}}))
+        .expect("document");
+        let failure = decode_admitted_body(
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+            &body,
+            &[],
+            3,
+            &mut WorkMeter::new(u64::MAX),
+        )
+        .expect_err("malformed scalar");
+        assert!(matches!(failure,ValidationFailure::Refused(refusal)
+            if refusal.code==CheckedPackageRefusalCode::MalformedWire && refusal.primary_path().is_some_and(|path|path.as_str()=="/semantic_graph/nodes/3/body/scale/numerator")));
     }
 }

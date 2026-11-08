@@ -1561,7 +1561,7 @@ impl ContractPackageWireV1 {
                 {
                     return Ok(Some(source_term));
                 }
-                let mut term = super::decode_admitted_body(
+                let mut term = decode_v1_body(
                     node_kinds[position],
                     &wire.semantic_graph.nodes[position].body,
                 )
@@ -3371,7 +3371,7 @@ impl ContractPackageWireV1 {
             if let Some(pointer) = missing {
                 return Err(malformed(pointer, CheckedPackageRefusalCause::InvalidValue));
             }
-            terms.push(match super::decode_admitted_body(kind, &node.body) {
+            terms.push(match decode_v1_body(kind, &node.body) {
                 Ok(term) => Some(term),
                 Err(_) if super::body_grammar(kind) == super::BodyGrammar::AbstractionRelation => {
                     None
@@ -3468,6 +3468,7 @@ impl ContractPackageWireV1 {
             &self.package.source.lock,
             &[],
             &supplied,
+            &terms,
             &mut *meter,
             limits.bytes,
         )?;
@@ -3543,5 +3544,36 @@ impl ContractPackageWireV1 {
             ));
         }
         Ok(terms)
+    }
+}
+
+/// The V1 reader and writer's existing special-body decoder. Strict V2 reads
+/// use the retained document decoder in the parent module.
+fn decode_v1_body(
+    kind: super::CheckedNodeKind,
+    body: &Value,
+) -> Result<CheckedTerm, super::typed_terms::TermConversionCause> {
+    if super::source_nominal_body(kind, body.get("term").and_then(Value::as_str)) {
+        super::identity::NominalBody::from_value(body, JsonPointer::root())
+            .map(|body| CheckedTerm::NominalBody(Box::new(body)))
+            .map_err(
+                |_| super::typed_terms::TermConversionCause::MalformedMember {
+                    member: "body",
+                    category: serde_json::error::Category::Data,
+                },
+            )
+    } else if kind == super::CheckedNodeKind::State(super::StateForm::Frame) {
+        super::frame::read_frame_body(body, &Trail::Base(&[]))
+            .map(|(frame, _)| frame.into_checked_term())
+            .map_err(
+                |_| super::typed_terms::TermConversionCause::MalformedMember {
+                    member: "body",
+                    category: serde_json::error::Category::Data,
+                },
+            )
+    } else if kind == super::CheckedNodeKind::State(super::StateForm::OperationAnchor) {
+        super::execution_point::decode_anchor_body(body)
+    } else {
+        CheckedTerm::decode_admitted(body)
     }
 }
