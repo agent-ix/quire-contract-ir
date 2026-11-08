@@ -453,22 +453,31 @@ fn binding_at(at: &JsonPointer, i: usize) -> JsonPointer {
     at.clone().key("members").index(i)
 }
 fn nonnegative(term: &CheckedTerm) -> bool {
-    match term.literal_read().map(|read| read.value) {
-        Some(CheckedLiteralValue::Integer(value)) => value.sign() != num_bigint::Sign::Minus,
-        Some(CheckedLiteralValue::Rational { numerator, .. }) => {
-            numerator.sign() != num_bigint::Sign::Minus
-        }
+    match term {
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Integer | LiteralKind::Rational | LiteralKind::Quantity,
+            value,
+            ..
+        } => value
+            .as_str()
+            .or_else(|| value.number_text())
+            .is_some_and(|text| !text.starts_with('-')),
         _ => false,
     }
 }
 fn zero(term: &CheckedTerm) -> bool {
-    match term.literal_read().map(|read| read.value) {
-        Some(CheckedLiteralValue::Rational { numerator, .. }) => {
-            numerator == num_bigint::BigInt::from(0)
-        }
+    match term {
+        CheckedTerm::Literal {
+            value_kind: LiteralKind::Rational | LiteralKind::Quantity,
+            value,
+            ..
+        } => value
+            .as_str()
+            .is_some_and(|text| text.split('/').next() == Some("0")),
         _ => false,
     }
 }
+
 fn magnitude(term: &CheckedTerm) -> (&str, &str) {
     let CheckedTerm::Literal { value, .. } = term else {
         unreachable!("admitted quantity")

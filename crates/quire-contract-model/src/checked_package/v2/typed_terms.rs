@@ -16,8 +16,8 @@ use super::{
 };
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment};
 use crate::identity::ExecutionPoint;
-use num_bigint::BigInt;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
+use quire_exact::Integer;
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{error::Category, Value};
@@ -132,7 +132,7 @@ pub enum CheckedOperationMember {
         /// Declaring tuple node.
         declaration: CheckedNodeId,
         /// Exact position, including beyond the JSON safe integer range.
-        position: BigInt,
+        position: Integer,
     },
     /// An element type of a collection.
     Element {
@@ -386,11 +386,11 @@ pub enum CheckedOperationInterval {
     /// Integer positions, including an unbounded upper end.
     Integer {
         /// Inclusive lower position.
-        #[serde(deserialize_with = "decode_decimal_bigint")]
-        lower: BigInt,
+        #[serde(deserialize_with = "decode_decimal_integer")]
+        lower: Integer,
         /// Inclusive upper position, or no upper limit.
-        #[serde(deserialize_with = "decode_optional_decimal_bigint")]
-        upper: Option<BigInt>,
+        #[serde(deserialize_with = "decode_optional_decimal_integer")]
+        upper: Option<Integer>,
     },
     /// Time magnitudes with explicit open or closed ends.
     Timed {
@@ -410,11 +410,11 @@ pub enum CheckedOperationInterval {
 #[serde(deny_unknown_fields)]
 pub struct CheckedOperationRational {
     /// Decimal numerator.
-    #[serde(deserialize_with = "decode_decimal_bigint")]
-    pub numerator: BigInt,
+    #[serde(deserialize_with = "decode_decimal_integer")]
+    pub numerator: Integer,
     /// Decimal denominator.
-    #[serde(deserialize_with = "decode_decimal_bigint")]
-    pub denominator: BigInt,
+    #[serde(deserialize_with = "decode_decimal_integer")]
+    pub denominator: Integer,
 }
 
 /// Whether an interval includes its endpoint.
@@ -585,7 +585,7 @@ impl CheckedOperationMember {
                 };
                 Self::Position {
                     declaration: declaration()?,
-                    position: BigInt::parse_bytes(text.as_bytes(), 10)?,
+                    position: text.parse().ok()?,
                 }
             }
             OperationMemberKind::Element => Self::Element {
@@ -662,19 +662,19 @@ impl CheckedOperationMember {
     }
 }
 
-fn decode_decimal_bigint<'de, D: Deserializer<'de>>(deserializer: D) -> Result<BigInt, D::Error> {
+fn decode_decimal_integer<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Integer, D::Error> {
     let text = Box::<str>::deserialize(deserializer)?;
-    BigInt::parse_bytes(text.as_bytes(), 10)
-        .ok_or_else(|| serde::de::Error::custom("expected a decimal integer"))
+    text.parse()
+        .map_err(|_| serde::de::Error::custom("expected a canonical decimal integer"))
 }
 
-fn decode_optional_decimal_bigint<'de, D: Deserializer<'de>>(
+fn decode_optional_decimal_integer<'de, D: Deserializer<'de>>(
     deserializer: D,
-) -> Result<Option<BigInt>, D::Error> {
+) -> Result<Option<Integer>, D::Error> {
     let text = Option::<Box<str>>::deserialize(deserializer)?;
     text.map(|text| {
-        BigInt::parse_bytes(text.as_bytes(), 10)
-            .ok_or_else(|| serde::de::Error::custom("expected a decimal integer"))
+        text.parse()
+            .map_err(|_| serde::de::Error::custom("expected a canonical decimal integer"))
     })
     .transpose()
 }
@@ -1098,14 +1098,14 @@ pub enum CheckedLiteralValue<'a> {
     /// Boolean value.
     Boolean(bool),
     /// Arbitrary precision signed integer.
-    Integer(BigInt),
+    Integer(Integer),
     /// Reduced rational or quantity magnitude.
     Rational {
-        numerator: BigInt,
-        denominator: BigInt,
+        numerator: Integer,
+        denominator: Integer,
     },
     /// Decimal coefficient and the exact written scale.
-    Decimal { coefficient: BigInt, scale: usize },
+    Decimal { coefficient: Integer, scale: usize },
     /// IEEE binary32 bits, including signed zero and NaN payloads.
     Float32Bits(u32),
     /// IEEE binary64 bits, including signed zero and NaN payloads.
@@ -1135,13 +1135,10 @@ pub struct CheckedLiteralRead<'a> {
     pub value: CheckedLiteralValue<'a>,
 }
 
-fn rational_parts(value: &CheckedJson) -> Option<(BigInt, BigInt)> {
+fn rational_parts(value: &CheckedJson) -> Option<(Integer, Integer)> {
     let text = value.as_str()?;
     let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
-    Some((
-        BigInt::parse_bytes(numerator.as_bytes(), 10)?,
-        BigInt::parse_bytes(denominator.as_bytes(), 10)?,
-    ))
+    Some((numerator.parse().ok()?, denominator.parse().ok()?))
 }
 
 fn literal_value(kind: LiteralKind, value: &CheckedJson) -> Option<CheckedLiteralValue<'_>> {
@@ -1149,7 +1146,7 @@ fn literal_value(kind: LiteralKind, value: &CheckedJson) -> Option<CheckedLitera
         LiteralKind::Boolean => CheckedLiteralValue::Boolean(value.as_bool()?),
         LiteralKind::Integer => {
             let text = value.as_str().or_else(|| value.number_text())?;
-            CheckedLiteralValue::Integer(BigInt::parse_bytes(text.as_bytes(), 10)?)
+            CheckedLiteralValue::Integer(text.parse().ok()?)
         }
         LiteralKind::Rational | LiteralKind::Quantity => {
             let (numerator, denominator) = rational_parts(value)?;
@@ -1163,8 +1160,17 @@ fn literal_value(kind: LiteralKind, value: &CheckedJson) -> Option<CheckedLitera
             let (whole, fractional) = text.split_once('.').unwrap_or((text, ""));
             let scale = fractional.len();
             let digits = format!("{whole}{fractional}");
+            let negative = digits.starts_with('-');
+            let magnitude = digits.trim_start_matches('-').trim_start_matches('0');
+            let canonical = if magnitude.is_empty() {
+                "0".to_owned()
+            } else if negative {
+                format!("-{magnitude}")
+            } else {
+                magnitude.to_owned()
+            };
             CheckedLiteralValue::Decimal {
-                coefficient: BigInt::parse_bytes(digits.as_bytes(), 10)?,
+                coefficient: canonical.parse().ok()?,
                 scale,
             }
         }
