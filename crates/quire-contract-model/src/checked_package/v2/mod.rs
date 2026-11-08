@@ -5420,7 +5420,8 @@ mod admitted_document_bridge_tests {
             owner_model: None,
             body: (),
         }];
-        let bodies = graph_storage::OwnedBodies::of_values(&[malformed.clone()], vec![vec![]]);
+        let bodies =
+            graph_storage::OwnedBodies::of_values(std::slice::from_ref(&malformed), vec![vec![]]);
         let run = |limit| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let mut meter = WorkMeter::over(&mut budget);

@@ -276,7 +276,6 @@ pub(super) fn validate<Body: EmptyAggregateBody>(
                     meter,
                     position,
                     target,
-                    kinds[target_position],
                     nodes,
                     kinds,
                     terms,
@@ -524,14 +523,13 @@ fn actual_type<'a, Body>(
     meter: &mut WorkMeter,
     position: usize,
     target: &'a CheckedSemanticNodeV2<Body>,
-    kind: CheckedNodeKind,
     nodes: &'a [CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     target_position: usize,
     index: &dyn NodeLookup,
 ) -> Result<Actual<'a>, ValidationFailure> {
-    if matches!(kind, CheckedNodeKind::Extension(_)) {
+    if matches!(kinds[target_position], CheckedNodeKind::Extension(_)) {
         return Ok(match terms.get(target_position).and_then(Option::as_ref) {
             Some(CheckedTerm::ExtensionForm { node_kind, .. }) => Actual::Text(node_kind),
             _ => Actual::Text("extension"),
@@ -787,9 +785,9 @@ mod tests {
         ));
         let required = measured.read_storage_consumed();
         assert!(required > 0);
-        let (exact, _) = join.run_budgeted(u64::try_from(required).expect("fits"));
+        let (exact, _) = join.run_budgeted(required);
         assert!(matches!(exact, Err(ValidationFailure::Refused(_))));
-        let (short, mut budget) = join.run_budgeted(u64::try_from(required).expect("fits") - 1);
+        let (short, mut budget) = join.run_budgeted(required - 1);
         assert!(
             matches!(short, Err(ValidationFailure::Budget(_))),
             "{short:?}"

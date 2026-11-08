@@ -3606,7 +3606,7 @@ fn protocol_binder_types(
             return Ok(BinderSignature::Unspecified);
         };
         return Ok(signatures
-            .operation_binder_types(&anchor.context, anchor.operation, meter)?
+            .operation_binder_types(anchor.context, anchor.operation, meter)?
             .map_or(BinderSignature::Unspecified, BinderSignature::Known));
     }
     let binder_type = match operator {
@@ -4018,7 +4018,7 @@ fn local_dependencies(
     }
     for row in steps {
         if let Some(node) = &row.source_node {
-            meter.insert_id(&mut targets, &node)?;
+            meter.insert_id(&mut targets, node)?;
         }
         match &row.target {
             RefinementStepTarget::Operation {
@@ -4070,7 +4070,7 @@ fn local_dependencies(
                 node, binder_types, ..
             } = entry
             {
-                meter.insert_id(&mut targets, &node)?;
+                meter.insert_id(&mut targets, node)?;
                 for binder in binder_types {
                     meter.insert_id(&mut targets, binder)?;
                 }

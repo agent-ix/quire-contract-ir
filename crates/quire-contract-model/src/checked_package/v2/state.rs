@@ -333,26 +333,22 @@ fn check_anchor(
             .key("members")
             .index(member)
     };
-    let (context, context_kind) = join(anchor, &body.context, is_operation_context, graph)
-        .map_err(|refusal| {
+    let (context, context_kind) =
+        join(anchor, body.context, is_operation_context, graph).map_err(|refusal| {
             model_refusal(
                 refusal,
                 target_at(0).key("value").key("target"),
-                &body.context,
+                body.context,
             )
         })?;
     let (frame, _) = join(
         anchor,
-        &body.frame,
+        body.frame,
         |kind| kind == CheckedNodeKind::State(StateForm::Frame),
         graph,
     )
     .map_err(|refusal| {
-        model_refusal(
-            refusal,
-            target_at(2).key("value").key("target"),
-            &body.frame,
-        )
+        model_refusal(refusal, target_at(2).key("value").key("target"), body.frame)
     })?;
     if anchor.semantic_type != *body.context || frame.semantic_type != *body.context {
         return Err(model_refusal(
@@ -366,7 +362,7 @@ fn check_anchor(
         Ok(Some((owner, operation))) => {
             let frame_position = *graph
                 .index
-                .get(&body.frame)
+                .get(body.frame)
                 .ok_or_else(|| shape_refusal(frame, position))?;
             let steps = [
                 Step::Key("semantic_graph"),
@@ -453,7 +449,7 @@ fn check_clause(
     );
     let (anchor, _) = join(
         clause,
-        &body.anchor,
+        body.anchor,
         |kind| {
             if model_clause {
                 is_operation_context(kind)
@@ -467,7 +463,7 @@ fn check_clause(
         model_refusal(
             refusal,
             arguments_at.clone().index(1).key("target"),
-            &body.anchor,
+            body.anchor,
         )
     })?;
     let mut parameters = meter.vec(body.parameter_count())?;
@@ -665,14 +661,14 @@ fn check_transition(
     };
     let (anchor, _) = join(
         transition,
-        &body.anchor,
+        body.anchor,
         |kind| kind == CheckedNodeKind::State(StateForm::OperationAnchor),
         graph,
     )
-    .map_err(|refusal| model_refusal(refusal, target_at(0), &body.anchor))?;
+    .map_err(|refusal| model_refusal(refusal, target_at(0), body.anchor))?;
     let anchor_position = *graph
         .index
-        .get(&body.anchor)
+        .get(body.anchor)
         .ok_or_else(|| shape_refusal(anchor, position))?;
     let anchor_body = terms
         .get(anchor_position)
@@ -683,23 +679,22 @@ fn check_transition(
         return Err(model_refusal(
             ModelRefusal::malformed(),
             target_at(0),
-            &body.anchor,
+            body.anchor,
         ));
     }
 
     let (subject, _) = join(
         transition,
-        &body.subject,
+        body.subject,
         |kind| kind == CheckedNodeKind::Expression(ExpressionForm::Query),
         graph,
     )
-    .map_err(|refusal| model_refusal(refusal, target_at(1), &body.subject))?;
+    .map_err(|refusal| model_refusal(refusal, target_at(1), body.subject))?;
     let subject_position = *graph
         .index
-        .get(&body.subject)
+        .get(body.subject)
         .ok_or_else(|| shape_refusal(subject, position))?;
-    let malformed_subject =
-        || model_refusal(ModelRefusal::malformed(), target_at(1), &body.subject);
+    let malformed_subject = || model_refusal(ModelRefusal::malformed(), target_at(1), body.subject);
     let Some(CheckedTerm::Application {
         operator: ApplicationOperator::Query,
         operation: project,
@@ -795,7 +790,7 @@ fn check_transition(
         {
             Ok((field_owner, Resolved::Field(field))) => {
                 let declared = graph
-                    .node(&declaring)
+                    .node(declaring)
                     .and_then(|(node, _)| graph.owners.recover(node).ok())
                     .is_some_and(|declaring_owner| {
                         declaring_owner.package.identity == field_owner.package.identity
@@ -825,7 +820,7 @@ fn check_transition(
     }
     let frame_position = *graph
         .index
-        .get(&anchor_body.frame)
+        .get(anchor_body.frame)
         .ok_or_else(malformed_subject)?;
     let frame = graph
         .nodes
@@ -957,8 +952,8 @@ fn check_transition(
             .and_then(typed_clause_body)
             .ok_or_else(|| model_refusal(ModelRefusal::malformed(), target_path(), target))?;
         let matched_anchor = graph
-            .node(&clause_body.anchor)
-            .and_then(|_| graph.index.get(&clause_body.anchor).copied())
+            .node(clause_body.anchor)
+            .and_then(|_| graph.index.get(clause_body.anchor).copied())
             .and_then(|clause_anchor_position| {
                 terms
                     .get(clause_anchor_position)

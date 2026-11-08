@@ -36,8 +36,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
 #[path = "protocol_ports.rs"]
-mod protocol_ports;
-pub use protocol_ports::role_port_fixture;
+pub mod protocol_ports;
 
 pub fn retention_definition() -> CheckedExtensionDefinition {
     CheckedExtensionDefinition {

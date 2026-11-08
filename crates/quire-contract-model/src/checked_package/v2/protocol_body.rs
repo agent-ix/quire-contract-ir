@@ -53,7 +53,9 @@ impl CheckedPackageV2 {
         if self.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::Role) {
             return None;
         }
-        let CheckedTerm::Application { arguments, .. } = &self.wire.semantic_graph.nodes[position].body else {
+        let CheckedTerm::Application { arguments, .. } =
+            &self.wire.semantic_graph.nodes[position].body
+        else {
             return None;
         };
         role_member_texts(binding_value(arguments, "model_member")?)
@@ -69,7 +71,9 @@ impl CheckedPackageV2 {
             if self.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause) {
                 continue;
             }
-            let CheckedTerm::Application { arguments, .. } = &self.wire.semantic_graph.nodes[position].body else {
+            let CheckedTerm::Application { arguments, .. } =
+                &self.wire.semantic_graph.nodes[position].body
+            else {
                 unreachable!("admitted protocol clause has an application body");
             };
             let activation = binding_value(arguments, "activation")
@@ -6404,7 +6408,6 @@ mod tests {
                     .copied()
                     .collect::<Vec<_>>()
             );
-            drop(meter);
             Some(budget.read_storage_consumed())
         };
         let spent = run(u64::MAX).expect("unbounded run completes");

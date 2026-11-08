@@ -15,11 +15,8 @@ use super::v2::read_charge::{Denied, ReadStorage, Site};
 use super::v2::{
     ApplicationOperator, BodyTerm, CheckedTerm, CheckedTermView, NodeIdRead, TermNode,
 };
-use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
-use std::marker::PhantomData;
-use std::ops::ControlFlow;
 
 /// One term below another and where it sits: the member `key` of the parent
 /// (`arguments`, `members` or `value`) and, for an array member, the `index`
@@ -437,11 +434,15 @@ impl<'a> Cursor<'a> {
 
 #[cfg(test)] // the strict read walks `TermNode` subterms; kept as the Value oracle
 /// Visits every term of `root` in document pre-order, outermost first, until
-/// `visit` returns [`ControlFlow::Break`].
+/// `visit` returns [`std::ops::ControlFlow::Break`].
 pub(super) fn visit_terms<'a, B>(
     root: &'a Value,
-    visit: impl FnMut(&'a Value) -> ControlFlow<B>,
-) -> ControlFlow<B> {
+    visit: impl FnMut(&'a Value) -> std::ops::ControlFlow<B>,
+) -> std::ops::ControlFlow<B> {
+    use quire_walk::{walk, Children, Walk};
+    use std::marker::PhantomData;
+    use std::ops::ControlFlow;
+
     struct Visit<'a, B, F>(F, PhantomData<fn(&'a Value) -> B>);
 
     impl<'a, B, F: FnMut(&'a Value) -> ControlFlow<B>> Walk for Visit<'a, B, F> {

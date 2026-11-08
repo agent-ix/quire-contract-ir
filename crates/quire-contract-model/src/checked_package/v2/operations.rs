@@ -1208,14 +1208,14 @@ fn check_type_argument_member_result(
     // catalog family constraint describes the operation's ordinary result.
     let population_result = graph
         .index
-        .get(&member)
+        .get(member)
         .and_then(|position| graph.kinds.get(*position))
         == Some(&CheckedNodeKind::BoundedDomain(
             BoundedDomainForm::ModelPopulation,
         ));
     if let Some(expected_family) = expected_family {
         if !population_result
-            && resolve_selected_family(&member, graph, owners)
+            && resolve_selected_family(member, graph, owners)
                 .is_some_and(|family| !catalog.family_fits(family, expected_family))
         {
             return Some(refuse());
@@ -1551,7 +1551,7 @@ fn operation_defect(
     }
     if operation.identity.as_ref() == "quire.op.collection.sum.quantity"
         && member_declaration(&operation)
-            .is_some_and(|member| carried_unit_and_mode(&member, graph).is_some())
+            .is_some_and(|member| carried_unit_and_mode(member, graph).is_some())
     {
         return Ok(Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
@@ -1626,7 +1626,7 @@ fn operation_defect(
     };
     if let Some(kind) = member_kind {
         let declaring = member_declaration(&operation).and_then(|declaration| {
-            let position = *index.get(&declaration)?;
+            let position = *index.get(declaration)?;
             Some((&nodes[position], kinds[position].tag()))
         });
         match declaring {
@@ -2328,7 +2328,7 @@ fn check_carried_member(
         return None;
     }
     let carried = member_declaration(operation)
-        .and_then(|member| graph.index.get(&member).copied())
+        .and_then(|member| graph.index.get(member).copied())
         .and_then(|position| graph.kinds.get(position))
         == Some(&CheckedNodeKind::ScalarType(
             ScalarTypeForm::CarriedQuantity,
@@ -3362,7 +3362,7 @@ fn check_reference_edge(
         reference_target(&type_id, graph)
     };
     let declaring = member_declaration(operation)
-        .and_then(|declaration| graph.index.get(&declaration).copied())
+        .and_then(|declaration| graph.index.get(declaration).copied())
         .map(|position| (&graph.nodes[position], graph.kinds[position].tag()));
     let Some((declaring, tag)) = declaring else {
         return ineligible(member_at("declaration"));
@@ -3514,7 +3514,7 @@ fn check_tuple_position(
     let operand_type = arguments.first().and_then(|argument| {
         operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index)
     });
-    let declaring = member_declaration(operation).and_then(|id| graph.index.get(&id).copied());
+    let declaring = member_declaration(operation).and_then(|id| graph.index.get(id).copied());
     let is_selected_tuple = |position: usize| {
         graph.kinds[position] == CheckedNodeKind::Model(ModelForm::TupleValueType)
     };
@@ -3614,8 +3614,7 @@ fn check_relationship_member(
         Ok(Some(model_refusal(application, path, refusal)))
     };
     let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
-    let Some(declaring) =
-        member_declaration(operation).and_then(|id| graph.index.get(&id).copied())
+    let Some(declaring) = member_declaration(operation).and_then(|id| graph.index.get(id).copied())
     else {
         return refuse(member_at("declaration"), ModelRefusal::unselected());
     };
@@ -4286,7 +4285,7 @@ fn check_field_member(
     let member = operation.member_node()?;
     let declaration = operation.member_key("declaration")?;
     let name = member.get("name")?.as_str()?;
-    let Some(&position) = graph.index.get(&declaration) else {
+    let Some(&position) = graph.index.get(declaration) else {
         return Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
             application.body(&["operation", "member", "declaration"]),
@@ -4325,7 +4324,7 @@ fn referenced_operand_type(
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
 ) -> Option<CheckedNodeId> {
-    let position = *index.get(&target)?;
+    let position = *index.get(target)?;
     let target_node = &nodes[position];
     if is_type_shaped(*kinds.get(position)?) {
         Some(target.clone())
@@ -4454,10 +4453,7 @@ fn check_mode_type(
                 && matches!(family, "decimal" | "float32" | "float64" | "quantity"))
             .then_some("exact")
         });
-        if pin
-            .as_deref()
-            .is_some_and(|pinned| pinned != mode.value.as_ref())
-        {
+        if pin.is_some_and(|pinned| pinned != mode.value.as_ref()) {
             return Some(application.refuse(
                 CheckedPackageRefusalCode::InvalidPackage,
                 application.body(&["operation", "mode", "value"]),

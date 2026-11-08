@@ -1971,7 +1971,7 @@ fn selected_member_type_parsers_reserve_every_owned_byte() {
     ];
     let mut field = model.object_types[WIDGET].fields[0].clone();
     field.optional = true;
-    for case in 0..4 {
+    for case in [0, 1, 2, 3] {
         let expected = match case {
             0 | 1 => model.element_type(&references[case]),
             2 => model.slot_type(&field.slot),
