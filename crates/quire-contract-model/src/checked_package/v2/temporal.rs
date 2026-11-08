@@ -2588,6 +2588,54 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
+    #[trace("TC-472", "FR-038-AC-516", "FR-038-AC-5")]
+    #[test]
+    fn invalid_reference_id_refuses_in_the_graph_term_pass_before_temporal_views() {
+        use crate::checked_package::common::{validate_term, TermGrammar};
+        let body = CheckedJson::from_value(&json!({"term":"reference","target":{
+            "package":"", "path":[], "ordinal":0
+        }}))
+        .unwrap();
+        let steps = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(7),
+            Step::Key("body"),
+        ];
+        let mut budget =
+            super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let mut visited = 0;
+        let result = validate_term(
+            TermNode::of(&body),
+            TermGrammar::V2,
+            true,
+            &Trail::Base(&steps),
+            &mut |_, _, _, _, _| {
+                visited += 1;
+                Ok(())
+            },
+            super::super::read_charge::ids(
+                &mut budget,
+                super::super::PackageReadStage::Graph,
+                7,
+                "temporal",
+                &[],
+            ),
+        );
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("invalid target must refuse before temporal interpretation")
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().as_str(),
+            "/semantic_graph/nodes/7/body/target"
+        );
+        assert_eq!(
+            visited, 0,
+            "invalid IDs never enter the authenticated target table"
+        );
+    }
+
     fn id(fill: char) -> Value {
         json!({ "package": "test/temporal", "path": [fill.to_string()], "ordinal": 0 })
     }
