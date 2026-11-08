@@ -4021,6 +4021,21 @@ impl CheckedPackageV2 {
                     }
                 }
             }
+            CheckedNodeKind::Model(ModelForm::VariantType) => {
+                identities.check_binding(self, work, type_id)?;
+                let shape = identities.model_enum_shapes.get(type_id).ok_or_else(|| {
+                    refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
+                })?;
+                storage::preflight_enum_shape(shape, work, type_id)?;
+                charge_native_storage(
+                    work,
+                    requested,
+                    type_id,
+                    "model_enum_projection",
+                    storage::enum_shape(shape).saturating_add(1),
+                )?;
+                ValueType::Enum(shape.clone())
+            }
             CheckedNodeKind::Model(ModelForm::RecordValueType) => {
                 let identity = identities
                     .declaration_identity(self, type_id)

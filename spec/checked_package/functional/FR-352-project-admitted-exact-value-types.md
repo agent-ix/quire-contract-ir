@@ -207,6 +207,14 @@ faithful to Exact's current closed variants, `scalar_type/string`,
 `scalar_type/uuid`, and `scalar_type/timestamp` SHALL map to `String`, `Uuid`,
 and `Timestamp` respectively, without converting them to `Text` or `Integer`.
 
+A selected `model/variant_type` whose complete shape was joined by the reached
+model read SHALL map to `Enum` with that installed opaque `EnumShape`, retaining
+its ordering and every producer-issued variant identity. The projection SHALL
+check the witness's admission binding and borrow the installed shape, charging
+its inspected case bytes and owned result before copying it. An absent installed
+shape SHALL return `UnavailableIdentityWitness`; no declaration key, case name,
+source-enum row or fallback shape SHALL substitute for it.
+
 A selected `model/record_value_type` SHALL map to `Composite` with the Exact
 `NodeKey` witnessed for that record declaration. This includes `Receipt`,
 `Attempt`, `Flag`, and `Tick`. The record view SHALL derive its full selected
@@ -615,6 +623,8 @@ alternate QSL-side validator is introduced by this requirement.
 | FR-352-AC-27 | Implemented (IR-1360). A nonempty witness is checked using borrowed retained facts; success precharges its returned shared handles and any newly retained binding provenance. Actual acquisition copy-on-write map/key/entry/handle copies are charged before each copy/reserve/insert; one unit below an identified copy or returned-handle charge refuses without publishing any part of the output. Merely borrowing retained facts charges work but no storage; owned scratch state is precharged under FR-358. Success deltas and refused-call cumulative counters follow FR-358 without claiming IR-1359 diagnostic allocation qualification. | Test, Inspection |
 | FR-352-AC-28 | Implemented (IR-1360). A default-feature external consumer calls the checked public `with_admitted_type_rows` and single `validate_and_rebind` signatures with `&mut NativeJoinBudget`. The selected-type declaration projection uses the same checked admitted-type join; the old unchecked copy path is absent. The public surface exposes no private-map getter, unchecked rebind, completeness flag, wrapper or second validator. Full finite package-local checks use native admitted facts, terminate iteratively, perform no source parse, and acquire no QSL/runtime dependency or pin. Missing emitted declarations or unsupported native identity channels refuse truthfully rather than yielding a partial complete witness. | Test, Inspection |
 | FR-352-AC-29 | Implemented (IR-1360). The checked admitted-type acquisition joins a genuine selected model tuple and source-owned declared unit, preserving their complete private provenance and other witness families. Foreign nodes, wrong selected document/source, wrong tuple/unit form, changed owner/original declaration, compound `UnitId`, duplicate rows and cross-family handle conflicts refuse with the typed first native cause and no partial extension. Exact measured work and storage allowances succeed; one unit below either requirement refuses at the first unpaid kind, amount and locus before the corresponding copy. Incremental calls reuse cumulative budget consumption, and a package clone gives equal results or first stops. | Test |
+
+| FR-352-AC-30 | Direct projection of an admitted selected `model/variant_type` with its complete installed model enum shape returns `ValueType::Enum` equal to that shape, retaining ordering and every opaque variant identity. A package clone agrees. The reached-model join and following projection share one `NativeJoinBudget`: their measured exact cumulative work and storage succeed, and one unit below either refuses at the first unpaid kind and locus without a partial projection. An absent shape returns `UnavailableIdentityWitness`, and identities installed for an independent admission refuse `ForeignNode`. Authored IR fixture evidence establishes the owner boundary; genuine same-emission QSL evidence remains a separate producer qualification. | Test |
 
 ## Dependencies
 
