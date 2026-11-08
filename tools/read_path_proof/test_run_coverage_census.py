@@ -3,6 +3,7 @@
 
 """Artifact custody and execution resource controls; no compiler proof claim."""
 import gzip
+import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -27,6 +28,21 @@ class OriginalSelection(unittest.TestCase):
                 with self.assertRaises(runner.RunError):
                     runner.select_original_tests(compiled, selected, controls, classes)
 
+    def test_exact_control_subset_is_distinct_from_original_and_full_modes(self):
+        inventory = list(runner.CONTROL_CASES)
+        selected = inventory[:1]
+        self.assertEqual(runner.select_control_tests(inventory, selected), selected)
+        self.assertEqual(runner.select_control_tests(inventory, []), inventory)
+        for names in (["unknown"], selected * 2):
+            with self.assertRaises(runner.RunError):
+                runner.select_control_tests(inventory, names)
+        with self.assertRaises(runner.RunError):
+            runner.select_control_tests([], selected)
+        metadata = runner.selection_metadata(SimpleNamespace(controls=True, class_controls=False, control_test=selected))
+        self.assertEqual(metadata["scope"], "selected-only reader entry controls")
+        self.assertFalse(metadata["full_corpus"])
+        self.assertFalse(metadata["complete_declared_inventory"])
+
     def test_selected_completion_never_claims_full_corpus(self):
         metadata = runner.selection_metadata(SimpleNamespace(original_test=["a"], controls=False, class_controls=False))
         self.assertEqual(metadata["scope"], "selected-only original tests")
@@ -35,7 +51,24 @@ class OriginalSelection(unittest.TestCase):
     def test_unfiltered_selection_preserves_inventory_and_scope(self):
         inventory = ["b", "a"]
         self.assertEqual(runner.select_original_tests(inventory, []), inventory)
-        self.assertTrue(runner.selection_metadata(SimpleNamespace(original_test=[], controls=False, class_controls=False))["full_corpus"])
+        metadata = runner.selection_metadata(SimpleNamespace(original_test=[], controls=False, class_controls=False))
+        self.assertTrue(metadata["complete_declared_inventory"])
+        self.assertFalse(metadata["full_corpus"])
+
+
+class CompletionCustody(unittest.TestCase):
+    def test_empty_completion_manifest_cannot_emit_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "manifest.json"
+            manifest.write_text(json.dumps({"schema":"ac511-full-completion/v1", "runs":[]}))
+            with self.assertRaisesRegex(runner.RunError, "exactly two"):
+                runner.complete_full_manifest(manifest)
+
+    def test_support_controls_are_explicitly_scoped_without_corpus_credit(self):
+        metadata = runner.selection_metadata(SimpleNamespace(controls=True, class_controls=False))
+        self.assertEqual(metadata["scope"], "executed malformed-input reader entry controls only")
+        self.assertFalse(metadata["full_corpus"])
+        self.assertFalse(metadata["complete_declared_inventory"])
 
 
 class ArtifactCustody(unittest.TestCase):
