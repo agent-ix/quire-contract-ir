@@ -1401,6 +1401,7 @@ impl<'a> BodyInput<'a> {
     }
 
     /// The string member `name` of an object body.
+    #[ix_trace_rs::string_edge]
     fn string_member(self, name: &str) -> Option<&'a str> {
         match self {
             Self::Document(body) => body?.0.get(name)?.as_str(),
@@ -2241,6 +2242,7 @@ fn nominal_term(terms: &[Option<super::CheckedTerm>], position: usize) -> Option
     }
 }
 
+#[ix_trace_rs::string_edge]
 pub(super) fn duration_unit_key<B>(
     nodes: &[CheckedSemanticNodeV2<B>],
     terms: &[Option<super::CheckedTerm>],

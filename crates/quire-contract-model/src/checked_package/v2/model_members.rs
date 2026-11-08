@@ -328,6 +328,7 @@ impl SelectedTypeRef {
     }
 
     /// The shape of an admitted type name, without owning any of it.
+    #[ix_trace_rs::string_edge]
     fn admit(name: &str) -> Option<Admitted<'_>> {
         if let Some(inner) = name.strip_prefix("Map<").and_then(|s| s.strip_suffix('>')) {
             let (key, value) = inner.split_once(", ")?;
@@ -350,6 +351,7 @@ impl SelectedTypeRef {
     }
 
     /// Whether an admitted type name is a unit reference, which owns nothing.
+    #[ix_trace_rs::string_edge]
     fn is_unit_name(name: &str) -> bool {
         name.strip_prefix("Map<")
             .and_then(|s| s.strip_suffix('>'))
@@ -5551,6 +5553,7 @@ fn semantic_ir_relationship(
     )))
 }
 
+#[ix_trace_rs::string_edge]
 fn valid_relationship_identity(package: &str, identity: &str) -> bool {
     identity
         .strip_prefix("ix://")

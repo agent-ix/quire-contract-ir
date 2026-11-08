@@ -277,6 +277,7 @@ struct Spelling<'t> {
 impl<'t> Spelling<'t> {
     /// The spelling of `text`, a number `quire-canonical` read or wrote, so
     /// `-? int frac? exp?`.
+    #[ix_trace_rs::string_edge]
     fn of(text: &'t str) -> Self {
         let (negative, unsigned) = match text.strip_prefix('-') {
             Some(unsigned) => (true, unsigned),

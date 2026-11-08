@@ -124,6 +124,7 @@ trait ClosedWord: Sized {
     fn from_word(word: &str) -> Option<Self>;
 }
 impl ClosedWord for HybridVariableClass {
+    #[ix_trace_rs::string_edge]
     fn from_word(word: &str) -> Option<Self> {
         match word {
             "clock" => Some(Self::Clock),
@@ -133,6 +134,7 @@ impl ClosedWord for HybridVariableClass {
     }
 }
 impl ClosedWord for HybridBindingRole {
+    #[ix_trace_rs::string_edge]
     fn from_word(word: &str) -> Option<Self> {
         match word {
             "parameters" => Some(Self::Parameters),
@@ -144,11 +146,13 @@ impl ClosedWord for HybridBindingRole {
     }
 }
 impl ClosedWord for HybridActivationKind {
+    #[ix_trace_rs::string_edge]
     fn from_word(word: &str) -> Option<Self> {
         (word == "each").then_some(Self::Each)
     }
 }
 impl ClosedWord for HybridTimeKind {
+    #[ix_trace_rs::string_edge]
     fn from_word(word: &str) -> Option<Self> {
         match word {
             "model-time" => Some(Self::ModelTime),
@@ -158,6 +162,7 @@ impl ClosedWord for HybridTimeKind {
     }
 }
 impl ClosedWord for HybridTemporalOperation {
+    #[ix_trace_rs::string_edge]
     fn from_word(word: &str) -> Option<Self> {
         (word == "quire.op.temporal.holds").then_some(Self::Holds)
     }

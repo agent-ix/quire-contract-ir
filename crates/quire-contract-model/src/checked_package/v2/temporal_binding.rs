@@ -285,6 +285,7 @@ fn is_operation_mode(mode: TermNode<'_>) -> bool {
 
 /// Whether `leaf` is an operation leaf: a `path` of texts, `laws`, and an
 /// optional `mode`, with no other member.
+#[ix_trace_rs::string_edge]
 fn is_operation_leaf(leaf: TermNode<'_>) -> bool {
     let Some(members) = leaf.members() else {
         return false;

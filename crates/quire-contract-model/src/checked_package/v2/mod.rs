@@ -3089,6 +3089,7 @@ impl<'a> DeclarationName<'a> {
         })
     }
 }
+#[ix_trace_rs::string_edge]
 fn declaration_name<'a>(
     node: &'a RawSemanticNodeV2,
     kind: Option<&CheckedNodeKind>,
@@ -4863,7 +4864,8 @@ mod test_support {
             .as_array()
             .expect("test nodes")
             .len();
-        value["semantic_graph"]["operand_rows"] = json!(vec![
+        value["semantic_graph"]["operand_rows"] =
+            json!(vec![
             Vec::<crate::checked_package::shared::CheckedOperandEntry>::new();
             count
         ]);

@@ -1102,6 +1102,7 @@ struct Collector<'d, 'e, 'b> {
 impl<'d> Collector<'d, '_, '_> {
     /// Enters one value: records the operand segments an ID object holds and
     /// returns the frame of a container, which the caller walks.
+    #[ix_trace_rs::string_edge]
     fn enter(
         &mut self,
         value: NodeRef<'d>,
@@ -1142,6 +1143,7 @@ impl<'d> Collector<'d, '_, '_> {
 
     /// A `dependency_reference` term names its target with a document-held
     /// ID whose path holds no operand object.
+    #[ix_trace_rs::string_edge]
     fn check_dependency_reference(
         &mut self,
         members: &Members<'d>,
@@ -1173,6 +1175,7 @@ impl<'d> Collector<'d, '_, '_> {
     }
 
     /// Records the `{"operand": k}` and `{"node": i}` segments of an ID object.
+    #[ix_trace_rs::string_edge]
     fn record_segments(
         &mut self,
         members: &Members<'d>,

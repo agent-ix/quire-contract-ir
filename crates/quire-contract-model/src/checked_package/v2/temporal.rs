@@ -159,6 +159,7 @@ impl IntegerString {
         })
     }
 
+    #[ix_trace_rs::string_edge]
     fn parse_charged(text: &str, meter: &mut WorkMeter) -> Result<Option<Self>, ValidationFailure> {
         let Some((negative, digits)) = Self::parts(text) else {
             return Ok(None);
@@ -330,6 +331,7 @@ fn interval_object_node(operation: TermNode<'_>) -> Option<TermNode<'_>> {
 }
 
 /// Document-backed counterpart used by the strict flat-wire pass.
+#[ix_trace_rs::string_edge]
 pub(super) fn interval_bound_outside_pattern_node(operation: TermNode<'_>) -> Option<&'static str> {
     let member = operation.get("member")?;
     if OperationMemberKind::from_wire(member.get("kind")?.as_str()?)
@@ -505,6 +507,7 @@ pub(super) fn member_is_well_formed_node(
     {
         return false;
     }
+    #[ix_trace_rs::string_edge]
     fn integer(value: Option<TermNode<'_>>) -> bool {
         value.and_then(TermNode::as_str).is_some_and(|text| {
             let digits = text.strip_prefix('-').unwrap_or(text);
@@ -517,6 +520,7 @@ pub(super) fn member_is_well_formed_node(
             }
         })
     }
+    #[ix_trace_rs::string_edge]
     fn rational(value: TermNode<'_>) -> bool {
         value.exact_members(&["numerator", "denominator"])
             && integer(value.get("numerator"))
@@ -1628,6 +1632,7 @@ fn aggregate_clock_units<'b>(
 
 /// Whether a bound's type path is the clock's timestamp unit
 /// (`scalar_type/unit/<name>`), or both are absent.
+#[ix_trace_rs::string_edge]
 fn is_clock_unit_path(path: Option<&[CheckedNodePathSegment]>, unit: Option<&str>) -> bool {
     use CheckedNodePathSegment::Name;
     match (path, unit) {

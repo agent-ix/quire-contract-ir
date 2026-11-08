@@ -525,6 +525,7 @@ fn magnitude(term: &CheckedTerm) -> (&str, &str) {
 }
 /// The existing signed rational syntax and reduction check without building
 /// an intermediate owned refusal that the caller would immediately replace.
+#[ix_trace_rs::string_edge]
 pub(super) fn rational_parts_are_canonical(
     numerator: &str,
     denominator: &str,

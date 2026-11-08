@@ -517,6 +517,7 @@ impl<'d> TermNode<'d> {
         self.get(name)?.items()
     }
 
+    #[ix_trace_rs::string_edge]
     fn segment_form(self) -> Option<SegmentForm<'d>> {
         if let Some(name) = self.as_str() {
             return Some(SegmentForm::Name(name));
@@ -1067,6 +1068,7 @@ fn flat_shape(node: TermNode<'_>, kind: FlatShape) -> bool {
             .all(|(name, kind)| node.get(name).is_some_and(|n| flat_shape(n, *kind)))
 }
 
+#[ix_trace_rs::string_edge]
 fn decode_term<'d>(
     context: &DecodeContext<'d>,
     document: &'d Arc<Document>,

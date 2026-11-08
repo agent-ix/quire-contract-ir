@@ -24,7 +24,7 @@ use crate::checked_package::common::{
 };
 use crate::checked_package::shared::CheckedPackageRefusalCode;
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOperandEntry, CheckedOccurrence,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOperandEntry,
     CheckedSourceMapEntry, CheckedSourceRegion,
 };
 use quire_canonical::Document;
@@ -32,6 +32,7 @@ use serde::{Deserialize, Deserializer};
 use std::sync::Arc;
 
 /// Check a present position ordinal before semantic graph validation.
+#[ix_trace_rs::string_edge]
 fn key_ordinal_node(value: TermNode<'_>) -> bool {
     const MAX_SAFE: &str = "9007199254740991";
     if value
@@ -330,6 +331,7 @@ pub(super) fn decode_borrowed_wire(
 /// Select the existing intake-specific code and position before paying for
 /// the one final diagnostic. The decoder supplies at most TRACKED_DEPTH steps;
 /// the longest refinement appends the two steps `path` and its bad segment.
+#[ix_trace_rs::string_edge]
 fn classify_wire_fault(
     document: &Document,
     mut code: CheckedPackageRefusalCode,
@@ -454,6 +456,7 @@ fn missing_probabilistic_occurrence(document: &Document, at: &[Step<'_>]) -> boo
         .is_some_and(|row| row.get("declaration").is_some() && row.get("occurrence").is_none())
 }
 
+#[ix_trace_rs::string_edge]
 fn invalid_clock_field(document: &Document, at: &[Step<'_>]) -> Option<&'static str> {
     if !matches!(at.first(), Some(Step::Key("temporal_bindings")))
         || !matches!(at.last(), Some(Step::Key("clock")))
@@ -476,6 +479,7 @@ fn invalid_clock_field(document: &Document, at: &[Step<'_>]) -> Option<&'static 
 
 /// V2 path objects are closed graph-local indices; nested IDs are refused at
 /// the segment itself, before semantic-graph admission.
+#[ix_trace_rs::string_edge]
 fn invalid_node_id_suffix(
     document: &Document,
     at: &[Step<'_>],
@@ -544,6 +548,7 @@ fn malformed(
 /// Check the lossless closed decode against the retained source document.
 /// The comparator follows document nodes as the typed serializer visits them;
 /// it does not reparse a source slice or build a second JSON tree.
+#[ix_trace_rs::string_edge]
 pub(super) fn check_lossless_source(
     document: &Document,
     wire: &RawCheckedPackageWireV2,
