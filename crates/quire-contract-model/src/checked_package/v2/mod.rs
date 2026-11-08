@@ -1455,54 +1455,6 @@ fn pointer_token_matches(name: &str, token: &str) -> bool {
     name.next().is_none()
 }
 
-enum OwnerShapeMember {
-    Owner,
-    OwnerModel,
-}
-
-impl OwnerShapeMember {
-    #[ix_trace_rs::string_edge]
-    fn from_wire(text: &str) -> Option<Self> {
-        match text {
-            "owner" => Some(Self::Owner),
-            "owner_model" => Some(Self::OwnerModel),
-            _ => None,
-        }
-    }
-
-    fn as_wire(&self) -> &'static str {
-        match self {
-            Self::Owner => "owner",
-            Self::OwnerModel => "owner_model",
-        }
-    }
-}
-
-/// Owner variants and the local-only clause model edge are closed wire shapes
-/// whose unknown members are `malformed_wire` at the owner member.
-fn classify_owner_shape(failure: ValidationFailure) -> ValidationFailure {
-    let ValidationFailure::Refused(mut refusal) = failure else {
-        return failure;
-    };
-    if refusal.code == CheckedPackageRefusalCode::UnknownMember {
-        let owner_path = refusal.primary_path().and_then(|path| {
-            let index = path.as_str().split('/').nth(3)?.parse::<usize>().ok()?;
-            let prefix = node_pointer(index);
-            let member_path = path
-                .as_str()
-                .strip_prefix(prefix.as_str())?
-                .strip_prefix('/')?;
-            let member = member_path.split('/').next()?;
-            OwnerShapeMember::from_wire(member).map(|member| prefix.key(member.as_wire()))
-        });
-        if let Some(owner_path) = owner_path {
-            refusal.code = CheckedPackageRefusalCode::MalformedWire;
-            refusal.set_primary_path(Some(owner_path));
-        }
-    }
-    ValidationFailure::Refused(refusal)
-}
-
 impl CheckedPackageV2 {
     /// The graph node with `id`, from the retained index.
     pub(in crate::checked_package) fn node(
@@ -1594,8 +1546,7 @@ impl CheckedPackageV2 {
             ));
         }
         let (mut wire, bodies) = intake::decode_borrowed_wire(&document, budget)
-            .map_err(|failure| classify_dependency_entry_shape(failure, &document))
-            .map_err(classify_owner_shape)?;
+            .map_err(|failure| classify_dependency_entry_shape(failure, &document))?;
         intake::check_lossless_source(&document, &wire, budget)?;
         // Every later stage compares operands by graph index, so each node-held
         // slot is read through its row once here.

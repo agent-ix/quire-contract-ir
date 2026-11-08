@@ -364,6 +364,23 @@ fn classify_wire_fault(
         code = MalformedWire;
         length = 4;
     }
+    // Owner shape classification precedes diagnostic reservation, including
+    // the final shortened pointer. Other namespaces never build a node prefix.
+    let owner_shape = code == UnknownMember
+        && matches!(
+            original,
+            [
+                Step::Key("semantic_graph"),
+                Step::Key("nodes"),
+                Step::Index(_),
+                Step::Key("owner" | "owner_model"),
+                ..
+            ]
+        );
+    if owner_shape {
+        code = MalformedWire;
+        length = 4;
+    }
     if code == UnknownMember {
         match original {
             [Step::Key("temporal_clause_names" | "schedulability_claims"), Step::Index(_), ..] => {
@@ -388,7 +405,7 @@ fn classify_wire_fault(
             _ => {}
         }
     }
-    if code == MalformedWire {
+    if code == MalformedWire && !owner_shape {
         let at = &steps[..length];
         if let Some((first, second)) = invalid_node_id_suffix(document, at) {
             steps[length] = first;
@@ -1085,6 +1102,53 @@ mod schema_policy_tests {
         );
     }
 
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn owner_schema_classification_pays_only_the_final_owner_path() {
+        let document = quire_canonical::read(br#"{"semantic_graph":{"nodes":[{"owner":{"package":"p","path":[false],"ordinal":0}}]}}"#, u64::MAX).unwrap();
+        for member in ["owner", "owner_model"] {
+            let steps = [
+                Step::Key("semantic_graph"),
+                Step::Key("nodes"),
+                Step::Index(0),
+                Step::Key(member),
+                Step::Key("extra"),
+            ];
+            let expected = format!("/semantic_graph/nodes/0/{member}");
+            verify(&document, UnknownMember, &steps, MalformedWire, &expected);
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0);
+            assert!(matches!(
+                classify_wire_fault(
+                    &document,
+                    UnknownMember,
+                    &steps,
+                    &mut super::super::WorkMeter::over(&mut budget)
+                ),
+                ValidationFailure::Budget(_)
+            ));
+            assert_eq!(
+                budget.take_pending(),
+                Some(super::super::CheckedPackagePendingOutcome::Refused(
+                    MalformedWire
+                ))
+            );
+        }
+        for member in ["digest_domain", "revision"] {
+            verify(
+                &document,
+                UnknownMember,
+                &[
+                    Step::Key("lock"),
+                    Step::Key("sources"),
+                    Step::Index(0),
+                    Step::Key(member),
+                ],
+                UnknownMember,
+                &format!("/lock/sources/0/{member}"),
+            );
+        }
+    }
+
     #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
     #[test]
     fn schema_policy_maximum_snapshot_plus_two_steps_and_deep_siblings_are_exact() {
@@ -1131,6 +1195,70 @@ mod schema_policy_tests {
             "/temporal_clause_names/0"
         );
         assert_eq!(measured.bytes_total, budget.read_storage_consumed());
+    }
+
+    #[ix_trace_rs::trace("TC-048", "FR-038-AC-53", "TC-472", "FR-038-AC-511")]
+    #[test]
+    fn lock_source_unknown_member_public_reader_pays_every_request() {
+        use crate::checked_package::shared::CheckedPackageReadLimits;
+        use crate::checked_package::v2::monitor_plan::model_document_test_fixture as fixture;
+        use crate::checked_package::v2::{CheckedPackageV2, CheckedPackageV2BudgetedReadResult};
+        let base = fixture::v2_nominal();
+        for (member, value) in [
+            ("digest_domain", serde_json::json!("quire.source.bytes/v1")),
+            (
+                "revision",
+                serde_json::json!({"namespace":"quire-draft","value":"1"}),
+            ),
+        ] {
+            let mut wire = base.clone();
+            wire["lock"]["sources"][0][member] = value;
+            let evidence = fixture::evidence_for(&wire);
+            let bytes = fixture::canonical(&wire);
+            let run = |budget: &mut NativeJoinBudget| {
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    result = Some(CheckedPackageV2::read_with_budget(
+                        &bytes,
+                        CheckedPackageReadLimits::bounded(),
+                        &evidence,
+                        budget,
+                    ));
+                })
+                .bytes_total;
+                (result.unwrap(), allocated)
+            };
+            let mut ample = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let (result, allocated) = run(&mut ample);
+            let CheckedPackageV2BudgetedReadResult::Refused(refusal) = &result else {
+                panic!("unknown source member")
+            };
+            assert_eq!(refusal.code, UnknownMember);
+            assert_eq!(refusal.cause, None);
+            assert_eq!(
+                refusal.primary_path().unwrap().as_str(),
+                format!("/lock/sources/0/{member}")
+            );
+            let required = ample.read_storage_consumed();
+            assert_eq!(allocated, required);
+            let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+            assert_eq!(run(&mut exact), (result.clone(), required));
+            for limit in [0, required - 1] {
+                let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let (result, allocated) = run(&mut short);
+                assert!(matches!(
+                    result,
+                    CheckedPackageV2BudgetedReadResult::Exhausted(_)
+                ));
+                assert_eq!(allocated, short.read_storage_consumed());
+            }
+            let mut repeated =
+                NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(2 * required);
+            assert_eq!(run(&mut repeated), (result.clone(), required));
+            assert_eq!(run(&mut repeated), (result, required));
+            assert_eq!(repeated.read_storage_consumed(), 2 * required);
+            assert_eq!(repeated.consumed().work, 2 * ample.consumed().work);
+        }
     }
 
     /// Paired identical public reads cancel unrelated earlier reader storage:
