@@ -38,3 +38,4 @@ Examined units: tests-matrix-rows, FR-038-AC-503, FR-038-AC-507, FR-038-AC-512.
 | --- | --- | --- |
 | FND-001 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
 | FND-002 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
+| FND-003 | fixed | Verified in fix commit bd9092b93c93357b7b85a5a2e7787bd6b76a2e6c |

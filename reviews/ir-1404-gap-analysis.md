@@ -34,3 +34,4 @@ Examined units: FR-038-AC-503, FR-038-AC-507, TC-472, FR-038-AC-512.
 | --- | --- | --- |
 | FND-001 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
 | FND-002 | still-open | run_class_controls returns the unfiltered result, and main writes it to result.json with each class's facts (original-site records). run_coverage_census.py:550 returns [result], whose classes still hold facts and directory for each execution, and line 633 writes results into result.json. config.json and the class-proof.json report fields are fixed, and the logs are deleted, but a qualified class-control run still serializes the captured records TC-472 forbids. Return persisted_class_proof(result). |
+| FND-002 | fixed | Verified in fix commit bd9092b93c93357b7b85a5a2e7787bd6b76a2e6c |
