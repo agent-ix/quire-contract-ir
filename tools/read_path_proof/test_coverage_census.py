@@ -48,6 +48,23 @@ class ActualEntryCensus(unittest.TestCase):
         self.assertEqual(result["budgeted"], 38)
         self.assertFalse(result["static_ac513_proven"])
 
+    def test_compiler_path_attribute_spelling_resolves_exact_source(self):
+        data = export_counts()
+        for row in data["data"][0]["functions"]:
+            row["filenames"] = [name.replace("tests/it/support/", "tests/conformance_qspec/../it/support/")
+                                for name in row["filenames"]]
+        self.assertEqual(census.check(data, ROOT)["measured_probes"], 20)
+        next(row for row in data["data"][0]["functions"] if "read_with_budget" in row["name"])["count"] += 1
+        with self.assertRaisesRegex(census.CensusError, "unaccounted budgeted"):
+            census.check(data, ROOT)
+
+    def test_equal_suffix_in_other_source_tree_cannot_supply_boundary(self):
+        data = export_counts()
+        row = data["data"][0]["functions"][0]
+        row["filenames"] = [str(ROOT.parent / "foreign-tree/tests/it/support/qspec_read_proof.rs")]
+        with self.assertRaisesRegex(census.CensusError, "missing compiled function"):
+            census.check(data, ROOT)
+
     def test_seeded_original_entry_requires_six_checked_snapshot_reads(self):
         data=export_counts(plain=0,probes=0,caller=1,calibration=1)
         self.assertEqual(census.check(data,ROOT)["budgeted"],8)
