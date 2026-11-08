@@ -303,7 +303,7 @@ impl CheckedPackageV2 {
             return Err(Error::MissingOccurrence);
         }
         scalar_arguments(
-            self.catalog,
+            &self.catalog,
             nodes,
             &self.node_index,
             &self.kinds,
@@ -497,7 +497,7 @@ mod tests {
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+            catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
         }
         .retain_original_admission()
@@ -918,7 +918,7 @@ mod tests {
             }
             let node = &package.wire.semantic_graph.nodes[3];
             let mut arguments = scalar_arguments(
-                package.catalog,
+                &package.catalog,
                 &package.wire.semantic_graph.nodes,
                 &package.node_index,
                 &package.kinds,

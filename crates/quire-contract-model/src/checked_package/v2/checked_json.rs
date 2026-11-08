@@ -230,6 +230,9 @@ const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
 /// writer's reservation. An integer past 2^53 is the encoder's refusal, as it
 /// is for a `serde_json` number: the document holds the number's text, so a
 /// double would otherwise silently round it.
+// The one string comparison is a closed-vocabulary guard on a serde_json
+// private member name, not an open key.
+#[ix_trace_rs::string_edge]
 pub(super) fn encode_node<S: Sink + ?Sized>(
     root: NodeRef<'_>,
     writer: &mut Writer<'_, S>,

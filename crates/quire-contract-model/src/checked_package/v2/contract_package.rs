@@ -1589,7 +1589,7 @@ impl ContractPackageWireV1 {
                 node_index,
                 unsupported_tags,
                 unsupported_source_kinds: Some(unsupported_source_kinds),
-                catalog: super::operation_catalog::CatalogRef(source.catalog),
+                catalog: source.catalog.clone(),
             },
             bytes,
         ))
@@ -1692,7 +1692,7 @@ impl ContractPackageWireV1 {
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
     ) -> ContractPackageReadResult {
-        Self::read_against(
+        Self::read_with_catalog(
             super::operation_catalog::production_catalog(),
             bytes,
             limits,
@@ -1702,6 +1702,7 @@ impl ContractPackageWireV1 {
 
     /// [`Self::read`] against the given result of reading the operation
     /// catalog: an unreadable catalog returns before any byte is judged.
+    #[cfg(test)]
     pub(super) fn read_against(
         catalog: &'static Result<
             super::operation_catalog::OperationCatalog,
@@ -1711,7 +1712,21 @@ impl ContractPackageWireV1 {
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
     ) -> ContractPackageReadResult {
-        let catalog = match super::operation_catalog::available(catalog) {
+        Self::read_with_catalog(
+            super::operation_catalog::available(catalog),
+            bytes,
+            limits,
+            dependencies,
+        )
+    }
+
+    fn read_with_catalog(
+        catalog: Result<super::operation_catalog::CatalogRef, super::CatalogReadError>,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        dependencies: &ContractDependencies<'_>,
+    ) -> ContractPackageReadResult {
+        let catalog = match catalog {
             Ok(catalog) => catalog,
             Err(error) => return ContractPackageReadResult::CatalogUnavailable(error),
         };
@@ -1821,7 +1836,7 @@ impl ContractPackageWireV1 {
     }
 
     fn admit(
-        catalog: &'static super::operation_catalog::OperationCatalog,
+        catalog: super::operation_catalog::CatalogRef,
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
@@ -1905,7 +1920,7 @@ impl ContractPackageWireV1 {
             node_index,
             unsupported_tags,
             unsupported_source_kinds: None,
-            catalog: super::operation_catalog::CatalogRef(catalog),
+            catalog,
         })
     }
 }

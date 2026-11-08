@@ -1,147 +1,116 @@
 //! FR-348 extension form body and declaration joins.
 
-use super::graph_storage::GraphIndex;
-use super::identity::is_identifier;
+pub(super) use super::extension_body::{body_work, read_body, targets};
 use super::model_members::{Budget, DeclarationForm, ModelOwners};
+use super::native_join_budget::PackageReadStage;
+use super::node_lookup::NodeLookup;
+use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedTerm, ModelForm,
     RawCheckedPackageWireV2 as CheckedPackageWireV2, RawSemanticNodeV2 as CheckedSemanticNodeV2,
     ScalarTypeForm, WorkMeter,
 };
-use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedExtensionRefusalDetail, CheckedNodeId,
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
+    CheckedExtensionRefusalDetail, CheckedNodeId, CheckedPackageRefusalCause as Cause,
+    CheckedPackageRefusalCode as Code,
 };
-use serde::Deserialize;
-use serde_json::Value;
-use std::collections::BTreeSet;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ExtensionBody {
-    #[serde(rename = "term")]
-    _term: ExtensionTerm,
-    definition: CheckedArtifactRef,
-    node_kind: Box<str>,
-    clauses: Vec<ExtensionClause>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExtensionClause {
-    #[serde(rename = "term")]
-    _term: BindingTerm,
-    name: Box<str>,
-    value: ExtensionReference,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExtensionReference {
-    #[serde(rename = "term")]
-    _term: ReferenceTerm,
-    target: CheckedNodeId,
-}
-
-#[derive(Deserialize)]
-enum ExtensionTerm {
-    #[serde(rename = "extension_form")]
-    ExtensionForm,
-}
-
-#[derive(Deserialize)]
-enum BindingTerm {
-    #[serde(rename = "binding")]
-    Binding,
-}
-
-#[derive(Deserialize)]
-enum ReferenceTerm {
-    #[serde(rename = "reference")]
-    Reference,
-}
-
-/// The body has its own closed grammar, checked before key authentication.
-#[ix_trace_rs::string_edge]
-pub(super) fn read_body(body: &Value, at: JsonPointer) -> Result<ExtensionBody, ValidationFailure> {
-    let parsed: ExtensionBody = serde_json::from_value(body.clone())
-        .map_err(|_| ValidationFailure::refused(Code::MalformedWire, at.clone()))?;
-    if parsed.definition.authority.is_empty()
-        || parsed.definition.identity.is_empty()
-        || !is_identifier(&parsed.node_kind)
-        || parsed
-            .clauses
-            .iter()
-            .any(|clause| !is_identifier(&clause.name) || !clause.value.target.is_well_formed())
-    {
-        return Err(ValidationFailure::refused(Code::MalformedWire, at));
-    }
-    Ok(parsed)
-}
-
-pub(super) fn targets(body: &ExtensionBody) -> impl Iterator<Item = &CheckedNodeId> {
-    body.clauses.iter().map(|clause| &clause.value.target)
-}
-
-pub(super) fn body_work(body: &ExtensionBody) -> u64 {
-    u64::try_from(body.clauses.len())
-        .unwrap_or(u64::MAX)
-        .saturating_mul(2)
-        .saturating_add(1)
-}
+use std::mem::size_of;
 
 pub(super) fn validate_source_regions(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let extensions = wire
-        .semantic_graph
-        .nodes
-        .iter()
-        .zip(kinds)
-        .filter(|(_, kind)| matches!(kind, CheckedNodeKind::Extension(_)))
-        .map(|(node, _)| &node.node_id)
-        .collect::<BTreeSet<_>>();
+    let is_extension = |kind: &CheckedNodeKind| matches!(kind, CheckedNodeKind::Extension(_));
+    let count = kinds.iter().filter(|kind| is_extension(kind)).count();
+    if count == 0 {
+        return Ok(());
+    }
+    let site = |index: usize, at: Path<'static>| {
+        Site::new(PackageReadStage::Extension, index, "extension", at)
+    };
+    let source_map = Path::root().key("source_map");
+    // The extension nodes, ascending by identity, with their graph positions.
+    let mut extensions: Vec<(&CheckedNodeId, usize)> =
+        stage_storage::vec(meter, &site(0, source_map), count)?;
+    extensions.extend(
+        wire.semantic_graph
+            .nodes
+            .iter()
+            .zip(kinds)
+            .enumerate()
+            .filter(|(_, (_, kind))| is_extension(kind))
+            .map(|(position, (node, _))| (&node.node_id, position)),
+    );
+    extensions.sort_unstable();
     for (entry_index, entry) in wire.source_map.iter().enumerate() {
-        if extensions.contains(&entry.node_id) && entry.regions.len() != 1 {
-            return Err(ValidationFailure::refused_at(
-                Code::InvalidSourceMap,
-                JsonPointer::root()
-                    .key("source_map")
-                    .index(entry_index)
-                    .key("regions"),
-                None,
-                entry.node_id.clone(),
+        let Ok(found) = extensions.binary_search_by(|(id, _)| (*id).cmp(&entry.node_id)) else {
+            continue;
+        };
+        if entry.regions.len() != 1 {
+            let regions = source_map.index(entry_index).key("regions");
+            return Err(stage_storage::refuse(
+                meter,
+                &site(extensions[found].1, regions),
+                Refusal::new(Code::InvalidSourceMap, regions).at_node(&entry.node_id),
             ));
         }
     }
     Ok(())
 }
 
-fn refusal(
-    node: &CheckedSemanticNodeV2,
-    pointer: JsonPointer,
+/// A refusal of `code` at `at` with `cause`, located at the extension node.
+fn located<'a>(
     code: Code,
-    cause: Option<Cause>,
-) -> ValidationFailure {
-    ValidationFailure::refused_at(code, pointer, cause, node.node_id.clone())
+    cause: Cause,
+    at: Path<'a>,
+    node: &'a CheckedSemanticNodeV2,
+) -> Refusal<'a> {
+    Refusal::new(code, at).because(cause).at_node(&node.node_id)
 }
 
+/// The refusal, its owned diagnostic charged at the extension node first.
+fn fail(meter: &mut WorkMeter, position: usize, refusal: Refusal<'_>) -> ValidationFailure {
+    let site = Site::new(
+        PackageReadStage::Extension,
+        position,
+        "extension",
+        refusal.path,
+    );
+    stage_storage::refuse(meter, &site, refusal)
+}
+
+/// The heap the clause detail of a refusal owns, which the refusal's charge
+/// includes: the record and its strings.
+fn detail_bytes(
+    member: &str,
+    expected: Option<&str>,
+    actual: Option<&Actual<'_>>,
+    actual_semantic_type: Option<&CheckedNodeId>,
+) -> usize {
+    size_of::<CheckedExtensionRefusalDetail>()
+        .saturating_add(member.len())
+        .saturating_add(expected.map_or(0, str::len))
+        .saturating_add(actual.map_or(0, Actual::boxed_bytes))
+        .saturating_add(actual_semantic_type.map_or(0, stage_storage::node_id_clone_bytes))
+}
+
+/// Attaches the clause detail to a refusal whose bytes already include it.
 fn with_detail(
     mut failure: ValidationFailure,
     member: &str,
     expected: Option<&str>,
-    actual: Option<String>,
-    actual_semantic_type: Option<CheckedNodeId>,
+    actual: Option<Actual<'_>>,
+    actual_semantic_type: Option<&CheckedNodeId>,
 ) -> ValidationFailure {
     if let ValidationFailure::Refused(ref mut refusal) = failure {
         refusal.extension_detail = Some(Box::new(CheckedExtensionRefusalDetail {
             member: member.into(),
             expected_type: expected.map(Into::into),
-            actual_type: actual.map(Into::into),
-            actual_semantic_type,
+            actual_type: actual.map(Actual::into_box),
+            actual_semantic_type: actual_semantic_type.cloned(),
         }));
     }
     failure
@@ -152,50 +121,74 @@ pub(super) fn validate(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &GraphIndex<'_>,
+    index: &dyn NodeLookup,
     evidence: &CheckedPackageEvidence,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let nodes = &wire.semantic_graph.nodes;
-    for &position in index.values() {
-        if !matches!(kinds.get(position), Some(CheckedNodeKind::Extension(_))) {
-            continue;
-        }
+    let is_extension = |kind: &CheckedNodeKind| matches!(kind, CheckedNodeKind::Extension(_));
+    let count = kinds.iter().filter(|kind| is_extension(kind)).count();
+    if count == 0 {
+        return Ok(());
+    }
+    let nodes_at = Path::root().key("semantic_graph").key("nodes");
+    let site = |position: usize, at: Path<'static>| {
+        Site::new(PackageReadStage::Extension, position, "extension", at)
+    };
+    // The extension nodes in ascending identity order, which is the order the
+    // join refuses them in.
+    let mut order: Vec<(&CheckedNodeId, usize)> =
+        stage_storage::vec(meter, &site(0, nodes_at), count)?;
+    order.extend(
+        nodes
+            .iter()
+            .zip(kinds)
+            .enumerate()
+            .filter(|(_, (_, kind))| is_extension(kind))
+            .map(|(position, (node, _))| (&node.node_id, position)),
+    );
+    order.sort_unstable();
+    for &(_, position) in &order {
         let node = &nodes[position];
-        let at = node_pointer(position).key("body");
+        let at = nodes_at.index(position).key("body");
         let Some(CheckedTerm::ExtensionForm {
             definition,
             node_kind,
             clauses,
         }) = terms.get(position).and_then(Option::as_ref)
         else {
-            return Err(ValidationFailure::refused(Code::MalformedWire, at));
+            return Err(fail(meter, position, Refusal::new(Code::MalformedWire, at)));
         };
-        let clauses = clauses
-            .iter()
-            .map(|clause| match clause {
-                CheckedTerm::Binding { name, value } => match value.as_ref() {
-                    CheckedTerm::Reference { target } => Some((name.as_ref(), target)),
-                    _ => None,
-                },
-                _ => None,
-            })
-            .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| ValidationFailure::refused(Code::MalformedWire, at.clone()))?;
-        let def_at = at.clone().key("definition");
-        let fail = |code, cause, pointer| refusal(node, pointer, code, cause);
+        let mut bindings: Vec<(&str, &CheckedNodeId)> =
+            stage_storage::vec(meter, &site(position, at), clauses.len())?;
+        for clause in clauses {
+            let CheckedTerm::Binding { name, value } = clause else {
+                return Err(fail(meter, position, Refusal::new(Code::MalformedWire, at)));
+            };
+            let CheckedTerm::Reference { target } = value.as_ref() else {
+                return Err(fail(meter, position, Refusal::new(Code::MalformedWire, at)));
+            };
+            bindings.push((name.as_ref(), target));
+        }
+        let def_at = at.key("definition");
         if !wire.lock.definition_selections.contains(definition) {
             return Err(fail(
-                Code::MissingDeclaration,
-                Some(Cause::MissingSelection),
-                def_at,
+                meter,
+                position,
+                located(
+                    Code::MissingDeclaration,
+                    Cause::MissingSelection,
+                    def_at,
+                    node,
+                ),
             ));
         }
         let Some(definition) = evidence.extension_definition(definition) else {
-            return Err(ValidationFailure::unknown_extension_definition(
-                def_at,
-                node.node_id.clone(),
+            return Err(fail(
+                meter,
+                position,
+                Refusal::unheld_definition(def_at, &node.node_id),
             ));
         };
         let Some(schema) = definition
@@ -205,49 +198,68 @@ pub(super) fn validate(
             .find(|entry| entry.node_kind.as_ref() == node_kind.as_ref())
         else {
             return Err(fail(
-                Code::MissingDeclaration,
-                Some(Cause::MissingName),
-                at.key("node_kind"),
+                meter,
+                position,
+                located(
+                    Code::MissingDeclaration,
+                    Cause::MissingName,
+                    at.key("node_kind"),
+                    node,
+                ),
             ));
         };
-        for (ordinal, ((name, _), expected)) in clauses.iter().zip(&schema.clauses).enumerate() {
+        for (ordinal, ((name, _), expected)) in bindings.iter().zip(&schema.clauses).enumerate() {
             if *name != expected.name.as_ref() {
                 return Err(fail(
-                    Code::InvalidPackage,
-                    Some(Cause::InvalidValue),
-                    at.clone().key("clauses").index(ordinal),
+                    meter,
+                    position,
+                    located(
+                        Code::InvalidPackage,
+                        Cause::InvalidValue,
+                        at.key("clauses").index(ordinal),
+                        node,
+                    ),
                 ));
             }
         }
-        if clauses.len() > schema.clauses.len() {
+        if bindings.len() > schema.clauses.len() {
             return Err(fail(
-                Code::InvalidPackage,
-                Some(Cause::InvalidValue),
-                at.clone().key("clauses").index(schema.clauses.len()),
+                meter,
+                position,
+                located(
+                    Code::InvalidPackage,
+                    Cause::InvalidValue,
+                    at.key("clauses").index(schema.clauses.len()),
+                    node,
+                ),
             ));
         }
-        if clauses.len() < schema.clauses.len() {
+        if bindings.len() < schema.clauses.len() {
+            let member = &schema.clauses[bindings.len()].name;
+            let refusal = located(
+                Code::InvalidPackage,
+                Cause::MissingMember,
+                at.key("clauses"),
+                node,
+            )
+            .with_extra(detail_bytes(member, None, None, None));
             return Err(with_detail(
-                fail(
-                    Code::InvalidPackage,
-                    Some(Cause::MissingMember),
-                    at.clone().key("clauses"),
-                ),
-                &schema.clauses[clauses.len()].name,
+                fail(meter, position, refusal),
+                member,
                 None,
                 None,
                 None,
             ));
         }
         for (ordinal, ((name, target_id), expected)) in
-            clauses.iter().zip(&schema.clauses).enumerate()
+            bindings.iter().zip(&schema.clauses).enumerate()
         {
-            let pointer = at.clone().key("clauses").index(ordinal).key("value");
-            let Some(&target_position) = index.get(target_id) else {
+            let pointer = at.key("clauses").index(ordinal).key("value");
+            let Some(&target_position) = index.position(target_id) else {
                 return Err(fail(
-                    Code::MissingDeclaration,
-                    Some(Cause::MissingName),
-                    pointer,
+                    meter,
+                    position,
+                    located(Code::MissingDeclaration, Cause::MissingName, pointer, node),
                 ));
             };
             let target = &nodes[target_position];
@@ -261,20 +273,31 @@ pub(super) fn validate(
                 owners,
                 meter,
             )? {
+                let actual = actual_type(
+                    meter,
+                    position,
+                    target,
+                    kinds[target_position],
+                    nodes,
+                    kinds,
+                    terms,
+                    target_position,
+                    index,
+                )?;
+                let semantic = &target.semantic_type;
+                let refusal = located(Code::IllTyped, Cause::TypeMismatch, pointer, node)
+                    .with_extra(detail_bytes(
+                        name,
+                        Some(&expected.type_ref),
+                        Some(&actual),
+                        Some(semantic),
+                    ));
                 return Err(with_detail(
-                    fail(Code::IllTyped, Some(Cause::TypeMismatch), pointer),
+                    fail(meter, position, refusal),
                     name,
                     Some(&expected.type_ref),
-                    Some(actual_type(
-                        target,
-                        kinds[target_position],
-                        nodes,
-                        kinds,
-                        terms,
-                        target_position,
-                        index,
-                    )),
-                    Some(target.semantic_type.clone()),
+                    Some(actual),
+                    Some(semantic),
                 ));
             }
         }
@@ -304,20 +327,20 @@ pub(super) fn integer_range_bounds(term: &CheckedTerm) -> Option<(&str, &str)> {
     Some((bound(lo, "min")?, bound(hi, "max")?))
 }
 
-enum ExpectedType {
-    IntegerRange(Box<str>),
+enum ExpectedType<'a> {
+    IntegerRange(&'a str),
     Scalar(ScalarTypeForm),
     Other,
 }
 
-impl ExpectedType {
+impl<'a> ExpectedType<'a> {
     #[ix_trace_rs::string_edge]
-    fn from_text(expected: &str) -> Self {
+    fn from_text(expected: &'a str) -> Self {
         if let Some(bounds) = expected
             .strip_prefix("Int[")
             .and_then(|tail| tail.strip_suffix(']'))
         {
-            return Self::IntegerRange(bounds.into());
+            return Self::IntegerRange(bounds);
         }
         let scalar = match expected {
             "Boolean" => Some(ScalarTypeForm::Boolean),
@@ -342,7 +365,7 @@ fn type_matches(
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     target_position: usize,
-    index: &GraphIndex<'_>,
+    index: &dyn NodeLookup,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
@@ -360,7 +383,7 @@ fn type_matches(
         let Some((lo, hi)) = bound.split_once(',') else {
             return Ok(false);
         };
-        let Some(&position) = index.get(&target.semantic_type) else {
+        let Some(&position) = index.position(&target.semantic_type) else {
             return Ok(false);
         };
         let bounds_match = terms
@@ -376,12 +399,12 @@ fn type_matches(
     }
     if let ExpectedType::Scalar(form) = expected_type {
         return Ok(index
-            .get(&target.semantic_type)
+            .position(&target.semantic_type)
             .and_then(|&position| nodes.get(position).zip(kinds.get(position)))
             .is_some_and(|(_, kind)| *kind == CheckedNodeKind::ScalarType(form)));
     }
     if let Some((type_node, type_kind)) = index
-        .get(&target.semantic_type)
+        .position(&target.semantic_type)
         .and_then(|&position| nodes.get(position).zip(kinds.get(position)))
     {
         if *type_kind == CheckedNodeKind::Model(ModelForm::RecordValueType) {
@@ -402,36 +425,125 @@ fn type_matches(
             Some(CheckedTerm::ExtensionForm { node_kind, .. }) if node_kind.as_ref() == expected))
 }
 
-fn actual_type(
-    target: &CheckedSemanticNodeV2,
-    kind: CheckedNodeKind,
-    nodes: &[CheckedSemanticNodeV2],
-    kinds: &[CheckedNodeKind],
-    terms: &[Option<CheckedTerm>],
-    target_position: usize,
-    index: &GraphIndex<'_>,
-) -> String {
-    if matches!(kind, CheckedNodeKind::Extension(_)) {
-        return match terms.get(target_position).and_then(Option::as_ref) {
-            Some(CheckedTerm::ExtensionForm { node_kind, .. }) => node_kind.to_string(),
-            _ => "extension".into(),
-        };
+/// The text naming a clause target's actual type, held as the pieces it is
+/// spelled from so its length is known before any of it is copied.
+enum Actual<'a> {
+    Text(&'a str),
+    /// `Int[lo, hi]`.
+    Range(&'a str, &'a str),
+    /// The segments of a qualified name, joined by `.`.
+    Joined(&'a [Box<str>]),
+    /// Text already built, in a block of exactly its length.
+    Encoded(String),
+}
+
+impl Actual<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Text(text) => text.len(),
+            Self::Range(lo, hi) => "Int[".len() + lo.len() + ", ".len() + hi.len() + "]".len(),
+            Self::Joined(parts) => parts
+                .iter()
+                .map(|part| part.len())
+                .sum::<usize>()
+                .saturating_add(parts.len().saturating_sub(1)),
+            Self::Encoded(text) => text.len(),
+        }
     }
-    let structural_id = || {
-        quire_canonical::to_vec(
-            &target.semantic_type,
-            quire_canonical::Limits::new(u64::MAX),
-        )
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .unwrap_or_else(|| "unknown structural type".into())
-    };
-    let Some(&type_position) = index.get(&target.semantic_type) else {
-        return structural_id();
+
+    /// The heap the boxed text requests; an encoded text is boxed in place.
+    fn boxed_bytes(&self) -> usize {
+        match self {
+            Self::Encoded(_) => 0,
+            other => other.len(),
+        }
+    }
+
+    fn into_box(self) -> Box<str> {
+        let length = self.len();
+        match self {
+            Self::Text(text) => text.into(),
+            Self::Range(lo, hi) => {
+                let mut text = String::with_capacity(length);
+                text.push_str("Int[");
+                text.push_str(lo);
+                text.push_str(", ");
+                text.push_str(hi);
+                text.push(']');
+                text.into_boxed_str()
+            }
+            Self::Joined(parts) => {
+                let mut text = String::with_capacity(length);
+                for (position, part) in parts.iter().enumerate() {
+                    if position > 0 {
+                        text.push('.');
+                    }
+                    text.push_str(part);
+                }
+                text.into_boxed_str()
+            }
+            Self::Encoded(text) => text.into_boxed_str(),
+        }
+    }
+}
+
+/// The canonical text of `id`, counted in a first pass and built in a block of
+/// exactly that length in a second, the writer's own heap charged in both.
+fn structural_text(
+    meter: &mut WorkMeter,
+    position: usize,
+    id: &CheckedNodeId,
+) -> Result<Actual<'static>, ValidationFailure> {
+    let at = Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(position);
+    let site = Site::new(PackageReadStage::Extension, position, "extension", at);
+    let limits = quire_canonical::Limits::new(u64::MAX);
+    let mut counted = stage_storage::CountingSink::default();
+    let mut charges = stage_storage::WriterCharges::new(meter, site);
+    let counting = quire_canonical::encode_with_reservation(&mut counted, id, limits, &mut charges);
+    if let Some(failure) = charges.failure.take() {
+        return Err(failure);
+    }
+    if counting.is_err() {
+        return Ok(Actual::Text("unknown structural type"));
+    }
+    let mut bytes: Vec<u8> = stage_storage::vec(meter, &site, counted.0)?;
+    let mut charges = stage_storage::WriterCharges::new(meter, site);
+    let encoding = quire_canonical::encode_with_reservation(&mut bytes, id, limits, &mut charges);
+    if let Some(failure) = charges.failure.take() {
+        return Err(failure);
+    }
+    match (encoding, String::from_utf8(bytes)) {
+        (Ok(_), Ok(text)) => Ok(Actual::Encoded(text)),
+        _ => Ok(Actual::Text("unknown structural type")),
+    }
+}
+
+fn actual_type<'a>(
+    meter: &mut WorkMeter,
+    position: usize,
+    target: &'a CheckedSemanticNodeV2,
+    kind: CheckedNodeKind,
+    nodes: &'a [CheckedSemanticNodeV2],
+    kinds: &[CheckedNodeKind],
+    terms: &'a [Option<CheckedTerm>],
+    target_position: usize,
+    index: &dyn NodeLookup,
+) -> Result<Actual<'a>, ValidationFailure> {
+    if matches!(kind, CheckedNodeKind::Extension(_)) {
+        return Ok(match terms.get(target_position).and_then(Option::as_ref) {
+            Some(CheckedTerm::ExtensionForm { node_kind, .. }) => Actual::Text(node_kind),
+            _ => Actual::Text("extension"),
+        });
+    }
+    let Some(&type_position) = index.position(&target.semantic_type) else {
+        return structural_text(meter, position, &target.semantic_type);
     };
     let Some((type_node, type_kind)) = nodes.get(type_position).zip(kinds.get(type_position))
     else {
-        return structural_id();
+        return structural_text(meter, position, &target.semantic_type);
     };
     if *type_kind == CheckedNodeKind::BoundedDomain(BoundedDomainForm::IntegerRange) {
         if let Some((lo, hi)) = terms
@@ -439,32 +551,35 @@ fn actual_type(
             .and_then(Option::as_ref)
             .and_then(integer_range_bounds)
         {
-            return format!("Int[{lo}, {hi}]");
+            return Ok(Actual::Range(lo, hi));
         }
     }
-    match type_kind {
-        CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => "Boolean".into(),
-        CheckedNodeKind::ScalarType(ScalarTypeForm::Integer) => "Integer".into(),
-        CheckedNodeKind::ScalarType(ScalarTypeForm::Rational) => "Rational".into(),
-        CheckedNodeKind::ScalarType(ScalarTypeForm::Decimal) => "Decimal".into(),
-        CheckedNodeKind::ScalarType(ScalarTypeForm::Float32) => "Float32".into(),
-        CheckedNodeKind::ScalarType(ScalarTypeForm::Float64) => "Float64".into(),
-        CheckedNodeKind::ScalarType(ScalarTypeForm::Text) => "Text".into(),
-        CheckedNodeKind::ScalarType(ScalarTypeForm::String) => "String".into(),
-        CheckedNodeKind::ScalarType(ScalarTypeForm::Uuid) => "UUID".into(),
-        CheckedNodeKind::ScalarType(ScalarTypeForm::Timestamp) => "Timestamp".into(),
+    Ok(match type_kind {
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean) => Actual::Text("Boolean"),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Integer) => Actual::Text("Integer"),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Rational) => Actual::Text("Rational"),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Decimal) => Actual::Text("Decimal"),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Float32) => Actual::Text("Float32"),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Float64) => Actual::Text("Float64"),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Text) => Actual::Text("Text"),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::String) => Actual::Text("String"),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Uuid) => Actual::Text("UUID"),
+        CheckedNodeKind::ScalarType(ScalarTypeForm::Timestamp) => Actual::Text("Timestamp"),
         _ => type_node
             .declaration
             .as_ref()
-            .map(|declaration| declaration.qualified_name.join("."))
-            .unwrap_or_else(|| type_node.semantic_form.to_string()),
-    }
+            .map_or(Actual::Text(&type_node.semantic_form), |declaration| {
+                Actual::Joined(&declaration.qualified_name)
+            }),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::checked_package::evidence::CheckedExtensionDefinition;
+    use crate::checked_package::v2::budgeted_read::CheckedPackagePendingOutcome;
+    use crate::checked_package::v2::native_join_budget::{NativeJoinBudget, NativeJoinLocusSource};
     use crate::checked_package::v2::{
         test_support::node_id, BoundedDomainForm, ExtensionForm, ModelForm, ValueForm,
     };
@@ -565,7 +680,7 @@ mod tests {
             &self,
             owners: &ModelOwners<'_>,
         ) -> (Result<(), ValidationFailure>, u64) {
-            let index = self
+            let index: std::collections::BTreeMap<&CheckedNodeId, usize> = self
                 .wire
                 .semantic_graph
                 .nodes
@@ -584,6 +699,31 @@ mod tests {
                 &mut meter,
             );
             (result, meter.consumed())
+        }
+
+        /// The join over a caller budget whose read storage is `limit`.
+        fn run_budgeted(&self, limit: u64) -> (Result<(), ValidationFailure>, NativeJoinBudget) {
+            let owners = ModelOwners::new(&[], &self.wire.semantic_graph.nodes, |_| Ok(()))
+                .expect("empty selected-model owners");
+            let index: std::collections::BTreeMap<&CheckedNodeId, usize> = self
+                .wire
+                .semantic_graph
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let result = validate(
+                &self.wire,
+                &self.kinds,
+                &self.terms,
+                &index,
+                &self.evidence,
+                &owners,
+                &mut WorkMeter::over(&mut budget),
+            );
+            (result, budget)
         }
 
         fn range(&mut self) {
@@ -627,6 +767,46 @@ mod tests {
                 "native type checks charge no model-conformance work"
             );
         }
+    }
+
+    /// The join charges its order table and the owned diagnostic of its
+    /// refusal, detail included, at the extension node: the measured
+    /// requirement refuses, and one byte short exhausts the budget with the
+    /// refusal pending (FR-038-AC-506, AC-510).
+    #[trace("TC-472", "FR-038-AC-506")]
+    #[test]
+    fn extension_join_charges_its_tables_and_refusal_diagnostic() {
+        let mut join = Join::new("Boolean", CheckedNodeKind::ScalarType(ScalarTypeForm::Text));
+        join.wire.semantic_graph.nodes[0].semantic_form = "integer".into();
+        let (result, measured) = join.run_budgeted(u64::MAX);
+        assert!(matches!(
+            result,
+            Err(ValidationFailure::Refused(ref refusal))
+                if refusal.code == Code::IllTyped
+                    && refusal.extension_detail.as_ref().is_some_and(|detail|
+                        detail.actual_type.as_deref() == Some("Text"))
+        ));
+        let required = measured.read_storage_consumed();
+        assert!(required > 0);
+        let (exact, _) = join.run_budgeted(u64::try_from(required).expect("fits"));
+        assert!(matches!(exact, Err(ValidationFailure::Refused(_))));
+        let (short, mut budget) = join.run_budgeted(u64::try_from(required).expect("fits") - 1);
+        assert!(
+            matches!(short, Err(ValidationFailure::Budget(_))),
+            "{short:?}"
+        );
+        assert_eq!(
+            budget.take_pending(),
+            Some(CheckedPackagePendingOutcome::Refused(Code::IllTyped))
+        );
+        let locus = budget.first_unpaid_locus().expect("a denial has a locus");
+        assert_eq!(
+            (locus.source, locus.form),
+            (
+                NativeJoinLocusSource::PackageRead(PackageReadStage::Extension, 2),
+                "diagnostic"
+            )
+        );
     }
 
     #[trace("TC-459")]

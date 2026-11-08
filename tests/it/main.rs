@@ -72,6 +72,7 @@ mod checked_package_v2_structural_keys;
 mod checked_package_v2_temporal;
 mod checked_package_v2_term_data_writer;
 mod checked_package_v2_typed_terms;
+mod checked_package_v2_stage_read_storage;
 mod checked_package_v2_union;
 mod checked_package_v2_wire_check_storage;
 mod complete_v1_checked_package;
