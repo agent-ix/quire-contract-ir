@@ -29,6 +29,11 @@ fn observe(
     work: u64,
     storage: u64,
 ) -> Observation {
+    #[cfg(feature = "test-support")]
+    let (observation, _events) = observation::native_budget_trace::diagnostic::<DriverCounter>(
+        bytes, evidence, limits, work, storage,
+    );
+    #[cfg(not(feature = "test-support"))]
     let observation = measure_at::<DriverCounter>(bytes, evidence, limits, work, storage);
     accounted("original driver read", &observation);
     observation

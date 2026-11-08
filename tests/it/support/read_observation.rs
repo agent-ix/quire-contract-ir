@@ -70,3 +70,7 @@ pub(crate) fn drop_without_request<C: Counter>(observation: Observation) {
         "dropping the returned outcome allocates nothing"
     );
 }
+
+#[cfg(feature = "test-support")]
+#[path = "native_budget_trace.rs"]
+pub(crate) mod native_budget_trace;
