@@ -8,8 +8,8 @@
 use crate::support::checked_package::{canonical, evidence_for, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedPackageV2BudgetedReadResult,
-    NativeJoinBudget, NativeJoinLocusSource, PackageReadStage,
+    CheckedPackageReadLimits, CheckedPackageV2BudgetedReadResult, NativeJoinBudget,
+    NativeJoinLocusSource, PackageReadStage,
 };
 
 /// One heap request of the read, in the order it was made.

@@ -281,6 +281,15 @@ impl CheckedMonitorPlanRef<'_> {
 mod fixture_support;
 
 #[cfg(all(test, feature = "qspec-conformance"))]
+fn fixture_read(
+    bytes: &[u8],
+    limits: crate::CheckedPackageReadLimits,
+    evidence: &crate::CheckedPackageEvidence,
+) -> crate::CheckedPackageV2ReadResult {
+    crate::CheckedPackageV2::read(bytes, limits, evidence)
+}
+
+#[cfg(all(test, feature = "qspec-conformance"))]
 fn fixtures_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(std::env::var("QUIRE_SPECIFICATION_DIR").expect("QSpec checkout"))
         .join("proposals/checked-package-v2/fixtures")

@@ -807,6 +807,15 @@ impl CheckedMonitorPlanRef<'_> {
 pub(in crate::checked_package::v2) mod fixture_support;
 
 #[cfg(test)]
+fn fixture_read(
+    bytes: &[u8],
+    limits: crate::CheckedPackageReadLimits,
+    evidence: &crate::CheckedPackageEvidence,
+) -> crate::CheckedPackageV2ReadResult {
+    crate::CheckedPackageV2::read(bytes, limits, evidence)
+}
+
+#[cfg(test)]
 fn fixtures_dir() -> std::path::PathBuf {
     std::path::PathBuf::new()
 }

@@ -399,11 +399,15 @@ mod caller_budget_tests {
         let seeded = || {
             let mut budget =
                 NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
+            let locus = quire_contract_model::NativeJoinLocus {
+                source: quire_contract_model::NativeJoinLocusSource::Package,
+                form: "prior_caller_charge",
+            };
             budget
-                .accounted_charge(NativeJoinChargeKind::Work, 3, None)
+                .accounted_charge(NativeJoinChargeKind::Work, 3, locus)
                 .expect("prior work");
             budget
-                .accounted_charge(NativeJoinChargeKind::Storage, 2, None)
+                .accounted_charge(NativeJoinChargeKind::Storage, 2, locus)
                 .expect("prior logical storage");
             budget
         };
