@@ -895,7 +895,7 @@ mod document_storage_tests {
                 let mut meter = WorkMeter::over(&mut budget);
                 meter.at_node(7, "state");
                 result = Some(
-                    read_frame_body(TermNode::of(&body), &[42], &mut meter, &Trail::Base(&[]))
+                    read_frame_body(TermNode::of(&body), &[crate::CheckedOperandEntry::Node(42)], &mut meter, &Trail::Base(&[]))
                         .and_then(|(frame, work)| {
                             frame
                                 .checked_term(&mut meter)
@@ -934,7 +934,7 @@ mod document_storage_tests {
         let body = document();
         let (frame, _) = read_frame_body(
             TermNode::of(&body),
-            &[42],
+            &[crate::CheckedOperandEntry::Node(42)],
             &mut WorkMeter::new(u64::MAX),
             &Trail::Base(&[]),
         )

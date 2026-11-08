@@ -3747,7 +3747,7 @@ mod tests {
                         json.document(),
                         &mut budget,
                         Site::new(PackageReadStage::Graph, 7, "application"),
-                        &[9],
+                        &[crate::CheckedOperandEntry::Node(9)],
                     ));
                 })
                 .bytes_total;

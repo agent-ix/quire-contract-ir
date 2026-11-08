@@ -1568,7 +1568,7 @@ mod tests {
         use crate::checked_package::v2::node_index::resolve_value_slots;
         use crate::checked_package::v2::read_charge::Site;
         let site = Site::new(PackageReadStage::WireChecks, 0, "owner_schema");
-        let row = [5u64, 7];
+        let row = [5u64, 7].map(crate::CheckedOperandEntry::Node);
         let id =
             |slot: u64| json!({"package": "p", "path": ["x", {"operand": slot}], "ordinal": 0});
         let leaf = json!({"term": "reference", "target": id(1)});

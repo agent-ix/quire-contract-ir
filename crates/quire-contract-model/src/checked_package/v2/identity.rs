@@ -3803,7 +3803,7 @@ mod tests {
             (json!({"term":"enum"}), json!({"term":"enum"})),
             (json!({"term":"other"}), json!({"term":"other"})),
         ];
-        let row = [10_u64, 11, 12];
+        let row = [10_u64, 11, 12].map(crate::CheckedOperandEntry::Node);
         let at = || JsonPointer::root().key("body");
         let mut closed = 0;
         for (slotted, resolved) in &bodies {
@@ -3851,7 +3851,7 @@ mod tests {
             .iter()
             .map(|body| CheckedJson::from_serializable(body).expect("canonical"))
             .collect();
-        let row = [4_u64];
+        let row = [4_u64].map(crate::CheckedOperandEntry::Node);
         let at = || JsonPointer::root().key("body");
         let run = |limit: u64| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);

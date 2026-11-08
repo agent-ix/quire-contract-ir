@@ -939,7 +939,7 @@ mod document_storage_tests {
                 .map(|(p, n)| (&n.node_id, p))
                 .collect::<GraphIndex<'_>>();
             let handles = [nodes[0].body.clone()];
-            let rows = [vec![42]];
+            let rows = [vec![crate::CheckedOperandEntry::Node(42)]];
             let owners = ModelOwners::default();
             let run = |limit| {
                 let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);

@@ -5,7 +5,7 @@
 //! canonical form identically regardless of which closed schema is decoded
 //! from the resulting value.
 
-use super::shared::{push_index, push_key};
+use super::shared::{push_index, push_key, CheckedOperandEntry};
 use super::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause,

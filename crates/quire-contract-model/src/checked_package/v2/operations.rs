@@ -39,8 +39,6 @@ use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::selected_population::{
     is_model_population, least_type_occurrence, population_maximum, population_object_type_typed,
 };
-#[cfg(test)]
-use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{
     CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -11707,7 +11705,7 @@ mod tests {
                         .cloned()
                         .collect();
                     for key in rows {
-                        let row: Vec<u64> =
+                        let row: Vec<crate::CheckedOperandEntry> =
                             serde_json::from_value(object.remove(&key).expect("row"))
                                 .expect("operand row");
                         let name = key.trim_end_matches("_operand_row");
@@ -11720,7 +11718,7 @@ mod tests {
                 _ => {}
             }
         }
-        fn resolve_slots(value: &mut Value, row: &[CheckedOperandEntry]) {
+        fn resolve_slots(value: &mut Value, row: &[crate::CheckedOperandEntry]) {
             match value {
                 Value::Array(items) => items.iter_mut().for_each(|item| resolve_slots(item, row)),
                 Value::Object(object) => {
@@ -11730,8 +11728,8 @@ mod tests {
                     if let Some(slot) = slot {
                         let entry = &row[usize::try_from(slot).expect("slot")];
                         *value = match entry {
-                            CheckedOperandEntry::Node(node) => json!({ "node": node }),
-                            CheckedOperandEntry::Dependency(operand) => json!({ "node": operand.node, "package": operand.package }),
+                            crate::CheckedOperandEntry::Node(node) => json!({ "node": node }),
+                            crate::CheckedOperandEntry::Dependency(operand) => json!({ "node": operand.node, "package": operand.package }),
                         };
                         return;
                     }

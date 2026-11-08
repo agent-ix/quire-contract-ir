@@ -2050,8 +2050,8 @@ mod imported_body_storage_tests {
                     TermNode::of(&right),
                     &left_keys,
                     &right_keys,
-                    &[0],
-                    &[0],
+                    &[crate::CheckedOperandEntry::Node(0)],
+                    &[crate::CheckedOperandEntry::Node(0)],
                     &mut meter,
                 ));
             });

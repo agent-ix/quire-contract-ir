@@ -960,6 +960,7 @@ impl CheckedNodeId {
                 CheckedNodePathSegment::Index(index) | CheckedNodePathSegment::Operand(index) => {
                     *index <= 9_007_199_254_740_991
                 }
+                CheckedNodePathSegment::Dependency { package, node } => !package.is_empty() && *node <= 9_007_199_254_740_991,
                 CheckedNodePathSegment::Node(_) => false,
             })
     }
