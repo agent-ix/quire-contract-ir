@@ -568,7 +568,17 @@ impl Calls<'_> {
 }
 
 impl<'ast> Visit<'ast> for Calls<'_> {
-    // A nested declaration is not called merely because its parent is called.
+    // Block-local functions are separate lexical items. Their names shadow
+    // module functions throughout the block, including before declaration.
+    // Until their own symbol/scope is indexed, calls remain proof gaps.
+    fn visit_block(&mut self, block: &'ast syn::Block) {
+        for statement in &block.stmts {
+            if let syn::Stmt::Item(syn::Item::Fn(function)) = statement {
+                self.local_names.insert(function.sig.ident.to_string());
+            }
+        }
+        visit::visit_block(self, block);
+    }
     fn visit_item_fn(&mut self, _: &'ast syn::ItemFn) {}
     fn visit_local(&mut self, local: &'ast syn::Local) {
         if let Some(init) = &local.init {

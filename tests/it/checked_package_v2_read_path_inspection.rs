@@ -505,3 +505,24 @@ fn function_pointer_shadowing_and_escaped_callbacks_remain_proof_edges() {
     let (hits, unresolved) = inspect_reached(&graph, &["clean"]);
     assert!(hits.is_empty() && unresolved.is_empty());
 }
+
+/// Block-local function names are hoisted and must not resolve to a same-named
+/// module helper, even when the declaration follows the call.
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn block_local_functions_do_not_reach_unrelated_module_helpers() {
+    let graph = root_graph::Graph::from_source(
+        r#"
+        fn helper() { let _ = serde_json::from_slice::<()>(b"{}"); }
+        fn read() { helper(); fn helper() {} }
+    "#,
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["read"]);
+    assert!(hits.is_empty(), "the module helper is shadowed: {hits:?}");
+    assert!(
+        unresolved
+            .iter()
+            .any(|edge| edge.contains("lexical callable helper")),
+        "block-local symbols require their own resolution: {unresolved:?}"
+    );
+}
