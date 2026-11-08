@@ -287,4 +287,4 @@ model-boundary-builds:
 conformance-qsl-ir1384:
 	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo "conformance-qsl-ir1384 reads the owner's domain package: set QUIRE_SPEC_LANGUAGE_DIR"; exit 2; }
 	cp Cargo.lock tests/conformance_qsl_ir1384/Cargo.lock
-	QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" $(CARGO) test --manifest-path tests/conformance_qsl_ir1384/Cargo.toml -- --nocapture
+	QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" $(CARGO) test --workspace --manifest-path tests/conformance_qsl_ir1384/Cargo.toml -- --nocapture
