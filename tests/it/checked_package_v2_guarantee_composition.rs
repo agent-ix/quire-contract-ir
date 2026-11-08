@@ -24,6 +24,8 @@ use quire_contract_model::{
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
+type BodyEdit = fn(&mut Value);
+
 fn id_of(label: &str) -> Value {
     fixture_node_id(label)
 }
@@ -236,6 +238,47 @@ fn tc_474_an_implementation_guarantee_admits_and_reads_back_typed() {
     );
 }
 
+/// ACs: FR-362-AC-1
+#[trace("TC-474", "FR-362-AC-1")]
+#[test]
+fn tc_474_an_assumption_environment_entry_over_a_predicate_admits() {
+    let mut fixture = fixture();
+    let boolean = nodes(&fixture.package)[find_form(&fixture.package, "scalar_type", "boolean")]
+        ["node_id"]
+        .clone();
+    let mut predicate = node(
+        "calm",
+        "predicate",
+        json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "parameters",
+             "value": {"term": "aggregate", "members": []}},
+            {"term": "binding", "name": "body", "value": {
+                "term": "literal", "type": boolean, "value_kind": "boolean", "value": true}},
+        ]}),
+        &[&boolean],
+    );
+    predicate["node_tag"] = json!("function");
+    predicate["semantic_type"] = boolean.clone();
+    predicate["declaration"] = json!({"qualified_name": ["calm"]});
+    predicate["owner"] = crate::support::checked_package::source_owner(
+        &crate::support::checked_package::fixture_source(),
+    );
+    fixture.package["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .push(predicate.clone());
+    let mut body = guarantee_body(&fixture);
+    body["environment"] = json!([{"name": "calm", "supplier": "os",
+        "supplies": {"assumption": predicate["node_id"]}}]);
+    let package = with_body(&fixture, "implementation_guarantee", body.clone());
+    let admitted = admitted("assumption", &package);
+    let id = typed(&nodes(&package)[last(&package)]["node_id"]);
+    assert_eq!(
+        serde_json::to_value(admitted.term(&id)).expect("typed body"),
+        body
+    );
+}
+
 /// ACs: FR-362-AC-2
 #[trace("TC-474", "FR-362-AC-2")]
 #[test]
@@ -277,7 +320,7 @@ fn tc_474_a_composition_admits_with_its_four_premise_lists_separate() {
 #[test]
 fn tc_474_a_body_off_its_closed_shape_refuses_at_the_body() {
     let fixture = fixture();
-    let guarantee_cases: [(&str, fn(&mut Value)); 8] = [
+    let guarantee_cases: [(&str, BodyEdit); 8] = [
         ("extra member", |b| b["extra"] = json!(1)),
         ("missing initial", |b| {
             b.as_object_mut().expect("object").remove("initial");
@@ -301,7 +344,7 @@ fn tc_474_a_body_off_its_closed_shape_refuses_at_the_body() {
         let package = edited(&fixture, "implementation_guarantee", edit);
         expect(case, &package, Code::InvalidSemanticGraph, None, "/body");
     }
-    let composition_cases: [(&str, fn(&mut Value)); 3] = [
+    let composition_cases: [(&str, BodyEdit); 3] = [
         ("one component", |b| {
             b["components"].as_array_mut().expect("array").pop();
         }),

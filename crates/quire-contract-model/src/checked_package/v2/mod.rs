@@ -2667,7 +2667,7 @@ enum BodyGrammar {
     /// The abstraction relation body of FR-346.
     AbstractionRelation,
     /// The flat implementation guarantee and component composition bodies of
-    /// FR-362.
+    /// QSpec FR-490 and FR-491.
     Declaration,
     /// The closed refinement body of FR-375.
     Refinement,
