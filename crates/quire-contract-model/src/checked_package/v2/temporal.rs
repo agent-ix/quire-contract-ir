@@ -97,14 +97,19 @@ pub(in crate::checked_package) fn references_refused_node(
             // The target ID is charged before it is allocated; the budget is
             // the caller's, or a free one for a meter that owns its limit.
             let id = match meter.budget_and_site() {
-                Some((budget, site)) => target.node_id(budget, site, true)?,
-                None => target.node_id(
-                    &mut super::NativeJoinBudget::unlimited(),
-                    super::read_charge::Site::new(super::PackageReadStage::Graph, 0, "details"),
-                    true,
-                )?,
+                Some((budget, site)) => target
+                    .node_id(budget, site)
+                    .map_err(|_| super::budgeted_read::denial(budget))?,
+                None => target
+                    .node_id(
+                        &mut super::NativeJoinBudget::unlimited(),
+                        super::read_charge::Site::new(super::PackageReadStage::Graph, 0, "details"),
+                    )
+                    .map_err(|_| {
+                        super::budgeted_read::denial(&super::NativeJoinBudget::unlimited())
+                    })?,
             };
-            if id.is_some_and(|id| refused_target(&id)) {
+            if id.valid().is_some_and(|id| refused_target(&id)) {
                 return Ok(true);
             }
         }
