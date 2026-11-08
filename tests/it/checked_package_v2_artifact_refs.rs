@@ -380,7 +380,6 @@ fn tc_048_a_source_reference_member_that_is_absent_or_not_a_string_is_malformed(
 
 #[trace("TC-048", "FR-038-AC-53")]
 #[test]
-#[ignore = "IR-1404: deferred AC-511 whole-read allocation proof"]
 fn tc_048_a_lock_source_digest_member_is_unknown_before_row_validation() {
     let base = v2_nominal();
     let row = "/lock/sources/0";
