@@ -7,8 +7,12 @@
 
 #[path = "support/read_allocation_proof.rs"]
 mod proof;
+#[path = "support/qspec_fma_inputs.rs"]
+mod qspec_fma_inputs;
 #[path = "support/qspec_inputs.rs"]
 mod qspec_inputs;
+#[path = "support/qspec_text_inputs.rs"]
+mod qspec_text_inputs;
 use crate::support::checked_package::{
     canonical, evidence_for, index_fixture_node_ids, positive_operation_identities, settle,
     v2_all_families, v2_nominal,
@@ -243,6 +247,148 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
         );
         cases.push(Case {
             label: format!("QSpec/{}", vector["id"]),
+            bytes: canonical(&wire),
+            evidence: evidence_for(&wire),
+            expected,
+        });
+    }
+    for (file, shapes) in [
+        ("text-bounds-shape-vectors.json", true),
+        ("text-literal-vectors.json", false),
+    ] {
+        let vectors =
+            qspec_inputs::read_json(&proposal.join(file)).expect("published Text vectors");
+        for row in vectors["cases"].as_array().expect("published Text cases") {
+            let id = row["id"].as_str().expect("Text case id");
+            let (wire, _) = if shapes {
+                let literal = match id {
+                    "TS-02" => "ab",
+                    "TS-03" => "e\u{301}",
+                    _ => "outside-bounds",
+                };
+                qspec_text_inputs::text_bounds_package(
+                    row["members"].as_array().expect("shape members"),
+                    literal,
+                )
+            } else {
+                let ty = &vectors["types"][row["type"].as_str().expect("Text type key")];
+                qspec_text_inputs::bounded_literal(
+                    ty["min"].as_u64().expect("minimum"),
+                    ty["max"].as_u64().expect("maximum"),
+                    ty["text_profile"].as_str().expect("Text profile"),
+                    row["value"].clone(),
+                )
+            };
+            let expected = match row["expected"].as_str().expect("published Text outcome") {
+                "admitted" => Expected::Admitted,
+                "refused" if shapes => Expected::Refused(Code::InvalidPackage),
+                "refused" => Expected::Refused(Code::IllTyped),
+                other => panic!("{file}#{id}: unknown outcome {other}"),
+            };
+            providers.insert(format!(
+                "conformance_qspec/text_literals.rs: {file}#/cases#{id}"
+            ));
+            cases.push(Case {
+                label: format!("QSpec/{file}#{id}"),
+                bytes: canonical(&wire),
+                evidence: evidence_for(&wire),
+                expected,
+            });
+        }
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("model-root-vectors.json"))
+        .expect("published model-root vectors");
+    assert_eq!(vectors["base"], "fixtures/positive-all-families.json");
+    let base = qspec_inputs::read_json_wire(&fixtures.join("positive-all-families.json"))
+        .expect("published model-root base");
+    for row in vectors["vectors"].as_array().expect("model-root vectors") {
+        let id = row["id"].as_str().expect("model-root case id");
+        let mut wire = base.clone();
+        for patch in row["patch"].as_array().expect("model-root patches") {
+            qspec_inputs::apply_vector_patch(&mut wire, patch);
+        }
+        let expected = match row["outcome"].as_str().expect("model-root outcome") {
+            "admitted" => Expected::Admitted,
+            outcome => Expected::Refused(
+                serde_json::from_value(Value::String(
+                    outcome
+                        .strip_prefix("refused:")
+                        .expect("published refusal")
+                        .into(),
+                ))
+                .expect("published model-root refusal code"),
+            ),
+        };
+        providers.insert(format!(
+            "conformance_qspec/model_root.rs: model-root-vectors.json#/vectors#{id}"
+        ));
+        cases.push(Case {
+            label: format!("QSpec/model-root/{id}"),
+            bytes: canonical(&wire),
+            evidence: qspec_inputs::evidence_for_published(
+                &wire,
+                id,
+                &proposal.join(qspec_inputs::DOMAIN_DOCUMENT),
+                true,
+                None,
+                &fixtures,
+            )
+            .expect("model-root evidence"),
+            expected,
+        });
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("node-ordinal-vectors.json"))
+        .expect("published ordinal vectors");
+    let base = qspec_inputs::read_json(&fixtures.join("positive-all-families.json"))
+        .expect("published ordinal base");
+    for row in vectors["uniqueness_cases"]
+        .as_array()
+        .expect("ordinal uniqueness cases")
+    {
+        let id = row["id"].as_str().expect("ordinal case id");
+        let (wire, _) = qspec_inputs::ordinal_case_package(&base, row);
+        let expected = match row["expected"].as_str().expect("ordinal outcome") {
+            "admitted" => Expected::Admitted,
+            code => Expected::Refused(
+                serde_json::from_value(Value::String(code.into()))
+                    .expect("published ordinal refusal code"),
+            ),
+        };
+        providers.insert(format!(
+            "conformance_qspec/node_ordinal.rs: node-ordinal-vectors.json#/uniqueness_cases#{id}"
+        ));
+        cases.push(Case {
+            label: format!("QSpec/node-ordinal/{id}"),
+            bytes: canonical(&wire),
+            evidence: qspec_inputs::evidence_for_published(
+                &wire,
+                id,
+                &proposal.join(qspec_inputs::DOMAIN_DOCUMENT),
+                true,
+                None,
+                &fixtures,
+            )
+            .expect("ordinal evidence"),
+            expected,
+        });
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("fma-application-vectors.json"))
+        .expect("published FMA vectors");
+    for row in vectors["cases"].as_array().expect("FMA cases") {
+        let id = row["id"].as_str().expect("FMA case id");
+        let (wire, _) = qspec_fma_inputs::package_for(row);
+        let expected = match row["expected"].as_str().expect("FMA outcome") {
+            "admitted" => Expected::Admitted,
+            "refused" => Expected::Refused(
+                serde_json::from_value(row["code"].clone()).expect("published FMA refusal code"),
+            ),
+            other => panic!("{id}: unknown FMA outcome {other}"),
+        };
+        providers.insert(format!(
+            "conformance_qspec/fma_application.rs: fma-application-vectors.json#/cases#{id}"
+        ));
+        cases.push(Case {
+            label: format!("QSpec/FMA/{id}"),
             bytes: canonical(&wire),
             evidence: evidence_for(&wire),
             expected,

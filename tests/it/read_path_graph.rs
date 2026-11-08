@@ -15,6 +15,7 @@ pub struct Function {
     pub owner: Option<String>,
     pub signature: syn::Signature,
     pub body: syn::Block,
+    lexical_functions: BTreeMap<String, String>,
 }
 
 #[derive(Default)]
@@ -143,6 +144,46 @@ fn external_standard(path: &str) -> bool {
     matches!(path.split("::").next(), Some("std" | "core" | "alloc"))
 }
 
+// Block numbers follow the same traversal for indexing and call resolution;
+// nested function bodies have their own lexical tree and numbering.
+struct NestedFunctions<'a> {
+    parent: &'a str,
+    next_block: usize,
+    functions: Vec<(String, syn::ItemFn, BTreeMap<String, String>)>,
+    scope: BTreeMap<String, String>,
+}
+impl<'ast> Visit<'ast> for NestedFunctions<'_> {
+    fn visit_block(&mut self, block: &'ast syn::Block) {
+        let number = self.next_block;
+        self.next_block += 1;
+        let outer = self.scope.clone();
+        for statement in &block.stmts {
+            if let syn::Stmt::Item(syn::Item::Fn(function)) = statement {
+                if !test_only(&function.attrs) {
+                    self.scope.insert(
+                        function.sig.ident.to_string(),
+                        format!("{}::__block_{number}::{}", self.parent, function.sig.ident),
+                    );
+                }
+            }
+        }
+        for statement in &block.stmts {
+            if let syn::Stmt::Item(syn::Item::Fn(function)) = statement {
+                if !test_only(&function.attrs) {
+                    self.functions.push((
+                        self.scope[&function.sig.ident.to_string()].clone(),
+                        function.clone(),
+                        self.scope.clone(),
+                    ));
+                }
+            }
+        }
+        visit::visit_block(self, block);
+        self.scope = outer;
+    }
+    fn visit_item_fn(&mut self, _: &'ast syn::ItemFn) {}
+}
+
 impl Graph {
     pub fn from_source(source: &str) -> Self {
         let mut graph = Self::default();
@@ -245,6 +286,7 @@ impl Graph {
                         owner: None,
                         signature: f.sig.clone(),
                         body: (*f.block).clone(),
+                        lexical_functions: BTreeMap::new(),
                     },
                 ),
                 syn::Item::Impl(i) if !test_only(&i.attrs) => {
@@ -270,6 +312,7 @@ impl Graph {
                                         owner: Some(owner.clone()),
                                         signature: f.sig.clone(),
                                         body: f.block.clone(),
+                                        lexical_functions: BTreeMap::new(),
                                     },
                                 );
                             }
@@ -338,8 +381,29 @@ impl Graph {
         }
     }
     fn insert(&mut self, key: String, function: Function) {
+        let mut nested = NestedFunctions {
+            parent: &key,
+            next_block: 0,
+            functions: Vec::new(),
+            scope: function.lexical_functions.clone(),
+        };
+        nested.visit_block(&function.body);
+        let children = nested.functions;
+        let module = function.module.clone();
         if self.functions.insert(key.clone(), function).is_some() {
             self.duplicate.insert(key);
+        }
+        for (key, child, lexical_functions) in children {
+            self.insert(
+                key,
+                Function {
+                    module: module.clone(),
+                    owner: None,
+                    signature: child.sig,
+                    body: *child.block,
+                    lexical_functions,
+                },
+            );
         }
     }
     pub fn resolve(&self, module: &str, path: &str) -> String {
@@ -444,10 +508,15 @@ impl Graph {
                 edges: BTreeSet::new(),
                 unresolved: BTreeSet::new(),
                 bindings: BTreeMap::new(),
+                local_names: BTreeSet::new(),
+                function_key: &key,
+                next_block: 0,
+                local_functions: function.lexical_functions.clone(),
             };
             for arg in &function.signature.inputs {
                 if let syn::FnArg::Typed(arg) = arg {
                     if let syn::Pat::Ident(p) = arg.pat.as_ref() {
+                        calls.local_names.insert(p.ident.to_string());
                         if let Some(ty) = calls.type_name(&arg.ty) {
                             calls.bindings.insert(p.ident.to_string(), ty);
                         }
@@ -479,6 +548,10 @@ struct Calls<'a> {
     edges: BTreeSet<String>,
     unresolved: BTreeSet<String>,
     bindings: BTreeMap<String, String>,
+    local_names: BTreeSet<String>,
+    function_key: &'a str,
+    next_block: usize,
+    local_functions: BTreeMap<String, String>,
 }
 
 impl Calls<'_> {
@@ -555,6 +628,9 @@ impl Calls<'_> {
     }
     fn target(&self, path: &syn::Path) -> String {
         let text = path_text(path);
+        if let Some(target) = self.local_functions.get(&text) {
+            return target.clone();
+        }
         if let Some(suffix) = text.strip_prefix("Self::") {
             if let Some(owner) = &self.function.owner {
                 return format!("{owner}::{suffix}");
@@ -565,7 +641,32 @@ impl Calls<'_> {
 }
 
 impl<'ast> Visit<'ast> for Calls<'_> {
-    // A nested declaration is not called merely because its parent is called.
+    // Rust hoists block-local functions. Index only this block's declarations
+    // and restore the outer lexical scope on exit.
+    fn visit_block(&mut self, block: &'ast syn::Block) {
+        let number = self.next_block;
+        self.next_block += 1;
+        let outer_functions = self.local_functions.clone();
+        let outer_names = self.local_names.clone();
+        let outer_bindings = self.bindings.clone();
+        for statement in &block.stmts {
+            if let syn::Stmt::Item(syn::Item::Fn(function)) = statement {
+                if !test_only(&function.attrs) {
+                    self.local_functions.insert(
+                        function.sig.ident.to_string(),
+                        format!(
+                            "{}::__block_{number}::{}",
+                            self.function_key, function.sig.ident
+                        ),
+                    );
+                }
+            }
+        }
+        visit::visit_block(self, block);
+        self.local_functions = outer_functions;
+        self.local_names = outer_names;
+        self.bindings = outer_bindings;
+    }
     fn visit_item_fn(&mut self, _: &'ast syn::ItemFn) {}
     fn visit_local(&mut self, local: &'ast syn::Local) {
         if let Some(init) = &local.init {
@@ -580,8 +681,13 @@ impl<'ast> Visit<'ast> for Calls<'_> {
                 syn::Pat::Ident(n) => (Some(n.ident.to_string()), self.expression_type(&init.expr)),
                 _ => (None, None),
             };
-            if let (Some(name), Some(ty)) = (name, ty) {
-                self.bindings.insert(name, ty);
+            if let Some(name) = name {
+                self.local_names.insert(name.clone());
+                if let Some(ty) = ty {
+                    self.bindings.insert(name, ty);
+                } else {
+                    self.bindings.remove(&name);
+                }
             }
         }
         visit::visit_local(self, local);
@@ -597,7 +703,13 @@ impl<'ast> Visit<'ast> for Calls<'_> {
         visit::visit_expr_struct(self, expr);
     }
     fn visit_expr_path(&mut self, expr: &'ast syn::ExprPath) {
-        self.constructed(self.target(&expr.path));
+        let target = self.target(&expr.path);
+        if self.graph.functions.contains_key(&target) {
+            self.unresolved.insert(format!(
+                "function value {target} requires callback dispatch proof"
+            ));
+        }
+        self.constructed(target);
         visit::visit_expr_path(self, expr);
     }
     fn visit_expr_binary(&mut self, expr: &'ast syn::ExprBinary) {
@@ -621,6 +733,15 @@ impl<'ast> Visit<'ast> for Calls<'_> {
     }
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         if let syn::Expr::Path(path) = call.func.as_ref() {
+            if let Some(name) = path.path.get_ident().map(ToString::to_string) {
+                if self.local_names.contains(&name) {
+                    self.unresolved.insert(format!("lexical callable {name} requires function-pointer or closure dispatch proof"));
+                    for arg in &call.args {
+                        self.visit_expr(arg);
+                    }
+                    return;
+                }
+            }
             let target = self.target(&path.path);
             self.constructed(target.clone());
             if self.graph.functions.contains_key(&target) {
@@ -653,7 +774,14 @@ impl<'ast> Visit<'ast> for Calls<'_> {
         } else {
             self.unresolved.insert("indirect expression call".into());
         }
-        visit::visit_expr_call(self, call);
+        // A path in callee position is a direct call, not an escaped
+        // function value. Argument paths still require callback resolution.
+        for arg in &call.args {
+            self.visit_expr(arg);
+        }
+        if !matches!(call.func.as_ref(), syn::Expr::Path(_)) {
+            self.visit_expr(&call.func);
+        }
     }
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
         let method = call.method.to_string();

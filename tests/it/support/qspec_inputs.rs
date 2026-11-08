@@ -12,7 +12,7 @@ use quire_contract_model::{
     CheckedExtensionTypedNodeSchema, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageV2, CheckedPackageV2ReadResult,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -288,4 +288,84 @@ pub(crate) fn positive_document<'a>(
         .get(name)
         .map(String::as_str)
         .unwrap_or(DOMAIN_DOCUMENT)
+}
+
+pub(crate) fn apply_vector_patch(package: &mut Value, patch: &Value) {
+    let path = patch["path"].as_str().expect("published patch path");
+    let (parent, member) = path.rsplit_once('/').expect("patch member");
+    let target = package.pointer_mut(parent).expect("published patch parent");
+    match (patch["op"].as_str().expect("published operation"), target) {
+        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
+        ("add", Value::Object(map)) => {
+            map.insert(member.to_owned(), patch["value"].clone());
+        }
+        ("replace", Value::Object(map)) => {
+            *map.get_mut(member).expect("replaced member") = patch["value"].clone();
+        }
+        ("remove", Value::Array(items)) => {
+            items.remove(member.parse::<usize>().expect("array index"));
+        }
+        ("remove", Value::Object(map)) => {
+            map.remove(member).expect("removed member");
+        }
+        (operation, _) => panic!("unsupported published patch {operation}: {path}"),
+    }
+}
+
+/// Add the authored siblings around the original derived Integer node. The
+/// source-map rows follow each new identity, so the reader decides the graph
+/// identity rule rather than failing on missing source correspondence.
+pub(crate) fn ordinal_case_package(base: &Value, case: &Value) -> (Value, Vec<usize>) {
+    let mut package = base.clone();
+    let nodes = package["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("published graph nodes");
+    let original = nodes
+        .iter()
+        .position(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "integer")
+        .expect("published derived Integer node");
+    let template = nodes[original].clone();
+    assert_eq!(template["node_id"]["ordinal"], 0);
+    assert_eq!(template["semantic_type"], template["node_id"]);
+    let source = package["source_map"]
+        .as_array()
+        .expect("published source map")
+        .iter()
+        .find(|row| row["node_id"] == template["node_id"])
+        .expect("Integer source correspondence")
+        .clone();
+    let siblings = case["siblings"].as_array().expect("authored siblings");
+    assert!(!siblings.is_empty(), "{} has no siblings", case["id"]);
+    let before = match case["placement"].as_str().expect("placement") {
+        "before" => true,
+        "after" => false,
+        other => panic!("unknown placement {other}"),
+    };
+    let mut positions = Vec::with_capacity(siblings.len());
+    for (index, sibling) in siblings.iter().enumerate() {
+        let ordinal = sibling["ordinal"].as_u64().expect("producer ordinal");
+        let mut node = template.clone();
+        node["node_id"]["ordinal"] = json!(ordinal);
+        node["semantic_type"] = node["node_id"].clone();
+        let position = if before {
+            original + index
+        } else {
+            package["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("graph nodes")
+                .len()
+        };
+        package["semantic_graph"]["nodes"]
+            .as_array_mut()
+            .expect("graph nodes")
+            .insert(position, node.clone());
+        let mut correspondence = source.clone();
+        correspondence["node_id"] = node["node_id"].clone();
+        package["source_map"]
+            .as_array_mut()
+            .expect("source map")
+            .push(correspondence);
+        positions.push(position);
+    }
+    (package, positions)
 }
