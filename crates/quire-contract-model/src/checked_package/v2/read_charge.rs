@@ -10,6 +10,7 @@ use super::native_join_budget::{
     NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
 };
 use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{CheckedNodeId, CheckedNodePathSegment};
 use std::cell::{RefCell, RefMut};
 use std::sync::Arc;
@@ -199,6 +200,9 @@ pub(super) fn charge_node_id_clone(
 ) -> Result<(), ValidationFailure> {
     let names = id.path.iter().fold(0_u128, |total, segment| match segment {
         CheckedNodePathSegment::Name(name) => total.saturating_add(name.len() as u128),
+        CheckedNodePathSegment::Dependency { package, .. } => {
+            total.saturating_add(package.len() as u128)
+        }
         CheckedNodePathSegment::Node(_)
         | CheckedNodePathSegment::Index(_)
         | CheckedNodePathSegment::Operand(_) => total,
@@ -389,7 +393,7 @@ pub(in crate::checked_package) fn ids<'s, 'r>(
     stage: PackageReadStage,
     index: usize,
     form: &'static str,
-    row: &'r [u64],
+    row: &'r [CheckedOperandEntry],
 ) -> crate::checked_package::common::Ids<'s, 'r> {
     crate::checked_package::common::Ids {
         sink,

@@ -39,6 +39,7 @@ use super::{
 };
 use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
 use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure};
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use crate::checked_package::terms::{At, Cursor, TermSource};
 use quire_walk::{Children, Walk};
@@ -552,7 +553,7 @@ fn member<'d>(body: TermNode<'d>, name: &str) -> Option<TermNode<'d>> {
 /// the node holding the body.
 fn application_targets(
     body: TermNode<'_>,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
     budget: &mut NativeJoinBudget,
     site: Site,
     mut visit: impl FnMut(

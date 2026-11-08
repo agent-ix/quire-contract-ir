@@ -33,6 +33,7 @@ use super::{
 use crate::checked_package::common::{
     read_typed_prefix, strict_parse, Step, Trail, ValidationFailure,
 };
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole, CheckedPackageIncomplete,
     CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
@@ -755,9 +756,9 @@ impl ContractSourceKeyV1 {
                 match segment {
                     CheckedNodePathSegment::Name(_) => {}
                     CheckedNodePathSegment::Node(operand) => pending.push(operand),
-                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
-                        return None;
-                    }
+                    CheckedNodePathSegment::Index(_)
+                    | CheckedNodePathSegment::Operand(_)
+                    | CheckedNodePathSegment::Dependency { .. } => return None,
                 }
             }
         }
@@ -784,6 +785,7 @@ impl ContractSourceKeyV1 {
                 }
                 CheckedNodePathSegment::Index(_)
                 | CheckedNodePathSegment::Operand(_)
+                | CheckedNodePathSegment::Dependency { .. }
                 | CheckedNodePathSegment::Node(_) => return None,
             });
         }
@@ -3619,7 +3621,7 @@ fn body_reference_pointer(
     kind: CheckedNodeKind,
     position: usize,
     reference: usize,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
 ) -> JsonPointer {
     let body_steps = [
         Step::Key("semantic_graph"),

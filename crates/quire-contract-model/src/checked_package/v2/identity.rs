@@ -17,6 +17,7 @@ use super::{
 };
 use super::{CheckedPackageLockV2, RawCheckedPackageWireV2};
 use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, JsonPointer, RefusalFields,
@@ -234,7 +235,7 @@ impl CheckedDimensionOperand {
     /// package name and the node ID are charged before they are allocated.
     fn from_term(
         value: TermNode<'_>,
-        row: &[u64],
+        row: &[CheckedOperandEntry],
         meter: &mut WorkMeter,
     ) -> Result<Option<Self>, ValidationFailure> {
         if !value.is_object() {
@@ -829,7 +830,7 @@ impl NominalBody {
     #[ix_trace_rs::string_edge]
     pub(super) fn from_document(
         body: TermNode<'_>,
-        row: &[u64],
+        row: &[CheckedOperandEntry],
         at: &dyn Fn() -> JsonPointer,
         meter: &mut WorkMeter,
     ) -> Result<Self, ValidationFailure> {
@@ -1389,7 +1390,7 @@ fn model_node_table<'a>(
 /// admitted dependency. Neither form rebuilds a JSON value.
 #[derive(Clone, Copy)]
 enum BodyInput<'a> {
-    Document(Option<(TermNode<'a>, &'a [u64])>),
+    Document(Option<(TermNode<'a>, &'a [CheckedOperandEntry])>),
     Typed(&'a super::CheckedTerm),
 }
 

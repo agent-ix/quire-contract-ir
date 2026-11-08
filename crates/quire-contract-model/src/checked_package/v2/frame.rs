@@ -51,6 +51,7 @@ use super::{
     RelationForm, TermNode, WorkMeter,
 };
 use crate::checked_package::common::{Trail, ValidationFailure};
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 
@@ -233,7 +234,7 @@ impl FrameBody {
 /// one unit for the body and one per entry.
 pub(super) fn read_frame_body(
     body: TermNode<'_>,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<(FrameBody, u64), ValidationFailure> {
@@ -315,7 +316,7 @@ fn reject_repeat<T: Ord>(entries: &[T], at: &Trail<'_>) -> Result<(), Validation
 /// One node key, located at the entry that holds it.
 fn read_node_key(
     value: TermNode<'_>,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<CheckedNodeId, ValidationFailure> {
@@ -329,7 +330,7 @@ fn read_node_key(
 
 fn read_node_keys(
     values: crate::checked_package::v2::TermItems<'_>,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<Vec<CheckedNodeId>, ValidationFailure> {
@@ -346,7 +347,7 @@ fn read_node_keys(
 // Decodes a modifies entry's `kind`.
 fn read_modifies_entry(
     entry: TermNode<'_>,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
     at: &Trail<'_>,
 ) -> Result<ModifiesEntry, ValidationFailure> {

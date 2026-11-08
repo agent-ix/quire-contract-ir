@@ -77,6 +77,7 @@ use super::{
     TemporalForm, ValueForm,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole, CheckedPackageRefusalCode,
 };
@@ -2255,7 +2256,7 @@ pub(super) fn application_dependencies_at(
 fn member_id(
     holder: Option<TermNode<'_>>,
     key: &str,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
 ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
     match holder.and_then(|holder| holder.get(key)) {

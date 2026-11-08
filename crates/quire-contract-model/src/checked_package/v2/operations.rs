@@ -39,6 +39,8 @@ use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::selected_population::{
     is_model_population, least_type_occurrence, population_maximum, population_object_type_typed,
 };
+#[cfg(test)]
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{
     CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
@@ -11718,7 +11720,7 @@ mod tests {
                 _ => {}
             }
         }
-        fn resolve_slots(value: &mut Value, row: &[u64]) {
+        fn resolve_slots(value: &mut Value, row: &[CheckedOperandEntry]) {
             match value {
                 Value::Array(items) => items.iter_mut().for_each(|item| resolve_slots(item, row)),
                 Value::Object(object) => {
@@ -11726,8 +11728,11 @@ mod tests {
                         .then(|| object.get("operand").and_then(Value::as_u64))
                         .flatten();
                     if let Some(slot) = slot {
-                        let entry = row[usize::try_from(slot).expect("slot")];
-                        *value = json!({ "node": entry });
+                        let entry = &row[usize::try_from(slot).expect("slot")];
+                        *value = match entry {
+                            CheckedOperandEntry::Node(node) => json!({ "node": node }),
+                            CheckedOperandEntry::Dependency(operand) => json!({ "node": operand.node, "package": operand.package }),
+                        };
                         return;
                     }
                     object

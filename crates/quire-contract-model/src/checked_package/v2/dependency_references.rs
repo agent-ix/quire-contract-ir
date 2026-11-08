@@ -48,7 +48,8 @@ use crate::checked_package::common::{
 };
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    ForeignNodeKey, JsonPointer, NodeKeyProbe,
 };
 
 /// The form of every request the dependency checks make.
@@ -93,6 +94,33 @@ fn fill_table<'e>(
     );
     table.sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
     table
+}
+
+impl SuppliedDependency<'_> {
+    /// The position of the node `id` names in this dependency's graph. The
+    /// dependency's own ids hold index segments of its graph; an importing
+    /// document names those as `{package, node}` dependency positions of this
+    /// dependency, and a local index segment names no node here.
+    fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
+        // A local index segment, or a position of another dependency, names
+        // no node here. The lookup reads the rest in place.
+        if id.path.iter().any(|segment| match segment {
+            CheckedNodePathSegment::Dependency { package, .. } => package.as_ref() != self.identity,
+            CheckedNodePathSegment::Index(_) => true,
+            _ => false,
+        }) {
+            return None;
+        }
+        let key = ForeignNodeKey::new(id, self.identity);
+        let probe = &key as &dyn NodeKeyProbe;
+        let first = self
+            .index
+            .partition_point(|row| (row.0 as &dyn NodeKeyProbe).cmp(probe).is_lt());
+        self.index
+            .get(first)
+            .filter(|row| (row.0 as &dyn NodeKeyProbe).cmp(probe).is_eq())
+            .map(|row| row.1)
+    }
 }
 
 /// The dependency packages the caller supplied, one per
@@ -146,7 +174,7 @@ impl<'e> SuppliedDependencies<'e> {
     pub(super) fn holds_node(&self, id: &CheckedNodeId) -> bool {
         self.packages
             .iter()
-            .any(|supplied| supplied.position(id).is_some())
+            .any(|supplied| supplied.position_of(id).is_some())
     }
 
     /// The node `id` of the directly selected package `package`: the package
@@ -157,7 +185,7 @@ impl<'e> SuppliedDependencies<'e> {
         id: &CheckedNodeId,
     ) -> Option<(&'e CheckedPackageV2, usize)> {
         let supplied = self.resolve(package)?;
-        Some((supplied.package, supplied.position(id)?))
+        Some((supplied.package, supplied.position_of(id)?))
     }
 
     /// The admitted directly selected package with this exact identity.

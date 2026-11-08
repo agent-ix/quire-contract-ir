@@ -855,7 +855,7 @@ pub(super) fn validate_term<'a, V: TermSource<'a>>(
 pub(super) struct Ids<'s, 'r> {
     pub(super) sink: &'s mut dyn ReadStorage,
     pub(super) site: Site,
-    pub(super) row: &'r [u64],
+    pub(super) row: &'r [CheckedOperandEntry],
 }
 
 impl<'s, 'r> Ids<'s, 'r> {
@@ -881,7 +881,10 @@ pub(super) fn with_unmetered_ids<R>(body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
 
 /// Runs an ID-aware validator without a read ceiling while preserving the
 /// node's document operand row.
-pub(super) fn with_unmetered_ids_row<R>(row: &[u64], body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
+pub(super) fn with_unmetered_ids_row<R>(
+    row: &[CheckedOperandEntry],
+    body: impl FnOnce(Ids<'_, '_>) -> R,
+) -> R {
     let mut budget = super::v2::NativeJoinBudget::unlimited();
     let site = Site::new(super::v2::PackageReadStage::Graph, 0, "reference");
     body(Ids {
@@ -916,7 +919,7 @@ struct TermWalk<'a, 'v, 'w, 'i, 's, 'r, V> {
     visit: &'v mut ReferenceVisitor<'w>,
     sink: &'i RefCell<&'s mut dyn ReadStorage>,
     site: Site,
-    row: &'r [u64],
+    row: &'r [CheckedOperandEntry],
     charge: &'i dyn Fn(usize) -> Result<(), ValidationFailure>,
     work: u64,
     _terms: std::marker::PhantomData<V>,
@@ -1110,7 +1113,11 @@ fn validate_one<'a, V: TermSource<'a>>(
 
 /// The shared sink, the charge site and the operand row a term's node IDs are
 /// read with.
-type IdRead<'i, 's, 'r> = (&'i RefCell<&'s mut dyn ReadStorage>, Site, &'r [u64]);
+type IdRead<'i, 's, 'r> = (
+    &'i RefCell<&'s mut dyn ReadStorage>,
+    Site,
+    &'r [CheckedOperandEntry],
+);
 
 /// Reads `value` as a node ID, charging the shared sink.
 fn read_node_id<'a, V: TermSource<'a>>(
