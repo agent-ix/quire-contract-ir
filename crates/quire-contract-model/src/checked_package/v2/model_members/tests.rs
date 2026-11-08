@@ -569,8 +569,13 @@ fn record_binders_keep_field_declaration_order() {
             "construct": {"meaning": "quire.meaning.model.record-value-type/v1"}
         }));
     let model = read(&source).expect("selected record");
-    let RecordBinderTypes::Known(binders) =
-        model.record_binder_types(RECORD).expect("record signature")
+    let RecordBinderTypes::Known(binders) = model
+        .record_binder_types(
+            RECORD,
+            &mut Budget::new(&mut WorkMeter::new(u64::MAX), 0, BYTES),
+        )
+        .expect("budget")
+        .expect("record signature")
     else {
         panic!("unambiguous record has a binder signature");
     };

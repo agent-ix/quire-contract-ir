@@ -2646,9 +2646,18 @@ impl DomainModel {
     }
 
     /// Checked binder types of one record in effective field order.
-    pub(super) fn record_binder_types(&self, record: &str) -> Option<RecordBinderTypes> {
-        self.record_types.get(record)?;
-        self.fields.of(record)?.binder_types(&self.checked_package)
+    pub(super) fn record_binder_types(
+        &self,
+        record: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<RecordBinderTypes>, ValidationFailure> {
+        if !self.record_types.contains_key(record) {
+            return Ok(None);
+        }
+        let Some(fields) = self.fields.of(record) else {
+            return Ok(None);
+        };
+        fields.binder_types(&self.checked_package, budget)
     }
 
     /// Checked receiver, parameter and optional result binder types of the
