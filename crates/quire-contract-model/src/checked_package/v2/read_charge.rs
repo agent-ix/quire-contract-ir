@@ -26,12 +26,16 @@ pub(in crate::checked_package) struct Site {
 }
 
 impl Site {
-    pub(super) fn new(stage: PackageReadStage, index: usize, form: &'static str) -> Self {
+    pub(in crate::checked_package) fn new(
+        stage: PackageReadStage,
+        index: usize,
+        form: &'static str,
+    ) -> Self {
         Self { stage, index, form }
     }
 
     /// The same site with another form.
-    pub(super) fn form(self, form: &'static str) -> Self {
+    pub(in crate::checked_package) fn form(self, form: &'static str) -> Self {
         Self { form, ..self }
     }
 
@@ -52,6 +56,9 @@ pub(in crate::checked_package) struct Denied;
 pub(in crate::checked_package) trait ReadStorage {
     /// Admits `bytes` of heap about to be requested at `site`, or refuses.
     fn reserve(&mut self, bytes: u128, site: Site) -> Result<(), Denied>;
+
+    /// The stop that ends the read after this sink refused a request.
+    fn denial(&self) -> ValidationFailure;
 }
 
 impl ReadStorage for NativeJoinBudget {
@@ -62,6 +69,10 @@ impl ReadStorage for NativeJoinBudget {
         } else {
             Err(Denied)
         }
+    }
+
+    fn denial(&self) -> ValidationFailure {
+        denial(self)
     }
 }
 
@@ -326,5 +337,21 @@ pub(super) fn reference_target(
             node_id_from_value(budget, site, target, true)
         }
         _ => Ok(None),
+    }
+}
+
+/// An [`Ids`](crate::checked_package::common::Ids) charging `sink` at the
+/// given stage, index and form, reading operand slots through `row`.
+pub(in crate::checked_package) fn ids<'s, 'r>(
+    sink: &'s mut dyn ReadStorage,
+    stage: PackageReadStage,
+    index: usize,
+    form: &'static str,
+    row: &'r [u64],
+) -> crate::checked_package::common::Ids<'s, 'r> {
+    crate::checked_package::common::Ids {
+        sink,
+        site: Site::new(stage, index, form),
+        row,
     }
 }

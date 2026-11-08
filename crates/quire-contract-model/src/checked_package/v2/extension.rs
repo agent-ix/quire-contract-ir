@@ -1,8 +1,9 @@
 //! FR-348 extension form body and declaration joins.
 
-use super::identity::is_identifier;
+pub(super) use super::extension_body::{body_work, read_body, targets};
 use super::model_members::{Budget, DeclarationForm, ModelOwners};
 use super::native_join_budget::PackageReadStage;
+use super::node_lookup::NodeLookup;
 use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
     BoundedDomainForm, CheckedNodeKind, CheckedTerm, ModelForm,
@@ -12,87 +13,10 @@ use super::{
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedExtensionRefusalDetail, CheckedNodeId,
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
+    CheckedExtensionRefusalDetail, CheckedNodeId, CheckedPackageRefusalCause as Cause,
+    CheckedPackageRefusalCode as Code,
 };
-use serde::Deserialize;
-use serde_json::Value;
-use std::collections::BTreeMap;
 use std::mem::size_of;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ExtensionBody {
-    #[serde(rename = "term")]
-    _term: ExtensionTerm,
-    definition: CheckedArtifactRef,
-    node_kind: Box<str>,
-    clauses: Vec<ExtensionClause>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExtensionClause {
-    #[serde(rename = "term")]
-    _term: BindingTerm,
-    name: Box<str>,
-    value: ExtensionReference,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExtensionReference {
-    #[serde(rename = "term")]
-    _term: ReferenceTerm,
-    target: CheckedNodeId,
-}
-
-#[derive(Deserialize)]
-enum ExtensionTerm {
-    #[serde(rename = "extension_form")]
-    ExtensionForm,
-}
-
-#[derive(Deserialize)]
-enum BindingTerm {
-    #[serde(rename = "binding")]
-    Binding,
-}
-
-#[derive(Deserialize)]
-enum ReferenceTerm {
-    #[serde(rename = "reference")]
-    Reference,
-}
-
-/// The body has its own closed grammar, checked before key authentication.
-#[ix_trace_rs::string_edge]
-pub(super) fn read_body(body: &Value, at: JsonPointer) -> Result<ExtensionBody, ValidationFailure> {
-    let parsed: ExtensionBody = serde_json::from_value(body.clone())
-        .map_err(|_| ValidationFailure::refused(Code::MalformedWire, at.clone()))?;
-    if parsed.definition.authority.is_empty()
-        || parsed.definition.identity.is_empty()
-        || !is_identifier(&parsed.node_kind)
-        || parsed
-            .clauses
-            .iter()
-            .any(|clause| !is_identifier(&clause.name) || !clause.value.target.is_well_formed())
-    {
-        return Err(ValidationFailure::refused(Code::MalformedWire, at));
-    }
-    Ok(parsed)
-}
-
-pub(super) fn targets(body: &ExtensionBody) -> impl Iterator<Item = &CheckedNodeId> {
-    body.clauses.iter().map(|clause| &clause.value.target)
-}
-
-pub(super) fn body_work(body: &ExtensionBody) -> u64 {
-    u64::try_from(body.clauses.len())
-        .unwrap_or(u64::MAX)
-        .saturating_mul(2)
-        .saturating_add(1)
-}
 
 pub(super) fn validate_source_regions(
     wire: &CheckedPackageWireV2,
@@ -197,7 +121,7 @@ pub(super) fn validate(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &dyn NodeLookup,
     evidence: &CheckedPackageEvidence,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
@@ -331,7 +255,7 @@ pub(super) fn validate(
             bindings.iter().zip(&schema.clauses).enumerate()
         {
             let pointer = at.key("clauses").index(ordinal).key("value");
-            let Some(&target_position) = index.get(target_id) else {
+            let Some(&target_position) = index.position(target_id) else {
                 return Err(fail(
                     meter,
                     position,
@@ -441,7 +365,7 @@ fn type_matches(
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     target_position: usize,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &dyn NodeLookup,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<bool, ValidationFailure> {
@@ -459,7 +383,7 @@ fn type_matches(
         let Some((lo, hi)) = bound.split_once(',') else {
             return Ok(false);
         };
-        let Some(&position) = index.get(&target.semantic_type) else {
+        let Some(&position) = index.position(&target.semantic_type) else {
             return Ok(false);
         };
         let bounds_match = terms
@@ -475,12 +399,12 @@ fn type_matches(
     }
     if let ExpectedType::Scalar(form) = expected_type {
         return Ok(index
-            .get(&target.semantic_type)
+            .position(&target.semantic_type)
             .and_then(|&position| nodes.get(position).zip(kinds.get(position)))
             .is_some_and(|(_, kind)| *kind == CheckedNodeKind::ScalarType(form)));
     }
     if let Some((type_node, type_kind)) = index
-        .get(&target.semantic_type)
+        .position(&target.semantic_type)
         .and_then(|&position| nodes.get(position).zip(kinds.get(position)))
     {
         if *type_kind == CheckedNodeKind::Model(ModelForm::RecordValueType) {
@@ -606,7 +530,7 @@ fn actual_type<'a>(
     kinds: &[CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     target_position: usize,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &dyn NodeLookup,
 ) -> Result<Actual<'a>, ValidationFailure> {
     if matches!(kind, CheckedNodeKind::Extension(_)) {
         return Ok(match terms.get(target_position).and_then(Option::as_ref) {
@@ -614,7 +538,7 @@ fn actual_type<'a>(
             _ => Actual::Text("extension"),
         });
     }
-    let Some(&type_position) = index.get(&target.semantic_type) else {
+    let Some(&type_position) = index.position(&target.semantic_type) else {
         return structural_text(meter, position, &target.semantic_type);
     };
     let Some((type_node, type_kind)) = nodes.get(type_position).zip(kinds.get(type_position))
@@ -756,7 +680,7 @@ mod tests {
             &self,
             owners: &ModelOwners<'_>,
         ) -> (Result<(), ValidationFailure>, u64) {
-            let index = self
+            let index: std::collections::BTreeMap<&CheckedNodeId, usize> = self
                 .wire
                 .semantic_graph
                 .nodes
@@ -781,7 +705,7 @@ mod tests {
         fn run_budgeted(&self, limit: u64) -> (Result<(), ValidationFailure>, NativeJoinBudget) {
             let owners = ModelOwners::new(&[], &self.wire.semantic_graph.nodes, |_| Ok(()))
                 .expect("empty selected-model owners");
-            let index = self
+            let index: std::collections::BTreeMap<&CheckedNodeId, usize> = self
                 .wire
                 .semantic_graph
                 .nodes

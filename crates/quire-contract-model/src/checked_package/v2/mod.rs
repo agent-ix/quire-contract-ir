@@ -38,6 +38,8 @@ mod equality_projection;
 mod execution_point;
 mod execution_point_accessor;
 mod extension;
+mod extension_body;
+mod node_lookup;
 mod flat_wire;
 mod frame;
 mod hybrid;
@@ -58,7 +60,8 @@ mod natural;
 mod node_index;
 pub(in crate::checked_package) use node_index::StructuralOrder;
 mod operation_catalog;
-mod read_charge;
+mod operation_catalog_index;
+pub(in crate::checked_package) mod read_charge;
 pub use operation_catalog::{initialize_operation_catalog, CatalogReadError};
 mod operation_effects;
 mod operation_witness;
@@ -231,7 +234,7 @@ use temporal::{validate_temporal, validate_timed_bounds_reduced, TemporalContext
 
 use super::common::{
     count, exceeds, is_nonempty, node_pointer, validate_definition_ref, validate_locked_source,
-    validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
+    validate_term, Ids, ReferenceMember, ReferenceSite, ReferenceVisitor, Step, TermGrammar, Trail,
     ValidationFailure,
 };
 use super::evidence::CheckedPackageEvidence;
@@ -242,6 +245,7 @@ use super::shared::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry,
     CheckedSourceRef, CheckedSourceRegion, JsonPointer,
 };
+use super::terms::TermSource;
 use lock_tables::{
     checked_unit_refs, no_unit_refs, resolve_model_durations, selected_model_roots,
     validate_dependency_selections, validate_refinement_internals, validate_required_features,
@@ -1157,6 +1161,28 @@ enum WorkSource<'b> {
     Budget(&'b mut NativeJoinBudget),
 }
 
+impl read_charge::ReadStorage for WorkMeter<'_> {
+    /// Heap requests charge the caller's budget; a meter with a limit of its
+    /// own (lowering, unit tests) holds no read-storage account.
+    fn reserve(&mut self, bytes: u128, site: read_charge::Site) -> Result<(), read_charge::Denied> {
+        match &mut self.source {
+            WorkSource::Own { .. } => Ok(()),
+            WorkSource::Budget(budget) => budget.reserve(bytes, site),
+        }
+    }
+
+    fn denial(&self) -> ValidationFailure {
+        match &self.source {
+            WorkSource::Own { .. } => ValidationFailure::Budget(BudgetStop {
+                resource: PackageReadResource::ReadStorage,
+                amount: 0,
+                path: None,
+            }),
+            WorkSource::Budget(budget) => budgeted_read::denial(budget),
+        }
+    }
+}
+
 impl<'b> WorkMeter<'b> {
     pub(super) const fn new(limit: u64) -> Self {
         Self {
@@ -1468,7 +1494,7 @@ impl CheckedPackageV2 {
                 member_pointer(&["name"]),
             ));
         }
-        let mut wire = intake::decode_borrowed_wire(bytes, &document, budget)
+        let (mut wire, bodies) = intake::decode_borrowed_wire(bytes, &document, budget)
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
@@ -1485,7 +1511,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(catalog, &wire, &document, limits, evidence, budget)?;
+        } = validate(catalog, &wire, &bodies, &document, limits, evidence, budget)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1819,6 +1845,7 @@ struct ValidatedGraph {
 fn validate(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
+    bodies: &[CheckedJson],
     document: &quire_canonical::Document,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
@@ -1828,7 +1855,7 @@ fn validate(
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
-    let flat_kinds = flat_wire::check(wire, budget)?;
+    let flat_kinds = flat_wire::check(wire, bodies, budget)?;
     let structural_keys = node_index::check(document, wire, evidence, budget)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds, budget)?;
     let mut meter = WorkMeter::over(budget);
@@ -1849,6 +1876,7 @@ fn validate(
     } = validate_graph(
         catalog,
         wire,
+        bodies,
         limits,
         &mut meter,
         &models,
@@ -2419,11 +2447,13 @@ fn source_nominal_body(kind: CheckedNodeKind, body: &Value) -> bool {
 /// [`abstraction::validate_abstraction`]), never through the generic
 /// reference edges `validate_graph` resolves for every other body.
 /// `at` is the body's own position, `/semantic_graph/nodes/{n}/body`.
-fn validate_body(
+fn validate_body<'a, V: TermSource<'a>>(
     kind: CheckedNodeKind,
-    body: &Value,
-    at: &Trail<'_>,
+    body: &'a Value,
+    node: V,
+    at: &Trail<'a>,
     visit: &mut ReferenceVisitor<'_>,
+    ids: Ids<'_, '_>,
 ) -> Result<u64, ValidationFailure> {
     #[cfg(test)]
     lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
@@ -2508,21 +2538,32 @@ fn validate_body(
             refuse(CheckedPackageRefusalCode::MalformedWire, at.pointer()),
         ),
         BodyGrammar::Term if kind == CheckedNodeKind::State(StateForm::OperationAnchor) => {
-            execution_point::validate_anchor_body(body, at, visit)
+            execution_point::validate_anchor_body(node, at, visit, ids)
         }
         BodyGrammar::Extension => {
             extension::read_body(body, at.pointer()).map(|body| extension::body_work(&body))
         }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
-        BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
+        BodyGrammar::AbstractionRelation => abstraction::scan_body(node, at, visit, ids),
         BodyGrammar::Refinement => refinement::validate_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
         BodyGrammar::Literal
         | BodyGrammar::Term
         | BodyGrammar::TimedModel
-        | BodyGrammar::Hybrid => validate_term(body, TermGrammar::V2, true, at, visit),
+        | BodyGrammar::Hybrid => validate_term(node, TermGrammar::V2, true, at, visit, ids),
     }
+}
+
+/// [`validate_body`] for a body held as a `Value` and no budget: the V1
+/// reader's, and the re-walk that finds a reference's pointer.
+fn validate_value_body(
+    kind: CheckedNodeKind,
+    body: &Value,
+    at: &Trail<'_>,
+    visit: &mut ReferenceVisitor<'_>,
+) -> Result<u64, ValidationFailure> {
+    super::common::with_unmetered_ids(|ids| validate_body(kind, body, body, at, visit, ids))
 }
 
 /// The grammar a node's `body` is validated against (QSpec FR-322
@@ -2856,7 +2897,7 @@ fn body_reference_pointer(
     let mut seen = 0_usize;
     let mut found = None;
     // The walk already succeeded once; a failure here only means no pointer.
-    let _ = validate_body(
+    let _ = validate_value_body(
         kind,
         &node.body,
         &Trail::Base(&body_steps),
@@ -2964,9 +3005,17 @@ pub(super) fn structural_key<'a>(
         .map_or(id, std::sync::Arc::as_ref)
 }
 
+// `bodies` is the node-view table: `TermNode::of(&bodies[position])` is the
+// body of graph node `position`, read from the retained document with the
+// node's operand slots resolved through `wire.semantic_graph.operand_rows`
+// (`TermNode::node_id_in`, `TermNode::decode_in`). The `Value` in
+// `wire.semantic_graph.nodes[position].body` is the uncharged bridge for a
+// validator that has not moved to the views.
+#[allow(unused_variables)]
 fn validate_graph(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
+    bodies: &[CheckedJson],
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
     models: &[DomainModel],
@@ -3159,10 +3208,19 @@ fn validate_graph(
             | BodyGrammar::AbstractionRelation => validate_body(
                 kind,
                 &node.body,
+                TermNode::of(&bodies[position]),
                 &Trail::Base(&body_steps),
                 &mut |target, site, _target_at| {
                     targets.push((target.clone(), site));
                 },
+                read_charge::ids(
+                    &mut *meter,
+                    PackageReadStage::Graph,
+                    position,
+                    CheckedNodeTag::from_wire(&node.node_tag)
+                        .map_or("node", CheckedNodeTag::as_wire),
+                    &wire.semantic_graph.operand_rows[position],
+                ),
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
@@ -4225,8 +4283,8 @@ mod test_support {
 #[cfg(test)]
 mod tests {
     use super::{
-        body_grammar, node_pointer, reference_requires_cycle_edge, validate_body,
-        validate_recursion, validate_recursion_group_paths, BodyGrammar,
+        body_grammar, node_pointer, reference_requires_cycle_edge, validate_recursion,
+        validate_recursion_group_paths, validate_value_body, BodyGrammar,
         CheckedDependencySelection, CheckedNodeKind, CheckedPackageRefusalCode,
         CheckedSemanticNodeV2, CorrespondenceForm, EdgeSite, ExpressionForm, ReferenceMember,
         ReferenceSite, StateForm, Step, Trail, ValidationFailure, WorkMeter,
@@ -4769,7 +4827,7 @@ mod tests {
             {
                 let document =
                     std::sync::Arc::new(quire_canonical::read(&bytes, u64::MAX).expect("reads"));
-                let decoded = super::intake::decode_borrowed_wire(
+                let (decoded, _) = super::intake::decode_borrowed_wire(
                     &bytes,
                     &document,
                     &mut super::NativeJoinBudget::unlimited(),
@@ -4892,7 +4950,7 @@ mod tests {
         ];
         for (body, requires_edge) in bodies {
             let mut sites = Vec::new();
-            validate_body(
+            validate_value_body(
                 CheckedNodeKind::Expression(ExpressionForm::Reference),
                 &body,
                 &Trail::Base(&[Step::Key("body")]),

@@ -93,12 +93,13 @@ fn stage_requests(read: Reader<'_>, stage: PackageReadStage) -> Vec<Request> {
     let mut limit = low;
     let mut found = Vec::new();
     while let Some(mut request) = denial_at(read, limit) {
-        if request.stage > stage {
-            break;
-        }
         request.before = limit;
         limit += u64::try_from(request.amount).expect("amount fits");
-        found.push(request);
+        // The retained tables are charged after every stage, at the graph
+        // stage's locus, so the requests of other stages are stepped over.
+        if request.stage == stage {
+            found.push(request);
+        }
     }
     found
 }
@@ -118,7 +119,7 @@ fn assert_exact_and_one_short(read: Reader<'_>, requests: &[Request]) {
         );
         if let Some(next) = denial_at(read, exact) {
             assert!(
-                next.stage > request.stage
+                next.stage != request.stage
                     || requests.get(position + 1).is_some_and(|following| {
                         (
                             following.stage,

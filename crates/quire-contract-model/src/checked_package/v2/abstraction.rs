@@ -54,12 +54,13 @@ use super::{
     RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, WorkMeter,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, node_pointer, validate_term, ReferenceVisitor, TermGrammar, Trail,
-    ValidationFailure,
+    body_term, exact_members, node_pointer, validate_term, Ids, ReferenceVisitor, TermGrammar,
+    Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
+use crate::checked_package::terms::TermSource;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -132,13 +133,14 @@ impl AbstractionBody {
 /// done, one unit per value walked.
 ///
 /// Implements: FR-346.
-pub(super) fn scan_body(
-    body: &Value,
-    at: &Trail<'_>,
+pub(super) fn scan_body<'a, V: TermSource<'a>>(
+    body: V,
+    at: &Trail<'a>,
     visit: &mut ReferenceVisitor<'_>,
+    ids: Ids<'_, '_>,
 ) -> Result<u64, ValidationFailure> {
-    if body_term(body) == Some(BodyTerm::Application) {
-        return validate_term(body, TermGrammar::V2, true, at, visit);
+    if body.kind() == Some(BodyTerm::Application) {
+        return validate_term(body, TermGrammar::V2, true, at, visit, ids);
     }
     super::read_charge::with_unmetered_walk(|walk| scan_members(body, at, walk))
 }

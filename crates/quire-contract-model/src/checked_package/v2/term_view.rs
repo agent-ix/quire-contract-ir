@@ -85,6 +85,24 @@ impl<'d> TermNode<'d> {
         matches!(self.node.node(), Node::Null)
     }
 
+    /// Whether this is a literal payload the V2 grammar admits: a boolean, a
+    /// string, `null`, or an integer token within the 64-bit range.
+    pub(in crate::checked_package) fn literal_value_ok(self) -> bool {
+        match self.node.node() {
+            Node::Bool(_) | Node::String(_) | Node::Null => true,
+            Node::Number(number) => {
+                number.text().parse::<i64>().is_ok() || number.text().parse::<u64>().is_ok()
+            }
+            Node::Array(_) | Node::Object(_) => false,
+        }
+    }
+
+    /// The value as a `serde_json::Value`: an uncharged copy, the bridge for a
+    /// reader that has not moved to the views. Not on the charged read path.
+    pub(in crate::checked_package) fn uncharged_value(self) -> serde_json::Value {
+        super::checked_json::value_of(self.node)
+    }
+
     pub(in crate::checked_package) fn is_object(self) -> bool {
         matches!(self.node.node(), Node::Object(_))
     }
@@ -279,6 +297,19 @@ impl<'d> TermNode<'d> {
         sink: &mut S,
         site: Site,
     ) -> Result<NodeIdRead, Denied> {
+        self.node_id_in(sink, site, &[])
+    }
+
+    /// [`Self::node_id`] for an ID written in the node whose operand row is
+    /// `row`: an operand slot `{"operand": k}` reads as the index segment of
+    /// the node `row[k]` names, as the reader's resolved wire gives it. A slot
+    /// the row does not name stays a slot.
+    pub(in crate::checked_package) fn node_id_in<S: ReadStorage + ?Sized>(
+        self,
+        sink: &mut S,
+        site: Site,
+        row: &[u64],
+    ) -> Result<NodeIdRead, Denied> {
         const MAXIMUM: u64 = 9_007_199_254_740_991;
         if !self.exact_members(&["package", "path", "ordinal"]) {
             return Ok(NodeIdRead::Malformed);
@@ -317,7 +348,12 @@ impl<'d> TermNode<'d> {
                     CheckedNodePathSegment::Name(name.into())
                 }
                 Some(SegmentForm::Node(index)) => CheckedNodePathSegment::Index(index),
-                Some(SegmentForm::Operand(slot)) => CheckedNodePathSegment::Operand(slot),
+                Some(SegmentForm::Operand(slot)) => usize::try_from(slot)
+                    .ok()
+                    .and_then(|slot| row.get(slot))
+                    .map_or(CheckedNodePathSegment::Operand(slot), |&entry| {
+                        CheckedNodePathSegment::Index(entry)
+                    }),
                 None => return Ok(NodeIdRead::Malformed),
             });
         }
@@ -345,7 +381,20 @@ impl<'d> TermNode<'d> {
         budget: &mut NativeJoinBudget,
         site: Site,
     ) -> Result<Result<CheckedTerm, TermConversionCause>, ValidationFailure> {
-        let context = DecodeContext::at_locus(document, budget, site.locus());
+        self.decode_in(document, budget, site, &[])
+    }
+
+    /// [`Self::decode`] for a body written in the node whose operand row is
+    /// `row`: every node ID in it reads its operand slots through the row, as
+    /// in [`Self::node_id_in`].
+    pub(in crate::checked_package) fn decode_in(
+        self,
+        document: &'d Arc<Document>,
+        budget: &mut NativeJoinBudget,
+        site: Site,
+        row: &'d [u64],
+    ) -> Result<Result<CheckedTerm, TermConversionCause>, ValidationFailure> {
+        let context = DecodeContext::at_locus(document, budget, site.locus()).with_operand_row(row);
         let decoded = decode_term(&context, document, self);
         let denied = context.denied();
         *budget = context.finish();
@@ -807,5 +856,68 @@ mod tests {
                     .is_err());
             }
         }
+    }
+
+    /// Operand slots read through the holder's row at read time agree with the
+    /// rewritten `Value` the reader's resolved wire holds, for node IDs and
+    /// for decoded terms, and a lone `{"operand": k}` that is no path segment
+    /// is left alone.
+    ///
+    /// Trace: TC-472, FR-038-AC-499.
+    #[test]
+    fn operand_slots_resolve_through_the_row_like_the_rewritten_value() {
+        use crate::checked_package::v2::native_join_budget::{NativeJoinBudget, PackageReadStage};
+        use crate::checked_package::v2::node_index::resolve_value_slots;
+        use crate::checked_package::v2::read_charge::{node_id_from_value, Site};
+        let site = Site::new(PackageReadStage::WireChecks, 0, "owner_schema");
+        let row = [5u64, 7];
+        let id =
+            |slot: u64| json!({"package": "p", "path": ["x", {"operand": slot}], "ordinal": 0});
+        let leaf = json!({"term": "reference", "target": id(1)});
+        let bodies = [
+            leaf.clone(),
+            json!({"term": "aggregate", "members": [leaf.clone(), {"term": "reference", "target": id(0)}]}),
+            json!({"term": "literal", "type": id(1), "value_kind": "integer", "value": 3}),
+            json!({"term": "literal", "type": id(1), "value_kind": "text", "value": {"operand": 0}}),
+            json!({"term": "reference", "target": id(9)}),
+        ];
+        for body in bodies {
+            let mut rewritten = body.clone();
+            resolve_value_slots(
+                &mut rewritten,
+                &row,
+                &mut NativeJoinBudget::unlimited(),
+                site,
+            )
+            .expect("unlimited");
+            let json = CheckedJson::from_value(&body).expect("body");
+            let by_row = TermNode::of(&json)
+                .decode_in(
+                    json.document(),
+                    &mut NativeJoinBudget::unlimited(),
+                    site,
+                    &row,
+                )
+                .expect("unlimited");
+            assert_eq!(by_row, CheckedTerm::decode_admitted(&rewritten), "{body}");
+        }
+        let target = id(1);
+        let mut rewritten = target.clone();
+        resolve_value_slots(
+            &mut rewritten,
+            &row,
+            &mut NativeJoinBudget::unlimited(),
+            site,
+        )
+        .expect("unlimited");
+        let json = CheckedJson::from_value(&target).expect("id");
+        let read = TermNode::of(&json)
+            .node_id_in(&mut NativeJoinBudget::unlimited(), site, &row)
+            .expect("unlimited")
+            .valid();
+        let expected =
+            node_id_from_value(&mut NativeJoinBudget::unlimited(), site, &rewritten, true)
+                .expect("unlimited");
+        assert_eq!(read, expected);
     }
 }

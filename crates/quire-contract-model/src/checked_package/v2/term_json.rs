@@ -279,10 +279,10 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
             stage: self.stage,
             index: self.index,
             at: Trail::Base(&self.steps),
-            failure: None,
+            failure: RefCell::new(None),
         };
         let read = value.node_id(&mut storage, ReadSite::new(self.stage, self.index, FORM));
-        match (read, storage.failure) {
+        match (read, storage.failure.into_inner()) {
             (Ok(read), _) => Ok(read),
             (Err(_), Some(failure)) => Err(failure),
             (Err(_), None) => Err(stage_storage::unavailable(0)),
@@ -508,7 +508,7 @@ struct Storage<'x, 'm, 'b> {
     stage: PackageReadStage,
     index: usize,
     at: Trail<'x>,
-    failure: Option<ValidationFailure>,
+    failure: RefCell<Option<ValidationFailure>>,
 }
 
 impl ReadStorage for Storage<'_, '_, '_> {
@@ -519,17 +519,24 @@ impl ReadStorage for Storage<'_, '_, '_> {
         match stage_storage::reserve(&mut meter, &site, bytes) {
             Ok(()) => Ok(()),
             Err(failure) => {
-                self.failure = Some(failure);
+                *self.failure.borrow_mut() = Some(failure);
                 Err(ReadDenied)
             }
         }
+    }
+
+    fn denial(&self) -> ValidationFailure {
+        self.failure
+            .borrow_mut()
+            .take()
+            .unwrap_or_else(|| stage_storage::unavailable(0))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checked_package::common::{validate_term, TermGrammar};
+    use crate::checked_package::common::{validate_term, with_unmetered_ids, TermGrammar};
     use crate::checked_package::v2::checked_json::CheckedJson;
     use crate::checked_package::v2::native_join_budget::NativeJoinBudget;
     use crate::checked_package::v2::PackageReadStage;
@@ -617,18 +624,21 @@ mod tests {
             for is_body_root in [true, false] {
                 let mut expected_targets = Vec::new();
                 let mut expected_first = None;
-                let expected = validate_term(
-                    &term,
-                    TermGrammar::V2,
-                    is_body_root,
-                    &Trail::Base(&[Step::Key("body")]),
-                    &mut |target, site, at| {
-                        expected_targets.push((target.clone(), site));
-                        if expected_first.is_none() {
-                            expected_first = Some(at.pointer());
-                        }
-                    },
-                );
+                let expected = with_unmetered_ids(|ids| {
+                    validate_term(
+                        &term,
+                        TermGrammar::V2,
+                        is_body_root,
+                        &Trail::Base(&[Step::Key("body")]),
+                        &mut |target, site, at| {
+                            expected_targets.push((target.clone(), site));
+                            if expected_first.is_none() {
+                                expected_first = Some(at.pointer());
+                            }
+                        },
+                        ids,
+                    )
+                });
                 let json = CheckedJson::from_value(&term).expect("canonical term");
                 let mut meter = WorkMeter::new(u64::MAX);
                 let site = Site::new(
