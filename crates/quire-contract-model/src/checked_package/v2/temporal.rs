@@ -826,12 +826,13 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                 }));
             }
             CheckedTerm::Binding { name, value } => {
-                let value_slot = if slot == Slot::HyperQuantifiers && name == "quantifiers" {
+                let value_slot = if slot == Slot::HyperQuantifiers && name.as_ref() == "quantifiers"
+                {
                     Slot::QuantifierTuple
                 } else {
                     Slot::Other
                 };
-                children.extend(std::iter::once((value, false, value_slot)));
+                children.extend(std::iter::once((value.as_ref(), false, value_slot)));
             }
             CheckedTerm::Reference { target } => {
                 let target = self.graph.node(target);
@@ -1899,7 +1900,8 @@ fn text_literal(term: &Value) -> Option<&str> {
 pub(super) fn validate_hyperproperties(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    terms: &[Option<CheckedTerm>],
+    index: &super::graph_storage::GraphIndex<'_>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1914,7 +1916,7 @@ pub(super) fn validate_hyperproperties(
             == Some(&CheckedNodeKind::Claim(super::ClaimForm::Hyperproperty))
         {
             check_hyper_shape(position, &graph)?;
-            check_hyper_fairness(position, &graph, meter)?;
+            check_hyper_fairness(position, &graph, terms, meter)?;
         }
     }
     Ok(())
@@ -2126,6 +2128,7 @@ fn check_hyper_shape(position: usize, graph: &StepGraph<'_, '_>) -> Result<(), V
 fn check_hyper_fairness(
     position: usize,
     graph: &StepGraph<'_, '_>,
+    terms: &[Option<CheckedTerm>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let Some(members) = aggregate_members(&graph.nodes[position].body) else {
@@ -2144,8 +2147,8 @@ fn check_hyper_fairness(
     };
     let profile = binding_value(6, "body")
         .and_then(reference_target)
-        .and_then(|body| graph.node(&body))
-        .and_then(|(wrapper, _)| operation_of(wrapper))
+        .and_then(|body| graph.index.get(&body))
+        .and_then(|&position| operation_of(terms.get(position).and_then(Option::as_ref)))
         .and_then(|operation| match operation.laws.as_slice() {
             [law] if law.role_class() == Some(LawRole::TemporalProfile) => {
                 TemporalProfile::from_wire(&law.definition.identity)
@@ -2205,7 +2208,7 @@ fn check_hyper_fairness(
             _ => None,
         });
         for (member_at, member) in group_members.iter().enumerate() {
-            let Some((_, fairness)) = fairness_member(member, graph) else {
+            let Some((_, fairness)) = fairness_member(member, graph, terms, meter)? else {
                 continue;
             };
             let fair_id = &graph.nodes[position].node_id;

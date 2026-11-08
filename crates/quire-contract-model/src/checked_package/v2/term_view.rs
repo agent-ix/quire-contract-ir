@@ -777,6 +777,7 @@ mod tests {
     use crate::checked_package::terms::subterms;
     use crate::checked_package::v2::CheckedTermView as ValueView;
     use crate::checked_package::v2::{CheckedJson, CheckedTerm};
+    use crate::identity::ExecutionPoint;
     use serde_json::{json, Value};
 
     /// The `Value` parse of a node ID the node read is checked against.

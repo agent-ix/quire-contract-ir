@@ -3408,7 +3408,7 @@ fn validate_graph(
             Err(failure) => return Err(failure),
         });
     }
-    model_root::validate_shape(&graph.nodes, &kinds, &terms)?;
+    model_root::validate_shape(&graph.nodes, &kinds, &terms, meter)?;
     let missing_protocol_temporal_selection =
         protocol_body::has_missing_temporal_selection(&kinds, &terms, &index, &wire.lock);
     let binding_result = temporal_binding::validate(
@@ -3618,7 +3618,7 @@ fn validate_graph(
     guarantee_composition::validate(&graph.nodes, &kinds, &index, &owners, dependencies, meter)?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
-    validate_hyperproperties(&graph.nodes, &kinds, &index, &owners, meter)?;
+    validate_hyperproperties(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     refinement::validate_step_rows(
         &graph.nodes,
         &kinds,
