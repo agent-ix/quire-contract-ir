@@ -46,11 +46,10 @@ use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, JsonPointer,
 };
-use quire_walk::{walk, Children, Walk};
+use quire_walk::{Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 
 /// The three temporal operator classes whose applications stand only at the
@@ -548,11 +547,11 @@ pub(super) fn validate_temporal(
         owners,
     };
     for &position in index.values() {
-        if let Some(failure) = placement_defect(position, &graph) {
+        if let Some(failure) = placement_defect(position, &graph, terms, meter)? {
             return Err(failure);
         }
     }
-    validate_diagnostic_references(nodes, kinds, context.diagnostics, meter)?;
+    validate_diagnostic_references(kinds, index, context.diagnostics, meter)?;
     meter.at_node(0, "temporal");
     let clock_units = aggregate_clock_units(context.bindings, meter)?;
     let mut covered = meter.filled(nodes.len(), false)?;
@@ -596,29 +595,29 @@ pub(super) fn validate_temporal(
 /// Only forbidden reference placement belongs to the temporal step; other
 /// diagnostic validation remains at the diagnostics stage.
 fn validate_diagnostic_references(
-    nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
+    index: &GraphIndex<'_>,
     diagnostics: &[CheckedDiagnosticV2],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let never_referenced = nodes
-        .iter()
-        .zip(kinds)
-        .filter(|(_, kind)| {
-            matches!(
-                kind,
-                CheckedNodeKind::Temporal(TemporalForm::Formula | TemporalForm::Fairness)
-                    | CheckedNodeKind::Expression(super::ExpressionForm::Case)
-            )
-        })
-        .map(|(node, _)| &node.node_id)
-        .collect::<BTreeSet<_>>();
     for (entry_index, entry) in diagnostics.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
             meter.at_row("diagnostic_details", entry_index);
             if references_refused_node(
                 TermNode::of(detail),
-                |target| never_referenced.contains(target),
+                |target| {
+                    index
+                        .get(target)
+                        .and_then(|&position| kinds.get(position))
+                        .is_some_and(|kind| {
+                            matches!(
+                                kind,
+                                CheckedNodeKind::Temporal(
+                                    TemporalForm::Formula | TemporalForm::Fairness
+                                ) | CheckedNodeKind::Expression(super::ExpressionForm::Case)
+                            )
+                        })
+                },
                 meter,
             )? {
                 return Err(ValidationFailure::refused_because(
@@ -687,11 +686,18 @@ fn aggregate_members(term: &Value) -> Option<&[Value]> {
 /// The placement defect of one node: its body root against its form, and any
 /// `reference` to a formula or fairness node from a place that may not name one.
 /// An application nested in the body was refused ahead of every identity check.
-fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<ValidationFailure> {
-    let node = graph.nodes.get(position)?;
-    let kind = *graph.kinds.get(position)?;
-    let root_class = match CheckedTerm::view(&node.body) {
-        Some(CheckedTermView::Application { operator, .. }) => Some(operator),
+fn placement_defect<'a>(
+    position: usize,
+    graph: &StepGraph<'a, '_>,
+    terms: &'a [Option<CheckedTerm>],
+    meter: &mut WorkMeter,
+) -> Result<Option<ValidationFailure>, ValidationFailure> {
+    let Some(kind) = graph.kinds.get(position).copied() else {
+        return Ok(None);
+    };
+    let root = terms.get(position).and_then(Option::as_ref);
+    let root_class = match root {
+        Some(CheckedTerm::Application { operator, .. }) => Some(*operator),
         _ => None,
     };
     let required = PLACED
@@ -700,26 +706,37 @@ fn placement_defect(position: usize, graph: &StepGraph<'_, '_>) -> Option<Valida
         .map(|(class, _)| *class);
     match (required, root_class) {
         (Some(required), Some(root)) if root == required => {}
-        (Some(_), _) => return Some(ineligible(graph, position)),
-        (None, Some(root)) if is_placed_class(root) => return Some(ineligible(graph, position)),
+        (Some(_), _) => return Ok(Some(ineligible(graph, position))),
+        (None, Some(root)) if is_placed_class(root) => {
+            return Ok(Some(ineligible(graph, position)))
+        }
         (None, _) => {}
     }
     // The closed plan step owns its formula references, including malformed
     // binding placement, so its binding-specific refusal keeps precedence.
     if kind == CheckedNodeKind::Temporal(TemporalForm::MonitorPlan) {
-        return None;
+        return Ok(None);
     }
-    match walk(
-        &mut Placement {
-            graph,
-            position,
-            kind,
+    let Some(root) = root else {
+        return Ok(None);
+    };
+    meter.at_node(
+        position,
+        super::graph_storage::node_form(&graph.nodes[position].node_tag),
+    );
+    Ok(
+        match meter.walk(
+            &mut Placement {
+                graph,
+                position,
+                kind,
+            },
+            (root, true, Slot::Other),
+        )? {
+            ControlFlow::Continue(()) => None,
+            ControlFlow::Break(failure) => Some(failure),
         },
-        (&node.body, true, Slot::Other),
-    ) {
-        ControlFlow::Continue(()) => None,
-        ControlFlow::Break(failure) => Some(failure),
-    }
+    )
 }
 
 /// The walk of [`placement_defect`] over a node's body: each term with whether
@@ -731,19 +748,19 @@ struct Placement<'g, 'a, 'm> {
 }
 
 impl<'a> Walk for Placement<'_, 'a, '_> {
-    type Node = (&'a Value, bool, Slot);
+    type Node = (&'a CheckedTerm, bool, Slot);
     type Frame = ();
     type Stop = ValidationFailure;
 
     fn enter(
         &mut self,
-        (term, is_root, slot): (&'a Value, bool, Slot),
-        children: &mut Children<'_, (&'a Value, bool, Slot)>,
+        (term, is_root, slot): (&'a CheckedTerm, bool, Slot),
+        children: &mut Children<'_, (&'a CheckedTerm, bool, Slot)>,
     ) -> ControlFlow<ValidationFailure> {
-        match CheckedTerm::view(term) {
+        match term {
             // Only the body root is an application: a nested one is refused
             // `malformed_wire` ahead of this step (`flat_wire`).
-            Some(CheckedTermView::Application { arguments, .. }) => {
+            CheckedTerm::Application { arguments, .. } => {
                 children.extend(arguments.iter().enumerate().map(|(at, argument)| {
                     let slot = if is_root {
                         argument_slot(self.kind, at)
@@ -753,7 +770,7 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                     (argument, false, slot)
                 }));
             }
-            Some(CheckedTermView::Aggregate { members }) => {
+            CheckedTerm::Aggregate { members } => {
                 let member = if slot == Slot::FairnessList {
                     Slot::Fairness
                 } else {
@@ -765,11 +782,11 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                         .map(|member_term| (member_term, false, member)),
                 );
             }
-            Some(CheckedTermView::Binding { value, .. }) => {
-                children.extend(std::iter::once((value, false, Slot::Other)));
+            CheckedTerm::Binding { value, .. } => {
+                children.extend(std::iter::once((value.as_ref(), false, Slot::Other)));
             }
-            Some(CheckedTermView::Reference { .. }) => {
-                let target = reference_target(term).and_then(|target| self.graph.node(&target));
+            CheckedTerm::Reference { target } => {
+                let target = self.graph.node(target);
                 let misplaced = match target {
                     Some((_, CheckedNodeKind::Temporal(TemporalForm::Formula))) => {
                         slot != Slot::Formula
@@ -783,7 +800,7 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                     return ControlFlow::Break(ineligible(self.graph, self.position));
                 }
             }
-            Some(CheckedTermView::Literal { .. }) | None => {}
+            _ => {}
         }
         ControlFlow::Continue(())
     }

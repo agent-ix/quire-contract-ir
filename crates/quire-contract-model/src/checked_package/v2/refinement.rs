@@ -18,7 +18,6 @@ use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeSet;
 
 /// Source region of one canonical refinement step row, outside package identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
