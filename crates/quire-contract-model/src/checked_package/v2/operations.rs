@@ -2737,7 +2737,8 @@ fn selected_union_members<'m>(
     let mut members = budget.vec(cases.len(), "union_members")?;
     for (name, case) in cases {
         let payload = if let Some(payload_type) = &case.payload {
-            let Some(member_type) = owner.package.element_type(payload_type) else {
+            let Some(member_type) = owner.package.element_type_in(payload_type, &mut budget)?
+            else {
                 return Ok(None);
             };
             let id = member_type
@@ -3379,7 +3380,10 @@ fn check_reference_edge(
         return ineligible(member_at("name"));
     };
     let edge = MemberType::Reference(edge_id.clone());
-    let is_edge = match owner.package.field_type(field) {
+    let is_edge = match owner.package.field_type_in(
+        field,
+        &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
+    )? {
         Some(MemberType::Option(inner)) => *inner == edge,
         Some(MemberType::Collection {
             kind: CollectionKind::Sequence,
@@ -3507,7 +3511,11 @@ fn check_tuple_position(
             CheckedPackageRefusalCause::MissingName,
         )));
     }
-    let Some(position_type) = owner.package.element_type(position_ref) else {
+    let Some(position_type) = owner.package.element_type_in(
+        position_ref,
+        &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
+    )?
+    else {
         return ineligible();
     };
     if operand_type.as_ref() != Some(&declaration.node_id) {
@@ -4117,7 +4125,10 @@ fn check_model_member(
         Err(ModelFailure::Limit(failure)) => return Err(failure),
     };
     let member_type = match resolved {
-        Resolved::Field(field) => owner.package.field_type(field),
+        Resolved::Field(field) => owner.package.field_type_in(
+            field,
+            &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
+        )?,
         Resolved::Operation(resolved) => {
             if object.interface {
                 return ineligible(member_at("name"));
@@ -4142,7 +4153,15 @@ fn check_model_member(
             }
             for (offset, parameter) in resolved.parameters.iter().enumerate() {
                 let position = offset.saturating_add(1);
-                let Some(expected) = owner.package.slot_type(parameter) else {
+                let Some(expected) = owner.package.slot_type_in(
+                    parameter,
+                    &mut super::model_members::Budget::new(
+                        meter,
+                        owner.package.root,
+                        owner.package.bytes,
+                    ),
+                )?
+                else {
                     return ineligible(member_at("name"));
                 };
                 let Some(expected_id) = expected.node_id_in(
@@ -4162,10 +4181,14 @@ fn check_model_member(
                     return ineligible(argument_at(position));
                 }
             }
-            resolved
-                .result
-                .as_ref()
-                .and_then(|result| owner.package.slot_type(result))
+            if let Some(result) = resolved.result.as_ref() {
+                owner.package.slot_type_in(
+                    result,
+                    &mut Budget::new(meter, owner.package.root, owner.package.bytes),
+                )?
+            } else {
+                None
+            }
         }
     };
     let Some(member_type) = member_type else {

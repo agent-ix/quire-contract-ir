@@ -521,6 +521,29 @@ fn inherited_operation_binders_use_named_receiver_and_retained_result() {
         .expect("integer ID");
     assert_eq!(signature[1], integer);
     assert_eq!(signature[2], integer);
+    let run = |limit| {
+        let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        let mut result = None;
+        let measured = allocation_counter::measure(|| {
+            let mut meter = WorkMeter::over(&mut native);
+            result = Some(model.effective_operation_binder_types(
+                GADGET,
+                "act",
+                &mut Budget::new(&mut meter, 0, BYTES),
+            ));
+        });
+        (
+            result.expect("ran"),
+            measured.bytes_total,
+            native.read_storage_consumed(),
+        )
+    };
+    let (actual, allocated, charged) = run(u64::MAX);
+    assert_eq!(actual.expect("unlimited"), Some(signature.clone()));
+    assert!(charged > 0);
+    assert_eq!(allocated, charged);
+    assert_eq!(run(charged).0.expect("exact limit"), Some(signature));
+    assert!(run(charged - 1).0.is_err(), "one short");
 }
 
 /// Provenance: IR-874 effective record binder order.
@@ -1924,5 +1947,54 @@ fn runtime_duration_lookup_preserves_exact_owner_and_global_selection() {
             model.element_type(&duration),
             expected.map(MemberType::Quantity)
         );
+    }
+}
+
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn selected_member_type_parsers_reserve_every_owned_byte() {
+    let mut values = field(WIDGET, "values", WIDGET);
+    values["multiplicity"] = multiplicity(0, Some(3));
+    let model = read(&document(vec![
+        object_type(WIDGET, &[], vec![values]),
+        json!({"identity":"ix://acme/orders/Items", "kind":"sequence", "items":WIDGET}),
+        json!({"identity":"ix://acme/orders/MaybeItems", "kind":"option", "inner":"ix://acme/orders/Items"}),
+    ])).expect("selected model");
+    let references = [
+        SelectedTypeRef::Declared(WIDGET.into()),
+        SelectedTypeRef::Declared("ix://acme/orders/MaybeItems".into()),
+    ];
+    let mut field = model.object_types[WIDGET].fields[0].clone();
+    field.optional = true;
+    for case in 0..4 {
+        let expected = match case {
+            0 | 1 => model.element_type(&references[case]),
+            2 => model.slot_type(&field.slot),
+            _ => model.field_type(&field),
+        };
+        let run = |limit| {
+            let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut native);
+                let mut budget = Budget::new(&mut meter, 0, u64::MAX);
+                result = Some(match case {
+                    0 | 1 => model.element_type_in(&references[case], &mut budget),
+                    2 => model.slot_type_in(&field.slot, &mut budget),
+                    _ => model.field_type_in(&field, &mut budget),
+                });
+            });
+            (
+                result.expect("ran"),
+                measured.bytes_total,
+                native.read_storage_consumed(),
+            )
+        };
+        let (actual, allocated, charged) = run(u64::MAX);
+        assert_eq!(actual.expect("unlimited"), expected);
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "case {case}");
+        assert_eq!(run(charged).0.expect("exact limit admits"), expected);
+        assert!(run(charged - 1).0.is_err(), "one short: {case}");
     }
 }

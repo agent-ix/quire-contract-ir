@@ -744,6 +744,25 @@ pub(super) fn declaration_id(identity: &str, form: DeclarationForm, node: &str) 
     }
 }
 
+pub(super) fn declaration_id_in(
+    identity: &str,
+    form: DeclarationForm,
+    node: &str,
+    budget: &mut Budget<'_, '_>,
+) -> Result<CheckedNodeId, ValidationFailure> {
+    let mut path = budget.vec(3, "member_type")?;
+    for text in [form.tag(), form.form(), node] {
+        path.push(CheckedNodePathSegment::Name(
+            budget.text(text, "member_type")?,
+        ));
+    }
+    Ok(CheckedNodeId {
+        package: budget.text(identity, "member_type")?,
+        path,
+        ordinal: 0,
+    })
+}
+
 /// The last `/` segment of an IR node identity: a member's name.
 pub(super) fn member_name(identity: &str) -> &str {
     identity.rsplit('/').next().unwrap_or(identity)
@@ -1567,6 +1586,67 @@ impl<'w, 'b> Budget<'w, 'b> {
         Ok(())
     }
 
+    pub(super) fn room<T>(
+        &mut self,
+        items: &mut Vec<T>,
+        additional: usize,
+        form: &'static str,
+    ) -> Result<(), ValidationFailure> {
+        let needed = items.len().saturating_add(additional);
+        if needed > items.capacity() {
+            let target = needed.max(items.capacity().saturating_mul(2)).max(4);
+            self.request(target.saturating_mul(std::mem::size_of::<T>()), form)?;
+            items.reserve_exact(target - items.len());
+        }
+        Ok(())
+    }
+    pub(super) fn boxed<T>(
+        &mut self,
+        value: T,
+        form: &'static str,
+    ) -> Result<Box<T>, ValidationFailure> {
+        self.request(std::mem::size_of::<T>(), form)?;
+        Ok(Box::new(value))
+    }
+    pub(super) fn concat(
+        &mut self,
+        parts: &[&str],
+        form: &'static str,
+    ) -> Result<String, ValidationFailure> {
+        let length = parts.iter().map(|part| part.len()).sum();
+        self.request(length, form)?;
+        let mut text = String::with_capacity(length);
+        for part in parts {
+            text.push_str(part);
+        }
+        Ok(text)
+    }
+    pub(super) fn clone_id(
+        &mut self,
+        id: &CheckedNodeId,
+        form: &'static str,
+    ) -> Result<CheckedNodeId, ValidationFailure> {
+        let bytes = id
+            .package
+            .len()
+            .saturating_add(
+                id.path
+                    .len()
+                    .saturating_mul(std::mem::size_of::<CheckedNodePathSegment>()),
+            )
+            .saturating_add(
+                id.path
+                    .iter()
+                    .map(|part| match part {
+                        CheckedNodePathSegment::Name(text) => text.len(),
+                        _ => 0,
+                    })
+                    .sum::<usize>(),
+            );
+        self.request(bytes, form)?;
+        Ok(id.clone())
+    }
+
     /// An owned copy of `text`, requested first.
     pub(super) fn text(
         &mut self,
@@ -1952,6 +2032,213 @@ impl DomainModel {
         }
     }
 
+    /// Resolve a member type using byte reservations from the active reader.
+    pub(super) fn element_type_in(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<MemberType>, ValidationFailure> {
+        let mut current = type_ref;
+        let mut seen: Vec<&str> = Vec::new();
+        let mut layers = Vec::new();
+        while let SelectedTypeRef::Declared(name) = current {
+            budget.charge(1)?;
+            let Some(definition) = self.collection_types.get(name) else {
+                break;
+            };
+            match seen.binary_search(&name.as_ref()) {
+                Ok(_) => return Ok(None),
+                Err(at) => {
+                    budget.room(&mut seen, 1, "member_type")?;
+                    seen.insert(at, name);
+                }
+            }
+            match definition {
+                SelectedTypeDefinition::Sequence(inner) => {
+                    budget.push(&mut layers, SelectedValueLayer::Sequence, "member_type")?;
+                    current = inner;
+                }
+                SelectedTypeDefinition::Option(inner) => {
+                    budget.push(&mut layers, SelectedValueLayer::Option, "member_type")?;
+                    current = inner;
+                }
+                SelectedTypeDefinition::Reference(inner) => current = inner,
+                SelectedTypeDefinition::Map(_) => return Ok(None),
+            }
+        }
+        let Some(mut element) = self.element_type_leaf_in(current, budget)? else {
+            return Ok(None);
+        };
+        while let Some(layer) = layers.pop() {
+            element = match layer {
+                SelectedValueLayer::Option => {
+                    MemberType::Option(budget.boxed(element, "member_type")?)
+                }
+                SelectedValueLayer::Sequence => MemberType::Collection {
+                    kind: CollectionKind::Sequence,
+                    element: budget.boxed(element, "member_type")?,
+                    bounds: None,
+                },
+                SelectedValueLayer::Map => return Ok(None),
+            };
+        }
+        Ok(Some(element))
+    }
+
+    fn element_type_leaf_in(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<MemberType>, ValidationFailure> {
+        budget.charge(1)?;
+        let declared = match type_ref {
+            SelectedTypeRef::Map(_, _) => return Ok(None),
+            SelectedTypeRef::Unit(name) => {
+                return self
+                    .unit_refs
+                    .get(name)
+                    .map(|id| budget.clone_id(id, "member_type").map(MemberType::Quantity))
+                    .transpose()
+            }
+            SelectedTypeRef::Native(native) => {
+                return Ok(match native {
+                    NativeTypeRef::Boolean => Some(MemberType::Boolean),
+                    NativeTypeRef::Integer => Some(MemberType::Integer),
+                    NativeTypeRef::Float32 => Some(MemberType::Float32),
+                    NativeTypeRef::Float64 => Some(MemberType::Float64),
+                    NativeTypeRef::String => Some(MemberType::String),
+                    NativeTypeRef::Uuid => Some(MemberType::Uuid),
+                    NativeTypeRef::Timestamp => Some(MemberType::Timestamp),
+                    NativeTypeRef::Bytes => Some(MemberType::Bytes),
+                    NativeTypeRef::JsonObject => Some(MemberType::JsonObject),
+                    NativeTypeRef::Clock => Some(MemberType::Clock),
+                    NativeTypeRef::Duration => {
+                        let parts = if self.own_seconds_declared {
+                            [
+                                DURATION_RESOLVED_PREFIX,
+                                "ix://quire/unit/",
+                                self.identity.as_ref(),
+                                "/s",
+                            ]
+                        } else {
+                            [DURATION_RESOLVED_PREFIX, "ix://quire/unit/", "", "s"]
+                        };
+                        let key = budget.concat(&parts, "member_type")?;
+                        self.unit_refs
+                            .get(key.as_str())
+                            .map(|id| budget.clone_id(id, "member_type").map(MemberType::Quantity))
+                            .transpose()?
+                    }
+                    NativeTypeRef::Rational | NativeTypeRef::Decimal | NativeTypeRef::Text => None,
+                })
+            }
+            SelectedTypeRef::Declared(name) => name.as_ref(),
+        };
+        if let Some(bounds) = self.value_types.get(declared) {
+            return Ok(match bounds {
+                None => None,
+                Some(ValueBounds::Integer(bounds)) => Some(MemberType::IntRange(*bounds)),
+                Some(ValueBounds::Rational(bounds, None)) => {
+                    Some(MemberType::RationalRange(*bounds))
+                }
+                Some(ValueBounds::Rational(bounds, Some(unit))) => Some(
+                    MemberType::CarriedRational(*bounds, budget.clone_id(unit, "member_type")?),
+                ),
+                Some(ValueBounds::Text(bounds)) => Some(MemberType::TextBounds(TextBounds {
+                    lower: bounds.lower,
+                    upper: bounds.upper,
+                    profile: budget.text(&bounds.profile, "member_type")?,
+                })),
+            });
+        }
+        let (form, kind) = if self.record_types.contains_key(declared) {
+            (DeclarationForm::RecordValueType, 0)
+        } else if self.tuple_types.contains_key(declared) {
+            (DeclarationForm::TupleValueType, 1)
+        } else if self.variant_types.contains_key(declared) {
+            (DeclarationForm::VariantType, 2)
+        } else {
+            let Some(object) = self.object_types.get(declared) else {
+                return Ok(None);
+            };
+            if object.interface {
+                return Ok(None);
+            }
+            (
+                if self.state_machines.contains(declared) {
+                    DeclarationForm::StateMachine
+                } else if self.processes.contains(declared) {
+                    DeclarationForm::Process
+                } else {
+                    DeclarationForm::ObjectType
+                },
+                3,
+            )
+        };
+        let id = declaration_id_in(&self.identity, form, declared, budget)?;
+        Ok(Some(match kind {
+            0 => MemberType::Record(id),
+            1 => MemberType::Tuple(id),
+            2 => MemberType::Variant(id),
+            _ => MemberType::Reference(id),
+        }))
+    }
+
+    pub(super) fn slot_type_in(
+        &self,
+        slot: &TypedSlot,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<MemberType>, ValidationFailure> {
+        let Some(type_ref) = slot.type_ref.as_ref() else {
+            return Ok(None);
+        };
+        let Some(element) = self.element_type_in(type_ref, budget)? else {
+            return Ok(None);
+        };
+        let multiplicity = slot.multiplicity;
+        if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
+            return Ok(Some(element));
+        }
+        let bounds = match (multiplicity.lower, multiplicity.upper) {
+            (0, None) => None,
+            (_, None) => return Ok(None),
+            (lower, Some(upper)) => Some((lower, upper)),
+        };
+        Ok(Some(MemberType::Collection {
+            kind: CollectionKind::of(multiplicity.ordered, multiplicity.unique),
+            element: budget.boxed(element, "member_type")?,
+            bounds,
+        }))
+    }
+
+    pub(super) fn field_type_in(
+        &self,
+        field: &FieldDecl,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<MemberType>, ValidationFailure> {
+        let Some(slot) = self.slot_type_in(&field.slot, budget)? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            match (field.optional, field.slot.type_ref.as_ref(), slot) {
+                (
+                    true,
+                    Some(SelectedTypeRef::Native(NativeTypeRef::Clock)),
+                    MemberType::Collection {
+                        kind,
+                        element,
+                        bounds,
+                    },
+                ) => MemberType::Collection {
+                    kind,
+                    element: budget.boxed(MemberType::Option(element), "member_type")?,
+                    bounds,
+                },
+                (true, _, slot) => MemberType::Option(budget.boxed(slot, "member_type")?),
+                (false, _, slot) => slot,
+            },
+        ))
+    }
     /// FR-322 step 4's element type of a declared `typeRef`.
     pub(super) fn element_type(&self, type_ref: &SelectedTypeRef) -> Option<MemberType> {
         self.element_type_runtime_inner(type_ref, None)
@@ -2384,23 +2671,32 @@ impl DomainModel {
         } else {
             DeclarationForm::ObjectType
         };
-        let object_id = declaration_id(&self.identity, form, object);
-        let Some(receiver) = self.type_node_id(&MemberType::Reference(object_id)) else {
+        let object_id = declaration_id_in(&self.identity, form, object, budget)?;
+        let Some(receiver) =
+            MemberType::Reference(object_id).node_id_in(&self.checked_package, budget)?
+        else {
             return Ok(None);
         };
-        let mut types = vec![receiver];
+        let mut types = budget.vec(
+            1 + operation.parameters.len() + usize::from(operation.result.is_some()),
+            "operation_binders",
+        )?;
+        types.push(receiver);
         for parameter in &operation.parameters {
-            let Some(parameter_type) = self
-                .slot_type(parameter)
-                .and_then(|ty| self.type_node_id(&ty))
+            let Some(parameter_type) = self.slot_type_in(parameter, budget)? else {
+                return Ok(None);
+            };
+            let Some(parameter_type) = parameter_type.node_id_in(&self.checked_package, budget)?
             else {
                 return Ok(None);
             };
             types.push(parameter_type);
         }
         if let Some(result) = &operation.result {
-            let Some(result_type) = self.slot_type(result).and_then(|ty| self.type_node_id(&ty))
-            else {
+            let Some(result_type) = self.slot_type_in(result, budget)? else {
+                return Ok(None);
+            };
+            let Some(result_type) = result_type.node_id_in(&self.checked_package, budget)? else {
                 return Ok(None);
             };
             types.push(result_type);
@@ -2468,10 +2764,6 @@ impl DomainModel {
         }
         names.truncate(kept);
         Ok(names)
-    }
-
-    fn type_node_id(&self, member_type: &MemberType) -> Option<CheckedNodeId> {
-        member_type.node_id(&self.checked_package)
     }
 }
 
@@ -2606,12 +2898,18 @@ impl<'m> ModelOwners<'m> {
                     owner
                         .package
                         .model_operation_binder_types(owner.node, &name, &mut budget)?;
-                classes.push(ModelOperationClass {
-                    object: member_name(owner.node).into(),
-                    operation: name,
-                    node: id.clone(),
-                    binder_types: binder,
-                });
+                let object = budget.text(member_name(owner.node), "operation_class")?;
+                let node = budget.clone_id(id, "operation_class")?;
+                budget.push(
+                    &mut classes,
+                    ModelOperationClass {
+                        object,
+                        operation: name,
+                        node,
+                        binder_types: binder,
+                    },
+                    "operation_class",
+                )?;
             }
         }
         Ok(classes)
