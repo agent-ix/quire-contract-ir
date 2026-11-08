@@ -15,10 +15,11 @@ use ix_trace_rs::trace;
 use quire_canonical::{Encode, Error, FixedShape, LimitKind, Limits};
 use quire_contract_model::{
     encode_checked_package_v2, CheckedCapability, CheckedCapabilityDisposition,
-    CheckedDependencySelection, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeId,
-    CheckedNodePathSegment, CheckedPackageLockV2, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult, CheckedSelectionRole,
-    CheckedSemanticGraphV2, CheckedSemanticNodeV2, CheckedSourceMapEntry, CheckedTerm,
+    CheckedDependencySelection, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedJson,
+    CheckedJsonError, CheckedNodeId, CheckedNodePathSegment, CheckedPackageLockV2,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2ReadResult, CheckedSelectionRole, CheckedSemanticGraphV2,
+    CheckedSemanticNodeV2, CheckedSourceMapEntry, CheckedTerm,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -414,11 +415,15 @@ fn tc_048_lock_source_map_capability_node_id_and_diagnostics_bytes_equal_serde_j
     assert!(diagnostics
         .entries
         .iter()
-        .any(|entry| !entry.loci.is_empty() && entry.details.iter().any(Value::is_object)));
-    assert!(diagnostics
-        .entries
+        .any(|entry| !entry.loci.is_empty()
+            && entry
+                .details
+                .iter()
+                .any(|detail| detail.to_value().is_object())));
+    assert!(diagnostics.entries.iter().any(|entry| entry
+        .details
         .iter()
-        .any(|entry| entry.details.iter().any(Value::is_array)));
+        .any(|detail| detail.to_value().is_array())));
     // Every capability disposition and a structural id with nested path.
     for disposition in CheckedCapabilityDisposition::ALL {
         assert_same_bytes(
@@ -445,7 +450,7 @@ trait Carrier: Encode + Serialize + Clone + Send + 'static {
     /// The value with its one `Value` `null`.
     fn shallow() -> Self;
     /// Puts `body` where the `Value` is.
-    fn place(&mut self, body: Value);
+    fn place(&mut self, body: Value) -> Result<(), Error>;
     /// Takes the `Value` back out, so it can be dropped without recursion.
     fn take(&mut self) -> Value;
     /// The text around the `Value` in the `serde_json` text of
@@ -460,8 +465,9 @@ impl Carrier for CheckedSemanticGraphV2<Value> {
         graph.nodes[0].body = Value::Null;
         graph
     }
-    fn place(&mut self, body: Value) {
+    fn place(&mut self, body: Value) -> Result<(), Error> {
         self.nodes[0].body = body;
+        Ok(())
     }
     fn take(&mut self) -> Value {
         std::mem::take(&mut self.nodes[0].body)
@@ -481,11 +487,22 @@ impl Carrier for CheckedDiagnosticsV2 {
             }],
         }))
     }
-    fn place(&mut self, body: Value) {
-        self.entries[0].details[0] = body;
+    fn place(&mut self, mut body: Value) -> Result<(), Error> {
+        // A handle exists only for a value the encoder writes, so the
+        // encoder's refusal of a value is the refusal to hold it.
+        let held = CheckedJson::from_value(&body);
+        dismantle(&mut body);
+        self.entries[0].details[0] = match held {
+            Ok(held) => held,
+            Err(CheckedJsonError::Encode(error)) => return Err(error),
+            Err(other) => panic!("unexpected {other}"),
+        };
+        Ok(())
     }
     fn take(&mut self) -> Value {
-        std::mem::take(&mut self.entries[0].details[0])
+        let taken = self.entries[0].details[0].to_value();
+        self.entries[0].details[0] = CheckedJson::from_value(&Value::Null).expect("encodes");
+        taken
     }
     const AROUND: (&'static str, &'static str) = ("\"details\":[", "]");
 }
@@ -550,8 +567,9 @@ fn on_small_stack<R: Send + 'static>(work: impl FnOnce() -> R + Send + 'static) 
 fn encode_on_small_stack<T: Carrier>(body: Value, ceiling: u64) -> Result<Vec<u8>, Error> {
     on_small_stack(move || {
         let mut carrier = T::shallow();
-        carrier.place(body);
-        let encoded = quire_canonical::to_vec(&carrier, Limits::new(ceiling));
+        let encoded = carrier
+            .place(body)
+            .and_then(|()| quire_canonical::to_vec(&carrier, Limits::new(ceiling)));
         let mut body = carrier.take();
         dismantle(&mut body);
         encoded
@@ -632,7 +650,7 @@ fn tc_451_typed_envelope_encodes_deep_details_on_a_small_stack() {
     let source_map: Vec<CheckedSourceMapEntry> = typed_each(&value["source_map"]);
     let capabilities: Vec<CheckedCapability> = typed_each(&value["capability_report"]);
     let mut diagnostics = CheckedDiagnosticsV2::shallow();
-    diagnostics.place(nested(DEEP));
+    diagnostics.place(nested(DEEP)).expect("holds");
     let bytes = on_small_stack(move || {
         let result = encode_checked_package_v2(
             &name,
