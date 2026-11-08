@@ -89,24 +89,29 @@ fn positive_cases() -> Vec<Case> {
         wire,
     ));
     let (wire, _, _) = crate::checked_package_v2_protocol_body::package_with_present_commit();
-    cases.push(positive("native/protocol_body/package_with_present_commit", wire));
+    cases.push(positive(
+        "native/protocol_body/package_with_present_commit",
+        wire,
+    ));
     let (wire, _) = crate::checked_package_v2_frame_entries::state_operand_fixture();
     cases.push(positive("native/frame_entries/state_operand_fixture", wire));
     let (wire, _) = crate::checked_package_v2_operand_families::quantity_sum_control();
-    cases.push(positive("native/operand_families/quantity_sum_control", wire));
+    cases.push(positive(
+        "native/operand_families/quantity_sum_control",
+        wire,
+    ));
     let (wire, _) = crate::checked_package_v2_operand_families::carried_sum_control();
-    cases.push(positive("native/operand_families/carried_sum_control", wire));
+    cases.push(positive(
+        "native/operand_families/carried_sum_control",
+        wire,
+    ));
     cases.push(positive(
         "native/checked_package/admitted_protocol_families",
         crate::support::checked_package::admitted_protocol_families(),
     ));
-    let (wire, document, _) =
-        crate::support::checked_package::protocol_ports::role_port_fixture();
-    let evidence = crate::support::checked_package::evidence_with_document(
-        &wire,
-        "test/families",
-        &document,
-    );
+    let (wire, document, _) = crate::support::checked_package::protocol_ports::role_port_fixture();
+    let evidence =
+        crate::support::checked_package::evidence_with_document(&wire, "test/families", &document);
     cases.push(case(
         "native/protocol_ports/role_port_fixture",
         wire,
