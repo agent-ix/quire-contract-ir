@@ -1360,16 +1360,6 @@ const AGGREGATE_NAMES: [&str; 11] = [
     "threshold",
 ];
 
-fn aggregate_refusal(
-    position: usize,
-    at: JsonPointer,
-    code: CheckedPackageRefusalCode,
-    cause: CheckedPackageRefusalCause,
-    graph: &StepGraph<'_, '_>,
-) -> ValidationFailure {
-    ValidationFailure::refused_at(code, at, Some(cause), graph.nodes[position].node_id.clone())
-}
-
 #[ix_trace_rs::string_edge]
 fn aggregate_literal<'a>(term: &'a CheckedTerm, kind: &str) -> Option<&'a str> {
     match term {
@@ -1595,7 +1585,7 @@ fn check_aggregate(
         .key("nodes")
         .index(formula)
         .key("body");
-    let argument = body.clone().key("arguments").index(0);
+    let argument = body.key("arguments").index(0);
     let fail = |meter: &mut WorkMeter, code, cause, at: super::stage_storage::Path<'_>| {
         super::stage_storage::refuse(
             meter,
@@ -1636,7 +1626,7 @@ fn check_aggregate(
             },
             _ => None,
         };
-        let pointer = argument.clone().key("members").index(at);
+        let pointer = argument.key("members").index(at);
         let Some(rank) = rank else {
             return Err(fail(
                 meter,
@@ -1677,7 +1667,7 @@ fn check_aggregate(
         CheckedTerm::Binding { value, .. } => value.as_ref(),
         _ => unreachable!("the aggregate member was checked as a binding"),
     };
-    let value_pointer = |at: usize| argument.clone().key("members").index(at).key("value");
+    let value_pointer = |at: usize| argument.key("members").index(at).key("value");
     let Some(kind_text) = aggregate_literal(value_of("kind"), "text") else {
         return Err(fail(
             meter,
@@ -1707,7 +1697,7 @@ fn check_aggregate(
                 meter,
                 Code::InvalidPackage,
                 Cause::UnknownMember,
-                argument.clone().key("members").index(at),
+                argument.key("members").index(at),
             ));
         }
     }

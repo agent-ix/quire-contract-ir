@@ -264,6 +264,35 @@ mod tests {
         ));
     }
 
+    #[trace("TC-472", "FR-038-AC-508", "FR-038-AC-516")]
+    #[test]
+    fn conservative_bounds_dominate_recorded_old_work_and_skip_unrun_gcds() {
+        for (left, right, old_work) in [
+            ("0", "1", 2),
+            ("2", "2", 2),
+            ("1", "1", 3),
+            ("18446744073709551617", "1", 132),
+        ] {
+            assert!(work_of(left, right) >= old_work, "{left}/{right}");
+        }
+        assert_eq!(work_of("0", "1"), 2);
+        assert_eq!(work_of("2", "2"), 2);
+        let mut meter = WorkMeter::new(u64::MAX);
+        compare_rationals(
+            ("18446744073709551617", "3"),
+            ("18446744073709551616", "3"),
+            &mut meter,
+            at(),
+        )
+        .unwrap();
+        let parse_units = 2 * (parse_work(20) + parse_work(1));
+        assert_eq!(
+            meter.consumed() - parse_units,
+            6,
+            "two three-limb by one-limb products retain the former work cost"
+        );
+    }
+
     fn work_of(numerator: &str, denominator: &str) -> u64 {
         let mut meter = WorkMeter::new(u64::MAX);
         coprime(numerator, denominator, &mut meter, at()).expect("unbounded work");
@@ -280,9 +309,9 @@ mod tests {
         // operand-size bound is 60 + 1 parse units plus 399 GCD units.
         let numerator = "18446744073709551617";
         let denominator = "1";
-        let exact = 460;
+        let exact = work_of(numerator, denominator);
+        assert_eq!(exact, 460);
         assert!(exact >= 132);
-        assert_eq!(work_of(numerator, denominator), exact);
         let mut meter = WorkMeter::new(exact);
         assert_eq!(coprime(numerator, denominator, &mut meter, at()), Ok(true));
         let mut meter = WorkMeter::new(exact - 1);
