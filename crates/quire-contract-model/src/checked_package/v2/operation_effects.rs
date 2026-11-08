@@ -317,7 +317,11 @@ fn validate_effect_entries(
                     .package
                     .fields
                     .exposed_names(entry_owner.node)
-                    .is_some_and(|names| names.contains(name))
+                    .is_some_and(|names| {
+                        names
+                            .binary_search_by(|exposed| exposed.as_ref().cmp(name))
+                            .is_ok()
+                    })
                 {
                     return Err(refused(
                         Code::MissingDeclaration,

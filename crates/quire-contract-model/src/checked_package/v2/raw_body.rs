@@ -7,10 +7,18 @@
 //! node bodies move to `CheckedJson` (group A).
 
 use super::model_members::EmptyAggregateBody;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 impl EmptyAggregateBody for Value {
     fn is_empty_aggregate(&self) -> bool {
-        *self == json!({"term": "aggregate", "members": []})
+        let Value::Object(members) = self else {
+            return false;
+        };
+        members.len() == 2
+            && members.get("term").and_then(Value::as_str) == Some("aggregate")
+            && members
+                .get("members")
+                .and_then(Value::as_array)
+                .is_some_and(|items| items.is_empty())
     }
 }

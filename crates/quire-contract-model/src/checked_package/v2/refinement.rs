@@ -2371,11 +2371,11 @@ fn check_headers(
     Ok(())
 }
 
-fn abstract_fields(
+fn abstract_fields<'a>(
     key: &RefinementKey,
-    owners: &super::model_members::ModelOwners<'_>,
-    dependencies: &super::SuppliedDependencies<'_>,
-) -> Option<BTreeSet<Box<str>>> {
+    owners: &'a super::model_members::ModelOwners<'_>,
+    dependencies: &'a super::SuppliedDependencies<'_>,
+) -> Option<&'a [Box<str>]> {
     match key {
         RefinementKey::Local(id) => owners.refinement_object_fields(id),
         RefinementKey::External(external) => dependencies

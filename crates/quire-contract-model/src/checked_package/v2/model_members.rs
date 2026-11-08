@@ -66,7 +66,6 @@ impl EmptyAggregateBody for CheckedTerm {
         matches!(self, Self::Aggregate { members } if members.is_empty())
     }
 }
-use std::collections::BTreeSet;
 
 /// The form of the graph-stage requests of the model checks: the tag of the
 /// selected package's `model_root` node.
@@ -2392,16 +2391,12 @@ impl<'m> ModelOwners<'m> {
     pub(super) fn refinement_object_fields(
         &self,
         key: &crate::checked_package::shared::CheckedNodeId,
-    ) -> Option<BTreeSet<Box<str>>> {
+    ) -> Option<&[Box<str>]> {
         let owner = &self.row_by_key(key)?.owner;
         if owner.form != DeclarationForm::ObjectType {
             return None;
         }
-        owner
-            .package
-            .fields
-            .exposed_names(owner.node)
-            .map(|names| names.iter().map(Box::from).collect())
+        owner.package.fields.exposed_names(owner.node)
     }
     #[cfg(test)]
     /// Recomputes the key of every selected model declaration
