@@ -24,7 +24,7 @@ use crate::checked_package::shared::{
 };
 use quire_exact::Integer;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::cmp::Ordering;
 
 /// Reader-owned view assembled from a node's body, owner and declaration.

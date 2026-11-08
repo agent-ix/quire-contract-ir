@@ -1906,7 +1906,6 @@ fn validate(
     identity::validate_equivalence_occurrences(wire, &kinds, &mut meter)?;
     extension::validate_source_regions(wire, &kinds, &mut meter)?;
     validate_capabilities(wire, evidence, &mut meter)?;
-    meter.at_stage(PackageReadStage::Diagnostics, "diagnostics");
 
     validate_diagnostics(wire, limits, &mut meter)?;
     let models = RetainedModels::build(declarations, models, &mut Budget::node(&mut meter, 0))?;
