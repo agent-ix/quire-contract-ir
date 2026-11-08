@@ -138,7 +138,7 @@ def compiler_leaf_name(path: str) -> str:
     return "".join(outer).rstrip(":").split("::")[-1]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Atom:
     kind: str
     name: str
@@ -156,9 +156,27 @@ def scalar(*atoms: Atom) -> Value:
 def join_into(destination: Value, source: Value) -> bool:
     changed = False
     for path, atoms in source.items():
-        before = len(destination.setdefault(path, set()))
-        destination[path].update(atoms)
-        changed |= before != len(destination[path])
+        cell = destination.setdefault(path, set())
+        for atom in tuple(atoms) if atoms is cell else atoms:
+            if atom.kind in ("stack", "heap", "global"):
+                if atom.offset is not None:
+                    wide = Atom(atom.kind, atom.name, None, atom.origin)
+                    if wide in cell or wide in atoms:
+                        continue
+                else:
+                    # An object-local wildcard denotes every byte offset in
+                    # this same object. It subsumes narrower address facts;
+                    # keeping those facts cannot add targets, only work and
+                    # memory. Different objects and unknown origins stay apart.
+                    obsolete = {prior for prior in cell
+                                if prior.kind == atom.kind and prior.name == atom.name
+                                and prior.origin == atom.origin and prior.offset is not None}
+                    if obsolete:
+                        cell.difference_update(obsolete)
+                        changed = True
+            if atom not in cell:
+                cell.add(atom)
+                changed = True
     return changed
 
 
@@ -1176,6 +1194,9 @@ class Graph:
                 "observed_forbidden_instances": len(violations),
                 "unresolved_records": len(self.blockers),
                 "widened_object_offsets": len(self.widened_offsets),
+                "ssa_value_atoms": sum(len(atoms) for state in self.states.values()
+                                       for value in state.values.values() for atoms in value.values()),
+                "memory_value_atoms": sum(len(atoms) for value in self.memory.values() for atoms in value.values()),
                 "source_bans_checked": False,
                 "resolved_graph_without_reported_bans": converged and not self.blockers and not violations,
             },
