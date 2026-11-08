@@ -1668,9 +1668,7 @@ fn tc_058_both_test_features_export_their_independent_items() {
 #[test]
 fn tc_058_reader_admitted_operation_has_no_fixture_provenance() {
     use crate::support::checked_package::{canonical, evidence_for, v2_all_families};
-    use quire_contract_model::{
-        CheckedPackageReadLimits, CheckedPackageV2ReadResult, CheckedTerm,
-    };
+    use quire_contract_model::{CheckedPackageReadLimits, CheckedPackageV2ReadResult, CheckedTerm};
 
     let package = v2_all_families();
     let CheckedPackageV2ReadResult::Admitted(admitted) = crate::read_and_account(
