@@ -33,7 +33,18 @@ pub(crate) fn measure_read<C: Counter>(
     limits: CheckedPackageReadLimits,
     limit: u64,
 ) -> Observation {
-    let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+    measure_at::<C>(bytes, evidence, limits, u64::MAX, limit)
+}
+
+pub(crate) fn measure_at<C: Counter>(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limits: CheckedPackageReadLimits,
+    work: u64,
+    read_storage: u64,
+) -> Observation {
+    let mut budget = NativeJoinBudget::new(work, 0).with_read_storage_limit(read_storage);
+
     let mut result = None;
     let requested = C::measure(|| {
         result = Some(CheckedPackageV2::read_with_budget(
@@ -119,8 +130,14 @@ pub(crate) fn assert_read<C: Counter>(
     accounted(label, &reference);
     let total = reference.budget.read_storage_consumed();
     assert!(total > 0);
-    for limit in [total, u64::MAX] {
-        let exact = measure_read::<C>(bytes, evidence, limits, limit);
+    let work = reference.budget.consumed().work;
+    for (work_limit, storage_limit) in [
+        (work, total),
+        (u64::MAX, total),
+        (work, u64::MAX),
+        (u64::MAX, u64::MAX),
+    ] {
+        let exact = measure_at::<C>(bytes, evidence, limits, work_limit, storage_limit);
         assert_eq!(
             exact.result, reference.result,
             "{label}: repeated/exact full value"
@@ -233,4 +250,180 @@ pub(crate) fn every_request<C: Counter>(bytes: &[u8], evidence: &CheckedPackageE
         before = next;
     }
     drop_without_request::<C>(reference);
+}
+
+/// Count work denials as well as storage denials. The pointer-free diagnostic
+/// may cost zero; a positive-sized pointer is denied with exactly its preceding
+/// storage allowance and must preserve the original work charge and locus.
+/// Returns false only when this input reaches no work charge at all.
+pub(crate) fn work_denials<C: Counter>(
+    label: &str,
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+) -> bool {
+    initialize_operation_catalog().expect("catalog gate");
+    let limits = generous_limits();
+    let reference = measure_at::<C>(bytes, evidence, limits, u64::MAX, u64::MAX);
+    let work = reference.budget.consumed().work;
+    if work == 0 {
+        assert!(reference.budget.first_unpaid().is_none());
+        drop_without_request::<C>(reference);
+        return false;
+    }
+    let exact = measure_at::<C>(bytes, evidence, limits, work, u64::MAX);
+    assert_eq!(
+        exact.result, reference.result,
+        "{label}: exact work preserves complete outcome"
+    );
+    let short = measure_at::<C>(bytes, evidence, limits, work - 1, u64::MAX);
+    let denied = short
+        .budget
+        .first_unpaid()
+        .expect("actual first unpaid work charge");
+    assert_eq!(
+        denied.kind,
+        quire_contract_model::NativeJoinChargeKind::Work
+    );
+    let quire_contract_model::CheckedPackageV2BudgetedReadResult::BudgetIncomplete(diagnostic) =
+        &short.result
+    else {
+        panic!("ample storage affords work diagnostic: {:?}", short.result);
+    };
+    assert_eq!(
+        diagnostic.denied.resource,
+        quire_contract_model::PackageReadResource::Work
+    );
+    assert_eq!(diagnostic.denied.amount, denied.amount);
+    let repeated = measure_at::<C>(bytes, evidence, limits, work - 1, u64::MAX);
+    assert_eq!(
+        repeated.result, short.result,
+        "{label}: repeated work first fault"
+    );
+    assert_eq!(repeated.budget.first_unpaid(), Some(denied));
+    assert_eq!(
+        repeated.budget.first_unpaid_locus(),
+        short.budget.first_unpaid_locus()
+    );
+    let zero_storage = measure_at::<C>(bytes, evidence, limits, work - 1, 0);
+    assert_eq!(zero_storage.requested, 0);
+    assert_eq!(zero_storage.budget.read_storage_consumed(), 0);
+    assert!(zero_storage.budget.first_unpaid_read_storage().is_some());
+    // Advance actual work requests until an owned pointer exists. Do not
+    // infer runtime order from PackageReadStage discriminants.
+    let mut prefix = 0;
+    let pointer_denial = loop {
+        let observation = measure_at::<C>(bytes, evidence, limits, prefix, u64::MAX);
+        if matches!(&observation.result,CheckedPackageV2BudgetedReadResult::BudgetIncomplete(d) if d.path.as_ref().is_some_and(|p|!p.as_str().is_empty()))
+        {
+            break observation;
+        }
+        let unpaid = observation
+            .budget
+            .first_unpaid()
+            .expect("work charge before semantic outcome");
+        assert_eq!(
+            unpaid.kind,
+            quire_contract_model::NativeJoinChargeKind::Work
+        );
+        let next = observation
+            .budget
+            .consumed()
+            .work
+            .checked_add(u64::try_from(unpaid.amount).expect("bounded work charge"))
+            .expect("bounded work prefix");
+        assert!(
+            next > prefix && next < work,
+            "a genuine owned-pointer work denial must be reached"
+        );
+        prefix = next;
+        drop_without_request::<C>(observation);
+    };
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(pointer) = &pointer_denial.result
+    else {
+        unreachable!("selected pointer outcome")
+    };
+    let bytes_of_pointer =
+        u64::try_from(pointer.path.as_ref().expect("owned pointer").as_str().len())
+            .expect("bounded pointer");
+    assert!(bytes_of_pointer > 0);
+    // Discover the storage prefix at the fixed work request from actual
+    // unpaid reservations. Do not assume the implementation already charged
+    // the pointer correctly: that is precisely what this oracle checks.
+    let mut before_pointer = 0;
+    let exhausted =
+        loop {
+            let observation = measure_at::<C>(bytes, evidence, limits, prefix, before_pointer);
+            if observation.budget.first_unpaid().is_some_and(|charge| {
+                charge.kind == quire_contract_model::NativeJoinChargeKind::Work
+            }) {
+                break observation;
+            }
+            let asked = observation
+                .budget
+                .first_unpaid_read_storage()
+                .expect("actual storage request before the target work charge");
+            let next = before_pointer
+                .checked_add(u64::try_from(asked).expect("bounded storage charge"))
+                .expect("bounded storage prefix");
+            assert!(
+                next > before_pointer && next <= pointer_denial.budget.read_storage_consumed(),
+                "actual request boundary advances towards the work charge"
+            );
+            before_pointer = next;
+            drop_without_request::<C>(observation);
+        };
+    eprintln!("{label}/unaffordable diagnostic probe: requested={} charged={} pointer_bytes={} original_work={:?} locus={:?}",exhausted.requested,exhausted.budget.read_storage_consumed(),bytes_of_pointer,exhausted.budget.first_unpaid(),exhausted.budget.first_unpaid_locus());
+    let CheckedPackageV2BudgetedReadResult::Exhausted(outcome) = &exhausted.result else {
+        panic!("owned pointer cannot be afforded: {:?}", exhausted.result);
+    };
+    assert_eq!(
+        outcome.denied, pointer.denied,
+        "original denied resource/amount survive diagnostic denial"
+    );
+    assert_eq!(
+        outcome.locus,
+        pointer_denial
+            .budget
+            .first_unpaid_locus()
+            .expect("original locus")
+    );
+    assert_eq!(outcome.configured_bound, prefix);
+    assert_eq!(
+        exhausted.budget.first_unpaid(),
+        pointer_denial.budget.first_unpaid()
+    );
+    assert_eq!(exhausted.budget.read_storage_consumed(), before_pointer);
+    for (name, observation) in [
+        ("reference", &reference),
+        ("exact work", &exact),
+        ("work one below", &short),
+        ("repeated work denial", &repeated),
+        ("zero diagnostic storage", &zero_storage),
+        ("owned-pointer work denial", &pointer_denial),
+        ("unaffordable pointer", &exhausted),
+    ] {
+        eprintln!(
+            "{label}/{name}: requested={} charged={} first-work={:?} first-storage={:?} locus={:?}",
+            observation.requested,
+            observation.budget.read_storage_consumed(),
+            observation.budget.first_unpaid(),
+            observation.budget.first_unpaid_read_storage(),
+            observation.budget.first_unpaid_locus()
+        );
+    }
+    // Every combination above has actually executed before the first red
+    // allocation comparison; no tolerance can mask another axis' deficit.
+    for (name, observation) in [
+        ("exact work", exact),
+        ("work one below", short),
+        ("repeated work denial", repeated),
+        ("zero diagnostic storage", zero_storage),
+        ("owned-pointer work denial", pointer_denial),
+        ("unaffordable pointer", exhausted),
+    ] {
+        accounted(name, &observation);
+        drop_without_request::<C>(observation);
+    }
+    drop_without_request::<C>(reference);
+    true
 }

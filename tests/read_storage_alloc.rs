@@ -291,3 +291,93 @@ fn whole_read_two_selected_documents_512k() {
     let input = read_storage_inputs::selected_models_two_512k();
     whole_read("selected_models_two_512k", &input.bytes, &input.evidence);
 }
+
+/// Destructor accounting is independent of the still-red during-call proof.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn returned_admitted_refused_and_denied_outcomes_drop_without_allocating() {
+    initialize_operation_catalog().expect("catalog gate");
+    let value = v2_all_families();
+    let bytes = canonical(&value);
+    let evidence = evidence_for(&value);
+    let admitted = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), u64::MAX);
+    assert!(matches!(
+        admitted.result,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    drop_without_request::<ThreadCounter>(admitted);
+    let refused =
+        measure_read::<ThreadCounter>(b"not JSON", &evidence, generous_limits(), u64::MAX);
+    assert!(matches!(
+        refused.result,
+        CheckedPackageV2BudgetedReadResult::Refused(_)
+    ));
+    drop_without_request::<ThreadCounter>(refused);
+    let denied = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), 0);
+    assert!(denied.budget.first_unpaid_read_storage().is_some());
+    drop_without_request::<ThreadCounter>(denied);
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn the_one_short_outcome_itself_has_no_unpaid_allocation() {
+    initialize_operation_catalog().expect("catalog gate");
+    let value = v2_all_families();
+    let bytes = canonical(&value);
+    let evidence = evidence_for(&value);
+    let reference = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), u64::MAX);
+    assert!(matches!(
+        reference.result,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    let required = reference.budget.read_storage_consumed();
+    assert!(required > 0);
+    let short = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), required - 1);
+    assert!(matches!(
+        short.result,
+        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_)
+            | CheckedPackageV2BudgetedReadResult::Exhausted(_)
+    ));
+    assert!(short.budget.first_unpaid_read_storage().is_some());
+    accounted("one short whole-read outcome", &short);
+    drop_without_request::<ThreadCounter>(short);
+    drop_without_request::<ThreadCounter>(reference);
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn counted_exact_and_denied_work_budgets_cover_a_genuine_package() {
+    let value = v2_all_families();
+    assert!(
+        read_allocation_proof::work_denials::<ThreadCounter>(
+            "genuine",
+            &canonical(&value),
+            &evidence_for(&value)
+        ),
+        "the genuine input reaches work charges"
+    );
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn counted_exact_and_denied_work_budgets_cover_a_malformed_body() {
+    let mut value = v2_all_families();
+    let node = value["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("nodes")
+        .iter_mut()
+        .find(|node| node["node_tag"] == "expression" && node["semantic_form"] == "reference")
+        .expect("reference fixture");
+    node["body"] = serde_json::json!({"term":"reference"});
+    let bytes = canonical(&value);
+    let evidence = evidence_for(&value);
+    let result = CheckedPackageV2::read(&bytes, generous_limits(), &evidence);
+    assert!(
+        matches!(result,CheckedPackageV2ReadResult::Refused(ref refusal) if refusal.code==quire_contract_model::CheckedPackageRefusalCode::MalformedWire),
+        "genuine malformed-body first fault: {result:?}"
+    );
+    assert!(
+        read_allocation_proof::work_denials::<ThreadCounter>("malformed body", &bytes, &evidence),
+        "malformed body reaches work charges before refusal"
+    );
+}

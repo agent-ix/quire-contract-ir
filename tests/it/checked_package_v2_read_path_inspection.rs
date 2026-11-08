@@ -390,12 +390,38 @@ fn the_read_path_uses_no_banned_parser_container_or_sort() {
             "checked_package::v2::CheckedPackageV2::read_with_budget",
         ],
     );
-    assert!(
-        found.is_empty() && unresolved.is_empty(),
-        "Proven forbidden constructs ({}):\n{}\nUnresolved static proof edges ({}):\n{}",
-        found.len(),
-        found.join("\n"),
-        unresolved.len(),
-        unresolved.join("\n")
+    let report = std::env::temp_dir().join(format!(
+        "ir1404-f2-read-path-inspection-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&report,serde_json::to_vec_pretty(&serde_json::json!({"forbidden_syntax_in_resolved_functions":found,"unresolved_static_edges":unresolved})).expect("structured proof report")).expect("write complete proof report");
+    assert!(found.is_empty()&&unresolved.is_empty(),"Forbidden syntax in resolved reader functions ({}), sample:\n{}\nUnresolved static proof edges ({}), sample:\n{}\nComplete structured report: {}",found.len(),found.iter().take(20).cloned().collect::<Vec<_>>().join("\n"),unresolved.len(),unresolved.iter().take(20).cloned().collect::<Vec<_>>().join("\n"),report.display());
+}
+
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn unshadowed_prelude_constructors_resolve_without_skipping_shadowed_helpers() {
+    let graph = root_graph::Graph::from_source(
+        r#"
+        struct Unrelated;
+        impl Unrelated {fn new(){let _=serde_json::from_slice::<()>(b"{}");}}
+        fn read(){let _=Vec::<u8>::new();let _:Result<(),()>=Ok(());let _:Option<()>=Some(());let _=Err::<(),()>(());}
+    "#,
     );
+    let (hits, unresolved) = inspect_reached(&graph, &["read"]);
+    assert!(hits.is_empty(), "{hits:?}");
+    assert!(unresolved.is_empty(), "{unresolved:?}");
+    for source in [
+        r#"struct Vec;impl Vec{fn new(){let _=std::collections::BTreeMap::<(),()>::new();}}fn read(){Vec::new();}"#,
+        r#"fn read(){Err();}fn Err(){let _=serde_json::from_slice::<()>(b"{}");}"#,
+    ] {
+        let graph = root_graph::Graph::from_source(source);
+        let (hits, unresolved) = inspect_reached(&graph, &["read"]);
+        assert_eq!(
+            hits.len(),
+            1,
+            "shadowed names still reach their actual helper: {hits:?}"
+        );
+        assert!(unresolved.is_empty(), "{unresolved:?}");
+    }
 }

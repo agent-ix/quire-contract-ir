@@ -87,6 +87,62 @@ fn absolute(module: &str, path: &str) -> String {
     base.join("::")
 }
 
+// Rust 2021 prelude name resolution, applied only when the module has no
+// shadowing item or explicit import. These bindings are not scan exceptions.
+#[derive(Clone, Copy)]
+enum PreludeBinding {
+    Some,
+    None,
+    Ok,
+    Err,
+    Vec,
+    String,
+    Box,
+    Option,
+    Result,
+}
+impl PreludeBinding {
+    fn named(name: &str) -> Option<Self> {
+        match name {
+            "Some" => Some(Self::Some),
+            "None" => Some(Self::None),
+            "Ok" => Some(Self::Ok),
+            "Err" => Some(Self::Err),
+            "Vec" => Some(Self::Vec),
+            "String" => Some(Self::String),
+            "Box" => Some(Self::Box),
+            "Option" => Some(Self::Option),
+            "Result" => Some(Self::Result),
+            _ => None,
+        }
+    }
+    fn path(self) -> &'static str {
+        match self {
+            Self::Some => "core::option::Option::Some",
+            Self::None => "core::option::Option::None",
+            Self::Ok => "core::result::Result::Ok",
+            Self::Err => "core::result::Result::Err",
+            Self::Vec => "std::vec::Vec",
+            Self::String => "std::string::String",
+            Self::Box => "std::boxed::Box",
+            Self::Option => "core::option::Option",
+            Self::Result => "core::result::Result",
+        }
+    }
+}
+fn standard_variant(path: &str) -> bool {
+    matches!(
+        path,
+        "core::result::Result::Ok"
+            | "core::result::Result::Err"
+            | "core::option::Option::Some"
+            | "core::option::Option::None"
+    )
+}
+fn external_standard(path: &str) -> bool {
+    matches!(path.split("::").next(), Some("std" | "core" | "alloc"))
+}
+
 impl Graph {
     pub fn from_source(source: &str) -> Self {
         let mut graph = Self::default();
@@ -124,6 +180,21 @@ impl Graph {
                     };
                     self.imports.entry(child).or_default();
                 }
+            }
+        }
+        for item in items {
+            let ident = match item {
+                syn::Item::Struct(t) if !test_only(&t.attrs) => Some(&t.ident),
+                syn::Item::Enum(t) if !test_only(&t.attrs) => Some(&t.ident),
+                syn::Item::Type(t) if !test_only(&t.attrs) => Some(&t.ident),
+                _ => None,
+            };
+            if let Some(ident) = ident {
+                self.types.insert(if module.is_empty() {
+                    ident.to_string()
+                } else {
+                    format!("{module}::{ident}")
+                });
             }
         }
         let aliases = self.imports.entry(module.into()).or_default();
@@ -285,7 +356,18 @@ impl Graph {
         } else {
             format!("{module}::{path}")
         };
-        if self.functions.contains_key(&local) || !path.contains("::") {
+        let local_first = if module.is_empty() {
+            first.to_owned()
+        } else {
+            format!("{module}::{first}")
+        };
+        if self.functions.contains_key(&local) || self.types.contains(&local_first) {
+            return local;
+        }
+        if let Some(binding) = PreludeBinding::named(first) {
+            return format!("{}{}", binding.path(), &path[first.len()..]);
+        }
+        if !path.contains("::") {
             local
         } else {
             path.into()
@@ -353,6 +435,8 @@ impl Graph {
                 result
                     .unresolved
                     .insert(format!("ambiguous trait/impl function {key}"));
+                result.functions.remove(&key);
+                continue;
             }
             let mut calls = Calls {
                 graph: self,
@@ -417,17 +501,42 @@ impl Calls<'_> {
                 .get_ident()
                 .and_then(|n| self.bindings.get(&n.to_string()).cloned()),
             syn::Expr::Call(c) => {
-                if let syn::Expr::Path(p) = c.func.as_ref() {
-                    let mut path = p.path.clone();
-                    if path.segments.len() > 1 {
-                        path.segments.pop();
-                        Some(self.graph.resolve(&self.function.module, &path_text(&path)))
-                    } else {
-                        let name = self.graph.resolve(&self.function.module, &path_text(&path));
-                        self.graph.types.contains(&name).then_some(name)
+                let syn::Expr::Path(path) = c.func.as_ref() else {
+                    return None;
+                };
+                let target = self.target(&path.path);
+                if let Some(function) = self.graph.functions.get(&target) {
+                    match &function.signature.output {
+                        syn::ReturnType::Type(_, ty) => {
+                            if matches!(ty.as_ref(),syn::Type::Path(p) if p.path.is_ident("Self")) {
+                                function.owner.clone()
+                            } else {
+                                fn declared(
+                                    graph: &Graph,
+                                    module: &str,
+                                    ty: &syn::Type,
+                                ) -> Option<String> {
+                                    match ty {
+                                        syn::Type::Reference(r) => declared(graph, module, &r.elem),
+                                        syn::Type::Path(p) => {
+                                            Some(graph.resolve(module, &path_text(&p.path)))
+                                        }
+                                        _ => None,
+                                    }
+                                }
+                                declared(self.graph, &function.module, ty)
+                            }
+                        }
+                        syn::ReturnType::Default => None,
                     }
                 } else {
-                    None
+                    let constructor = self
+                        .graph
+                        .resolve(&self.function.module, &path_text(&path.path));
+                    self.graph
+                        .types
+                        .contains(&constructor)
+                        .then_some(constructor)
                 }
             }
             _ => None,
@@ -477,7 +586,7 @@ impl<'ast> Visit<'ast> for Calls<'_> {
             let target = self.target(&path.path);
             if self.graph.functions.contains_key(&target) {
                 self.edges.insert(target);
-            } else {
+            } else if !standard_variant(&target) {
                 if call
                     .args
                     .iter()
@@ -495,7 +604,9 @@ impl<'ast> Visit<'ast> for Calls<'_> {
                     .expect("call path")
                     .ident
                     .to_string();
-                if self.graph.methods.contains(&last) || target.starts_with("checked_package::") {
+                if (!external_standard(&target) && self.graph.methods.contains(&last))
+                    || target.starts_with("checked_package::")
+                {
                     self.unresolved
                         .insert(format!("unresolved associated/indirect call {target}"));
                 }

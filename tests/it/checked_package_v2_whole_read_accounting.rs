@@ -7,6 +7,8 @@
 
 #[path = "support/read_allocation_proof.rs"]
 mod proof;
+#[path = "support/qspec_inputs.rs"]
+mod qspec_inputs;
 use crate::support::checked_package::{
     canonical, evidence_for, index_fixture_node_ids, positive_operation_identities, settle,
     v2_all_families, v2_nominal,
@@ -111,10 +113,26 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
     let proposal = root.join("proposals/checked-package-v2");
     let mut providers = BTreeSet::new();
     let mut cases = Vec::new();
-    let mut read = |driver: &str, file: &str| -> Value {
+    let fixtures = proposal.join("fixtures");
+    let selections = qspec_inputs::vector_selected_documents(&proposal)
+        .expect("actual published fixture-to-document selections");
+    for name in qspec_inputs::POSITIVE_ALL {
+        let wire = qspec_inputs::read_json(&fixtures.join(name)).expect("actual positive fixture");
+        let document = proposal.join(qspec_inputs::positive_document(name, &selections));
+        let evidence =
+            qspec_inputs::evidence_for_published(&wire, name, &document, true, None, &fixtures)
+                .expect("same conformance evidence construction");
+        cases.push(Case {
+            label: format!("QSpec/POSITIVE_ALL/{name}"),
+            bytes: canonical(&wire),
+            evidence,
+            expected: Expected::Admitted,
+        });
+        providers.insert(format!("conformance_qspec/main.rs: fixtures/{name}"));
+    }
+    let read = |_driver: &str, file: &str| -> Value {
         let bytes = std::fs::read(proposal.join(file))
             .unwrap_or_else(|error| panic!("QSpec {file}: {error}"));
-        providers.insert(format!("it/{driver}: {file}"));
         serde_json::from_slice(&bytes).expect("published QSpec JSON")
     };
     let package = read(
@@ -133,6 +151,9 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
         evidence,
         expected: Expected::Admitted,
     });
+    providers.insert(
+        "it/checked_package_v2_owners.rs: fixtures/positive-operation-identities.json".into(),
+    );
     let population_vectors = read("checked_package_v2_owners.rs", "fixtures/adverse.json");
     let population_rows = population_vectors["population_reference_cases"]
         .as_array()
@@ -144,8 +165,13 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
     );
     for row in population_rows {
         if row["operation"] == "published" {
+            providers.insert(format!("it/checked_package_v2_owners.rs: fixtures/adverse.json#/population_reference_cases#{}",row["id"].as_str().expect("published case id")));
             continue;
         }
+        providers.insert(format!(
+            "it/checked_package_v2_owners.rs: fixtures/adverse.json#/population_reference_cases#{}",
+            row["id"].as_str().expect("published case id")
+        ));
         let fixture = crate::checked_package_v2_owners::population_reference_fixture(
             row,
             &population_vectors,
@@ -183,6 +209,7 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
         .as_array()
         .expect("published compensation cases")
     {
+        providers.insert(format!("it/checked_package_v2_protocol_body.rs: temporal-clock-binding-vectors.json#/compensation_cases#{}",vector["id"].as_str().expect("published case id")));
         let (wire, _) =
             crate::checked_package_v2_protocol_body::compensation_clock_case(vector, declarations);
         let expected = if vector["expected"] == "admitted" {
@@ -207,6 +234,7 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
         .as_array()
         .expect("published fairness reader cases")
     {
+        providers.insert(format!("it/checked_package_v2_protocol_body.rs: temporal-fairness-target-vectors.json#/reader_cases#{}",vector["id"].as_str().expect("published case id")));
         let (wire, _) =
             crate::checked_package_v2_protocol_body::instantiate_fairness_reader_vector(vector);
         let expected = Expected::Refused(
@@ -439,6 +467,7 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
     initialize_operation_catalog().expect("catalog gate");
     let mut seen = BTreeSet::new();
     let mut problems = Vec::new();
+    let (mut admitted, mut refused) = (0, 0);
     let mut positives = positive_cases();
     let (published, _) = qspec_cases();
     positives.extend(published);
@@ -447,11 +476,14 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
         let outcome =
             CheckedPackageV2::read(&input.bytes, proof::generous_limits(), &input.evidence);
         match (&input.expected, &outcome) {
-            (Expected::Admitted, CheckedPackageV2ReadResult::Admitted(_)) => {}
+            (Expected::Admitted, CheckedPackageV2ReadResult::Admitted(_)) => {
+                admitted += 1;
+            }
             (Expected::Refused(expected), CheckedPackageV2ReadResult::Refused(actual))
                 if *expected == actual.code =>
             {
                 seen.insert(format!("{:?}", actual.code));
+                refused += 1;
             }
             _ => problems.push(format!(
                 "{}: fixture expectation differs from {outcome:?}",
@@ -463,12 +495,7 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
         .difference(&seen)
         .cloned()
         .collect::<Vec<_>>();
-    eprintln!(
-        "Validated positive candidates: {}; refused candidates: {}; confirmed code classes: {}",
-        positives.len(),
-        refusals.len(),
-        seen.len()
-    );
+    eprintln!("Registered candidates {}; confirmed admitted {}; confirmed refused {}; confirmed refusal-code classes {}",positives.len()+refusals.len(),admitted,refused,seen.len());
     assert!(
         problems.is_empty() && missing.is_empty(),
         "Fixture defects:\n{}\nPublic refusal codes with no genuine input provider: {missing:?}",
@@ -494,6 +521,7 @@ fn the_actual_tc048_catalogue_and_refusal_corpus_is_exactly_accounted() {
             input.expected,
         );
         proof::every_request::<IntegrationCounter>(&input.bytes, &input.evidence);
+        proof::work_denials::<IntegrationCounter>(&input.label, &input.bytes, &input.evidence);
     }
 }
 
@@ -575,9 +603,127 @@ fn by_reference_qspec_inputs_need_registered_whole_package_providers() {
         }
     }
     let (_, providers) = qspec_cases();
-    let missing = references
-        .difference(&providers)
-        .cloned()
-        .collect::<Vec<_>>();
-    assert!(missing.is_empty(),"Unregistered existing QSpec driver inputs require their actual complete-package providers:\n{}",missing.join("\n"));
+    let qspec = std::path::PathBuf::from(
+        std::env::var_os("QUIRE_SPECIFICATION_DIR").expect("selected QSpec checkout"),
+    );
+    let proposal = qspec.join("proposals/checked-package-v2");
+    fn json_files(directory: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(directory).expect("QSpec source directory") {
+            let path = entry.expect("QSpec file").path();
+            if path.is_dir() {
+                json_files(&path, files);
+            } else if path.extension().is_some_and(|ext| ext == "json") {
+                files.push(path);
+            }
+        }
+    }
+    fn vector_cases(value: &Value, path: &str, out: &mut BTreeSet<String>) {
+        match value {
+            Value::Object(fields) => {
+                for (name, child) in fields {
+                    let path = format!("{path}/{name}");
+                    if let Some(rows) = child.as_array() {
+                        for (i, row) in rows.iter().enumerate() {
+                            let id = row
+                                .get("id")
+                                .or_else(|| row.get("name"))
+                                .and_then(Value::as_str);
+                            if let Some(id) = id.filter(|_| {
+                                row.get("expected").is_some()
+                                    || row.get("outcome").is_some()
+                                    || row.get("expected_code").is_some()
+                            }) {
+                                out.insert(format!("{path}#{id}"));
+                            } else {
+                                vector_cases(row, &format!("{path}/{i}"), out);
+                            }
+                        }
+                    } else {
+                        vector_cases(child, &path, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut available = Vec::new();
+    json_files(&qspec.join("proposals"), &mut available);
+    let mut unresolved_packages = BTreeSet::new();
+    let mut unresolved_recipes = BTreeSet::new();
+    let mut auxiliary = BTreeSet::new();
+    for reference in references {
+        let (driver, name) = reference.split_once(": ").expect("source reference");
+        let matches = available
+            .iter()
+            .filter(|path| path.ends_with(name))
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            auxiliary.insert(format!(
+                "{reference}: no existing JSON bytes (not credited as a package input)"
+            ));
+            continue;
+        }
+        for path in matches {
+            let bytes = std::fs::read(path).expect("referenced QSpec JSON");
+            let value: Value = serde_json::from_slice(&bytes).expect("referenced QSpec syntax");
+            let canonical = path.canonicalize().expect("source path");
+            let matching_providers = providers
+                .iter()
+                .filter_map(|provider| {
+                    let (source, recipe) = provider.split_once(": ")?;
+                    if source != driver {
+                        return None;
+                    }
+                    let (file, dataset) = recipe
+                        .split_once('#')
+                        .map_or((recipe, None), |(f, c)| (f, Some(c)));
+                    let provided = proposal.join(file).canonicalize().ok()?;
+                    (provided == canonical).then_some(dataset)
+                })
+                .collect::<Vec<_>>();
+            if value.get("$schema").is_some()
+                || (value.get("type").and_then(Value::as_str) == Some("object")
+                    && value.get("properties").is_some())
+            {
+                auxiliary.insert(format!(
+                    "{reference}: auxiliary schema, not complete V2 read bytes"
+                ));
+            } else if value.get("contractVersion").is_some() && value.get("package").is_some() {
+                auxiliary.insert(format!(
+                    "{reference}: selected IR document, not a separate checked-package read"
+                ));
+            } else if value.get("selected_documents").is_some() {
+                auxiliary.insert(format!("{reference}: fixture evidence-selection manifest"));
+            } else if value
+                .get("contract_version")
+                .is_some_and(|v| v == "quire.checked-package/v2")
+                && value.pointer("/semantic_graph/nodes").is_some()
+            {
+                if !matching_providers.contains(&None) {
+                    unresolved_packages.insert(format!("{reference}: complete V2 bytes exist, but this driver's input/evidence recipe remains unresolved ({})",path.display()));
+                }
+            } else if value.get("contract_version").is_some() {
+                auxiliary.insert(format!(
+                    "{reference}: another wire version; not credited as V2"
+                ));
+            } else {
+                let mut rows = BTreeSet::new();
+                vector_cases(&value, "", &mut rows);
+                if rows.is_empty() {
+                    unresolved_recipes.insert(format!("{reference}: JSON component/consumer provenance unresolved; not asserted to be a complete V2 package"));
+                }
+                for row in rows {
+                    if !matching_providers.contains(&Some(row.as_str())) {
+                        unresolved_recipes.insert(format!("{reference}#{row}: actual driver/list/case transformation remains unresolved"));
+                    }
+                }
+            }
+        }
+    }
+    let report = std::env::temp_dir().join(format!(
+        "ir1404-f2-corpus-provider-gaps-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&report,serde_json::to_vec_pretty(&json!({"unresolved_complete_package_recipes":unresolved_packages,"unresolved_vector_driver_recipes":unresolved_recipes,"auxiliary_or_no_bytes_not_credited":auxiliary})).expect("structured provider report")).expect("write provider report");
+    assert!(unresolved_packages.is_empty()&&unresolved_recipes.is_empty(),"Unresolved complete-package recipes ({}), sample:\n{}\nUnresolved vector/consumer provenance ({}), sample:\n{}\nAuxiliary/no-byte references excluded without package credit: {}\nComplete structured classification: {}",unresolved_packages.len(),unresolved_packages.iter().take(15).cloned().collect::<Vec<_>>().join("\n"),unresolved_recipes.len(),unresolved_recipes.iter().take(15).cloned().collect::<Vec<_>>().join("\n"),auxiliary.len(),report.display());
 }
