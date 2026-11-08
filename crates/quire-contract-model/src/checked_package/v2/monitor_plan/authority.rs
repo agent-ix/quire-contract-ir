@@ -175,8 +175,36 @@ fn refusal(
 }
 
 /// `numerator/denominator` equals the admitted spelling, `n` or `n/d`, exactly.
-fn same_period(admitted: &str, row: &CheckedRational) -> bool {
+fn same_period(
+    admitted: &str,
+    row: &CheckedRational,
+    budget: &mut NativeJoinBudget,
+) -> Result<bool, SelectedMonitorTypeClosureError> {
     let (numerator, denominator) = admitted.split_once('/').unwrap_or((admitted, "1"));
+    let components = [numerator, denominator, &row.numerator, &row.denominator];
+    let digits = components.iter().fold(0u128, |total, text| {
+        total.saturating_add(text.len() as u128)
+    });
+    // Decimal parsing and the two schoolbook products are bounded by the
+    // square of the total decimal width. Reserve their scratch before parsing.
+    read_charge(
+        budget,
+        NativeJoinChargeKind::Work,
+        digits.saturating_mul(digits).saturating_add(digits),
+    )
+    .map_err(|_| native_error(budget))?;
+    if components
+        .iter()
+        .any(|text| text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return Ok(false);
+    }
+    read_charge(
+        budget,
+        NativeJoinChargeKind::Storage,
+        digits.saturating_mul(4).saturating_add(6),
+    )
+    .map_err(|_| native_error(budget))?;
     let parse = |text: &str| text.parse::<BigUint>().ok();
     let (Some(an), Some(ad), Some(rn), Some(rd)) = (
         parse(numerator),
@@ -184,9 +212,9 @@ fn same_period(admitted: &str, row: &CheckedRational) -> bool {
         parse(&row.numerator),
         parse(&row.denominator),
     ) else {
-        return false;
+        return Ok(false);
     };
-    an * &rd == rn * ad
+    Ok(ad != BigUint::from(0u8) && rd != BigUint::from(0u8) && an * &rd == rn * ad)
 }
 
 impl<'a> CheckedMonitorPlanRef<'a> {
@@ -254,7 +282,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
                 SelectedMonitorTimeSource::Tick { period: exact },
             ) => {
                 work(budget)?;
-                same_period(period, exact)
+                same_period(period, exact, budget)?
             }
             _ => false,
         };

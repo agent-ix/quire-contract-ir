@@ -2206,7 +2206,7 @@ mod tests {
                     source_collections: &unrepresentable_collections,
                     equality_applications: &unrepresentable_equalities,
                     equality_facts: &[],
-                    authority: test_authority(&package),
+                    authority: test_authority(&unrepresentable),
                 },
                 &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
             )

@@ -158,7 +158,7 @@ struct Emitted {
     expected_progress: Vec<u8>,
 }
 
-fn emitted(qsl: &std::path::Path, time_source: &str) -> Emitted {
+fn emit(qsl: &std::path::Path, time_source: &str) -> Emitted {
     let root = root_of(qsl, time_source);
     let (progress, subject) = observation::admitted(Some(vec![row(&root)]));
     let expected_progress = progress.association_canonical_bytes().unwrap().to_vec();
@@ -324,7 +324,7 @@ fn genuine_qsl_authority_binds_dense_and_tick_emissions() {
         ),
         ("dense", "time M dense unit ms;", None),
     ] {
-        let emitted = emitted(qsl, declaration);
+        let emitted = emit(qsl, declaration);
         let authority = &emitted.authority;
         let package = authority.admitted_package();
         let row = ir_row(authority);
@@ -409,7 +409,7 @@ fn genuine_qsl_authority_binds_dense_and_tick_emissions() {
 fn mismatched_emissions_refuse_with_typed_authority_errors() {
     let qsl = qsl_dir();
     let qsl = qsl.as_path();
-    let emitted = emitted(
+    let emitted = emit(
         qsl,
         "time M tick M::ConfigVersion::attemptUpdate period 2 ms unit ms;",
     );
@@ -501,6 +501,8 @@ fn mismatched_emissions_refuse_with_typed_authority_errors() {
         ),
         ("different exact period", tick("3", "1")),
         ("different denominator", tick("2", "3")),
+        ("zero denominator", tick("0", "0")),
+        ("invalid numerator", tick("not-a-number", "1")),
     ] {
         let wrong = with(plan.clause().clone(), claim.clone(), time);
         let error = project(authority, package, &wrong, &mut big()).expect_err(label);
@@ -533,7 +535,7 @@ fn mismatched_emissions_refuse_with_typed_authority_errors() {
     );
 
     // The dense emission's authority refuses the tick emission's package.
-    let dense = emitted(qsl, "time M dense unit ms;");
+    let dense = emit(qsl, "time M dense unit ms;");
     let dense_row = ir_row(&dense.authority);
     let error = project(authority, package, &dense_row, &mut big()).unwrap_err();
     assert_eq!(
