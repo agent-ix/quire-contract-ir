@@ -43,7 +43,7 @@ use crate::checked_package::common::{count, node_pointer, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
-    JsonPointer,
+    ForeignNodeKey, JsonPointer, NodeKeyProbe,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -66,26 +66,17 @@ impl SuppliedDependency<'_> {
     /// document names those as `{package, node}` dependency positions of this
     /// dependency, and a local index segment names no node here.
     fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
-        let mut path = Vec::with_capacity(id.path.len());
-        for segment in &id.path {
-            path.push(match segment {
-                CheckedNodePathSegment::Dependency { package, node }
-                    if package.as_ref() == self.identity =>
-                {
-                    CheckedNodePathSegment::Index(*node)
-                }
-                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Dependency { .. } => {
-                    return None
-                }
-                other => other.clone(),
-            });
+        // A local index segment, or a position of another dependency, names
+        // no node here. The lookup reads the rest in place.
+        if id.path.iter().any(|segment| match segment {
+            CheckedNodePathSegment::Dependency { package, .. } => package.as_ref() != self.identity,
+            CheckedNodePathSegment::Index(_) => true,
+            _ => false,
+        }) {
+            return None;
         }
-        let document_held = CheckedNodeId {
-            package: id.package.clone(),
-            path,
-            ordinal: id.ordinal,
-        };
-        self.index.get(&document_held).copied()
+        let key = ForeignNodeKey::new(id, self.identity);
+        self.index.get(&key as &dyn NodeKeyProbe).copied()
     }
 }
 

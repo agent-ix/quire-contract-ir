@@ -101,6 +101,10 @@ struct BorrowedGraph<'a> {
     graph_version: Box<str>,
     #[serde(borrow)]
     nodes: Vec<BorrowedNode<'a>>,
+    // Each entry is at most the bytes it spans in the package, so the rows,
+    // their dependency package names and the transient buffer of one untagged
+    // entry stay within the byte-proportional read storage the envelope
+    // stage already charged (`read_envelope`); no further charge is owed.
     operand_rows: Vec<Vec<CheckedOperandEntry>>,
 }
 

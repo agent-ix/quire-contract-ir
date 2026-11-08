@@ -619,10 +619,10 @@ directly supplied dependency `P`. A dependency position is the one form of an
 id that names a dependency's node by that node's own operands: a slot whose
 row entry is a dependency position holds the position, the importing graph
 holds no copy of the dependency's node, and the position is never written as a
-path segment. It SHALL
-reject a nested node id, a malformed operand slot or index segment or any
-segment in a `dependency_reference.node` declaration path as `malformed_wire`
-at the offending segment. After closed-schema validation and before every
+path segment. The reader SHALL reject a nested node id, a malformed operand
+slot or index segment or any segment in a `dependency_reference.node`
+declaration path as `malformed_wire` at the offending segment. After
+closed-schema validation and before every
 `semantic_graph` check, it SHALL run the QSpec FR-322 reader checks in their
 order and refuse at the first defect of the first step that has one, as
 `malformed_wire` without cause: rows (an `operand_rows` whose length differs
@@ -639,8 +639,8 @@ its last node, at the entry, and a `{package, node}` object written as a path
 segment, at the segment, refuse `malformed_wire`. A node's own `node_id` names
 only nodes of its own graph and refuses a slot whose entry is a dependency
 position. A foreign `{package, node}` key takes part in neither placement nor
-range. Forward references without a
-cycle are admitted. Graph order stays producer chosen; reordering nodes
+range. Forward references without a cycle are admitted. Graph order stays
+producer chosen; reordering nodes
 rewrites row entries and document-held index segments and never changes a
 node's bytes or an ordinal by itself.
 
@@ -5811,10 +5811,10 @@ dependency position of that package in place of the operand, and the target
 resolves in the component package when the id, with each such position read as
 the component package's own index segment, is a node of its graph. A local
 index segment in such an id names no node of the component package, and a
-position of another package names none either. Each component subject resolves to an object type
-in its named package; each component clause resolves to a temporal clause
-of that package over the component's model subject. An absent selected
-package or subject refuses `missing_declaration`/`missing-name` at the
+position of another package names none either. Each component subject
+resolves to an object type in its named package; each component clause
+resolves to a temporal clause of that package over the component's model
+subject. An absent selected package or subject refuses `missing_declaration`/`missing-name` at the
 component; a target of another kind refuses
 `invalid_model_binding`/`malformed-declaration` at the member. Scheduling
 contexts resolve in a component package and assumptions in the composing

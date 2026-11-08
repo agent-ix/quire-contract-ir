@@ -674,8 +674,8 @@ impl Serialize for CheckedNodePathSegment {
             }
             Self::Dependency { package, node } => {
                 let mut map = serializer.serialize_map(Some(2))?;
-                map.serialize_entry("package", package)?;
                 map.serialize_entry("node", node)?;
+                map.serialize_entry("package", package)?;
                 map.end()
             }
             Self::Node(node) => node.serialize(serializer),
@@ -1023,6 +1023,133 @@ fn segment_order(
             ) => a.cmp(b).then(x.cmp(y)),
             _ => std::cmp::Ordering::Equal,
         })
+}
+
+/// A lookup key for a node ID of an importing document against a map keyed by
+/// the IDs a selected dependency's own graph holds. A `{package, node}`
+/// segment naming the dependency compares as the index segment `node` the
+/// dependency holds, so the lookup neither clones the ID nor builds a
+/// translated copy.
+pub(crate) trait NodeKeyProbe {
+    /// The ID being compared.
+    fn id(&self) -> &CheckedNodeId;
+    /// The selected dependency whose positions the ID's dependency segments
+    /// name, when the ID is read as that dependency's own.
+    fn foreign(&self) -> Option<&str>;
+}
+
+impl NodeKeyProbe for CheckedNodeId {
+    fn id(&self) -> &CheckedNodeId {
+        self
+    }
+    fn foreign(&self) -> Option<&str> {
+        None
+    }
+}
+
+impl NodeKeyProbe for &CheckedNodeId {
+    fn id(&self) -> &CheckedNodeId {
+        self
+    }
+    fn foreign(&self) -> Option<&str> {
+        None
+    }
+}
+
+/// A node ID read as the own ID of the dependency package `foreign`.
+pub(crate) struct ForeignNodeKey<'a> {
+    id: &'a CheckedNodeId,
+    foreign: &'a str,
+}
+
+impl<'a> ForeignNodeKey<'a> {
+    /// Read `id` as the own ID of the dependency `foreign`.
+    pub(crate) fn new(id: &'a CheckedNodeId, foreign: &'a str) -> Self {
+        Self { id, foreign }
+    }
+}
+
+impl NodeKeyProbe for ForeignNodeKey<'_> {
+    fn id(&self) -> &CheckedNodeId {
+        self.id
+    }
+    fn foreign(&self) -> Option<&str> {
+        Some(self.foreign)
+    }
+}
+
+impl<'a> std::borrow::Borrow<dyn NodeKeyProbe + 'a> for CheckedNodeId {
+    fn borrow(&self) -> &(dyn NodeKeyProbe + 'a) {
+        self
+    }
+}
+
+impl<'a, 'e: 'a> std::borrow::Borrow<dyn NodeKeyProbe + 'a> for &'e CheckedNodeId {
+    fn borrow(&self) -> &(dyn NodeKeyProbe + 'a) {
+        self
+    }
+}
+
+impl PartialEq for dyn NodeKeyProbe + '_ {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for dyn NodeKeyProbe + '_ {}
+
+impl PartialOrd for dyn NodeKeyProbe + '_ {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// The order of two segments after reading each dependency position of its
+/// side's `foreign` package as the index segment it names. An `Index` holds
+/// only an integer, so the reading allocates nothing.
+fn held_segment_order(
+    left: &CheckedNodePathSegment,
+    left_foreign: Option<&str>,
+    right: &CheckedNodePathSegment,
+    right_foreign: Option<&str>,
+) -> std::cmp::Ordering {
+    let held = |segment: &CheckedNodePathSegment, foreign: Option<&str>| match segment {
+        CheckedNodePathSegment::Dependency { package, node }
+            if foreign == Some(package.as_ref()) =>
+        {
+            Some(*node)
+        }
+        _ => None,
+    };
+    match (held(left, left_foreign), held(right, right_foreign)) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(a), None) => segment_order(&CheckedNodePathSegment::Index(a), right),
+        (None, Some(b)) => segment_order(left, &CheckedNodePathSegment::Index(b)),
+        (None, None) => segment_order(left, right),
+    }
+}
+
+impl Ord for dyn NodeKeyProbe + '_ {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let (left, right) = (self.id(), other.id());
+        left.package
+            .cmp(&right.package)
+            .then_with(|| {
+                for (a, b) in left.path.iter().zip(&right.path) {
+                    let order = match (a, b) {
+                        (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
+                            a.cmp(b)
+                        }
+                        _ => held_segment_order(a, self.foreign(), b, other.foreign()),
+                    };
+                    if order.is_ne() {
+                        return order;
+                    }
+                }
+                left.path.len().cmp(&right.path.len())
+            })
+            .then_with(|| left.ordinal.cmp(&right.ordinal))
+    }
 }
 
 impl Ord for CheckedNodeId {
@@ -1797,4 +1924,194 @@ pub struct CheckedCapability {
     pub feature: Box<str>,
     /// Producer/model disposition.
     pub disposition: super::v2::CheckedCapabilityDisposition,
+}
+
+#[cfg(test)]
+mod dependency_segment_tests {
+    use super::{segment_order, CheckedNodeId, CheckedNodePathSegment as Segment};
+    use serde_json::{json, Value};
+    use std::cmp::Ordering;
+
+    const BOUND: u64 = 9_007_199_254_740_991;
+
+    fn dependency(package: &str, node: u64) -> Segment {
+        Segment::Dependency {
+            package: package.into(),
+            node,
+        }
+    }
+
+    fn id_with(segment: Segment) -> CheckedNodeId {
+        CheckedNodeId {
+            package: "importer".into(),
+            path: vec![Segment::Name("clause".into()), segment],
+            ordinal: 3,
+        }
+    }
+
+    fn wire(segment: &Value) -> Value {
+        json!({"package": "importer", "path": ["clause", segment], "ordinal": 3})
+    }
+
+    #[test]
+    fn dependency_segment_round_trips_with_node_before_package() {
+        let id = id_with(dependency("dep/pkg", 42));
+        let value = serde_json::to_value(&id).expect("serialize");
+        assert_eq!(value, wire(&json!({"node": 42, "package": "dep/pkg"})));
+        let text = serde_json::to_string(&id).expect("serialize text");
+        assert!(
+            text.contains(r#"{"node":42,"package":"dep/pkg"}"#),
+            "members are written in encode order: {text}"
+        );
+        let read: CheckedNodeId = serde_json::from_str(&text).expect("deserialize");
+        assert_eq!(read, id);
+        assert_eq!(read.path[1], dependency("dep/pkg", 42));
+    }
+
+    #[test]
+    fn dependency_segment_reads_both_member_orders() {
+        for text in [
+            r#"{"package":"importer","path":["clause",{"package":"dep","node":7}],"ordinal":3}"#,
+            r#"{"package":"importer","path":["clause",{"node":7,"package":"dep"}],"ordinal":3}"#,
+        ] {
+            let read: CheckedNodeId = serde_json::from_str(text).expect(text);
+            assert_eq!(read.path[1], dependency("dep", 7), "{text}");
+        }
+    }
+
+    #[test]
+    fn dependency_segment_refuses_an_extra_member_in_either_order() {
+        for segment in [
+            r#"{"package":"dep","node":7,"extra":1}"#,
+            r#"{"node":7,"package":"dep","extra":1}"#,
+            r#"{"package":"dep","extra":1,"node":7}"#,
+        ] {
+            let text =
+                format!(r#"{{"package":"importer","path":["clause",{segment}],"ordinal":3}}"#);
+            let error = serde_json::from_str::<CheckedNodeId>(&text)
+                .expect_err(segment)
+                .to_string();
+            assert!(error.contains("unknown field"), "{segment}: {error}");
+            assert!(error.contains("extra"), "{segment}: {error}");
+        }
+    }
+
+    #[test]
+    fn dependency_segment_node_is_bounded_by_the_i_json_maximum() {
+        for member in [
+            format!(r#"{{"package":"dep","node":{}}}"#, BOUND + 1),
+            format!(r#"{{"node":{},"package":"dep"}}"#, BOUND + 1),
+        ] {
+            let text =
+                format!(r#"{{"package":"importer","path":["clause",{member}],"ordinal":3}}"#);
+            let error = serde_json::from_str::<CheckedNodeId>(&text)
+                .expect_err(&member)
+                .to_string();
+            assert!(error.contains("I-JSON bound"), "{member}: {error}");
+        }
+        for member in [
+            format!(r#"{{"package":"dep","node":{BOUND}}}"#),
+            format!(r#"{{"node":{BOUND},"package":"dep"}}"#),
+        ] {
+            let text =
+                format!(r#"{{"package":"importer","path":["clause",{member}],"ordinal":3}}"#);
+            let read: CheckedNodeId = serde_json::from_str(&text).expect(&member);
+            assert_eq!(read.path[1], dependency("dep", BOUND));
+            assert!(read.is_well_formed());
+        }
+    }
+
+    #[test]
+    fn dependency_segment_with_an_empty_package_is_not_well_formed() {
+        let value = wire(&json!({"node": 1, "package": ""}));
+        let read = serde_json::from_value::<CheckedNodeId>(value.clone())
+            .expect("empty package still reads");
+        assert_eq!(read.path[1], dependency("", 1));
+        assert!(!read.is_well_formed());
+        assert!(CheckedNodeId::from_value(&value).is_none());
+        let named = wire(&json!({"node": 1, "package": "dep"}));
+        assert!(CheckedNodeId::from_value(&named).is_some());
+    }
+
+    #[test]
+    fn dependency_segment_ranks_after_name_index_and_operand_before_node() {
+        let nested = Segment::Node(std::sync::Arc::new(id_with(Segment::Index(0))));
+        let ascending = [
+            Segment::Name("zzz".into()),
+            Segment::Index(BOUND),
+            Segment::Operand(BOUND),
+            dependency("", 0),
+            nested,
+        ];
+        for pair in ascending.windows(2) {
+            assert_eq!(
+                segment_order(&pair[0], &pair[1]),
+                Ordering::Less,
+                "{pair:?}"
+            );
+            assert_eq!(
+                segment_order(&pair[1], &pair[0]),
+                Ordering::Greater,
+                "{pair:?}"
+            );
+        }
+        // Two positions order by package, then node.
+        assert_eq!(
+            segment_order(&dependency("a", 9), &dependency("b", 1)),
+            Ordering::Less
+        );
+        assert_eq!(
+            segment_order(&dependency("a", 1), &dependency("a", 2)),
+            Ordering::Less
+        );
+        assert_eq!(
+            segment_order(&dependency("a", 2), &dependency("a", 2)),
+            Ordering::Equal
+        );
+        // The ID order follows the segment order.
+        assert!(id_with(Segment::Operand(0)) < id_with(dependency("a", 0)));
+        assert!(
+            id_with(dependency("a", 0))
+                < id_with(Segment::Node(std::sync::Arc::new(id_with(Segment::Index(
+                    0
+                )))))
+        );
+    }
+
+    #[test]
+    fn foreign_key_lookup_reads_dependency_positions_as_held_indexes() {
+        use super::{ForeignNodeKey, NodeKeyProbe};
+        use std::collections::BTreeMap;
+        let held = |index: u64| id_with(Segment::Index(index));
+        let map: BTreeMap<CheckedNodeId, usize> = (0..5)
+            .map(|index| (held(index), index as usize + 10))
+            .collect();
+        let by_ref: BTreeMap<&CheckedNodeId, usize> =
+            map.iter().map(|(key, at)| (key, *at)).collect();
+        for index in 0..5_u64 {
+            let named = id_with(dependency("dep", index));
+            let key = ForeignNodeKey::new(&named, "dep");
+            assert_eq!(
+                map.get(&key as &dyn NodeKeyProbe),
+                Some(&(index as usize + 10))
+            );
+            assert_eq!(
+                by_ref.get(&key as &dyn NodeKeyProbe),
+                Some(&(index as usize + 10))
+            );
+        }
+        let past = id_with(dependency("dep", 5));
+        assert_eq!(
+            map.get(&ForeignNodeKey::new(&past, "dep") as &dyn NodeKeyProbe),
+            None
+        );
+        let other = id_with(dependency("dep", 1));
+        assert_eq!(
+            map.get(&ForeignNodeKey::new(&other, "else") as &dyn NodeKeyProbe),
+            None
+        );
+        // A key read without a dependency is the plain lookup.
+        let plain = held(2);
+        assert_eq!(map.get(&plain as &dyn NodeKeyProbe), Some(&12));
+    }
 }

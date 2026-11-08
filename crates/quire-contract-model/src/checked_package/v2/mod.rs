@@ -232,7 +232,8 @@ use super::shared::{
     CheckedNodePathSegment, CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole,
     CheckedOperandEntry, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection,
-    CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, JsonPointer,
+    CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, ForeignNodeKey, JsonPointer,
+    NodeKeyProbe,
 };
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
@@ -1621,20 +1622,19 @@ impl CheckedPackageV2 {
             .any(|segment| matches!(segment, CheckedNodePathSegment::Dependency { .. }))
         {
             // An importing document names this package's graph positions as
-            // dependency positions of this package.
-            let mut own = id.clone();
-            for segment in &mut own.path {
-                match segment {
-                    CheckedNodePathSegment::Dependency { package, node }
-                        if package.as_ref() == self.name() =>
-                    {
-                        *segment = CheckedNodePathSegment::Index(*node);
-                    }
-                    CheckedNodePathSegment::Dependency { .. } => return None,
-                    _ => {}
-                }
+            // dependency positions of this package; a position of another
+            // package names no node here.
+            if id.path.iter().any(|segment| {
+                matches!(
+                    segment,
+                    CheckedNodePathSegment::Dependency { package, .. }
+                        if package.as_ref() != self.name()
+                )
+            }) {
+                return None;
             }
-            return self.node_index.get(&own).copied();
+            let key = ForeignNodeKey::new(id, self.name());
+            return self.node_index.get(&key as &dyn NodeKeyProbe).copied();
         }
         self.node_index.get(id).copied()
     }

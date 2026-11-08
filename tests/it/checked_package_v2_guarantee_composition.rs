@@ -1431,7 +1431,49 @@ fn tc_474_a_dependency_position_naming_no_dependency_node_is_malformed() {
     match read_with(&wire, &dependency) {
         CheckedPackageV2ReadResult::Refused(refusal) => {
             assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
+            assert_eq!(
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(|path| path.as_str().to_owned()),
+                Some(format!(
+                    "/semantic_graph/nodes/{position}/dependencies/0/path/0"
+                )),
+                "{refusal:?}"
+            );
         }
         other => panic!("a dependency position in a path must refuse, read {other:?}"),
+    }
+}
+
+#[trace("TC-474", "FR-038-AC-540")]
+#[test]
+fn tc_474_a_node_own_id_refuses_a_slot_naming_a_dependency_position() {
+    let (dependency, anchor) = derived_dependency();
+    let (package, position) = foreign_composition(&foreign_clause(DEPENDENCY, anchor));
+    let mut wire = wire_form(&package);
+    // Row entry 0 of this node is the dependency position; its own id now
+    // holds slot 0, which can name only a node of its own graph.
+    assert_eq!(
+        wire["semantic_graph"]["operand_rows"][position][0],
+        json!({"node": anchor, "package": DEPENDENCY})
+    );
+    wire["semantic_graph"]["nodes"][position]["node_id"]["path"] =
+        json!(["composition", {"operand": 0}]);
+    match read_with(&wire, &dependency) {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            assert_eq!(refusal.code, Code::MalformedWire, "{refusal:?}");
+            assert_eq!(
+                refusal.loci[0]
+                    .path
+                    .as_ref()
+                    .map(|path| path.as_str().to_owned()),
+                Some(format!(
+                    "/semantic_graph/nodes/{position}/node_id/path/1/operand"
+                )),
+                "{refusal:?}"
+            );
+        }
+        other => panic!("a node's own id naming a dependency position must refuse, read {other:?}"),
     }
 }
