@@ -23,7 +23,7 @@ Ticket: IR-1404. Inspected every hunk across 21 files. Removed private helpers h
 
 ## Verdict
 
-PASS. 
+PASS.
 
 ## Findings
 
