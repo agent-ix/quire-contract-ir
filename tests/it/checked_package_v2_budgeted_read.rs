@@ -93,8 +93,9 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
 }
 
 /// The read's reservations are exact: the measured requirement admits, one
-/// byte below is denied at the last request, at its locus (the wire decode's
-/// strings and sequences), with the bytes asked.
+/// byte below is denied at the last request, at its locus (the retained
+/// tables built over the declaration index, the last stage to request heap), with the
+/// bytes asked.
 #[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
 fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
@@ -118,24 +119,28 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
         .expect("a denial is recorded");
     assert!(asked > 0);
     assert_eq!(short.first_unpaid(), None);
-    // The decode's strings and sequences are the last requests the read makes.
-    assert!(matches!(
+    // The retained tables are the last requests the read makes.
+    assert_eq!(
         short.first_unpaid_locus(),
         Some(NativeJoinLocus {
-            source: NativeJoinLocusSource::PackageRead(PackageReadStage::WireDecode, _),
-            ..
+            source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 0),
+            form: "declarations",
         })
-    ));
+    );
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
-    // The denied value's pointer is an owned diagnostic the exhausted budget
-    // cannot pay for, so the outcome is the fixed-size one.
-    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = result else {
-        panic!("one byte short cannot pay for the decode's pointer: {result:?}");
+    // The denied request belongs to a graph node's stage, so the stop is
+    // incomplete at the node's body, which the budget can still name.
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {
+        panic!("a denial at a node is incomplete at its body: {result:?}");
     };
-    assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(exhausted.denied.amount, asked);
-    assert_eq!(exhausted.configured_bound, required - 1);
+    assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
+    assert_eq!(incomplete.denied.amount, asked);
+    assert_eq!(incomplete.limit, required - 1);
+    assert_eq!(
+        incomplete.path.as_ref().map(ToString::to_string).as_deref(),
+        Some("/semantic_graph/nodes/0/body")
+    );
     assert!(short.read_storage_consumed() < required);
 }
 
