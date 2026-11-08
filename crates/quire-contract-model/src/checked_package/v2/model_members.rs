@@ -1049,6 +1049,7 @@ impl MemberType {
     }
     /// The exact structural ID a selected member type names. A later graph
     /// join requires this ID to exist before admitting the member use.
+    #[cfg(test)]
     pub(super) fn node_id(&self, package: &str) -> Option<CheckedNodeId> {
         enum Task<'a> {
             Read(&'a MemberType),
@@ -1190,6 +1191,7 @@ impl MemberType {
     }
 }
 
+#[cfg(test)]
 fn derived_id(
     package: &str,
     tag: &str,
@@ -1208,6 +1210,7 @@ fn derived_id(
     }
 }
 
+#[cfg(test)]
 fn bounded_id(
     package: &str,
     form: &str,
@@ -1241,6 +1244,7 @@ fn bounded_id(
     derived_id(package, "bounded_domain", form, operands)
 }
 
+#[cfg(test)]
 enum BoundTail<'a> {
     Text(&'a str),
     Collection(&'a CheckedNodeId),
