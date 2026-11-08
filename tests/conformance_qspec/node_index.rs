@@ -19,29 +19,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-fn apply_patch(package: &mut Value, patch: &Value) {
-    let path = patch["path"].as_str().expect("published patch path");
-    let (parent, member) = path.rsplit_once('/').expect("published patch member");
-    let target = package.pointer_mut(parent).expect("published patch parent");
-    let operation = patch["op"].as_str().expect("published patch operation");
-    match (operation, target) {
-        ("replace", Value::Array(items)) => {
-            let index: usize = member.parse().expect("published array index");
-            *items.get_mut(index).expect("published replacement target") = patch["value"].clone();
-        }
-        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
-        ("remove", Value::Array(items)) => {
-            let index: usize = member.parse().expect("published array index");
-            items.remove(index);
-        }
-        ("add", Value::Array(items)) => {
-            let index: usize = member.parse().expect("published array index");
-            assert!(index <= items.len(), "{path}: published insertion target");
-            items.insert(index, patch["value"].clone());
-        }
-        _ => panic!("unsupported published patch {operation} at {path}"),
-    }
-}
+use super::qspec_inputs::apply_node_index_patch as apply_patch;
 
 /// Trace: FR-038-AC-377, FR-038-AC-378, FR-038-AC-520, FR-038-AC-521
 #[trace(
