@@ -659,7 +659,7 @@ mod tests {
         );
         assert_lock_exact(
             || (),
-            |(), meter| checked_unit_refs(&nodes, meter).map(drop),
+            |(), meter| checked_unit_refs(&nodes, &[], meter).map(drop),
         );
         let roots = selected_model_roots(&nodes, &mut WorkMeter::new(u64::MAX)).expect("roots");
         assert_eq!(
@@ -667,7 +667,7 @@ mod tests {
             vec![("acme/billing", 4), ("acme/orders", 0)],
             "roots in identity order"
         );
-        let refs = checked_unit_refs(&nodes, &mut WorkMeter::new(u64::MAX)).expect("refs");
+        let refs = checked_unit_refs(&nodes, &[], &mut WorkMeter::new(u64::MAX)).expect("refs");
         assert_eq!(
             refs.keys().map(AsRef::as_ref).collect::<Vec<&str>>(),
             [
@@ -717,7 +717,7 @@ mod tests {
             source_unit(0, &["quire", "m"]),
             source_unit(1, &["quire", "kg"]),
         ];
-        let refs = checked_unit_refs(&nodes, &mut WorkMeter::new(u64::MAX)).expect("refs");
+        let refs = checked_unit_refs(&nodes, &[], &mut WorkMeter::new(u64::MAX)).expect("refs");
         let model =
             model_tests::read_with_unit_refs(&model_tests::document(vec![]), &refs).expect("model");
         assert_lock_exact(

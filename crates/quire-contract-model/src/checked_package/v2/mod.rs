@@ -3842,20 +3842,20 @@ fn validate_graph(
     };
     validate_recursion(&graph.nodes, &adjacency, meter, &edge_pointer)?;
     lower::assign_components(&mut lowering_facts);
-    let terms = terms
-        .into_iter()
-        .enumerate()
-        .map(|(position, term)| match term {
-            Some(term) => Ok(term),
+    let mut retained_terms = meter.vec(terms.len())?;
+    for (position, term) in terms.into_iter().enumerate() {
+        retained_terms.push(match term {
+            Some(term) => term,
             None => decode_admitted_body(
                 kinds[position],
                 &bodies[position],
                 &wire.semantic_graph.operand_rows[position],
                 position,
                 meter,
-            ),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+            )?,
+        });
+    }
+    let terms = retained_terms;
     Ok(ValidatedGraph {
         kinds,
         schedulability_claim_index,
