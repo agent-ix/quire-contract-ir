@@ -3968,7 +3968,7 @@ fn check_clause(
         {
             node_work(meter, check.position)?;
             let path = || check.argument_path(ordinal).key("members").index(entry);
-            let position = check.check_target(target, &path, |_| true)?;
+            let position = check.check_target(target, path, |_| true)?;
             if !check.is(position, expected) {
                 let cause = if ordinal == 4 {
                     Cause::WrongExport
