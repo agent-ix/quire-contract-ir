@@ -16,6 +16,11 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
 
+#[path = "../it/support/qspec_tuple_inputs.rs"]
+mod inputs;
+pub(super) use inputs::apply_wire_patch;
+use inputs::selected_evidence;
+
 fn selected_document(proposal: &Path) -> Value {
     let documents = super::vector_selected_documents(proposal).expect("selected documents");
     read_json(&proposal.join(super::positive_document(
@@ -35,20 +40,6 @@ fn read_selected_variant_package(package: &Value, document: &Value) -> Box<Check
         CheckedPackageV2ReadResult::Admitted(package) => package,
         result => panic!("selected model package must admit: {result:?}"),
     }
-}
-
-fn selected_evidence(document: &Value) -> CheckedPackageEvidence {
-    let mut evidence = CheckedPackageEvidence::new();
-    evidence
-        .insert_domain_package_document(
-            document["package"]["identity"]
-                .as_str()
-                .expect("document identity"),
-            super::fixture_support::canonical(document),
-        )
-        .expect("selected document evidence");
-    evidence.support_feature("quire.value.complete/v1");
-    evidence
 }
 
 fn variant_node(package: &Value, identity: &str) -> (usize, CheckedNodeId) {
@@ -514,39 +505,6 @@ fn assert_tk36_resolved(
 
 /// Apply one published RFC 6902 operation. The vector's patch is the source of
 /// both the mutation and its expected package identity.
-pub(super) fn apply_wire_patch(package: &mut Value, patch: &Value) {
-    // Published patches address the wire: operand rows and operand slots.
-    super::fixture_support::wire_operands(package);
-    let path = patch["path"].as_str().expect("published patch path");
-    let (parent, member) = path.rsplit_once('/').expect("patch member");
-    let target = package.pointer_mut(parent).expect("published patch parent");
-    let operation = patch["op"].as_str().expect("published patch operation");
-    match (operation, target) {
-        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
-        ("replace", Value::Object(map)) => {
-            *map.get_mut(member).expect("published replacement target") = patch["value"].clone();
-        }
-        ("replace", Value::Array(items)) => {
-            let index = member.parse::<usize>().expect("published array index");
-            *items.get_mut(index).expect("published replacement target") = patch["value"].clone();
-        }
-        ("add", Value::Object(map)) => {
-            assert!(map
-                .insert(member.to_owned(), patch["value"].clone())
-                .is_none());
-        }
-        ("remove", Value::Object(map)) => {
-            assert!(map.remove(member).is_some(), "published removal target");
-        }
-        ("remove", Value::Array(items)) => {
-            let index = member.parse::<usize>().expect("published array index");
-            assert!(index < items.len(), "published removal target");
-            items.remove(index);
-        }
-        _ => panic!("unsupported published patch {operation} at {path}"),
-    }
-}
-
 /// Replay every published wire row, including rows added after this test.
 #[trace("TC-048", "FR-069-AC-3", "FR-069-AC-5", "FR-069-AC-8")]
 #[test]

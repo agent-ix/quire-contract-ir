@@ -389,14 +389,7 @@ struct ExpectedFailure {
 /// rule of AC-112 holds for it.
 const EXPECTED_FAILURES: &[ExpectedFailure] = &[];
 
-/// The replacement of `package` at `pointer`, or why it cannot be made.
-fn replace_at(package: &mut Value, pointer: &str, replacement: &Value) -> Result<(), String> {
-    let slot = package
-        .pointer_mut(pointer)
-        .ok_or_else(|| format!("pointer {pointer} resolves to nothing in the package"))?;
-    *slot = replacement.clone();
-    Ok(())
-}
+use qspec_inputs::replace_at;
 
 /// Sort fixture-authored structural ids by their typed wire order.
 fn typed_node_id(value: &Value) -> CheckedNodeId {
@@ -455,7 +448,7 @@ fn adverse_problems(base: &Value, adverse: &Value, expected: &[ExpectedFailure])
                 let flattened = entry.get("flattened").ok_or("no flattened member")?;
                 let mut control = base.clone();
                 replace_at(&mut control, pointer, flattened)?;
-                if reading_of(&control)?.starts_with("refused:malformed_wire") {
+                if !qspec_inputs::flat_body_control_passes(&read_package(&control)?) {
                     return Err("the flattened positive control is refused malformed_wire".into());
                 }
             }

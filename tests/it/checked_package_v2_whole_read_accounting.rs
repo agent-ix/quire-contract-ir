@@ -11,10 +11,14 @@ mod proof;
 mod qspec_fma_inputs;
 #[path = "support/qspec_inputs.rs"]
 mod qspec_inputs;
+#[path = "support/qspec_option_inputs.rs"]
+mod qspec_option_inputs;
 #[path = "support/qspec_protocol_location_inputs.rs"]
 mod qspec_protocol_location_inputs;
 #[path = "support/qspec_text_inputs.rs"]
 mod qspec_text_inputs;
+#[path = "support/qspec_tuple_inputs.rs"]
+mod qspec_tuple_inputs;
 use crate::support::checked_package::{
     canonical, evidence_for, index_fixture_node_ids, positive_operation_identities, settle,
     v2_all_families, v2_nominal,
@@ -487,6 +491,158 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
                 expected,
             });
         }
+    }
+    let base = qspec_inputs::read_json(&fixtures.join("positive-all-families.json"))
+        .expect("published structural/body base");
+    let adverse = qspec_inputs::read_json(&fixtures.join("adverse.json"))
+        .expect("published structural/body mutations");
+    for list in ["structural_mutations", "body_grammar_mutations"] {
+        for row in adverse[list].as_array().expect("published mutation list") {
+            let id = row["id"].as_str().expect("mutation id");
+            let pointer = row["pointer"].as_str().expect("mutation pointer");
+            let mut wire = base.clone();
+            qspec_inputs::replace_at(&mut wire, pointer, &row["replacement"])
+                .expect("published mutation target");
+            let outcome = row["outcome"].as_str().expect("mutation outcome");
+            let code = outcome
+                .strip_prefix("refused:")
+                .expect("published refusal")
+                .split('/')
+                .next()
+                .expect("refusal code");
+            let expected = Expected::Refused(
+                serde_json::from_value(Value::String(code.into()))
+                    .expect("published mutation code"),
+            );
+            providers.insert(format!(
+                "conformance_qspec/main.rs: fixtures/adverse.json#/{list}#{id}"
+            ));
+            let evidence = qspec_inputs::evidence_for_published(
+                &wire,
+                id,
+                &proposal.join(qspec_inputs::DOMAIN_DOCUMENT),
+                true,
+                None,
+                &fixtures,
+            )
+            .expect("mutation evidence");
+            cases.push(Case {
+                label: format!("QSpec/{list}/{id}"),
+                bytes: canonical(&wire),
+                evidence,
+                expected,
+            });
+            if list == "body_grammar_mutations" {
+                let mut control = base.clone();
+                qspec_inputs::replace_at(
+                    &mut control,
+                    pointer,
+                    row.get("flattened").expect("flattened control"),
+                )
+                .expect("flattened target");
+                let evidence = qspec_inputs::evidence_for_published(
+                    &control,
+                    id,
+                    &proposal.join(qspec_inputs::DOMAIN_DOCUMENT),
+                    true,
+                    None,
+                    &fixtures,
+                )
+                .expect("flattened control evidence");
+                cases.push(Case {
+                    label: format!("QSpec/{list}/{id}/flattened-control"),
+                    bytes: canonical(&control),
+                    evidence,
+                    expected: Expected::OriginalOracle(qspec_inputs::flat_body_control_passes),
+                });
+            }
+        }
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("model-option-type-vectors.json"))
+        .expect("published option vectors");
+    let (base, field_queries) = qspec_option_inputs::field_query_inputs(&vectors);
+    let (wire, evidence) = qspec_option_inputs::prepare(&base);
+    cases.push(Case {
+        label: format!(
+            "QSpec/option/base-fields/{}-projected-types",
+            base.origins.len()
+        ),
+        bytes: canonical(&wire),
+        evidence,
+        expected: Expected::Admitted,
+    });
+    // The original driver applies every query to this same admitted base;
+    // source sharing establishes input provenance without crediting extra reads.
+    for query in field_queries {
+        let id = query["name"].as_str().expect("option field query name");
+        providers.insert(format!("conformance_qspec/model_option_types.rs: model-option-type-vectors.json#/field_type_cases#{id}"));
+    }
+    for row in vectors["intake_cases"]
+        .as_array()
+        .expect("option intake cases")
+    {
+        let id = row["name"].as_str().expect("option case name");
+        let mut projection = vectors["domain_package"].clone();
+        for patch in row["patch"].as_array().expect("option projection patch") {
+            qspec_option_inputs::apply(&mut projection, patch);
+        }
+        let input = qspec_option_inputs::document(&projection);
+        let (wire, evidence) = qspec_option_inputs::prepare(&input);
+        let expected = if row["expected"]["admitted"] == true {
+            Expected::Admitted
+        } else {
+            Expected::Refused(
+                serde_json::from_value(row["expected"]["refused"]["code"].clone())
+                    .expect("published option refusal code"),
+            )
+        };
+        providers.insert(format!("conformance_qspec/model_option_types.rs: model-option-type-vectors.json#/intake_cases#{id}"));
+        cases.push(Case {
+            label: format!("QSpec/option/{id}"),
+            bytes: canonical(&wire),
+            evidence,
+            expected,
+        });
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("model-tuple-union-vectors.json"))
+        .expect("published tuple/union vectors");
+    assert_eq!(vectors["base"], "fixtures/positive-model-tuple-union.json");
+    let base = qspec_inputs::read_json(&fixtures.join("positive-model-tuple-union.json"))
+        .expect("published tuple/union base");
+    let selected = qspec_inputs::read_json(&proposal.join(qspec_inputs::positive_document(
+        "positive-model-tuple-union.json",
+        &selections,
+    )))
+    .expect("selected tuple/union document");
+    for row in vectors["wire_cases"]
+        .as_array()
+        .expect("tuple/union wire cases")
+    {
+        let id = row["id"].as_str().expect("tuple/union case id");
+        let mut wire = base.clone();
+        for patch in row["patch"].as_array().expect("tuple/union patches") {
+            qspec_tuple_inputs::apply_wire_patch(&mut wire, patch);
+        }
+        let expected = match row["outcome"].as_str().expect("tuple/union outcome") {
+            "admitted" => Expected::Admitted,
+            outcome => Expected::Refused(
+                serde_json::from_value(Value::String(
+                    outcome
+                        .strip_prefix("refused:")
+                        .expect("published tuple/union refusal")
+                        .into(),
+                ))
+                .expect("published tuple/union code"),
+            ),
+        };
+        let evidence = qspec_tuple_inputs::selected_evidence(&selected);
+        providers.insert(format!("conformance_qspec/model_tuple_union.rs: model-tuple-union-vectors.json#/wire_cases#{id}"));
+        cases.push(Case {
+            label: format!("QSpec/tuple-union/wire/{id}"),
+            bytes: canonical(&wire),
+            evidence,
+            expected,
+        });
     }
     (cases, providers)
 }
