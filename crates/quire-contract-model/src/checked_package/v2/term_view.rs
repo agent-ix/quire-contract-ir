@@ -531,6 +531,23 @@ fn decode_field<'d, T: Deserialize<'d>>(
     })
 }
 
+/// A typed flat-body list, prepaid before serde requests its final block.
+fn decode_vec_field<'d, T: Deserialize<'d>>(
+    context: &DecodeContext<'d>,
+    term: TermNode<'d>,
+    name: TermField,
+) -> Result<Vec<T>, TermConversionCause> {
+    let member = term.field(name).ok_or(TermConversionCause::MissingMember {
+        member: name.as_wire(),
+    })?;
+    super::document_de::exact_vec(context.value_at(member.node_ref())).map_err(|_| {
+        TermConversionCause::MalformedMember {
+            member: name.as_wire(),
+            category: Category::Data,
+        }
+    })
+}
+
 /// The terms of an array member, each decoded; the list is charged at its
 /// exact length first.
 fn decode_children<'d>(
@@ -567,23 +584,484 @@ fn decode_children<'d>(
     Ok(children)
 }
 
+/// Borrowed shape guards keep owned serde diagnostics off the projection's
+/// malformed leaf paths. The semantic validator still owns value meaning.
+trait RefinementAtom<'d>: Deserialize<'d> {
+    fn accepts(node: TermNode<'d>) -> bool;
+}
+
+impl<'d> RefinementAtom<'d> for Box<str> {
+    fn accepts(node: TermNode<'d>) -> bool {
+        node.as_str().is_some()
+    }
+}
+impl<'d> RefinementAtom<'d> for CheckedNodeId {
+    fn accepts(node: TermNode<'d>) -> bool {
+        flat_shape(node, FlatShape::Id)
+    }
+}
+impl<'d> RefinementAtom<'d> for super::CheckedArtifactRef {
+    fn accepts(node: TermNode<'d>) -> bool {
+        node.exact_members(&["authority", "identity"])
+            && node.get("authority").and_then(TermNode::as_str).is_some()
+            && node.get("identity").and_then(TermNode::as_str).is_some()
+    }
+}
+impl<'d> RefinementAtom<'d> for super::refinement::RefinementFairnessKind {
+    fn accepts(node: TermNode<'d>) -> bool {
+        matches!(node.as_str(), Some("weak" | "strong"))
+    }
+}
+impl<'d> RefinementAtom<'d> for super::refinement::RefinementGranularity {
+    fn accepts(node: TermNode<'d>) -> bool {
+        matches!(node.as_str(), Some("each" | "whole"))
+    }
+}
+impl<'d> RefinementAtom<'d> for super::refinement::RefinementMemoryModel {
+    fn accepts(node: TermNode<'d>) -> bool {
+        matches!(node.as_str(), Some("sc" | "tso" | "ra"))
+    }
+}
+impl<'d> RefinementAtom<'d> for super::refinement::RefinementTsoModel {
+    fn accepts(node: TermNode<'d>) -> bool {
+        matches!(node.as_str(), Some("tso"))
+    }
+}
+impl<'d> RefinementAtom<'d> for super::refinement::RefinementDrain {
+    fn accepts(node: TermNode<'d>) -> bool {
+        matches!(node.as_str(), Some("store-buffer-flush"))
+    }
+}
+
+/// The refinement wire has untagged alternatives and nested semantic terms.
+/// Project those alternatives directly, avoiding serde's untagged buffering
+/// while retaining the same semantic-term decoder used by every other body.
+struct RefinementDocument<'a, 'd> {
+    context: &'a DecodeContext<'d>,
+    document: &'d Arc<Document>,
+}
+
+impl<'d> RefinementDocument<'_, 'd> {
+    fn malformed() -> TermConversionCause {
+        TermConversionCause::MalformedMember {
+            member: "refinement",
+            category: Category::Data,
+        }
+    }
+    fn member(&self, node: TermNode<'d>, name: &str) -> Result<TermNode<'d>, TermConversionCause> {
+        node.get(name).ok_or_else(Self::malformed)
+    }
+    fn shape(
+        &self,
+        node: TermNode<'d>,
+        required: &[&str],
+        optional: &[&str],
+    ) -> Result<(), TermConversionCause> {
+        if required.iter().all(|name| node.get(name).is_some())
+            && node.members().is_some_and(|mut members| {
+                members.all(|(name, _)| required.contains(&name) || optional.contains(&name))
+            })
+        {
+            Ok(())
+        } else {
+            Err(Self::malformed())
+        }
+    }
+    fn atom<T: RefinementAtom<'d>>(&self, node: TermNode<'d>) -> Result<T, TermConversionCause> {
+        if !T::accepts(node) {
+            return Err(Self::malformed());
+        }
+        T::deserialize(self.context.value_at(node.node_ref())).map_err(|_| Self::malformed())
+    }
+    fn field<T: RefinementAtom<'d>>(
+        &self,
+        node: TermNode<'d>,
+        name: &str,
+    ) -> Result<T, TermConversionCause> {
+        self.atom(self.member(node, name)?)
+    }
+    fn list<T>(
+        &self,
+        node: TermNode<'d>,
+        parse: impl Fn(TermNode<'d>) -> Result<T, TermConversionCause>,
+    ) -> Result<Vec<T>, TermConversionCause> {
+        let items = node.items().ok_or_else(Self::malformed)?;
+        if !self
+            .context
+            .charge_bytes(items.len().saturating_mul(std::mem::size_of::<T>()))
+        {
+            return Err(Self::malformed());
+        }
+        let mut result = Vec::with_capacity(items.len());
+        for item in items {
+            result.push(parse(item)?);
+        }
+        Ok(result)
+    }
+    fn rows<T>(
+        &self,
+        node: TermNode<'d>,
+        name: &str,
+        parse: impl Fn(TermNode<'d>) -> Result<T, TermConversionCause>,
+    ) -> Result<Vec<T>, TermConversionCause> {
+        self.list(self.member(node, name)?, parse)
+    }
+    fn boxed<T>(
+        &self,
+        parse: impl FnOnce() -> Result<T, TermConversionCause>,
+    ) -> Result<Box<T>, TermConversionCause> {
+        if !self.context.charge_bytes(std::mem::size_of::<T>()) {
+            return Err(Self::malformed());
+        }
+        Ok(Box::new(parse()?))
+    }
+    fn key(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementKey, TermConversionCause> {
+        use super::refinement::{RefinementKey, RefinementPackageNodeKey};
+        if node.get("node").is_some() {
+            self.shape(node, &["package", "node"], &[])?;
+            Ok(RefinementKey::External(RefinementPackageNodeKey {
+                package: self.field(node, "package")?,
+                node: self.field(node, "node")?,
+            }))
+        } else {
+            self.atom(node).map(RefinementKey::Local)
+        }
+    }
+    fn term(&self, node: TermNode<'d>) -> Result<CheckedTerm, TermConversionCause> {
+        decode_term(self.context, self.document, node)
+    }
+    fn argument(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementStepArgument, TermConversionCause> {
+        use super::refinement::{RefinementOpen, RefinementStepArgument};
+        if node.get("term").and_then(TermNode::as_str) == Some("open") {
+            self.shape(node, &["term"], &[])?;
+            Ok(RefinementStepArgument::Open(RefinementOpen {
+                term: self.field(node, "term")?,
+            }))
+        } else {
+            self.boxed(|| self.term(node))
+                .map(RefinementStepArgument::Term)
+        }
+    }
+    fn target(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementStepTarget, TermConversionCause> {
+        use super::refinement::RefinementStepTarget;
+        match node.get("kind").and_then(TermNode::as_str) {
+            Some("operation") => {
+                self.shape(node, &["kind", "operation", "receiver", "arguments"], &[])?;
+                Ok(RefinementStepTarget::Operation {
+                    operation: self.key(self.member(node, "operation")?)?,
+                    receiver: self.boxed(|| self.term(self.member(node, "receiver")?))?,
+                    arguments: self.rows(node, "arguments", |n| self.argument(n))?,
+                })
+            }
+            Some("protocol_step") => {
+                self.shape(node, &["kind", "class", "arguments"], &["node"])?;
+                Ok(RefinementStepTarget::ProtocolStep {
+                    class: self.field(node, "class")?,
+                    node: node.get("node").map(|n| self.key(n)).transpose()?,
+                    arguments: self.rows(node, "arguments", |n| self.argument(n))?,
+                })
+            }
+            Some("stutter") => {
+                self.shape(node, &["kind"], &[])?;
+                Ok(RefinementStepTarget::Stutter)
+            }
+            Some("any") => {
+                self.shape(node, &["kind"], &[])?;
+                Ok(RefinementStepTarget::Any)
+            }
+            _ => Err(Self::malformed()),
+        }
+    }
+    fn memory(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementMemoryClass, TermConversionCause> {
+        use super::refinement::RefinementMemoryClass;
+        match node.get("class").and_then(TermNode::as_str) {
+            Some("memory drain") => {
+                self.shape(node, &["class", "memory_model", "drain"], &[])?;
+                Ok(RefinementMemoryClass::Drain {
+                    memory_model: self.field(node, "memory_model")?,
+                    drain: self.field(node, "drain")?,
+                })
+            }
+            Some("memory flush") => {
+                self.shape(node, &["class", "memory_model"], &[])?;
+                Ok(RefinementMemoryClass::Flush {
+                    memory_model: self.field(node, "memory_model")?,
+                })
+            }
+            _ => Err(Self::malformed()),
+        }
+    }
+    fn population(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementPopulation, TermConversionCause> {
+        self.shape(node, &["abstract", "concrete"], &[])?;
+        Ok(super::refinement::RefinementPopulation {
+            r#abstract: self.key(self.member(node, "abstract")?)?,
+            concrete: self.field(node, "concrete")?,
+        })
+    }
+    fn field_row(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementField, TermConversionCause> {
+        self.shape(node, &["name", "expression"], &[])?;
+        Ok(super::refinement::RefinementField {
+            name: self.field(node, "name")?,
+            expression: self.term(self.member(node, "expression")?)?,
+        })
+    }
+    fn object(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementObject, TermConversionCause> {
+        self.shape(node, &["abstract_type", "concrete_type", "fields"], &[])?;
+        Ok(super::refinement::RefinementObject {
+            abstract_type: self.key(self.member(node, "abstract_type")?)?,
+            concrete_type: self.field(node, "concrete_type")?,
+            fields: self.rows(node, "fields", |n| self.field_row(n))?,
+        })
+    }
+    fn update(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementHistoryUpdate, TermConversionCause> {
+        self.shape(node, &["operation", "expression"], &[])?;
+        Ok(super::refinement::RefinementHistoryUpdate {
+            operation: self.field(node, "operation")?,
+            expression: self.term(self.member(node, "expression")?)?,
+        })
+    }
+    fn history(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementHistory, TermConversionCause> {
+        self.shape(
+            node,
+            &["concrete_type", "name", "type", "initial", "updates"],
+            &[],
+        )?;
+        Ok(super::refinement::RefinementHistory {
+            concrete_type: self.field(node, "concrete_type")?,
+            name: self.field(node, "name")?,
+            type_id: self.field(node, "type")?,
+            initial: self.term(self.member(node, "initial")?)?,
+            updates: self.rows(node, "updates", |n| self.update(n))?,
+        })
+    }
+    fn assume(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementAssume, TermConversionCause> {
+        self.shape(node, &["operation", "kind", "granularity"], &[])?;
+        Ok(super::refinement::RefinementAssume {
+            operation: self.field(node, "operation")?,
+            kind: self.field(node, "kind")?,
+            granularity: self.field(node, "granularity")?,
+        })
+    }
+    fn ensure(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementEnsure, TermConversionCause> {
+        self.shape(node, &["operation", "kind", "granularity"], &[])?;
+        Ok(super::refinement::RefinementEnsure {
+            operation: self.key(self.member(node, "operation")?)?,
+            kind: self.field(node, "kind")?,
+            granularity: self.field(node, "granularity")?,
+        })
+    }
+    fn step(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementStep, TermConversionCause> {
+        self.shape(node, &["source_class", "target"], &["source_node"])?;
+        Ok(super::refinement::RefinementStep {
+            source_class: self.field(node, "source_class")?,
+            source_node: node.get("source_node").map(|n| self.atom(n)).transpose()?,
+            target: self.target(self.member(node, "target")?)?,
+        })
+    }
+    fn concrete_class(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementConcreteClass, TermConversionCause> {
+        use super::refinement::RefinementConcreteClass;
+        if node.get("node").is_none() {
+            return self.memory(node).map(RefinementConcreteClass::Memory);
+        }
+        self.shape(node, &["class", "node", "binder_types"], &[])?;
+        Ok(RefinementConcreteClass::Declared {
+            class: self.field(node, "class")?,
+            node: self.field(node, "node")?,
+            binder_types: self.rows(node, "binder_types", |n| self.atom(n))?,
+        })
+    }
+    fn abstract_class(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementAbstractClass, TermConversionCause> {
+        use super::refinement::RefinementAbstractClass;
+        if node.get("node").is_none() {
+            return self.memory(node).map(RefinementAbstractClass::Memory);
+        }
+        self.shape(node, &["class", "node", "binder_types"], &[])?;
+        Ok(RefinementAbstractClass::Declared {
+            class: self.field(node, "class")?,
+            node: self.key(self.member(node, "node")?)?,
+            binder_types: self.rows(node, "binder_types", |n| self.key(n))?,
+        })
+    }
+    fn catalog(
+        &self,
+        node: TermNode<'d>,
+    ) -> Result<super::refinement::RefinementClassCatalog, TermConversionCause> {
+        self.shape(node, &["concrete", "abstract"], &[])?;
+        Ok(super::refinement::RefinementClassCatalog {
+            concrete: self.rows(node, "concrete", |n| self.concrete_class(n))?,
+            r#abstract: self.rows(node, "abstract", |n| self.abstract_class(n))?,
+        })
+    }
+    fn body(&self, node: TermNode<'d>) -> Result<CheckedTerm, TermConversionCause> {
+        self.shape(
+            node,
+            &[
+                "term",
+                "abstract",
+                "profile",
+                "populations",
+                "objects",
+                "steps",
+                "histories",
+                "assume",
+                "ensure",
+            ],
+            &["protocol", "abstract_internal", "class_catalog"],
+        )?;
+        // Match the existing row decoder's construction order, including the
+        // late abstract/profile decode after the ordered mapping tables.
+        let populations = self.rows(node, "populations", |n| self.population(n))?;
+        let objects = self.rows(node, "objects", |n| self.object(n))?;
+        let steps = self.rows(node, "steps", |n| self.step(n))?;
+        let histories = self.rows(node, "histories", |n| self.history(n))?;
+        let assume = self.rows(node, "assume", |n| self.assume(n))?;
+        let ensure = self.rows(node, "ensure", |n| self.ensure(n))?;
+        let class_catalog = node
+            .get("class_catalog")
+            .map(|n| self.catalog(n))
+            .transpose()?;
+        Ok(CheckedTerm::Refinement {
+            abstract_key: self.boxed(|| self.key(self.member(node, "abstract")?))?,
+            profile: self.field(node, "profile")?,
+            populations,
+            objects,
+            steps,
+            histories,
+            assume,
+            ensure,
+            protocol: node
+                .get("protocol")
+                .map(|n| self.boxed(|| self.key(n)))
+                .transpose()?,
+            abstract_internal: node
+                .get("abstract_internal")
+                .map(|n| self.list(n, |n| self.atom(n)))
+                .transpose()?,
+            class_catalog,
+        })
+    }
+}
+
+// Check closed flat shapes by borrowing the document. Serde's owned schema
+// errors are never constructed for these bodies; malformed bodies retain the
+// existing deferred flat-correspondence refusal in the graph validator.
+#[derive(Clone, Copy)]
+enum FlatShape {
+    Guarantee,
+    Composition,
+    Progress,
+    Fairness,
+    Environment,
+    Component,
+    Clause,
+    Premise,
+    Text,
+    Strength,
+    Granularity,
+    Measure,
+    Supply,
+    Id,
+    List(&'static FlatShape),
+}
+
+fn flat_shape(node: TermNode<'_>, kind: FlatShape) -> bool {
+    use FlatShape::*;
+    let fields: &[(&str, FlatShape)] = match kind {
+        Guarantee => &[
+            ("term",Text),("clause",Id),("relation",Id),
+            ("initial",List(&Text)),("progress",List(&Progress)),("environment",List(&Environment)),
+        ],
+        Composition => &[
+            ("term",Text),("rule",Text),("components",List(&Component)),
+            ("guarantees",List(&Clause)),("relies",List(&Premise)),
+            ("liveness_dependencies",List(&Premise)),("supplies",List(&Fairness)),
+            ("environment",List(&Environment)),
+        ],
+        Progress => &[("context",Id),("operation",Text),("measure",Measure)],
+        Fairness => &[("kind",Strength),("granularity",Granularity),("context",Id),("operation",Text)],
+        Environment => &[("name",Text),("supplier",Text),("supplies",Supply)],
+        Component => &[("name",Text),("package",Text),("subject",Id)],
+        Clause => &[("component",Text),("clause",Id)],
+        Premise => &[("guarantee",Clause),("on",Clause)],
+        Text => return node.as_str().is_some(),
+        Strength => return matches!(node.as_str(),Some("weak"|"strong")),
+        Granularity => return matches!(node.as_str(),Some("whole"|"each")),
+        Measure => return (node.exact_members(&["decreases"]) && node.get("decreases").is_some_and(|n| flat_shape(n,List(&Text)))) || (node.exact_members(&["bound"]) && node.get("bound").and_then(TermNode::as_u64).is_some()),
+        Supply => return (node.exact_members(&["fairness"]) && node.get("fairness").is_some_and(|n| flat_shape(n,Fairness))) || (node.exact_members(&["assumption"]) && node.get("assumption").is_some_and(|n| flat_shape(n,Id))),
+        Id => return node.exact_members(&["package","path","ordinal"]) && node.get("package").and_then(TermNode::as_str).is_some() && node.get("ordinal").and_then(TermNode::as_u64).is_some() && node.get("path").and_then(TermNode::items).is_some_and(|mut path| path.all(|n| matches!(n.segment_form(),Some(SegmentForm::Name(_))) || matches!(n.segment_form(),Some(SegmentForm::Node(i)|SegmentForm::Operand(i)) if i <= 9_007_199_254_740_991))),
+        List(kind) => return node.items().is_some_and(|mut items|items.all(|n|flat_shape(n,*kind))),
+    };
+    node.members()
+        .is_some_and(|members| members.len() == fields.len())
+        && fields
+            .iter()
+            .all(|(name, kind)| node.get(name).is_some_and(|n| flat_shape(n, *kind)))
+}
+
 fn decode_term<'d>(
     context: &DecodeContext<'d>,
     document: &'d Arc<Document>,
     term: TermNode<'d>,
 ) -> Result<CheckedTerm, TermConversionCause> {
+    if let Some(kind @ ("implementation_guarantee" | "component_composition")) =
+        term.get("term").and_then(TermNode::as_str)
+    {
+        let shape = if kind == "implementation_guarantee" {
+            FlatShape::Guarantee
+        } else {
+            FlatShape::Composition
+        };
+        if !flat_shape(term, shape) {
+            return Err(TermConversionCause::MalformedMember {
+                member: "body",
+                category: Category::Data,
+            });
+        }
+    }
     if term.get("term").and_then(TermNode::as_str) == Some("refinement") {
-        // The refinement body is read by its own row decoder, which still
-        // reads a `serde_json::Value`.
-        let body = CheckedJson::new(Arc::clone(document), term.node_ref().id()).to_value();
-        return super::refinement::decode_body(
-            &body,
-            &crate::checked_package::common::Trail::Base(&[]),
-        )
-        .map_err(|_| TermConversionCause::MalformedMember {
-            member: "refinement",
-            category: Category::Data,
-        });
+        return RefinementDocument { context, document }.body(term);
     }
     match term.tag() {
         TermTag::Known(BodyTerm::Literal) => Ok(CheckedTerm::Literal {
@@ -645,12 +1123,28 @@ fn decode_term<'d>(
             member: "term",
             category: Category::Data,
         }),
-        TermTag::Known(BodyTerm::ImplementationGuarantee | BodyTerm::ComponentComposition) => {
-            Err(TermConversionCause::MalformedMember {
-                member: "term",
-                category: Category::Data,
+        TermTag::Known(BodyTerm::ImplementationGuarantee) => {
+            Ok(CheckedTerm::ImplementationGuarantee {
+                clause: decode_field(context, term, TermField::Clause)?,
+                relation: decode_field(context, term, TermField::Relation)?,
+                initial: decode_vec_field(context, term, TermField::Initial)?,
+                progress: decode_vec_field(context, term, TermField::Progress)?,
+                environment: decode_vec_field(context, term, TermField::Environment)?,
             })
         }
+        TermTag::Known(BodyTerm::ComponentComposition) => Ok(CheckedTerm::ComponentComposition {
+            rule: decode_field(context, term, TermField::Rule)?,
+            components: decode_vec_field(context, term, TermField::Components)?,
+            guarantees: decode_vec_field(context, term, TermField::Guarantees)?,
+            relies: decode_vec_field(context, term, TermField::Relies)?,
+            liveness_dependencies: decode_vec_field(
+                context,
+                term,
+                TermField::LivenessDependencies,
+            )?,
+            supplies: decode_vec_field(context, term, TermField::Supplies)?,
+            environment: decode_vec_field(context, term, TermField::Environment)?,
+        }),
         TermTag::Unknown => Err(TermConversionCause::UnknownTerm),
     }
 }
@@ -777,6 +1271,7 @@ mod tests {
     use crate::checked_package::terms::subterms;
     use crate::checked_package::v2::CheckedTermView as ValueView;
     use crate::checked_package::v2::{CheckedJson, CheckedTerm};
+    use crate::identity::ExecutionPoint;
     use serde_json::{json, Value};
 
     /// The `Value` parse of a node ID the node read is checked against.
@@ -1093,5 +1588,228 @@ mod tests {
             node_id_from_value(&mut NativeJoinBudget::unlimited(), site, &rewritten, true)
                 .expect("unlimited");
         assert_eq!(read, expected);
+    }
+}
+
+#[cfg(test)]
+mod flat_document_allocation_tests {
+    use super::super::PackageReadStage;
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn nested_guarantee_measure_is_prepaid_at_every_request_boundary() {
+        let wire = json!({"term":"implementation_guarantee",
+            "clause":{"package":"p","path":["c"],"ordinal":0},
+            "relation":{"package":"p","path":["r"],"ordinal":0},
+            "initial":["start"],"progress":[{"context":{"package":"p","path":["c"],"ordinal":0},"operation":"act","measure":{"decreases":["rank","step"]}}],"environment":[]});
+        let body = CheckedJson::from_value(&wire).expect("document");
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut accepted = false;
+            let measured = allocation_counter::measure(|| {
+                let context = DecodeContext::at_locus(
+                    body.document(),
+                    &mut budget,
+                    Site::new(PackageReadStage::Graph, 7, "body").locus(),
+                );
+                let outcome = decode_term(&context, body.document(), TermNode::of(&body));
+                accepted = outcome.is_ok();
+                if let Ok(CheckedTerm::ImplementationGuarantee { progress, .. }) = &outcome {
+                    let super::super::guarantee_terms::CheckedGuaranteeMeasure::Decreases(path) =
+                        &progress[0].measure
+                    else {
+                        panic!("decreases")
+                    };
+                    assert_eq!(path.len(), 2);
+                    assert_eq!(path[0].as_ref(), "rank");
+                    assert_eq!(path[1].as_ref(), "step");
+                }
+                drop(outcome);
+                budget = context.finish();
+            });
+            (accepted, measured.bytes_total, budget)
+        };
+        let (ok, allocated, budget) = run(u64::MAX);
+        assert!(ok);
+        let total = budget.read_storage_consumed();
+        assert_eq!(allocated, total);
+        let mut limit = 0;
+        loop {
+            let (ok, allocated, budget) = run(limit);
+            if ok {
+                assert_eq!(limit, total);
+                break;
+            }
+            assert_eq!(
+                allocated,
+                budget.read_storage_consumed(),
+                "no unpaid allocation at {limit}"
+            );
+            let (_, request) = budget.first_unpaid_resource().expect("unpaid reservation");
+            let next =
+                budget.read_storage_consumed() + u64::try_from(request).expect("small fixture");
+            assert!(next > limit);
+            limit = next;
+        }
+        assert!(!run(total - 1).0);
+    }
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn refinement_document_projection_preserves_rows_and_prepays_owned_values() {
+        let id = json!({"package":"p","path":["C"],"ordinal":0});
+        let external = json!({"package":"dependency","node":id});
+        let term = json!({"term":"reference","target":id});
+        let wire = json!({"term":"refinement","abstract":external,"profile":{"authority":"a","identity":"trace"},
+            "populations":[{"abstract":external,"concrete":id}],
+            "objects":[{"abstract_type":external,"concrete_type":id,"fields":[{"name":"value","expression":term}]}],
+            "steps":[{"source_class":"act","source_node":id,"target":{"kind":"operation","operation":external,"receiver":term,"arguments":[{"term":"open"},term]}},
+                {"source_class":"other","target":{"kind":"protocol_step","class":"step","node":external,"arguments":[]}},
+                {"source_class":"idle","target":{"kind":"stutter"}}, {"source_class":"free","target":{"kind":"any"}}],
+            "histories":[{"concrete_type":id,"name":"history","type":id,"initial":term,"updates":[{"operation":id,"expression":term}]}],
+            "assume":[{"operation":id,"kind":"weak","granularity":"whole"}],
+            "ensure":[{"operation":external,"kind":"strong","granularity":"each"}],
+            "protocol":external,"abstract_internal":["internal"],
+            "class_catalog":{"concrete":[{"class":"act","node":id,"binder_types":[id]}, {"class":"memory drain","memory_model":"sc","drain":"store-buffer-flush"}],
+                "abstract":[{"class":"step","node":external,"binder_types":[external]}, {"class":"memory flush","memory_model":"tso"}]}});
+        let expected = super::super::refinement::decode_body(
+            &wire,
+            &crate::checked_package::common::Trail::Base(&[]),
+        )
+        .expect("existing refinement semantics");
+        let body = CheckedJson::from_value(&wire).expect("document");
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut accepted = false;
+            let measured = allocation_counter::measure(|| {
+                let context = DecodeContext::at_locus(
+                    body.document(),
+                    &mut budget,
+                    Site::new(PackageReadStage::Graph, 7, "body").locus(),
+                );
+                let outcome = decode_term(&context, body.document(), TermNode::of(&body));
+                if let Ok(term) = &outcome {
+                    assert_eq!(term, &expected);
+                    accepted = true;
+                }
+                drop(outcome);
+                budget = context.finish();
+            });
+            (accepted, measured.bytes_total, budget)
+        };
+        let (ok, allocated, budget) = run(u64::MAX);
+        assert!(ok);
+        let total = budget.read_storage_consumed();
+        assert_eq!(allocated, total);
+        let mut limit = 0;
+        loop {
+            let (ok, allocated, budget) = run(limit);
+            assert!(
+                allocated <= budget.read_storage_consumed(),
+                "no unpaid allocation at {limit}: allocated {allocated}, reserved {}",
+                budget.read_storage_consumed()
+            );
+            if ok {
+                assert_eq!(limit, total);
+                break;
+            }
+            let (_, request) = budget.first_unpaid_resource().expect("unpaid reservation");
+            let next =
+                budget.read_storage_consumed() + u64::try_from(request).expect("small fixture");
+            assert!(next > limit);
+            limit = next;
+        }
+        assert!(!run(total - 1).0);
+    }
+
+    #[trace("TC-472", "FR-038-AC-512")]
+    #[test]
+    fn refinement_optional_and_discriminator_shapes_do_not_fallback_or_allocate_errors() {
+        let id = json!({"package":"p","path":["C"],"ordinal":0});
+        let base = json!({"term":"refinement","abstract":id,"profile":{"authority":"a","identity":"trace"},"populations":[],"objects":[],"steps":[],"histories":[],"assume":[],"ensure":[]});
+        let mut cases = Vec::new();
+        for field in ["protocol", "abstract_internal", "class_catalog"] {
+            let mut wire = base.clone();
+            wire[field] = serde_json::Value::Null;
+            cases.push(wire);
+        }
+        let mut external = base.clone();
+        external["abstract"] = json!({"package":"dependency","node":null});
+        cases.push(external);
+        let mut catalog = base.clone();
+        catalog["class_catalog"] = json!({"concrete":[{"class":"memory flush","node":null,"memory_model":"tso"}],"abstract":[]});
+        cases.push(catalog);
+        let mut memory = base.clone();
+        memory["class_catalog"] =
+            json!({"concrete":[{"class":"memory flush","memory_model":"sc"}],"abstract":[]});
+        cases.push(memory);
+        let mut target = base.clone();
+        target["steps"] = json!([{"source_class":"act","source_node":id,"target":{"kind":"stutter","arguments":[]}}]);
+        cases.push(target);
+        let mut source = base.clone();
+        source["steps"] =
+            json!([{"source_class":"act","source_node":null,"target":{"kind":"any"}}]);
+        cases.push(source);
+        let mut protocol_step = base.clone();
+        protocol_step["steps"] = json!([{"source_class":"act","source_node":id,"target":{"kind":"protocol_step","class":"step","node":null,"arguments":[]}}]);
+        cases.push(protocol_step);
+        for wire in cases {
+            assert!(super::super::refinement::decode_body(
+                &wire,
+                &crate::checked_package::common::Trail::Base(&[])
+            )
+            .is_err());
+            let body = CheckedJson::from_value(&wire).expect("document");
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let measured = allocation_counter::measure(|| {
+                let context = DecodeContext::at_locus(
+                    body.document(),
+                    &mut budget,
+                    Site::new(PackageReadStage::Graph, 7, "body").locus(),
+                );
+                assert!(decode_term(&context, body.document(), TermNode::of(&body)).is_err());
+                assert!(!context.denied());
+                budget = context.finish();
+            });
+            assert!(
+                measured.bytes_total <= budget.read_storage_consumed(),
+                "owned error allocation: {} > {}",
+                measured.bytes_total,
+                budget.read_storage_consumed()
+            );
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-512")]
+    #[test]
+    fn malformed_flat_shapes_refuse_without_owned_schema_errors() {
+        let valid = json!({"term":"implementation_guarantee","clause":{"package":"p","path":["c"],"ordinal":0},"relation":{"package":"p","path":["r"],"ordinal":0},"initial":[],"progress":[],"environment":[]});
+        let mut missing = valid.clone();
+        missing.as_object_mut().unwrap().remove("initial");
+        let mut extra = valid.clone();
+        extra["extra"] = json!(0);
+        let mut unknown = valid.clone();
+        unknown["progress"] = json!([{"context":{"package":"p","path":["c"],"ordinal":0},"operation":"act","measure":{"unknown":[]}}]);
+        let mut nested = unknown.clone();
+        nested["progress"][0]["measure"] = json!({"decreases":[12]});
+        for wire in [missing, extra, unknown, nested] {
+            let body = CheckedJson::from_value(&wire).expect("document");
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(0);
+            let measured = allocation_counter::measure(|| {
+                let context = DecodeContext::at_locus(
+                    body.document(),
+                    &mut budget,
+                    Site::new(PackageReadStage::Graph, 7, "body").locus(),
+                );
+                assert!(decode_term(&context, body.document(), TermNode::of(&body)).is_err());
+                assert!(!context.denied());
+                budget = context.finish();
+            });
+            assert_eq!(measured.bytes_total, 0);
+            assert_eq!(budget.read_storage_consumed(), 0);
+        }
     }
 }

@@ -276,7 +276,7 @@ impl UnitName<'_> {
 }
 
 /// The reference name a unit declaration node is a candidate under.
-fn unit_name(node: &RawSemanticNodeV2) -> Option<UnitName<'_>> {
+fn unit_name<B>(node: &super::CheckedSemanticNodeV2<B>) -> Option<UnitName<'_>> {
     if CheckedNodeTag::from_wire(&node.node_tag)
         .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
         != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit))
@@ -320,8 +320,9 @@ fn request(meter: &mut WorkMeter, position: usize, bytes: usize) -> Result<(), V
 /// Every name and node key is requested at `PackageRead(Lock, node)` before it
 /// is built, and the sorted table at its exact capacity first.
 #[string_edge]
-pub(super) fn checked_unit_refs(
-    nodes: &[RawSemanticNodeV2],
+pub(super) fn checked_unit_refs<B>(
+    nodes: &[super::CheckedSemanticNodeV2<B>],
+    terms: &[Option<super::CheckedTerm>],
     meter: &mut WorkMeter,
 ) -> Result<UnitRefs, ValidationFailure> {
     let count = nodes
@@ -377,7 +378,7 @@ pub(super) fn checked_unit_refs(
         if !name.ends_with("/s") {
             continue;
         }
-        if let Some(unit_id) = identity::duration_unit_key(nodes, name, meter)? {
+        if let Some(unit_id) = identity::duration_unit_key(nodes, terms, name, meter)? {
             let len = DURATION_RESOLVED_PREFIX.len() + name.len();
             request(meter, *position, len)?;
             let mut key = String::with_capacity(len);
@@ -658,7 +659,7 @@ mod tests {
         );
         assert_lock_exact(
             || (),
-            |(), meter| checked_unit_refs(&nodes, meter).map(drop),
+            |(), meter| checked_unit_refs(&nodes, &[], meter).map(drop),
         );
         let roots = selected_model_roots(&nodes, &mut WorkMeter::new(u64::MAX)).expect("roots");
         assert_eq!(
@@ -666,7 +667,7 @@ mod tests {
             vec![("acme/billing", 4), ("acme/orders", 0)],
             "roots in identity order"
         );
-        let refs = checked_unit_refs(&nodes, &mut WorkMeter::new(u64::MAX)).expect("refs");
+        let refs = checked_unit_refs(&nodes, &[], &mut WorkMeter::new(u64::MAX)).expect("refs");
         assert_eq!(
             refs.keys().map(AsRef::as_ref).collect::<Vec<&str>>(),
             [
@@ -716,7 +717,7 @@ mod tests {
             source_unit(0, &["quire", "m"]),
             source_unit(1, &["quire", "kg"]),
         ];
-        let refs = checked_unit_refs(&nodes, &mut WorkMeter::new(u64::MAX)).expect("refs");
+        let refs = checked_unit_refs(&nodes, &[], &mut WorkMeter::new(u64::MAX)).expect("refs");
         let model =
             model_tests::read_with_unit_refs(&model_tests::document(vec![]), &refs).expect("model");
         assert_lock_exact(
