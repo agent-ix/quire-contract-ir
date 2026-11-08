@@ -10,8 +10,7 @@ use quire_contract_model::{
     CheckedPackageV2ReadResult, NativeJoinBudget, NativeJoinLocusSource,
 };
 
-#[path = "read_observation.rs"]
-mod observation;
+use crate::qspec_read_proof::observation;
 pub(crate) use observation::{accounted, drop_without_request, measure_at, Counter, Observation};
 
 #[derive(Clone, Copy)]

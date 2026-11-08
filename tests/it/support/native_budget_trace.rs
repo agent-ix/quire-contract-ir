@@ -89,7 +89,7 @@ pub(crate) fn checked_seeded(
 
 fn trace(read: impl Fn() -> Observation) -> (Observation, Vec<NativeBudgetEvent>) {
     let off = read();
-    let (counted, count) = scoped(Recorder::Count(0), || read());
+    let (counted, count) = scoped(Recorder::Count(0), &read);
     unchanged(&off, &counted);
     let Recorder::Count(count) = count else {
         unreachable!("count recorder")
@@ -102,7 +102,7 @@ fn trace(read: impl Fn() -> Observation) -> (Observation, Vec<NativeBudgetEvent>
             events,
             overflow: false,
         },
-        || read(),
+        read,
     );
     unchanged(&off, &recorded);
     let Recorder::Record { events, overflow } = trace else {

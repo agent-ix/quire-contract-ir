@@ -8,7 +8,7 @@
 #[path = "native_budget_trace.rs"]
 mod native_budget_trace;
 #[path = "read_observation.rs"]
-mod observation;
+pub(crate) mod observation;
 use observation::{accounted, drop_without_request};
 pub(crate) use observation::{measure_at, Counter, Observation};
 use quire_contract_model::{
@@ -28,6 +28,13 @@ thread_local! {
     // Proof-provider metadata only, never an actual budget or allocation meter.
     static READ_PROVIDER: std::cell::Cell<Option<ReadProvider>> = const { std::cell::Cell::new(None) };
 }
+struct ProofContext {
+    mode: String,
+    test_name: String,
+    location: &'static std::panic::Location<'static>,
+    provider: Option<ReadProvider>,
+}
+
 struct RestoreProvider(Option<ReadProvider>);
 impl Drop for RestoreProvider {
     fn drop(&mut self) {
@@ -566,8 +573,17 @@ pub(crate) fn read_and_account(
                 ))
                 .spawn_scoped(scope, move || {
                     finish_proof(
-                        bytes, limits, evidence, reference, plain, mode, test_name, location,
-                        provider,
+                        bytes,
+                        limits,
+                        evidence,
+                        reference,
+                        plain,
+                        ProofContext {
+                            mode,
+                            test_name,
+                            location,
+                            provider,
+                        },
                     )
                 })
                 .expect("start driver accounting worker")
@@ -584,11 +600,14 @@ fn finish_proof(
     evidence: &CheckedPackageEvidence,
     reference: Observation,
     plain: &Plain,
-    mode: String,
-    test_name: String,
-    location: &'static std::panic::Location<'static>,
-    provider: Option<ReadProvider>,
+    context: ProofContext,
 ) {
+    let ProofContext {
+        mode,
+        test_name,
+        location,
+        provider,
+    } = context;
     same_public_result(plain, &reference, limits);
     let storage = reference.budget.read_storage_consumed();
     let work = if reference.budget.first_unpaid().is_some() {

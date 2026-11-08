@@ -62,7 +62,9 @@
 use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{DomainModel, MemberType, ValueBounds};
+use super::native_join_budget::PackageReadStage;
 use super::node_index::resolve_id_charged;
+use super::stage_storage::{self, Path, Refusal, Site};
 use super::term_view::{TermNode, TermView};
 use super::{
     ApplicationOperator, CheckedTerm, ExecutionPoint, LiteralKind, OperationMemberKind,
@@ -77,7 +79,6 @@ use super::{
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole, CheckedPackageRefusalCode,
-    JsonPointer,
 };
 use quire_exact::TextProfile;
 use std::cmp::Ordering;
@@ -98,8 +99,11 @@ enum Defect {
 }
 
 impl Defect {
-    fn pointer(self, position: usize) -> JsonPointer {
-        let node = node_pointer(position);
+    fn path(self, position: usize) -> Path<'static> {
+        let node = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position);
         match self {
             Self::SemanticType => node.key("semantic_type"),
             Self::Dependencies => node.key("dependencies"),
@@ -114,6 +118,29 @@ impl Defect {
             Self::Role(occurrence) => node.key("occurrences").index(occurrence).key("role"),
         }
     }
+}
+
+/// Prepay the structural diagnostic before constructing its pointer, node
+/// identity, location and boxed record. The optional node locus preserves the
+/// distinct payloads of structural defects and malformed raw bodies.
+fn structural_refusal(
+    meter: &mut WorkMeter,
+    position: usize,
+    form: &'static str,
+    code: CheckedPackageRefusalCode,
+    defect: Defect,
+    locus: Option<&CheckedNodeId>,
+) -> ValidationFailure {
+    let at = defect.path(position);
+    let mut refusal = Refusal::new(code, at);
+    if let Some(locus) = locus {
+        refusal = refusal.at_node(locus);
+    }
+    stage_storage::refuse(
+        meter,
+        &Site::new(PackageReadStage::Graph, position, form, at),
+        refusal,
+    )
 }
 
 /// The graph one stage reads: each node with its decoded kind, by key.
@@ -603,33 +630,40 @@ pub(super) fn validate_structural_nodes_with_keys(
         let (Some(node), Some(&kind)) = (nodes.get(position), kinds.get(position)) else {
             continue;
         };
-        let refuse = |defect: Defect| {
-            ValidationFailure::refused_at(
+        let node_form = super::graph_storage::node_form(&node.node_tag);
+        let refuse = |meter: &mut WorkMeter, defect: Defect| {
+            structural_refusal(
+                meter,
+                position,
+                node_form,
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
-                defect.pointer(position),
-                None,
-                node_id.clone(),
+                defect,
+                Some(node_id),
             )
         };
-        meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
+        let malformed = |meter: &mut WorkMeter| {
+            structural_refusal(
+                meter,
+                position,
+                node_form,
+                CheckedPackageRefusalCode::MalformedWire,
+                Defect::Body,
+                None,
+            )
+        };
+        meter.at_node(position, node_form);
         let form = StructuralForm::of(kind);
         let term = terms.get(position).and_then(Option::as_ref);
         let defect = match form {
             Some(StructuralForm::Extension) => {
                 let Some(super::CheckedTerm::ExtensionForm { clauses, .. }) = term else {
-                    return Err(ValidationFailure::refused(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    ));
+                    return Err(malformed(meter));
                 };
                 if clauses.iter().any(|clause| {
                     !matches!(clause, super::CheckedTerm::Binding { value, .. }
                         if matches!(value.as_ref(), super::CheckedTerm::Reference { .. }))
                 }) {
-                    return Err(ValidationFailure::refused(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    ));
+                    return Err(malformed(meter));
                 }
                 let mut expected: Vec<&CheckedNodeId> = meter.vec(clauses.len())?;
                 expected.extend(clauses.iter().filter_map(|clause| match clause {
@@ -657,10 +691,7 @@ pub(super) fn validate_structural_nodes_with_keys(
             }
             Some(StructuralForm::Hybrid | StructuralForm::TimedModel) => {
                 let Some(term) = term else {
-                    return Err(ValidationFailure::refused(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        node_pointer(position).key("body"),
-                    ));
+                    return Err(malformed(meter));
                 };
                 let mut pending = meter.vec(1)?;
                 pending.push(term);
@@ -678,7 +709,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                             meter.push(&mut pending, value.as_ref())?;
                         }
                         super::CheckedTerm::Literal { .. } => {}
-                        _ => return Err(refuse(Defect::Body)),
+                        _ => return Err(refuse(meter, Defect::Body)),
                     }
                 }
                 if node.semantic_type != node.node_id {
@@ -733,13 +764,13 @@ pub(super) fn validate_structural_nodes_with_keys(
             .then_some(Defect::Body),
             Some(StructuralForm::MapType) => {
                 let Some([key, value]) = term.and_then(typed_aggregate) else {
-                    return Err(refuse(Defect::Body));
+                    return Err(refuse(meter, Defect::Body));
                 };
                 let Some(key) = typed_binding(key, "key").and_then(typed_reference) else {
-                    return Err(refuse(Defect::Body));
+                    return Err(refuse(meter, Defect::Body));
                 };
                 let Some(value) = typed_binding(value, "value").and_then(typed_reference) else {
-                    return Err(refuse(Defect::Body));
+                    return Err(refuse(meter, Defect::Body));
                 };
                 (!dependency_order.matches(
                     &node.dependencies,
@@ -767,13 +798,13 @@ pub(super) fn validate_structural_nodes_with_keys(
                 .map(Defect::Role)
         });
         if let Some(defect) = defect.or(role) {
-            return Err(refuse(defect));
+            return Err(refuse(meter, defect));
         }
         if kinds.get(position) == Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             if let Some(owner_model) = node.owner_model.as_ref() {
                 let ordered = dependency_order.ordered(&node.dependencies, index, structural_keys);
                 if !ordered || !node.dependencies.contains(owner_model) {
-                    return Err(refuse(Defect::Dependencies));
+                    return Err(refuse(meter, Defect::Dependencies));
                 }
                 if let Some(mut expected) = match term {
                     Some(_) => application_dependencies_at(position, meter)?,
@@ -789,7 +820,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                         structural_keys,
                         meter,
                     )? {
-                        return Err(refuse(Defect::Dependencies));
+                        return Err(refuse(meter, Defect::Dependencies));
                     }
                 }
             }
@@ -808,7 +839,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                 structural_keys,
                 meter,
             )? {
-                return Err(refuse(Defect::Dependencies));
+                return Err(refuse(meter, Defect::Dependencies));
             }
         }
     }
@@ -2267,6 +2298,111 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
     use std::collections::BTreeSet;
+
+    #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+    #[test]
+    fn structural_defects_prepay_their_exact_payload_and_preserve_loci() {
+        use crate::checked_package::v2::budgeted_read::{
+            CheckedPackagePendingOutcome, PackageReadResource,
+        };
+        use crate::{NativeJoinBudget, NativeJoinLocusSource, PackageReadStage};
+        let id: CheckedNodeId = serde_json::from_value(super::super::test_support::id('a'))
+            .expect("the original fixture node identity");
+        for (defect, expected) in [
+            (
+                Defect::SemanticType,
+                "/semantic_graph/nodes/3/semantic_type",
+            ),
+            (Defect::Dependencies, "/semantic_graph/nodes/3/dependencies"),
+            (
+                Defect::RecursionGroup,
+                "/semantic_graph/nodes/3/recursion_group",
+            ),
+            (Defect::Occurrences, "/semantic_graph/nodes/3/occurrences"),
+            (Defect::Body, "/semantic_graph/nodes/3/body"),
+            (
+                Defect::ClausePoint,
+                "/semantic_graph/nodes/3/body/operation/member/execution_point",
+            ),
+            (
+                Defect::Role(12),
+                "/semantic_graph/nodes/3/occurrences/12/role",
+            ),
+        ] {
+            let observe = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let requested = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut budget);
+                    result = Some(structural_refusal(
+                        &mut meter,
+                        3,
+                        "expression",
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        defect,
+                        Some(&id),
+                    ));
+                })
+                .bytes_total;
+                (
+                    result.expect("structural diagnostic ran"),
+                    budget,
+                    requested,
+                )
+            };
+            let (ample, budget, requested) = observe(u64::MAX);
+            assert_eq!(
+                requested,
+                budget.read_storage_consumed(),
+                "{defect:?}: entire diagnostic prepaid"
+            );
+            let ValidationFailure::Refused(refusal) = &ample else {
+                panic!("{defect:?}: semantic refusal: {ample:?}");
+            };
+            assert_eq!(
+                refusal.code,
+                CheckedPackageRefusalCode::InvalidSemanticGraph
+            );
+            assert_eq!(refusal.cause, None);
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+                Some(expected)
+            );
+            assert_eq!(refusal.locus.as_ref(), Some(&id));
+            let (exact, exact_budget, exact_requested) = observe(requested);
+            assert_eq!(exact, ample);
+            assert_eq!(exact_requested, requested);
+            assert_eq!(exact_budget.read_storage_consumed(), requested);
+            let (short, mut short_budget, short_requested) = observe(requested - 1);
+            let (repeat, repeat_budget, repeat_requested) = observe(requested - 1);
+            assert_eq!(short, repeat);
+            assert_eq!(short_budget, repeat_budget);
+            assert_eq!(short_requested, repeat_requested);
+            assert_eq!(short_requested, short_budget.read_storage_consumed());
+            let ValidationFailure::Budget(stop) = short else {
+                panic!("{defect:?}: denied diagnostic: {short:?}");
+            };
+            assert_eq!(stop.resource, PackageReadResource::ReadStorage);
+            assert!(
+                stop.path.is_none(),
+                "the unpaid diagnostic builds no pointer"
+            );
+            let locus = short_budget.first_unpaid_locus().expect("diagnostic locus");
+            assert_eq!(
+                (locus.source, locus.form),
+                (
+                    NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 3),
+                    "diagnostic"
+                )
+            );
+            assert_eq!(
+                short_budget.take_pending(),
+                Some(CheckedPackagePendingOutcome::Refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph
+                ))
+            );
+        }
+    }
 
     #[trace("TC-472", "FR-038-AC-511")]
     #[test]
