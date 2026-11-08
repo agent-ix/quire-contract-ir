@@ -212,126 +212,419 @@ pub(super) enum CatalogStop {
     Budget(super::ValidationFailure),
 }
 
-/// One sequence decoded at its exact final capacity.
-struct Exact<T>(Vec<T>);
+#[derive(Clone, Copy)]
+enum CatalogStep<'d> {
+    Key(&'d str),
+    Index(usize),
+}
 
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for Exact<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        super::document_de::exact_vec(deserializer).map(Self)
+#[derive(Clone, Copy)]
+struct CatalogPath<'d> {
+    steps: [Option<CatalogStep<'d>>; 7],
+}
+
+impl<'d> CatalogPath<'d> {
+    fn root() -> Self {
+        Self { steps: [None; 7] }
+    }
+    fn below(mut self, step: CatalogStep<'d>) -> Self {
+        if let Some(slot) = self.steps.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(step);
+        }
+        self
     }
 }
 
-type DecodeError = super::document_de::Error;
-
-fn decode<'d, T: Deserialize<'d>>(
-    context: &DecodeContext<'d>,
-    node: quire_canonical::NodeRef<'d>,
-) -> Result<T, DecodeError> {
-    T::deserialize(context.value_at(node))
-}
-
-fn field<'d>(
-    root: quire_canonical::NodeRef<'d>,
-    name: &str,
-) -> Result<quire_canonical::NodeRef<'d>, DecodeError> {
-    use serde::de::Error;
-    let Node::Object(mut members) = root.node() else {
-        return Err(DecodeError::custom("catalog is not an object"));
-    };
-    members
-        .find(|(key, _)| *key == name)
-        .map(|(_, value)| value)
-        .ok_or_else(|| DecodeError::custom("missing catalog member"))
-}
-
-trait CatalogKey: Sized {
-    fn read(name: &str, context: &DecodeContext<'_>) -> Result<Self, DecodeError>;
-}
-
-impl CatalogKey for Box<str> {
-    fn read(name: &str, context: &DecodeContext<'_>) -> Result<Self, DecodeError> {
-        if !context.charge_bytes(name.len()) {
-            return Err(DecodeError::Denied);
+impl std::fmt::Display for CatalogPath<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut empty = true;
+        for step in self.steps.iter().flatten() {
+            match step {
+                CatalogStep::Key(key) => {
+                    if !empty {
+                        formatter.write_str(".")?;
+                    }
+                    formatter.write_str(key)?;
+                }
+                CatalogStep::Index(index) => write!(formatter, "[{index}]")?,
+            }
+            empty = false;
         }
+        if empty {
+            formatter.write_str(".")?;
+        }
+        Ok(())
+    }
+}
+
+enum CatalogDecodeError<'d> {
+    Denied,
+    Shape {
+        path: CatalogPath<'d>,
+        message: &'static str,
+        word: Option<&'d str>,
+    },
+}
+
+struct CatalogMessage<'d> {
+    message: &'static str,
+    word: Option<&'d str>,
+}
+impl std::fmt::Display for CatalogMessage<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.message)?;
+        if let Some(word) = self.word {
+            write!(formatter, " (word `{word}`)")?;
+        }
+        Ok(())
+    }
+}
+
+type CatalogResultOf<'d, T> = Result<T, CatalogDecodeError<'d>>;
+
+/// The typed catalog decode borrows the canonical document and owns only the
+/// fields it charges to the caller before requesting each allocation.
+struct CatalogDecoder<'b, 'd> {
+    budget: &'b mut NativeJoinBudget,
+    path: CatalogPath<'d>,
+}
+
+impl<'d> CatalogDecoder<'_, 'd> {
+    fn invalid(&self, message: &'static str) -> CatalogDecodeError<'d> {
+        CatalogDecodeError::Shape {
+            path: self.path,
+            message,
+            word: None,
+        }
+    }
+    fn unknown(&self, word: &'d str) -> CatalogDecodeError<'d> {
+        CatalogDecodeError::Shape {
+            path: self.path,
+            message: "unknown catalog word",
+            word: Some(word),
+        }
+    }
+    fn reserve(&mut self, bytes: usize) -> CatalogResultOf<'d, ()> {
+        if self.budget.charge_read_storage(bytes as u128) {
+            Ok(())
+        } else {
+            Err(CatalogDecodeError::Denied)
+        }
+    }
+    fn members(
+        &self,
+        node: quire_canonical::NodeRef<'d>,
+    ) -> CatalogResultOf<'d, quire_canonical::Members<'d>> {
+        match node.node() {
+            Node::Object(members) => Ok(members),
+            _ => Err(self.invalid("expected catalog object")),
+        }
+    }
+    fn closed(
+        &self,
+        node: quire_canonical::NodeRef<'d>,
+        required: &[&str],
+        optional: &[&str],
+    ) -> CatalogResultOf<'d, ()> {
+        let members = self.members(node)?;
+        for (name, _) in members.clone() {
+            if !required.contains(&name) && !optional.contains(&name) {
+                return Err(CatalogDecodeError::Shape {
+                    path: self.path.below(CatalogStep::Key(name)),
+                    message: "unknown catalog member",
+                    word: None,
+                });
+            }
+        }
+        for name in required {
+            if !members.clone().any(|(candidate, _)| candidate == *name) {
+                return Err(self.invalid("missing required catalog member"));
+            }
+        }
+        Ok(())
+    }
+    fn member(
+        &self,
+        node: quire_canonical::NodeRef<'d>,
+        name: &str,
+    ) -> CatalogResultOf<'d, quire_canonical::NodeRef<'d>> {
+        self.members(node)?
+            .find(|(candidate, _)| *candidate == name)
+            .map(|(_, value)| value)
+            .ok_or_else(|| self.invalid("missing required catalog member"))
+    }
+    fn field<T: CatalogValue<'d>>(
+        &mut self,
+        node: quire_canonical::NodeRef<'d>,
+        name: &'d str,
+    ) -> CatalogResultOf<'d, T> {
+        let previous = self.path;
+        self.path = self.path.below(CatalogStep::Key(name));
+        let result = self
+            .member(node, name)
+            .and_then(|member| T::read(member, self));
+        self.path = previous;
+        result
+    }
+    fn optional<T: CatalogValue<'d>>(
+        &mut self,
+        node: quire_canonical::NodeRef<'d>,
+        name: &'d str,
+    ) -> CatalogResultOf<'d, Option<T>> {
+        if self.members(node)?.any(|(candidate, _)| candidate == name) {
+            self.field(node, name)
+        } else {
+            Ok(None)
+        }
+    }
+    fn table_field<K: CatalogKey<'d> + Ord, V: CatalogValue<'d>>(
+        &mut self,
+        node: quire_canonical::NodeRef<'d>,
+        name: &'d str,
+    ) -> CatalogResultOf<'d, Table<K, Vec<V>>> {
+        let previous = self.path;
+        self.path = self.path.below(CatalogStep::Key(name));
+        let result = self
+            .member(node, name)
+            .and_then(|member| self.table(member));
+        self.path = previous;
+        result
+    }
+    fn table<K: CatalogKey<'d> + Ord, V: CatalogValue<'d>>(
+        &mut self,
+        node: quire_canonical::NodeRef<'d>,
+    ) -> CatalogResultOf<'d, Table<K, Vec<V>>> {
+        let members = self.members(node)?;
+        let count = members.len();
+        self.reserve(count.saturating_mul(std::mem::size_of::<(K, Vec<V>)>()))?;
+        let mut rows = Vec::with_capacity(count);
+        for (name, value) in members {
+            let previous = self.path;
+            self.path = self.path.below(CatalogStep::Key(name));
+            let key = K::key(name, self)?;
+            let value = Vec::<V>::read(value, self)?;
+            self.path = previous;
+            rows.push((key, value));
+        }
+        rows.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        Ok(rows)
+    }
+}
+
+trait CatalogValue<'d>: Sized {
+    fn read(
+        node: quire_canonical::NodeRef<'d>,
+        reader: &mut CatalogDecoder<'_, 'd>,
+    ) -> CatalogResultOf<'d, Self>;
+}
+trait CatalogKey<'d>: Sized {
+    fn key(name: &'d str, reader: &mut CatalogDecoder<'_, 'd>) -> CatalogResultOf<'d, Self>;
+}
+
+impl<'d> CatalogValue<'d> for Box<str> {
+    fn read(
+        node: quire_canonical::NodeRef<'d>,
+        reader: &mut CatalogDecoder<'_, 'd>,
+    ) -> CatalogResultOf<'d, Self> {
+        let Node::String(text) = node.node() else {
+            return Err(reader.invalid("expected catalog string"));
+        };
+        Self::key(text, reader)
+    }
+}
+impl<'d> CatalogKey<'d> for Box<str> {
+    fn key(name: &'d str, reader: &mut CatalogDecoder<'_, 'd>) -> CatalogResultOf<'d, Self> {
+        reader.reserve(name.len())?;
         Ok(name.into())
     }
 }
-
-macro_rules! catalog_key {
-    ($type:ty) => {
-        impl CatalogKey for $type {
-            fn read(name: &str, _: &DecodeContext<'_>) -> Result<Self, DecodeError> {
-                use serde::de::Error;
-                Self::from_wire(name).ok_or_else(|| DecodeError::custom("unknown catalog key"))
+impl<'d> CatalogValue<'d> for u64 {
+    fn read(
+        node: quire_canonical::NodeRef<'d>,
+        reader: &mut CatalogDecoder<'_, 'd>,
+    ) -> CatalogResultOf<'d, Self> {
+        let Node::Number(number) = node.node() else {
+            return Err(reader.invalid("expected catalog unsigned integer"));
+        };
+        number
+            .text()
+            .parse()
+            .ok()
+            .or_else(|| {
+                number
+                    .text()
+                    .parse::<i64>()
+                    .ok()
+                    .and_then(|number| u64::try_from(number).ok())
+            })
+            .ok_or_else(|| reader.invalid("catalog unsigned integer is out of range"))
+    }
+}
+impl<'d, T: CatalogValue<'d>> CatalogValue<'d> for Vec<T> {
+    fn read(
+        node: quire_canonical::NodeRef<'d>,
+        reader: &mut CatalogDecoder<'_, 'd>,
+    ) -> CatalogResultOf<'d, Self> {
+        let Node::Array(items) = node.node() else {
+            return Err(reader.invalid("expected catalog array"));
+        };
+        let count = items.len();
+        reader.reserve(count.saturating_mul(std::mem::size_of::<T>()))?;
+        let mut values = Vec::with_capacity(count);
+        for (index, item) in items.enumerate() {
+            let previous = reader.path;
+            reader.path = reader.path.below(CatalogStep::Index(index));
+            let value = T::read(item, reader)?;
+            reader.path = previous;
+            values.push(value);
+        }
+        Ok(values)
+    }
+}
+impl<'d, T: CatalogValue<'d>> CatalogValue<'d> for Option<T> {
+    fn read(
+        node: quire_canonical::NodeRef<'d>,
+        reader: &mut CatalogDecoder<'_, 'd>,
+    ) -> CatalogResultOf<'d, Self> {
+        if matches!(node.node(), Node::Null) {
+            Ok(None)
+        } else {
+            T::read(node, reader).map(Some)
+        }
+    }
+}
+macro_rules! catalog_word {
+    ($($type:ty),* $(,)?) => { $(
+        impl<'d> CatalogValue<'d> for $type {
+            fn read(node: quire_canonical::NodeRef<'d>, reader: &mut CatalogDecoder<'_, 'd>) -> CatalogResultOf<'d, Self> {
+                let Node::String(word) = node.node() else { return Err(reader.invalid("expected closed catalog word")); };
+                Self::key(word, reader)
             }
         }
-    };
+        impl<'d> CatalogKey<'d> for $type {
+            fn key(word: &'d str, reader: &mut CatalogDecoder<'_, 'd>) -> CatalogResultOf<'d, Self> {
+                Self::from_wire(word).ok_or_else(|| reader.unknown(word))
+            }
+        }
+    )* };
 }
-catalog_key!(LawRole);
-catalog_key!(OperationModeKind);
-
-fn table<'d, K: CatalogKey + Ord, V: Deserialize<'d>>(
-    context: &DecodeContext<'d>,
-    node: quire_canonical::NodeRef<'d>,
-) -> Result<Table<K, Vec<V>>, DecodeError> {
-    use serde::de::Error;
-    let Node::Object(members) = node.node() else {
-        return Err(DecodeError::custom("catalog table is not an object"));
-    };
-    let count = members.len();
-    if !context.charge_bytes(count.saturating_mul(std::mem::size_of::<(K, Vec<V>)>())) {
-        return Err(DecodeError::Denied);
-    }
-    let mut rows = Vec::with_capacity(count);
-    for (name, node) in members {
-        let key = K::read(name, context)?;
-        let values: Exact<V> = decode(context, node)?;
-        rows.push((key, values.0));
-    }
-    rows.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-    Ok(rows)
+catalog_word!(
+    LawRole,
+    OperationModeKind,
+    super::ApplicationOperator,
+    super::OperationConstraintKind,
+    super::OperationMemberKind
+);
+macro_rules! catalog_text {
+    ($($type:ty),* $(,)?) => { $(
+        impl<'d> CatalogValue<'d> for $type {
+            fn read(node: quire_canonical::NodeRef<'d>, reader: &mut CatalogDecoder<'_, 'd>) -> CatalogResultOf<'d, Self> {
+                Box::<str>::read(node, reader).map(Self::from)
+            }
+        }
+    )* };
 }
+catalog_text!(
+    super::operation_catalog::CatalogResult,
+    super::operation_catalog::CatalogFamily,
+    super::operation_catalog::CatalogLeafSource
+);
 
-fn decode_catalog<'d>(
-    context: &DecodeContext<'d>,
-    root: quire_canonical::NodeRef<'d>,
-) -> Result<OperationCatalogWire, DecodeError> {
-    use serde::de::Error;
-    const FIELDS: &[&str] = &[
-        "version",
-        "families",
-        "groups",
-        "law_roles",
-        "profile_law_roles",
-        "modes",
-        "type_pinned_modes",
-        "member_kinds",
-        "constraint_kinds",
-        "result_forms",
-        "leaf_sources",
-        "operations",
-    ];
-    let Node::Object(members) = root.node() else {
-        return Err(DecodeError::custom("catalog is not an object"));
-    };
-    if members.len() != FIELDS.len() || members.into_iter().any(|(name, _)| !FIELDS.contains(&name))
-    {
-        return Err(DecodeError::custom("unknown or missing catalog member"));
+impl<'d> CatalogValue<'d> for CheckedArtifactRef {
+    fn read(
+        node: quire_canonical::NodeRef<'d>,
+        reader: &mut CatalogDecoder<'_, 'd>,
+    ) -> CatalogResultOf<'d, Self> {
+        reader.closed(node, &["authority", "identity"], &[])?;
+        Ok(Self {
+            authority: reader.field(node, "authority")?,
+            identity: reader.field(node, "identity")?,
+        })
     }
-    Ok(OperationCatalogWire {
-        version: decode(context, field(root, "version")?)?,
-        families: decode::<Exact<Box<str>>>(context, field(root, "families")?)?.0,
-        groups: table(context, field(root, "groups")?)?,
-        law_roles: table(context, field(root, "law_roles")?)?,
-        profile_law_roles: decode::<Exact<Box<str>>>(context, field(root, "profile_law_roles")?)?.0,
-        modes: table(context, field(root, "modes")?)?,
-        type_pinned_modes: table(context, field(root, "type_pinned_modes")?)?,
-        member_kinds: decode::<Exact<Box<str>>>(context, field(root, "member_kinds")?)?.0,
-        constraint_kinds: decode::<Exact<Box<str>>>(context, field(root, "constraint_kinds")?)?.0,
-        result_forms: decode::<Exact<Box<str>>>(context, field(root, "result_forms")?)?.0,
-        leaf_sources: decode::<Exact<Box<str>>>(context, field(root, "leaf_sources")?)?.0,
-        operations: decode::<Exact<OperationCatalogEntry>>(context, field(root, "operations")?)?.0,
-    })
+}
+impl<'d> CatalogValue<'d> for super::operation_catalog::OperationConstraint {
+    fn read(
+        node: quire_canonical::NodeRef<'d>,
+        reader: &mut CatalogDecoder<'_, 'd>,
+    ) -> CatalogResultOf<'d, Self> {
+        reader.closed(node, &["kind", "operands"], &["family"])?;
+        Ok(Self {
+            kind: reader.field(node, "kind")?,
+            operands: reader.field(node, "operands")?,
+            family: reader.optional(node, "family")?,
+        })
+    }
+}
+impl<'d> CatalogValue<'d> for OperationCatalogEntry {
+    fn read(
+        node: quire_canonical::NodeRef<'d>,
+        reader: &mut CatalogDecoder<'_, 'd>,
+    ) -> CatalogResultOf<'d, Self> {
+        reader.closed(
+            node,
+            &[
+                "identity",
+                "operator",
+                "operands",
+                "result",
+                "laws",
+                "constraints",
+            ],
+            &["rest", "mode", "member", "leaves"],
+        )?;
+        Ok(Self {
+            identity: reader.field(node, "identity")?,
+            known: None,
+            operator: reader.field(node, "operator")?,
+            operands: reader.field(node, "operands")?,
+            rest: reader.optional(node, "rest")?,
+            result: reader.field(node, "result")?,
+            laws: reader.field(node, "laws")?,
+            mode: reader.optional(node, "mode")?,
+            member: reader.optional(node, "member")?,
+            constraints: reader.field(node, "constraints")?,
+            leaves: reader.optional(node, "leaves")?,
+        })
+    }
+}
+impl<'d> CatalogValue<'d> for OperationCatalogWire {
+    fn read(
+        node: quire_canonical::NodeRef<'d>,
+        reader: &mut CatalogDecoder<'_, 'd>,
+    ) -> CatalogResultOf<'d, Self> {
+        reader.closed(
+            node,
+            &[
+                "version",
+                "families",
+                "groups",
+                "law_roles",
+                "profile_law_roles",
+                "modes",
+                "type_pinned_modes",
+                "member_kinds",
+                "constraint_kinds",
+                "result_forms",
+                "leaf_sources",
+                "operations",
+            ],
+            &[],
+        )?;
+        Ok(Self {
+            version: reader.field(node, "version")?,
+            families: reader.field(node, "families")?,
+            groups: reader.table_field(node, "groups")?,
+            law_roles: reader.table_field(node, "law_roles")?,
+            profile_law_roles: reader.field(node, "profile_law_roles")?,
+            modes: reader.table_field(node, "modes")?,
+            type_pinned_modes: reader.table_field(node, "type_pinned_modes")?,
+            member_kinds: reader.field(node, "member_kinds")?,
+            constraint_kinds: reader.field(node, "constraint_kinds")?,
+            result_forms: reader.field(node, "result_forms")?,
+            leaf_sources: reader.field(node, "leaf_sources")?,
+            operations: reader.field(node, "operations")?,
+        })
+    }
 }
 
 /// Parses a fresh catalog and retains it under the caller's read-storage
@@ -359,21 +652,30 @@ pub(super) fn read_catalog_budgeted(
         }
         Err(error) => return Err(catalog_error(budget, &error)),
     };
-    if !budget
-        .charge_read_storage(read_charge::arc_block_bytes::<quire_canonical::Document>() as u128)
-    {
-        return Err(CatalogStop::Budget(budgeted_read::denial(budget)));
-    }
-    let document = Arc::new(document);
-    let context = DecodeContext::at_locus(&document, budget, locus);
-    let decoded = decode_catalog(&context, document.root());
-    let denied = context.denied();
-    *budget = context.finish();
-    budget.set_active_locus(Some(locus));
-    if denied {
-        return Err(CatalogStop::Budget(budgeted_read::denial(budget)));
-    }
-    let wire = decoded.map_err(|error| catalog_error(budget, &error))?;
+    let decoded = {
+        let mut reader = CatalogDecoder {
+            budget,
+            path: CatalogPath::root(),
+        };
+        OperationCatalogWire::read(document.root(), &mut reader)
+    };
+    let wire = match decoded {
+        Ok(wire) => wire,
+        Err(CatalogDecodeError::Denied) => {
+            return Err(CatalogStop::Budget(budgeted_read::denial(budget)))
+        }
+        Err(CatalogDecodeError::Shape {
+            path,
+            message,
+            word,
+        }) => {
+            return Err(catalog_error_at(
+                budget,
+                &path,
+                &CatalogMessage { message, word },
+            ));
+        }
+    };
     if !budget.charge_read_storage(read_charge::arc_block_bytes::<OperationCatalog>() as u128) {
         return Err(CatalogStop::Budget(budgeted_read::denial(budget)));
     }
@@ -383,6 +685,14 @@ pub(super) fn read_catalog_budgeted(
 }
 
 fn catalog_error(budget: &mut NativeJoinBudget, error: &impl std::fmt::Display) -> CatalogStop {
+    catalog_error_at(budget, &".", error)
+}
+
+fn catalog_error_at(
+    budget: &mut NativeJoinBudget,
+    path: &impl std::fmt::Display,
+    error: &impl std::fmt::Display,
+) -> CatalogStop {
     use std::fmt::Write;
     struct Count(usize);
     impl std::fmt::Write for Count {
@@ -391,15 +701,19 @@ fn catalog_error(budget: &mut NativeJoinBudget, error: &impl std::fmt::Display) 
             Ok(())
         }
     }
-    let mut count = Count(0);
-    let _ = write!(count, "{error}");
-    if !budget.charge_read_storage(count.0.saturating_add(1) as u128) {
+    let mut message_size = Count(0);
+    let mut path_size = Count(0);
+    let _ = write!(message_size, "{error}");
+    let _ = write!(path_size, "{path}");
+    if !budget.charge_read_storage(message_size.0.saturating_add(path_size.0) as u128) {
         return CatalogStop::Budget(super::budgeted_read::denial(budget));
     }
-    let mut message = String::with_capacity(count.0);
+    let mut message = String::with_capacity(message_size.0);
+    let mut location = String::with_capacity(path_size.0);
     let _ = write!(message, "{error}");
+    let _ = write!(location, "{path}");
     CatalogStop::Unavailable(CatalogReadError {
-        path: ".".into(),
+        path: location,
         message,
     })
 }
@@ -475,30 +789,110 @@ mod tests {
     #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-515")]
     #[test]
     fn unreadable_catalog_allocations_are_charged_to_the_caller() {
-        let mut unknown: serde_json::Value =
+        let original: serde_json::Value =
             serde_json::from_str(super::super::operation_catalog::CATALOG_BYTES)
                 .expect("catalog fixture");
-        unknown["operations"][0]["operator"] = serde_json::json!("unknown_operator");
-        let unknown = serde_json::to_string(&unknown).expect("invalid catalog fixture encodes");
-        for bytes in ["{", "{}", unknown.as_str()] {
-            let mut budget = NativeJoinBudget::unlimited();
-            let mut unavailable = false;
-            let allocations = allocation_counter::measure(|| {
-                unavailable = matches!(
-                    read_catalog_budgeted(bytes, &mut budget),
-                    Err(CatalogStop::Unavailable(_))
-                );
-            });
+        let mut cases = vec!["{".to_owned(), "{}".to_owned()];
+        for (path, value) in [
+            (
+                "/operations/0/operator",
+                serde_json::json!("unknown_operator"),
+            ),
+            ("/operations/0/operands", serde_json::json!([1])),
+            ("/operations/0/laws", serde_json::json!(["unknown_law"])),
+            ("/operations/0/member", serde_json::json!("unknown_member")),
+            ("/operations/0/mode", serde_json::json!(false)),
+        ] {
+            let mut invalid = original.clone();
+            *invalid.pointer_mut(path).expect("catalog field") = value;
+            cases.push(serde_json::to_string(&invalid).expect("fixture encodes"));
+        }
+        let mut unknown_field = original.clone();
+        unknown_field["unexpected"] = serde_json::json!(true);
+        cases.push(serde_json::to_string(&unknown_field).expect("fixture encodes"));
+        let role = original["law_roles"]
+            .as_object()
+            .expect("law table")
+            .iter()
+            .find(|(_, values)| values.as_array().is_some_and(|values| !values.is_empty()))
+            .map(|(role, _)| role.as_str())
+            .expect("catalog has law definitions");
+        let mut nested = original.clone();
+        nested["law_roles"][role][0]["revision"] = serde_json::json!("unadmitted");
+        cases.push(serde_json::to_string(&nested).expect("fixture encodes"));
+        let constraint = original["operations"]
+            .as_array()
+            .expect("operations")
+            .iter()
+            .find_map(|operation| operation["constraints"].as_array()?.first())
+            .expect("catalog has a constraint");
+        for operand in [serde_json::json!(-1), serde_json::json!("not_an_integer")] {
+            let mut invalid = original.clone();
+            let mut changed = constraint.clone();
+            changed["operands"] = serde_json::json!([operand]);
+            invalid["operations"][0]["constraints"] = serde_json::json!([changed]);
+            cases.push(serde_json::to_string(&invalid).expect("fixture encodes"));
+        }
+        for bytes in cases {
+            let measure = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut unavailable = false;
+                let allocations = allocation_counter::measure(|| {
+                    unavailable = matches!(
+                        read_catalog_budgeted(&bytes, &mut budget),
+                        Err(CatalogStop::Unavailable(_))
+                    );
+                });
+                (unavailable, allocations.bytes_total, budget)
+            };
+            let (unavailable, allocated, unlimited) = measure(u64::MAX);
             assert!(unavailable, "the corrupted catalog is unavailable");
+            let charged = unlimited.read_storage_consumed();
             assert_eq!(
-                allocations.bytes_total,
-                budget.read_storage_consumed(),
+                allocated, charged,
                 "every catalog error allocation is charged"
             );
             assert!(
-                budget.read_storage_consumed() > 0,
+                charged > 0,
                 "earlier requests and diagnostic remain charged"
             );
+            let (unavailable, allocated, exact) = measure(charged);
+            assert!(
+                unavailable,
+                "the exact diagnostic allowance returns the catalog error"
+            );
+            assert_eq!(allocated, exact.read_storage_consumed());
+            let (unavailable, allocated, short) = measure(charged - 1);
+            assert!(
+                !unavailable,
+                "one byte below the diagnostic allowance returns the budget denial"
+            );
+            assert_eq!(allocated, short.read_storage_consumed());
+            assert_eq!(
+                short.first_unpaid_locus().map(|locus| locus.form),
+                Some("operation_catalog")
+            );
         }
+    }
+
+    /// The charged projections retain the same catalog decisions and complete
+    /// operation records as the existing reader over the published bytes.
+    #[trace("TC-472", "FR-038-AC-512", "FR-038-AC-515")]
+    #[test]
+    fn owned_catalog_preserves_the_published_typed_catalog() {
+        let bytes = super::super::operation_catalog::CATALOG_BYTES;
+        let legacy = read_catalog(bytes).expect("existing catalog reads");
+        let mut budget = NativeJoinBudget::unlimited();
+        let Ok(owned) = read_catalog_budgeted(bytes, &mut budget) else {
+            panic!("owned catalog reads");
+        };
+        assert_eq!(
+            format!("{:?}", owned.operations),
+            format!("{:?}", legacy.operations)
+        );
+        assert_eq!(owned.groups, legacy.groups);
+        assert_eq!(owned.law_roles, legacy.law_roles);
+        assert_eq!(owned.modes, legacy.modes);
+        assert_eq!(owned.type_pinned_modes, legacy.type_pinned_modes);
     }
 }
