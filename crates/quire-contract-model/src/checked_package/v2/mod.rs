@@ -1553,23 +1553,55 @@ impl CheckedPackageV2 {
         let document = budgeted_read::read_envelope(bytes, limits, budget)?;
         let document = budgeted_read::share_document(document, budget)?;
         let package = TermNode::from_ref(document.root());
+        let version_path = stage_storage::Path::root().key("contract_version");
         match package.get("contract_version").and_then(TermNode::as_str) {
             Some(version)
                 if PackageWireTag::from_wire(version) == Some(PackageWireTag::ContractVersion) => {}
             Some(version) => {
-                return Err(ValidationFailure::unknown_contract_version(version));
+                let mut meter = WorkMeter::over(budget);
+                let mut failure = stage_storage::refuse(
+                    &mut meter,
+                    &stage_storage::Site::new(
+                        PackageReadStage::WireDecode,
+                        0,
+                        "wire",
+                        version_path,
+                    ),
+                    stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::UnknownContractVersion,
+                        version_path,
+                    )
+                    .with_extra(version.len()),
+                );
+                if let ValidationFailure::Refused(ref mut refusal) = failure {
+                    refusal.contract_version = Some(version.into());
+                }
+                return Err(failure);
             }
             None => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    member_pointer(&["contract_version"]),
+                let mut meter = WorkMeter::over(budget);
+                return Err(stage_storage::refuse(
+                    &mut meter,
+                    &stage_storage::Site::new(
+                        PackageReadStage::WireDecode,
+                        0,
+                        "wire",
+                        version_path,
+                    ),
+                    stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        version_path,
+                    ),
                 ));
             }
         }
         if package.get("name").is_none() {
-            return Err(refuse(
-                CheckedPackageRefusalCode::MalformedWire,
-                member_pointer(&["name"]),
+            let path = stage_storage::Path::root().key("name");
+            let mut meter = WorkMeter::over(budget);
+            return Err(stage_storage::refuse(
+                &mut meter,
+                &stage_storage::Site::new(PackageReadStage::WireDecode, 0, "wire", path),
+                stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
             ));
         }
         let (mut wire, bodies) = intake::decode_borrowed_wire(&document, budget)
