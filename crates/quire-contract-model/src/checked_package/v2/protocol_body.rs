@@ -6416,7 +6416,8 @@ mod tests {
             }
             if captures {
                 clause["arguments"][1]["value"]["members"] = json!([
-                    {"term":"binding", "name":"kind", "value":text("origin")},
+                    {"term":"binding", "name":"kind", "value":text("each")},
+                    {"term":"binding", "name":"trigger", "value":reference('o')},
                     {"term":"binding", "name":"guard", "value":truth()}
                 ]);
                 clause["arguments"][2]["value"]["members"] = json!([
@@ -6463,14 +6464,21 @@ mod tests {
                     CheckedNodeKind::Value(ValueForm::Parameter),
                     "value",
                     "parameter",
-                    parameter("finished", 1 + usize::from(captures)),
+                    parameter("finished", 1 + 2 * usize::from(captures)),
                 ),
                 (
                     'd',
                     CheckedNodeKind::Value(ValueForm::Parameter),
                     "value",
                     "parameter",
-                    parameter("captured", 1),
+                    parameter("captured", 1 + usize::from(captures)),
+                ),
+                (
+                    'o',
+                    CheckedNodeKind::Value(ValueForm::Parameter),
+                    "value",
+                    "parameter",
+                    parameter("trigger", 1),
                 ),
                 (
                     'e',
@@ -6571,26 +6579,25 @@ mod tests {
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
-            let position = 8;
+            let position = 9;
             let validated: Vec<_> = terms
                 .iter()
-                .map(|term| match term {
-                    Some(CheckedTerm::Application {
-                        operation,
-                        arguments,
-                        ..
-                    }) => {
-                        let operator = operation.read().expect("protocol fixture operation");
-                        let Some(super::super::CheckedOperationMember::ProfileOperator {
-                            operator,
-                        }) = operator.member
-                        else {
-                            panic!("profile operator")
-                        };
-                        Some((
-                            operator.as_deref().expect("fixture profile operator"),
-                            arguments.as_slice(),
-                        ))
+                .enumerate()
+                .map(|(position, term)| match (kinds[position], term) {
+                    (
+                        CheckedNodeKind::Protocol(form),
+                        Some(term @ CheckedTerm::Application { .. }),
+                    ) => {
+                        let (operator, arguments) = validate_envelope(
+                            form,
+                            term,
+                            &nodes[position].semantic_type,
+                            Some(&profile),
+                        )
+                        .expect("validated protocol fixture envelope");
+                        validate_layout(form, operator, arguments)
+                            .expect("validated protocol fixture layout");
+                        Some((operator, arguments))
                     }
                     _ => None,
                 })
