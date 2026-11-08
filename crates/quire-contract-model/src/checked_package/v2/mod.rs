@@ -3040,6 +3040,7 @@ fn structural_key<'a>(
 // `wire.semantic_graph.nodes[position].body` is the uncharged bridge for a
 // validator that has not moved to the views.
 #[allow(unused_variables)]
+#[allow(clippy::too_many_arguments)] // the catalog and the node bodies are two inputs of one graph check
 fn validate_graph(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
