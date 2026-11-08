@@ -3463,7 +3463,7 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect::<GraphIndex<'_>>();
         assert!(matches!(
-            super::super::validate_declaration_names(&declarations, &kinds, &index),
+            super::super::validate_declaration_names(&declarations, &kinds, &index, &mut WorkMeter::new(u64::MAX)),
             Err(ValidationFailure::Refused(refusal))
                 if refusal.code == CheckedPackageRefusalCode::AmbiguousDeclaration
                     && refusal.cause == Some(crate::CheckedPackageRefusalCause::AmbiguousName)
