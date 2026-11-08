@@ -2119,7 +2119,7 @@ fn validate_lock<'a>(
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
     check_derived_closure(
         &lock.dependency_selections,
-        &dependencies.packages(),
+        &dependencies.packages(meter)?,
         JsonPointer::root(),
         meter,
     )?;

@@ -1887,7 +1887,7 @@ fn imported_nominals<'e>(
     // Requests made here are charged to the imported nominal, by its position
     // in its own package, and the caller's site returns when the walk ends.
     let caller_site = meter.site();
-    let mut pending = dependencies.packages();
+    let mut pending = dependencies.packages(meter)?;
     let mut seen: Vec<&str> = Vec::new();
     let mut records: Vec<(&CheckedNodeId, NominalRecord)> = Vec::new();
     while let Some(package) = pending.pop() {
