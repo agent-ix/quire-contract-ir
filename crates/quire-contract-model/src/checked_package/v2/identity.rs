@@ -1588,21 +1588,26 @@ impl ExactRatio {
         meter: &mut WorkMeter,
         at: &dyn Fn() -> JsonPointer,
     ) -> Result<Self, ValidationFailure> {
+        Self::parse_parts(&value.numerator, &value.denominator, meter, at)
+    }
+
+    /// The ratio `numerator / denominator` from its two decimal texts, read
+    /// with the budget's exact-integer reservations; no text is copied.
+    fn parse_parts(
+        numerator: &str,
+        denominator: &str,
+        meter: &mut WorkMeter,
+        at: &dyn Fn() -> JsonPointer,
+    ) -> Result<Self, ValidationFailure> {
         meter.charge(
-            u64::try_from(
-                value
-                    .numerator
-                    .len()
-                    .saturating_add(value.denominator.len()),
-            )
-            .unwrap_or(u64::MAX),
+            u64::try_from(numerator.len().saturating_add(denominator.len())).unwrap_or(u64::MAX),
             at,
         )?;
         let numerator = meter
-            .exact_integer(&value.numerator)?
+            .exact_integer(numerator)?
             .ok_or_else(|| invalid(at().key("numerator")))?;
         let denominator = meter
-            .exact_integer(&value.denominator)?
+            .exact_integer(denominator)?
             .ok_or_else(|| invalid(at().key("denominator")))?;
         if denominator.is_zero() {
             return Err(invalid(at().key("denominator")));
@@ -1819,13 +1824,13 @@ pub(super) fn duration_unit_key(
             .multiply(&edge_scale, meter, &at)?
             .add(&edge_offset, meter, &at)?;
         scale = scale.multiply(&edge_scale, meter, &at)?;
-        let Some(target) = current.1.clone() else {
+        let Some(target) = current.1.as_ref() else {
             break;
         };
         let Some((next_position, next)) = nodes
             .iter()
             .enumerate()
-            .find(|(_, candidate)| candidate.node_id == target)
+            .find(|(_, candidate)| &candidate.node_id == target)
         else {
             return Ok(None);
         };
@@ -1850,7 +1855,10 @@ pub(super) fn duration_unit_key(
         }
         current = (next_dimension, next_target, next_scale, next_offset);
     }
-    Ok((scale == ExactRatio::one() && offset == ExactRatio::zero()).then(|| node.node_id.clone()))
+    if scale != ExactRatio::one() || offset != ExactRatio::zero() {
+        return Ok(None);
+    }
+    Ok(Some(meter.clone_id(&node.node_id)?))
 }
 
 /// Resolve a selected model's `s` after its FCD document has been admitted.
@@ -1904,15 +1912,12 @@ pub(super) fn model_duration_unit_key(
     let mut seen: Vec<&str> = Vec::new();
     loop {
         meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
-        let ratio = |text: &str| {
+        let ratio = |text: &str, meter: &mut WorkMeter| {
             let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
-            CheckedRational {
-                numerator: numerator.into(),
-                denominator: denominator.into(),
-            }
+            ExactRatio::parse_parts(numerator, denominator, meter, &at)
         };
-        let edge_scale = ExactRatio::parse(&ratio(&current.scale), meter, &at)?;
-        let edge_offset = ExactRatio::parse(&ratio(&current.offset), meter, &at)?;
+        let edge_scale = ratio(&current.scale, meter)?;
+        let edge_offset = ratio(&current.offset, meter)?;
         offset = offset
             .multiply(&edge_scale, meter, &at)?
             .add(&edge_offset, meter, &at)?;
@@ -1931,8 +1936,10 @@ pub(super) fn model_duration_unit_key(
         }
         current = next;
     }
-    Ok((scale == ExactRatio::one() && offset == ExactRatio::zero())
-        .then(|| unit_node.node_id.clone()))
+    if scale != ExactRatio::one() || offset != ExactRatio::zero() {
+        return Ok(None);
+    }
+    Ok(Some(meter.clone_id(&unit_node.node_id)?))
 }
 
 /// The canonical base component and exact root scale of each dimension an
@@ -2721,6 +2728,63 @@ mod tests {
             if spent > 0 {
                 assert_eq!(run(spent - 1, expected, actual).0, None, "one byte short");
             }
+        }
+    }
+
+    /// Resolving the one-second Time unit asks for every block before it
+    /// makes it: the measured requirement admits and one byte below is
+    /// denied, for a chain of units, for a unit that stops resolving, and for
+    /// the resolved ID's own copy (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn duration_unit_resolution_allocates_exactly_what_it_requests() {
+        use crate::NativeJoinBudget;
+        let source = json!({"kind":"source","authority":"agent-ix","identity":"example"});
+        let dimension: CheckedSemanticNodeV2 = serde_json::from_value(json!({
+            "node_id":{"package":"example","path":["Time"],"ordinal":0},
+            "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"scalar_type", "semantic_form":"dimension",
+            "semantic_type":{"package":"example","path":["Time"],"ordinal":0},
+            "dependencies":[], "occurrences":[], "owner":source,
+            "declaration":{"qualified_name":["Time"]},
+            "body":{"term":"dimension","base":true,"terms":[]}
+        })).expect("dimension node");
+        let unit = |name: &str,
+                    target: Option<&CheckedNodeId>,
+                    scale: (&str, &str)|
+         -> CheckedSemanticNodeV2 {
+            serde_json::from_value(json!({
+                "node_id":{"package":"example","path":[name],"ordinal":0},
+                "schema_version":"quire.checked-semantic-graph/v2", "node_tag":"scalar_type", "semantic_form":"unit",
+                "semantic_type":dimension.node_id, "dependencies":[dimension.node_id], "occurrences":[],
+                "owner":source, "declaration":{"qualified_name":[name]},
+                "body":{"term":"unit","dimension_node_id":dimension.node_id,
+                    "target_unit_node_id":target,"scale":{"numerator":scale.0,"denominator":scale.1},
+                    "offset":{"numerator":"0","denominator":"1"}}
+            })).expect("unit node")
+        };
+        let root = unit("root", None, ("1", "1"));
+        let second = unit("s", Some(&root.node_id), ("3", "3"));
+        let wrong = unit("s", Some(&root.node_id), ("2", "1"));
+        let measure = |nodes: &[CheckedSemanticNodeV2], limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            let found = duration_unit_key(nodes, "ix://quire/unit/s", &mut meter);
+            drop(meter);
+            (found.ok(), budget.read_storage_consumed())
+        };
+        for (nodes, resolves) in [
+            (vec![dimension.clone(), root.clone(), second.clone()], true),
+            (vec![dimension.clone(), root.clone(), wrong], false),
+        ] {
+            let (found, spent) = measure(&nodes, u64::MAX);
+            assert_eq!(found, Some(resolves.then(|| second.node_id.clone())));
+            assert!(spent > 0, "resolution is charged");
+            assert_eq!(measure(&nodes, spent).0, found, "the measured limit admits");
+            assert_eq!(
+                measure(&nodes, spent - 1).0,
+                None,
+                "one byte short is denied"
+            );
         }
     }
 
