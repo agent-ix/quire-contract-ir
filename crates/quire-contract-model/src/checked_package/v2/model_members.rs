@@ -4509,9 +4509,11 @@ pub(super) fn read_semantic_ir(
         let group = [(node, 0, population)];
         let (_, meaning) = classify(&prefix, &meanings, &group, node)?;
         let key = budget.text(node, F)?;
-        if meaning != meaning::Kind::Population
-            || !model.populations.insert(budget, key.clone(), F)?
-        {
+        if meaning != meaning::Kind::Population {
+            return Err(ModelRefusal::malformed().into());
+        }
+        let population_key = budget.text(node, F)?;
+        if !model.populations.insert(budget, population_key, F)? {
             return Err(ModelRefusal::malformed().into());
         }
         let member_rows = list(population, "members")?;
