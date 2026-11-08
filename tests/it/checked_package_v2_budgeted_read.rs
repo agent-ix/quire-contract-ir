@@ -306,21 +306,32 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
                 .unwrap_or_else(|| panic!("limit {limit}: a denial is recorded")),
         )
         .unwrap();
-        let consumed = budget.read_storage_consumed();
+        // A denial inside the decode or a validator names the value it was
+        // decoding or checking, and that pointer is an owned diagnostic. If it
+        // is affordable it is charged after the denied request and the outcome
+        // is `BudgetIncomplete`; if it is not, the outcome is `Exhausted` and
+        // consumption stops at the request boundary.
+        let consumed = match &result {
+            CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) => {
+                let pointer = incomplete
+                    .path
+                    .as_ref()
+                    .map_or(0, |path| path.as_str().len() as u64);
+                let boundary = budget.read_storage_consumed() - pointer;
+                assert!(boundary + pointer <= limit, "limit {limit}: pointer paid");
+                boundary
+            }
+            CheckedPackageV2BudgetedReadResult::Exhausted(_) => budget.read_storage_consumed(),
+            other => panic!("limit {limit}: {other:?}"),
+        };
         assert!(
             consumed <= limit && consumed + asked > limit,
             "limit {limit}"
         );
         let stage = match budget.first_unpaid_locus().expect("denial locus").source {
-            NativeJoinLocusSource::PackageRead(stage, 0) => stage,
+            NativeJoinLocusSource::PackageRead(stage, _) => stage,
             other => panic!("limit {limit}: {other:?}"),
         };
-        // Past the canonical comparison the decode's denials carry the pointer of
-        // the value being decoded, whose bytes are charged after the denial, so
-        // the request sequence is read at the envelope and canonical requests.
-        if stage > PackageReadStage::Canonical {
-            break;
-        }
         if let Some((last_consumed, last_end, last_stage)) = previous {
             if consumed == last_consumed {
                 assert_eq!(consumed + asked, last_end, "limit {limit}: same request");
@@ -338,8 +349,7 @@ fn each_envelope_and_canonical_request_is_denied_exactly_one_byte_below() {
         boundaries.insert(consumed + asked);
         previous = Some((consumed, consumed + asked, stage));
     }
-    assert!(previous
-        .is_some_and(|(_, end, stage)| end < required && stage == PackageReadStage::Canonical));
+    assert_eq!(previous.map(|(_, end, _)| end), Some(required));
     assert!(envelope_end > 0 && envelope_end < required);
     // The envelope's last package-bytes request: one below its end is denied
     // there, at the envelope's locus.

@@ -114,7 +114,7 @@ struct BorrowedGraph {
     graph_version: Box<str>,
     #[serde(deserialize_with = "super::document_de::exact_vec")]
     nodes: Vec<BorrowedNode>,
-    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    #[serde(deserialize_with = "super::document_de::exact_rows")]
     operand_rows: Vec<Vec<u64>>,
 }
 
