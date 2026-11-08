@@ -224,6 +224,8 @@ impl Encode for CheckedJson {
     }
 }
 
+const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
 /// Writes one document value from an explicit heap stack, kept on the
 /// writer's reservation. An integer past 2^53 is the encoder's refusal, as it
 /// is for a `serde_json` number: the document holds the number's text, so a
@@ -272,6 +274,18 @@ pub(super) fn encode_node<S: Sink + ?Sized>(
                     tasks.get_mut(start + 1..).unwrap_or_default().reverse();
                 }
                 Node::Object(members) => {
+                    // serde_json reads an object whose first member is this
+                    // private name as a number, so two byte strings would
+                    // decode to one package: the spelling is not canonical.
+                    let mut members = members.peekable();
+                    if members
+                        .peek()
+                        .is_some_and(|(name, _)| *name == SERDE_JSON_NUMBER_TOKEN)
+                    {
+                        return Err(CanonicalError::Internal {
+                            invariant: "serde_json's number token is not canonical",
+                        });
+                    }
                     writer.begin_object()?;
                     let start = tasks.len();
                     writer.reserve_list(

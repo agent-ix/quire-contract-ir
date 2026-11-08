@@ -18,7 +18,7 @@ fn admitted() -> CheckedPackageV2 {
         "semantic_graph":{"graph_version":"quire.checked-semantic-graph/v2","nodes":[{
             "node_id":id,"schema_version":"quire.checked-semantic-graph/v2","node_tag":"scalar_type","semantic_form":"boolean",
             "semantic_type":id,"dependencies":[],"occurrences":[{"role":"type","ordinal":0}],"body":{"term":"aggregate","members":[]}
-        }]},
+        }],"operand_rows":[[]]},
         "source_map":[{"node_id":id,"role":"type","ordinal":0,"regions":[{"source":source,"start":0,"end":1}]}],
         "capability_report":[],"diagnostics":{"catalog":{"authority":"test","identity":"diagnostics"},"entries":[]}
     });

@@ -438,6 +438,9 @@ pub(super) fn admitted_fixture(identity: &str) -> Option<Value> {
     if identity == "quire.op.numeric.narrow" {
         return Some(crate::admitted_result_context::fixture());
     }
+    if identity == "quire.op.collection.sum.carried_quantity" {
+        return Some(crate::checked_package_v2_operand_families::carried_sum_control().0);
+    }
     if identity == "quire.op.collection.sum.quantity" {
         return Some(crate::checked_package_v2_operand_families::quantity_sum_control().0);
     }
@@ -1182,7 +1185,13 @@ fn assert_result_refusal(package: &Value, position: usize, identity: &str) {
         (
             CheckedPackageRefusalCode::IllTyped,
             Some(CheckedPackageRefusalCause::OperatorIneligible),
-            Some(format!("/semantic_graph/nodes/{position}/body/result_type")),
+            // QSpec FR-322 locates a carried-sum result mismatch at the
+            // application node itself, not at its `result_type`.
+            Some(if identity == "quire.op.collection.sum.carried_quantity" {
+                format!("/semantic_graph/nodes/{position}")
+            } else {
+                format!("/semantic_graph/nodes/{position}/body/result_type")
+            }),
             package["semantic_graph"]["nodes"][position]["node_id"].clone()
         ),
         "{identity}"
