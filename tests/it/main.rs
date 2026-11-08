@@ -26,6 +26,7 @@ mod checked_package_evidence_insertion;
 mod checked_package_v2_abstraction_relation;
 mod checked_package_v2_adr002_members;
 mod checked_package_v2_artifact_refs;
+mod checked_package_v2_budgeted_equivalence;
 mod checked_package_v2_budgeted_read;
 mod checked_package_v2_canonical_encoding;
 mod checked_package_v2_catalog_words;
