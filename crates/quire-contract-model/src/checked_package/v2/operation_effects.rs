@@ -8,28 +8,33 @@ use super::model_fields::RetainedModels;
 use super::model_members::{
     member_name, DeclarationForm, DomainModel, FieldBearingTypeDecl, OperationDecl,
 };
+use super::native_join_budget::PackageReadStage;
+use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
     CheckedFieldScope, CheckedFrameModification, CheckedNodeId, CheckedScopedDeletion, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
-    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
+    CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::collections::BTreeSet;
 
 /// The four complete grants of one selected model operation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckedOperationEffect {
     /// Field and relationship grants in canonical order.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub modifies: Vec<CheckedFrameModification>,
     /// Object types whose instances the operation may create.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub creates: Vec<CheckedNodeId>,
     /// Object types whose instances the operation may delete.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub deletes: Vec<CheckedNodeId>,
     /// Receiver and parameter scoped deletion grants.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub deletes_scoped: Vec<CheckedScopedDeletion>,
 }
 
@@ -160,16 +165,45 @@ impl super::CheckedPackageV2 {
     }
 }
 
-fn row_at(index: usize) -> JsonPointer {
-    JsonPointer::root().key("operation_effects").index(index)
+const STAGE_FORM: &str = "operation_effects";
+
+fn rows_at() -> Path<'static> {
+    Path::root().key("operation_effects")
 }
 
-fn malformed(at: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused(Code::MalformedWire, at)
+fn site(row: usize, at: Path<'static>) -> Site<'static> {
+    Site::new(PackageReadStage::OperationEffects, row, STAGE_FORM, at)
 }
 
-fn refused(code: Code, cause: Cause, at: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused_because(code, at, cause)
+/// A refusal about the value at `at`, in row `row`, its diagnostic charged
+/// before it is built.
+fn fail(
+    meter: &mut WorkMeter,
+    row: usize,
+    code: Code,
+    cause: Option<Cause>,
+    at: Path<'static>,
+) -> ValidationFailure {
+    let refusal = Refusal::new(code, at);
+    let refusal = match cause {
+        Some(cause) => refusal.because(cause),
+        None => refusal,
+    };
+    stage_storage::refuse(meter, &site(row, at), refusal)
+}
+
+fn malformed(meter: &mut WorkMeter, row: usize, at: Path<'static>) -> ValidationFailure {
+    fail(meter, row, Code::MalformedWire, None, at)
+}
+
+fn refused(
+    meter: &mut WorkMeter,
+    row: usize,
+    code: Code,
+    cause: Cause,
+    at: Path<'static>,
+) -> ValidationFailure {
+    fail(meter, row, code, Some(cause), at)
 }
 
 fn modification_key(entry: &CheckedFrameModification) -> (&CheckedNodeId, &str, &str) {
@@ -197,55 +231,75 @@ fn scoped_key(entry: &CheckedScopedDeletion) -> (u8, &str) {
     }
 }
 
+fn first_repeat<K: Ord>(
+    meter: &mut WorkMeter,
+    row: usize,
+    keys: impl ExactSizeIterator<Item = K>,
+) -> Result<Option<usize>, ValidationFailure> {
+    stage_storage::first_repeat(meter, &site(row, rows_at()), keys)
+}
+
 fn check_shape(
     row: &CheckedOperationEffectRow,
     meter: &mut WorkMeter,
-    at: &JsonPointer,
+    index: usize,
 ) -> Result<(), ValidationFailure> {
+    let at = rows_at().index(index);
     if row.document.is_empty() {
-        return Err(malformed(at.clone().key("document")));
+        return Err(malformed(meter, index, at.key("document")));
     }
     if !is_identifier(&row.operation) {
-        return Err(malformed(at.clone().key("operation")));
+        return Err(malformed(meter, index, at.key("operation")));
     }
     if row.provenance.member.is_empty() {
-        return Err(malformed(at.clone().key("provenance").key("member")));
+        return Err(malformed(meter, index, at.key("provenance").key("member")));
     }
-    let effect_at = at.clone().key("effect");
-    let mut seen = BTreeSet::new();
-    for (index, entry) in row.effect.modifies.iter().enumerate() {
-        meter.charge(1, || effect_at.clone().key("modifies").index(index))?;
+    let effect_at = at.key("effect");
+    let repeat = first_repeat(
+        meter,
+        index,
+        row.effect.modifies.iter().map(modification_key),
+    )?;
+    for (position, entry) in row.effect.modifies.iter().enumerate() {
+        let list = effect_at.key("modifies");
+        stage_storage::work(meter, &site(index, list.index(position)), 1)?;
         if let CheckedFrameModification::Field { name, .. } = entry {
             if !is_identifier(name) {
-                return Err(malformed(effect_at.clone().key("modifies")));
+                return Err(malformed(meter, index, list));
             }
         }
-        if !seen.insert(modification_key(entry)) {
-            return Err(malformed(effect_at.clone().key("modifies")));
+        if repeat == Some(position) {
+            return Err(malformed(meter, index, list));
         }
     }
     for (name, entries) in [
         ("creates", &row.effect.creates),
         ("deletes", &row.effect.deletes),
     ] {
-        let mut seen = BTreeSet::new();
-        for (index, entry) in entries.iter().enumerate() {
-            meter.charge(1, || effect_at.clone().key(name).index(index))?;
-            if !seen.insert(entry) {
-                return Err(malformed(effect_at.clone().key(name)));
+        let list = effect_at.key(name);
+        let repeat = first_repeat(meter, index, entries.iter())?;
+        for position in 0..entries.len() {
+            stage_storage::work(meter, &site(index, list.index(position)), 1)?;
+            if repeat == Some(position) {
+                return Err(malformed(meter, index, list));
             }
         }
     }
-    let mut seen = BTreeSet::new();
-    for (index, entry) in row.effect.deletes_scoped.iter().enumerate() {
-        meter.charge(1, || effect_at.clone().key("deletes_scoped").index(index))?;
+    let list = effect_at.key("deletes_scoped");
+    let repeat = first_repeat(
+        meter,
+        index,
+        row.effect.deletes_scoped.iter().map(scoped_key),
+    )?;
+    for (position, entry) in row.effect.deletes_scoped.iter().enumerate() {
+        stage_storage::work(meter, &site(index, list.index(position)), 1)?;
         if let CheckedScopedDeletion::Parameter { name } = entry {
             if !is_identifier(name) {
-                return Err(malformed(effect_at.clone().key("deletes_scoped")));
+                return Err(malformed(meter, index, list));
             }
         }
-        if !seen.insert(scoped_key(entry)) {
-            return Err(malformed(effect_at.clone().key("deletes_scoped")));
+        if repeat == Some(position) {
+            return Err(malformed(meter, index, list));
         }
     }
     Ok(())
@@ -264,11 +318,12 @@ fn validate_effect_entries(
     models: &RetainedModels,
     selection: usize,
     declaring_form: DeclarationForm,
-    at: &JsonPointer,
+    meter: &mut WorkMeter,
+    index: usize,
 ) -> Result<(), ValidationFailure> {
-    let effect_at = at.clone().key("effect");
-    for (index, entry) in row.effect.modifies.iter().enumerate() {
-        let entry_at = effect_at.clone().key("modifies").index(index);
+    let effect_at = rows_at().index(index).key("effect");
+    for (position, entry) in row.effect.modifies.iter().enumerate() {
+        let entry_at = effect_at.key("modifies").index(position);
         let (declaration, field) = match entry {
             CheckedFrameModification::Relationship { declaration } => (declaration, None),
             CheckedFrameModification::Field {
@@ -280,6 +335,8 @@ fn validate_effect_entries(
                     && declaring_form != DeclarationForm::ObjectType
                 {
                     return Err(refused(
+                        meter,
+                        index,
                         Code::InvalidModelBinding,
                         Cause::MalformedDeclaration,
                         entry_at,
@@ -288,18 +345,22 @@ fn validate_effect_entries(
                 (declaration, Some(name.as_ref()))
             }
         };
-        let entry_owner = models.owner_by_key(declaration).ok_or_else(|| {
-            refused(
+        let Some(entry_owner) = models.owner_by_key(declaration) else {
+            return Err(refused(
+                meter,
+                index,
                 Code::MissingDeclaration,
                 Cause::MissingName,
-                entry_at.clone().key("declaration"),
-            )
-        })?;
+                entry_at.key("declaration"),
+            ));
+        };
         if entry_owner.selection != selection {
             return Err(refused(
+                meter,
+                index,
                 Code::MissingDeclaration,
                 Cause::MissingName,
-                entry_at.clone().key("declaration"),
+                entry_at.key("declaration"),
             ));
         }
         match field {
@@ -317,9 +378,15 @@ fn validate_effect_entries(
                     .package
                     .fields
                     .exposed_names(entry_owner.node)
-                    .is_some_and(|names| names.contains(name))
+                    .is_some_and(|names| {
+                        names
+                            .binary_search_by(|exposed| exposed.as_ref().cmp(name))
+                            .is_ok()
+                    })
                 {
                     return Err(refused(
+                        meter,
+                        index,
                         Code::MissingDeclaration,
                         Cause::MissingName,
                         entry_at.key("name"),
@@ -328,6 +395,8 @@ fn validate_effect_entries(
             }
             _ => {
                 return Err(refused(
+                    meter,
+                    index,
                     Code::InvalidModelBinding,
                     Cause::MalformedDeclaration,
                     entry_at,
@@ -339,15 +408,17 @@ fn validate_effect_entries(
         ("creates", &row.effect.creates),
         ("deletes", &row.effect.deletes),
     ] {
-        for (index, entry) in entries.iter().enumerate() {
-            let entry_at = effect_at.clone().key(kind).index(index);
-            let entry_owner = models.owner_by_key(entry).ok_or_else(|| {
-                refused(
+        for (position, entry) in entries.iter().enumerate() {
+            let entry_at = effect_at.key(kind).index(position);
+            let Some(entry_owner) = models.owner_by_key(entry) else {
+                return Err(refused(
+                    meter,
+                    index,
                     Code::MissingDeclaration,
                     Cause::MissingName,
-                    entry_at.clone(),
-                )
-            })?;
+                    entry_at,
+                ));
+            };
             if entry_owner.selection != selection
                 || !matches!(
                     entry_owner.form,
@@ -355,6 +426,8 @@ fn validate_effect_entries(
                 )
             {
                 return Err(refused(
+                    meter,
+                    index,
                     Code::InvalidModelBinding,
                     Cause::MalformedDeclaration,
                     entry_at,
@@ -362,11 +435,13 @@ fn validate_effect_entries(
             }
         }
     }
-    for (index, entry) in row.effect.deletes_scoped.iter().enumerate() {
-        let entry_at = effect_at.clone().key("deletes_scoped").index(index);
+    for (position, entry) in row.effect.deletes_scoped.iter().enumerate() {
+        let entry_at = effect_at.key("deletes_scoped").index(position);
         match entry {
             CheckedScopedDeletion::Receiver if declaring_form != DeclarationForm::ObjectType => {
                 return Err(refused(
+                    meter,
+                    index,
                     Code::InvalidModelBinding,
                     Cause::MalformedDeclaration,
                     entry_at,
@@ -379,6 +454,8 @@ fn validate_effect_entries(
                     .any(|parameter| parameter.name.as_deref() == Some(name.as_ref())) =>
             {
                 return Err(refused(
+                    meter,
+                    index,
                     Code::MissingDeclaration,
                     Cause::MissingName,
                     entry_at.key("name"),
@@ -393,9 +470,12 @@ fn validate_effect_entries(
         .windows(2)
         .all(|pair| modification_key(&pair[0]) < modification_key(&pair[1]));
     if !ordered_modifies {
-        return Err(ValidationFailure::refused(
+        return Err(fail(
+            meter,
+            index,
             Code::InvalidSemanticGraph,
-            effect_at.clone().key("modifies"),
+            None,
+            effect_at.key("modifies"),
         ));
     }
     for (kind, entries) in [
@@ -403,9 +483,12 @@ fn validate_effect_entries(
         ("deletes", &row.effect.deletes),
     ] {
         if !entries.windows(2).all(|pair| pair[0] < pair[1]) {
-            return Err(ValidationFailure::refused(
+            return Err(fail(
+                meter,
+                index,
                 Code::InvalidSemanticGraph,
-                effect_at.clone().key(kind),
+                None,
+                effect_at.key(kind),
             ));
         }
     }
@@ -415,12 +498,60 @@ fn validate_effect_entries(
         .windows(2)
         .all(|pair| scoped_key(&pair[0]) < scoped_key(&pair[1]))
     {
-        return Err(ValidationFailure::refused(
+        return Err(fail(
+            meter,
+            index,
             Code::InvalidSemanticGraph,
+            None,
             effect_at.key("deletes_scoped"),
         ));
     }
     Ok(())
+}
+
+/// A name that is `head`, or `head/tail`, compared as that text without
+/// building it.
+#[derive(Clone, Copy, Debug)]
+struct Joined<'a>(&'a str, Option<&'a str>);
+
+impl Joined<'_> {
+    fn bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        self.0.bytes().chain(
+            self.1
+                .into_iter()
+                .flat_map(|tail| std::iter::once(b'/').chain(tail.bytes())),
+        )
+    }
+}
+
+impl PartialEq for Joined<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes().eq(other.bytes())
+    }
+}
+
+impl Eq for Joined<'_> {}
+
+impl PartialOrd for Joined<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Joined<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.bytes().cmp(other.bytes())
+    }
+}
+
+/// A modification grant as the source frame spells it: a kind, the member's
+/// name and a scope.
+type Grant<'a> = (&'static str, Joined<'a>, &'static str);
+
+/// Sorts and de-duplicates a table, as a set compares.
+fn as_set<T: Ord>(table: &mut Vec<T>) {
+    table.sort_unstable();
+    table.dedup();
 }
 
 fn compare_source_frame(
@@ -428,17 +559,30 @@ fn compare_source_frame(
     operation: &OperationDecl,
     models: &RetainedModels,
     source: &DomainModel,
-    at: &JsonPointer,
+    meter: &mut WorkMeter,
+    index: usize,
 ) -> Result<(), ValidationFailure> {
-    let effect_at = at.clone().key("effect");
-    let mut actual_modifies = BTreeSet::new();
+    let effect_at = rows_at().index(index).key("effect");
+    let at = site(index, effect_at);
+    let mismatch = |meter: &mut WorkMeter, member: &'static str| {
+        refused(
+            meter,
+            index,
+            Code::InvalidPackage,
+            Cause::InvalidValue,
+            effect_at.key(member),
+        )
+    };
+    let frame = &operation.frame;
+    let mut actual_modifies: Vec<Grant<'_>> =
+        stage_storage::vec(meter, &at, row.effect.modifies.len())?;
     for entry in &row.effect.modifies {
         match entry {
             CheckedFrameModification::Relationship { declaration } => {
                 let Some((_, original, _)) = models.selected_declaration(declaration) else {
                     continue;
                 };
-                actual_modifies.insert(("relationship", original.to_owned(), "every-object"));
+                actual_modifies.push(("relationship", Joined(original, None), "every-object"));
             }
             CheckedFrameModification::Field {
                 declaration,
@@ -448,9 +592,9 @@ fn compare_source_frame(
                 let Some((_, original, _)) = models.selected_declaration(declaration) else {
                     continue;
                 };
-                actual_modifies.insert((
+                actual_modifies.push((
                     "field",
-                    format!("{original}/{name}"),
+                    Joined(original, Some(name)),
                     match scope {
                         CheckedFieldScope::EveryObject => "every-object",
                         CheckedFieldScope::Receiver => "receiver",
@@ -459,70 +603,73 @@ fn compare_source_frame(
             }
         }
     }
-    let mut expected_modifies = BTreeSet::new();
-    for original in &operation.frame.modifies {
+    as_set(&mut actual_modifies);
+    let mut expected_modifies: Vec<Grant<'_>> = stage_storage::vec(
+        meter,
+        &at,
+        frame
+            .modifies
+            .len()
+            .saturating_add(frame.modifies_receiver.len()),
+    )?;
+    for original in &frame.modifies {
+        let original: &str = original.as_ref();
         let kind = if source.relationships.contains_key(original) {
             "relationship"
         } else {
             "field"
         };
-        expected_modifies.insert((kind, original.to_string(), "every-object"));
+        expected_modifies.push((kind, Joined(original, None), "every-object"));
     }
-    for original in &operation.frame.modifies_receiver {
-        expected_modifies.insert(("field", original.to_string(), "receiver"));
+    for original in &frame.modifies_receiver {
+        expected_modifies.push(("field", Joined(original.as_ref(), None), "receiver"));
     }
+    as_set(&mut expected_modifies);
     if actual_modifies != expected_modifies {
-        return Err(refused(
-            Code::InvalidPackage,
-            Cause::InvalidValue,
-            effect_at.clone().key("modifies"),
-        ));
+        return Err(mismatch(meter, "modifies"));
     }
     for (kind, entries, expected) in [
-        ("creates", &row.effect.creates, &operation.frame.creates),
-        ("deletes", &row.effect.deletes, &operation.frame.deletes),
+        ("creates", &row.effect.creates, &frame.creates),
+        ("deletes", &row.effect.deletes, &frame.deletes),
     ] {
-        let actual: BTreeSet<_> = entries
-            .iter()
-            .filter_map(|id| {
-                models
-                    .selected_declaration(id)
-                    .map(|(_, original, _)| original.to_owned())
-            })
-            .collect();
-        let expected: BTreeSet<_> = expected.iter().map(|name| name.to_string()).collect();
-        if actual != expected {
-            return Err(refused(
-                Code::InvalidPackage,
-                Cause::InvalidValue,
-                effect_at.clone().key(kind),
-            ));
+        let mut actual: Vec<&str> = stage_storage::vec(meter, &at, entries.len())?;
+        actual.extend(entries.iter().filter_map(|id| {
+            models
+                .selected_declaration(id)
+                .map(|(_, original, _)| original)
+        }));
+        as_set(&mut actual);
+        let mut wanted: Vec<&str> = stage_storage::vec(meter, &at, expected.len())?;
+        wanted.extend(expected.iter().map(|name| -> &str { name.as_ref() }));
+        as_set(&mut wanted);
+        if actual != wanted {
+            return Err(mismatch(meter, kind));
         }
     }
-    let actual_scoped: BTreeSet<_> = row
-        .effect
-        .deletes_scoped
-        .iter()
-        .map(|entry| match entry {
-            CheckedScopedDeletion::Receiver => ("receiver", "".to_owned()),
-            CheckedScopedDeletion::Parameter { name } => ("parameter", name.to_string()),
-        })
-        .collect();
-    let mut expected_scoped: BTreeSet<_> = operation
-        .frame
-        .deletes_parameters
-        .iter()
-        .map(|name| ("parameter", name.to_string()))
-        .collect();
-    if operation.frame.deletes_receiver {
-        expected_scoped.insert(("receiver", "".to_owned()));
+    let mut actual_scoped: Vec<(u8, &str)> =
+        stage_storage::vec(meter, &at, row.effect.deletes_scoped.len())?;
+    actual_scoped.extend(row.effect.deletes_scoped.iter().map(scoped_key));
+    as_set(&mut actual_scoped);
+    let mut expected_scoped: Vec<(u8, &str)> = stage_storage::vec(
+        meter,
+        &at,
+        frame
+            .deletes_parameters
+            .len()
+            .saturating_add(usize::from(frame.deletes_receiver)),
+    )?;
+    expected_scoped.extend(
+        frame
+            .deletes_parameters
+            .iter()
+            .map(|name| (1, name.as_ref())),
+    );
+    if frame.deletes_receiver {
+        expected_scoped.push((0, ""));
     }
+    as_set(&mut expected_scoped);
     if actual_scoped != expected_scoped {
-        return Err(refused(
-            Code::InvalidPackage,
-            Cause::InvalidValue,
-            effect_at.key("deletes_scoped"),
-        ));
+        return Err(mismatch(meter, "deletes_scoped"));
     }
     Ok(())
 }
@@ -538,23 +685,47 @@ pub(super) fn validate(
         return Ok(());
     };
     if rows.is_empty() {
-        return Err(malformed(JsonPointer::root().key("operation_effects")));
+        return Err(malformed(meter, 0, rows_at()));
     }
-    let mut covered = BTreeSet::new();
-    let mut previous: Option<(&str, &CheckedNodeId, &str)> = None;
+    type Key<'a> = (&'a str, &'a CheckedNodeId, &'a str);
+    fn key_of(row: &CheckedOperationEffectRow) -> Key<'_> {
+        (
+            row.document.as_ref(),
+            &row.declaring,
+            row.operation.as_ref(),
+        )
+    }
+    // The first row that repeats an earlier row's operation, and the sorted
+    // table the final coverage check searches.
+    let mut covered: Vec<(Key<'_>, usize)> =
+        stage_storage::vec(meter, &site(0, rows_at()), rows.len())?;
+    covered.extend(
+        rows.iter()
+            .enumerate()
+            .map(|(position, row)| (key_of(row), position)),
+    );
+    covered.sort_unstable();
+    let repeated = covered
+        .windows(2)
+        .filter(|pair| pair[0].0 == pair[1].0)
+        .map(|pair| pair[1].1)
+        .min();
+    let mut previous: Option<Key<'_>> = None;
     for (index, row) in rows.iter().enumerate() {
-        let at = row_at(index);
-        meter.charge(1, || at.clone())?;
-        check_shape(row, meter, &at)?;
+        let at = rows_at().index(index);
+        stage_storage::work(meter, &site(index, at), 1)?;
+        check_shape(row, meter, index)?;
         if !models
             .selected_models()
             .iter()
             .any(|model| model.identity == row.document)
         {
             return Err(refused(
+                meter,
+                index,
                 Code::MissingDeclaration,
                 Cause::MissingSelection,
-                at.clone().key("document"),
+                at.key("document"),
             ));
         }
         if !models
@@ -563,76 +734,98 @@ pub(super) fn validate(
             .any(|model| model.identity == row.declaring.package)
         {
             return Err(refused(
+                meter,
+                index,
                 Code::InvalidPackage,
                 Cause::InvalidValue,
-                at.clone().key("declaring"),
+                at.key("declaring"),
             ));
         }
-        let owner = models.owner_by_key(&row.declaring).ok_or_else(|| {
-            refused(
+        let Some(owner) = models.owner_by_key(&row.declaring) else {
+            return Err(refused(
+                meter,
+                index,
                 Code::MissingDeclaration,
                 Cause::MissingName,
-                at.clone().key("declaring"),
-            )
-        })?;
+                at.key("declaring"),
+            ));
+        };
         if !matches!(
             owner.form,
             DeclarationForm::ObjectType | DeclarationForm::Process | DeclarationForm::StateMachine
         ) {
             return Err(refused(
+                meter,
+                index,
                 Code::IllTyped,
                 Cause::OperatorIneligible,
-                at.clone().key("declaring"),
+                at.key("declaring"),
             ));
         }
         if owner.package.identity != row.document {
             return Err(refused(
+                meter,
+                index,
                 Code::InvalidPackage,
                 Cause::InvalidValue,
-                at.clone().key("document"),
+                at.key("document"),
             ));
         }
-        let declared = owner.package.object_types.get(owner.node).ok_or_else(|| {
-            refused(
+        let Some(declared) = owner.package.object_types.get(owner.node) else {
+            return Err(refused(
+                meter,
+                index,
                 Code::IllTyped,
                 Cause::OperatorIneligible,
-                at.clone().key("declaring"),
-            )
-        })?;
-        let operation = own_operation(declared, &row.operation).ok_or_else(|| {
-            refused(
+                at.key("declaring"),
+            ));
+        };
+        let Some(operation) = own_operation(declared, &row.operation) else {
+            return Err(refused(
+                meter,
+                index,
                 Code::IllTyped,
                 Cause::OperatorIneligible,
-                at.clone().key("operation"),
-            )
-        })?;
+                at.key("operation"),
+            ));
+        };
         if row.provenance.member != operation.identity {
             return Err(refused(
+                meter,
+                index,
                 Code::InvalidPackage,
                 Cause::InvalidValue,
-                at.clone().key("provenance").key("member"),
+                at.key("provenance").key("member"),
             ));
         }
-        validate_effect_entries(row, operation, models, owner.selection, owner.form, &at)?;
-        compare_source_frame(row, operation, models, owner.package, &at)?;
-        let key = (
-            row.document.as_ref(),
-            &row.declaring,
-            row.operation.as_ref(),
-        );
-        if !covered.insert((
-            row.document.clone(),
-            row.declaring.clone(),
-            row.operation.clone(),
-        )) {
+        validate_effect_entries(
+            row,
+            operation,
+            models,
+            owner.selection,
+            owner.form,
+            meter,
+            index,
+        )?;
+        compare_source_frame(row, operation, models, owner.package, meter, index)?;
+        if repeated == Some(index) {
             return Err(refused(
+                meter,
+                index,
                 Code::InvalidPackage,
                 Cause::ConflictingDefinition,
                 at,
             ));
         }
+        let key = key_of(row);
         if previous.is_some_and(|earlier| earlier >= key) {
-            return Err(refused(Code::InvalidPackage, Cause::InvalidValue, at));
+            return Err(refused(
+                meter,
+                index,
+                Code::InvalidPackage,
+                Cause::InvalidValue,
+                at,
+            ));
         }
         previous = Some(key);
     }
@@ -650,15 +843,21 @@ pub(super) fn validate(
             continue;
         };
         for operation in &declared.operations {
-            if !covered.contains(&(
-                owner.package.identity.clone(),
-                key.clone(),
-                member_name(&operation.identity).into(),
-            )) {
+            let probe: Key<'_> = (
+                owner.package.identity.as_ref(),
+                key,
+                member_name(&operation.identity),
+            );
+            if covered
+                .binary_search_by(|(held, _)| held.cmp(&probe))
+                .is_err()
+            {
                 return Err(refused(
+                    meter,
+                    0,
                     Code::InvalidPackage,
                     Cause::InvalidValue,
-                    JsonPointer::root().key("operation_effects"),
+                    rows_at(),
                 ));
             }
         }

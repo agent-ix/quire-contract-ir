@@ -10846,7 +10846,7 @@ fn recovery_case_arm_binder_is_local_to_its_arm_body() {
     let CheckedTerm::Aggregate { members: empty } = empty.as_ref() else {
         panic!("Empty arm");
     };
-    assert!(matches!(&empty[1], CheckedTerm::Literal { value, .. } if value == "0"));
+    assert!(matches!(&empty[1], CheckedTerm::Literal { value, .. } if value.as_str() == Some("0")));
 }
 
 fn assert_recovery_case_binder_refusal(package: &Value, compensation: usize) {
@@ -11507,4 +11507,41 @@ fn port_member_borrowed_read_and_typed_writer_preserve_the_exact_pair() {
         read_port(&legacy, &document),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
+}
+
+/// The protocol step's position tables, binder scopes, slot walks and
+/// compensation checks are charged at protocol loci before they are made
+/// (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn protocol_step_tables_and_walks_are_charged_to_the_read_budget() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    use quire_contract_model::{NativeJoinBudget, PackageReadStage};
+    let (package, ..) = decision_fact_fixture();
+    let bytes = canonical(&package);
+    let evidence = evidence_for(&package);
+    let reader = |budget: &mut NativeJoinBudget| {
+        CheckedPackageV2::read_with_budget(
+            &bytes,
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+            budget,
+        )
+    };
+    let requests = stage_requests(&reader, PackageReadStage::Graph);
+    let protocol = requests
+        .iter()
+        .filter(|request| request.form == "protocol")
+        .count();
+    // The declaration-path table, the visited marks, the binder-origin and
+    // fact-role tables, the position sets of each scope, the slot walks'
+    // lists and the causality tables are requests of their own: before they
+    // were charged the step made 170 requests here, not over 250.
+    assert!(
+        protocol > 250,
+        "the protocol step charges its tables and walks: {protocol}"
+    );
+    assert_exact_and_one_short(&reader, &requests);
 }

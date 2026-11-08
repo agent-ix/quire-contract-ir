@@ -12,6 +12,7 @@ use super::{
     CheckedOccurrenceRole, CheckedPackageV2, CheckedScalarOperandRange, CheckedSemanticNodeV2,
     CheckedTerm, LiteralKind, StateClauseKind, StateForm, ValueForm,
 };
+#[cfg(test)]
 use serde_json::Value;
 use thiserror::Error;
 
@@ -290,10 +291,9 @@ impl CheckedPackageV2 {
         if self
             .term(clause)
             .and_then(|term| match term {
-                CheckedTerm::Application { operation, .. } => operation.pointer("/member/clause"),
+                CheckedTerm::Application { operation, .. } => operation.member_text("clause"),
                 _ => None,
             })
-            .and_then(Value::as_str)
             .is_some_and(|kind| StateClauseKind::from_wire(kind).is_none())
         {
             return Err(context.error(
@@ -310,7 +310,7 @@ impl CheckedPackageV2 {
                 context.error(Refusal::NotStateClause, Path::Clause, Some(clause.clone()))
             })?;
         context.kind = body.clause.into();
-        context.parameters = body.parameters;
+        context.parameters = body.parameters().cloned().collect();
         if !matches!(
             context.kind,
             CheckedComparisonClauseKind::Invariant | CheckedComparisonClauseKind::Constraint
@@ -363,16 +363,13 @@ impl CheckedPackageV2 {
                 Some(condition.clone()),
             ));
         };
-        let identity = operation
-            .get("identity")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                context.error(
-                    Refusal::UnknownOperator,
-                    Path::Comparison,
-                    Some(condition.clone()),
-                )
-            })?;
+        let identity = operation.identity().ok_or_else(|| {
+            context.error(
+                Refusal::UnknownOperator,
+                Path::Comparison,
+                Some(condition.clone()),
+            )
+        })?;
         if self.catalog.entry(identity).is_none() {
             return Err(context.error(
                 Refusal::UnknownOperator,
@@ -564,34 +561,26 @@ fn read_range(
     else {
         return Err(fail(Refusal::IneligibleOperand));
     };
-    let member = operation
-        .get("member")
-        .ok_or_else(|| fail(Refusal::IneligibleOperand))?;
-    if member.get("kind").and_then(Value::as_str) != Some("field") {
+    if operation.member_kind() != Some(super::OperationMemberKind::Field) {
         return Err(fail(Refusal::IneligibleOperand));
     }
-    let declaration: CheckedNodeId = serde_json::from_value(
-        member
-            .get("declaration")
-            .cloned()
-            .ok_or_else(|| fail(Refusal::IneligibleOperand))?,
-    )
-    .map_err(|_| fail(Refusal::IneligibleOperand))?;
+    let declaration = operation
+        .member_key("declaration")
+        .ok_or_else(|| fail(Refusal::IneligibleOperand))?;
     let self_type = context
         .parameters
         .first()
         .and_then(|id| context.node(id))
         .and_then(|parameter| context.node(&parameter.semantic_type))
         .and_then(reference_type_target_typed);
-    if self_type.as_ref() != Some(&declaration)
-        || deref.semantic_type != declaration
+    if self_type.as_ref() != Some(declaration)
+        || &deref.semantic_type != declaration
         || result_type != &project.semantic_type
     {
         return Err(fail(Refusal::IneligibleOperand));
     }
-    let field = member
-        .get("name")
-        .and_then(Value::as_str)
+    let field = operation
+        .member_name()
         .ok_or_else(|| fail(Refusal::IneligibleOperand))?;
     let declared = context
         .node(&declaration)
@@ -621,7 +610,7 @@ fn read_range(
         Kind::Read {
             provenance: Read::StateField {
                 project: project.node_id.clone(),
-                declaration,
+                declaration: declaration.clone(),
                 field: field.into(),
             },
             observation,
@@ -637,7 +626,7 @@ fn operation_identity<'a>(
     let CheckedTerm::Application { operation, .. } = package.term(&node.node_id)? else {
         return None;
     };
-    operation.get("identity").and_then(Value::as_str)
+    operation.identity()
 }
 
 fn one_reference(
@@ -672,12 +661,14 @@ fn literal_range(term: &Value) -> Result<CheckedScalarOperandRange, CheckedCompa
     if term.get("value_kind").and_then(Value::as_str) != Some("integer") {
         return Err(Refusal::IneligibleOperand);
     }
-    integer_value_range(term.get("value").ok_or(Refusal::IneligibleOperand)?)
+    integer_value_range(&super::CheckedJson::scalar(
+        term.get("value").ok_or(Refusal::IneligibleOperand)?,
+    ))
 }
 
 fn typed_literal_range(
     kind: LiteralKind,
-    value: &Value,
+    value: &super::CheckedJson,
 ) -> Result<CheckedScalarOperandRange, CheckedComparisonRefusal> {
     if kind != LiteralKind::Integer {
         return Err(CheckedComparisonRefusal::IneligibleOperand);
@@ -686,7 +677,7 @@ fn typed_literal_range(
 }
 
 fn integer_value_range(
-    value: &Value,
+    value: &super::CheckedJson,
 ) -> Result<CheckedScalarOperandRange, CheckedComparisonRefusal> {
     use CheckedComparisonRefusal as Refusal;
     let text = value.as_str().ok_or(Refusal::IneligibleOperand)?;
@@ -795,7 +786,7 @@ mod tests {
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+            catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
         }
         .retain_original_admission();

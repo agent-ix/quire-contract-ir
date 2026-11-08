@@ -8,6 +8,9 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code,
 };
 use ix_trace_rs::trace;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 /// Preserve the actual native converter's closed outputs and typed refusal.
 #[trace("TC-460")]
@@ -142,10 +145,10 @@ fn record_wrong_kind_type_refs_retain_field_identity_and_type_ref_path() {
             ]);
         let mut meter = WorkMeter::new(u64::MAX);
         let Err(SelectionFailure::Refused(refusal)) = read_semantic_ir(
-            &selected,
+            view_of(&selected),
             "checked",
             &mut Budget::new(&mut meter, 0, BYTES),
-            &Arc::new(BTreeMap::new()),
+            &crate::checked_package::v2::model_members::UnitRefs::default(),
         ) else {
             panic!("{kind}: wrong record field type must refuse");
         };
@@ -157,11 +160,11 @@ fn record_wrong_kind_type_refs_retain_field_identity_and_type_ref_path() {
         );
         assert_eq!(
             refusal.declaration_path,
-            Some(vec![
+            Some(SegPath::from_slice(&[
                 Segment::Name("fields"),
                 Segment::Index(0),
                 Segment::Name("typeRef")
-            ]),
+            ])),
             "{kind}"
         );
     }
@@ -253,7 +256,10 @@ fn tc_056_record_owner_index_uses_selected_row_work_budget() {
     assert!(index(2).is_ok(), "the two owner keys use exactly two units");
     match index(1) {
         Err(ValidationFailure::Incomplete(record)) => {
-            assert_eq!(record.limit_kind, CheckedPackageLimit::Work);
+            assert_eq!(
+                record.limit_kind,
+                crate::checked_package::shared::CheckedPackageLimit::Work
+            );
             assert_eq!(
                 record.path.as_ref().map(|path| path.as_str()),
                 Some("/semantic_graph/nodes/0/owner")
@@ -266,17 +272,27 @@ fn tc_056_record_owner_index_uses_selected_row_work_budget() {
 /// [`read_semantic_ir`] under a work limit nothing reaches, with the field
 /// tables the lock stage builds.
 pub(in crate::checked_package::v2) fn read(document: &Value) -> Result<DomainModel, ModelRefusal> {
-    read_with_unit_refs(document, &Arc::new(BTreeMap::new()))
+    read_with_unit_refs(
+        document,
+        &crate::checked_package::v2::model_members::UnitRefs::default(),
+    )
 }
 
 /// Test intake with already resolved selected unit keys.
+/// A unit table over `refs`, for fixtures.
+pub(in crate::checked_package::v2) fn unit_refs_of(
+    refs: BTreeMap<Box<str>, CheckedNodeId>,
+) -> UnitRefs {
+    Arc::new(SortedMap::from_sorted(refs.into_iter().collect()))
+}
+
 pub(in crate::checked_package::v2) fn read_with_unit_refs(
     document: &Value,
     unit_refs: &UnitRefs,
 ) -> Result<DomainModel, ModelRefusal> {
     let mut meter = WorkMeter::new(u64::MAX);
     match read_semantic_ir(
-        document,
+        view_of(document),
         "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
         unit_refs,
@@ -354,8 +370,8 @@ pub(in crate::checked_package::v2) fn document(types: Vec<Value>) -> Value {
     })
 }
 
-const WIDGET: &str = "ix://acme/orders/Widget";
-const GADGET: &str = "ix://acme/orders/Gadget";
+pub(in crate::checked_package::v2) const WIDGET: &str = "ix://acme/orders/Widget";
+pub(in crate::checked_package::v2) const GADGET: &str = "ix://acme/orders/Gadget";
 const LINK: &str = "ix://acme/orders/relationship/Widget-links-Gadget";
 
 /// IR-1059 slice 1: local tuple order and variant payload retention.
@@ -505,6 +521,29 @@ fn inherited_operation_binders_use_named_receiver_and_retained_result() {
         .expect("integer ID");
     assert_eq!(signature[1], integer);
     assert_eq!(signature[2], integer);
+    let run = |limit| {
+        let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        let mut result = None;
+        let measured = allocation_counter::measure(|| {
+            let mut meter = WorkMeter::over(&mut native);
+            result = Some(model.effective_operation_binder_types(
+                GADGET,
+                "act",
+                &mut Budget::new(&mut meter, 0, BYTES),
+            ));
+        });
+        (
+            result.expect("ran"),
+            measured.bytes_total,
+            native.read_storage_consumed(),
+        )
+    };
+    let (actual, allocated, charged) = run(u64::MAX);
+    assert_eq!(actual.expect("unlimited"), Some(signature.clone()));
+    assert!(charged > 0);
+    assert_eq!(allocated, charged);
+    assert_eq!(run(charged).0.expect("exact limit"), Some(signature));
+    assert!(run(charged - 1).0.is_err(), "one short");
 }
 
 /// Provenance: IR-874 effective record binder order.
@@ -530,8 +569,13 @@ fn record_binders_keep_field_declaration_order() {
             "construct": {"meaning": "quire.meaning.model.record-value-type/v1"}
         }));
     let model = read(&source).expect("selected record");
-    let RecordBinderTypes::Known(binders) =
-        model.record_binder_types(RECORD).expect("record signature")
+    let RecordBinderTypes::Known(binders) = model
+        .record_binder_types(
+            RECORD,
+            &mut Budget::new(&mut WorkMeter::new(u64::MAX), 0, BYTES),
+        )
+        .expect("budget")
+        .expect("record signature")
     else {
         panic!("unambiguous record has a binder signature");
     };
@@ -615,10 +659,10 @@ fn operation_parameter_names_are_validated_at_selection() {
     );
     let mut meter = WorkMeter::new(u64::MAX);
     let Err(SelectionFailure::Refused(refusal)) = read_semantic_ir(
-        &repeated,
+        view_of(&repeated),
         "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
-        &Arc::new(BTreeMap::new()),
+        &crate::checked_package::v2::model_members::UnitRefs::default(),
     ) else {
         panic!("expected repeated parameter identity refusal");
     };
@@ -628,12 +672,12 @@ fn operation_parameter_names_are_validated_at_selection() {
     );
     assert_eq!(
         refusal.declaration_path,
-        Some(vec![
+        Some(SegPath::from_slice(&[
             Segment::Name("operations"),
             Segment::Index(0),
             Segment::Name("params"),
             Segment::Index(1),
-        ])
+        ]))
     );
     assert_eq!(refusal.declaration_origin, None);
     let mut object = object_type(WIDGET, &[], vec![]);
@@ -658,10 +702,10 @@ fn operation_parameter_name_refusal_retains_the_operation_origin() {
     }]);
     let mut meter = WorkMeter::new(u64::MAX);
     let selection = read_semantic_ir(
-        &document(vec![object]),
+        view_of(&document(vec![object])),
         "checked",
         &mut Budget::new(&mut meter, 0, BYTES),
-        &Arc::new(BTreeMap::new()),
+        &crate::checked_package::v2::model_members::UnitRefs::default(),
     );
     let Err(SelectionFailure::Refused(refusal)) = selection else {
         panic!("expected a selected-document refusal");
@@ -669,13 +713,13 @@ fn operation_parameter_name_refusal_retains_the_operation_origin() {
     assert_eq!(refusal.refusal, ModelRefusal::malformed());
     assert_eq!(
         refusal.declaration_path,
-        Some(vec![
+        Some(SegPath::from_slice(&[
             Segment::Name("operations"),
             Segment::Index(0),
             Segment::Name("params"),
             Segment::Index(0),
             Segment::Name("name"),
-        ])
+        ]))
     );
     assert_eq!(
         refusal.declaration_identity.as_deref(),
@@ -987,10 +1031,10 @@ fn tc_048_relationship_document_read_uses_the_exact_selected_row_work_budget() {
     let read_at = |work| {
         let mut meter = WorkMeter::new(work);
         read_semantic_ir(
-            &document,
+            view_of(&document),
             "checked",
             &mut Budget::new(&mut meter, 0, BYTES),
-            &Arc::new(BTreeMap::new()),
+            &crate::checked_package::v2::model_members::UnitRefs::default(),
         )
     };
     let mut below = 0;
@@ -1203,7 +1247,7 @@ fn tc_048_a_selection_admits_only_the_document_it_names() {
             "checked",
             evidence,
             &mut Budget::new(&mut meter, 0, BYTES),
-            &Arc::new(BTreeMap::new()),
+            &crate::checked_package::v2::model_members::UnitRefs::default(),
         )
     };
     let (admitted, _) = admit("acme/orders", &evidence).expect("admitted");
@@ -1406,28 +1450,28 @@ fn tc_048_reading_and_resolving_are_charged_to_the_work_limit() {
     let document = document(types());
     let mut unlimited = WorkMeter::new(u64::MAX);
     read_semantic_ir(
-        &document,
+        view_of(&document),
         "checked",
         &mut Budget::new(&mut unlimited, 2, BYTES),
-        &Arc::new(BTreeMap::new()),
+        &crate::checked_package::v2::model_members::UnitRefs::default(),
     )
     .expect("reads");
     let used = unlimited.consumed();
     assert!(used > 0, "a read is charged");
     let mut exact = WorkMeter::new(used);
     read_semantic_ir(
-        &document,
+        view_of(&document),
         "checked",
         &mut Budget::new(&mut exact, 2, BYTES),
-        &Arc::new(BTreeMap::new()),
+        &crate::checked_package::v2::model_members::UnitRefs::default(),
     )
     .expect("exact work admits");
     let mut tight = WorkMeter::new(used - 1);
     let Err(SelectionFailure::Limit(failure)) = read_semantic_ir(
-        &document,
+        view_of(&document),
         "checked",
         &mut Budget::new(&mut tight, 2, BYTES),
-        &Arc::new(BTreeMap::new()),
+        &crate::checked_package::v2::model_members::UnitRefs::default(),
     ) else {
         panic!("one unit less than the read used is a limit");
     };
@@ -1657,6 +1701,7 @@ fn tc_227_resolve_answers_match_the_values_recorded_before_the_field_tables() {
     assert_eq!(actual, RECORDED);
 }
 
+mod budgeted_charge;
 mod intake_retention;
 
 /// Runtime helper ownership is charged before scalar, unit, alias and wrapper copies.
@@ -1706,7 +1751,7 @@ fn runtime_member_helpers_precharge_each_owned_layer_and_unit_handle() {
     };
     let unit = unit_node("metre");
     let second = unit_node("second");
-    let unit_refs = Arc::new(BTreeMap::from([
+    let unit_refs = unit_refs_of(BTreeMap::from([
         (Box::from("ix://quire/unit/metre"), unit.clone()),
         (
             format!("{DURATION_RESOLVED_PREFIX}ix://quire/unit/s").into_boxed_str(),
@@ -1896,7 +1941,7 @@ fn runtime_duration_lookup_preserves_exact_owner_and_global_selection() {
         } else {
             document(vec![])
         };
-        let model = read_with_unit_refs(&source, &Arc::new(refs)).unwrap();
+        let model = read_with_unit_refs(&source, &unit_refs_of(refs)).unwrap();
         assert_eq!(model.own_seconds_declared, owns_seconds);
         let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         assert_eq!(
@@ -1907,5 +1952,169 @@ fn runtime_duration_lookup_preserves_exact_owner_and_global_selection() {
             model.element_type(&duration),
             expected.map(MemberType::Quantity)
         );
+    }
+}
+
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn selected_member_type_parsers_reserve_every_owned_byte() {
+    let mut values = field(WIDGET, "values", WIDGET);
+    values["multiplicity"] = multiplicity(0, Some(3));
+    let model = read(&document(vec![
+        object_type(WIDGET, &[], vec![values]),
+        json!({"identity":"ix://acme/orders/Items", "kind":"sequence", "items":WIDGET}),
+        json!({"identity":"ix://acme/orders/MaybeItems", "kind":"option", "inner":"ix://acme/orders/Items"}),
+    ])).expect("selected model");
+    let references = [
+        SelectedTypeRef::Declared(WIDGET.into()),
+        SelectedTypeRef::Declared("ix://acme/orders/MaybeItems".into()),
+    ];
+    let mut field = model.object_types[WIDGET].fields[0].clone();
+    field.optional = true;
+    for case in 0..4 {
+        let expected = match case {
+            0 | 1 => model.element_type(&references[case]),
+            2 => model.slot_type(&field.slot),
+            _ => model.field_type(&field),
+        };
+        let run = |limit| {
+            let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut native);
+                let mut budget = Budget::new(&mut meter, 0, u64::MAX);
+                result = Some(match case {
+                    0 | 1 => model.element_type_in(&references[case], &mut budget),
+                    2 => model.slot_type_charged(&field.slot, false, &mut budget, "member_type"),
+                    _ => model.field_type_charged(&field, &mut budget, "member_type"),
+                });
+            });
+            (
+                result.expect("ran"),
+                measured.bytes_total,
+                native.read_storage_consumed(),
+            )
+        };
+        let (actual, allocated, charged) = run(u64::MAX);
+        assert_eq!(actual.expect("unlimited"), expected);
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "case {case}");
+        assert_eq!(run(charged).0.expect("exact limit admits"), expected);
+        assert!(run(charged - 1).0.is_err(), "one short: {case}");
+    }
+}
+
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn selected_type_bounds_allocate_only_reserved_storage() {
+    let digit = json!({
+        "identity":"ix://acme/orders/Digit", "displayName":"Digit",
+        "kind":{"module":"acme/orders","name":"digit"}, "roles":[],"extensions":[],
+        "unknownPolicy":"reject","scalar":"integer",
+        "constraints":[{"keyword":"min","operands":{"value":0}},
+                       {"keyword":"max","operands":{"value":"9"}}]
+    });
+    let model = read(&document(vec![digit])).expect("model");
+    let id = MemberType::IntRange(IntegerBounds { lower: 0, upper: 9 })
+        .node_id(&model.checked_package)
+        .expect("range ID");
+    use super::super::{CheckedTerm, LiteralKind};
+    let members = [("min", "0"), ("max", "9")]
+        .into_iter()
+        .map(|(name, value)| CheckedTerm::Binding {
+            name: name.into(),
+            value: Box::new(CheckedTerm::Literal {
+                type_id: id.clone(),
+                value_kind: LiteralKind::Integer,
+                value: crate::CheckedJson::from_value(&json!(value)).expect("integer payload"),
+            }),
+        })
+        .collect();
+    let terms = [Some(CheckedTerm::Aggregate { members }), None];
+    let mut keys = vec![std::sync::Arc::new(id)];
+    let CheckedNodePathSegment::Node(integer) = &keys[0].path[3] else {
+        panic!("integer operand");
+    };
+    keys.push(std::sync::Arc::clone(integer));
+    let run = |limit| {
+        let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        let mut result = None;
+        let measured = allocation_counter::measure(|| {
+            let mut meter = WorkMeter::over(&mut native);
+            result = Some(super::super::structural::validate_selected_type_bounds(
+                std::slice::from_ref(&model),
+                &terms,
+                &keys,
+                &mut meter,
+            ));
+        });
+        (
+            result.expect("ran"),
+            measured.bytes_total,
+            native.read_storage_consumed(),
+        )
+    };
+    let (actual, allocated, charged) = run(u64::MAX);
+    actual.expect("valid selected bounds");
+    assert!(charged > 0);
+    assert_eq!(allocated, charged);
+    run(charged).0.expect("exact limit");
+    assert!(run(charged - 1).0.is_err(), "one short");
+}
+
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn selected_clock_rendering_and_duration_lookup_reserve_owned_storage() {
+    #[derive(Debug, PartialEq)]
+    enum Output {
+        Clock(Option<String>),
+        DurationAbsent(bool),
+    }
+    let model=read(&document(vec![
+        object_type(WIDGET,&[],vec![]),
+        json!({"identity":"ix://acme/orders/Items","kind":"sequence","items":WIDGET}),
+        json!({"identity":"ix://acme/orders/MaybeItems","kind":"option","inner":"ix://acme/orders/Items"}),
+    ])).expect("selected model");
+    let refs = [
+        SelectedTypeRef::Declared("ix://acme/orders/Items".into()),
+        SelectedTypeRef::Native(NativeTypeRef::Clock),
+        SelectedTypeRef::Native(NativeTypeRef::Duration),
+        SelectedTypeRef::Declared("ix://acme/orders/MaybeItems".into()),
+    ];
+    let expected = [
+        Output::Clock(Some(format!("Sequence<{WIDGET}>"))),
+        Output::Clock(Some("ix://quire/native/Clock".into())),
+        Output::DurationAbsent(true),
+        Output::Clock(None),
+    ];
+    for (case, expected) in expected.into_iter().enumerate() {
+        let run = |limit| {
+            let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut native);
+                let mut budget = Budget::new(&mut meter, 0, BYTES);
+                outcome = Some(if case == 2 {
+                    model
+                        .duration_unit_absent(&refs[case], &mut budget)
+                        .map(Output::DurationAbsent)
+                } else {
+                    model
+                        .clock_type_name_in(&refs[case], &mut budget)
+                        .map(Output::Clock)
+                });
+            });
+            (
+                outcome.expect("ran"),
+                measured.bytes_total,
+                native.read_storage_consumed(),
+            )
+        };
+        let (actual, allocated, charged) = run(u64::MAX);
+        assert_eq!(actual.expect("unlimited"), expected);
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "case {case}");
+        assert_eq!(run(charged).0.expect("exact limit"), expected);
+        assert!(run(charged - 1).0.is_err(), "one short: {case}");
     }
 }

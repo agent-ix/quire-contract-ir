@@ -12,22 +12,25 @@
 //! borrowed source array items against their typed serialization one at a
 //! time, except structural node identities, which compare from raw slices.
 
+use super::NativeJoinBudget;
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
     CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedJson, CheckedNodeOwner,
     CheckedPackageEnvelope, CheckedPackageLockV2, RawCheckedPackageWireV2, RawSemanticGraphV2,
     RawSemanticNodeV2, ValidationFailure,
 };
-use crate::checked_package::common::{decode_closed_bytes, node_pointer, strict_parse};
+use crate::checked_package::common::{decode_closed_document, node_pointer};
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSourceMapEntry,
     CheckedSourceRegion,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
+use quire_canonical::Document;
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// QSpec's KeyOrdinal admits a JSON integer through 2^53-1, or a canonical
 /// decimal string strictly above that bound.
@@ -79,28 +82,39 @@ fn position_member_shape(body: &Value) -> bool {
 // arbitrary JSON term. Those terms are decoded after the outer typed wire
 // frame has returned, keeping their recursion off its call stack. Every other
 // member is decoded by the same public type as the admitted wire.
-type BorrowedWire<'a> = CheckedPackageEnvelope<
-    Box<str>,
-    Box<str>,
-    CheckedPackageLockV2,
-    BorrowedGraph<'a>,
-    Vec<CheckedSourceMapEntry>,
-    Vec<super::refinement::CheckedRefinementStepRowRegion>,
-    super::checked_term_data::CheckedTermDataV2,
-    Vec<super::temporal_binding::TemporalBinding>,
-    Vec<super::TemporalClauseName>,
-    Vec<super::CheckedSchedulabilityClaimRow>,
-    Vec<super::CheckedOperationEffectRow>,
-    Vec<CheckedCapability>,
-    BorrowedDiagnostics<'a>,
->;
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BorrowedWire {
+    contract_version: Box<str>,
+    name: Box<str>,
+    lock: CheckedPackageLockV2,
+    semantic_graph: BorrowedGraph,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    source_map: Vec<CheckedSourceMapEntry>,
+    #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
+    refinement_step_rows: Option<Vec<super::refinement::CheckedRefinementStepRowRegion>>,
+    #[serde(default)]
+    checked_term_data: Option<super::checked_term_data::CheckedTermDataV2>,
+    #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
+    temporal_bindings: Option<Vec<super::temporal_binding::TemporalBinding>>,
+    #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
+    temporal_clause_names: Option<Vec<super::TemporalClauseName>>,
+    #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
+    schedulability_claims: Option<Vec<super::CheckedSchedulabilityClaimRow>>,
+    #[serde(default, deserialize_with = "super::operation_effects::present_rows")]
+    operation_effects: Option<Vec<super::CheckedOperationEffectRow>>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    capability_report: Vec<CheckedCapability>,
+    diagnostics: BorrowedDiagnostics,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BorrowedGraph<'a> {
+struct BorrowedGraph {
     graph_version: Box<str>,
-    #[serde(borrow)]
-    nodes: Vec<BorrowedNode<'a>>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    nodes: Vec<BorrowedNode>,
+    #[serde(deserialize_with = "super::document_de::exact_rows")]
     operand_rows: Vec<Vec<u64>>,
 }
 
@@ -112,22 +126,44 @@ struct WireNodeId(CheckedNodeId);
 
 impl<'de> Deserialize<'de> for WireNodeId {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = <&RawValue>::deserialize(deserializer)?;
-        serde_json::from_str(raw.get())
-            .map(Self)
-            .map_err(serde::de::Error::custom)
+        // The document deserializer decodes the id whole, so a fault inside
+        // it is reported at the id and not at a member of it.
+        struct Held;
+        impl<'de> serde::de::Visitor<'de> for Held {
+            type Value = WireNodeId;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a structural node id")
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<WireNodeId, E> {
+                super::document_de::take_node_id()
+                    .map(WireNodeId)
+                    .ok_or_else(|| E::custom("no node id was decoded"))
+            }
+
+            fn visit_newtype_struct<D2: Deserializer<'de>>(
+                self,
+                inner: D2,
+            ) -> Result<WireNodeId, D2::Error> {
+                CheckedNodeId::deserialize(inner).map(WireNodeId)
+            }
+        }
+        deserializer.deserialize_newtype_struct(super::document_de::NODE_ID_TOKEN, Held)
     }
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BorrowedNode<'a> {
+struct BorrowedNode {
     node_id: WireNodeId,
     schema_version: Box<str>,
     node_tag: Box<str>,
     semantic_form: Box<str>,
     semantic_type: WireNodeId,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     dependencies: Vec<WireNodeId>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     occurrences: Vec<CheckedOccurrence>,
     #[serde(default)]
     recursion_group: Option<Box<str>>,
@@ -137,8 +173,7 @@ struct BorrowedNode<'a> {
     owner: Option<CheckedNodeOwner>,
     #[serde(default)]
     owner_model: Option<WireNodeId>,
-    #[serde(borrow)]
-    body: &'a RawValue,
+    body: CheckedJson,
 }
 
 // The outer option records member presence; the inner option records JSON null.
@@ -152,28 +187,31 @@ where
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BorrowedDiagnostics<'a> {
+struct BorrowedDiagnostics {
     catalog: CheckedArtifactRef,
-    #[serde(borrow)]
-    entries: Vec<BorrowedDiagnostic<'a>>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    entries: Vec<BorrowedDiagnostic>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BorrowedDiagnostic<'a> {
+struct BorrowedDiagnostic {
     stage: CheckedDiagnosticStage,
     code: CheckedDiagnosticCode,
     cause_tag: CheckedDiagnosticCause,
-    #[serde(borrow)]
-    details: Vec<&'a RawValue>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    details: Vec<CheckedJson>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     loci: Vec<CheckedSourceRegion>,
 }
 
 #[ix_trace_rs::string_edge]
 pub(super) fn decode_borrowed_wire(
     bytes: &[u8],
-) -> Result<RawCheckedPackageWireV2, ValidationFailure> {
-    let wire: BorrowedWire<'_> = decode_closed_bytes(bytes).map_err(|mut failure| {
+    document: &Arc<Document>,
+    budget: &mut NativeJoinBudget,
+) -> Result<(RawCheckedPackageWireV2, Vec<CheckedJson>), ValidationFailure> {
+    let wire: BorrowedWire = decode_closed_document(document, budget).map_err(|mut failure| {
         if let ValidationFailure::Refused(ref mut refusal) = failure {
             if refusal.code == CheckedPackageRefusalCode::UnknownMember {
                 if let Some(index) = refusal
@@ -252,6 +290,18 @@ pub(super) fn decode_borrowed_wire(
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
     let mut nodes = Vec::with_capacity(graph.nodes.len());
+    // The node bodies as handles into the retained document: the node views
+    // read these, and the `Value` beside them is the bridge for validators
+    // that have not moved to the views.
+    let mut bodies = super::read_charge::with_capacity(
+        budget,
+        super::read_charge::Site::new(
+            super::PackageReadStage::WireDecode,
+            0,
+            "semantic_graph.nodes",
+        ),
+        graph.nodes.len(),
+    )?;
     for (position, node) in graph.nodes.into_iter().enumerate() {
         if node.node_tag.as_ref() == "scalar_type"
             && node.semantic_form.as_ref() == "dimension_equivalence"
@@ -262,7 +312,8 @@ pub(super) fn decode_borrowed_wire(
                 node_pointer(position),
             ));
         }
-        let body = strict_parse(node.body.get().as_bytes())?;
+        bodies.push(node.body.clone());
+        let body = node.body.to_value();
         if !position_member_shape(&body) {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::MalformedWire,
@@ -284,7 +335,7 @@ pub(super) fn decode_borrowed_wire(
             body,
         });
     }
-    Ok(CheckedPackageEnvelope {
+    let envelope = CheckedPackageEnvelope {
         contract_version: wire.contract_version,
         name: wire.name,
         lock: wire.lock,
@@ -311,24 +362,14 @@ pub(super) fn decode_borrowed_wire(
                         stage: entry.stage,
                         code: entry.code,
                         cause_tag: entry.cause_tag,
-                        details: entry
-                            .details
-                            .into_iter()
-                            .map(|term| {
-                                let value = strict_parse(term.get().as_bytes())?;
-                                CheckedJson::from_value(&value).map_err(|_| {
-                                    ValidationFailure::refused_bytes(
-                                        CheckedPackageRefusalCode::MalformedWire,
-                                    )
-                                })
-                            })
-                            .collect::<Result<Vec<_>, ValidationFailure>>()?,
+                        details: entry.details.into_iter().collect(),
                         loci: entry.loci,
                     })
                 })
                 .collect::<Result<Vec<_>, ValidationFailure>>()?,
         },
-    })
+    };
+    Ok((envelope, bodies))
 }
 
 #[ix_trace_rs::string_edge]

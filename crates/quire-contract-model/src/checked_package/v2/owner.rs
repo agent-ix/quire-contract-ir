@@ -1,15 +1,17 @@
 //! Closed node-owner wire and selected-evidence joins for FR-038-AC-153..155.
 
+use super::native_join_budget::{NativeJoinBudget, PackageReadStage};
+use super::read_charge::{self, Site};
+use super::CheckedJson;
 use super::{
     CheckedDeclaration, CheckedNodeKind, CheckedNodeOwner, CheckedNodeTag, CheckedTerm,
     DomainModel, LiteralKind, ProtocolForm, RawCheckedPackageWireV2 as CheckedPackageWireV2,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, WorkMeter,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, TermItems, TermNode, TermView, WorkMeter,
 };
-use crate::checked_package::common::{body_term, node_pointer, ValidationFailure};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26,7 +28,7 @@ fn requirement(
     node_tag: &str,
     semantic_form: &str,
     declaration: Option<&CheckedDeclaration>,
-    body: &Value,
+    body_is_application: bool,
     self_typed: bool,
     owner: Option<&CheckedNodeOwner>,
     anonymous_function: bool,
@@ -34,7 +36,7 @@ fn requirement(
     if kind == Some(CheckedNodeKind::Model(super::ModelForm::ModelRoot)) {
         return OwnerRequirement::ModelRoot;
     }
-    if body_term(body) == Some(super::BodyTerm::Application) {
+    if body_is_application {
         return OwnerRequirement::None;
     }
     if kind
@@ -121,71 +123,236 @@ fn check_one(
     }
 }
 
+/// The charge site of the owner-schema check at graph node `index`.
+fn owner_site(index: usize) -> Site {
+    Site::new(PackageReadStage::WireChecks, index, "owner_schema")
+}
+
+/// The target of a `reference` term, as an owned node ID read through the
+/// operand row of the node holding it, or `None` when the term is no reference
+/// or its target is no valid ID. The ID is charged before it is allocated.
+fn reference_target<'d>(
+    term: TermNode<'d>,
+    row: &[u64],
+    budget: &mut NativeJoinBudget,
+    site: Site,
+) -> Result<Option<super::CheckedNodeId>, ValidationFailure> {
+    match term.view() {
+        Some(TermView::Reference { target }) => Ok(target
+            .node_id_in(budget, site, row)
+            .map_err(|_| super::budgeted_read::denial(budget))?
+            .valid()),
+        _ => Ok(None),
+    }
+}
+
+/// The `name` and `value` of a `binding` term.
+fn binding<'d>(term: TermNode<'d>) -> Option<(&'d str, TermNode<'d>)> {
+    match term.view() {
+        Some(TermView::Binding { name, value }) => Some((name, value)),
+        _ => None,
+    }
+}
+
+/// The members of an `aggregate` term.
+fn aggregate<'d>(term: TermNode<'d>) -> Option<TermItems<'d>> {
+    match term.view() {
+        Some(TermView::Aggregate { members }) => Some(members),
+        _ => None,
+    }
+}
+
+/// Candidate entry references are collected without deciding root shape. The
+/// plan step owns that refusal, even when a named candidate is malformed.
+/// The result is sorted and without repeats; each target and the list are
+/// charged before they are allocated.
+fn entry_candidates(
+    nodes: &[CheckedSemanticNodeV2],
+    bodies: &[CheckedJson],
+    rows: &[Vec<u64>],
+    budget: &mut NativeJoinBudget,
+) -> Result<Vec<super::CheckedNodeId>, ValidationFailure> {
+    let mut candidates = Vec::new();
+    for (position, node) in nodes.iter().enumerate() {
+        if CheckedNodeTag::from_wire(&node.node_tag)
+            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+            != Some(CheckedNodeKind::Temporal(super::TemporalForm::MonitorPlan))
+        {
+            continue;
+        }
+        let Some(members) = aggregate(TermNode::of(&bodies[position])) else {
+            continue;
+        };
+        for member in members {
+            if let Some((name, value)) = binding(member) {
+                if super::monitor_plan::is_entry_slot(name) {
+                    let site = owner_site(position);
+                    if let Some(target) = reference_target(value, &rows[position], budget, site)? {
+                        read_charge::push(budget, site, &mut candidates, target)?;
+                    }
+                }
+            }
+        }
+    }
+    candidates.sort_unstable();
+    candidates.dedup();
+    Ok(candidates)
+}
+
+/// The nodes an anonymous-function shape check can name, found by node ID. A
+/// duplicate ID resolves to its last node until identity validation reports it.
+struct AnonymousNodes<'a> {
+    nodes: &'a [CheckedSemanticNodeV2],
+    /// Graph positions by node ID, sorted by ID then position.
+    positions: Vec<(&'a super::CheckedNodeId, usize)>,
+}
+
+impl<'a> AnonymousNodes<'a> {
+    fn get(&self, id: &super::CheckedNodeId) -> Option<&'a CheckedSemanticNodeV2> {
+        let upper = self.positions.partition_point(|(key, _)| *key <= id);
+        let &(key, position) = self.positions.get(upper.checked_sub(1)?)?;
+        (key == id).then(|| self.nodes.get(position)).flatten()
+    }
+}
+
 // This lookup is only for ordinary anonymous-function shape checks. Monitor
 // entries defer those checks to plan admission; unrelated nodes need no index.
 #[ix_trace_rs::string_edge]
 fn anonymous_function_nodes<'a>(
     nodes: &'a [CheckedSemanticNodeV2],
-    monitor_entries: &BTreeSet<super::CheckedNodeId>,
-) -> BTreeMap<&'a super::CheckedNodeId, &'a CheckedSemanticNodeV2> {
-    let mut targets = BTreeSet::new();
-    for node in nodes {
+    bodies: &[CheckedJson],
+    rows: &[Vec<u64>],
+    monitor_entries: &[super::CheckedNodeId],
+    budget: &mut NativeJoinBudget,
+) -> Result<AnonymousNodes<'a>, ValidationFailure> {
+    let mut targets: Vec<super::CheckedNodeId> = Vec::new();
+    for (position, node) in nodes.iter().enumerate() {
         if node.owner.is_some()
             || node.declaration.is_some()
-            || monitor_entries.contains(&node.node_id)
+            || monitor_entries.binary_search(&node.node_id).is_ok()
             || CheckedNodeTag::from_wire(&node.node_tag)
                 .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
                 != Some(CheckedNodeKind::Function(super::FunctionForm::PureFunction))
         {
             continue;
         }
-        let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(&node.body)
-        else {
+        let Some(members) = aggregate(TermNode::of(&bodies[position])) else {
             continue;
         };
-        if !matches!(members, [_, _] | [_, _, _]) {
+        if !matches!(members.len(), 2 | 3) {
             continue;
         }
         // Collect possible targets only; anonymous_body_shape remains the sole
         // authority for the closed syntax and the target kinds.
+        let (site, row) = (owner_site(position), rows[position].as_slice());
         for member in members {
-            let Some(super::CheckedTermView::Binding { name, value }) = CheckedTerm::view(member)
-            else {
+            let Some((name, value)) = binding(member) else {
                 continue;
             };
             if name == "parameters" {
-                if let Some(super::CheckedTermView::Aggregate { members }) =
-                    CheckedTerm::view(value)
-                {
-                    targets.extend(
-                        members
-                            .iter()
-                            .filter_map(super::structural::reference_target),
-                    );
+                if let Some(parameters) = aggregate(value) {
+                    for parameter in parameters {
+                        if let Some(target) = reference_target(parameter, row, budget, site)? {
+                            read_charge::push(budget, site, &mut targets, target)?;
+                        }
+                    }
                 }
             } else if matches!(name, "body" | "measure") {
-                targets.extend(super::structural::reference_target(value));
+                if let Some(target) = reference_target(value, row, budget, site)? {
+                    read_charge::push(budget, site, &mut targets, target)?;
+                }
             }
         }
     }
-    let mut selected = BTreeMap::new();
-    if !targets.is_empty() {
-        for node in nodes {
-            if targets.contains(&node.node_id) {
-                // Preserve the raw lookup's last duplicate until ordinary
-                // identity validation reports duplicate node IDs.
-                selected.insert(&node.node_id, node);
-            }
+    targets.sort_unstable();
+    targets.dedup();
+    let mut positions = Vec::new();
+    for (position, node) in nodes.iter().enumerate() {
+        if targets.binary_search(&node.node_id).is_ok() {
+            read_charge::push(
+                budget,
+                owner_site(position),
+                &mut positions,
+                (&node.node_id, position),
+            )?;
         }
     }
-    selected
+    positions.sort_unstable();
+    Ok(AnonymousNodes { nodes, positions })
 }
 
-/// Checks owner presence and variant before package identity validation.
-pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
-    let monitor_entries = super::monitor_plan::entry_candidates(&wire.semantic_graph.nodes);
-    let nodes = anonymous_function_nodes(&wire.semantic_graph.nodes, &monitor_entries);
+/// The ordinary executable body, independent of owner/model clause descriptors.
+fn anonymous_body_shape(
+    body: TermNode<'_>,
+    row: &[u64],
+    nodes: &AnonymousNodes<'_>,
+    budget: &mut NativeJoinBudget,
+    site: Site,
+) -> Result<bool, ValidationFailure> {
+    let Some(mut members) = aggregate(body) else {
+        return Ok(false);
+    };
+    let (Some(parameters), Some(body), measure) = (members.next(), members.next(), members.next())
+    else {
+        return Ok(false);
+    };
+    if members.next().is_some() {
+        return Ok(false);
+    }
+    let Some(("parameters", value)) = binding(parameters) else {
+        return Ok(false);
+    };
+    let Some(parameters) = aggregate(value) else {
+        return Ok(false);
+    };
+    let mut kind = |term: TermNode<'_>| -> Result<Option<CheckedNodeKind>, ValidationFailure> {
+        let Some(id) = reference_target(term, row, budget, site)? else {
+            return Ok(None);
+        };
+        Ok(nodes.get(&id).and_then(|node| {
+            CheckedNodeTag::from_wire(&node.node_tag)
+                .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+        }))
+    };
+    for parameter in parameters {
+        if kind(parameter)? != Some(CheckedNodeKind::Value(super::ValueForm::Parameter)) {
+            return Ok(false);
+        }
+    }
+    let Some(("body", value)) = binding(body) else {
+        return Ok(false);
+    };
+    if !matches!(kind(value)?, Some(CheckedNodeKind::Expression(_))) {
+        return Ok(false);
+    }
+    match measure {
+        None => Ok(true),
+        Some(measure) => match binding(measure) {
+            Some(("measure", value)) => Ok(kind(value)?.is_some()),
+            _ => Ok(false),
+        },
+    }
+}
+
+/// Checks owner presence and variant before package identity validation. The
+/// lookup tables and every identity built for them are charged at the
+/// `owner_schema` form.
+pub(super) fn validate_owner_schema(
+    wire: &CheckedPackageWireV2,
+    bodies: &[CheckedJson],
+    budget: &mut NativeJoinBudget,
+) -> Result<(), ValidationFailure> {
+    let rows = wire.semantic_graph.operand_rows.as_slice();
+    let monitor_entries = entry_candidates(&wire.semantic_graph.nodes, bodies, rows, budget)?;
+    let nodes = anonymous_function_nodes(
+        &wire.semantic_graph.nodes,
+        bodies,
+        rows,
+        &monitor_entries,
+        budget,
+    )?;
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
+        let site = owner_site(position);
         let kind = CheckedNodeTag::from_wire(&node.node_tag)
             .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form));
         let clause = kind == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause));
@@ -200,7 +367,12 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
             ));
         }
         if let Some(owner_model) = &node.owner_model {
-            super::validate_node_id(owner_model, || node_pointer(position).key("owner_model"))?;
+            super::validate_node_id_charged(
+                owner_model,
+                || node_pointer(position).key("owner_model"),
+                budget,
+                site,
+            )?;
         }
         if kind == Some(CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)) {
             // A local reference carrier may participate in a protocol SCC;
@@ -216,26 +388,33 @@ pub(super) fn validate_owner_schema(wire: &CheckedPackageWireV2) -> Result<(), V
                 ));
             }
         }
+        let anonymous = node.owner.is_none()
+            && node.declaration.is_none()
+            && (monitor_entries.binary_search(&node.node_id).is_ok()
+                || (kind == Some(CheckedNodeKind::Function(super::FunctionForm::PureFunction))
+                    && anonymous_body_shape(
+                        TermNode::of(&bodies[position]),
+                        &rows[position],
+                        &nodes,
+                        budget,
+                        site,
+                    )?));
         check_one(
             requirement(
                 kind,
                 &node.node_tag,
                 &node.semantic_form,
                 node.declaration.as_ref(),
-                &node.body,
+                TermNode::of(&bodies[position]).kind() == Some(super::BodyTerm::Application),
                 node.semantic_type == node.node_id,
                 node.owner.as_ref(),
-                node.owner.is_none()
-                    && node.declaration.is_none()
-                    && (monitor_entries.contains(&node.node_id)
-                        || (kind
-                            == Some(CheckedNodeKind::Function(super::FunctionForm::PureFunction))
-                            && super::monitor_plan::anonymous_body_shape(&node.body, &nodes))),
+                anonymous,
             ),
             node.owner.as_ref(),
             node_pointer(position),
         )?;
     }
+    read_charge::end_stage(budget);
     Ok(())
 }
 
@@ -499,7 +678,7 @@ pub(super) fn validate_owner_joins(
 #[cfg(test)]
 mod anonymous_lookup_tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     fn node(index: usize, tag: &str, form: &str, body: Value) -> Value {
         let id = json!({"package":"test/owners", "path":[index.to_string()], "ordinal":0});
@@ -508,6 +687,17 @@ mod anonymous_lookup_tests {
             "node_tag":tag, "semantic_form":form, "semantic_type":id,
             "body":body, "dependencies":[], "occurrences":[]
         })
+    }
+
+    /// The owner-schema check over a test wire, its bodies read as handles.
+    fn validate(wire: &CheckedPackageWireV2) -> Result<(), ValidationFailure> {
+        let bodies = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| CheckedJson::from_value(&node.body).expect("test body"))
+            .collect::<Vec<_>>();
+        validate_owner_schema(wire, &bodies, &mut NativeJoinBudget::unlimited())
     }
 
     fn wire(nodes: Vec<Value>) -> CheckedPackageWireV2 {
@@ -545,13 +735,13 @@ mod anonymous_lookup_tests {
             "integer",
             json!({"term":"aggregate", "members":[]}),
         );
-        assert!(validate_owner_schema(&wire(vec![
+        assert!(validate(&wire(vec![
             function.clone(),
             wrong.clone(),
             expression.clone()
         ]))
         .is_ok());
-        let failure = validate_owner_schema(&wire(vec![function, expression, wrong]))
+        let failure = validate(&wire(vec![function, expression, wrong]))
             .expect_err("last duplicate has wrong target kind");
         let ValidationFailure::Refused(refusal) = failure else {
             panic!("owner refusal")
@@ -580,7 +770,7 @@ mod anonymous_lookup_tests {
                     .collect(),
             );
             let started = std::time::Instant::now();
-            assert!(validate_owner_schema(&input).is_ok());
+            assert!(validate(&input).is_ok());
             eprintln!(
                 "owner schema {count} irrelevant nodes: {:?}",
                 started.elapsed()

@@ -146,7 +146,7 @@ fn admitted(package: &Value) -> Box<CheckedPackageV2> {
     }
 }
 
-fn exact(read: CheckedLiteralRead<'_>, unit: &CheckedNodeId, numerator: i32, denominator: i32) {
+fn exact(read: CheckedLiteralRead<'_>, unit: &CheckedNodeId, numerator: i64, denominator: i64) {
     assert_eq!(read.type_id, unit);
     assert_eq!(
         read.value,
@@ -252,7 +252,7 @@ fn authenticated_views_preserve_exact_premises_and_shared_occurrences() {
         } else {
             assert_eq!(
                 task.priority().expect("priority").value,
-                CheckedLiteralValue::Integer(7.into())
+                CheckedLiteralValue::Integer(7_i64.into())
             );
         }
         if response {
@@ -738,4 +738,45 @@ fn malformed_exact_task_literals_refuse_at_payload_before_interpretation() {
         Some(Cause::InvalidTaskSet),
         &format!("/semantic_graph/nodes/{n}/body/members/4/value/members/0"),
     );
+}
+
+/// A read of a package with a local task claim reaches the claim carrier
+/// join, the claim order, the priority set and the model table: every
+/// graph-stage request, theirs among them, is denied one byte short and
+/// admitted at its exact allowance, and the all-families base (which makes no
+/// claim request) has fewer. Their allocated == requested equalities are the
+/// lib tests `claim_carrier_join_allocates_exactly_what_it_charges` and
+/// `model_table_allocates_exactly_what_it_charges`. The IDs a claim reads out
+/// of Value members are charged only after they are parsed until the body
+/// migration lands.
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn claim_carrier_tables_and_order_are_charged_exactly() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    use quire_contract_model::{NativeJoinBudget, PackageReadStage};
+    let graph_requests = |wire: &Value| {
+        let bytes = fixtures::canonical(wire);
+        let evidence = fixtures::evidence_for(wire);
+        let read = move |budget: &mut NativeJoinBudget| {
+            CheckedPackageV2::read_with_budget(
+                &bytes,
+                CheckedPackageReadLimits::bounded(),
+                &evidence,
+                budget,
+            )
+        };
+        let requests = stage_requests(&read, PackageReadStage::Graph);
+        assert_exact_and_one_short(&read, &requests);
+        requests
+    };
+    let base = graph_requests(&fixtures::v2_all_families());
+    let claimed = graph_requests(&package("fixed-priority", true, false, 2));
+    assert!(
+        claimed.len() > base.len(),
+        "the claim package reaches the carrier, order and priority tables"
+    );
+    let amc = graph_requests(&package("amc", false, true, 2));
+    assert!(amc.len() > base.len());
 }

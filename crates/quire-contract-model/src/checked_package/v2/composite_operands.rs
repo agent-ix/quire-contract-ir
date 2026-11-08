@@ -11,6 +11,7 @@ use super::{
     CheckedPackageV2, CheckedScalarOperandChild, CheckedSemanticNodeV2, CheckedTerm,
     CompositeTypeForm, LiteralKind, ScalarTypeForm, ValueForm,
 };
+#[cfg(test)]
 use serde_json::Value;
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -408,8 +409,7 @@ impl CheckedPackageV2 {
             });
         }
         let identity = operation
-            .get("identity")
-            .and_then(Value::as_str)
+            .identity()
             .filter(|id| self.catalog.entry(id).is_some())
             .ok_or_else(|| Error::UnknownOperator {
                 application: application.clone(),
@@ -460,6 +460,9 @@ impl CheckedPackageV2 {
                     CheckedUnsupportedCompositeOperand::ApplicationSubterm,
                 ));
             }
+            // An accessor of the admitted package, outside the read: its
+            // visited set is its own.
+            let mut seen = std::collections::BTreeSet::new();
             let resolution = super::operations::resolve_family_with_selected(
                 &child.semantic_type,
                 |visit| match visit {
@@ -474,6 +477,7 @@ impl CheckedPackageV2 {
                     }
                 },
                 |id| self.models.variant_family(id),
+                &mut |id| seen.insert(id.clone()),
             )?;
             let family = match resolution {
                 super::operations::FamilyResolution::Family(family) => Some(family),
@@ -1121,24 +1125,17 @@ fn closed_narrow(
     meter.charge(1)?;
     let malformed = || type_error(ordinal, Some(node.semantic_type.clone()));
     let record = operation.record();
-    let member = record.get("member").ok_or_else(malformed)?;
     if graph.kind(node)
         != Some(CheckedNodeKind::Expression(
             super::ExpressionForm::Conversion,
         ))
         || *operator != super::ApplicationOperator::Convert
-        || record
-            .get("laws")
-            .and_then(Value::as_array)
-            .is_none_or(|a| !a.is_empty())
-        || record
-            .get("leaves")
-            .and_then(Value::as_array)
-            .is_none_or(|a| !a.is_empty())
-        || !record.get("mode").is_some_and(Value::is_null)
-        || member.get("kind").and_then(Value::as_str) != Some("type_argument")
-        || member.get("declaration")
-            != Some(&serde_json::to_value(result_type).expect("typed node identity"))
+        || record.malformed.is_some()
+        || !record.laws.is_empty()
+        || !record.leaves.is_empty()
+        || record.mode.is_some()
+        || operation.member_kind() != Some(super::OperationMemberKind::TypeArgument)
+        || operation.member_key("declaration") != Some(result_type)
         || result_type != &node.semantic_type
         || arguments.len() != 1
     {
@@ -1360,7 +1357,7 @@ fn closed_literal(
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::checked_package::v2) mod tests {
     use super::super::CheckedOccurrenceRole;
     use super::*;
     use crate::{
@@ -1471,7 +1468,7 @@ mod tests {
     }
 
     /// Every corruption below starts from a genuinely reader-admitted package.
-    fn package() -> CheckedPackageV2 {
+    pub(in crate::checked_package::v2) fn package() -> CheckedPackageV2 {
         match CheckedPackageV2::read(
             &crate::checked_package::v2::test_support::canonical(&fixture().0),
             CheckedPackageReadLimits::bounded(),
@@ -3984,7 +3981,7 @@ mod tests {
         application_arguments(&mut later)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             later.composite_application_operands(&id('6'), &occurrence, 26),
@@ -4019,7 +4016,9 @@ mod tests {
         arguments
     }
 
-    fn application_operation(package: &mut CheckedPackageV2) -> &mut Value {
+    fn application_operation(
+        package: &mut CheckedPackageV2,
+    ) -> super::super::typed_terms::OperationRecordEdit<'_> {
         let CheckedTerm::Application { operation, .. } =
             &mut std::sync::Arc::make_mut(&mut package.terms)[5]
         else {
@@ -4219,7 +4218,7 @@ mod tests {
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             read(&p),
@@ -4259,7 +4258,7 @@ mod tests {
         application_arguments(&mut p)[0] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             read(&p),
@@ -4367,7 +4366,7 @@ mod tests {
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(
             read(&p),
@@ -4425,7 +4424,7 @@ mod tests {
         application_arguments(&mut p)[1] = CheckedTerm::Literal {
             type_id: id('2'),
             value_kind: LiteralKind::Integer,
-            value: json!("1"),
+            value: crate::checked_package::CheckedJson::scalar(&json!("1")),
         };
         assert_eq!(read(&p), Err(type_error(0, Some(id('9')))));
     }

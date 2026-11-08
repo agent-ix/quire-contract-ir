@@ -153,17 +153,38 @@ impl CheckedPackageV2 {
         evidence: &CheckedPackageEvidence,
         budget: &mut NativeJoinBudget,
     ) -> CheckedPackageV2BudgetedReadResult {
-        Self::read_with_budget_against(
-            super::operation_catalog::production_catalog(),
+        let work_before = budget.consumed();
+        let storage_before = budget.read_storage_mark();
+        budget.resume();
+        if exceeds(bytes.len(), limits.bytes) {
+            budget.abort();
+            return budgeted_outcome(refuse_bytes_exceeded(limits.bytes, bytes.len()), budget);
+        }
+        let catalog = match super::operation_catalog::read_catalog_budgeted(budget) {
+            Ok(catalog) => catalog,
+            Err(super::operation_catalog_index::CatalogStop::Unavailable(error)) => {
+                budget.abort();
+                return CheckedPackageV2BudgetedReadResult::CatalogUnavailable(error);
+            }
+            Err(super::operation_catalog_index::CatalogStop::Budget(stop)) => {
+                budget.abort();
+                return budgeted_outcome(stop, budget);
+            }
+        };
+        Self::admit_with_catalog(
+            catalog,
             bytes,
             limits,
             evidence,
             budget,
+            work_before,
+            storage_before,
         )
     }
 
     /// [`Self::read_with_budget`] against the given result of reading the
     /// operation catalog: an unreadable catalog returns before any charge.
+    #[cfg(test)]
     pub(super) fn read_with_budget_against(
         catalog: &'static Result<super::operation_catalog::OperationCatalog, CatalogReadError>,
         bytes: &[u8],
@@ -178,6 +199,26 @@ impl CheckedPackageV2 {
         let work_before = budget.consumed();
         let storage_before = budget.read_storage_mark();
         budget.resume();
+        Self::admit_with_catalog(
+            catalog,
+            bytes,
+            limits,
+            evidence,
+            budget,
+            work_before,
+            storage_before,
+        )
+    }
+
+    fn admit_with_catalog(
+        catalog: super::operation_catalog::CatalogRef,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        evidence: &CheckedPackageEvidence,
+        budget: &mut NativeJoinBudget,
+        work_before: super::NativeJoinCharge,
+        storage_before: u64,
+    ) -> CheckedPackageV2BudgetedReadResult {
         match Self::admit_bytes(catalog, bytes, limits, evidence, budget) {
             Ok(package) => {
                 budget.finish_read(work_before, storage_before);
@@ -199,16 +240,15 @@ impl CheckedPackageV2 {
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageV2ReadResult {
-        Self::read_against(
-            super::operation_catalog::production_catalog(),
-            bytes,
-            limits,
-            evidence,
-        )
+        let mut budget =
+            NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX);
+        let outcome = Self::read_with_budget(bytes, limits, evidence, &mut budget);
+        Self::unbudgeted_result(outcome, limits, &budget)
     }
 
     /// [`Self::read`] against the given result of reading the operation
     /// catalog.
+    #[cfg(test)]
     pub(super) fn read_against(
         catalog: &'static Result<super::operation_catalog::OperationCatalog, CatalogReadError>,
         bytes: &[u8],
@@ -217,7 +257,16 @@ impl CheckedPackageV2 {
     ) -> CheckedPackageV2ReadResult {
         let mut budget =
             NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX);
-        match Self::read_with_budget_against(catalog, bytes, limits, evidence, &mut budget) {
+        let outcome = Self::read_with_budget_against(catalog, bytes, limits, evidence, &mut budget);
+        Self::unbudgeted_result(outcome, limits, &budget)
+    }
+
+    fn unbudgeted_result(
+        outcome: CheckedPackageV2BudgetedReadResult,
+        limits: CheckedPackageReadLimits,
+        budget: &NativeJoinBudget,
+    ) -> CheckedPackageV2ReadResult {
+        match outcome {
             CheckedPackageV2BudgetedReadResult::Admitted(package) => {
                 CheckedPackageV2ReadResult::Admitted(package)
             }
@@ -261,6 +310,11 @@ fn budgeted_outcome(
 ) -> CheckedPackageV2BudgetedReadResult {
     match stop {
         ValidationFailure::Refused(refusal) => {
+            // A stage that built the refusal paid its diagnostic first.
+            let pending = CheckedPackagePendingOutcome::Refused(refusal.code);
+            if budget.take_paid() == Some(pending) {
+                return CheckedPackageV2BudgetedReadResult::Refused(*refusal);
+            }
             let bytes = refusal
                 .loci
                 .iter()
@@ -278,6 +332,10 @@ fn budgeted_outcome(
             }
         }
         ValidationFailure::Incomplete(incomplete) => {
+            let pending = CheckedPackagePendingOutcome::Incomplete(incomplete.limit_kind);
+            if budget.take_paid() == Some(pending) {
+                return CheckedPackageV2BudgetedReadResult::Incomplete(incomplete);
+            }
             let bytes = incomplete
                 .path
                 .as_ref()
@@ -348,10 +406,17 @@ fn budget_denial(
         }
     };
     let original_locus = budget.first_unpaid_locus();
-    let diagnostic_bytes = stop
-        .path
-        .as_ref()
-        .map_or(0, |path| path.as_str().len() as u128);
+    // A pointer a stage paid for before building it is already charged; a
+    // diagnostic its stage could not pay for makes this outcome `exhausted`.
+    let pending = budget.take_pending();
+    let diagnostic_bytes = match (pending, budget.take_prepaid_diagnostic()) {
+        (Some(_), _) | (None, Some(false)) => u128::MAX,
+        (None, Some(true)) => 0,
+        (None, None) => stop
+            .path
+            .as_ref()
+            .map_or(0, |path| path.as_str().len() as u128),
+    };
     if let Some(locus) = original_locus {
         budget.set_active_locus(Some(NativeJoinLocus {
             source: locus.source,
@@ -376,7 +441,7 @@ fn budget_denial(
                 denied,
                 configured_bound: limit,
                 locus,
-                pending: None,
+                pending,
             })
         }
         // A budget denial always records its locus; with none recorded the
@@ -389,7 +454,7 @@ fn budget_denial(
                     source: NativeJoinLocusSource::Package,
                     form: DIAGNOSTIC_FORM,
                 },
-                pending: None,
+                pending,
             })
         }
     }
@@ -397,7 +462,7 @@ fn budget_denial(
 
 /// The shared reader's and writer's reservation: charges read storage on the
 /// caller's budget at its active locus.
-struct ReadStorageReservation<'b>(&'b mut NativeJoinBudget);
+pub(super) struct ReadStorageReservation<'b>(pub(super) &'b mut NativeJoinBudget);
 
 impl Reservation for ReadStorageReservation<'_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), ReservationDenied> {
@@ -410,7 +475,7 @@ impl Reservation for ReadStorageReservation<'_> {
 }
 
 /// The denial the budget just recorded, as the stop that ends the read.
-fn denial(budget: &NativeJoinBudget) -> ValidationFailure {
+pub(in crate::checked_package) fn denial(budget: &NativeJoinBudget) -> ValidationFailure {
     let (resource, amount) = budget
         .first_unpaid_resource()
         .unwrap_or((PackageReadResource::ReadStorage, 0));
@@ -447,98 +512,21 @@ impl quire_canonical::Sink for ComparingSink<'_> {
     }
 }
 
-/// The package document as the canonical writer encodes it, refusing a whole
-/// number past 2^53 that is not a 64-bit integer: such a spelling
-/// (`100000000000000000000`) is its own RFC 8785 text as a double, yet it is
-/// an integer outside I-JSON, so its bytes are not canonical. The walk keeps
-/// its task list on the writer's reservation.
+/// The package document as the canonical writer encodes it, with the
+/// encoder's refusal of an integer past 2^53 (see [`super::checked_json`]).
 struct PackageDocument<'d> {
     document: &'d Document,
 }
 
 impl quire_canonical::Encode for PackageDocument<'_> {
-    // The one string comparison is a closed-vocabulary guard on a serde_json
-    // private member name, not an open key.
-    #[ix_trace_rs::string_edge]
     fn encode_into<S: quire_canonical::Sink + ?Sized>(
         &self,
         writer: &mut quire_canonical::Writer<'_, S>,
     ) -> Result<(), quire_canonical::Error> {
-        use quire_canonical::Node;
-        const MAXIMUM_INTEGER: f64 = 9_007_199_254_740_992.0;
-        enum Task<'d> {
-            Value(quire_canonical::NodeRef<'d>),
-            Name(&'d str),
-            EndArray,
-            EndObject,
-        }
-        let mut tasks = Vec::new();
-        writer.reserve_list(&mut tasks, 1)?;
-        tasks.push(Task::Value(self.document.root()));
-        while let Some(task) = tasks.pop() {
-            match task {
-                Task::Value(value) => match value.node() {
-                    Node::Null => writer.null()?,
-                    Node::Bool(flag) => writer.bool(flag)?,
-                    Node::Number(number) => {
-                        let float = number.value();
-                        if number.text().parse::<i64>().is_err()
-                            && number.text().parse::<u64>().is_err()
-                            && float.fract() == 0.0
-                            && float.abs() > MAXIMUM_INTEGER
-                        {
-                            return Err(quire_canonical::Error::Internal {
-                                invariant: "an integer past 2^53 is not canonical",
-                            });
-                        }
-                        writer.number(float)?;
-                    }
-                    Node::String(text) => writer.string(text)?,
-                    Node::Array(items) => {
-                        writer.begin_array()?;
-                        let start = tasks.len();
-                        writer.reserve_list(&mut tasks, items.len().saturating_add(1))?;
-                        tasks.push(Task::EndArray);
-                        tasks.extend(items.map(Task::Value));
-                        tasks.get_mut(start + 1..).unwrap_or_default().reverse();
-                    }
-                    Node::Object(members) => {
-                        // serde_json reads an object whose first member is this
-                        // private name as a number, so two byte strings would
-                        // decode to one package: the spelling is not canonical.
-                        let mut members = members.peekable();
-                        if members
-                            .peek()
-                            .is_some_and(|(name, _)| *name == SERDE_JSON_NUMBER_TOKEN)
-                        {
-                            return Err(quire_canonical::Error::Internal {
-                                invariant: "serde_json's number token is not canonical",
-                            });
-                        }
-                        writer.begin_object()?;
-                        let start = tasks.len();
-                        writer.reserve_list(
-                            &mut tasks,
-                            members.len().saturating_mul(2).saturating_add(1),
-                        )?;
-                        tasks.push(Task::EndObject);
-                        for (name, member) in members {
-                            tasks.push(Task::Name(name));
-                            tasks.push(Task::Value(member));
-                        }
-                        tasks.get_mut(start + 1..).unwrap_or_default().reverse();
-                    }
-                },
-                Task::Name(name) => writer.name(name)?,
-                Task::EndArray => writer.end_array()?,
-                Task::EndObject => writer.end_object()?,
-            }
-        }
-        Ok(())
+        super::checked_json::encode_node(self.document.root(), writer)
     }
 }
 
-const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
 const SERDE_JSON_RECURSION_LIMIT: usize = 128;
 
 /// The deepest container nesting of bytes the shared reader accepted, counted
@@ -575,6 +563,28 @@ fn nesting_depth(bytes: &[u8]) -> usize {
 ///
 /// A byte-stream fault refuses before `noncanonical_wire`, as FR-038-AC-509
 /// orders them.
+/// The size of the allocation `Arc::new` makes for a `T`: its two counts,
+/// then the value, padded to the value's alignment.
+pub(super) fn arc_bytes<T>() -> usize {
+    std::alloc::Layout::new::<[usize; 2]>()
+        .extend(std::alloc::Layout::new::<T>())
+        .map_or(usize::MAX, |(layout, _)| layout.pad_to_align().size())
+}
+
+/// Shares the package document with the handles the decode hands out,
+/// charging the shared allocation at the decode locus first.
+pub(super) fn share_document(
+    document: Document,
+    budget: &mut NativeJoinBudget,
+) -> Result<std::sync::Arc<Document>, ValidationFailure> {
+    at_stage(budget, PackageReadStage::WireDecode, "package");
+    if !budget.charge_read_storage(arc_bytes::<Document>() as u128) {
+        return Err(denial(budget));
+    }
+    budget.set_active_locus(None);
+    Ok(std::sync::Arc::new(document))
+}
+
 pub(in crate::checked_package) fn read_envelope(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,

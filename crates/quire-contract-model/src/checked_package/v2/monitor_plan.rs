@@ -3,6 +3,7 @@
 
 //! Closed tick-monitor admission and package-borrowed reads (FR-038-AC-421..429).
 
+use super::graph_storage::GraphIndex;
 use super::model_members::DomainModel;
 use super::native_join_storage as storage;
 use super::{
@@ -15,7 +16,7 @@ use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
@@ -50,70 +51,9 @@ const NAMES: [&str; 17] = [
     "activation_capacity",
 ];
 
-/// Candidate entry references are collected without deciding root shape. The
-/// plan step owns that refusal, even when a named candidate is malformed.
-pub(super) fn entry_candidates(nodes: &[RawSemanticNodeV2]) -> BTreeSet<CheckedNodeId> {
-    let mut candidates = BTreeSet::new();
-    for node in nodes {
-        if super::CheckedNodeTag::from_wire(&node.node_tag)
-            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-            != Some(CheckedNodeKind::Temporal(TemporalForm::MonitorPlan))
-        {
-            continue;
-        }
-        let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(&node.body)
-        else {
-            continue;
-        };
-        for member in members {
-            if let Some(super::CheckedTermView::Binding { name, value }) = CheckedTerm::view(member)
-            {
-                if ENTRY_SLOTS.iter().any(|&slot| NAMES[slot] == name) {
-                    if let Some(target) = super::structural::reference_target(value) {
-                        candidates.insert(target);
-                    }
-                }
-            }
-        }
-    }
-    candidates
-}
-
-/// The ordinary executable body, independent of owner/model clause descriptors.
-pub(super) fn anonymous_body_shape(
-    body: &serde_json::Value,
-    nodes: &BTreeMap<&CheckedNodeId, &RawSemanticNodeV2>,
-) -> bool {
-    let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(body) else {
-        return false;
-    };
-    let (parameters, body, measure) = match members {
-        [parameters, body] => (parameters, body, None),
-        [parameters, body, measure] => (parameters, body, Some(measure)),
-        _ => return false,
-    };
-    let Some(super::CheckedTermView::Binding {
-        name: "parameters",
-        value,
-    }) = CheckedTerm::view(parameters)
-    else {
-        return false;
-    };
-    let Some(super::CheckedTermView::Aggregate { members }) = CheckedTerm::view(value) else {
-        return false;
-    };
-    let kind = |term: &serde_json::Value| {
-        let id = super::structural::reference_target(term)?;
-        let node = nodes.get(&id)?;
-        super::CheckedNodeTag::from_wire(&node.node_tag)
-            .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
-    };
-    members
-        .iter()
-        .all(|parameter| kind(parameter) == Some(CheckedNodeKind::Value(ValueForm::Parameter)))
-        && matches!(CheckedTerm::view(body), Some(super::CheckedTermView::Binding { name: "body", value })
-            if matches!(kind(value), Some(CheckedNodeKind::Expression(_))))
-        && measure.is_none_or(|measure| matches!(CheckedTerm::view(measure), Some(super::CheckedTermView::Binding {name:"measure",value}) if kind(value).is_some()))
+/// Whether `name` is the name of an entry slot of a monitor plan.
+pub(super) fn is_entry_slot(name: &str) -> bool {
+    ENTRY_SLOTS.iter().any(|&slot| NAMES[slot] == name)
 }
 
 #[derive(Clone)]
@@ -716,11 +656,10 @@ fn literal(term: &CheckedTerm, kind: LiteralKind) -> bool {
 }
 fn integer(term: &CheckedTerm) -> Option<Box<str>> {
     match term {
-        CheckedTerm::Literal { value, .. } => match value {
-            serde_json::Value::String(s) => Some(s.as_str().into()),
-            serde_json::Value::Number(n) => Some(n.to_string().into()),
-            _ => None,
-        },
+        CheckedTerm::Literal { value, .. } => value
+            .as_str()
+            .or_else(|| value.number_text())
+            .map(Into::into),
         _ => None,
     }
 }
@@ -736,7 +675,7 @@ struct Graph<'a> {
     nodes: &'a [RawSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     keys: &'a [Arc<CheckedNodeId>],
 }
 impl Graph<'_> {
@@ -985,7 +924,7 @@ pub(super) fn validate(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     keys: &[Arc<CheckedNodeId>],
     models: &[DomainModel],
     meter: &mut WorkMeter,
@@ -997,10 +936,13 @@ pub(super) fn validate(
         index,
         keys,
     };
-    let model_index = models
-        .iter()
-        .map(|model| (model.identity.as_ref(), model))
-        .collect::<BTreeMap<_, _>>();
+    // Of two models with one identity the later one is kept, as a map built
+    // by insertion would hold; the slice address orders them.
+    let mut identified = meter.vec::<(&str, &DomainModel)>(models.len())?;
+    identified.extend(models.iter().map(|model| (model.identity.as_ref(), model)));
+    let model_index = super::graph_storage::SortedTable::from_vec(identified, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    });
     let mut positions = index
         .values()
         .copied()
@@ -1096,6 +1038,7 @@ pub(super) fn validate(
                             graph.scalar(d, ScalarTypeForm::Dimension)
                                 && super::timed_model::is_base_time_dimension(
                                     &nodes[d],
+                                    graph.term(d),
                                     &model_index,
                                 )
                         })
@@ -1256,7 +1199,7 @@ pub(super) fn validate_dependencies(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     references: &[Vec<super::BodyReference>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     keys: &[Arc<CheckedNodeId>],
 ) -> Result<(), ValidationFailure> {
     for (position, node) in nodes.iter().enumerate() {

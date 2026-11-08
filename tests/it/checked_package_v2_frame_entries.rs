@@ -5654,3 +5654,36 @@ fn model_operation_callable_joins_selected_body_and_frame() {
         CheckedCallableReadErrorCode::MissingBody,
     );
 }
+
+/// The step relation body step builds its alias, variable and binder tables,
+/// its walk worklist and its seen-set on the caller's budget, each charged
+/// before it is made at the relation's node (FR-038-AC-504).
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn step_relation_tables_are_charged_to_the_read_budget_at_the_relation_node() {
+    use crate::checked_package_v2_graph_read_storage::{
+        assert_exact_and_one_short, stage_requests,
+    };
+    let package = step_relation_package();
+    let relation = position(&package, "claim", "step_relation");
+    let evidence = step_relation_evidence(&package);
+    let bytes = canonical(&package);
+    let read = |budget: &mut quire_contract_model::NativeJoinBudget| {
+        CheckedPackageV2::read_with_budget(
+            &bytes,
+            CheckedPackageReadLimits::bounded(),
+            &evidence,
+            budget,
+        )
+    };
+    let requests = stage_requests(&read, quire_contract_model::PackageReadStage::Graph);
+    let at_relation: Vec<_> = requests
+        .iter()
+        .filter(|request| request.index == relation && request.form == "claim")
+        .collect();
+    assert!(
+        at_relation.len() >= 5,
+        "the relation's tables are charged at its node: {at_relation:?}"
+    );
+    assert_exact_and_one_short(&read, &requests);
+}

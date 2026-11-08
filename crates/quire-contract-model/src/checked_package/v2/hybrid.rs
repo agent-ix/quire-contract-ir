@@ -1,5 +1,6 @@
 //! QSpec FR-481 hybrid node wire shapes and model joins.
 
+use super::graph_storage::GraphIndex;
 use super::{
     CheckedNodeKind, CheckedTerm, CheckedTermView, HybridForm, LiteralKind,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm, WorkMeter,
@@ -82,14 +83,10 @@ fn decode_word<T: DeserializeOwned>(wire: &str) -> Option<T> {
 }
 
 fn literal_word_as<T: DeserializeOwned>(term: &CheckedTerm) -> Option<T> {
-    let CheckedTerm::Literal {
-        value: Value::String(value),
-        ..
-    } = term
-    else {
+    let CheckedTerm::Literal { value, .. } = term else {
         return None;
     };
-    decode_word(value)
+    decode_word(value.as_str()?)
 }
 
 fn model_variable_class(term: &CheckedTerm, slot: usize) -> Option<HybridVariableClass> {
@@ -118,9 +115,9 @@ fn is_rational_one(term: &CheckedTerm) -> bool {
         term,
         CheckedTerm::Literal {
             value_kind: LiteralKind::Rational,
-            value: Value::String(value),
+            value,
             ..
-        } if value.len() == 1 && value.as_bytes().first() == Some(&b'1')
+        } if value.as_str().is_some_and(|text| text == "1")
     )
 }
 
@@ -138,10 +135,7 @@ fn target(value: &CheckedTerm) -> Option<CheckedNodeId> {
 
 fn number(value: &CheckedTerm) -> Option<usize> {
     match value {
-        CheckedTerm::Literal {
-            value: Value::String(value),
-            ..
-        } => value.parse().ok(),
+        CheckedTerm::Literal { value, .. } => value.as_str()?.parse().ok(),
         _ => None,
     }
 }
@@ -149,7 +143,7 @@ fn number(value: &CheckedTerm) -> Option<usize> {
 fn node_at<'a>(
     target: &CheckedNodeId,
     nodes: &'a [CheckedSemanticNodeV2],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Option<(usize, &'a CheckedSemanticNodeV2)> {
     let position = *index.get(target)?;
     Some((position, nodes.get(position)?))
@@ -169,7 +163,7 @@ fn term_type(
     required: ScalarTypeForm,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> bool {
     let Some((position, node)) = node_at(key, nodes, index) else {
         return false;
@@ -191,7 +185,7 @@ fn rational_or_variable(
     variables: &BTreeSet<CheckedNodeId>,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> bool {
     variables.contains(key) || term_type(key, ScalarTypeForm::Rational, nodes, kinds, index)
 }
@@ -200,7 +194,7 @@ fn numeric_or_boolean_type(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
 ) -> Result<bool, ValidationFailure> {
@@ -228,7 +222,7 @@ fn scalar_base_type(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
 ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
@@ -258,10 +252,7 @@ fn model_pointer(position: usize, binding: usize) -> JsonPointer {
 fn parameter_name_level(term: &CheckedTerm) -> Option<(&str, usize)> {
     let body = members(term);
     let name = match term_value(body.first()?)? {
-        CheckedTerm::Literal {
-            value: Value::String(value),
-            ..
-        } => value.as_str(),
+        CheckedTerm::Literal { value, .. } => value.as_str()?,
         _ => return None,
     };
     let level = number(term_value(body.get(1)?)?)?;
@@ -293,7 +284,7 @@ fn claim_parameter_reads(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     decoded: DecodedNodes<'_>,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
 ) -> Result<BTreeMap<(String, usize), Vec<CheckedNodeId>>, ValidationFailure> {
@@ -326,7 +317,7 @@ fn reads_allowed(
     allowed: &ReadScope,
     nodes: &[CheckedSemanticNodeV2],
     decoded: DecodedNodes<'_>,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     at: JsonPointer,
     source: &CheckedSemanticNodeV2,
     meter: &mut WorkMeter,
@@ -428,9 +419,7 @@ fn reads_allowed(
             }
             Some(CheckedNodeKind::Expression(form)) => {
                 let operation = match decoded.term(position) {
-                    CheckedTerm::Application { operation, .. } => {
-                        operation.get("identity").and_then(Value::as_str)
-                    }
+                    CheckedTerm::Application { operation, .. } => operation.identity(),
                     _ => None,
                 };
                 let admitted = matches!(
@@ -490,7 +479,7 @@ pub(super) fn validate_models(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let decoded = DecodedNodes { kinds, terms };
@@ -527,9 +516,9 @@ pub(super) fn validate_models(
                                 terms.get(position).and_then(Option::as_ref),
                                 Some(CheckedTerm::Literal {
                                     value_kind: LiteralKind::Boolean,
-                                    value: Value::Bool(true),
+                                    value,
                                     ..
-                                })
+                                }) if value.as_bool() == Some(true)
                             )
                         })
                     {
@@ -925,7 +914,7 @@ pub(super) fn validate_claims(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let decoded = DecodedNodes { kinds, terms };
@@ -1135,9 +1124,8 @@ pub(super) fn validate_claims(
             let CheckedTerm::Application { operation, .. } = decoded.term(fair_position) else {
                 continue;
             };
-            let member = &operation.record()["member"];
             let Some(super::CheckedFairnessTarget::HybridTransition { declaration, name }) =
-                super::CheckedFairnessTarget::hybrid_for_join(&member["target"])
+                operation.hybrid_target_for_join(meter)?
             else {
                 return Err(issue(
                     Code::MissingDeclaration,
@@ -1228,10 +1216,9 @@ pub(super) fn validate_claims(
                 .get(formula_position)
                 .and_then(Option::as_ref)
                 .and_then(|term| match term {
-                    CheckedTerm::Application { operation, .. } => operation
-                        .get("identity")
-                        .and_then(Value::as_str)
-                        .and_then(decode_word),
+                    CheckedTerm::Application { operation, .. } => {
+                        operation.identity().and_then(decode_word)
+                    }
                     _ => None,
                 });
             if operation == Some(HybridTemporalOperation::Holds) {

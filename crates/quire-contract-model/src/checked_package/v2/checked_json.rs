@@ -15,6 +15,15 @@ use serde_json::Value;
 use std::fmt;
 use std::sync::Arc;
 
+/// The name under which the read's document deserializer hands out a handle
+/// instead of a copied value.
+pub(super) const CHECKED_JSON_TOKEN: &str = "$quire::CheckedJson";
+
+thread_local! {
+    static OFFERED: std::cell::RefCell<Option<CheckedJson>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Why a `CheckedJson` could not be built outside the read.
 #[derive(Debug)]
 pub enum CheckedJsonError {
@@ -49,17 +58,40 @@ pub struct CheckedJson {
 }
 
 impl CheckedJson {
-    /// The handle for `node` of `document`. A later stage of the read builds
-    /// each handle from the package document it retains; until then the read
-    /// builds a fresh document per value through [`Self::from_value`].
+    /// The document this handle names a value of.
+    pub(in crate::checked_package) fn document(&self) -> &Arc<Document> {
+        &self.document
+    }
+
+    /// The handle for `node` of `document`. Used by the read, which builds
+    /// each handle from the package document it retains.
     pub(in crate::checked_package) fn new(document: Arc<Document>, node: NodeId) -> Self {
         Self { document, node }
     }
 
+    /// A handle for a scalar literal payload, read as written: a number the
+    /// canonical encoder cannot write (an integer past 2^53) is held and is
+    /// the encoder's refusal when the package is written, as it always was.
+    pub(in crate::checked_package) fn scalar(value: &Value) -> Self {
+        let read = |text: &[u8]| quire_canonical::read(text, u64::MAX).ok();
+        // A scalar's JSON text always reads; `null` is the fallback and is
+        // valid JSON, so the final read cannot fail.
+        let document = read(value.to_string().as_bytes())
+            .or_else(|| read(b"null"))
+            .expect("`null` is valid JSON");
+        let node = document.root().id();
+        Self::new(Arc::new(document), node)
+    }
+
+    /// Leaves `handle` for the `Deserialize` call the document deserializer
+    /// is answering on this thread.
+    pub(super) fn offer(handle: Self) {
+        OFFERED.with(|slot| *slot.borrow_mut() = Some(handle));
+    }
+
     /// Reads one JSON value with the shared reader and refuses bytes that are
-    /// not its canonical encoding. This constructor charges no budget. The
-    /// read path currently reaches it through [`Self::from_value`] for each
-    /// diagnostic detail, with an uncharged document per value.
+    /// not its canonical encoding. Neither this constructor nor
+    /// [`Self::from_value`] is on the read path or charges a budget.
     ///
     /// # Errors
     ///
@@ -102,6 +134,75 @@ impl CheckedJson {
             .unwrap_or_else(|| self.document.root())
     }
 
+    /// The string the value is, borrowed from the document.
+    #[must_use]
+    pub fn as_str(&self) -> Option<&str> {
+        match self.node().node() {
+            Node::String(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// The boolean the value is.
+    #[must_use]
+    pub fn as_bool(&self) -> Option<bool> {
+        match self.node().node() {
+            Node::Bool(flag) => Some(flag),
+            _ => None,
+        }
+    }
+
+    /// The unsigned integer the value spells, as `serde_json` reads one.
+    #[must_use]
+    pub fn as_u64(&self) -> Option<u64> {
+        match self.node().node() {
+            Node::Number(number) => number.text().parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// The signed integer the value spells, as `serde_json` reads one.
+    #[must_use]
+    pub fn as_i64(&self) -> Option<i64> {
+        match self.node().node() {
+            Node::Number(number) => number.text().parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// The source text of the number the value is.
+    #[must_use]
+    pub fn number_text(&self) -> Option<&str> {
+        match self.node().node() {
+            Node::Number(number) => Some(number.text()),
+            _ => None,
+        }
+    }
+
+    /// Whether the value is `null`.
+    #[must_use]
+    pub fn is_null(&self) -> bool {
+        matches!(self.node().node(), Node::Null)
+    }
+
+    /// Whether the value is a string.
+    #[must_use]
+    pub fn is_string(&self) -> bool {
+        matches!(self.node().node(), Node::String(_))
+    }
+
+    /// Whether the value is an array.
+    #[must_use]
+    pub fn is_array(&self) -> bool {
+        matches!(self.node().node(), Node::Array(_))
+    }
+
+    /// Whether the value is an object.
+    #[must_use]
+    pub fn is_object(&self) -> bool {
+        matches!(self.node().node(), Node::Object(_))
+    }
+
     /// Copies the value into a `serde_json::Value`. Not on the read path.
     #[must_use]
     pub fn to_value(&self) -> Value {
@@ -119,8 +220,95 @@ impl Encode for CheckedJson {
         &self,
         writer: &mut Writer<'_, S>,
     ) -> Result<(), CanonicalError> {
-        self.node().encode_into(writer)
+        encode_node(self.node(), writer)
     }
+}
+
+const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
+/// Writes one document value from an explicit heap stack, kept on the
+/// writer's reservation. An integer past 2^53 is the encoder's refusal, as it
+/// is for a `serde_json` number: the document holds the number's text, so a
+/// double would otherwise silently round it.
+// The one string comparison is a closed-vocabulary guard on a serde_json
+// private member name, not an open key.
+#[ix_trace_rs::string_edge]
+pub(super) fn encode_node<S: Sink + ?Sized>(
+    root: NodeRef<'_>,
+    writer: &mut Writer<'_, S>,
+) -> Result<(), CanonicalError> {
+    const MAXIMUM_INTEGER: u128 = 1 << 53;
+    enum Task<'d> {
+        Value(NodeRef<'d>),
+        Name(&'d str),
+        EndArray,
+        EndObject,
+    }
+    let mut tasks = Vec::new();
+    writer.reserve_list(&mut tasks, 1)?;
+    tasks.push(Task::Value(root));
+    while let Some(task) = tasks.pop() {
+        match task {
+            Task::Value(value) => match value.node() {
+                Node::Null => writer.null()?,
+                Node::Bool(flag) => writer.bool(flag)?,
+                Node::Number(number) => match number.text().parse::<i128>() {
+                    Ok(integer) if integer.unsigned_abs() > MAXIMUM_INTEGER => {
+                        return Err(CanonicalError::IntegerMagnitudeAboveMaximum(integer));
+                    }
+                    Ok(integer) => writer.integer(integer)?,
+                    Err(_) => {
+                        let float = number.value();
+                        if float.fract() == 0.0 && float.abs() > MAXIMUM_INTEGER as f64 {
+                            return Err(CanonicalError::Internal {
+                                invariant: "an integer past 2^53 is not canonical",
+                            });
+                        }
+                        writer.number(float)?;
+                    }
+                },
+                Node::String(text) => writer.string(text)?,
+                Node::Array(items) => {
+                    writer.begin_array()?;
+                    let start = tasks.len();
+                    writer.reserve_list(&mut tasks, items.len().saturating_add(1))?;
+                    tasks.push(Task::EndArray);
+                    tasks.extend(items.map(Task::Value));
+                    tasks.get_mut(start + 1..).unwrap_or_default().reverse();
+                }
+                Node::Object(members) => {
+                    // serde_json reads an object whose first member is this
+                    // private name as a number, so two byte strings would
+                    // decode to one package: the spelling is not canonical.
+                    let mut members = members.peekable();
+                    if members
+                        .peek()
+                        .is_some_and(|(name, _)| *name == SERDE_JSON_NUMBER_TOKEN)
+                    {
+                        return Err(CanonicalError::Internal {
+                            invariant: "serde_json's number token is not canonical",
+                        });
+                    }
+                    writer.begin_object()?;
+                    let start = tasks.len();
+                    writer.reserve_list(
+                        &mut tasks,
+                        members.len().saturating_mul(2).saturating_add(1),
+                    )?;
+                    tasks.push(Task::EndObject);
+                    for (name, member) in members {
+                        tasks.push(Task::Name(name));
+                        tasks.push(Task::Value(member));
+                    }
+                    tasks.get_mut(start + 1..).unwrap_or_default().reverse();
+                }
+            },
+            Task::Name(name) => writer.name(name)?,
+            Task::EndArray => writer.end_array()?,
+            Task::EndObject => writer.end_object()?,
+        }
+    }
+    Ok(())
 }
 
 impl PartialEq for CheckedJson {
@@ -151,14 +339,37 @@ impl Serialize for CheckedJson {
 
 impl<'de> Deserialize<'de> for CheckedJson {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = Value::deserialize(deserializer)?;
-        Self::from_value(&value).map_err(serde::de::Error::custom)
+        struct Held;
+        impl<'de> serde::de::Visitor<'de> for Held {
+            type Value = CheckedJson;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a JSON value")
+            }
+
+            // The document deserializer answers with the handle it offered.
+            fn visit_unit<E: serde::de::Error>(self) -> Result<CheckedJson, E> {
+                OFFERED
+                    .with(|slot| slot.borrow_mut().take())
+                    .ok_or_else(|| E::custom("no JSON handle was offered"))
+            }
+
+            // Any other deserializer yields a value to encode.
+            fn visit_newtype_struct<D2: Deserializer<'de>>(
+                self,
+                inner: D2,
+            ) -> Result<CheckedJson, D2::Error> {
+                let value = Value::deserialize(inner)?;
+                CheckedJson::from_value(&value).map_err(serde::de::Error::custom)
+            }
+        }
+        deserializer.deserialize_newtype_struct(CHECKED_JSON_TOKEN, Held)
     }
 }
 
 /// The `Value` of one document node, built from an explicit heap stack so a
 /// value of any depth converts on any thread stack.
-fn value_of(root: NodeRef<'_>) -> Value {
+pub(in crate::checked_package) fn value_of(root: NodeRef<'_>) -> Value {
     use quire_canonical::{Items, Members};
     enum Open<'d> {
         Array(Vec<Value>, Items<'d>),
@@ -236,8 +447,10 @@ fn number_value(number: quire_canonical::Number<'_>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ix_trace_rs::trace;
     use serde_json::json;
 
+    #[trace("TC-472", "FR-038-AC-514")]
     #[test]
     fn handles_round_trip_compare_by_canonical_encoding_and_refuse_noncanonical_bytes() {
         let value = json!({"b": [1, 2.5, "x", null, true], "a": {"k": -7}});
@@ -265,6 +478,7 @@ mod tests {
         assert!(matches!(left.node().node(), Node::Object(_)));
     }
 
+    #[trace("TC-472", "FR-038-AC-514")]
     #[test]
     fn a_deep_value_compares_and_drops_without_native_recursion() {
         let depth = 100_000;

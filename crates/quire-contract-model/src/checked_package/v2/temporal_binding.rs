@@ -3,10 +3,12 @@
 
 //! Typed clock configuration rows for temporal and compensation declarations.
 
+use super::graph_storage::GraphIndex;
+use super::term_view::TermNode;
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedOccurrenceRole, CheckedPackageLockV2,
-    CheckedSelectionRole, LawRole, ProtocolForm, RawSemanticNodeV2, TemporalForm, TemporalProfile,
-    WorkMeter,
+    CheckedSelectionRole, CheckedSemanticNodeV2, LawRole, ProtocolForm, TemporalForm,
+    TemporalProfile, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
@@ -14,7 +16,6 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
 
 /// An exact number in a fixed-sample clock configuration.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
@@ -118,16 +119,16 @@ fn decimal_magnitude(text: &str) -> Option<(&str, bool)> {
 fn validate_number(
     number: &ClockExactNumber,
     positive: bool,
-    at: JsonPointer,
+    at: impl Fn() -> JsonPointer,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     match number {
         ClockExactNumber::Integer { decimal } => {
             let Some((_, zero)) = decimal_magnitude(decimal) else {
-                return Err(malformed(at.key("decimal")));
+                return Err(malformed(at().key("decimal")));
             };
             if positive && (zero || decimal.starts_with('-')) {
-                return Err(malformed(at.key("decimal")));
+                return Err(malformed(at().key("decimal")));
             }
         }
         ClockExactNumber::Rational {
@@ -135,7 +136,7 @@ fn validate_number(
             denominator,
         } => {
             let Some((digits, zero)) = decimal_magnitude(numerator) else {
-                return Err(malformed(at.clone().key("numerator")));
+                return Err(malformed(at().key("numerator")));
             };
             let valid_denominator = denominator
                 .bytes()
@@ -146,13 +147,13 @@ fn validate_number(
                     .skip(1)
                     .all(|byte| byte.is_ascii_digit());
             if !valid_denominator {
-                return Err(malformed(at.clone().key("denominator")));
+                return Err(malformed(at().key("denominator")));
             }
             if positive && (zero || numerator.starts_with('-')) {
-                return Err(malformed(at.clone().key("numerator")));
+                return Err(malformed(at().key("numerator")));
             }
-            if !super::natural::coprime(digits, denominator, meter, &|| at.clone())? {
-                return Err(malformed(at));
+            if !super::natural::coprime(digits, denominator, meter, &at)? {
+                return Err(malformed(at()));
             }
         }
     }
@@ -164,16 +165,16 @@ fn validate_shape(
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for (index, row) in rows.iter().enumerate() {
-        let at = row_pointer(index);
-        meter.charge(1, || at.clone())?;
+        let at = || row_pointer(index);
+        meter.charge(1, &at)?;
         if row.clock_name.is_empty() {
-            return Err(malformed(at.clone().key("clock_name")));
+            return Err(malformed(at().key("clock_name")));
         }
-        let clock_at = at.key("clock");
+        let clock_at = || at().key("clock");
         match &row.clock {
             ClockConfiguration::EventPosition { sequence_authority } => {
                 if sequence_authority.is_empty() {
-                    return Err(malformed(clock_at.key("sequence_authority")));
+                    return Err(malformed(clock_at().key("sequence_authority")));
                 }
             }
             ClockConfiguration::FixedSample {
@@ -182,14 +183,14 @@ fn validate_shape(
                 unit,
             } => {
                 if unit.is_empty() {
-                    return Err(malformed(clock_at.clone().key("unit")));
+                    return Err(malformed(clock_at().key("unit")));
                 }
-                validate_number(epoch, false, clock_at.clone().key("epoch"), meter)?;
-                validate_number(period, true, clock_at.key("period"), meter)?;
+                validate_number(epoch, false, || clock_at().key("epoch"), meter)?;
+                validate_number(period, true, || clock_at().key("period"), meter)?;
             }
             ClockConfiguration::TimestampedEvent { timestamp_unit } => {
                 if timestamp_unit.is_empty() {
-                    return Err(malformed(clock_at.key("timestamp_unit")));
+                    return Err(malformed(clock_at().key("timestamp_unit")));
                 }
             }
         }
@@ -197,13 +198,118 @@ fn validate_shape(
     Ok(())
 }
 
-pub(super) fn profile_law(node: &RawSemanticNodeV2) -> Option<super::CheckedArtifactRef> {
-    let operation: super::operations::OperationWire =
-        serde_json::from_value(node.body.get("operation")?.clone()).ok()?;
-    let [law] = operation.laws.as_slice() else {
-        return None;
+/// Whether `value` is a string.
+fn is_text(value: Option<TermNode<'_>>) -> bool {
+    value.is_some_and(|value| value.as_str().is_some())
+}
+
+/// Whether `law` is an operation law: a `role` text and a `definition` of
+/// exactly an `authority` and an `identity`.
+fn is_operation_law(law: TermNode<'_>) -> bool {
+    law.exact_members(&["role", "definition"])
+        && is_text(law.get("role"))
+        && law.get("definition").is_some_and(|definition| {
+            definition.exact_members(&["authority", "identity"])
+                && is_text(definition.get("authority"))
+                && is_text(definition.get("identity"))
+        })
+}
+
+/// Whether `mode` is null or exactly a `kind` and a `value` text.
+fn is_operation_mode(mode: TermNode<'_>) -> bool {
+    mode.is_null()
+        || (mode.exact_members(&["kind", "value"])
+            && is_text(mode.get("kind"))
+            && is_text(mode.get("value")))
+}
+
+/// Whether `leaf` is an operation leaf: a `path` of texts, `laws`, and an
+/// optional `mode`, with no other member.
+fn is_operation_leaf(leaf: TermNode<'_>) -> bool {
+    let Some(members) = leaf.members() else {
+        return false;
     };
-    (law.role_class() == Some(LawRole::TemporalProfile)).then(|| law.definition.clone())
+    let (mut path, mut laws) = (false, false);
+    for (name, value) in members {
+        let fine = match name {
+            "path" => {
+                path = true;
+                value
+                    .items()
+                    .is_some_and(|mut items| items.all(|item| item.as_str().is_some()))
+            }
+            "laws" => {
+                laws = true;
+                value
+                    .items()
+                    .is_some_and(|mut items| items.all(is_operation_law))
+            }
+            "mode" => is_operation_mode(value),
+            _ => false,
+        };
+        if !fine {
+            return false;
+        }
+    }
+    path && laws
+}
+
+/// Whether `operation` has the closed shape `OperationWire` decodes: the five
+/// members, `mode` and `member` present (null allowed).
+fn is_operation_wire(operation: TermNode<'_>) -> bool {
+    operation.exact_members(&["identity", "laws", "mode", "member", "leaves"])
+        && is_text(operation.get("identity"))
+        && operation
+            .get("laws")
+            .and_then(TermNode::items)
+            .is_some_and(|mut laws| laws.all(is_operation_law))
+        && operation.get("mode").is_some_and(is_operation_mode)
+        && operation
+            .get("leaves")
+            .and_then(TermNode::items)
+            .is_some_and(|mut leaves| leaves.all(is_operation_leaf))
+}
+
+/// The one temporal-profile law of the operation of graph node `position`,
+/// read from the retained document; its two texts are charged before they are
+/// copied. `None` when the body is not a decodable operation, or does not
+/// carry exactly one such law.
+pub(super) fn profile_law(
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<Option<super::CheckedArtifactRef>, ValidationFailure> {
+    let Some((body, _)) = meter.body(position) else {
+        return Ok(None);
+    };
+    let Some(operation) = body.get("operation").filter(|op| is_operation_wire(*op)) else {
+        return Ok(None);
+    };
+    let Some(mut laws) = operation.get("laws").and_then(TermNode::items) else {
+        return Ok(None);
+    };
+    let (Some(law), None) = (laws.next(), laws.next()) else {
+        return Ok(None);
+    };
+    let role = law.get("role").and_then(TermNode::as_str);
+    if role.and_then(LawRole::from_wire) != Some(LawRole::TemporalProfile) {
+        return Ok(None);
+    }
+    let Some(definition) = law.get("definition") else {
+        return Ok(None);
+    };
+    let (Some(authority), Some(identity)) = (
+        definition.get("authority").and_then(TermNode::as_str),
+        definition.get("identity").and_then(TermNode::as_str),
+    ) else {
+        return Ok(None);
+    };
+    meter.at_node(position, "profile_law");
+    let authority = meter.boxed_str(authority)?;
+    let identity = meter.boxed_str(identity)?;
+    Ok(Some(super::CheckedArtifactRef {
+        authority,
+        identity,
+    }))
 }
 
 fn clock_configured(profile: TemporalProfile) -> Option<TemporalProfile> {
@@ -216,8 +322,13 @@ fn clock_configured(profile: TemporalProfile) -> Option<TemporalProfile> {
     .then_some(profile)
 }
 
-fn configured_profile(node: &RawSemanticNodeV2) -> Option<TemporalProfile> {
-    clock_configured(TemporalProfile::from_wire(&profile_law(node)?.identity)?)
+fn configured_profile(
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<Option<TemporalProfile>, ValidationFailure> {
+    Ok(profile_law(position, meter)?
+        .and_then(|law| TemporalProfile::from_wire(&law.identity))
+        .and_then(clock_configured))
 }
 
 fn selected_profile(lock: &CheckedPackageLockV2) -> Option<TemporalProfile> {
@@ -228,9 +339,16 @@ fn selected_profile(lock: &CheckedPackageLockV2) -> Option<TemporalProfile> {
     clock_configured(TemporalProfile::from_wire(&selection.definition.identity)?)
 }
 
+/// The text of argument `argument` of the clause at `position`, a literal
+/// text or a binding of one, borrowed from the retained document.
 #[ix_trace_rs::string_edge]
-pub(super) fn clock_name(node: &RawSemanticNodeV2, argument: usize) -> Option<&str> {
-    let term = node.body.get("arguments")?.as_array()?.get(argument)?;
+pub(super) fn clock_name<'b>(
+    meter: &WorkMeter<'b>,
+    position: usize,
+    argument: usize,
+) -> Option<&'b str> {
+    let (body, _) = meter.body(position)?;
+    let term = body.get("arguments")?.items()?.nth(argument)?;
     let term = if term.get("term")?.as_str()? == "binding" {
         term.get("value")?
     } else {
@@ -257,11 +375,11 @@ fn clock_matches(profile: Option<TemporalProfile>, clock: &ClockConfiguration) -
 }
 
 /// Validate row coverage before per-node joins and compare names before kinds.
-pub(super) fn validate(
+pub(super) fn validate<B>(
     rows: Option<&[TemporalBinding]>,
-    nodes: &[RawSemanticNodeV2],
+    nodes: &[CheckedSemanticNodeV2<B>],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     lock: &CheckedPackageLockV2,
     meter: &mut WorkMeter,
@@ -269,28 +387,28 @@ pub(super) fn validate(
     let rows = rows.unwrap_or_default();
     validate_shape(rows, meter)?;
     let compensation_profile = selected_profile(lock);
-    let mut seen = BTreeSet::new();
-    let mut previous: Option<(&CheckedNodeId, u64)> = None;
-    let mut resolved = Vec::with_capacity(rows.len());
+    let mut seen: Vec<(usize, u64)> = meter.vec(rows.len())?;
+    let mut previous: Option<(super::graph_storage::ResolvedKey<'_>, u64)> = None;
+    let mut resolved = meter.vec(rows.len())?;
     for (row_index, row) in rows.iter().enumerate() {
-        let at = row_pointer(row_index);
+        let at = || row_pointer(row_index);
         let Some(&position) = index.get(&row.declaration) else {
-            return Err(invalid(at.key("declaration"), &row.declaration));
+            return Err(invalid(at().key("declaration"), &row.declaration));
         };
         if !matches!(
             kinds[position],
             CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
                 | CheckedNodeKind::Protocol(ProtocolForm::Compensation)
         ) {
-            return Err(invalid(at.key("declaration"), &row.declaration));
+            return Err(invalid(at().key("declaration"), &row.declaration));
         }
         if kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
-            && profile_law(&nodes[position])
+            && profile_law(position, meter)?
                 .as_ref()
                 .and_then(|law| TemporalProfile::from_wire(&law.identity))
                 == Some(TemporalProfile::Timed)
         {
-            return Err(invalid(at, &row.declaration));
+            return Err(invalid(at(), &row.declaration));
         }
         let role = if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
             CheckedOccurrenceRole::Declaration
@@ -299,30 +417,33 @@ pub(super) fn validate(
         };
         let mut owned = false;
         for occurrence in &nodes[position].occurrences {
-            meter.charge(1, || at.clone().key("occurrence"))?;
+            meter.charge(1, || at().key("occurrence"))?;
             if occurrence.role == role && occurrence.ordinal == row.occurrence {
                 owned = true;
                 break;
             }
         }
         if !owned {
-            return Err(invalid(at.key("occurrence"), &row.declaration));
+            return Err(invalid(at().key("occurrence"), &row.declaration));
         }
-        if !seen.insert((&row.declaration, row.occurrence)) {
+        let key = (position, row.occurrence);
+        let insertion = seen.binary_search(&key);
+        if insertion.is_ok() {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                at,
+                at(),
                 Some(CheckedPackageRefusalCause::ConflictingDefinition),
                 row.declaration.clone(),
             ));
         }
-        let structural = structural_keys[position].as_ref();
+        seen.insert(insertion.expect_err("duplicate refused above"), key);
+        let structural = index.resolved_at(position, structural_keys);
         if let Some((previous_id, previous_occurrence)) = previous {
             if previous_id > structural {
-                return Err(invalid(at.key("declaration"), &row.declaration));
+                return Err(invalid(at().key("declaration"), &row.declaration));
             }
             if previous_id == structural && previous_occurrence > row.occurrence {
-                return Err(invalid(at.key("occurrence"), &row.declaration));
+                return Err(invalid(at().key("occurrence"), &row.declaration));
             }
         }
         previous = Some((structural, row.occurrence));
@@ -331,7 +452,7 @@ pub(super) fn validate(
     let mut missing = None;
     for (position, node) in nodes.iter().enumerate() {
         let role = if kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
-            && configured_profile(node).is_some()
+            && configured_profile(position, meter)?.is_some()
         {
             CheckedOccurrenceRole::Claim
         } else if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation)
@@ -343,7 +464,9 @@ pub(super) fn validate(
         };
         for occurrence in &node.occurrences {
             meter.charge(1, || node_pointer(position).key("body"))?;
-            if occurrence.role == role && !seen.contains(&(&node.node_id, occurrence.ordinal)) {
+            if occurrence.role == role
+                && seen.binary_search(&(position, occurrence.ordinal)).is_err()
+            {
                 missing = Some(position);
                 break;
             }
@@ -359,18 +482,17 @@ pub(super) fn validate(
         ));
     }
     for (row_index, (row, &position)) in rows.iter().zip(&resolved).enumerate() {
-        let node = &nodes[position];
-        let at = row_pointer(row_index);
+        let at = || row_pointer(row_index);
         if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
-            if clock_name(node, 4) != Some(row.clock_name.as_ref()) {
-                return Err(invalid(at.clone().key("clock_name"), &row.declaration));
+            if clock_name(meter, position, 4) != Some(row.clock_name.as_ref()) {
+                return Err(invalid(at().key("clock_name"), &row.declaration));
             }
             if !clock_matches(compensation_profile, &row.clock) {
-                return Err(invalid(at.key("clock").key("kind"), &row.declaration));
+                return Err(invalid(at().key("clock").key("kind"), &row.declaration));
             }
             continue;
         }
-        let law = profile_law(node);
+        let law = profile_law(position, meter)?;
         if law
             .as_ref()
             .is_some_and(|law| TemporalProfile::from_wire(&law.identity).is_none())
@@ -379,14 +501,14 @@ pub(super) fn validate(
             // law definition. Do not let this row's profile join preempt it.
             continue;
         }
-        if clock_name(node, 1) != Some(row.clock_name.as_ref()) {
-            return Err(invalid(at.clone().key("clock_name"), &row.declaration));
+        if clock_name(meter, position, 1) != Some(row.clock_name.as_ref()) {
+            return Err(invalid(at().key("clock_name"), &row.declaration));
         }
-        let profile = configured_profile(node);
+        let profile = configured_profile(position, meter)?;
         let mut selected = false;
         if let Some(law) = law.as_ref() {
             for selection in &lock.profile_selections {
-                meter.charge(1, || at.clone().key("clock").key("kind"))?;
+                meter.charge(1, || at().key("clock").key("kind"))?;
                 if selection.role == CheckedSelectionRole::TemporalProfile
                     && selection.definition == *law
                 {
@@ -396,8 +518,183 @@ pub(super) fn validate(
             }
         }
         if !selected || !clock_matches(profile, &row.clock) {
-            return Err(invalid(at.key("clock").key("kind"), &row.declaration));
+            return Err(invalid(at().key("clock").key("kind"), &row.declaration));
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::graph_storage::OwnedBodies;
+    use super::super::native_join_budget::NativeJoinBudget;
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    fn node_body(operation: serde_json::Value, clock: &str) -> serde_json::Value {
+        json!({"term":"application","operation":operation,"arguments":[
+            {"term":"binding","name":"clock","value":
+                {"term":"literal","kind":"text","value_kind":"text","value":clock}},
+            {"term":"literal","value_kind":"text","value":clock}]})
+    }
+
+    fn operation(laws: serde_json::Value) -> serde_json::Value {
+        json!({"identity":"quire.op.temporal.always","laws":laws,"mode":null,"member":null,"leaves":[]})
+    }
+
+    fn law(role: &str, identity: &str) -> serde_json::Value {
+        json!({"role":role,"definition":{"authority":"quire","identity":identity}})
+    }
+
+    /// The profile law and the clock name read from the document agree with
+    /// the typed decode of the same bodies, and the law's two texts are
+    /// allocated exactly as charged (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn profile_law_and_clock_name_read_the_document_as_the_decode_does() {
+        let profile = law("temporal_profile", "quire.profile.timed");
+        let cases = [
+            operation(json!([profile.clone()])),
+            operation(json!([])),
+            operation(json!([profile.clone(), profile.clone()])),
+            operation(json!([law("other", "x")])),
+            json!({"identity":"x","laws":[profile.clone()],"mode":null,"leaves":[]}),
+            json!({"identity":"x","laws":[profile.clone()],"mode":null,"member":null,"leaves":[],"extra":1}),
+            json!({"identity":"x","laws":[profile.clone()],"mode":{"kind":"k","value":3},"member":null,"leaves":[]}),
+            json!({"identity":"x","laws":[profile.clone()],"mode":null,"member":null,
+                   "leaves":[{"path":["a"],"laws":[],"mode":null}]}),
+            json!({"identity":"x","laws":[profile.clone()],"mode":null,"member":null,
+                   "leaves":[{"path":["a"]}]}),
+            json!({"identity":"x","laws":[profile.clone()],"mode":null,"member":null,
+                   "leaves":[{"path":[1],"laws":[]}]}),
+            json!({"identity":"x","laws":[{"role":"temporal_profile","definition":
+                   {"authority":"q","identity":"i","more":1}}],"mode":null,"member":null,"leaves":[]}),
+        ];
+        for (n, case) in cases.iter().enumerate() {
+            let body = node_body(case.clone(), "model-time");
+            let expected =
+                serde_json::from_value::<super::super::operations::OperationWire>(case.clone())
+                    .ok()
+                    .and_then(|wire| {
+                        let [law] = wire.laws.as_slice() else {
+                            return None;
+                        };
+                        (law.role_class() == Some(LawRole::TemporalProfile))
+                            .then(|| law.definition.clone())
+                    });
+            let bodies = OwnedBodies::of_values(&[body], vec![Vec::new()]);
+            let mut meter = WorkMeter::new(u64::MAX);
+            bodies.attach(&mut meter);
+            let read = profile_law(0, &mut meter).expect("an unlimited meter admits");
+            assert_eq!(read, expected, "case {n}");
+            assert_eq!(clock_name(&meter, 0, 1), Some("model-time"), "case {n}");
+            assert_eq!(clock_name(&meter, 0, 0), Some("model-time"), "case {n}");
+            assert_eq!(clock_name(&meter, 0, 2), None, "case {n}");
+        }
+
+        // The law's two texts are charged before they are copied, to the byte.
+        let body = node_body(cases[0].clone(), "model-time");
+        let bodies = OwnedBodies::of_values(&[body], vec![Vec::new()]);
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                bodies.attach(&mut meter);
+                outcome = Some(profile_law(0, &mut meter));
+            });
+            (
+                outcome.expect("ran").ok().flatten(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (law, allocated, charged) = run(u64::MAX);
+        assert!(law.is_some() && charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert!(run(charged).0.is_some(), "the measured limit admits");
+        assert!(run(charged - 1).0.is_none(), "one byte short is denied");
+    }
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn temporal_binding_tables_allocate_only_charged_storage() {
+        let id = super::super::test_support::node_id('1');
+        let nodes = [CheckedSemanticNodeV2 {
+            node_id: id.clone(),
+            schema_version: "test".into(),
+            node_tag: "protocol".into(),
+            semantic_form: "compensation".into(),
+            semantic_type: id.clone(),
+            dependencies: vec![],
+            occurrences: vec![
+                crate::checked_package::shared::CheckedOccurrence {
+                    role: CheckedOccurrenceRole::Declaration,
+                    ordinal: 0,
+                },
+                crate::checked_package::shared::CheckedOccurrence {
+                    role: CheckedOccurrenceRole::Declaration,
+                    ordinal: 1,
+                },
+            ],
+            recursion_group: None,
+            declaration: None,
+            owner: None,
+            owner_model: None,
+            body: (),
+        }];
+        let rows: Vec<_> = (0..2)
+            .map(|occurrence| TemporalBinding {
+                declaration: id.clone(),
+                occurrence,
+                clock_name: "events".into(),
+                clock: ClockConfiguration::EventPosition {
+                    sequence_authority: "source".into(),
+                },
+            })
+            .collect();
+        let lock: CheckedPackageLockV2 = serde_json::from_value(json!({
+            "sources":[], "edition":{"role":"edition","definition":{"authority":"test","identity":"edition"}},
+            "profile_selections":[{"role":"temporal_profile","definition":{"authority":"quire","identity":"quire.temporal.event-position.false-extension/v1"}}],
+            "definition_selections":[],"required_features":[],"dependency_selections":[]
+        })).expect("fixture lock");
+        let bodies = OwnedBodies::of_values(
+            &[json!({"arguments":[null,null,null,null,
+            {"term":"literal","value_kind":"text","value":"events"}]})],
+            vec![Vec::new()],
+        );
+        let mut build_meter = WorkMeter::new(u64::MAX);
+        let index = GraphIndex::build(nodes.iter().map(|node| &node.node_id), &mut build_meter)
+            .expect("index");
+        let keys = [std::sync::Arc::new(id)];
+        let kinds = [CheckedNodeKind::Protocol(ProtocolForm::Compensation)];
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                bodies.attach(&mut meter);
+                result = Some(validate(
+                    Some(&rows),
+                    &nodes,
+                    &kinds,
+                    &index,
+                    &keys,
+                    &lock,
+                    &mut meter,
+                ));
+            });
+            (
+                result.expect("ran"),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (outcome, allocated, charged) = run(u64::MAX);
+        outcome.expect("valid rows");
+        assert!(charged > 0);
+        assert_eq!(allocated, charged);
+        run(charged).0.expect("exact allowance admits");
+        assert!(run(charged - 1).0.is_err(), "one byte short refuses");
+    }
 }

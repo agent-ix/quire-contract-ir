@@ -3,6 +3,7 @@
 
 //! Declared names of temporal-clause source occurrences.
 
+use super::graph_storage::GraphIndex;
 use super::{
     identity::is_identifier, CheckedNodeId, CheckedNodeKind, CheckedOccurrenceRole,
     RawSemanticNodeV2, TemporalForm, WorkMeter,
@@ -13,7 +14,7 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// One declared name of a temporal-clause claim occurrence.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -49,12 +50,12 @@ pub(super) fn validate(
     rows: Option<&[TemporalClauseName]>,
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let mut seen = BTreeSet::new();
-    let mut previous: Option<(&CheckedNodeId, u64)> = None;
+    let mut previous: Option<(super::graph_storage::ResolvedKey<'_>, u64)> = None;
     for (row_index, row) in rows.unwrap_or_default().iter().enumerate() {
         let at = root().index(row_index);
         meter.charge(1, || at.clone())?;
@@ -93,7 +94,7 @@ pub(super) fn validate(
         if !seen.insert((&row.declaration, row.occurrence)) {
             return Err(invalid(at, Cause::ConflictingDefinition, &row.declaration));
         }
-        let key = (structural_keys[position].as_ref(), row.occurrence);
+        let key = (index.resolved_at(position, structural_keys), row.occurrence);
         if previous.is_some_and(|previous| previous > key) {
             return Err(invalid(at, Cause::InvalidValue, &row.declaration));
         }
