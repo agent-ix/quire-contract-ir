@@ -10,13 +10,13 @@ use std::cmp::Ordering;
 
 enum WorkAt<'a> {
     Legacy(&'a dyn Fn() -> JsonPointer),
-    Paid(Site<'a>),
+    Paid(&'a Site<'a>),
 }
 impl WorkAt<'_> {
     fn charge(&self, meter: &mut WorkMeter, amount: u64) -> Result<(), ValidationFailure> {
         match self {
             Self::Legacy(at) => meter.charge(amount, at),
-            Self::Paid(site) => work_at(meter, *site, amount),
+            Self::Paid(site) => work_at(meter, **site, amount),
         }
     }
 }
@@ -234,7 +234,7 @@ pub(super) fn coprime_at(
     meter: &mut WorkMeter,
     site: Site<'_>,
 ) -> Result<bool, ValidationFailure> {
-    coprime_core(numerator, denominator, meter, &WorkAt::Paid(site))
+    coprime_core(numerator, denominator, meter, &WorkAt::Paid(&site))
 }
 
 fn coprime_core(
@@ -340,7 +340,8 @@ mod tests {
             source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 4),
             form: "scalar_type",
         };
-        let mut legacy = super::super::NativeJoinBudget::new(1, 0);
+        let mut legacy =
+            super::super::NativeJoinBudget::new(1, 0).with_read_storage_limit(u64::MAX);
         legacy.set_active_locus(Some(original));
         assert!(coprime("1", "1", &mut WorkMeter::over(&mut legacy), &at).is_err());
         for allowance in [
