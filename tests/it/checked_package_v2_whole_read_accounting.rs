@@ -404,15 +404,14 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
     for row in vectors["cases"].as_array().expect("operand cases") {
         let id = row["id"].as_str().expect("operand case id");
         let expected = row["expected"].as_str().expect("operand outcome");
-        // These two vectors specify only an intermediate-stage oracle, not
-        // the complete reader outcome. They retain their unresolved recipes.
-        if expected.starts_with("passes_") {
-            continue;
-        }
-        let expected = Expected::Refused(
-            serde_json::from_value(Value::String(expected.into()))
-                .expect("published operand refusal code"),
-        );
+        let expected = if expected.starts_with("passes_") {
+            Expected::OriginalOracle(qspec_inputs::operand_checks_pass)
+        } else {
+            Expected::Refused(
+                serde_json::from_value(Value::String(expected.into()))
+                    .expect("published operand refusal code"),
+            )
+        };
         let mut wire = base.clone();
         for patch in row["patch"].as_array().expect("operand patches") {
             qspec_inputs::apply_node_index_patch(&mut wire, patch);
@@ -726,6 +725,7 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
                 seen.insert(format!("{:?}", actual.code));
                 refused += 1;
             }
+            (Expected::OriginalOracle(oracle), actual) if oracle(actual) => {}
             _ => problems.push(format!(
                 "{}: fixture expectation differs from {outcome:?}",
                 input.label

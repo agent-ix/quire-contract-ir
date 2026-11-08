@@ -393,3 +393,20 @@ pub(crate) fn apply_node_index_patch(package: &mut Value, patch: &Value) {
         _ => panic!("unsupported published patch {operation} at {path}"),
     }
 }
+
+/// The original NI stage-only oracle: later semantic refusals are permitted,
+/// but operand grammar and the identified duplicate-key refusal must pass.
+pub(crate) fn operand_checks_pass(actual: &CheckedPackageV2ReadResult) -> bool {
+    match actual {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            refusal.code != quire_contract_model::CheckedPackageRefusalCode::MalformedWire
+                && refusal.loci.iter().all(|locus| {
+                    locus
+                        .path
+                        .as_ref()
+                        .is_none_or(|path| path.as_str() != "/semantic_graph/nodes/4/node_id")
+                })
+        }
+        _ => true,
+    }
+}
