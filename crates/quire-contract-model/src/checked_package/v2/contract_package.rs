@@ -858,7 +858,7 @@ impl ContractPackageV1 {
             let body_units = json_value_count(&node.body).unwrap_or(u64::MAX);
             work.charge(body_units.saturating_mul(4))
                 .map_err(ContractRootViewError::Incomplete)?;
-            super::validate_body(
+            super::validate_value_body(
                 kind,
                 &node.body,
                 &Trail::Base(&steps),
@@ -1762,11 +1762,12 @@ impl ContractPackageWireV1 {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        let projected_keys =
-            super::node_index::rebuild_graph_keys(&package.wire.semantic_graph.nodes, None, |_| {
-                unreachable!("admitted V1 graph was already index-checked")
-            })
-            .expect("admitted V1 graph keys");
+        let projected_keys = super::node_index::rebuild_graph_keys(
+            &package.wire.semantic_graph.nodes,
+            |_| unreachable!("admitted V1 graph was already index-checked"),
+            &mut super::native_join_budget::NativeJoinBudget::unlimited(),
+        )
+        .expect("admitted V1 graph keys");
         let mut projected_positions = vec![None; source.resolved_graph().nodes.len()];
         let mut source_positions = Vec::with_capacity(package.wire.semantic_graph.nodes.len());
         for (position, represented) in package.wire.semantic_graph.nodes.iter().enumerate() {
@@ -1939,8 +1940,8 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
         })
         .collect::<Result<Vec<_>, _>>()?;
     let output_keys = super::node_index::rebuild_keys(
-        &output_ids.iter().collect::<Vec<_>>(),
-        None,
+        output_ids.len(),
+        |position| &output_ids[position],
         |position, slot| {
             graph_at
                 .clone()
@@ -1951,6 +1952,7 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
                 .key("node")
         },
         |at| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at),
+        &mut super::native_join_budget::NativeJoinBudget::unlimited(),
     )?;
     let table_at = JsonPointer::root().key("source_keys");
     let table = value["source_keys"]
@@ -1969,8 +1971,8 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
         })
         .collect::<Result<Vec<_>, _>>()?;
     let source_keys = super::node_index::rebuild_keys(
-        &source_ids.iter().collect::<Vec<_>>(),
-        None,
+        source_ids.len(),
+        |position| &source_ids[position],
         |position, slot| {
             table_at
                 .clone()
@@ -1980,6 +1982,7 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
                 .key("node")
         },
         |at| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at),
+        &mut super::native_join_budget::NativeJoinBudget::unlimited(),
     )?;
     let paths = source_ref_paths(value);
     for at in &paths {
@@ -1996,12 +1999,10 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
     }
     // Compare shallow interned descriptors: a long chain of source keys must
     // not compare every deep prefix again during duplicate detection.
-    let mut interner = super::node_index::StructuralInterner::new();
-    let tokens = interner
-        .tokens(&source_keys)
+    let order = super::StructuralOrder::build_unmetered(&[&source_keys])
         .ok_or_else(|| malformed(table_at.clone(), CheckedPackageRefusalCause::InvalidValue))?;
     let mut seen = BTreeSet::new();
-    for (position, token) in tokens.into_iter().enumerate() {
+    for (position, token) in source_keys.iter().map(|key| order.token(key)).enumerate() {
         if !seen.insert(token) {
             return Err(malformed(
                 table_at.clone().index(position),
@@ -2832,16 +2833,22 @@ impl ContractPackageWireV1 {
                 Some(JsonPointer::root().key("semantic_graph").key("nodes")),
             ));
         }
-        let structural_keys = super::node_index::rebuild_graph_keys(nodes, None, |at| {
-            malformed(at, CheckedPackageRefusalCause::InvalidValue)
-        })?;
-        let mut interner = super::node_index::StructuralInterner::new();
-        let structural_tokens = interner.tokens(&structural_keys).ok_or_else(|| {
-            malformed(
-                JsonPointer::root().key("semantic_graph").key("nodes"),
-                CheckedPackageRefusalCause::InvalidValue,
-            )
-        })?;
+        let structural_keys = super::node_index::rebuild_graph_keys(
+            nodes,
+            |at| malformed(at, CheckedPackageRefusalCause::InvalidValue),
+            &mut super::native_join_budget::NativeJoinBudget::unlimited(),
+        )?;
+        let order =
+            super::StructuralOrder::build_unmetered(&[&structural_keys]).ok_or_else(|| {
+                malformed(
+                    JsonPointer::root().key("semantic_graph").key("nodes"),
+                    CheckedPackageRefusalCause::InvalidValue,
+                )
+            })?;
+        let structural_tokens = structural_keys
+            .iter()
+            .map(|key| order.token(key))
+            .collect::<Vec<_>>();
         let mut seen = BTreeSet::new();
         let mut edges = 0_u64;
         let mut node_kinds = Vec::with_capacity(nodes.len());
@@ -2872,8 +2879,12 @@ impl ContractPackageWireV1 {
                 Step::Index(index),
                 Step::Key("body"),
             ];
-            let work =
-                super::validate_body(kind, &node.body, &Trail::Base(&steps), &mut |_, _, _| {})?;
+            let work = super::validate_value_body(
+                kind,
+                &node.body,
+                &Trail::Base(&steps),
+                &mut |_, _, _| {},
+            )?;
             work_meter.charge(work, || at.clone().key("body"))?;
             edges =
                 edges.saturating_add(u64::try_from(node.dependencies.len()).unwrap_or(u64::MAX));
@@ -3326,7 +3337,7 @@ impl ContractPackageWireV1 {
             let mut body_references = Vec::new();
             let mut edges = node.dependencies.clone();
             edges.push(node.semantic_type.clone());
-            super::validate_body(
+            super::validate_value_body(
                 kind,
                 &node.body,
                 &Trail::Base(&steps),

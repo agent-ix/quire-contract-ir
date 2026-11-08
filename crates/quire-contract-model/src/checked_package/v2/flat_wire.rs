@@ -27,23 +27,33 @@
 //! (FR-038 "The timed interval form" stage 1); the term's own closed shape is
 //! [`crate::checked_package::common::validate_term`]'s, later.
 
+use super::budgeted_read::denial;
+use super::checked_json::CheckedJson;
+use super::native_join_budget::{NativeJoinBudget, PackageReadStage};
+use super::read_charge::{self, Meter, Site, WalkReservation};
 use super::temporal::{interval_bound_outside_pattern, timed_upper_is_null};
+use super::TermNode;
 use super::{
     body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
     CheckedTermView, HybridForm, TemporalForm, ValueForm,
 };
 use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
-use crate::checked_package::common::{
-    application_operator, body_term, node_pointer, Step, Trail, ValidationFailure, WireTerm,
-};
+use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure, WireTerm};
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
-use crate::checked_package::terms::{subterms, subterms_of, At, Cursor};
-use quire_walk::{walk, Children, Walk};
-use serde::Deserialize;
+use crate::checked_package::terms::{At, Cursor, TermSource};
+use quire_walk::{Children, Walk};
 use serde_json::Value;
-use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
+
+/// The charge site of the flat-wire check at graph node `index`.
+fn flat_site(index: usize) -> Site {
+    Site::new(PackageReadStage::WireChecks, index, "flat_wire")
+}
+
+/// The charge site of the interval-bound checks at graph node `index`.
+fn interval_site(index: usize) -> Site {
+    Site::new(PackageReadStage::WireChecks, index, "interval_bounds")
+}
 
 /// Where a term stands, which fixes what it may be.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,11 +73,17 @@ enum Place {
     BindingValue,
 }
 
+/// The member `name` of an optional term.
+fn member_of<'d>(term: Option<TermNode<'d>>, name: &str) -> Option<TermNode<'d>> {
+    term.and_then(|term| term.get(name))
+}
+
 /// Classify the two published profile identities at the wire intake boundary.
 #[ix_trace_rs::string_edge]
-fn wrong_profile_member(operation: &Value) -> bool {
-    let member_operator = operation["member"]["operator"].as_str();
-    match operation["identity"].as_str() {
+fn wrong_profile_member(operation: Option<TermNode<'_>>) -> bool {
+    let member_operator =
+        member_of(member_of(operation, "member"), "operator").and_then(TermNode::as_str);
+    match member_of(operation, "identity").and_then(TermNode::as_str) {
         Some("quire.op.state.transition") => {
             member_operator.is_some_and(|name| name != "transition")
         }
@@ -78,14 +94,24 @@ fn wrong_profile_member(operation: &Value) -> bool {
 
 /// Check the closed transition profile layout before semantic joins.
 #[ix_trace_rs::string_edge]
-fn transition_profile_wire_shape(operation: &Value) -> bool {
-    operation["laws"]
-        .as_array()
-        .is_some_and(|laws| laws.len() == 1 && laws[0]["role"] == "protocol_profile")
-        && operation["member"]["kind"] == "profile_operator"
-        && operation["member"]["operator"] == "transition"
-        && operation["mode"].is_null()
-        && operation["leaves"].as_array().is_some_and(Vec::is_empty)
+fn transition_profile_wire_shape(operation: Option<TermNode<'_>>) -> bool {
+    let member = member_of(operation, "member");
+    member_of(operation, "laws")
+        .and_then(TermNode::items)
+        .is_some_and(|mut laws| {
+            laws.len() == 1
+                && laws
+                    .next()
+                    .and_then(|law| law.get("role"))
+                    .and_then(TermNode::as_str)
+                    == Some("protocol_profile")
+        })
+        && member_of(member, "kind").and_then(TermNode::as_str) == Some("profile_operator")
+        && member_of(member, "operator").and_then(TermNode::as_str) == Some("transition")
+        && member_of(operation, "mode").is_none_or(TermNode::is_null)
+        && member_of(operation, "leaves")
+            .and_then(TermNode::items)
+            .is_some_and(|leaves| leaves.len() == 0)
 }
 
 /// Checks every node body and every `details` term of `wire` against the flat
@@ -94,8 +120,15 @@ fn transition_profile_wire_shape(operation: &Value) -> bool {
 /// the same header decoder as the graph stage.
 pub(super) fn check(
     wire: &CheckedPackageWireV2,
+    bodies: &[CheckedJson],
+    budget: &mut NativeJoinBudget,
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
-    let mut kinds = Vec::with_capacity(wire.semantic_graph.nodes.len());
+    let meter = Meter::new(budget);
+    let mut kinds = read_charge::with_capacity(
+        &mut meter.budget(),
+        flat_site(0),
+        wire.semantic_graph.nodes.len(),
+    )?;
     for (position, node) in wire.semantic_graph.nodes.iter().enumerate() {
         let kind = super::decode_node_kind(node, |member| {
             crate::checked_package::common::node_pointer(position).key(member)
@@ -148,15 +181,23 @@ pub(super) fn check(
             Step::Key("body"),
         ];
         let at = Trail::Base(&steps);
+        let json = &bodies[position];
+        let body = TermNode::of(json);
         let checked = match body_grammar(kind) {
             BodyGrammar::Literal => {
-                if body_term(&node.body) != Some(BodyTerm::Literal) {
+                if body.kind() != Some(BodyTerm::Literal) {
                     Err(ValidationFailure::refused(
                         CheckedPackageRefusalCode::MalformedWire,
                         at.pointer(),
                     ))
                 } else {
-                    check_term(&node.body, &at, Place::BodyRoot, false)
+                    check_term(
+                        body,
+                        &at,
+                        Place::BodyRoot,
+                        false,
+                        &mut meter.reservation(flat_site(position)),
+                    )
                 }
             }
             BodyGrammar::Extension => {
@@ -182,42 +223,62 @@ pub(super) fn check(
             // of their own, and no application stands in either; an
             // application at the root of an abstraction relation body is a
             // term of the closed grammar, placed by the abstraction step.
-            BodyGrammar::Frame => scan_members(&node.body, &at).map(|_| ()),
+            BodyGrammar::Frame => {
+                scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
+            }
             BodyGrammar::Term => {
                 if kind == CheckedNodeKind::Claim(super::ClaimForm::StepRelation) {
-                    scan_members(&node.body, &at).map(|_| ())
+                    scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
                 } else if kind == CheckedNodeKind::Claim(super::ClaimForm::Schedulability) {
-                    check_term_with_empty_leaf(&node.body, &at, Place::BodyRoot, false, true)
+                    check_term_with_empty_leaf(
+                        body,
+                        &at,
+                        Place::BodyRoot,
+                        false,
+                        true,
+                        &mut meter.reservation(flat_site(position)),
+                    )
                 } else if kind == CheckedNodeKind::State(super::StateForm::OperationAnchor) {
-                    check_anchor_flat_wire(&node.body, &at)
+                    check_anchor_flat_wire(body, &at, &mut meter.reservation(flat_site(position)))
                 } else if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
-                    && body_term(&node.body) == Some(BodyTerm::Application)
-                    && application_operator(&node.body)
-                        == Some(ApplicationOperator::ProtocolControl)
+                    && body.kind() == Some(BodyTerm::Application)
+                    && body.operator() == Some(ApplicationOperator::ProtocolControl)
                 {
                     Err(ValidationFailure::refused(
                         CheckedPackageRefusalCode::MalformedWire,
                         at.pointer(),
                     ))
                 } else {
-                    check_term(&node.body, &at, Place::BodyRoot, false).and_then(|_| {
+                    check_term(
+                        body,
+                        &at,
+                        Place::BodyRoot,
+                        false,
+                        &mut meter.reservation(flat_site(position)),
+                    )
+                    .and_then(|_| {
                         // QSpec FR-341-AC-19 fixes these two profile-member
                         // pairs in the published schema. Reject them during
                         // wire validation, before a stale application key or
                         // the operation step can decide the outcome.
-                        let operation = &node.body["operation"];
+                        let operation = body.get("operation");
                         if wrong_profile_member(operation) {
                             return Err(ValidationFailure::refused(
                                 CheckedPackageRefusalCode::MalformedWire,
                                 at.key("operation").key("member").key("operator").pointer(),
                             ));
                         }
-                        let member = &operation["member"];
-                        if member["kind"].as_str() == Some("relationship_end")
-                            && member
-                                .get("destination_type")
-                                .and_then(CheckedNodeId::from_value)
-                                .is_none()
+                        let member = member_of(operation, "member");
+                        if member_of(member, "kind").and_then(TermNode::as_str)
+                            == Some("relationship_end")
+                            && match member_of(member, "destination_type") {
+                                Some(destination) => destination
+                                    .node_id(&mut **meter.budget(), flat_site(position))
+                                    .map_err(|_| denial(&meter.budget()))?
+                                    .valid()
+                                    .is_none(),
+                                None => true,
+                            }
                         {
                             return Err(ValidationFailure::refused(
                                 CheckedPackageRefusalCode::MalformedWire,
@@ -228,8 +289,10 @@ pub(super) fn check(
                             ));
                         }
                         if kind == CheckedNodeKind::State(super::StateForm::Transition) {
-                            let body = CheckedTerm::decode_admitted(&node.body).ok();
-                            let transition_shape = body
+                            let decoded = body
+                                .decode(json.document(), &mut meter.budget(), flat_site(position))?
+                                .ok();
+                            let transition_shape = decoded
                                 .as_ref()
                                 .and_then(super::structural::typed_transition_body)
                                 .is_some()
@@ -256,10 +319,14 @@ pub(super) fn check(
                         let CheckedNodeKind::Protocol(form) = kind else {
                             return Ok(());
                         };
-                        let Some(body) = CheckedTerm::decode_admitted(&node.body).ok() else {
+                        let Some(decoded) = body
+                            .decode(json.document(), &mut meter.budget(), flat_site(position))?
+                            .ok()
+                        else {
                             return Ok(());
                         };
-                        if let Some(defect) = super::protocol_body::wire_layout_defect(form, &body)
+                        if let Some(defect) =
+                            super::protocol_body::wire_layout_defect(form, &decoded)
                         {
                             let path = match defect {
                                 super::protocol_body::ProtocolLayoutWireDefect::Body => {
@@ -312,10 +379,16 @@ pub(super) fn check(
                 super::hybrid::check_wire(node, form, position)
             }
             BodyGrammar::AbstractionRelation => {
-                if body_term(&node.body) == Some(BodyTerm::Application) {
-                    check_term(&node.body, &at, Place::BodyRoot, false)
+                if body.kind() == Some(BodyTerm::Application) {
+                    check_term(
+                        body,
+                        &at,
+                        Place::BodyRoot,
+                        false,
+                        &mut meter.reservation(flat_site(position)),
+                    )
                 } else {
-                    scan_members(&node.body, &at).map(|_| ())
+                    scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
                 }
             }
             BodyGrammar::Refinement => super::refinement::check_wire(&node.body, &at),
@@ -325,7 +398,6 @@ pub(super) fn check(
     }
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
-            let detail = &detail.to_value();
             let steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),
@@ -333,37 +405,49 @@ pub(super) fn check(
                 Step::Key("details"),
                 Step::Index(detail_index),
             ];
-            check_term(detail, &Trail::Base(&steps), Place::Member, true)?;
+            check_term(
+                TermNode::of(detail),
+                &Trail::Base(&steps),
+                Place::Member,
+                true,
+                &mut meter.reservation(flat_site(0)),
+            )?;
         }
     }
+    read_charge::end_stage(&mut meter.budget());
     Ok(kinds)
 }
 
 /// The fourth anchor binding is a bare point object, outside the term grammar.
 /// The graph-shape stage owns its closed binding and value refusals.
-fn check_anchor_flat_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
-    let Some(members) = body.get("members").and_then(Value::as_array) else {
-        return check_term(body, at, Place::BodyRoot, false);
-    };
-    if body_term(body) != Some(BodyTerm::Aggregate) {
-        return check_term(body, at, Place::BodyRoot, false);
+fn check_anchor_flat_wire<'a, V: TermSource<'a>>(
+    body: V,
+    at: &Trail<'a>,
+    reservation: &mut WalkReservation<'_, '_>,
+) -> Result<(), ValidationFailure> {
+    fn is_point<'a, V: TermSource<'a>>(member: V) -> bool {
+        member.member("name").and_then(TermSource::text) == Some("execution_point")
     }
-    if members.len() < 4
-        && !members
-            .iter()
-            .any(|member| member.get("name").and_then(Value::as_str) == Some("execution_point"))
-    {
-        return check_term(body, at, Place::BodyRoot, false);
+    let members = || body.member("members").and_then(TermSource::items);
+    if members().is_none() || body.kind() != Some(BodyTerm::Aggregate) {
+        return check_term(body, at, Place::BodyRoot, false, reservation);
     }
-    for (index, member) in members.iter().enumerate() {
-        if member.get("name").and_then(Value::as_str) == Some("execution_point") {
+    let count = members().map_or(0, Iterator::count);
+    if count < 4 && !members().is_some_and(|mut items| items.any(is_point)) {
+        return check_term(body, at, Place::BodyRoot, false, reservation);
+    }
+    for (index, member) in members().into_iter().flatten().enumerate() {
+        if is_point(member) {
             continue;
         }
+        let members_at = at.key("members");
+        let member_at = members_at.index(index);
         check_term(
-            member,
-            &at.key("members").index(index),
+            member.shorter(),
+            &member_at,
             Place::Member,
             false,
+            reservation,
         )?;
     }
     Ok(())
@@ -378,6 +462,7 @@ fn check_anchor_flat_wire(body: &Value, at: &Trail<'_>) -> Result<(), Validation
 pub(super) fn check_interval_bounds(
     wire: &CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
+    budget: &mut NativeJoinBudget,
 ) -> Result<(), ValidationFailure> {
     let mut hybrid_formulas = None;
     for (position, (node, &kind)) in wire.semantic_graph.nodes.iter().zip(kinds).enumerate() {
@@ -393,20 +478,22 @@ pub(super) fn check_interval_bounds(
             continue;
         }
         let operation = match CheckedTerm::view_from_wire(body) {
-            Some(CheckedTermView::Application { operation, .. }) => Some(Cow::Borrowed(operation)),
-            _ => ApplicationProjection::deserialize(&node.body)
-                .ok()
-                .and_then(|projection| projection.operation)
-                .map(Cow::Owned),
+            Some(CheckedTermView::Application { operation, .. }) => Some(operation),
+            _ => member(&node.body, "operation"),
         };
         let Some(operation) = operation else {
             continue;
         };
-        let outside_pattern = interval_bound_outside_pattern(&operation);
-        let nonhybrid_open_upper = timed_upper_is_null(&operation)
-            && !hybrid_formulas
-                .get_or_insert_with(|| hybrid_formula_nodes(wire, kinds))
-                .contains(&node.node_id);
+        let outside_pattern = interval_bound_outside_pattern(operation);
+        let mut nonhybrid_open_upper = false;
+        if timed_upper_is_null(operation) {
+            if hybrid_formulas.is_none() {
+                hybrid_formulas = Some(hybrid_formula_nodes(wire, kinds, budget)?);
+            }
+            nonhybrid_open_upper = hybrid_formulas
+                .as_ref()
+                .is_none_or(|formulas| !formulas.contains(&node.node_id));
+        }
         if let Some(bound) = outside_pattern.or(nonhybrid_open_upper.then_some("upper")) {
             let steps = [
                 Step::Key("semantic_graph"),
@@ -427,73 +514,111 @@ pub(super) fn check_interval_bounds(
             return Err(super::with_node_locus(failure, &node.node_id));
         }
     }
+    read_charge::end_stage(budget);
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct ApplicationProjection {
-    #[serde(default)]
-    operation: Option<Value>,
-    #[serde(default)]
-    arguments: Option<Value>,
+/// A member of an application body that is present and not `null`.
+fn member<'v>(body: &'v Value, name: &str) -> Option<&'v Value> {
+    body.get(name).filter(|value| !value.is_null())
 }
 
-#[derive(Deserialize)]
-struct ReferenceProjection {
-    #[serde(default)]
-    target: Option<CheckedNodeId>,
-}
-
-fn reference_target(term: &CheckedTerm) -> Option<CheckedNodeId> {
-    match term {
-        CheckedTerm::Reference { target } => Some(target.clone()),
-        _ => None,
-    }
-}
-
+/// Calls `visit` with the target of each argument of the application `body`,
+/// in order, and returns whether `body` has arguments to visit.
+///
 /// A malformed application still exposes its independent arguments to the
-/// early interval exception check. Decode that one projection only when the
-/// complete admitted term cannot be built; later shape checks own its refusal.
-fn application_targets(body: &Value) -> Option<Vec<Option<CheckedNodeId>>> {
-    if let Ok(CheckedTerm::Application { arguments, .. }) = CheckedTerm::decode_admitted(body) {
-        return Some(arguments.iter().map(reference_target).collect());
+/// early interval exception check, so this reads the `arguments` member and
+/// each argument's `target` directly; later shape checks own the refusal. A
+/// well-formed application's reference arguments name the same targets. Each
+/// target is built by a charged parse at `site`.
+fn application_targets(
+    body: &Value,
+    budget: &mut NativeJoinBudget,
+    site: Site,
+    mut visit: impl FnMut(
+        &mut NativeJoinBudget,
+        Option<&CheckedNodeId>,
+    ) -> Result<(), ValidationFailure>,
+) -> Result<bool, ValidationFailure> {
+    let Some(arguments) = member(body, "arguments").and_then(Value::as_array) else {
+        return Ok(false);
+    };
+    for argument in arguments {
+        let target = match member(argument, "target") {
+            Some(target) => read_charge::node_id_from_value(budget, site, target, false)?,
+            None => None,
+        };
+        visit(budget, target.as_ref())?;
     }
-    let projection = ApplicationProjection::deserialize(body).ok()?;
-    Some(
-        projection
-            .arguments?
-            .as_array()?
-            .iter()
-            .map(|argument| ReferenceProjection::deserialize(argument).ok()?.target)
-            .collect(),
-    )
+    Ok(true)
+}
+
+/// The formula nodes a hybrid claim reaches, as a flag per graph position,
+/// beside the position table that finds a node by its ID.
+struct HybridFormulas<'w> {
+    /// Graph positions by node ID, sorted by ID then position. A duplicate ID
+    /// resolves to its last position, as the raw lookup does until identity
+    /// validation reports it.
+    positions: Vec<(&'w CheckedNodeId, usize)>,
+    formulas: Vec<bool>,
+}
+
+impl HybridFormulas<'_> {
+    fn position(&self, id: &CheckedNodeId) -> Option<usize> {
+        let upper = self.positions.partition_point(|(key, _)| *key <= id);
+        self.positions
+            .get(upper.checked_sub(1)?)
+            .filter(|(key, _)| *key == id)
+            .map(|&(_, position)| position)
+    }
+
+    fn contains(&self, id: &CheckedNodeId) -> bool {
+        self.position(id)
+            .is_some_and(|position| self.formulas.get(position) == Some(&true))
+    }
 }
 
 /// Formula nodes reached by a claim whose over parameter is typed by a
 /// hybrid model. This classification uses the raw graph only to decide the
 /// timed-null wire exception; authenticated identity and joins run later.
-fn hybrid_formula_nodes(
-    wire: &CheckedPackageWireV2,
+/// Its position table, flags and worklist are charged at `interval_bounds`.
+fn hybrid_formula_nodes<'w>(
+    wire: &'w CheckedPackageWireV2,
     kinds: &[CheckedNodeKind],
-) -> BTreeSet<CheckedNodeId> {
+    budget: &mut NativeJoinBudget,
+) -> Result<HybridFormulas<'w>, ValidationFailure> {
+    let site = interval_site(0);
     let nodes = &wire.semantic_graph.nodes;
-    let positions = nodes
-        .iter()
-        .enumerate()
-        .map(|(position, node)| (&node.node_id, position))
-        .collect::<BTreeMap<_, _>>();
-    let mut pending = Vec::new();
+    let mut positions: Vec<(&CheckedNodeId, usize)> =
+        read_charge::with_capacity(budget, site, nodes.len())?;
+    positions.extend(
+        nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position)),
+    );
+    positions.sort_unstable();
+    let mut found = HybridFormulas {
+        positions,
+        formulas: read_charge::filled(budget, site, nodes.len(), false)?,
+    };
+    let mut pending: Vec<usize> = Vec::new();
     for (position, node) in nodes.iter().enumerate() {
         if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause)) {
             continue;
         }
-        let Some(arguments) = application_targets(&node.body) else {
-            continue;
-        };
-        let Some(over) = arguments.first().cloned().flatten() else {
-            continue;
-        };
-        let Some(&over_position) = positions.get(&over) else {
+        let (mut over, mut formula) = (None, None);
+        let mut index = 0usize;
+        application_targets(&node.body, budget, interval_site(position), |_, target| {
+            match index {
+                0 => over = target.and_then(|id| found.position(id)),
+                5 => formula = target.and_then(|id| found.position(id)),
+                _ => {}
+            }
+            index += 1;
+            Ok(())
+        })?;
+        let Some(over_position) = over else {
             continue;
         };
         if kinds.get(over_position) != Some(&CheckedNodeKind::Value(ValueForm::Parameter)) {
@@ -502,75 +627,93 @@ fn hybrid_formula_nodes(
         let Some(over_node) = nodes.get(over_position) else {
             continue;
         };
-        let Some(&model_position) = positions.get(&over_node.semantic_type) else {
+        let Some(model_position) = found.position(&over_node.semantic_type) else {
             continue;
         };
         if kinds.get(model_position) == Some(&CheckedNodeKind::Hybrid(HybridForm::Model)) {
-            pending.extend(arguments.get(5).cloned().flatten());
-        }
-    }
-    let mut seen = BTreeSet::new();
-    let mut formulas = BTreeSet::new();
-    while let Some(key) = pending.pop() {
-        if !seen.insert(key.clone()) {
-            continue;
-        }
-        let Some(&position) = positions.get(&key) else {
-            continue;
-        };
-        if kinds.get(position) == Some(&CheckedNodeKind::Temporal(TemporalForm::Formula)) {
-            formulas.insert(key);
-            let Some(node) = nodes.get(position) else {
-                continue;
-            };
-            if let Some(arguments) = application_targets(&node.body) {
-                pending.extend(arguments.into_iter().flatten());
+            if let Some(formula) = formula {
+                read_charge::push(budget, site, &mut pending, formula)?;
             }
         }
     }
-    formulas
+    let mut seen = read_charge::filled(budget, site, nodes.len(), false)?;
+    while let Some(position) = pending.pop() {
+        if std::mem::replace(&mut seen[position], true) {
+            continue;
+        }
+        if kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::Formula)) {
+            continue;
+        }
+        found.formulas[position] = true;
+        let Some(node) = nodes.get(position) else {
+            continue;
+        };
+        application_targets(
+            &node.body,
+            budget,
+            interval_site(position),
+            |budget, target| {
+                if let Some(reached) = target.and_then(|id| found.position(id)) {
+                    read_charge::push(budget, site, &mut pending, reached)?;
+                }
+                Ok(())
+            },
+        )?;
+    }
+    Ok(found)
 }
 
 /// Checks the term `root` at `at`, standing in `place`, and every term below
 /// it. `details` is whether the term belongs to a diagnostic's `details`,
 /// which refuses an application of the temporal formula and fairness classes as
 /// it refuses a `case` one.
-fn check_term(
-    root: &Value,
-    at: &Trail<'_>,
+fn check_term<'a, V: TermSource<'a>>(
+    root: V,
+    at: &Trail<'a>,
     place: Place,
     details: bool,
+    reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<(), ValidationFailure> {
-    check_term_with_empty_leaf(root, at, place, details, false)
+    check_term_with_empty_leaf(root, at, place, details, false, reservation)
 }
 
 // FR-482 task records additionally use an empty aggregate for absent HI work
 // and priority. It is a terminal leaf here, so the ordinary flat bound remains.
-fn check_term_with_empty_leaf(
-    root: &Value,
-    at: &Trail<'_>,
+fn check_term_with_empty_leaf<'a, V: TermSource<'a>>(
+    root: V,
+    at: &Trail<'a>,
     place: Place,
     details: bool,
     empty_leaf: bool,
+    reservation: &mut WalkReservation<'_, '_>,
 ) -> Result<(), ValidationFailure> {
-    let cursor = Cursor::at(at);
+    let (meter, site) = (reservation.meter, reservation.check);
+    let charge = move |bytes: usize| meter.charge(site, bytes as u128);
+    let cursor = Cursor::charged(at, &charge)?;
     let node = cursor.root(root, place);
-    match walk(
+    match read_charge::walk(
         &mut Flat {
             cursor,
+            charge: &charge,
+            _terms: std::marker::PhantomData,
             details,
             empty_leaf,
         },
         node,
-    ) {
+        reservation,
+    )? {
         ControlFlow::Continue(()) => Ok(()),
         ControlFlow::Break(failure) => Err(failure),
     }
 }
 
 /// A row expression stands at the root of its own SemanticTerm grammar.
-pub(super) fn check_refinement_term(root: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
-    check_term(root, at, Place::BodyRoot, false)
+pub(super) fn check_refinement_term(
+    root: &Value,
+    at: &Trail<'_>,
+    reservation: &mut WalkReservation<'_, '_>,
+) -> Result<(), ValidationFailure> {
+    check_term(root, at, Place::BodyRoot, false, reservation)
 }
 
 /// Walks the values below the root of a frame or abstraction relation body,
@@ -580,11 +723,22 @@ pub(super) fn check_refinement_term(root: &Value, at: &Trail<'_>) -> Result<(), 
 /// `malformed_wire` at the application. Charges one unit of work per value
 /// entered, the work the abstraction relation step's body read is charged. A
 /// pointer is built only for the application that refuses.
-pub(super) fn scan_members(body: &Value, at: &Trail<'_>) -> Result<u64, ValidationFailure> {
-    let cursor = Cursor::at(at);
+pub(super) fn scan_members<'a, V: TermSource<'a>>(
+    body: V,
+    at: &Trail<'a>,
+    reservation: &mut WalkReservation<'_, '_>,
+) -> Result<u64, ValidationFailure> {
+    let (meter, site) = (reservation.meter, reservation.check);
+    let charge = move |bytes: usize| meter.charge(site, bytes as u128);
+    let cursor = Cursor::charged(at, &charge)?;
     let root = cursor.root(body, true);
-    let mut scan = Scan { cursor, work: 0 };
-    match walk(&mut scan, root) {
+    let mut scan = Scan {
+        cursor,
+        charge: &charge,
+        _terms: std::marker::PhantomData,
+        work: 0,
+    };
+    match read_charge::walk(&mut scan, root, reservation)? {
         ControlFlow::Continue(()) => Ok(scan.work),
         ControlFlow::Break(failure) => Err(failure),
     }
@@ -592,46 +746,41 @@ pub(super) fn scan_members(body: &Value, at: &Trail<'_>) -> Result<u64, Validati
 
 /// The walk of [`scan_members`]: every JSON value below the body root, an
 /// object's members and an array's elements alike.
-struct Scan<'a> {
+struct Scan<'a, 'c, V> {
     cursor: Cursor<'a>,
+    charge: &'c dyn Fn(usize) -> Result<(), ValidationFailure>,
+    _terms: std::marker::PhantomData<V>,
     work: u64,
 }
 
-impl<'a> Walk for Scan<'a> {
+impl<'a, V: TermSource<'a>> Walk for Scan<'a, '_, V> {
     /// A value, and whether it is the body root.
-    type Node = At<'a, bool>;
+    type Node = At<'a, bool, V>;
     type Frame = ();
     type Stop = ValidationFailure;
 
     fn enter(
         &mut self,
-        node: At<'a, bool>,
-        children: &mut Children<'_, At<'a, bool>>,
+        node: At<'a, bool, V>,
+        children: &mut Children<'_, At<'a, bool, V>>,
     ) -> ControlFlow<ValidationFailure> {
-        self.cursor.enter(&node);
+        if let Err(failure) = self.cursor.enter_charged(&node, self.charge) {
+            return ControlFlow::Break(failure);
+        }
         self.work = self.work.saturating_add(1);
         let is_root = node.extra;
-        if !is_root && body_term(node.value) == Some(BodyTerm::Application) {
+        if !is_root && node.value.kind() == Some(BodyTerm::Application) {
             return ControlFlow::Break(nested_application_refusal(
                 node.value,
                 &self.cursor.trail(),
                 false,
             ));
         }
-        match node.value {
-            Value::Object(members) => children.extend(
-                members
-                    .iter()
-                    .map(|(key, member)| self.cursor.child(member, Some(key), None, false)),
-            ),
-            Value::Array(items) => children.extend(
-                items
-                    .iter()
-                    .enumerate()
-                    .map(|(index, item)| self.cursor.child(item, None, Some(index), false)),
-            ),
-            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-        }
+        children.extend(
+            node.value
+                .children()
+                .map(|(child, key, index)| self.cursor.child(child, key, index, false)),
+        );
         ControlFlow::Continue(())
     }
 
@@ -641,27 +790,30 @@ impl<'a> Walk for Scan<'a> {
 }
 
 /// The walk of [`check_term`].
-struct Flat<'a> {
+struct Flat<'a, 'c, V> {
     cursor: Cursor<'a>,
+    charge: &'c dyn Fn(usize) -> Result<(), ValidationFailure>,
+    _terms: std::marker::PhantomData<V>,
     details: bool,
     empty_leaf: bool,
 }
 
-impl<'a> Walk for Flat<'a> {
-    type Node = At<'a, Place>;
+impl<'a, V: TermSource<'a>> Walk for Flat<'a, '_, V> {
+    type Node = At<'a, Place, V>;
     type Frame = ();
     type Stop = ValidationFailure;
 
     fn enter(
         &mut self,
-        node: At<'a, Place>,
-        children: &mut Children<'_, At<'a, Place>>,
+        node: At<'a, Place, V>,
+        children: &mut Children<'_, At<'a, Place, V>>,
     ) -> ControlFlow<ValidationFailure> {
-        self.cursor.enter(&node);
+        if let Err(failure) = self.cursor.enter_charged(&node, self.charge) {
+            return ControlFlow::Break(failure);
+        }
         let value = node.value;
         let place = node.extra;
-        let wire = WireTerm::decode(value);
-        let below = match wire.kind() {
+        let below = match value.kind() {
             // An application stands only at a body root; its arguments are
             // each a Member.
             Some(BodyTerm::Application) if place == Place::BodyRoot => Place::Member,
@@ -676,12 +828,7 @@ impl<'a> Walk for Flat<'a> {
                 Place::BodyRoot => Place::Member,
                 Place::Member | Place::TupleMember => Place::GroupMember,
                 Place::BindingValue => aggregate_stratum(value),
-                Place::LeafOnly
-                    if self.empty_leaf
-                        && wire
-                            .array(crate::checked_package::common::TermField::Members)
-                            .is_some_and(<[Value]>::is_empty) =>
-                {
+                Place::LeafOnly if self.empty_leaf && value.has_empty_members() => {
                     return ControlFlow::Continue(());
                 }
                 Place::GroupMember | Place::LeafOnly => {
@@ -707,7 +854,11 @@ impl<'a> Walk for Flat<'a> {
             )
             | None => return ControlFlow::Continue(()),
         };
-        children.extend(subterms_of(wire).map(|subterm| self.cursor.subterm(subterm, below)));
+        children.extend(
+            value
+                .subterms()
+                .map(|(child, key, index)| self.cursor.child(child, Some(key), index, below)),
+        );
         ControlFlow::Continue(())
     }
 
@@ -716,7 +867,7 @@ impl<'a> Walk for Flat<'a> {
     }
 }
 
-impl Flat<'_> {
+impl<'a, V: TermSource<'a>> Flat<'a, '_, V> {
     /// `malformed_wire` at the entered term: it stands where its stratum is
     /// not admitted.
     fn outside_grammar(&self) -> ValidationFailure {
@@ -733,9 +884,10 @@ impl Flat<'_> {
 /// makes it a Tuple. An aggregate of Leaves is both, and its members need no
 /// further place; a first non-Leaf member of another kind is refused by its own
 /// place whichever stratum the aggregate is read as.
-fn aggregate_stratum(aggregate: &Value) -> Place {
-    subterms(aggregate)
-        .find_map(|subterm| match body_term(subterm.value) {
+fn aggregate_stratum<'a>(aggregate: impl TermSource<'a>) -> Place {
+    aggregate
+        .subterms()
+        .find_map(|(subterm, _, _)| match subterm.kind() {
             Some(BodyTerm::Aggregate) => Some(Place::TupleMember),
             Some(BodyTerm::Binding) => Some(Place::GroupMember),
             Some(
@@ -758,15 +910,12 @@ fn aggregate_stratum(aggregate: &Value) -> Place {
 /// does an application of the `temporal_formula` or `temporal_fairness` class in
 /// a diagnostic's `details` term (merged FR-370-AC-12); an application of any
 /// other class refuses `malformed_wire` at the application itself.
-pub(super) fn nested_application_refusal(
-    application: &Value,
+pub(super) fn nested_application_refusal<'a>(
+    application: impl TermSource<'a>,
     at: &Trail<'_>,
     details: bool,
 ) -> ValidationFailure {
-    let operator = match CheckedTerm::view(application) {
-        Some(CheckedTermView::Application { operator, .. }) => Some(operator),
-        _ => application_operator(application),
-    };
+    let operator = application.operator();
     let operator_ineligible = match operator {
         Some(ApplicationOperator::Case) => true,
         Some(ApplicationOperator::TemporalFormula | ApplicationOperator::TemporalFairness) => {
@@ -811,6 +960,8 @@ mod tests {
     use super::{check, check_term, scan_members, Place};
     use crate::checked_package::common::Trail;
     use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
+    use crate::checked_package::v2::read_charge::with_unmetered_walk as unmetered;
+    use crate::checked_package::v2::NativeJoinBudget;
     use crate::checked_package::v2::{
         CheckedNodeTag, ExtensionForm, HybridForm, RawCheckedPackageWireV2, TimedModelForm,
     };
@@ -854,7 +1005,17 @@ mod tests {
     }
 
     fn header_refusal(nodes: Vec<Value>, code: CheckedPackageRefusalCode, path: &str) {
-        let failure = check(&header_wire(nodes)).expect_err("damaged wire refuses");
+        let wire = header_wire(nodes);
+        let bodies = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| {
+                crate::checked_package::v2::CheckedJson::from_value(&node.body).expect("body")
+            })
+            .collect::<Vec<_>>();
+        let failure = check(&wire, &bodies, &mut NativeJoinBudget::unlimited())
+            .expect_err("damaged wire refuses");
         let crate::checked_package::common::ValidationFailure::Refused(refusal) = failure else {
             panic!("a refusal, not an incomplete result");
         };
@@ -1046,12 +1207,12 @@ mod tests {
                     nested_in_arrays(application(), LEVELS),
                 );
                 let body = Value::Object(body);
-                let found = scan_members(&body, &Trail::Base(&[]));
+                let found = unmetered(|walk| scan_members(&body, &Trail::Base(&[]), walk));
                 let mut clean = Map::new();
                 clean.insert("term".to_owned(), json!("frame"));
                 clean.insert("creates".to_owned(), nested_in_arrays(json!(1), LEVELS));
                 let clean = Value::Object(clean);
-                let worked = scan_members(&clean, &Trail::Base(&[]));
+                let worked = unmetered(|walk| scan_members(&clean, &Trail::Base(&[]), walk));
                 quire_canonical::drop_value(body);
                 quire_canonical::drop_value(clean);
                 (found, worked)
@@ -1082,7 +1243,7 @@ mod tests {
         let binding = |value: Value| json!({"term": "binding", "name": "n", "value": value});
         let aggregate = |members: Vec<Value>| json!({"term": "aggregate", "members": members});
         let refused_at = |term: Value, place: Place| {
-            check_term(&term, &Trail::Base(&[]), place, false)
+            unmetered(|walk| check_term(&term, &Trail::Base(&[]), place, false, walk))
                 .err()
                 .map(|failure| match failure {
                     crate::checked_package::common::ValidationFailure::Refused(refusal) => refusal

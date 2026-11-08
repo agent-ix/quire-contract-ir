@@ -56,7 +56,9 @@ mod native_join_budget;
 mod native_join_storage;
 mod natural;
 mod node_index;
+pub(in crate::checked_package) use node_index::StructuralOrder;
 mod operation_catalog;
+pub(in crate::checked_package) mod read_charge;
 pub use operation_catalog::{initialize_operation_catalog, CatalogReadError};
 mod operation_effects;
 mod operation_witness;
@@ -80,6 +82,13 @@ mod structural;
 mod temporal;
 mod temporal_binding;
 mod temporal_clause_names;
+// The node views are consumed as each validator moves off `serde_json::Value`.
+#[allow(dead_code)]
+mod term_view;
+#[allow(unused_imports)]
+pub(in crate::checked_package) use term_view::{
+    NodeIdRead, TermItems, TermMembers, TermNode, TermSubterm, TermSubterms, TermView,
+};
 mod timed_model;
 mod typed_terms;
 mod vocabulary;
@@ -218,8 +227,8 @@ use temporal::{validate_temporal, validate_timed_bounds_reduced, TemporalContext
 
 use super::common::{
     count, exceeds, is_nonempty, node_pointer, validate_definition_ref, validate_locked_source,
-    validate_source_map_entries, validate_term, ReferenceMember, ReferenceSite, ReferenceVisitor,
-    Step, TermGrammar, Trail, ValidationFailure,
+    validate_source_map_entries, validate_term, Ids, ReferenceMember, ReferenceSite,
+    ReferenceVisitor, Step, TermGrammar, Trail, ValidationFailure,
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
@@ -233,6 +242,7 @@ use lock_tables::{
     checked_unit_refs, no_unit_refs, resolve_model_durations, selected_model_roots,
     validate_dependency_selections, validate_refinement_internals, validate_required_features,
 };
+use super::terms::TermSource;
 use model_fields::{build_field_tables, DeclarationIndex, RetainedModels};
 use model_members::{
     admit_selection, Budget, DomainModel, ModelOwners, SelectionFailure, UnitRefs,
@@ -1144,6 +1154,28 @@ enum WorkSource<'b> {
     Budget(&'b mut NativeJoinBudget),
 }
 
+impl read_charge::ReadStorage for WorkMeter<'_> {
+    /// Heap requests charge the caller's budget; a meter with a limit of its
+    /// own (lowering, unit tests) holds no read-storage account.
+    fn reserve(&mut self, bytes: u128, site: read_charge::Site) -> Result<(), read_charge::Denied> {
+        match &mut self.source {
+            WorkSource::Own { .. } => Ok(()),
+            WorkSource::Budget(budget) => budget.reserve(bytes, site),
+        }
+    }
+
+    fn denial(&self) -> ValidationFailure {
+        match &self.source {
+            WorkSource::Own { .. } => ValidationFailure::Budget(BudgetStop {
+                resource: PackageReadResource::ReadStorage,
+                amount: 0,
+                path: None,
+            }),
+            WorkSource::Budget(budget) => budgeted_read::denial(budget),
+        }
+    }
+}
+
 impl<'b> WorkMeter<'b> {
     pub(super) const fn new(limit: u64) -> Self {
         Self {
@@ -1455,16 +1487,14 @@ impl CheckedPackageV2 {
                 member_pointer(&["name"]),
             ));
         }
-        let mut wire = intake::decode_borrowed_wire(bytes, &document, budget)
+        let (mut wire, bodies) = intake::decode_borrowed_wire(bytes, &document, budget)
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
         // Every later stage compares operands by graph index, so each node-held
-        // slot is read through its row once here; `slot_ids` keeps the nodes'
-        // own IDs as written for the operand checks.
-        let slot_ids = node_index::slot_ids(&wire);
-        node_index::resolve_slots(&mut wire);
-        validate_owner_schema(&wire)?;
+        // slot is read through its row once here.
+        node_index::resolve_slots(&mut wire, budget)?;
+        validate_owner_schema(&wire, budget)?;
         let ValidatedPackage {
             kinds,
             schedulability_claim_index,
@@ -1474,7 +1504,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(catalog, &wire, &slot_ids, bytes, limits, evidence, budget)?;
+        } = validate(catalog, &wire, &bodies, &document, limits, evidence, budget)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1808,8 +1838,8 @@ struct ValidatedGraph {
 fn validate(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
-    slot_ids: &[CheckedNodeId],
-    bytes: &[u8],
+    bodies: &[CheckedJson],
+    document: &quire_canonical::Document,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
     budget: &mut NativeJoinBudget,
@@ -1818,9 +1848,9 @@ fn validate(
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
-    let flat_kinds = flat_wire::check(wire)?;
-    let structural_keys = node_index::check(bytes, wire, slot_ids, evidence)?;
-    flat_wire::check_interval_bounds(wire, &flat_kinds)?;
+    let flat_kinds = flat_wire::check(wire, bodies, budget)?;
+    let structural_keys = node_index::check(document, wire, evidence, budget)?;
+    flat_wire::check_interval_bounds(wire, &flat_kinds, budget)?;
     let mut meter = WorkMeter::over(budget);
     meter.at_stage(PackageReadStage::Lock, "lock");
     let LockAdmission {
@@ -1839,6 +1869,7 @@ fn validate(
     } = validate_graph(
         catalog,
         wire,
+        bodies,
         limits,
         &mut meter,
         &models,
@@ -2035,11 +2066,61 @@ fn validate_domain_packages(
         .collect()
 }
 
-/// Checks a structural node identity and all nested operand identities.
+/// [`validate_node_id_charged`] under a budget that charges nothing, for the
+/// graph validators whose stage has not yet threaded the read's budget here.
 fn validate_node_id(
     id: &CheckedNodeId,
     at: impl FnOnce() -> JsonPointer,
 ) -> Result<(), ValidationFailure> {
+    validate_node_id_charged(
+        id,
+        at,
+        &mut NativeJoinBudget::unlimited(),
+        read_charge::Site::new(PackageReadStage::Graph, 0, "node_id"),
+    )
+}
+
+/// Whether a structural node identity and all nested operand identities are
+/// within the wire bounds. The worklist of nested operands is the only
+/// allocation, charged at `site`; a plain identity allocates nothing.
+fn node_id_is_valid(
+    id: &CheckedNodeId,
+    budget: &mut NativeJoinBudget,
+    site: read_charge::Site,
+) -> Result<bool, ValidationFailure> {
+    const MAX_ORDINAL: u64 = 9_007_199_254_740_991;
+    let mut pending: Vec<&CheckedNodeId> = Vec::new();
+    let mut candidate = id;
+    loop {
+        if !is_nonempty(&candidate.package)
+            || candidate.path.is_empty()
+            || candidate.ordinal > MAX_ORDINAL
+        {
+            return Ok(false);
+        }
+        for segment in &candidate.path {
+            if let CheckedNodePathSegment::Node(child) = segment {
+                read_charge::push(budget, site, &mut pending, child.as_ref())?;
+            }
+        }
+        match pending.pop() {
+            Some(next) => candidate = next,
+            None => return Ok(true),
+        }
+    }
+}
+
+/// Checks a structural node identity and all nested operand identities. The
+/// pointer of a refusal is built only for a defective identity.
+fn validate_node_id_charged(
+    id: &CheckedNodeId,
+    at: impl FnOnce() -> JsonPointer,
+    budget: &mut NativeJoinBudget,
+    site: read_charge::Site,
+) -> Result<(), ValidationFailure> {
+    if node_id_is_valid(id, budget, site)? {
+        return Ok(());
+    }
     const MAX_ORDINAL: u64 = 9_007_199_254_740_991;
     let mut pending = vec![(id, at())];
     while let Some((candidate, pointer)) = pending.pop() {
@@ -2358,11 +2439,13 @@ fn source_nominal_body(kind: CheckedNodeKind, body: &Value) -> bool {
 /// [`abstraction::validate_abstraction`]), never through the generic
 /// reference edges `validate_graph` resolves for every other body.
 /// `at` is the body's own position, `/semantic_graph/nodes/{n}/body`.
-fn validate_body(
+fn validate_body<'a, V: TermSource<'a>>(
     kind: CheckedNodeKind,
-    body: &Value,
-    at: &Trail<'_>,
+    body: &'a Value,
+    node: V,
+    at: &Trail<'a>,
     visit: &mut ReferenceVisitor<'_>,
+    ids: Ids<'_, '_>,
 ) -> Result<u64, ValidationFailure> {
     #[cfg(test)]
     lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
@@ -2447,21 +2530,32 @@ fn validate_body(
             refuse(CheckedPackageRefusalCode::MalformedWire, at.pointer()),
         ),
         BodyGrammar::Term if kind == CheckedNodeKind::State(StateForm::OperationAnchor) => {
-            execution_point::validate_anchor_body(body, at, visit)
+            execution_point::validate_anchor_body(node, at, visit, ids)
         }
         BodyGrammar::Extension => {
             extension::read_body(body, at.pointer()).map(|body| extension::body_work(&body))
         }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
-        BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
+        BodyGrammar::AbstractionRelation => abstraction::scan_body(node, at, visit, ids),
         BodyGrammar::Refinement => refinement::validate_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
         BodyGrammar::Literal
         | BodyGrammar::Term
         | BodyGrammar::TimedModel
-        | BodyGrammar::Hybrid => validate_term(body, TermGrammar::V2, true, at, visit),
+        | BodyGrammar::Hybrid => validate_term(node, TermGrammar::V2, true, at, visit, ids),
     }
+}
+
+/// [`validate_body`] for a body held as a `Value` and no budget: the V1
+/// reader's, and the re-walk that finds a reference's pointer.
+fn validate_value_body(
+    kind: CheckedNodeKind,
+    body: &Value,
+    at: &Trail<'_>,
+    visit: &mut ReferenceVisitor<'_>,
+) -> Result<u64, ValidationFailure> {
+    super::common::with_unmetered_ids(|ids| validate_body(kind, body, body, at, visit, ids))
 }
 
 /// The grammar a node's `body` is validated against (QSpec FR-322
@@ -2795,7 +2889,7 @@ fn body_reference_pointer(
     let mut seen = 0_usize;
     let mut found = None;
     // The walk already succeeded once; a failure here only means no pointer.
-    let _ = validate_body(
+    let _ = validate_value_body(
         kind,
         &node.body,
         &Trail::Base(&body_steps),
@@ -2903,9 +2997,17 @@ pub(super) fn structural_key<'a>(
         .map_or(id, std::sync::Arc::as_ref)
 }
 
+// `bodies` is the node-view table: `TermNode::of(&bodies[position])` is the
+// body of graph node `position`, read from the retained document with the
+// node's operand slots resolved through `wire.semantic_graph.operand_rows`
+// (`TermNode::node_id_in`, `TermNode::decode_in`). The `Value` in
+// `wire.semantic_graph.nodes[position].body` is the uncharged bridge for a
+// validator that has not moved to the views.
+#[allow(unused_variables)]
 fn validate_graph(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
+    bodies: &[CheckedJson],
     limits: CheckedPackageReadLimits,
     meter: &mut WorkMeter,
     models: &[DomainModel],
@@ -3098,10 +3200,19 @@ fn validate_graph(
             | BodyGrammar::AbstractionRelation => validate_body(
                 kind,
                 &node.body,
+                TermNode::of(&bodies[position]),
                 &Trail::Base(&body_steps),
                 &mut |target, site, _target_at| {
                     targets.push((target.clone(), site));
                 },
+                read_charge::ids(
+                    &mut *meter,
+                    PackageReadStage::Graph,
+                    position,
+                    CheckedNodeTag::from_wire(&node.node_tag)
+                        .map_or("node", CheckedNodeTag::as_wire),
+                    &wire.semantic_graph.operand_rows[position],
+                ),
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
@@ -3951,7 +4062,6 @@ fn validate_diagnostics(
         .collect::<BTreeSet<_>>();
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
-            let detail = &detail.to_value();
             let detail_steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),
@@ -3962,7 +4072,7 @@ fn validate_diagnostics(
             let detail_at = Trail::Base(&detail_steps);
             let mut unresolved = None;
             let work = validate_term(
-                detail,
+                TermNode::of(detail),
                 TermGrammar::V2,
                 false,
                 &detail_at,
@@ -3970,6 +4080,15 @@ fn validate_diagnostics(
                     if unresolved.is_none() && !nodes.contains(target) {
                         unresolved = Some(target_at.pointer());
                     }
+                },
+                Ids {
+                    sink: &mut *meter,
+                    site: read_charge::Site::new(
+                        PackageReadStage::Diagnostics,
+                        entry_index,
+                        "diagnostics.entries",
+                    ),
+                    row: &[],
                 },
             )?;
             meter.charge(work, || detail_at.pointer())?;
@@ -4102,8 +4221,8 @@ mod test_support {
 #[cfg(test)]
 mod tests {
     use super::{
-        body_grammar, node_pointer, reference_requires_cycle_edge, validate_body,
-        validate_recursion, validate_recursion_group_paths, BodyGrammar,
+        body_grammar, node_pointer, reference_requires_cycle_edge, validate_recursion,
+        validate_recursion_group_paths, validate_value_body, BodyGrammar,
         CheckedDependencySelection, CheckedNodeKind, CheckedPackageRefusalCode,
         CheckedSemanticNodeV2, CorrespondenceForm, EdgeSite, ExpressionForm, ReferenceMember,
         ReferenceSite, StateForm, Step, Trail, ValidationFailure, WorkMeter,
@@ -4646,7 +4765,7 @@ mod tests {
             {
                 let document =
                     std::sync::Arc::new(quire_canonical::read(&bytes, u64::MAX).expect("reads"));
-                let decoded = super::intake::decode_borrowed_wire(
+                let (decoded, _) = super::intake::decode_borrowed_wire(
                     &bytes,
                     &document,
                     &mut super::NativeJoinBudget::unlimited(),
@@ -4769,7 +4888,7 @@ mod tests {
         ];
         for (body, requires_edge) in bodies {
             let mut sites = Vec::new();
-            validate_body(
+            validate_value_body(
                 CheckedNodeKind::Expression(ExpressionForm::Reference),
                 &body,
                 &Trail::Base(&[Step::Key("body")]),

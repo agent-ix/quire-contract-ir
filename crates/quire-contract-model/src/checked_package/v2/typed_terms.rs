@@ -1657,7 +1657,7 @@ impl CheckedTerm {
 
 /// Why a validated wire body could not become its retained typed term.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum TermConversionCause {
+pub(in crate::checked_package) enum TermConversionCause {
     MissingTerm,
     UnknownTerm,
     MissingMember {
