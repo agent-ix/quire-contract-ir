@@ -658,15 +658,15 @@ mod tests {
         );
         assert_eq!(
             wire.modes
-                .keys()
-                .map(|k| k.to_string())
+                .iter()
+                .map(|(k, _)| k.to_string())
                 .collect::<BTreeSet<_>>(),
             members(OperationModeKind::ALL.iter().map(|k| k.as_wire()).collect())
         );
         let value_roles: BTreeSet<String> = wire
             .law_roles
-            .keys()
-            .map(|role| role.as_wire().to_owned())
+            .iter()
+            .map(|(role, _)| role.as_wire().to_owned())
             .collect();
         let profile_roles = words(&wire.profile_law_roles);
         assert_eq!(

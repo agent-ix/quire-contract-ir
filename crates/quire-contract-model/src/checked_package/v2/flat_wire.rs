@@ -216,7 +216,16 @@ pub(super) fn check(
                         crate::checked_package::common::node_pointer(position).key("occurrences"),
                     ))
                 } else {
-                    super::extension::read_body(&node.body, at.pointer()).map(|_| ())
+                    super::extension::read_body(
+                        body,
+                        at.pointer(),
+                        crate::checked_package::common::Ids {
+                            sink: &mut **meter.budget(),
+                            site: flat_site(position),
+                            row: &wire.semantic_graph.operand_rows[position],
+                        },
+                    )
+                    .map(|_| ())
                 }
             }
             // A frame body and an abstraction relation body are closed shapes

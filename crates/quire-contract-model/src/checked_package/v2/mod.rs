@@ -39,7 +39,6 @@ mod execution_point;
 mod execution_point_accessor;
 mod extension;
 mod extension_body;
-mod node_lookup;
 mod flat_wire;
 mod frame;
 mod hybrid;
@@ -58,6 +57,7 @@ mod native_join_budget;
 mod native_join_storage;
 mod natural;
 mod node_index;
+mod node_lookup;
 pub(in crate::checked_package) use node_index::StructuralOrder;
 mod operation_catalog;
 mod operation_catalog_index;
@@ -1842,6 +1842,14 @@ struct ValidatedGraph {
     lowering_facts: Vec<lower::LoweringNodeFacts>,
 }
 
+/// The graph's node index, still a `BTreeMap` until the sorted `GraphIndex`
+/// replaces it, answers the extension joins' lookup.
+impl node_lookup::NodeLookup for BTreeMap<&CheckedNodeId, usize> {
+    fn position(&self, id: &CheckedNodeId) -> Option<&usize> {
+        self.get(id)
+    }
+}
+
 fn validate(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
@@ -2541,7 +2549,7 @@ fn validate_body<'a, V: TermSource<'a>>(
             execution_point::validate_anchor_body(node, at, visit, ids)
         }
         BodyGrammar::Extension => {
-            extension::read_body(body, at.pointer()).map(|body| extension::body_work(&body))
+            extension::read_body(node, at.pointer(), ids).map(|body| extension::body_work(&body))
         }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
         BodyGrammar::AbstractionRelation => abstraction::scan_body(node, at, visit, ids),
@@ -3177,7 +3185,18 @@ fn validate_graph(
         let mut frame_term = None;
         let work = match body_grammar(kind) {
             BodyGrammar::Extension => {
-                let body = extension::read_body(&node.body, at("body"))?;
+                let body = extension::read_body(
+                    TermNode::of(&bodies[position]),
+                    at("body"),
+                    read_charge::ids(
+                        &mut *meter,
+                        PackageReadStage::Graph,
+                        position,
+                        CheckedNodeTag::from_wire(&node.node_tag)
+                            .map_or("node", CheckedNodeTag::as_wire),
+                        &wire.semantic_graph.operand_rows[position],
+                    ),
+                )?;
                 for target in extension::targets(&body) {
                     targets.push((
                         target.clone(),

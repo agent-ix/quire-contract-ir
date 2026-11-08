@@ -4,15 +4,18 @@
 //! does not name that container.
 
 use crate::checked_package::shared::CheckedNodeId;
-use std::collections::BTreeMap;
 
 /// The position of a node id in the semantic graph's node list.
 pub(super) trait NodeLookup {
     fn position(&self, id: &CheckedNodeId) -> Option<&usize>;
 }
 
-impl NodeLookup for BTreeMap<&CheckedNodeId, usize> {
+/// Rows sorted by node id, searched by bisection.
+impl NodeLookup for [(&CheckedNodeId, usize)] {
     fn position(&self, id: &CheckedNodeId) -> Option<&usize> {
-        self.get(id)
+        let at = self
+            .binary_search_by(|(candidate, _)| (*candidate).cmp(id))
+            .ok()?;
+        self.get(at).map(|(_, position)| position)
     }
 }
