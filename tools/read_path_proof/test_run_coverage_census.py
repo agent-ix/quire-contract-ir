@@ -28,6 +28,21 @@ class OriginalSelection(unittest.TestCase):
                 with self.assertRaises(runner.RunError):
                     runner.select_original_tests(compiled, selected, controls, classes)
 
+    def test_exact_control_subset_is_distinct_from_original_and_full_modes(self):
+        inventory = list(runner.CONTROL_CASES)
+        selected = inventory[:1]
+        self.assertEqual(runner.select_control_tests(inventory, selected), selected)
+        self.assertEqual(runner.select_control_tests(inventory, []), inventory)
+        for names in (["unknown"], selected * 2):
+            with self.assertRaises(runner.RunError):
+                runner.select_control_tests(inventory, names)
+        with self.assertRaises(runner.RunError):
+            runner.select_control_tests([], selected)
+        metadata = runner.selection_metadata(SimpleNamespace(controls=True, class_controls=False, control_test=selected))
+        self.assertEqual(metadata["scope"], "selected-only reader entry controls")
+        self.assertFalse(metadata["full_corpus"])
+        self.assertFalse(metadata["complete_declared_inventory"])
+
     def test_selected_completion_never_claims_full_corpus(self):
         metadata = runner.selection_metadata(SimpleNamespace(original_test=["a"], controls=False, class_controls=False))
         self.assertEqual(metadata["scope"], "selected-only original tests")

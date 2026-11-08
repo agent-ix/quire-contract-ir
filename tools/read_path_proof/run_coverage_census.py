@@ -204,10 +204,20 @@ def select_original_tests(compiled, selectors, controls=False, class_controls=Fa
     return [name for name in compiled if name in set(selectors)]
 
 
+def select_control_tests(compiled, selectors):
+    if len(set(selectors)) != len(selectors) or set(selectors) - set(CONTROL_CASES):
+        raise RunError("unknown or duplicate exact entry-control selector")
+    selected = selectors or list(CONTROL_CASES)
+    if set(selected) - set(compiled):
+        raise RunError("selected entry control is absent from the actual compiled inventory")
+    return selected
+
+
 def selection_metadata(args):
     selected = bool(getattr(args, "original_test", []))
     scope = ("selected-only original tests" if selected else
              "minimal canonical class-denial controls only" if getattr(args, "class_controls", False) else
+             "selected-only reader entry controls" if getattr(args, "control_test", []) else
              "executed malformed-input reader entry controls only" if getattr(args, "controls", False) else
              "declared original corpus")
     return {"scope": scope,
@@ -368,11 +378,10 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
 
 
 def run_controls(args, binary, config, env, compiled_tests):
-    missing = set(CONTROL_CASES) - set(compiled_tests)
-    if missing:
-        raise RunError(f"missing actual compiled counterexamples: {sorted(missing)}")
+    selected = select_control_tests(compiled_tests, getattr(args, "control_test", []))
     results = []
-    for index, (name, should_pass) in enumerate(CONTROL_CASES.items()):
+    for index, name in enumerate(selected):
+        should_pass = CONTROL_CASES[name]
         output, report, profiles, records = execute_one(args, binary, config, env, name, index)
         evidence = merge_export(args, output, profiles, binary, env)
         try:
@@ -605,6 +614,7 @@ def main():
     parser.add_argument("--mode", choices=["sample", "full"], default="sample")
     parser.add_argument("--original-test", action="append", default=[], help="repeatable exact compiled original test symbol; selected-only evidence")
     parser.add_argument("--controls", action="store_true")
+    parser.add_argument("--control-test", action="append", default=[], help="exact entry-control symbol; requires --controls, selected-only evidence")
     parser.add_argument("--class-controls",action="store_true")
     parser.add_argument("--reuse-class-kernel",type=Path)
     parser.add_argument("--corpus", choices=["qspec", "tc048"], default="qspec")
@@ -613,6 +623,8 @@ def main():
     parser.add_argument("--test-timeout-seconds", type=float,
                         help="per original process; sample defaults to120s, full requires an adequate explicit value")
     args = parser.parse_args()
+    if args.control_test and (not args.controls or args.class_controls or args.original_test):
+        parser.error("--control-test requires only the entry-control mode")
     if args.original_test and (args.controls or args.class_controls):
         parser.error("--original-test cannot mix with entry or class controls")
     if args.test_timeout_seconds is None:
@@ -656,7 +668,7 @@ def main():
         env["PATH"] = str(args.toolchain_bin) + os.pathsep + env["PATH"]
         config = {"source_head": git(args.repo, "rev-parse", "HEAD"), "rustc": rustc, "llvm": llvm,
                   "mode": args.mode, "controls": args.controls, "class_controls":args.class_controls, "corpus": args.corpus, "features": args.features,
-                  "test_timeout_seconds":args.test_timeout_seconds, "original_tests":args.original_test,
+                  "test_timeout_seconds":args.test_timeout_seconds, "original_tests":args.original_test, "control_tests":args.control_test,
                   **selection_metadata(args),
                   "qspec": {"path": str(args.qspec_dir), "head": git(args.qspec_dir, "rev-parse", "HEAD")},
                   "environment": safe_environment(env)}
@@ -668,6 +680,8 @@ def main():
         if not args.controls and args.corpus == "tc048":
             intended = select_tc048(args, intended)
         intended = select_original_tests(intended, args.original_test, args.controls, args.class_controls)
+        if args.controls:
+            intended = select_control_tests(intended, args.control_test)
         config["intended_tests"] = intended
         # This is the actual compiled proof-harness module namespace. These
         # tests still execute and every public entry remains in the arithmetic;
