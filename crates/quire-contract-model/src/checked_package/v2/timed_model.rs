@@ -1723,7 +1723,7 @@ fn canonical_value_bytes(
     if let Some(failure) = charges.failure.take() {
         return Err(failure);
     }
-    Ok(encoded.ok().map(|()| bytes))
+    Ok(encoded.ok().map(|_| bytes))
 }
 
 // Canonical scalar equality reads the retained values directly. The closed
@@ -1739,7 +1739,20 @@ fn same_literal_value(
     match (left.node().node(), right.node().node()) {
         (Node::Null, Node::Null) => Ok(true),
         (Node::Bool(left), Node::Bool(right)) => Ok(left == right),
-        (Node::Number(left), Node::Number(right)) => Ok(left.value() == right.value()),
+        (Node::Number(left), Node::Number(right)) => {
+            // Match CheckedJson's canonical encoder: exact integer tokens
+            // past 2^53 are refused before any rounded double is compared.
+            let encodable = |text: &str, value: f64| match text.parse::<i128>() {
+                Ok(integer) => integer.unsigned_abs() <= (1_u128 << 53),
+                Err(_) => {
+                    value.is_finite()
+                        && !(value.fract() == 0.0 && value.abs() > 9_007_199_254_740_992.0)
+                }
+            };
+            Ok(encodable(left.text(), left.value())
+                && encodable(right.text(), right.value())
+                && left.value() == right.value())
+        }
         (Node::String(left), Node::String(right)) => Ok(left == right),
         (Node::Array(_), Node::Array(_)) | (Node::Object(_), Node::Object(_)) => Ok(
             match (
