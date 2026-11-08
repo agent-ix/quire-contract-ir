@@ -725,12 +725,21 @@ fn validate_diagnostic_references(
 }
 
 /// `ill_typed`/`operator-ineligible` at the node.
-fn ineligible(graph: &StepGraph<'_, '_>, position: usize) -> ValidationFailure {
-    ValidationFailure::refused_at(
+fn ineligible(
+    graph: &StepGraph<'_, '_>,
+    position: usize,
+    meter: &mut WorkMeter,
+) -> ValidationFailure {
+    temporal_fault(
+        meter,
+        position,
         CheckedPackageRefusalCode::IllTyped,
-        node_pointer(position),
-        Some(CheckedPackageRefusalCause::OperatorIneligible),
-        graph.nodes[position].node_id.clone(),
+        CheckedPackageRefusalCause::OperatorIneligible,
+        super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position),
+        &graph.nodes[position].node_id,
     )
 }
 
@@ -791,9 +800,9 @@ fn placement_defect<'a>(
         .map(|(class, _)| *class);
     match (required, root_class) {
         (Some(required), Some(root)) if root == required => {}
-        (Some(_), _) => return Ok(Some(ineligible(graph, position))),
+        (Some(_), _) => return Ok(Some(ineligible(graph, position, meter))),
         (None, Some(root)) if is_placed_class(root) => {
-            return Ok(Some(ineligible(graph, position)));
+            return Ok(Some(ineligible(graph, position, meter)));
         }
         (None, _) => {}
     }
@@ -813,13 +822,12 @@ fn placement_defect<'a>(
         match meter.walk(
             &mut Placement {
                 graph,
-                position,
                 kind,
             },
             (root, true, Slot::Other),
         )? {
             ControlFlow::Continue(()) => None,
-            ControlFlow::Break(failure) => Some(failure),
+            ControlFlow::Break(()) => Some(ineligible(graph, position, meter)),
         },
     )
 }
@@ -828,20 +836,19 @@ fn placement_defect<'a>(
 /// it is the body root and the slot it stands in.
 struct Placement<'g, 'a, 'm> {
     graph: &'g StepGraph<'a, 'm>,
-    position: usize,
     kind: CheckedNodeKind,
 }
 
 impl<'a> Walk for Placement<'_, 'a, '_> {
     type Node = (&'a CheckedTerm, bool, Slot);
     type Frame = ();
-    type Stop = ValidationFailure;
+    type Stop = ();
 
     fn enter(
         &mut self,
         (term, is_root, slot): (&'a CheckedTerm, bool, Slot),
         children: &mut Children<'_, (&'a CheckedTerm, bool, Slot)>,
-    ) -> ControlFlow<ValidationFailure> {
+    ) -> ControlFlow<()> {
         match term {
             // Only the body root is an application: a nested one is refused
             // `malformed_wire` ahead of this step (`flat_wire`).
@@ -892,7 +899,7 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
                     _ => false,
                 };
                 if misplaced {
-                    return ControlFlow::Break(ineligible(self.graph, self.position));
+                    return ControlFlow::Break(());
                 }
             }
             _ => {}
@@ -900,7 +907,7 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
         ControlFlow::Continue(())
     }
 
-    fn exit(&mut self, (): ()) -> ControlFlow<ValidationFailure> {
+    fn exit(&mut self, (): ()) -> ControlFlow<()> {
         ControlFlow::Continue(())
     }
 }
@@ -2378,7 +2385,7 @@ fn check_hyper_shape(
     } else {
         let Some((wrapper, CheckedNodeKind::Temporal(TemporalForm::TemporalClause))) = body_node
         else {
-            return Err(ineligible(graph, position));
+            return Err(ineligible(graph, position, meter));
         };
         let wrapper_position = body_target
             .as_ref()
@@ -3052,6 +3059,98 @@ mod tests {
             run(charged - 1).0.is_err(),
             "denied walker storage stops placement"
         );
+    }
+
+    /// Placement faults pay their complete owned diagnostic after the walk
+    /// releases the caller meter, before building either pointer or node clone.
+    #[trace("TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn placement_faults_prepay_diagnostics_at_exact_short_zero_and_repeated_limits() {
+        for route in 0..5 {
+            let nodes = clause_graph(&['1', '2']);
+            let mut kinds: Vec<_> = nodes
+                .iter()
+                .map(|node| {
+                    let tag = CheckedNodeTag::from_wire(&node.node_tag).expect("node tag");
+                    CheckedNodeKind::decode(tag, &node.semantic_form).expect("node form")
+                })
+                .collect();
+            let mut terms: Vec<_> = nodes
+                .iter()
+                .map(|node| {
+                    Some(
+                        CheckedTerm::decode_admitted(&node.body.to_value())
+                            .expect("closed temporal fixture"),
+                    )
+                })
+                .collect();
+            match route {
+                // A placed class at an ordinary node's root.
+                0 => kinds[0] = CheckedNodeKind::Value(ValueForm::Parameter),
+                // A temporal node with no application at its root.
+                1 => terms[0] = Some(CheckedTerm::Aggregate { members: Vec::new() }),
+                // A temporal node holding a different placed class.
+                2 => kinds[0] = CheckedNodeKind::Temporal(TemporalForm::Formula),
+                // A forbidden formula or fairness reference reaches Placement::enter.
+                3 | 4 => {
+                    kinds[0] = CheckedNodeKind::Value(ValueForm::Parameter);
+                    if route == 4 {
+                        kinds[2] = CheckedNodeKind::Temporal(TemporalForm::Fairness);
+                    }
+                    terms[0] = Some(CheckedTerm::Reference { target: nodes[2].node_id.clone() });
+                }
+                _ => unreachable!("five placement routes"),
+            }
+            let index: GraphIndex<'_> = nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect();
+            let owners = ModelOwners::default();
+            let graph = StepGraph { nodes: &nodes, kinds: &kinds, index: &index, owners: &owners };
+            let run = |limit| {
+                let mut budget = super::super::NativeJoinBudget::new(u64::MAX, 0)
+                    .with_read_storage_limit(limit);
+                let mut result = None;
+                let allocations = allocation_counter::measure(|| {
+                    result = Some(placement_defect(
+                        0, &graph, &terms, &mut WorkMeter::over(&mut budget),
+                    ));
+                });
+                (result.expect("placement ran"), allocations.bytes_total, budget)
+            };
+            let (result, allocated, mut budget) = run(u64::MAX);
+            let Ok(Some(ValidationFailure::Refused(refusal))) = &result else {
+                panic!("route {route} must refuse operator placement")
+            };
+            assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
+            assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::OperatorIneligible));
+            assert_eq!(refusal.locus.as_ref(), Some(&nodes[0].node_id));
+            assert_eq!(refusal.loci.len(), 1);
+            assert_eq!(refusal.loci[0].path.as_ref().unwrap().as_str(), "/semantic_graph/nodes/0");
+            assert_eq!(allocated, budget.read_storage_consumed(), "route {route} pays every request");
+            assert_eq!(budget.consumed().work, 0, "placement adds no logical work");
+            assert_eq!(budget.take_paid(), Some(super::super::CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::IllTyped)));
+            assert_eq!(run(allocated).0, result, "exact allowance retains the complete fault");
+            for limit in [allocated - 1, 0] {
+                let (stopped, requested, mut budget) = run(limit);
+                assert!(matches!(stopped, Err(ValidationFailure::Budget(_)) | Ok(Some(ValidationFailure::Budget(_)))));
+                assert_eq!(requested, budget.read_storage_consumed(), "denial allocates only paid storage");
+                assert_eq!(budget.consumed().work, 0);
+                let pending = budget.take_pending();
+                if limit > 0 || route < 3 {
+                    assert_eq!(pending, Some(super::super::CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::IllTyped)));
+                    let locus = budget.first_unpaid_locus().expect("diagnostic denial locus");
+                    assert_eq!(locus.form, "diagnostic");
+                    assert_eq!(locus.source, super::super::NativeJoinLocusSource::PackageRead(super::super::PackageReadStage::Graph, 0));
+                }
+                let (repeated, repeated_requests, mut repeated_budget) = run(limit);
+                assert_eq!(repeated, stopped, "the same allowance retains its first stop");
+                assert_eq!(repeated_requests, requested);
+                assert_eq!(repeated_budget.take_pending(), pending);
+                assert_eq!(repeated_budget, budget, "the complete caller budget repeats");
+            }
+        }
     }
 
     /// FR-038-AC-103: an `over` that names no declared dependency of its clause
