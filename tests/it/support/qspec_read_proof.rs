@@ -300,3 +300,39 @@ fn finish_proof(
     writeln!(output, "{row}").expect("temporary read proof record");
     drop_without_request::<DriverCounter>(reference);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Counter, DriverCounter};
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn worker_counts_full_reallocation_while_caller_ignores_only_instrumentation() {
+        let mut worker_requested = 0;
+        let caller_requested = crate::measure_qspec_read_requests(|| {
+            worker_requested = crate::without_qspec_instrumentation(|| {
+                std::thread::scope(|scope| {
+                    scope
+                        .spawn(|| {
+                            <DriverCounter as Counter>::measure(|| {
+                                let mut value = Vec::<u8>::with_capacity(8);
+                                value.extend([0; 8]);
+                                value.reserve_exact(24);
+                                drop(value);
+                            })
+                        })
+                        .join()
+                        .expect("worker allocation control")
+                })
+            });
+        });
+        assert_eq!(
+            worker_requested, 40,
+            "initial 8 plus full 32-byte replacement"
+        );
+        assert_eq!(
+            caller_requested, 0,
+            "only worker setup/proof work was excluded from caller capture"
+        );
+    }
+}

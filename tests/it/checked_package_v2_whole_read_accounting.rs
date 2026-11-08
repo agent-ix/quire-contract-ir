@@ -1224,4 +1224,26 @@ fn original_enclosing_allocator_observes_only_its_original_read() {
         accounted.bytes_max, ordinary.bytes_max,
         "the original peak oracle is preserved"
     );
+    let wrapped_drop = allocation_counter::measure(|| {
+        drop(crate::read_and_account(&bytes, limits, &evidence));
+    });
+    let ordinary_drop = allocation_counter::measure(|| {
+        drop(CheckedPackageV2::read(&bytes, limits, &evidence));
+    });
+    assert_eq!(
+        wrapped_drop.bytes_total, ordinary_drop.bytes_total,
+        "result drop included: original requested bytes preserved"
+    );
+    assert_eq!(
+        wrapped_drop.count_total, ordinary_drop.count_total,
+        "result drop included: original allocation count preserved"
+    );
+    assert_eq!(
+        wrapped_drop.bytes_current, ordinary_drop.bytes_current,
+        "result drop included: original retained bytes preserved"
+    );
+    assert_eq!(
+        wrapped_drop.count_current, ordinary_drop.count_current,
+        "result drop included: original retained allocation count preserved"
+    );
 }

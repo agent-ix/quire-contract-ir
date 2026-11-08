@@ -435,4 +435,14 @@ fn original_dedicated_counter_observes_only_its_original_read() {
         measured, expected,
         "proof instrumentation does not alter the original allocator oracle"
     );
+    let with_drop = <ThreadCounter as Counter>::measure(|| {
+        drop(read_and_account(&bytes, limits, &evidence));
+    });
+    let original_drop = <ThreadCounter as Counter>::measure(|| {
+        drop(CheckedPackageV2::read(&bytes, limits, &evidence));
+    });
+    assert_eq!(
+        with_drop, original_drop,
+        "original requested bytes preserved including result drop"
+    );
 }
