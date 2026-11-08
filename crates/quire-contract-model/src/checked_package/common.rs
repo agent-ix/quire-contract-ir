@@ -590,6 +590,7 @@ pub(super) fn canonical_value(
 /// Decode a closed package from the reader's document: the closed wire is
 /// decoded in place, charging each string and sequence it requests to the
 /// budget's read storage, with the same member-fault pointers.
+#[cfg(test)]
 pub(super) fn decode_closed_document<'d, T: Deserialize<'d>>(
     document: &'d std::sync::Arc<quire_canonical::Document>,
     budget: &mut crate::checked_package::v2::NativeJoinBudget,

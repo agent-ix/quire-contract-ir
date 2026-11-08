@@ -319,6 +319,7 @@ impl<'d> DecodeContext<'d> {
     }
 
     /// The default policy preserves the decoder's first code and path.
+    #[cfg(test)]
     pub(in crate::checked_package) fn materialize_schema_failure(
         code: crate::checked_package::shared::CheckedPackageRefusalCode,
         steps: &[crate::checked_package::common::Step<'_>],
