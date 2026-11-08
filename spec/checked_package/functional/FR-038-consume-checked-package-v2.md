@@ -5814,8 +5814,8 @@ index segment in such an id names no node of the component package, and a
 position of another package names none either. Each component subject
 resolves to an object type in its named package; each component clause
 resolves to a temporal clause of that package over the component's model
-subject. An absent selected package or subject refuses `missing_declaration`/`missing-name` at the
-component; a target of another kind refuses
+subject. An absent selected package or subject refuses
+`missing_declaration`/`missing-name` at the component; a target of another kind refuses
 `invalid_model_binding`/`malformed-declaration` at the member. Scheduling
 contexts resolve in a component package and assumptions in the composing
 package. A scheduling operation outside every component's model subject

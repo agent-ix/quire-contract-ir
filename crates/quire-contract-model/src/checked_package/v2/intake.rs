@@ -101,10 +101,11 @@ struct BorrowedGraph<'a> {
     graph_version: Box<str>,
     #[serde(borrow)]
     nodes: Vec<BorrowedNode<'a>>,
-    // Each entry is at most the bytes it spans in the package, so the rows,
-    // their dependency package names and the transient buffer of one untagged
-    // entry stay within the byte-proportional read storage the envelope
-    // stage already charged (`read_envelope`); no further charge is owed.
+    // The typed decode of the rows, their dependency package names and the
+    // transient buffer of one untagged entry is bounded by the package byte
+    // limit, since each entry is at most the bytes it spans. It is not charged
+    // separately: `read_envelope` charges only the shared reader's Document
+    // passes.
     operand_rows: Vec<Vec<CheckedOperandEntry>>,
 }
 
