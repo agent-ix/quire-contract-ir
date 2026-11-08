@@ -128,7 +128,7 @@ impl<'a> Path<'a, '_, '_> {
                 Step::Index(index) => Some(*index),
                 _ => None,
             })
-            .last()
+            .next_back()
             .unwrap_or(0);
         let trail = Trail::Base(&steps[..length]);
         let result = stage_storage::reserve(
@@ -178,7 +178,7 @@ impl<'a> Path<'a, '_, '_> {
                 Step::Index(index) => Some(*index),
                 _ => None,
             })
-            .last()
+            .next_back()
             .unwrap_or(0);
         let trail = Trail::Base(&steps[..length]);
         stage_storage::refuse(
@@ -286,11 +286,11 @@ impl<'a, 'p, 'm, 'b> Compare<'a, 'p, 'm, 'b> {
         Ok(Children {
             path: self.path,
             pop_on_finish: false,
+            seen: [None; 64],
             kind: ChildrenKind::Object {
                 raw: self.raw,
                 skipped_members: self.skipped_members,
                 pending_key: None,
-                seen: [None; 64],
                 seen_len: 0,
                 seen_count: 0,
                 first: None,
@@ -309,6 +309,7 @@ impl<'a, 'p, 'm, 'b> Compare<'a, 'p, 'm, 'b> {
         Ok(Children {
             path: self.path,
             pop_on_finish: false,
+            seen: [None; 64],
             kind: ChildrenKind::Sequence { items, next: 0 },
         })
     }
@@ -729,6 +730,8 @@ struct Children<'a, 'p, 'm, 'b> {
     path: &'p mut Path<'a, 'm, 'b>,
     pop_on_finish: bool,
     kind: ChildrenKind<'a>,
+    // Fixed scratch storage stays outside the role enum; neither role boxes it.
+    seen: [Option<&'static str>; 64],
 }
 enum ChildrenKind<'a> {
     Sequence {
@@ -739,7 +742,6 @@ enum ChildrenKind<'a> {
         raw: TermNode<'a>,
         skipped_members: &'static [&'static str],
         pending_key: Option<Key<'a>>,
-        seen: [Option<&'static str>; 64],
         seen_len: usize,
         seen_count: usize,
         first: Option<Key<'a>>,
@@ -788,7 +790,6 @@ impl<'a, 'p, 'm, 'b> Children<'a, 'p, 'm, 'b> {
         let ChildrenKind::Object {
             raw,
             skipped_members,
-            seen,
             seen_len,
             seen_count,
             first,
@@ -800,6 +801,7 @@ impl<'a, 'p, 'm, 'b> Children<'a, 'p, 'm, 'b> {
         if skipped_members.contains(&key.as_str()) {
             return Ok(());
         }
+        let seen = &mut self.seen;
         let child = raw.get(key.as_str());
         if !self.path.push(PathSegment::Key(key)) {
             return Err(self.path.mismatch());
@@ -842,6 +844,7 @@ impl<'a, 'p, 'm, 'b> Children<'a, 'p, 'm, 'b> {
     }
     fn finish(self) -> Result<(), CompareError> {
         let path = self.path;
+        let seen = self.seen;
         let result = match self.kind {
             ChildrenKind::Sequence { items, .. } => {
                 if items.len() == 0 {
@@ -853,7 +856,6 @@ impl<'a, 'p, 'm, 'b> Children<'a, 'p, 'm, 'b> {
             ChildrenKind::Object {
                 raw,
                 skipped_members,
-                seen,
                 seen_len,
                 seen_count,
                 first,
