@@ -39,7 +39,7 @@ pub(super) use super::operation_catalog_index::{read_catalog, OperationCatalog};
 /// vocabulary, one implementation of the rules it drives. A copy of these bytes in
 /// this repository, under any name or path, is a defect — it is what left this
 /// module unable to compile at all.
-const CATALOG_BYTES: &str =
+pub(super) const CATALOG_BYTES: &str =
     quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]

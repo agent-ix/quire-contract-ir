@@ -469,4 +469,36 @@ mod tests {
         }
         assert_eq!(allowance, required);
     }
+
+    /// An unreadable catalog retains its earlier charges and pays for its
+    /// diagnostic without allocating a temporary schema-error message.
+    #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-515")]
+    #[test]
+    fn unreadable_catalog_allocations_are_charged_to_the_caller() {
+        let mut unknown: serde_json::Value =
+            serde_json::from_str(super::super::operation_catalog::CATALOG_BYTES)
+                .expect("catalog fixture");
+        unknown["operations"][0]["operator"] = serde_json::json!("unknown_operator");
+        let unknown = serde_json::to_string(&unknown).expect("invalid catalog fixture encodes");
+        for bytes in ["{", "{}", unknown.as_str()] {
+            let mut budget = NativeJoinBudget::unlimited();
+            let mut unavailable = false;
+            let allocations = allocation_counter::measure(|| {
+                unavailable = matches!(
+                    read_catalog_budgeted(bytes, &mut budget),
+                    Err(CatalogStop::Unavailable(_))
+                );
+            });
+            assert!(unavailable, "the corrupted catalog is unavailable");
+            assert_eq!(
+                allocations.bytes_total,
+                budget.read_storage_consumed(),
+                "every catalog error allocation is charged"
+            );
+            assert!(
+                budget.read_storage_consumed() > 0,
+                "earlier requests and diagnostic remain charged"
+            );
+        }
+    }
 }
