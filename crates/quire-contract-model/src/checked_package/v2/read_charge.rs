@@ -324,9 +324,11 @@ pub(super) struct WalkReservation<'m> {
 
 impl quire_walk::Reservation for WalkReservation<'_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
-        self.meter
-            .charge(self.check.form("walk"), bytes as u128)
-            .map_err(|_| quire_walk::Denied)
+        super::observe_allocation_class("walker_growth", || {
+            self.meter
+                .charge(self.check.form("walk"), bytes as u128)
+                .map_err(|_| quire_walk::Denied)
+        })
     }
 }
 

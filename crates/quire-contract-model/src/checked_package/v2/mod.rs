@@ -180,6 +180,22 @@ pub use native_budget_observer::{
     with_native_allocation_class, with_native_budget_observer, NativeBudgetEvent,
     NativeBudgetResource,
 };
+/// Classifies an actual reservation callback without changing its budget.
+pub(in crate::checked_package) fn observe_allocation_class<R>(
+    class: &'static str,
+    request: impl FnOnce() -> R,
+) -> R {
+    #[cfg(feature = "test-support")]
+    {
+        with_native_allocation_class(class, request)
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        let _ = class;
+        request()
+    }
+}
+
 pub use native_join_budget::{
     NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
     NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
