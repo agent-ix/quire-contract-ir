@@ -1572,7 +1572,7 @@ fn typed_literal<'a>(
     value_kind: LiteralKind,
     type_form: ScalarTypeForm,
     type_matches: &impl Fn(&CheckedNodeId, ScalarTypeForm) -> bool,
-) -> Option<&'a Value> {
+) -> Option<&'a super::CheckedJson> {
     match term {
         super::CheckedTerm::Literal {
             type_id,
@@ -1603,7 +1603,7 @@ fn typed_parameter_binding_with<'a>(
         .and_then(|value| {
             typed_literal(value, LiteralKind::Text, ScalarTypeForm::Text, type_matches)
         })
-        .and_then(Value::as_str)
+        .and_then(super::CheckedJson::as_str)
         .filter(|name| is_identifier(name))?;
     let level = typed_binding(level, "level")
         .and_then(|value| {
@@ -1614,7 +1614,7 @@ fn typed_parameter_binding_with<'a>(
                 type_matches,
             )
         })
-        .and_then(Value::as_str)
+        .and_then(super::CheckedJson::as_str)
         .filter(|level| is_non_negative_integer(level))?;
     Some((name, level))
 }
@@ -1726,7 +1726,7 @@ fn typed_compound_unit_term<'t>(
                 &|id, form| graph.type_matches(id, form),
             )
         })
-        .and_then(Value::as_str)
+        .and_then(super::CheckedJson::as_str)
         .is_some_and(is_nonzero_integer);
     Ok((is_root_unit && exponent_ok).then_some(unit))
 }

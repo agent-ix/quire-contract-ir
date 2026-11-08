@@ -10846,7 +10846,7 @@ fn recovery_case_arm_binder_is_local_to_its_arm_body() {
     let CheckedTerm::Aggregate { members: empty } = empty.as_ref() else {
         panic!("Empty arm");
     };
-    assert!(matches!(&empty[1], CheckedTerm::Literal { value, .. } if value == "0"));
+    assert!(matches!(&empty[1], CheckedTerm::Literal { value, .. } if value.as_str() == Some("0")));
 }
 
 fn assert_recovery_case_binder_refusal(package: &Value, compensation: usize) {

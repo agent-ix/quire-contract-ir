@@ -1361,7 +1361,7 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
         if let super::super::CheckedTerm::Aggregate { members } = &mut node.body {
             if let super::super::CheckedTerm::Binding { value, .. } = &mut members[1] {
                 if let super::super::CheckedTerm::Literal { value, .. } = value.as_mut() {
-                    *value = json!(upper);
+                    *value = crate::checked_package::CheckedJson::scalar(&json!(upper));
                 }
             }
         }

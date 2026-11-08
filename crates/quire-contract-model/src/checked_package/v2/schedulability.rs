@@ -523,12 +523,10 @@ fn record_priority(
     else {
         return Ok(false);
     };
-    let priority = match value {
-        serde_json::Value::String(text) => meter.exact_integer(text)?,
-        serde_json::Value::Number(number) => number
-            .as_i64()
-            .map(quire_exact::Integer::from)
-            .or_else(|| number.as_u64().map(quire_exact::Integer::from)),
+    let priority = match (value.as_str(), value.as_i64(), value.as_u64()) {
+        (Some(text), _, _) => meter.exact_integer(text)?,
+        (None, Some(number), _) => Some(quire_exact::Integer::from(number)),
+        (None, None, Some(number)) => Some(quire_exact::Integer::from(number)),
         _ => None,
     };
     match priority {
@@ -1091,7 +1089,7 @@ mod tests {
                 ordinal: 0,
             },
             value_kind: LiteralKind::Integer,
-            value,
+            value: crate::CheckedJson::from_value(&value).expect("a canonical literal"),
         };
         let huge = format!("1{}", "0".repeat(60));
         let mut terms: Vec<CheckedTerm> = (0..40_u64)

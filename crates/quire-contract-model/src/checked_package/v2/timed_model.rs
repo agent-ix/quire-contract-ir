@@ -1690,9 +1690,15 @@ fn term_key<'g>(
                 Visit::Term(CheckedTerm::Literal {
                     value_kind, value, ..
                 }) => {
-                    let spelled = match value.as_str() {
-                        Some(text) => Word::Borrowed(text),
-                        None => Word::Owned(meter.formatted(format_args!("{value}"))?),
+                    // The spelling a JSON value prints with: its text, its
+                    // number as written, `true`/`false`, or `null`.
+                    let spelled = match (value.as_str(), value.number_text(), value.as_bool()) {
+                        (Some(text), _, _) | (None, Some(text), _) => Word::Borrowed(text),
+                        (None, None, Some(flag)) => Word::Borrowed(if flag { "true" } else { "false" }),
+                        (None, None, None) if value.is_null() => Word::Borrowed("null"),
+                        (None, None, None) => {
+                            Word::Owned(meter.formatted(format_args!("{:?}", value))?)
+                        }
                     };
                     let kind = meter.formatted(format_args!("{value_kind:?}"))?;
                     meter.room(&mut pending, 4)?;
@@ -3296,13 +3302,13 @@ mod tests {
                         value: Box::new(CheckedTerm::Literal {
                             type_id: a.clone(),
                             value_kind: LiteralKind::Text,
-                            value: json!("on"),
+                            value: crate::CheckedJson::from_value(&json!("on")).unwrap(),
                         }),
                     },
                     CheckedTerm::Literal {
                         type_id: a.clone(),
                         value_kind: LiteralKind::Text,
-                        value: json!(7),
+                        value: crate::CheckedJson::from_value(&json!(7)).unwrap(),
                     },
                 ],
             }),
@@ -3470,7 +3476,7 @@ mod tests {
         let integer = |value| CheckedTerm::Literal {
             type_id: node("t"),
             value_kind: LiteralKind::Integer,
-            value,
+            value: crate::CheckedJson::from_value(&value).unwrap(),
         };
         assert!(scalar_matches(Some(&integer(json!(12))), Some("12")));
         assert!(!scalar_matches(Some(&integer(json!(12))), Some("012")));
