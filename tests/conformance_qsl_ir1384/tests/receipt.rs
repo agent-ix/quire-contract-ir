@@ -183,7 +183,8 @@ fn emit(qsl: &std::path::Path, time_source: &str) -> Emitted {
             },
             Some(progress),
             caps(),
-            &mut NativeJoinBudget::new(100_000_000, 100_000_000),
+            &mut NativeJoinBudget::new(100_000_000, 100_000_000)
+                .with_read_storage_limit(1 << 28),
             NativeJoinLocus {
                 source: NativeJoinLocusSource::ReachedRow(0),
                 form: "qsl_authority_selection",
