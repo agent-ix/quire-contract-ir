@@ -1331,9 +1331,7 @@ impl Graph<'_> {
         // The strict shape has checked nonnegative decimal syntax. Shared
         // natural arithmetic accounts for the exact reduction work.
         if positive && exact.zero
-            || !super::natural::coprime(exact.numerator, exact.denominator, meter, &|| {
-                stage_storage::Position::from(at.trail()).build()
-            })?
+            || !super::natural::coprime_at(exact.numerator, exact.denominator, meter, at.site())?
         {
             return Err(invalid(meter));
         }
@@ -3365,6 +3363,63 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::BTreeSet;
     use std::path::Path as FilePath;
+
+    fn published_timed_nodes() -> Vec<(usize, CheckedSemanticNodeV2, TimedModelForm)> {
+        let root = std::env::var("QUIRE_SPECIFICATION_DIR").expect("published QSpec checkout");
+        let bytes = std::fs::read(
+            FilePath::new(&root)
+                .join("proposals/checked-package-v2/fixtures/positive-tick-timed-model-nodes.json"),
+        )
+        .expect("published tick timed model");
+        let wire: super::super::RawCheckedPackageWireV2 =
+            serde_json::from_slice(&bytes).expect("published wire");
+        wire.semantic_graph
+            .nodes
+            .into_iter()
+            .enumerate()
+            .filter_map(|(position, node)| {
+                let kind = super::super::CheckedNodeTag::from_wire(&node.node_tag)
+                    .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form));
+                match kind {
+                    Some(CheckedNodeKind::TimedModel(form)) => Some((position, node, form)),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn published_timed_wire_allocations_are_prepaid_at_exact_and_short_allowances() {
+        let nodes = published_timed_nodes();
+        assert!(!nodes.is_empty());
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = Ok(());
+            let allocated = allocation_counter::measure(|| {
+                for (position, node, form) in &nodes {
+                    result = check_wire(node, *form, *position, &mut budget);
+                    if result.is_err() {
+                        break;
+                    }
+                }
+            });
+            (result, allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert!(allocated > 0);
+        let (result, exact, _) = run(allocated);
+        assert!(result.is_ok());
+        assert_eq!(exact, allocated);
+        for limit in [allocated - 1, 0] {
+            let (result, actual, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(actual, budget.read_storage_consumed());
+            assert!(budget.first_unpaid_read_storage().is_some());
+        }
+    }
 
     /// Trace: FR-038-AC-323, TC-367.
     #[trace("TC-367", "FR-038-AC-323")]
