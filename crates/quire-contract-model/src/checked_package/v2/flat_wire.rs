@@ -402,7 +402,12 @@ pub(super) fn check(
             BodyGrammar::Refinement => {
                 let decoded =
                     body.decode(json.document(), &mut meter.budget(), flat_site(position))?;
-                super::refinement::check_wire(body, decoded.as_ref().ok(), &at)
+                super::refinement::check_wire(
+                    body,
+                    decoded.as_ref().ok(),
+                    &at,
+                    &mut meter.reservation(flat_site(position)),
+                )
             }
         };
         checked.map_err(|failure| super::with_node_locus(failure, &node.node_id))?;
