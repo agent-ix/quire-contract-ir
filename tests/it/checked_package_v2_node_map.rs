@@ -109,7 +109,8 @@ fn public_node_and_term_mapping_visits_original_slots_once_in_order() {
             CheckedTerm::Literal {
                 type_id: a.clone(),
                 value_kind: LiteralKind::String,
-                value: literal_data.clone(),
+                value: quire_contract_model::CheckedJson::from_value(&literal_data)
+                    .expect("a literal"),
             },
         ]),
     };
@@ -149,7 +150,7 @@ fn public_node_and_term_mapping_visits_original_slots_once_in_order() {
         if matches!(value.as_ref(), CheckedTerm::Reference { target } if target == &node.semantic_type)));
     assert!(
         matches!(&members[2], CheckedTerm::Literal { type_id, value, .. }
-        if type_id == &node.node_id && value == &literal_data)
+        if type_id == &node.node_id && value.to_value() == literal_data)
     );
     assert_eq!(node.recursion_group.as_deref(), Some("a"));
 

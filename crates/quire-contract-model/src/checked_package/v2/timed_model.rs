@@ -1582,7 +1582,7 @@ fn term_key(
                     value
                         .as_str()
                         .map(str::to_owned)
-                        .unwrap_or_else(|| value.to_string()),
+                        .unwrap_or_else(|| value.to_value().to_string()),
                 )));
                 pending.push(Visit::Atom(OrderPart::Word(format!("{value_kind:?}"))));
                 pending.push(Visit::Atom(OrderPart::Start));

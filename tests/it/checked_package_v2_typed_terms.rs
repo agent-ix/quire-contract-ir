@@ -300,7 +300,7 @@ fn public_literal_read_covers_the_closed_payload_vocabulary() {
             type_id: type_id.clone(),
             value_kind: quire_contract_model::LiteralKind::from_wire(kind)
                 .expect("closed literal kind"),
-            value,
+            value: quire_contract_model::CheckedJson::from_value(&value).expect("a literal"),
         };
         let read = term
             .literal_read()

@@ -384,11 +384,8 @@ impl quire_canonical::Sink for ComparingSink<'_> {
     }
 }
 
-/// The package document as the canonical writer encodes it, refusing a whole
-/// number past 2^53 that is not a 64-bit integer: such a spelling
-/// (`100000000000000000000`) is its own RFC 8785 text as a double, yet it is
-/// an integer outside I-JSON, so its bytes are not canonical. The walk keeps
-/// its task list on the writer's reservation.
+/// The package document as the canonical writer encodes it, with the
+/// encoder's refusal of an integer past 2^53 (see [`super::checked_json`]).
 struct PackageDocument<'d> {
     document: &'d Document,
 }
@@ -398,65 +395,7 @@ impl quire_canonical::Encode for PackageDocument<'_> {
         &self,
         writer: &mut quire_canonical::Writer<'_, S>,
     ) -> Result<(), quire_canonical::Error> {
-        use quire_canonical::Node;
-        const MAXIMUM_INTEGER: f64 = 9_007_199_254_740_992.0;
-        enum Task<'d> {
-            Value(quire_canonical::NodeRef<'d>),
-            Name(&'d str),
-            EndArray,
-            EndObject,
-        }
-        let mut tasks = Vec::new();
-        writer.reserve_list(&mut tasks, 1)?;
-        tasks.push(Task::Value(self.document.root()));
-        while let Some(task) = tasks.pop() {
-            match task {
-                Task::Value(value) => match value.node() {
-                    Node::Null => writer.null()?,
-                    Node::Bool(flag) => writer.bool(flag)?,
-                    Node::Number(number) => {
-                        let float = number.value();
-                        if number.text().parse::<i64>().is_err()
-                            && number.text().parse::<u64>().is_err()
-                            && float.fract() == 0.0
-                            && float.abs() > MAXIMUM_INTEGER
-                        {
-                            return Err(quire_canonical::Error::Internal {
-                                invariant: "an integer past 2^53 is not canonical",
-                            });
-                        }
-                        writer.number(float)?;
-                    }
-                    Node::String(text) => writer.string(text)?,
-                    Node::Array(items) => {
-                        writer.begin_array()?;
-                        let start = tasks.len();
-                        writer.reserve_list(&mut tasks, items.len().saturating_add(1))?;
-                        tasks.push(Task::EndArray);
-                        tasks.extend(items.map(Task::Value));
-                        tasks.get_mut(start + 1..).unwrap_or_default().reverse();
-                    }
-                    Node::Object(members) => {
-                        writer.begin_object()?;
-                        let start = tasks.len();
-                        writer.reserve_list(
-                            &mut tasks,
-                            members.len().saturating_mul(2).saturating_add(1),
-                        )?;
-                        tasks.push(Task::EndObject);
-                        for (name, member) in members {
-                            tasks.push(Task::Name(name));
-                            tasks.push(Task::Value(member));
-                        }
-                        tasks.get_mut(start + 1..).unwrap_or_default().reverse();
-                    }
-                },
-                Task::Name(name) => writer.name(name)?,
-                Task::EndArray => writer.end_array()?,
-                Task::EndObject => writer.end_object()?,
-            }
-        }
-        Ok(())
+        super::checked_json::encode_node(self.document.root(), writer)
     }
 }
 
