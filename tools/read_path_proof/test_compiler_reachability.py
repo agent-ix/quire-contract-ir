@@ -249,6 +249,34 @@ pub fn reader_root(count:usize,x:u8)->u8 {
         self.assertNotIn("pointer_iteration::unrelated", targets)
 
     # Trace: TC-472, FR-038-AC-513
+    def test_widening_keeps_a_callback_beyond_the_exact_offset_window(self):
+        callbacks = ",".join(["first"] * 32 + ["last"])
+        result = self.compile("wide_callback_tail", """
+#[inline(never)] fn first(x:u8)->u8 {x ^ 1}
+#[inline(never)] fn last(x:u8)->u8 {x ^ 128}
+#[inline(never)] fn unrelated(x:u8)->u8 {x ^ 42}
+pub static UNRELATED:fn(u8)->u8=unrelated;
+static CALLBACKS:[fn(u8)->u8;33]=[CALLBACK_ENTRIES];
+pub fn reader_root(count:usize,x:u8)->u8 {
+ if count>CALLBACKS.len() {return x;}
+ let mut result=x;
+ let mut cursor=CALLBACKS.as_ptr();
+ let end=cursor.wrapping_add(count);
+ while cursor!=end {
+  result=unsafe {(*cursor)(result)};
+  cursor=cursor.wrapping_add(1);
+ }
+ result
+}
+#[test] fn tail_value() {assert_eq!(reader_root(33,3),131);}
+""".replace("CALLBACK_ENTRIES", callbacks), run_test="tail_value")
+        self.assertTrue(result["result"]["pointer_flow_fixed_point"], result["result"])
+        self.assertGreater(result["result"]["widened_object_offsets"], 0)
+        paths = {item["def_path"] for item in result["functions"]}
+        self.assertIn("wide_callback_tail::last", paths)
+        self.assertNotIn("wide_callback_tail::unrelated", paths)
+
+    # Trace: TC-472, FR-038-AC-513
     def test_nested_generic_and_relative_source_have_compiler_mir_correspondence(self):
         result = self.compile("nested_generic", """
 #[inline(never)] fn generic<T>(value:T)->T {value}
