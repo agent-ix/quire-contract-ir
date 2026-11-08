@@ -2478,8 +2478,11 @@ fn decode_admitted_body(
         return Ok(CheckedTerm::NominalBody(Box::new(nominal)));
     }
     let site = read_charge::Site::new(PackageReadStage::Graph, position, kind.tag().as_wire());
-    let mut unlimited = NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
-    let budget = meter.budget_mut().unwrap_or(&mut unlimited);
+    // Every graph read owns its caller's budget; authored V1 bodies use
+    // contract_package's separate decoder and never enter this function.
+    let budget = meter
+        .budget_mut()
+        .expect("the strict graph decoder has a caller budget");
     let result = if kind == CheckedNodeKind::State(StateForm::OperationAnchor) {
         node.decode_anchor_in(body.document(), budget, site, row)?
     } else {
