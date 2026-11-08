@@ -1083,9 +1083,7 @@ mod tests {
     #[trace("TC-472", "FR-038-AC-504")]
     #[test]
     fn priority_set_allocates_exactly_what_it_charges() {
-        use super::super::native_join_budget::{
-            NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
-        };
+        use super::super::native_join_budget::{NativeJoinLocusSource, PackageReadStage};
         let integer = |value: serde_json::Value| CheckedTerm::Literal {
             type_id: CheckedNodeId {
                 package: "example".into(),

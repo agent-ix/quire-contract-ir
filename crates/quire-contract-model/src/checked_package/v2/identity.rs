@@ -9,6 +9,7 @@ use super::dependency_references::SuppliedDependencies;
 use super::graph_storage::{GraphIndex, SortedTable};
 use super::model_members::DomainModel;
 use super::natural::coprime;
+use super::term_view::TermNode;
 use super::{
     BoundedDomainForm, CheckedNodeKind, ClaimForm, CompositeTypeForm, CorrespondenceForm,
     ExpressionForm, FunctionForm, ModelForm, ProtocolForm,
@@ -224,6 +225,38 @@ impl CheckedDimensionOperand {
         match self {
             Self::Local(id) => id,
             Self::Package(reference) => reference.node.node_id(),
+        }
+    }
+
+    /// [`Self::from_value`] over a node of the retained document: the
+    /// package name and the node ID are charged before they are allocated.
+    fn from_term(
+        value: TermNode<'_>,
+        row: &[u64],
+        meter: &mut WorkMeter,
+    ) -> Result<Option<Self>, ValidationFailure> {
+        if !value.is_object() {
+            return Ok(None);
+        }
+        if value.exact_members(&["package", "node"]) {
+            let Some(package) = value.get("package").and_then(TermNode::as_str) else {
+                return Ok(None);
+            };
+            let Some(node) = value.get("node") else {
+                return Ok(None);
+            };
+            let Some(node) = meter.read_id(node, row)?.spelled() else {
+                return Ok(None);
+            };
+            let Ok(node) = CheckedDeclaredNodeId::try_new(node) else {
+                return Ok(None);
+            };
+            Ok(Some(Self::Package(CheckedPackageNodeRef {
+                package: meter.boxed_str(package)?,
+                node,
+            })))
+        } else {
+            Ok(meter.read_id(value, row)?.spelled().map(Self::Local))
         }
     }
 
@@ -447,6 +480,18 @@ impl NominalBody {
         kind: NominalBodyKind,
         at: JsonPointer,
     ) -> Result<Self, Box<CheckedPackageRefusal>> {
+        Self::check_kind(&kind, &|| at.clone(), false)?;
+        Ok(Self { kind })
+    }
+
+    /// The closed rules of a body, each path built only for a refusal.
+    /// `names_checked` says the enum names were already checked to be
+    /// distinct identifiers, as the charged reader does while it reads them.
+    fn check_kind(
+        kind: &NominalBodyKind,
+        at: &dyn Fn() -> JsonPointer,
+        names_checked: bool,
+    ) -> Result<(), Box<CheckedPackageRefusal>> {
         let malformed = |path| {
             Box::new(CheckedPackageRefusal::new(RefusalFields {
                 code: CheckedPackageRefusalCode::MalformedWire,
@@ -457,49 +502,49 @@ impl NominalBody {
                 document_pointer: None,
             }))
         };
-        let valid_id = |id: &CheckedNodeId, path: JsonPointer| {
+        let valid_id = |id: &CheckedNodeId, path: &dyn Fn() -> JsonPointer| {
             id.is_well_formed()
                 .then_some(())
-                .ok_or_else(|| malformed(path))
+                .ok_or_else(|| malformed(path()))
         };
-        let valid_rational = |value: &CheckedRational, path: JsonPointer, positive: bool| {
-            let numerator_ok = if positive {
-                positive_integer(&value.numerator)
-            } else {
-                integer_magnitude(&value.numerator).is_some()
+        let valid_rational =
+            |value: &CheckedRational, path: &dyn Fn() -> JsonPointer, positive: bool| {
+                let numerator_ok = if positive {
+                    positive_integer(&value.numerator)
+                } else {
+                    integer_magnitude(&value.numerator).is_some()
+                };
+                if !numerator_ok {
+                    return Err(malformed(path().key("numerator")));
+                }
+                if !positive_integer(&value.denominator) {
+                    return Err(malformed(path().key("denominator")));
+                }
+                Ok(())
             };
-            if !numerator_ok {
-                return Err(malformed(path.clone().key("numerator")));
-            }
-            if !positive_integer(&value.denominator) {
-                return Err(malformed(path.key("denominator")));
-            }
-            Ok(())
-        };
-        match &kind {
+        match kind {
             NominalBodyKind::Enum { members, .. } => {
                 if members.is_empty() {
-                    return Err(malformed(at.key("members")));
+                    return Err(malformed(at().key("members")));
                 }
-                let mut names = BTreeSet::new();
-                for (index, member) in members.iter().enumerate() {
-                    if !is_identifier(member) || !names.insert(member.as_ref()) {
-                        return Err(malformed(at.clone().key("members").index(index)));
+                if !names_checked {
+                    let mut names = BTreeSet::new();
+                    for (index, member) in members.iter().enumerate() {
+                        if !is_identifier(member) || !names.insert(member.as_ref()) {
+                            return Err(malformed(at().key("members").index(index)));
+                        }
                     }
                 }
             }
             NominalBodyKind::Dimension { base, terms } => {
                 if *base && !terms.is_empty() {
-                    return Err(malformed(at.key("terms")));
+                    return Err(malformed(at().key("terms")));
                 }
                 for (index, term) in terms.iter().enumerate() {
-                    let path = at.clone().key("terms").index(index);
-                    valid_id(
-                        &term.dimension_node_id,
-                        path.clone().key("dimension_node_id"),
-                    )?;
+                    let path = || at().key("terms").index(index);
+                    valid_id(&term.dimension_node_id, &|| path().key("dimension_node_id"))?;
                     if integer_magnitude(&term.exponent).is_none() {
-                        return Err(malformed(path.key("exponent")));
+                        return Err(malformed(path().key("exponent")));
                     }
                 }
             }
@@ -509,30 +554,30 @@ impl NominalBody {
                 scale,
                 offset,
             } => {
-                valid_id(dimension_node_id, at.clone().key("dimension_node_id"))?;
+                valid_id(dimension_node_id, &|| at().key("dimension_node_id"))?;
                 if let Some(target) = target_unit_node_id {
-                    valid_id(target, at.clone().key("target_unit_node_id"))?;
+                    valid_id(target, &|| at().key("target_unit_node_id"))?;
                 }
-                valid_rational(scale, at.clone().key("scale"), false)?;
-                valid_rational(offset, at.key("offset"), false)?;
+                valid_rational(scale, &|| at().key("scale"), false)?;
+                valid_rational(offset, &|| at().key("offset"), false)?;
             }
             NominalBodyKind::DimensionEquivalence {
                 dimension_node_ids,
                 root_scale,
             } => {
                 for (index, operand) in dimension_node_ids.iter().enumerate() {
-                    let path = at.clone().key("dimension_node_ids").index(index);
-                    valid_id(operand.node_id(), path.clone())?;
+                    let path = || at().key("dimension_node_ids").index(index);
+                    valid_id(operand.node_id(), &path)?;
                     if let CheckedDimensionOperand::Package(reference) = operand {
                         if reference.package.is_empty() {
-                            return Err(malformed(path));
+                            return Err(malformed(path()));
                         }
                     }
                 }
-                valid_rational(root_scale, at.key("root_scale"), true)?;
+                valid_rational(root_scale, &|| at().key("root_scale"), true)?;
             }
         }
-        Ok(Self { kind })
+        Ok(())
     }
 
     pub(super) fn kind(&self) -> &NominalBodyKind {
@@ -686,6 +731,180 @@ impl NominalBody {
             _ => Err(malformed(at.clone())),
         }?;
         Self::try_kind(kind, at).map_err(ValidationFailure::Refused)
+    }
+
+    /// [`Self::from_value`] over a node of the retained document, whose
+    /// operand slots read through `row`. Every list, name, number text and ID
+    /// the body keeps is charged to the meter before it is allocated, and
+    /// the same first defect is refused at the same body-relative path.
+    #[ix_trace_rs::string_edge]
+    pub(super) fn from_term(
+        body: TermNode<'_>,
+        row: &[u64],
+        at: &dyn Fn() -> JsonPointer,
+        meter: &mut WorkMeter,
+    ) -> Result<Self, ValidationFailure> {
+        let malformed =
+            |path| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, path);
+        if !body.is_object() {
+            return Err(malformed(at()));
+        }
+        let term = body
+            .get("term")
+            .and_then(TermNode::as_str)
+            .ok_or_else(|| malformed(at().key("term")))?;
+        let node_ref = |meter: &mut WorkMeter, member: &str| {
+            let read = match body.get(member) {
+                Some(value) => meter.read_id(value, row)?.spelled(),
+                None => None,
+            };
+            read.ok_or_else(|| malformed(at().key(member)))
+        };
+        let rational = |meter: &mut WorkMeter, member: &str, positive_numerator: bool| {
+            let path = || at().key(member);
+            let value = body.get(member).ok_or_else(|| malformed(path()))?;
+            if !value.is_object() {
+                return Err(malformed(path()));
+            }
+            if !value.exact_members(&["numerator", "denominator"]) {
+                return Err(malformed(path()));
+            }
+            let numerator = value
+                .get("numerator")
+                .and_then(TermNode::as_str)
+                .filter(|number| {
+                    if positive_numerator {
+                        positive_integer(number)
+                    } else {
+                        integer_magnitude(number).is_some()
+                    }
+                })
+                .ok_or_else(|| malformed(path().key("numerator")))?;
+            let denominator = value
+                .get("denominator")
+                .and_then(TermNode::as_str)
+                .filter(|number| positive_integer(number))
+                .ok_or_else(|| malformed(path().key("denominator")))?;
+            Ok(CheckedRational {
+                numerator: meter.boxed_str(numerator)?,
+                denominator: meter.boxed_str(denominator)?,
+            })
+        };
+        let kind = match term {
+            "enum" if body.exact_members(&["term", "ordered", "members"]) => {
+                let ordered = body
+                    .get("ordered")
+                    .and_then(TermNode::as_bool)
+                    .ok_or_else(|| malformed(at().key("ordered")))?;
+                let values = body
+                    .get("members")
+                    .and_then(TermNode::items)
+                    .filter(|items| items.len() != 0)
+                    .ok_or_else(|| malformed(at().key("members")))?;
+                // The distinct names, sorted, so a repeat is found without a
+                // tree.
+                let mut unique: Vec<&str> = meter.vec(values.len())?;
+                let mut members = meter.vec(values.len())?;
+                for (index, value) in values.enumerate() {
+                    let member = value
+                        .as_str()
+                        .filter(|text| is_identifier(text))
+                        .ok_or_else(|| malformed(at().key("members").index(index)))?;
+                    if !meter.insert_sorted(&mut unique, member)? {
+                        return Err(malformed(at().key("members").index(index)));
+                    }
+                    members.push(meter.boxed_str(member)?);
+                }
+                Ok(NominalBodyKind::Enum { ordered, members })
+            }
+            "dimension" if body.exact_members(&["term", "base", "terms"]) => {
+                let base = body
+                    .get("base")
+                    .and_then(TermNode::as_bool)
+                    .ok_or_else(|| malformed(at().key("base")))?;
+                let values = body
+                    .get("terms")
+                    .and_then(TermNode::items)
+                    .ok_or_else(|| malformed(at().key("terms")))?;
+                let mut terms = meter.vec(values.len())?;
+                for (index, value) in values.enumerate() {
+                    let path = || at().key("terms").index(index);
+                    if !value.is_object()
+                        || !value.exact_members(&["dimension_node_id", "exponent"])
+                    {
+                        return Err(malformed(path()));
+                    }
+                    let dimension_node_id = match value.get("dimension_node_id") {
+                        Some(id) => meter.read_id(id, row)?.spelled(),
+                        None => None,
+                    }
+                    .ok_or_else(|| malformed(path().key("dimension_node_id")))?;
+                    let exponent = value
+                        .get("exponent")
+                        .and_then(TermNode::as_str)
+                        .filter(|text| integer_magnitude(text).is_some())
+                        .ok_or_else(|| malformed(path().key("exponent")))?;
+                    terms.push(DimensionTerm {
+                        dimension_node_id,
+                        exponent: meter.boxed_str(exponent)?,
+                    });
+                }
+                Ok(NominalBodyKind::Dimension { base, terms })
+            }
+            "unit"
+                if body.exact_members(&[
+                    "term",
+                    "dimension_node_id",
+                    "target_unit_node_id",
+                    "scale",
+                    "offset",
+                ]) =>
+            {
+                let target = body.get("target_unit_node_id");
+                let target_unit_node_id = match target {
+                    Some(value) if value.is_null() => None,
+                    Some(value) => Some(
+                        meter
+                            .read_id(value, row)?
+                            .spelled()
+                            .ok_or_else(|| malformed(at().key("target_unit_node_id")))?,
+                    ),
+                    None => return Err(malformed(at().key("target_unit_node_id"))),
+                };
+                Ok(NominalBodyKind::Unit {
+                    dimension_node_id: node_ref(meter, "dimension_node_id")?,
+                    target_unit_node_id,
+                    scale: rational(meter, "scale", false)?,
+                    offset: rational(meter, "offset", false)?,
+                })
+            }
+            "dimension_equivalence"
+                if body.exact_members(&["term", "dimension_node_ids", "root_scale"]) =>
+            {
+                let values = body
+                    .get("dimension_node_ids")
+                    .and_then(TermNode::items)
+                    .filter(|items| items.len() == 2)
+                    .ok_or_else(|| malformed(at().key("dimension_node_ids")))?;
+                let mut values = values;
+                let mut operand = |meter: &mut WorkMeter, index: usize| {
+                    let value = values
+                        .next()
+                        .ok_or_else(|| malformed(at().key("dimension_node_ids")))?;
+                    CheckedDimensionOperand::from_term(value, row, meter)?
+                        .ok_or_else(|| malformed(at().key("dimension_node_ids").index(index)))
+                };
+                let first = operand(meter, 0)?;
+                let second = operand(meter, 1)?;
+                Ok(NominalBodyKind::DimensionEquivalence {
+                    dimension_node_ids: [first, second],
+                    root_scale: rational(meter, "root_scale", true)?,
+                })
+            }
+            _ => Err(malformed(at())),
+        }?;
+        Self::check_kind(&kind, at, true).map_err(ValidationFailure::Refused)?;
+        Ok(Self { kind })
     }
 
     pub(super) fn replace_node_id(&mut self, old: &CheckedNodeId, new: &CheckedNodeId) {
@@ -1058,22 +1277,106 @@ fn model_node_table<'a>(
     }))
 }
 
+/// Where the body of a node being read comes from: the retained document of
+/// the graph being validated, or the copied `Value` of a node of an admitted
+/// dependency package, which has no document here.
+#[derive(Clone, Copy)]
+enum BodyInput<'a> {
+    Document(Option<(TermNode<'a>, &'a [u64])>),
+    Value(&'a Value),
+}
+
+impl<'a> BodyInput<'a> {
+    /// The body of graph node `position` of the graph being validated.
+    fn of_graph(position: usize, meter: &WorkMeter<'a>) -> Self {
+        Self::Document(meter.body(position))
+    }
+
+    /// The string member `name` of an object body.
+    fn string_member(self, name: &str) -> Option<&'a str> {
+        match self {
+            Self::Document(body) => body?.0.get(name)?.as_str(),
+            Self::Value(body) => body.as_object()?.get(name)?.as_str(),
+        }
+    }
+
+    /// Whether the body is exactly the empty aggregate term.
+    fn is_empty_aggregate(self) -> bool {
+        match self {
+            Self::Document(body) => body.is_some_and(|(body, _)| {
+                body.exact_members(&["term", "members"])
+                    && body.get("term").and_then(TermNode::as_str) == Some("aggregate")
+                    && body
+                        .get("members")
+                        .and_then(TermNode::items)
+                        .is_some_and(|members| members.len() == 0)
+            }),
+            Self::Value(body) => body.as_object().is_some_and(|body| {
+                body.len() == 2
+                    && body.get("term").and_then(Value::as_str) == Some("aggregate")
+                    && body
+                        .get("members")
+                        .and_then(Value::as_array)
+                        .is_some_and(Vec::is_empty)
+            }),
+        }
+    }
+
+    /// The closed nominal body: a body outside the closed forms is refused at
+    /// the node's body.
+    fn nominal(
+        self,
+        position: usize,
+        meter: &mut WorkMeter,
+    ) -> Result<NominalBody, ValidationFailure> {
+        let at = || node_pointer(position).key("body");
+        match self {
+            Self::Document(Some((body, row))) => NominalBody::from_term(body, row, &at, meter),
+            Self::Document(None) => Err(ValidationFailure::refused(
+                CheckedPackageRefusalCode::MalformedWire,
+                at(),
+            )),
+            Self::Value(body) => NominalBody::from_value(body, at()),
+        }
+    }
+}
+
+/// The closed nominal body of graph node `position`, read from the retained
+/// document: a body outside the closed forms is refused at the node's body.
+fn read_nominal_body(
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<NominalBody, ValidationFailure> {
+    BodyInput::of_graph(position, meter).nominal(position, meter)
+}
+
+/// [`read_nominal_body`] for a caller that treats a body outside the closed
+/// forms as absent; a refusal of the budget still stops the read.
+pub(super) fn nominal_body_if_closed(
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<Option<NominalBody>, ValidationFailure> {
+    match read_nominal_body(position, meter) {
+        Ok(body) => Ok(Some(body)),
+        Err(ValidationFailure::Refused(_)) => Ok(None),
+        Err(stopped) => Err(stopped),
+    }
+}
+
 fn record_from_node(
     node: &CheckedSemanticNodeV2,
+    body: BodyInput<'_>,
     kind: NominalKind,
     position: usize,
     models: &[DomainModel],
     model_nodes: &ModelNodes<'_>,
     meter: &mut WorkMeter,
 ) -> Result<NominalRecord, ValidationFailure> {
-    let at = node_pointer(position);
+    let at = || node_pointer(position);
     if kind == NominalKind::EnumMember {
-        let case = node
-            .body
-            .as_object()
-            .and_then(|body| body.get("value"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| invalid(at.clone().key("body").key("value")))?;
+        let case = body
+            .string_member("value")
+            .ok_or_else(|| invalid(at().key("body").key("value")))?;
         return Ok(NominalRecord::EnumMember(EnumMemberRecord {
             declaration_node_id: meter.clone_id(&node.semantic_type)?,
             case: meter.boxed_str(case)?,
@@ -1086,6 +1389,7 @@ fn record_from_node(
     {
         return model_record_from_node(
             node,
+            body,
             kind,
             position,
             identity,
@@ -1107,11 +1411,12 @@ fn record_from_node(
             identity: meter.boxed_str(identity)?,
             node: meter.boxed_str(node)?,
         },
-        _ => return Err(invalid(at.key("owner"))),
+        _ => return Err(invalid(at().key("owner"))),
     };
+    let body = body.nominal(position, meter)?;
     let mut declared = || -> Result<Vec<Box<str>>, ValidationFailure> {
         let Some(declaration) = node.declaration.as_ref() else {
-            return Err(invalid(at.clone().key("declaration")));
+            return Err(invalid(at().key("declaration")));
         };
         let mut name = meter.vec(declaration.qualified_name.len())?;
         for segment in &declaration.qualified_name {
@@ -1119,8 +1424,7 @@ fn record_from_node(
         }
         Ok(name)
     };
-    let body = || NominalBody::from_value(&node.body, at.clone().key("body"));
-    match (kind, body()?.into_kind()) {
+    match (kind, body.into_kind()) {
         (NominalKind::EnumDeclaration, NominalBodyKind::Enum { ordered, members }) => {
             Ok(NominalRecord::EnumDeclaration(EnumDeclarationRecord {
                 owner: source_owner,
@@ -1165,7 +1469,7 @@ fn record_from_node(
                 identity,
             } = source_owner
             else {
-                return Err(invalid(at.key("owner")));
+                return Err(invalid(at().key("owner")));
             };
             Ok(NominalRecord::DimensionEquivalence(
                 DimensionEquivalenceRecord {
@@ -1183,7 +1487,7 @@ fn record_from_node(
                 },
             ))
         }
-        _ => Err(invalid(at.key("body"))),
+        _ => Err(invalid(at().key("body"))),
     }
 }
 
@@ -1196,6 +1500,7 @@ fn single_segment(name: &str, meter: &mut WorkMeter) -> Result<Vec<Box<str>>, Va
 
 fn model_record_from_node(
     node: &CheckedSemanticNodeV2,
+    body: BodyInput<'_>,
     kind: NominalKind,
     position: usize,
     identity: &str,
@@ -1205,19 +1510,12 @@ fn model_record_from_node(
     meter: &mut WorkMeter,
 ) -> Result<NominalRecord, ValidationFailure> {
     use crate::checked_package::shared::CheckedNodePathSegment as Segment;
-    let at = node_pointer(position);
-    let empty_aggregate = node.body.as_object().is_some_and(|body| {
-        body.len() == 2
-            && body.get("term").and_then(Value::as_str) == Some("aggregate")
-            && body
-                .get("members")
-                .and_then(Value::as_array)
-                .is_some_and(Vec::is_empty)
-    });
+    let at = || node_pointer(position);
+    let empty_aggregate = body.is_empty_aggregate();
     if node.declaration.is_some() || !empty_aggregate {
         return Err(ValidationFailure::refused(
             CheckedPackageRefusalCode::MalformedWire,
-            at,
+            at(),
         ));
     }
     let expected_names = [
@@ -1230,17 +1528,17 @@ fn model_record_from_node(
             && node.node_id.path.iter().zip(expected_names).all(
                 |(part, expected)| matches!(part, Segment::Name(name) if name.as_ref() == expected),
             ),
-        || at.clone().key("node_id").key("path"),
+        || at().key("node_id").key("path"),
     )?;
     let model = models
         .iter()
         .find(|model| model.identity.as_ref() == identity)
-        .ok_or_else(|| invalid(at.clone().key("owner")))?;
+        .ok_or_else(|| invalid(at().key("owner")))?;
     let resolve = |meter: &mut WorkMeter, fcd_identity: &str| match model_nodes
         .get(&(identity, fcd_identity))
     {
         Some(id) => meter.clone_id(id),
-        None => Err(invalid(at.clone().key("owner"))),
+        None => Err(invalid(at().key("owner"))),
     };
     let owner = NominalOwner::Model {
         identity: meter.boxed_str(identity)?,
@@ -1251,7 +1549,7 @@ fn model_record_from_node(
             let selected = model
                 .dimensions
                 .get(owner_node)
-                .ok_or_else(|| invalid(at.clone().key("owner")))?;
+                .ok_or_else(|| invalid(at().key("owner")))?;
             let mut terms = meter.vec(selected.terms.len())?;
             for (target, exponent) in &selected.terms {
                 terms.push(DimensionTerm {
@@ -1270,7 +1568,7 @@ fn model_record_from_node(
             let selected = model
                 .units
                 .get(owner_node)
-                .ok_or_else(|| invalid(at.clone().key("owner")))?;
+                .ok_or_else(|| invalid(at().key("owner")))?;
             let ratio = |text: &str, meter: &mut WorkMeter| {
                 let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
                 Ok::<_, ValidationFailure>(CheckedRational {
@@ -1292,7 +1590,7 @@ fn model_record_from_node(
                 offset: ratio(&selected.offset, meter)?,
             }))
         }
-        _ => Err(invalid(at.key("owner"))),
+        _ => Err(invalid(at().key("owner"))),
     }
 }
 
@@ -1321,6 +1619,7 @@ pub(super) fn validate_nominal_nodes<'e>(
         if let Some(required) = NominalKind::required_by(kinds[position]) {
             records[position] = Some(record_from_node(
                 &nodes[position],
+                BodyInput::of_graph(position, meter),
                 required,
                 position,
                 models,
@@ -1460,6 +1759,7 @@ fn imported_nominals<'e>(
             let raw = node.to_raw();
             let record = record_from_node(
                 &raw,
+                BodyInput::Value(&raw.body),
                 required,
                 position,
                 package.models.selected_models(),
@@ -1754,7 +2054,7 @@ pub(super) fn duration_unit_key(
     }) else {
         return Ok(None);
     };
-    let Ok(body) = NominalBody::from_value(&node.body, node_pointer(position).key("body")) else {
+    let Some(body) = nominal_body_if_closed(position, meter)? else {
         return Ok(None);
     };
     let NominalBodyKind::Unit {
@@ -1781,14 +2081,14 @@ pub(super) fn duration_unit_key(
     let at = || node_pointer(position);
     meter.at_node(position, "scalar_type");
     meter.charge(u64::try_from(nodes.len()).unwrap_or(u64::MAX), at)?;
-    let Some(dimension) = nodes
+    let Some((dimension_position, dimension)) = nodes
         .iter()
-        .find(|candidate| candidate.node_id == dimension_node_id)
+        .enumerate()
+        .find(|(_, candidate)| candidate.node_id == dimension_node_id)
     else {
         return Ok(None);
     };
-    let Ok(body) = NominalBody::from_value(&dimension.body, node_pointer(position).key("body"))
-    else {
+    let Some(body) = nominal_body_if_closed(dimension_position, meter)? else {
         return Ok(None);
     };
     let NominalBodyKind::Dimension { base, .. } = body.into_kind() else {
@@ -1838,7 +2138,7 @@ pub(super) fn duration_unit_key(
         if !meter.insert_sorted(&mut seen, next_position)? {
             return Ok(None);
         }
-        let Ok(body) = NominalBody::from_value(&next.body, at().key("body")) else {
+        let Some(body) = nominal_body_if_closed(next_position, meter)? else {
             return Ok(None);
         };
         let NominalBodyKind::Unit {
@@ -2664,7 +2964,9 @@ fn validate_unit_path(
 
 #[cfg(test)]
 mod tests {
+    use super::super::checked_json::CheckedJson;
     use super::*;
+    use crate::NativeJoinBudget;
     use ix_trace_rs::trace;
     use serde_json::json;
 
@@ -2682,7 +2984,6 @@ mod tests {
     #[trace("TC-472", "FR-038-AC-504")]
     #[test]
     fn slash_joins_and_id_multisets_agree_with_their_allocating_forms() {
-        use crate::NativeJoinBudget;
         let names: Vec<Box<str>> = vec!["a".into(), "bc".into(), "d".into()];
         for text in [
             "a/bc/d", "a/bc/", "a/bc/dd", "a/b/d", "a//bc/d", "", "a/bc/d/",
@@ -2738,7 +3039,6 @@ mod tests {
     #[trace("TC-472", "FR-038-AC-504")]
     #[test]
     fn duration_unit_resolution_allocates_exactly_what_it_requests() {
-        use crate::NativeJoinBudget;
         let source = json!({"kind":"source","authority":"agent-ix","identity":"example"});
         let dimension: CheckedSemanticNodeV2 = serde_json::from_value(json!({
             "node_id":{"package":"example","path":["Time"],"ordinal":0},
@@ -2767,7 +3067,10 @@ mod tests {
         let wrong = unit("s", Some(&root.node_id), ("2", "1"));
         let measure = |nodes: &[CheckedSemanticNodeV2], limit: u64| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let bodies =
+                super::super::graph_storage::OwnedBodies::of(nodes).expect("canonical bodies");
             let mut meter = WorkMeter::over(&mut budget);
+            bodies.attach(&mut meter);
             let found = duration_unit_key(nodes, "ix://quire/unit/s", &mut meter);
             drop(meter);
             (found.ok(), budget.read_storage_consumed())
@@ -2870,13 +3173,17 @@ mod tests {
             &mut WorkMeter::new(u64::MAX),
         )
         .expect("model node table");
+        let bodies = super::super::graph_storage::OwnedBodies::of(nodes).expect("canonical bodies");
+        let mut meter = WorkMeter::new(u64::MAX);
+        bodies.attach(&mut meter);
         let record = record_from_node(
             &unit,
+            BodyInput::of_graph(1, &meter),
             NominalKind::Unit,
             1,
             &[model],
             &model_nodes,
-            &mut WorkMeter::new(u64::MAX),
+            &mut meter,
         )
         .expect("model unit join");
         let NominalRecord::Unit(record) = record else {
@@ -2897,6 +3204,7 @@ mod tests {
         assert!(matches!(
             record_from_node(
                 &malformed,
+                BodyInput::Value(&malformed.body),
                 NominalKind::Unit,
                 1,
                 &[],
@@ -3074,5 +3382,194 @@ mod tests {
         assert!(is_identifier("_a1"));
         assert!(!is_identifier("1a"));
         assert!(!is_identifier(""));
+    }
+
+    /// The charged reader of a nominal body answers as the `Value` reader
+    /// does on the same JSON, operand slots resolved through the node's row:
+    /// the same body when it is closed, the same refusal when it is not
+    /// (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn nominal_body_reads_as_the_value_reader_does() {
+        let id = |name: &str| json!({"package":"example","path":[name],"ordinal":0});
+        let slot = |k: u64| json!({"package":"example","path":["a",{"operand":k}],"ordinal":0});
+        let node = |k: u64| json!({"package":"example","path":["a",{"node":k}],"ordinal":0});
+        let rational = |n: &str, d: &str| json!({"numerator":n,"denominator":d});
+        let unit = |dimension: Value, target: Value, scale: Value| {
+            json!({"term":"unit","dimension_node_id":dimension,"target_unit_node_id":target,
+                "scale":scale,"offset":rational("0","1")})
+        };
+        let bodies: Vec<(Value, Value)> = vec![
+            // (body with operand slots, the same body with the slots resolved)
+            (
+                json!({"term":"enum","ordered":true,"members":["A","B","C"]}),
+                json!({"term":"enum","ordered":true,"members":["A","B","C"]}),
+            ),
+            (
+                json!({"term":"enum","ordered":true,"members":["A","A"]}),
+                json!({"term":"enum","ordered":true,"members":["A","A"]}),
+            ),
+            (
+                json!({"term":"enum","ordered":true,"members":["A","1b"]}),
+                json!({"term":"enum","ordered":true,"members":["A","1b"]}),
+            ),
+            (
+                json!({"term":"enum","ordered":true,"members":[]}),
+                json!({"term":"enum","ordered":true,"members":[]}),
+            ),
+            (
+                json!({"term":"dimension","base":false,"terms":[
+                    {"dimension_node_id":slot(1),"exponent":"2"},
+                    {"dimension_node_id":id("x"),"exponent":"-3"}]}),
+                json!({"term":"dimension","base":false,"terms":[
+                    {"dimension_node_id":node(11),"exponent":"2"},
+                    {"dimension_node_id":id("x"),"exponent":"-3"}]}),
+            ),
+            (
+                json!({"term":"dimension","base":true,"terms":[
+                    {"dimension_node_id":id("x"),"exponent":"1"}]}),
+                json!({"term":"dimension","base":true,"terms":[
+                    {"dimension_node_id":id("x"),"exponent":"1"}]}),
+            ),
+            (
+                json!({"term":"dimension","base":false,"terms":[
+                    {"dimension_node_id":id("x"),"exponent":"01"}]}),
+                json!({"term":"dimension","base":false,"terms":[
+                    {"dimension_node_id":id("x"),"exponent":"01"}]}),
+            ),
+            (
+                json!({"term":"dimension","base":false,"terms":[
+                    {"dimension_node_id":{"package":"","path":["x"],"ordinal":0},"exponent":"1"}]}),
+                json!({"term":"dimension","base":false,"terms":[
+                    {"dimension_node_id":{"package":"","path":["x"],"ordinal":0},"exponent":"1"}]}),
+            ),
+            (
+                unit(slot(0), Value::Null, rational("3", "7")),
+                unit(node(10), Value::Null, rational("3", "7")),
+            ),
+            (
+                unit(id("d"), slot(2), rational("3", "7")),
+                unit(id("d"), node(12), rational("3", "7")),
+            ),
+            (
+                unit(id("d"), id("t"), rational("3", "0")),
+                unit(id("d"), id("t"), rational("3", "0")),
+            ),
+            (
+                unit(id("d"), json!(7), rational("3", "7")),
+                unit(id("d"), json!(7), rational("3", "7")),
+            ),
+            (
+                json!({"term":"dimension_equivalence",
+                    "dimension_node_ids":[slot(0), {"package":"dep","node":id("m")}],
+                    "root_scale":rational("5","1")}),
+                json!({"term":"dimension_equivalence",
+                    "dimension_node_ids":[node(10), {"package":"dep","node":id("m")}],
+                    "root_scale":rational("5","1")}),
+            ),
+            (
+                json!({"term":"dimension_equivalence",
+                    "dimension_node_ids":[id("a"), slot(1), id("c")],
+                    "root_scale":rational("5","1")}),
+                json!({"term":"dimension_equivalence",
+                    "dimension_node_ids":[id("a"), node(11), id("c")],
+                    "root_scale":rational("5","1")}),
+            ),
+            (
+                json!({"term":"dimension_equivalence",
+                    "dimension_node_ids":[id("a"), {"package":"dep","node":slot(0)}],
+                    "root_scale":rational("5","1")}),
+                json!({"term":"dimension_equivalence",
+                    "dimension_node_ids":[id("a"), {"package":"dep","node":node(10)}],
+                    "root_scale":rational("5","1")}),
+            ),
+            (json!([]), json!([])),
+            (json!({"term":7}), json!({"term":7})),
+            (json!({"term":"enum"}), json!({"term":"enum"})),
+            (json!({"term":"other"}), json!({"term":"other"})),
+        ];
+        let row = [10_u64, 11, 12];
+        let at = || JsonPointer::root().key("body");
+        let mut closed = 0;
+        for (slotted, resolved) in &bodies {
+            let handle = CheckedJson::from_value(slotted).expect("canonical");
+            let mut meter = WorkMeter::new(u64::MAX);
+            let read = NominalBody::from_term(TermNode::of(&handle), &row, &at, &mut meter);
+            let expected = NominalBody::from_value(resolved, at());
+            match (&read, &expected) {
+                (Ok(read), Ok(expected)) => {
+                    closed += 1;
+                    assert_eq!(read, expected, "{slotted}");
+                }
+                (Err(read), Err(expected)) => {
+                    assert_eq!(format!("{read:?}"), format!("{expected:?}"), "{slotted}");
+                }
+                _ => panic!("{slotted}: {read:?} against {expected:?}"),
+            }
+        }
+        assert!(closed >= 5, "the corpus holds closed bodies of every form");
+    }
+
+    /// Every list, name, number text and ID a nominal body keeps is charged
+    /// before it is allocated: the bytes the allocator is asked for equal the
+    /// bytes charged, the measured requirement admits and one byte below is
+    /// denied at the graph locus (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn nominal_body_allocates_exactly_what_it_charges() {
+        use super::super::native_join_budget::{NativeJoinLocusSource, PackageReadStage};
+        let id = |name: &str| json!({"package":"example","path":[name,{"operand":0}],"ordinal":0});
+        let rational = |n: &str, d: &str| json!({"numerator":n,"denominator":d});
+        let bodies = [
+            json!({"term":"enum","ordered":true,"members":["Red","Green","Blue","Alpha","Beta"]}),
+            json!({"term":"dimension","base":false,"terms":[
+                {"dimension_node_id":id("x"),"exponent":"2"},
+                {"dimension_node_id":id("y"),"exponent":"-30"},
+                {"dimension_node_id":id("z"),"exponent":"1"}]}),
+            json!({"term":"unit","dimension_node_id":id("d"),"target_unit_node_id":id("t"),
+                "scale":rational("3","7"),"offset":rational("-12345678901234567890","1")}),
+            json!({"term":"dimension_equivalence",
+                "dimension_node_ids":[id("a"), {"package":"dependency","node":{"package":"p","path":["m"],"ordinal":0}}],
+                "root_scale":rational("5","1")}),
+        ];
+        let handles: Vec<CheckedJson> = bodies
+            .iter()
+            .map(|body| CheckedJson::from_value(body).expect("canonical"))
+            .collect();
+        let row = [4_u64];
+        let at = || JsonPointer::root().key("body");
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut read = Vec::with_capacity(handles.len());
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(2, "scalar_type");
+                for handle in &handles {
+                    match NominalBody::from_term(TermNode::of(handle), &row, &at, &mut meter) {
+                        Ok(body) => read.push(body),
+                        Err(_) => break,
+                    }
+                }
+            });
+            let complete = read.len() == handles.len();
+            (
+                complete.then(|| read.len()),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+                budget.first_unpaid_locus(),
+            )
+        };
+        let (read, allocated, charged, _) = run(u64::MAX);
+        assert_eq!(read, Some(4));
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, read, "the measured limit admits");
+        let (short, _, _, locus) = run(charged - 1);
+        assert_eq!(short, None, "one byte short is denied");
+        let locus = locus.expect("a denied request has a locus");
+        assert_eq!(
+            locus.source,
+            NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 2)
+        );
     }
 }

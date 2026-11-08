@@ -63,6 +63,7 @@ use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{DomainModel, MemberType, ValueBounds};
 use super::node_index::resolve_id_charged;
+use super::term_view::{TermNode, TermView};
 use super::{
     ApplicationOperator, CheckedTerm, CheckedTermView, ExecutionPoint, LiteralKind,
     OperationMemberKind, StateClauseKind, WorkMeter,
@@ -128,6 +129,19 @@ impl Graph<'_> {
     fn node(&self, id: &CheckedNodeId) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
         let position = *self.index.get(id)?;
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
+    }
+
+    /// The node, its kind and its position.
+    fn node_at(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Option<(usize, &CheckedSemanticNodeV2, CheckedNodeKind)> {
+        let position = *self.index.get(id)?;
+        Some((
+            position,
+            self.nodes.get(position)?,
+            *self.kinds.get(position)?,
+        ))
     }
 
     fn kind(&self, id: &CheckedNodeId) -> Option<CheckedNodeKind> {
@@ -684,7 +698,7 @@ pub(super) fn validate_structural_nodes_with_keys(
             }
             Some(StructuralForm::Parameter) => parameter_defect(node, term, &graph),
             Some(StructuralForm::CompoundUnit) => {
-                compound_unit_dependencies_defect(node, term, &graph)
+                compound_unit_dependencies_defect(node, term, &graph, meter)?
             }
             Some(StructuralForm::CarriedQuantity) => None,
             Some(StructuralForm::BoundedQuantity) => None,
@@ -693,10 +707,12 @@ pub(super) fn validate_structural_nodes_with_keys(
                 .is_none()
                 .then_some(Defect::Body),
             Some(StructuralForm::StateClause) => {
-                if node
-                    .body
-                    .pointer("/operation/member/execution_point")
-                    .is_some_and(|point| ExecutionPoint::from_wire(point).is_none())
+                if meter
+                    .body(position)
+                    .and_then(|(body, _)| body.get("operation"))
+                    .and_then(|operation| operation.get("member"))
+                    .and_then(|member| member.get("execution_point"))
+                    .is_some_and(|point| !is_closed_execution_point(point))
                 {
                     Some(Defect::ClausePoint)
                 } else {
@@ -758,7 +774,7 @@ pub(super) fn validate_structural_nodes_with_keys(
                     return Err(refuse(Defect::Dependencies));
                 }
                 if let Some(mut expected) = match term {
-                    Some(term) => application_dependencies(term, meter)?,
+                    Some(_) => application_dependencies_at(position, meter)?,
                     None => None,
                 } {
                     meter.insert_id(&mut expected, owner_model)?;
@@ -778,7 +794,7 @@ pub(super) fn validate_structural_nodes_with_keys(
             continue;
         }
         if let Some(expected) = match term {
-            Some(term) => application_dependencies(term, meter)?,
+            Some(_) => application_dependencies_at(position, meter)?,
             None => None,
         } {
             let mut listed: Vec<&CheckedNodeId> = meter.vec(expected.len())?;
@@ -1024,19 +1040,10 @@ pub(super) fn validate_derived_type_shapes(
             CheckedNodeKind::ScalarType(ScalarTypeForm::CompoundUnit) => {
                 node.semantic_type == node.node_id
                     && node.recursion_group.is_none()
-                    && term.and_then(typed_aggregate).is_some_and(|members| {
-                        let mut previous: Option<CheckedNodeId> = None;
-                        for member in members {
-                            let Some(unit) = typed_compound_unit_term(member, &graph) else {
-                                return false;
-                            };
-                            if previous.as_ref().is_some_and(|last| last >= &unit) {
-                                return false;
-                            }
-                            previous = Some(unit);
-                        }
-                        true
-                    })
+                    && match term.and_then(typed_aggregate) {
+                        Some(members) => compound_units_ascend(members, &graph, meter)?,
+                        None => false,
+                    }
             }
             CheckedNodeKind::ScalarType(ScalarTypeForm::CarriedQuantity) => {
                 carried_quantity_shape(catalog, node, term, &graph, terms, structural_keys, meter)?
@@ -1618,39 +1625,80 @@ fn compound_unit_dependencies_defect(
     node: &CheckedSemanticNodeV2,
     term: Option<&super::CheckedTerm>,
     graph: &Graph<'_>,
-) -> Option<Defect> {
-    let terms = term.and_then(typed_aggregate)?;
-    let mut units: Vec<CheckedNodeId> = Vec::with_capacity(terms.len());
+    meter: &mut WorkMeter,
+) -> Result<Option<Defect>, ValidationFailure> {
+    let Some(terms) = term.and_then(typed_aggregate) else {
+        return Ok(None);
+    };
+    let mut units: Vec<&CheckedNodeId> = meter.vec(terms.len())?;
     for term in terms {
-        units.push(typed_compound_unit_term(term, graph)?);
+        match typed_compound_unit_term(term, graph, meter)? {
+            Some(unit) => units.push(unit),
+            None => return Ok(None),
+        }
     }
-    if node.dependencies != units {
-        return Some(Defect::Dependencies);
+    let mut same = node.dependencies.len() == units.len();
+    for (listed, unit) in node.dependencies.iter().zip(&units) {
+        if !same {
+            break;
+        }
+        same = meter.compare_ids(listed, unit)?.is_eq();
     }
-    None
+    Ok((!same).then_some(Defect::Dependencies))
 }
 
-fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
-    let [unit, exponent] = typed_aggregate(term)? else {
-        return None;
+/// Whether the members of a compound unit name root units in strictly
+/// ascending order of their IDs.
+fn compound_units_ascend(
+    members: &[super::CheckedTerm],
+    graph: &Graph<'_>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let mut previous: Option<&CheckedNodeId> = None;
+    for member in members {
+        let Some(unit) = typed_compound_unit_term(member, graph, meter)? else {
+            return Ok(false);
+        };
+        if let Some(last) = previous {
+            if !meter.compare_ids(last, unit)?.is_lt() {
+                return Ok(false);
+            }
+        }
+        previous = Some(unit);
+    }
+    Ok(true)
+}
+
+/// The unit a compound-unit member names, when the member is a unit of
+/// exponent other than zero whose dimension has it as the canonical root.
+fn typed_compound_unit_term<'t>(
+    term: &'t super::CheckedTerm,
+    graph: &Graph<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<&'t CheckedNodeId>, ValidationFailure> {
+    let Some([unit, exponent]) = typed_aggregate(term) else {
+        return Ok(None);
     };
-    let unit = typed_binding(unit, "unit").and_then(typed_reference)?;
+    let Some(unit) = typed_binding(unit, "unit").and_then(typed_reference) else {
+        return Ok(None);
+    };
     // A dimension's canonical root has no target. Source units carry that
     // fact in their nominal body; model units carry it in the selected model.
-    let is_root_unit = graph.node(unit).is_some_and(|(node, kind)| {
-        kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
-            && match node.owner.as_ref() {
+    let is_root_unit = match graph.node_at(unit) {
+        Some((position, node, kind))
+            if kind == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit) =>
+        {
+            match node.owner.as_ref() {
                 Some(super::CheckedNodeOwner::Source { .. }) => {
-                    super::identity::NominalBody::from_value(&node.body, JsonPointer::root())
-                        .is_ok_and(|body| {
-                            matches!(
-                                body.kind(),
-                                super::identity::NominalBodyKind::Unit {
-                                    target_unit_node_id: None,
-                                    ..
-                                }
-                            )
-                        })
+                    super::identity::nominal_body_if_closed(position, meter)?.is_some_and(|body| {
+                        matches!(
+                            body.kind(),
+                            super::identity::NominalBodyKind::Unit {
+                                target_unit_node_id: None,
+                                ..
+                            }
+                        )
+                    })
                 }
                 Some(super::CheckedNodeOwner::Model {
                     identity,
@@ -1666,7 +1714,9 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
                 }),
                 _ => false,
             }
-    });
+        }
+        _ => false,
+    };
     let exponent_ok = typed_binding(exponent, "exponent")
         .and_then(|value| {
             typed_literal(
@@ -1678,7 +1728,25 @@ fn typed_compound_unit_term(term: &super::CheckedTerm, graph: &Graph<'_>) -> Opt
         })
         .and_then(Value::as_str)
         .is_some_and(is_nonzero_integer);
-    (is_root_unit && exponent_ok).then(|| unit.clone())
+    Ok((is_root_unit && exponent_ok).then_some(unit))
+}
+
+/// Whether a state clause's `execution_point` is a closed point: a `kind`
+/// and the one nonempty name its variant carries, and nothing else.
+fn is_closed_execution_point(point: TermNode<'_>) -> bool {
+    let Some(kind) = point.get("kind").and_then(TermNode::as_str) else {
+        return false;
+    };
+    let field = match kind {
+        "initialization" | "handler" => "name",
+        "pre" | "post" => "operation",
+        _ => return false,
+    };
+    point.exact_members(&["kind", field])
+        && point
+            .get(field)
+            .and_then(TermNode::as_str)
+            .is_some_and(|name| !name.is_empty())
 }
 
 /// A `state`/`operation_anchor` body (QSpec FR-342), borrowed from its term.
@@ -1970,6 +2038,7 @@ pub(super) fn typed_union_value_body(
 /// `population` of a reaches or navigate application. A member `declaration` or
 /// `population` that is not a node key is skipped here: the operation stage
 /// owns that refusal and its path.
+#[cfg(test)]
 pub(super) fn application_dependencies(
     body: &super::CheckedTerm,
     meter: &mut WorkMeter,
@@ -2065,6 +2134,95 @@ pub(super) fn collect_application_dependencies(
         }
     }
     Ok(contains_application)
+}
+
+/// [`application_dependencies`] for the body of graph node `position`, read
+/// from the retained document: every ID is charged by the node view before
+/// it is allocated, with the node's operand slots read through its row.
+pub(super) fn application_dependencies_at(
+    position: usize,
+    meter: &mut WorkMeter,
+) -> Result<Option<Vec<CheckedNodeId>>, ValidationFailure> {
+    let Some((body, row)) = meter.body(position) else {
+        return Ok(None);
+    };
+    let mut join = Vec::new();
+    let mut pending: Vec<TermNode<'_>> = meter.vec(1)?;
+    pending.push(body);
+    let mut contains_application = false;
+    while let Some(term) = pending.pop() {
+        match term.view() {
+            Some(TermView::Reference { target }) => {
+                if let Some(id) = meter.read_id(target, row)?.valid() {
+                    meter.insert_owned_id(&mut join, id)?;
+                }
+            }
+            Some(TermView::Application {
+                operation,
+                arguments,
+                ..
+            }) => {
+                contains_application = true;
+                meter.room(&mut pending, arguments.len())?;
+                pending.extend(arguments);
+                let member = operation.get("member");
+                if let Some(id) = member_id(member, "declaration", row, meter)? {
+                    meter.insert_owned_id(&mut join, id)?;
+                }
+                if member
+                    .and_then(|member| member.get("kind"))
+                    .and_then(TermNode::as_str)
+                    == Some("fairness")
+                {
+                    if let Some(target) = member.and_then(|member| member.get("target")) {
+                        for field in ["declaration", "node", "parallel"] {
+                            if let Some(id) = member_id(Some(target), field, row, meter)? {
+                                meter.insert_owned_id(&mut join, id)?;
+                            }
+                        }
+                    }
+                }
+                // Only a relationship application names a population.
+                let relationship = operation
+                    .get("identity")
+                    .and_then(TermNode::as_str)
+                    .is_some_and(|identity| {
+                        matches!(
+                            super::KnownOperation::from_wire(identity),
+                            Some(
+                                super::KnownOperation::ModelReaches
+                                    | super::KnownOperation::ModelNavigate
+                            )
+                        )
+                    });
+                if relationship {
+                    if let Some(id) = member_id(member, "population", row, meter)? {
+                        meter.insert_owned_id(&mut join, id)?;
+                    }
+                }
+            }
+            Some(TermView::Aggregate { members }) => {
+                meter.room(&mut pending, members.len())?;
+                pending.extend(members);
+            }
+            Some(TermView::Binding { value, .. }) => meter.push(&mut pending, value)?,
+            Some(TermView::Literal { .. }) | None => {}
+        }
+    }
+    Ok(contains_application.then_some(join))
+}
+
+/// The valid node ID in member `key` of `holder`, charged by the node view.
+fn member_id(
+    holder: Option<TermNode<'_>>,
+    key: &str,
+    row: &[u64],
+    meter: &mut WorkMeter,
+) -> Result<Option<CheckedNodeId>, ValidationFailure> {
+    match holder.and_then(|holder| holder.get(key)) {
+        Some(value) => Ok(meter.read_id(value, row)?.valid()),
+        None => Ok(None),
+    }
 }
 
 /// Charges the memory of an ID just read out of a document value. The value
@@ -2349,5 +2507,102 @@ mod tests {
             application_dependencies(&malformed, &mut meter).ok(),
             Some(Some(expected))
         );
+    }
+
+    /// The join of a node body, read from the retained document, is the join
+    /// the typed term gives on the same body with its operand slots resolved,
+    /// and is charged to the byte: the allocator is asked for what the
+    /// budget is charged, the measured limit admits and one byte below is
+    /// denied (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn application_join_reads_the_document_and_allocates_what_it_charges() {
+        let slot = |k: u64, fill: char| json!({"package": "structural-test", "path": [fill.to_string(), {"operand": k}], "ordinal": 0});
+        let node = |index: u64, fill: char| json!({"package": "structural-test", "path": [fill.to_string(), {"node": index}], "ordinal": 0});
+        let body = |slotted: bool| {
+            let at = |k: u64, fill: char| {
+                if slotted {
+                    slot(k, fill)
+                } else {
+                    node(10 + k, fill)
+                }
+            };
+            json!({
+                "term": "application",
+                "operator": "query",
+                "operation": {"identity": "quire.op.model.reaches", "laws": [], "mode": null,
+                    "member": {"kind": "field", "declaration": at(0, 'c'), "name": "f",
+                        "population": id('p')}, "leaves": []},
+                "result_type": id('d'),
+                "arguments": [
+                    {"term": "reference", "target": at(1, 'b')},
+                    {"term": "aggregate", "members": [
+                        {"term": "binding", "name": "x", "value": {"term": "reference", "target": id('a')}},
+                        {"term": "reference", "target": at(1, 'b')},
+                    ]},
+                ],
+            })
+        };
+        let slotted = body(true);
+        let resolved = body(false);
+        let table = super::super::graph_storage::OwnedBodies::of_values(
+            std::slice::from_ref(&slotted),
+            vec![vec![10, 11]],
+        );
+        let typed =
+            super::super::CheckedTerm::decode_admitted(&resolved).expect("closed application");
+        let expected = application_dependencies(&typed, &mut WorkMeter::new(u64::MAX))
+            .ok()
+            .flatten()
+            .expect("the body holds an application");
+        let run = |limit: u64| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut joined = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                table.attach(&mut meter);
+                meter.at_node(0, "scalar_type");
+                joined = Some(application_dependencies_at(0, &mut meter));
+            });
+            (
+                joined.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (found, allocated, charged) = run(u64::MAX);
+        assert_eq!(found, Some(Some(expected)));
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, found, "the measured limit admits");
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
+
+    /// A state clause's execution point is closed for the node view exactly
+    /// when the typed decoder admits it.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn closed_execution_point_agrees_with_the_decoder() {
+        for point in [
+            json!({"kind": "initialization", "name": "boot"}),
+            json!({"kind": "handler", "name": ""}),
+            json!({"kind": "pre", "operation": "run"}),
+            json!({"kind": "post", "operation": "run", "name": "x"}),
+            json!({"kind": "pre", "name": "run"}),
+            json!({"kind": "after", "operation": "run"}),
+            json!({"kind": 3, "operation": "run"}),
+            json!({"operation": "run"}),
+            json!({"kind": "post", "operation": 4}),
+            json!([]),
+            json!("pre"),
+        ] {
+            let handle = super::super::CheckedJson::from_value(&point).expect("canonical");
+            assert_eq!(
+                is_closed_execution_point(TermNode::of(&handle)),
+                ExecutionPoint::from_wire(&point).is_some(),
+                "{point}"
+            );
+        }
     }
 }

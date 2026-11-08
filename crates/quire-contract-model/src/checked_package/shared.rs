@@ -841,8 +841,31 @@ impl CheckedNodeId {
         node.is_well_formed().then_some(node)
     }
 
+    /// Whether the package, path and every segment of this ID, which holds
+    /// no nested ID, are within the V2 wire bounds.
+    fn is_flat_well_formed(&self) -> bool {
+        !self.package.is_empty()
+            && !self.path.is_empty()
+            && self.ordinal <= 9_007_199_254_740_991
+            && self.path.iter().all(|segment| match segment {
+                CheckedNodePathSegment::Name(_) => true,
+                CheckedNodePathSegment::Index(index) | CheckedNodePathSegment::Operand(index) => {
+                    *index <= 9_007_199_254_740_991
+                }
+                CheckedNodePathSegment::Node(_) => false,
+            })
+    }
+
     /// Whether every segment and nested operand is within the V2 wire bounds.
     pub(crate) fn is_well_formed(&self) -> bool {
+        // An ID with no nested ID in its path is checked without a stack.
+        if !self
+            .path
+            .iter()
+            .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
+        {
+            return self.is_flat_well_formed();
+        }
         let mut pending = vec![self];
         while let Some(candidate) = pending.pop() {
             if candidate.package.is_empty()

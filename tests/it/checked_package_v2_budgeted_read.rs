@@ -200,13 +200,23 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
     assert_eq!(decode_last.stage, PackageReadStage::WireDecode);
     let mut decode_short =
         NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(first_check - 1);
-    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = read_with(&mut decode_short)
-    else {
-        panic!("one byte short cannot pay for the decode's pointer");
-    };
-    assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(exhausted.denied.amount, decode_last.amount);
-    assert_eq!(exhausted.configured_bound, first_check - 1);
+    // The decode's last request is the node-body handle table, which no
+    // value owns: that denial carries no pointer, so the outcome is the
+    // fixed-size `incomplete` one, with the denied amount and the bound.
+    match read_with(&mut decode_short) {
+        CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) => {
+            assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
+            assert_eq!(exhausted.denied.amount, decode_last.amount);
+            assert_eq!(exhausted.configured_bound, first_check - 1);
+        }
+        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) => {
+            assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
+            assert_eq!(incomplete.denied.amount, decode_last.amount);
+            assert_eq!(incomplete.limit, first_check - 1);
+            assert_eq!(incomplete.path, None);
+        }
+        other => panic!("one byte short of the decode's last request: {other:?}"),
+    }
 }
 
 /// A zero read-storage limit refuses at the first allocation of the shared

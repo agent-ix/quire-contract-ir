@@ -10,7 +10,10 @@
 //! limit (lowering, unit tests) makes the same requests uncharged.
 
 use super::budgeted_read::{BudgetStop, PackageReadResource};
+use super::checked_json::CheckedJson;
 use super::native_join_budget::{NativeJoinLocus, NativeJoinLocusSource, PackageReadStage};
+use super::read_charge::{Denied, ReadStorage, Site};
+use super::term_view::{NodeIdRead, TermNode};
 use super::{WorkMeter, WorkSource};
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{CheckedNodeId, JsonPointer};
@@ -50,6 +53,102 @@ impl ReadSite {
             SiteValue::Node(position) => Some(node_pointer(position)),
             SiteValue::Row(member, row) => Some(JsonPointer::root().key(member).index(row)),
         }
+    }
+}
+
+/// The node bodies of the graph being validated as handles into the retained
+/// document, and the operand row of each node.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct BodyTable<'b> {
+    handles: &'b [CheckedJson],
+    rows: &'b [Vec<u64>],
+}
+
+/// A meter as the sink the node views charge their heap requests to.
+struct MeterSink<'a, 'b> {
+    meter: &'a mut WorkMeter<'b>,
+    failure: Option<ValidationFailure>,
+}
+
+impl ReadStorage for MeterSink<'_, '_> {
+    fn reserve(&mut self, bytes: u128, _site: Site) -> Result<(), Denied> {
+        self.meter.reserve_as(bytes, None).map_err(|failure| {
+            self.failure = Some(failure);
+            Denied
+        })
+    }
+}
+
+impl<'b> WorkMeter<'b> {
+    /// Gives the meter the node bodies, so a check reads graph node
+    /// `position` through [`Self::body`].
+    pub(super) fn attach_bodies(&mut self, handles: &'b [CheckedJson], rows: &'b [Vec<u64>]) {
+        self.bodies = Some(BodyTable { handles, rows });
+    }
+
+    /// The body of graph node `position` in the retained document, with the
+    /// node's operand row. Reading it allocates nothing.
+    pub(super) fn body(&self, position: usize) -> Option<(TermNode<'b>, &'b [u64])> {
+        let table = self.bodies?;
+        let handle = table.handles.get(position)?;
+        let row = table.rows.get(position).map_or(&[][..], Vec::as_slice);
+        Some((TermNode::of(handle), row))
+    }
+
+    /// The node ID `term` spells, its operand slots read through `row`; the
+    /// package, path and names are charged at the site now charged before
+    /// each is allocated.
+    pub(super) fn read_id(
+        &mut self,
+        term: TermNode<'_>,
+        row: &[u64],
+    ) -> Result<NodeIdRead, ValidationFailure> {
+        let site = Site::new(PackageReadStage::Graph, 0, "node_id");
+        let mut sink = MeterSink {
+            meter: self,
+            failure: None,
+        };
+        match term.node_id_in(&mut sink, site, row) {
+            Ok(read) => Ok(read),
+            Err(Denied) => Err(sink.failure.take().expect("a denial records its failure")),
+        }
+    }
+}
+
+/// Node bodies built outside the strict read, from the `Value` bodies of
+/// nodes: a V1 contract package being expanded and a unit test that calls a
+/// validator directly. The handles come from a canonical encoding of each
+/// body, with empty operand rows, and are not charged.
+pub(super) struct OwnedBodies {
+    handles: Vec<CheckedJson>,
+    rows: Vec<Vec<u64>>,
+}
+
+impl OwnedBodies {
+    /// The bodies of `nodes`; `None` when a body has no canonical encoding.
+    pub(super) fn of<'a>(
+        nodes: impl IntoIterator<Item = &'a super::RawSemanticNodeV2>,
+    ) -> Option<Self> {
+        let handles: Vec<CheckedJson> = nodes
+            .into_iter()
+            .map(|node| CheckedJson::from_value(&node.body).ok())
+            .collect::<Option<_>>()?;
+        let rows = vec![Vec::new(); handles.len()];
+        Some(Self { handles, rows })
+    }
+
+    /// Bodies written as `values`, node `n` having operand row `rows[n]`.
+    #[cfg(test)]
+    pub(super) fn of_values(values: &[serde_json::Value], rows: Vec<Vec<u64>>) -> Self {
+        let handles = values
+            .iter()
+            .map(|value| CheckedJson::from_value(value).expect("a canonical body"))
+            .collect();
+        Self { handles, rows }
+    }
+
+    pub(super) fn attach<'b>(&'b self, meter: &mut WorkMeter<'b>) {
+        meter.attach_bodies(&self.handles, &self.rows);
     }
 }
 

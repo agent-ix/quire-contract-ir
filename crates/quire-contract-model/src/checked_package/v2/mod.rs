@@ -1129,6 +1129,9 @@ pub(super) struct WorkMeter<'b> {
     source: WorkSource<'b>,
     /// Where the graph stage's heap requests are charged.
     site: Option<graph_storage::ReadSite>,
+    /// The node bodies as handles into the retained document, with the
+    /// operand row of each node, once the graph stage has them.
+    bodies: Option<graph_storage::BodyTable<'b>>,
 }
 
 #[derive(Debug)]
@@ -1142,6 +1145,7 @@ impl<'b> WorkMeter<'b> {
         Self {
             source: WorkSource::Own { consumed: 0, limit },
             site: None,
+            bodies: None,
         }
     }
 
@@ -1150,6 +1154,7 @@ impl<'b> WorkMeter<'b> {
         Self {
             source: WorkSource::Budget(budget),
             site: None,
+            bodies: None,
         }
     }
 
@@ -1794,6 +1799,7 @@ fn validate(
     let structural_keys = node_index::check(document, wire, evidence, budget)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds, budget)?;
     let mut meter = WorkMeter::over(budget);
+    meter.attach_bodies(bodies, &wire.semantic_graph.operand_rows);
     let LockAdmission {
         models,
         documents,

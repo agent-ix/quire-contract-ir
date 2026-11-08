@@ -1875,7 +1875,15 @@ impl ContractPackageWireV1 {
                 CheckedPackageRefusalCause::WrongValueKind,
             )
         })?;
+        let bodies =
+            super::graph_storage::OwnedBodies::of(&wire.semantic_graph.nodes).ok_or_else(|| {
+                malformed(
+                    JsonPointer::root().key("semantic_graph").key("nodes"),
+                    CheckedPackageRefusalCause::InvalidValue,
+                )
+            })?;
         let mut work_meter = super::WorkMeter::new(limits.work);
+        bodies.attach(&mut work_meter);
         let (node_kinds, unsupported_tags) = wire.validate_values(limits, &mut work_meter)?;
         wire.validate_correspondence(limits, &frames)?;
         wire.validate_accounting(&frames)?;
