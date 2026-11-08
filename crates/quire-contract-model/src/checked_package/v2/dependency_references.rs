@@ -36,13 +36,14 @@
 //! package-independent.
 
 use super::model_members::{Budget, SortedMap};
-use super::native_join_budget::PackageReadStage;
+use super::native_join_budget::{NativeJoinChargeKind, PackageReadStage};
+use super::read_charge::ReadStorage;
 use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
     CheckedDependencySelection, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedTerm,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::{count, node_pointer, ValidationFailure};
+use crate::checked_package::common::{count, node_pointer, Step as PointerStep, Trail, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
@@ -405,9 +406,36 @@ impl Referrer<'_> {
         self,
         code: CheckedPackageRefusalCode,
         cause: CheckedPackageRefusalCause,
-        path: JsonPointer,
+        at: &Place<'_>,
+        member: Option<&str>,
+        budget: &mut Budget<'_, '_>,
+        form: &'static str,
     ) -> ValidationFailure {
-        ValidationFailure::refused_at(code, path, Some(cause), self.node.node_id.clone())
+        let (count, _) = at.layout(member);
+        if let Some(reader) = budget.reader_budget(form) {
+            let bytes = count.saturating_mul(std::mem::size_of::<PointerStep<'_>>());
+            if reader.reserve_diagnostic(
+                bytes as u128,
+                super::read_charge::Site::new(PackageReadStage::Graph, self.position, form),
+                super::CheckedPackagePendingOutcome::Refused(code),
+            ).is_err() {
+                return reader.denial();
+            }
+        }
+        let steps = at.flat_steps(member, count);
+        let path = super::stage_storage::Position::from(Trail::Base(&steps));
+        // `over` only borrows the existing budget; it does not reset caller
+        // work, first-denial records, or either success marker. This meter is
+        // used solely by the diagnostic factory, which makes no work charge.
+        let mut meter = match budget.reader_budget(form) {
+            Some(reader) => WorkMeter::over(reader),
+            None => WorkMeter::new(u64::MAX),
+        };
+        stage_storage::refuse(
+            &mut meter,
+            &Site::new(PackageReadStage::Graph, self.position, form, path),
+            Refusal::new(code, path).because(cause).at_node(&self.node.node_id),
+        )
     }
 }
 
@@ -529,12 +557,15 @@ impl<'a> DependencyReferences<'a> {
             return Err(referrer.refuse(
                 CheckedPackageRefusalCode::MissingDeclaration,
                 CheckedPackageRefusalCause::MissingSelection,
-                at.pointer().key("package"),
+                at,
+                Some("package"),
+                budget,
+                form,
             ));
         };
         let dependency = supplied.package;
         // The lookup is one unit, charged at the term.
-        budget.charge_at(1, form, || at.pointer())?;
+        at.charge(1, budget, form)?;
         let target = supplied
             .position(node)
             .and_then(|position| Some((position, dependency.resolved_graph().nodes.get(position)?)))
@@ -543,7 +574,10 @@ impl<'a> DependencyReferences<'a> {
             return Err(referrer.refuse(
                 CheckedPackageRefusalCode::MissingDeclaration,
                 CheckedPackageRefusalCause::MissingName,
-                at.pointer().key("node"),
+                at,
+                Some("node"),
+                budget,
+                form,
             ));
         };
         let is_function = dependency
@@ -554,7 +588,7 @@ impl<'a> DependencyReferences<'a> {
             let closure = signature_closure(supplied, position, budget, form)?;
             // The closure walk is charged at the term: one unit per node
             // visited, including each parameter node.
-            budget.charge_at(closure.work, form, || at.pointer())?;
+            at.charge(closure.work, budget, form)?;
             if closure.independent {
                 return Ok(());
             }
@@ -562,7 +596,10 @@ impl<'a> DependencyReferences<'a> {
         Err(referrer.refuse(
             CheckedPackageRefusalCode::IllTyped,
             CheckedPackageRefusalCause::OperatorIneligible,
-            at.pointer(),
+            at,
+            None,
+            budget,
+            form,
         ))
     }
 }
@@ -590,6 +627,86 @@ struct Place<'p> {
 }
 
 impl Place<'_> {
+    /// Count the flat borrowed steps and pointer bytes without constructing
+    /// either diagnostic allocation.
+    fn layout(&self, member: Option<&str>) -> (usize, usize) {
+        let mut count = 3_usize;
+        let mut bytes = Path::root().key("semantic_graph").key("nodes")
+            .index(self.position).pointer_len();
+        let mut cursor = Some(self.step);
+        while let Some(at) = cursor {
+            let Some(step) = self.steps.get(at) else { break; };
+            let (parts, path) = match step.segment {
+                Segment::Body => (1, Path::root().key("body")),
+                Segment::Arguments(index) => (2, Path::root().key("arguments").index(index)),
+                Segment::Members(index) => (2, Path::root().key("members").index(index)),
+                Segment::Value => (1, Path::root().key("value")),
+            };
+            count = count.saturating_add(parts);
+            bytes = bytes.saturating_add(path.pointer_len());
+            cursor = step.parent;
+        }
+        if let Some(member) = member {
+            count = count.saturating_add(1);
+            bytes = bytes.saturating_add(Path::root().key(member).pointer_len());
+        }
+        (count, bytes)
+    }
+
+    /// One exact-capacity scratch block, already paid as part of the pending
+    /// diagnostic. Reversing the leaf-first chain needs no second worklist.
+    fn flat_steps<'a>(&self, member: Option<&'a str>, count: usize) -> Vec<PointerStep<'a>> {
+        let mut steps = Vec::with_capacity(count);
+        let mut cursor = Some(self.step);
+        while let Some(at) = cursor {
+            let Some(step) = self.steps.get(at) else { break; };
+            match step.segment {
+                Segment::Body => steps.push(PointerStep::Key("body")),
+                Segment::Arguments(index) => {
+                    steps.push(PointerStep::Index(index));
+                    steps.push(PointerStep::Key("arguments"));
+                }
+                Segment::Members(index) => {
+                    steps.push(PointerStep::Index(index));
+                    steps.push(PointerStep::Key("members"));
+                }
+                Segment::Value => steps.push(PointerStep::Key("value")),
+            }
+            cursor = step.parent;
+        }
+        steps.extend([PointerStep::Index(self.position), PointerStep::Key("nodes"),
+            PointerStep::Key("semantic_graph")]);
+        steps.reverse();
+        if let Some(member) = member { steps.push(PointerStep::Key(member)); }
+        debug_assert_eq!(steps.len(), count);
+        steps
+    }
+
+    /// Keep the original native work charge and its first unpaid locus. A
+    /// failed charge pays both actual diagnostic blocks before constructing
+    /// its scratch steps and final pointer.
+    fn charge(&self, work: u64, budget: &mut Budget<'_, '_>, form: &'static str)
+        -> Result<(), ValidationFailure> {
+        let Some(reader) = budget.reader_budget(form) else {
+            return budget.charge_at(work, form, || self.pointer());
+        };
+        if reader.charge(NativeJoinChargeKind::Work, u128::from(work)) { return Ok(()); }
+        #[cfg(test)]
+        super::work_probe::charge_denied();
+        let (count, pointer) = self.layout(None);
+        let bytes = count.saturating_mul(std::mem::size_of::<PointerStep<'_>>())
+            .saturating_add(pointer);
+        let path = if reader.prepay_diagnostic(bytes as u128) {
+            let steps = self.flat_steps(None, count);
+            Some(super::stage_storage::Position::from(Trail::Base(&steps)).build())
+        } else { None };
+        Err(ValidationFailure::Budget(super::BudgetStop {
+            resource: super::PackageReadResource::Work,
+            amount: u128::from(work),
+            path,
+        }))
+    }
+
     /// The pointer of the term, built on demand.
     fn pointer(&self) -> JsonPointer {
         let mut chain = Vec::new();
