@@ -1135,6 +1135,15 @@ impl<'b> WorkMeter<'b> {
         }
     }
 
+    /// Names the stage the following charges belong to, so a denial records
+    /// its `PackageRead` locus. A meter over its own limit has no budget to
+    /// record it in.
+    pub(super) fn at_stage(&mut self, stage: PackageReadStage, form: &'static str) {
+        if let WorkSource::Budget(budget) = &mut self.source {
+            budgeted_read::at_stage(budget, stage, form);
+        }
+    }
+
     pub(super) fn consumed(&self) -> u64 {
         match &self.source {
             WorkSource::Own { consumed, .. } => *consumed,
@@ -1770,6 +1779,7 @@ fn validate(
     evidence: &CheckedPackageEvidence,
     budget: &mut NativeJoinBudget,
 ) -> Result<ValidatedPackage, ValidationFailure> {
+    budgeted_read::at_stage(budget, PackageReadStage::WireChecks, "wire_checks");
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
@@ -1777,11 +1787,13 @@ fn validate(
     let structural_keys = node_index::check(bytes, wire, slot_ids, evidence)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds)?;
     let mut meter = WorkMeter::over(budget);
+    meter.at_stage(PackageReadStage::Lock, "lock");
     let LockAdmission {
         models,
         documents,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
+    meter.at_stage(PackageReadStage::Graph, "graph");
     let ValidatedGraph {
         kinds,
         schedulability_claim_index,
@@ -1808,13 +1820,17 @@ fn validate(
         &wire.lock.sources,
         limits,
     )?;
+    meter.at_stage(PackageReadStage::Equivalence, "equivalence");
     identity::validate_equivalence_occurrences(wire, &kinds, &mut meter)?;
     extension::validate_source_regions(wire, &kinds)?;
     validate_capabilities(wire, evidence)?;
+    meter.at_stage(PackageReadStage::Diagnostics, "diagnostics");
     validate_diagnostics(wire, limits, &mut meter)?;
     let models = RetainedModels::new(declarations, models);
+    meter.at_stage(PackageReadStage::OperationEffects, "operation_effects");
     operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
     if let Some(data) = wire.checked_term_data.as_ref() {
+        meter.at_stage(PackageReadStage::CheckedTermData, "checked_term_data");
         dispatch_projection::validate_checked_term_data(
             data, wire, &kinds, &terms, &models, &mut meter,
         )?;

@@ -49,15 +49,17 @@ pub struct CheckedJson {
 }
 
 impl CheckedJson {
-    /// The handle for `node` of `document`. Used by the read, which builds
-    /// each handle from the package document it retains.
+    /// The handle for `node` of `document`. A later stage of the read builds
+    /// each handle from the package document it retains; until then the read
+    /// builds a fresh document per value through [`Self::from_value`].
     pub(in crate::checked_package) fn new(document: Arc<Document>, node: NodeId) -> Self {
         Self { document, node }
     }
 
     /// Reads one JSON value with the shared reader and refuses bytes that are
-    /// not its canonical encoding. Neither this constructor nor
-    /// [`Self::from_value`] is on the read path or charges a budget.
+    /// not its canonical encoding. This constructor charges no budget. The
+    /// read path currently reaches it through [`Self::from_value`] for each
+    /// diagnostic detail, with an uncharged document per value.
     ///
     /// # Errors
     ///
@@ -237,7 +239,6 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
-    #[trace("TC-472", "FR-038-AC-514")]
     #[test]
     fn handles_round_trip_compare_by_canonical_encoding_and_refuse_noncanonical_bytes() {
         let value = json!({"b": [1, 2.5, "x", null, true], "a": {"k": -7}});
@@ -265,7 +266,6 @@ mod tests {
         assert!(matches!(left.node().node(), Node::Object(_)));
     }
 
-    #[trace("TC-472", "FR-038-AC-514")]
     #[test]
     fn a_deep_value_compares_and_drops_without_native_recursion() {
         let depth = 100_000;

@@ -261,13 +261,68 @@ fn budgeted_outcome(
 ) -> CheckedPackageV2BudgetedReadResult {
     match stop {
         ValidationFailure::Refused(refusal) => {
-            CheckedPackageV2BudgetedReadResult::Refused(*refusal)
+            let bytes = refusal
+                .loci
+                .iter()
+                .filter_map(|location| location.path.as_ref())
+                .chain(refusal.document_pointer.as_ref())
+                .map(|pointer| pointer.as_str().len() as u128)
+                .sum();
+            match charge_outcome_diagnostic(
+                bytes,
+                CheckedPackagePendingOutcome::Refused(refusal.code),
+                budget,
+            ) {
+                None => CheckedPackageV2BudgetedReadResult::Refused(*refusal),
+                Some(exhausted) => exhausted,
+            }
         }
         ValidationFailure::Incomplete(incomplete) => {
-            CheckedPackageV2BudgetedReadResult::Incomplete(incomplete)
+            let bytes = incomplete
+                .path
+                .as_ref()
+                .map_or(0, |pointer| pointer.as_str().len() as u128);
+            match charge_outcome_diagnostic(
+                bytes,
+                CheckedPackagePendingOutcome::Incomplete(incomplete.limit_kind),
+                budget,
+            ) {
+                None => CheckedPackageV2BudgetedReadResult::Incomplete(incomplete),
+                Some(exhausted) => exhausted,
+            }
         }
         ValidationFailure::Budget(stop) => budget_denial(stop, budget),
     }
+}
+
+/// Charges the owned diagnostic of a refusal or `incomplete` outcome before it
+/// is returned; `Some` is the `Exhausted` outcome when the budget cannot pay.
+fn charge_outcome_diagnostic(
+    bytes: u128,
+    pending: CheckedPackagePendingOutcome,
+    budget: &mut NativeJoinBudget,
+) -> Option<CheckedPackageV2BudgetedReadResult> {
+    let locus = NativeJoinLocus {
+        source: NativeJoinLocusSource::Package,
+        form: DIAGNOSTIC_FORM,
+    };
+    budget.set_active_locus(Some(locus));
+    let paid = budget.charge_read_storage(bytes);
+    budget.set_active_locus(None);
+    if paid {
+        return None;
+    }
+    Some(CheckedPackageV2BudgetedReadResult::Exhausted(
+        CheckedPackageReadExhausted {
+            denied: PackageReadDeniedCharge {
+                resource: PackageReadResource::ReadStorage,
+                amount: bytes,
+            },
+            configured_bound: budget.read_storage_limit(),
+            locus: budget.first_unpaid_locus().unwrap_or(locus),
+            pending: Some(pending),
+        },
+    ))
 }
 
 fn budget_denial(
@@ -358,7 +413,7 @@ fn denial(budget: &NativeJoinBudget) -> ValidationFailure {
     })
 }
 
-fn at_stage(budget: &mut NativeJoinBudget, stage: PackageReadStage, form: &'static str) {
+pub(super) fn at_stage(budget: &mut NativeJoinBudget, stage: PackageReadStage, form: &'static str) {
     budget.set_active_locus(Some(NativeJoinLocus {
         source: NativeJoinLocusSource::PackageRead(stage, 0),
         form,
@@ -437,6 +492,18 @@ impl quire_canonical::Encode for PackageDocument<'_> {
                         tasks.get_mut(start + 1..).unwrap_or_default().reverse();
                     }
                     Node::Object(members) => {
+                        // serde_json reads an object whose first member is this
+                        // private name as a number, so two byte strings would
+                        // decode to one package: the spelling is not canonical.
+                        let mut members = members.peekable();
+                        if members
+                            .peek()
+                            .is_some_and(|(name, _)| *name == SERDE_JSON_NUMBER_TOKEN)
+                        {
+                            return Err(quire_canonical::Error::Internal {
+                                invariant: "serde_json's number token is not canonical",
+                            });
+                        }
                         writer.begin_object()?;
                         let start = tasks.len();
                         writer.reserve_list(
@@ -460,6 +527,7 @@ impl quire_canonical::Encode for PackageDocument<'_> {
     }
 }
 
+const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
 const SERDE_JSON_RECURSION_LIMIT: usize = 128;
 
 /// The deepest container nesting of bytes the shared reader accepted, counted
