@@ -3440,9 +3440,24 @@ fn validate_graph(
                 false
             };
             if !imported {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::InvalidSemanticGraph,
-                    at("node_id").key("package"),
+                let path = stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position)
+                    .key("node_id")
+                    .key("package");
+                return Err(stage_storage::refuse(
+                    meter,
+                    &stage_storage::Site::new(
+                        PackageReadStage::Graph,
+                        position,
+                        graph_storage::node_form(&node.node_tag),
+                        path,
+                    ),
+                    stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::InvalidSemanticGraph,
+                        path,
+                    ),
                 ));
             }
         }
@@ -6045,3 +6060,102 @@ mod missing_claim_sidecar_tests {
 mod retained_fixture;
 #[cfg(test)]
 use retained_fixture::{retained_node_index, retained_source_index};
+
+#[cfg(test)]
+mod namespace_fault_storage_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-504", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn foreign_namespace_fault_is_paid_before_materialization_and_keeps_work_order() {
+        let id = test_support::id('a');
+        let definition = json!({"authority":"test", "identity":"edition"});
+        // No selected dependency owns this otherwise well-formed foreign ID.
+        // The namespace fault precedes this node's graph visit and body checks.
+        let wire: RawCheckedPackageWireV2 = serde_json::from_value(json!({
+            "contract_version": CHECKED_PACKAGE_V2, "name":"local",
+            "lock":{"sources":[],"edition":{"role":"edition","definition":definition},
+                "profile_selections":[],"definition_selections":[],
+                "required_features":[],"dependency_selections":[]},
+            "semantic_graph":{"graph_version":"quire.checked-semantic-graph/v2",
+                "operand_rows":[[]],"nodes":[{"node_id":id,
+                    "schema_version":"quire.checked-semantic-graph/v2",
+                    "node_tag":"scalar_type","semantic_form":"boolean",
+                    "semantic_type":id,"dependencies":[],"occurrences":[{"role":"type","ordinal":0}],
+                    "body":{"term":"aggregate","members":[]}}]},
+            "source_map":[],"capability_report":[],
+            "diagnostics":{"catalog":definition,"entries":[]}
+        })).expect("closed graph input");
+        let catalog = operation_catalog::read_catalog(operation_catalog::CATALOG_BYTES).unwrap();
+        let dependencies = SuppliedDependencies::default();
+        let evidence = CheckedPackageEvidence::default();
+        let bodies = [wire.semantic_graph.nodes[0].body.clone()];
+        let run = |budget: &mut NativeJoinBudget| {
+            let mut result = None;
+            let actual = allocation_counter::measure(|| {
+                result = Some(
+                    match validate_graph(
+                        &catalog,
+                        &wire,
+                        &bodies,
+                        CheckedPackageReadLimits::bounded(),
+                        &mut WorkMeter::over(budget),
+                        &[],
+                        &dependencies,
+                        &evidence,
+                        &[],
+                    ) {
+                        Err(failure) => failure,
+                        Ok(_) => panic!("foreign unselected namespace must refuse"),
+                    },
+                );
+            });
+            (result.unwrap(), actual.bytes_total)
+        };
+        let mut ample = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let (expected, actual) = run(&mut ample);
+        let ValidationFailure::Refused(refusal) = &expected else {
+            panic!("namespace fault")
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(refusal.cause, None);
+        assert_eq!(refusal.locus, None);
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().as_str(),
+            "/semantic_graph/nodes/0/node_id/package"
+        );
+        let required = ample.read_storage_consumed();
+        assert_eq!(actual, required);
+        assert_eq!(
+            ample.consumed().work,
+            0,
+            "namespace rejection precedes the node visit"
+        );
+        let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+        assert_eq!(run(&mut exact), (expected.clone(), required));
+        let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required - 1);
+        let (failure, actual) = run(&mut short);
+        assert!(matches!(failure, ValidationFailure::Budget(_)));
+        assert_eq!(actual, short.read_storage_consumed());
+        assert_eq!(
+            short.first_unpaid_locus(),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 0),
+                form: "diagnostic",
+            })
+        );
+        let mut zero = NativeJoinBudget::new(u64::MAX, 0);
+        assert!(matches!(run(&mut zero), (ValidationFailure::Budget(_), 0)));
+        let mut repeated = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(2 * required);
+        assert_eq!(run(&mut repeated), (expected.clone(), required));
+        assert_eq!(run(&mut repeated), (expected, required));
+        assert_eq!(repeated.read_storage_consumed(), 2 * required);
+        assert_eq!(repeated.consumed().work, 0);
+        assert_eq!(repeated.first_unpaid_read_storage(), None);
+    }
+}
