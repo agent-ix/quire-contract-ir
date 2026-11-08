@@ -39,6 +39,7 @@ use super::abstraction::{
 };
 use super::dependency_references::SuppliedDependencies;
 use super::frame::{join, StepGraph};
+use super::guarantee_terms::{granularity_spelling, kind_spelling};
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::rust_spelling::is_rust_path;
 use super::state::resolve_operation;
@@ -135,20 +136,6 @@ fn granularity_of(spelling: &str) -> Option<CheckedFairnessGranularity> {
         "whole" => Some(CheckedFairnessGranularity::Whole),
         "each" => Some(CheckedFairnessGranularity::Each),
         _ => None,
-    }
-}
-
-fn kind_spelling(kind: CheckedFairnessKind) -> &'static str {
-    match kind {
-        CheckedFairnessKind::Weak => "weak",
-        CheckedFairnessKind::Strong => "strong",
-    }
-}
-
-fn granularity_spelling(granularity: CheckedFairnessGranularity) -> &'static str {
-    match granularity {
-        CheckedFairnessGranularity::Whole => "whole",
-        CheckedFairnessGranularity::Each => "each",
     }
 }
 

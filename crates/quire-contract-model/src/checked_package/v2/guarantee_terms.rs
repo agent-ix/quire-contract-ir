@@ -107,14 +107,14 @@ pub struct CheckedCompositionPremise {
     pub on: CheckedComponentClause,
 }
 
-fn kind_spelling(kind: CheckedFairnessKind) -> &'static str {
+pub(super) fn kind_spelling(kind: CheckedFairnessKind) -> &'static str {
     match kind {
         CheckedFairnessKind::Weak => "weak",
         CheckedFairnessKind::Strong => "strong",
     }
 }
 
-fn granularity_spelling(granularity: CheckedFairnessGranularity) -> &'static str {
+pub(super) fn granularity_spelling(granularity: CheckedFairnessGranularity) -> &'static str {
     match granularity {
         CheckedFairnessGranularity::Whole => "whole",
         CheckedFairnessGranularity::Each => "each",
