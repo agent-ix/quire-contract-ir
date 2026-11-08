@@ -2730,7 +2730,10 @@ mod tests {
         let resolved = body(false);
         let table = super::super::graph_storage::OwnedBodies::of_values(
             std::slice::from_ref(&slotted),
-            vec![vec![crate::CheckedOperandEntry::Node(10), crate::CheckedOperandEntry::Node(11)]],
+            vec![vec![
+                crate::CheckedOperandEntry::Node(10),
+                crate::CheckedOperandEntry::Node(11),
+            ]],
         );
         let typed =
             super::super::CheckedTerm::decode_admitted(&resolved).expect("closed application");

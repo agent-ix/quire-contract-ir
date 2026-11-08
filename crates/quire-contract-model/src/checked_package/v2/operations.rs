@@ -11729,7 +11729,9 @@ mod tests {
                         let entry = &row[usize::try_from(slot).expect("slot")];
                         *value = match entry {
                             crate::CheckedOperandEntry::Node(node) => json!({ "node": node }),
-                            crate::CheckedOperandEntry::Dependency(operand) => json!({ "node": operand.node, "package": operand.package }),
+                            crate::CheckedOperandEntry::Dependency(operand) => {
+                                json!({ "node": operand.node, "package": operand.package })
+                            }
                         };
                         return;
                     }

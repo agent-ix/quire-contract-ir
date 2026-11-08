@@ -726,7 +726,9 @@ pub(super) fn resolve_id_charged(
         .saturating_mul(std::mem::size_of::<CheckedNodePathSegment>())
         .saturating_add(wire.package.len());
     for segment in &wire.path {
-        if let CheckedNodePathSegment::Name(name) | CheckedNodePathSegment::Dependency { package: name, .. } = segment {
+        if let CheckedNodePathSegment::Name(name)
+        | CheckedNodePathSegment::Dependency { package: name, .. } = segment
+        {
             bytes = bytes.saturating_add(name.len());
         }
     }

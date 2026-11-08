@@ -278,11 +278,11 @@ use super::common::{
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId,
-    CheckedNodePathSegment, CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole,
-    CheckedOperandEntry, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits,
-    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection,
-    CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, ForeignNodeKey, JsonPointer,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedNodePathSegment,
+    CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole, CheckedOperandEntry,
+    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry,
+    CheckedSourceRef, CheckedSourceRegion, ForeignNodeKey, JsonPointer,
 };
 use super::terms::TermSource;
 use lock_tables::{
@@ -5893,7 +5893,13 @@ mod admitted_document_bridge_tests {
                 let measured = allocation_counter::measure(|| {
                     let mut meter = WorkMeter::over(&mut budget);
                     meter.at_node(7, "body");
-                    outcome = Some(decode_admitted_body(kind, &body, &[CheckedOperandEntry::Node(19)], 7, &mut meter));
+                    outcome = Some(decode_admitted_body(
+                        kind,
+                        &body,
+                        &[CheckedOperandEntry::Node(19)],
+                        7,
+                        &mut meter,
+                    ));
                 });
                 (
                     outcome.expect("ran"),
