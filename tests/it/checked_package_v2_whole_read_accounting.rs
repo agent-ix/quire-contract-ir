@@ -896,6 +896,7 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
     initialize_operation_catalog().expect("catalog gate");
     let mut seen = BTreeSet::new();
     let mut problems = Vec::new();
+    let mut native_providers = Vec::new();
     let (mut admitted, mut refused, mut stage_contracts) = (0, 0, 0);
     let mut positives = positive_cases();
     let (published, _) = qspec_cases();
@@ -904,6 +905,20 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
     for input in positives.iter().chain(&refusals) {
         let outcome =
             CheckedPackageV2::read(&input.bytes, proof::generous_limits(), &input.evidence);
+        if input.label.starts_with("native/") {
+            let actual = match &outcome {
+                CheckedPackageV2ReadResult::Admitted(_) => "admitted",
+                CheckedPackageV2ReadResult::Refused(_) => "refused",
+                CheckedPackageV2ReadResult::Incomplete(_) => "incomplete",
+                CheckedPackageV2ReadResult::CatalogUnavailable(_) => "catalog_unavailable",
+            };
+            native_providers.push(json!({
+                "provider": input.label,
+                "expected": "admitted",
+                "actual": actual,
+                "reconciled": matches!(outcome, CheckedPackageV2ReadResult::Admitted(_)),
+            }));
+        }
         match (&input.expected, &outcome) {
             (Expected::Admitted, CheckedPackageV2ReadResult::Admitted(_)) => {
                 admitted += 1;
@@ -928,6 +943,35 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
         .cloned()
         .collect::<Vec<_>>();
     eprintln!("Registered candidates {}; confirmed admitted {}; confirmed refused {}; confirmed stage contracts {}; confirmed refusal-code classes {}",positives.len()+refusals.len(),admitted,refused,stage_contracts,seen.len());
+    let report = std::env::temp_dir().join(format!(
+        "ir1404-native-provider-outcomes-{}.json",
+        std::process::id()
+    ));
+    let native_admitted = native_providers
+        .iter()
+        .filter(|row| row["actual"] == "admitted")
+        .count();
+    let native_refused = native_providers
+        .iter()
+        .filter(|row| row["actual"] == "refused")
+        .count();
+    let native_unresolved = native_providers
+        .iter()
+        .filter(|row| row["reconciled"] != true)
+        .count();
+    std::fs::write(
+        &report,
+        serde_json::to_vec_pretty(&json!({
+            "scope": "registered original native builders; not an original-read-site census",
+            "providers": native_providers,
+            "admitted": native_admitted,
+            "refused": native_refused,
+            "unresolved": native_unresolved,
+        }))
+        .expect("native provider outcomes"),
+    )
+    .expect("write native provider outcome report");
+    eprintln!("Original native builders: admitted {native_admitted}; refused {native_refused}; unresolved {native_unresolved}; {}", report.display());
     assert!(
         problems.is_empty() && missing.is_empty(),
         "Fixture defects:\n{}\nPublic refusal codes with no genuine input provider: {missing:?}",
