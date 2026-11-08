@@ -436,6 +436,18 @@ pub(super) fn resolve_model_durations(
             extras.push((key.into_boxed_str(), unit_id));
         }
     }
+    merge_durations(unit_refs, extras, models, meter)
+}
+
+/// Gives each model the unit table with `extras`, its resolved Duration
+/// units, added; every entry copied and the new table requested first. No
+/// extras leave the shared table as it is.
+fn merge_durations(
+    unit_refs: &UnitRefs,
+    extras: Vec<(Box<str>, CheckedNodeId)>,
+    models: &mut [DomainModel],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
     if extras.is_empty() {
         return Ok(());
     }
@@ -687,6 +699,58 @@ mod tests {
         assert_eq!(
             refusal.loci[0].path.as_ref().map(ToString::to_string),
             Some("/semantic_graph/nodes/2/owner".to_owned())
+        );
+    }
+
+    /// The merge that gives each model its resolved Duration units is
+    /// requested before it is made. Resolving a unit (`identity.rs`'s
+    /// `model_duration_unit_key`, group D) allocates uncharged text, a
+    /// `BTreeSet` and exact ratios, so this covers the charged merge over
+    /// supplied units and the charged scratch of a table that needs no
+    /// resolution, and not that call.
+    #[trace("TC-472", "FR-038-AC-502")]
+    #[test]
+    fn tc_472_the_duration_unit_merge_allocates_exactly_what_it_requests() {
+        use crate::checked_package::v2::model_members::tests as model_tests;
+        let nodes = vec![
+            source_unit(0, &["quire", "m"]),
+            source_unit(1, &["quire", "kg"]),
+        ];
+        let refs = checked_unit_refs(&nodes, &mut WorkMeter::new(u64::MAX)).expect("refs");
+        let model =
+            model_tests::read_with_unit_refs(&model_tests::document(vec![]), &refs).expect("model");
+        assert_lock_exact(
+            || {
+                let extras: Vec<(Box<str>, CheckedNodeId)> = vec![
+                    (
+                        format!("{DURATION_RESOLVED_PREFIX}ix://quire/unit/quire/s").into(),
+                        nodes[0].node_id.clone(),
+                    ),
+                    (
+                        format!("{DURATION_RESOLVED_PREFIX}ix://quire/unit/acme/s").into(),
+                        nodes[1].node_id.clone(),
+                    ),
+                ];
+                (extras, vec![model.clone(), model.clone()])
+            },
+            |(extras, mut models), meter| merge_durations(&refs, extras, &mut models, meter),
+        );
+        let (extras, mut models) = (
+            vec![(
+                Box::<str>::from(format!("{DURATION_RESOLVED_PREFIX}ix://quire/unit/quire/s")),
+                nodes[0].node_id.clone(),
+            )],
+            vec![model.clone()],
+        );
+        merge_durations(&refs, extras, &mut models, &mut WorkMeter::new(u64::MAX)).expect("merged");
+        assert_eq!(models[0].unit_refs.len(), refs.len() + 1);
+        assert!(models[0]
+            .unit_refs
+            .contains_key("ix://quire/resolved-duration/ix://quire/unit/quire/s"));
+        // No unit named `s`: the scratch and the empty extras are all it asks.
+        assert_lock_exact(
+            || vec![model.clone()],
+            |mut models, meter| resolve_model_durations(&refs, &mut models, &nodes, meter),
         );
     }
 }
