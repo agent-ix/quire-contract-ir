@@ -7,7 +7,6 @@
 use crate::support::checked_package;
 use crate::support::checked_package::{
     admitted_dependency, canonical, evidence_for, pointer, read_with_dependencies,
-    refresh_temporal_bindings, v2_all_families,
 };
 #[path = "support/dependency_selection_inputs.rs"]
 mod dependency_selection_inputs;
