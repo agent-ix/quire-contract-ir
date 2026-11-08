@@ -1080,6 +1080,7 @@ mod tests {
     #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
     #[test]
     fn derived_closure_work_denial_preserves_nonempty_root_and_first_charge() {
+        use crate::PackageReadResource;
         let dependency = package();
         let selections = [selection(dependency.name())];
         let packages = [&dependency];
