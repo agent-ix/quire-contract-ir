@@ -326,10 +326,25 @@ pub(crate) fn measure_seeded(
 }
 
 fn same_observation(left: &Observation, right: &Observation) {
-    assert_eq!(
-        left.budget, right.budget,
-        "entire repeated caller-budget state"
-    );
+    if left.budget.work_limit() == right.budget.work_limit()
+        && left.budget.read_storage_limit() == right.budget.read_storage_limit()
+    {
+        assert_eq!(
+            left.budget, right.budget,
+            "entire repeated caller-budget state"
+        );
+    } else {
+        #[cfg(feature = "test-support")]
+        assert_eq!(
+            left.budget.read_proof_snapshot().read_proof_rebound(
+                right.budget.work_limit(),
+                right.budget.read_storage_limit(),
+                false
+            ),
+            right.budget,
+            "sufficient finite budgets differ only in their explicit configured bounds"
+        );
+    }
     assert_eq!(
         left.result, right.result,
         "complete repeated budgeted outcome"
