@@ -11,6 +11,8 @@ mod proof;
 mod qspec_fma_inputs;
 #[path = "support/qspec_inputs.rs"]
 mod qspec_inputs;
+#[path = "support/qspec_protocol_location_inputs.rs"]
+mod qspec_protocol_location_inputs;
 #[path = "support/qspec_text_inputs.rs"]
 mod qspec_text_inputs;
 use crate::support::checked_package::{
@@ -432,6 +434,60 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
             .expect("operand evidence"),
             expected,
         });
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("checked-term-data-vectors.json"))
+        .expect("published protocol-location vectors");
+    let positives = vectors["positive"]["protocol_locations"]
+        .as_array()
+        .expect("positive locations");
+    for selected in positives {
+        let id = selected["id"].as_str().expect("location case id");
+        let rows = positives
+            .iter()
+            .filter(|row| {
+                row["application"] == selected["application"]
+                    && row["occurrence"] == selected["occurrence"]
+                    && row["term_ordinal"].as_u64() <= selected["term_ordinal"].as_u64()
+            })
+            .map(|row| {
+                let mut row = row.clone();
+                row.as_object_mut().expect("location row").remove("id");
+                row
+            })
+            .collect();
+        let (wire, _) = qspec_protocol_location_inputs::fixture(rows);
+        providers.insert(format!("conformance_qspec/protocol_locations.rs: checked-term-data-vectors.json#/positive/protocol_locations#{id}"));
+        cases.push(positive(format!("QSpec/protocol-location/{id}"), wire));
+    }
+    for category in ["schema_invalid", "reader_refusals"] {
+        for row in vectors[category]
+            .as_array()
+            .expect("location refusal cases")
+            .iter()
+            .filter(|row| row["id"].as_str().is_some_and(|id| id.starts_with("PL-")))
+        {
+            let id = row["id"].as_str().expect("location refusal id");
+            let wire = if id.starts_with("PL-R3-") {
+                qspec_protocol_location_inputs::published_leaf_fixture(row)
+            } else {
+                let rows = row["value"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_else(|| vec![row["value"].clone()]);
+                qspec_protocol_location_inputs::fixture(rows).0
+            };
+            let expected = Expected::Refused(
+                serde_json::from_value(row["expected_code"].clone())
+                    .expect("published location refusal code"),
+            );
+            providers.insert(format!("conformance_qspec/protocol_locations.rs: checked-term-data-vectors.json#/{category}#{id}"));
+            cases.push(Case {
+                label: format!("QSpec/protocol-location/{id}"),
+                bytes: canonical(&wire),
+                evidence: evidence_for(&wire),
+                expected,
+            });
+        }
     }
     (cases, providers)
 }
