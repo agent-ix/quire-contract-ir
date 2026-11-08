@@ -1058,6 +1058,7 @@ impl MemberType {
     }
     /// The exact structural ID a selected member type names. A later graph
     /// join requires this ID to exist before admitting the member use.
+    #[cfg(test)]
     pub(super) fn node_id(&self, package: &str) -> Option<CheckedNodeId> {
         enum Task<'a> {
             Read(&'a MemberType),
@@ -1199,6 +1200,7 @@ impl MemberType {
     }
 }
 
+#[cfg(test)]
 fn derived_id(
     package: &str,
     tag: &str,
@@ -1217,6 +1219,7 @@ fn derived_id(
     }
 }
 
+#[cfg(test)]
 fn bounded_id(
     package: &str,
     form: &str,
@@ -1250,6 +1253,7 @@ fn bounded_id(
     derived_id(package, "bounded_domain", form, operands)
 }
 
+#[cfg(test)]
 enum BoundTail<'a> {
     Text(&'a str),
     Collection(&'a CheckedNodeId),
@@ -1329,6 +1333,24 @@ enum Place {
 }
 
 impl Place {
+    /// The same diagnostic position as borrowed typed steps. A denied
+    /// request must pay for the pointer before these steps are materialized.
+    fn path(self, root: usize, index: usize) -> super::stage_storage::Path<'static> {
+        use super::stage_storage::Path;
+        let node = |position| {
+            Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+        };
+        match self {
+            Self::Owner => node(root).key("owner"),
+            Self::Lock(member) => Path::root().key("lock").key(member).index(index),
+            Self::Node => node(index).key("body"),
+            Self::NodeOwner => node(index).key("owner"),
+        }
+    }
+
     fn pointer(self, root: usize, index: usize) -> JsonPointer {
         match self {
             Self::Owner => crate::checked_package::common::node_pointer(root).key("owner"),
@@ -1479,8 +1501,16 @@ impl<'w, 'b> Budget<'w, 'b> {
         if let Some(budget) = self.meter.budget_mut() {
             budget.set_active_locus(Some(locus));
         }
-        let (place, root, index) = (self.place, self.root, self.index);
-        self.meter.charge(work, || place.pointer(root, index))
+        super::stage_storage::work(
+            self.meter,
+            &super::stage_storage::Site::new(
+                self.stage,
+                self.index,
+                form,
+                self.place.path(self.root, self.index),
+            ),
+            work,
+        )
     }
 
     /// Charges `work` at this budget's locus under `form`, a failed charge
@@ -1510,19 +1540,19 @@ impl<'w, 'b> Budget<'w, 'b> {
             return Ok(());
         }
         let locus = self.locus(form);
-        let (place, root, index) = (self.place, self.root, self.index);
-        let Some(budget) = self.meter.budget_mut() else {
-            return Ok(());
-        };
-        budget.set_active_locus(Some(locus));
-        if budget.charge_read_storage(bytes as u128) {
-            Ok(())
-        } else {
-            Err(read_storage_denial(
-                budget,
-                Some(place.pointer(root, index)),
-            ))
+        if let Some(budget) = self.meter.budget_mut() {
+            budget.set_active_locus(Some(locus));
         }
+        super::stage_storage::reserve(
+            self.meter,
+            &super::stage_storage::Site::new(
+                self.stage,
+                self.index,
+                form,
+                self.place.path(self.root, self.index),
+            ),
+            bytes,
+        )
     }
 
     /// The caller's budget with its locus set to the reader's reservation of

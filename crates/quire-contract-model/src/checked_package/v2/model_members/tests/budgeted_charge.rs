@@ -196,3 +196,251 @@ fn tc_472_model_document_read_never_allocates_past_its_allowance() {
         }
     }
 }
+
+use crate::checked_package::v2::monitor_plan::model_document_test_fixture as public_fixture;
+
+/// Every place pays its one exact diagnostic block before building it.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn budget_denial_places_pay_owned_paths_before_work_and_storage_errors() {
+    use crate::checked_package::v2::native_join_budget::NativeJoinChargeKind;
+    for (place, root, index, stage, expected) in [
+        (
+            Place::Owner,
+            13,
+            27,
+            PackageReadStage::ModelDocument,
+            "/semantic_graph/nodes/13/owner",
+        ),
+        (
+            Place::Lock("domain/~é"),
+            13,
+            27,
+            PackageReadStage::Lock,
+            "/lock/domain~1~0é/27",
+        ),
+        (
+            Place::Node,
+            13,
+            27,
+            PackageReadStage::Graph,
+            "/semantic_graph/nodes/27/body",
+        ),
+        (
+            Place::NodeOwner,
+            13,
+            27,
+            PackageReadStage::Lock,
+            "/semantic_graph/nodes/27/owner",
+        ),
+    ] {
+        for work in [true, false] {
+            for affordable in [true, false] {
+                let length = expected.len() as u64;
+                let allowance = if affordable { length } else { length - 1 };
+                let mut native = NativeJoinBudget::new(0, 0).with_read_storage_limit(allowance);
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut native);
+                    let mut read = Budget {
+                        meter: &mut meter,
+                        root,
+                        bytes: 0,
+                        stage,
+                        index,
+                        place,
+                    };
+                    result = Some(if work {
+                        read.charge_form(3, "model_document")
+                    } else {
+                        read.request(4096, "model_document")
+                    });
+                });
+                let Err(ValidationFailure::Budget(stop)) = result.unwrap() else {
+                    panic!("the original request must be denied");
+                };
+                assert_eq!(
+                    stop.path.as_ref().map(|path| path.as_str()),
+                    affordable.then_some(expected)
+                );
+                assert_eq!(stop.amount, if work { 3 } else { 4096 });
+                assert_eq!(
+                    stop.resource,
+                    if work {
+                        PackageReadResource::Work
+                    } else {
+                        PackageReadResource::ReadStorage
+                    }
+                );
+                assert_eq!(
+                    native
+                        .first_unpaid()
+                        .map(|charge| (charge.kind, charge.amount)),
+                    work.then_some((NativeJoinChargeKind::Work, 3))
+                );
+                assert_eq!(
+                    native.first_unpaid_read_storage(),
+                    if work { None } else { Some(4096) }
+                );
+                assert_eq!(
+                    native.first_unpaid_locus(),
+                    Some(NativeJoinLocus {
+                        source: NativeJoinLocusSource::PackageRead(stage, index),
+                        form: "model_document"
+                    })
+                );
+                let paid = if affordable { length } else { 0 };
+                assert_eq!(
+                    measured.bytes_total, paid,
+                    "the denied request may allocate only its prepaid pointer"
+                );
+                assert_eq!(native.read_storage_consumed(), paid);
+                assert_eq!(native.take_prepaid_diagnostic(), Some(affordable));
+            }
+        }
+    }
+}
+
+/// The complete public reader charges the ModelDocument pointer once. The
+/// paired difference isolates it from independent earlier allocation gaps.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn budget_denial_model_document_public_pair_omits_unaffordable_pointer() {
+    use crate::checked_package::shared::CheckedPackageReadLimits;
+    use crate::checked_package::v2::native_join_budget::NativeJoinChargeKind;
+    use crate::checked_package::v2::{CheckedPackageV2, CheckedPackageV2BudgetedReadResult};
+    crate::checked_package::v2::initialize_operation_catalog().unwrap();
+    let value = public_fixture::v2_all_families();
+    let evidence = public_fixture::evidence_for(&value);
+    let bytes = public_fixture::canonical(&value);
+    let limits = CheckedPackageReadLimits {
+        bytes: 1 << 30,
+        nodes: 1 << 24,
+        edges: 1 << 26,
+        occurrences: 1 << 26,
+        diagnostics: 1 << 24,
+        work: u64::MAX,
+    };
+    let run = |work, storage| {
+        let mut budget = NativeJoinBudget::new(work, 0).with_read_storage_limit(storage);
+        let mut result = None;
+        let measured = allocation_counter::measure(|| {
+            result = Some(CheckedPackageV2::read_with_budget(
+                &bytes,
+                limits,
+                &evidence,
+                &mut budget,
+            ))
+        });
+        (result.unwrap(), measured.bytes_total, budget)
+    };
+    let (owned, owned_requests, owned_budget) = run(0, u64::MAX);
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(pointer) = owned else {
+        panic!("the first work request owns a model-document diagnostic");
+    };
+    let expected_locus = NativeJoinLocus {
+        source: NativeJoinLocusSource::PackageRead(PackageReadStage::ModelDocument, 0),
+        form: "model_document",
+    };
+    assert_eq!(owned_budget.first_unpaid_locus(), Some(expected_locus));
+    assert_eq!(
+        owned_budget
+            .first_unpaid()
+            .map(|charge| (charge.kind, charge.amount)),
+        Some((NativeJoinChargeKind::Work, 3))
+    );
+    let path = pointer.path.as_ref().unwrap();
+    assert!(
+        path.as_str().starts_with("/semantic_graph/nodes/") && path.as_str().ends_with("/owner")
+    );
+    let root: usize = path.as_str().split('/').nth(3).unwrap().parse().unwrap();
+    assert_eq!(
+        value["semantic_graph"]["nodes"][root]["semantic_form"],
+        "model_root"
+    );
+    let identity = value["semantic_graph"]["nodes"][root]["owner"]["identity"]
+        .as_str()
+        .unwrap();
+    let pointer_bytes = path.as_str().len() as u64;
+    let prefix = owned_budget.read_storage_consumed() - pointer_bytes;
+    let (without, without_requests, without_budget) = run(0, prefix);
+    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = without else {
+        panic!("the exact storage prefix cannot pay for the pointer");
+    };
+    assert_eq!(exhausted.denied, pointer.denied);
+    assert_eq!(exhausted.locus, expected_locus);
+    assert_eq!(without_budget.first_unpaid(), owned_budget.first_unpaid());
+    assert_eq!(without_budget.first_unpaid_locus(), Some(expected_locus));
+    assert_eq!(without_budget.read_storage_consumed(), prefix);
+    assert_eq!(
+        owned_requests,
+        without_requests + pointer_bytes,
+        "unaffordable public diagnostic requests no pointer; earlier allocations cancel"
+    );
+    let (exact, exact_requests, exact_budget) = run(0, prefix + pointer_bytes);
+    assert_eq!(
+        exact,
+        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(pointer)
+    );
+    assert_eq!(exact_requests, owned_requests);
+    assert_eq!(
+        exact_budget.read_storage_consumed(),
+        prefix + pointer_bytes,
+        "public conversion must not charge the prepaid pointer again"
+    );
+    // The document reader's own charged total identifies the Arc request
+    // immediately after its canonical read and inexact-number scan. This is
+    // a bounded, actual-request prefix rather than a storage sweep.
+    let mut document_budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+    {
+        let mut meter = WorkMeter::over(&mut document_budget);
+        let mut selected =
+            Budget::new(&mut meter, root, limits.bytes).at(PackageReadStage::ModelDocument, 0);
+        drop(
+            super::super::document::admit_document(
+                identity,
+                evidence.domain_package_document(identity),
+                &mut selected,
+            )
+            .unwrap(),
+        );
+    }
+    let arc_bytes = super::super::charged::arc_bytes::<quire_canonical::Document>() as u64;
+    assert!(arc_bytes > pointer_bytes);
+    let arc_prefix = prefix + document_budget.read_storage_consumed() - arc_bytes;
+    let (stored, stored_requests, stored_budget) = run(u64::MAX, arc_prefix + pointer_bytes);
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(stored_pointer) = stored else {
+        panic!("the selected document Arc request must refuse before allocation");
+    };
+    assert_eq!(stored_budget.first_unpaid(), None);
+    assert_eq!(
+        stored_budget.first_unpaid_read_storage(),
+        Some(u128::from(arc_bytes))
+    );
+    assert_eq!(stored_budget.first_unpaid_locus(), Some(expected_locus));
+    assert_eq!(
+        stored_pointer.path.as_ref().unwrap().as_str(),
+        format!("/semantic_graph/nodes/{root}/owner")
+    );
+    assert_eq!(
+        stored_budget.read_storage_consumed(),
+        arc_prefix + pointer_bytes
+    );
+    let (unstored, unstored_requests, unstored_budget) = run(u64::MAX, arc_prefix);
+    let CheckedPackageV2BudgetedReadResult::Exhausted(storage_exhausted) = unstored else {
+        panic!("a storage-denial pointer must also be omitted when unaffordable");
+    };
+    assert_eq!(storage_exhausted.denied, stored_pointer.denied);
+    assert_eq!(storage_exhausted.locus, expected_locus);
+    assert_eq!(
+        unstored_budget.first_unpaid_read_storage(),
+        Some(u128::from(arc_bytes))
+    );
+    assert_eq!(unstored_budget.first_unpaid_locus(), Some(expected_locus));
+    assert_eq!(unstored_budget.read_storage_consumed(), arc_prefix);
+    assert_eq!(
+        stored_requests,
+        unstored_requests + pointer_bytes,
+        "public storage-denial conversion pays for exactly one pointer"
+    );
+}

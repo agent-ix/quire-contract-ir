@@ -9,8 +9,8 @@ use super::operations::is_type_shaped;
 use super::stage_storage::{self, Path};
 use super::{
     ApplicationOperator, BoundedDomainForm, CheckedNodeKind, CheckedNodeOwner, CheckedPackageV2,
-    CheckedResolvedEqualityUnitForm, CheckedTerm, ExpressionForm, ModelForm, NativeJoinBudget,
-    NativeJoinChargeKind, RawCheckedPackageWireV2, ScalarTypeForm, ValueForm, WorkMeter,
+    CheckedPackageWireV2, CheckedResolvedEqualityUnitForm, CheckedTerm, ExpressionForm, ModelForm,
+    NativeJoinBudget, NativeJoinChargeKind, ScalarTypeForm, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -31,9 +31,9 @@ use quire_semantic_value::reader_admission::{
 };
 use std::collections::BTreeSet;
 
-fn argument_type<'a>(
+fn argument_type<'a, Body>(
     argument: &'a CheckedTerm,
-    wire: &'a RawCheckedPackageWireV2,
+    wire: &'a CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
     index: &[(&CheckedNodeId, usize)],
 ) -> Option<&'a CheckedNodeId> {
@@ -56,9 +56,9 @@ fn argument_type<'a>(
 /// converted from, borrowed from the term and the graph.
 type ArgumentTypes<'a> = (&'a CheckedNodeId, Option<&'a CheckedNodeId>);
 
-fn argument_types<'a>(
+fn argument_types<'a, Body>(
     argument: &'a CheckedTerm,
-    wire: &'a RawCheckedPackageWireV2,
+    wire: &'a CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
     terms: &'a [CheckedTerm],
     index: &[(&CheckedNodeId, usize)],
@@ -125,9 +125,9 @@ pub(super) fn equality_operator(identity: &str) -> Option<CheckedEqualityOperato
 }
 
 /// Join each raw decision to the admitted application's own node and occurrence.
-pub(super) fn validate(
+pub(super) fn validate<Body>(
     data: &CheckedTermDataV2,
-    wire: &RawCheckedPackageWireV2,
+    wire: &CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
     terms: &[CheckedTerm],
     meter: &mut WorkMeter,

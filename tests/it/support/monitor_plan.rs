@@ -302,6 +302,9 @@ pub(super) fn materialize_on(
     input_fields: &[(&str, Value)],
     tick_unit: Option<Value>,
 ) -> (Value, usize) {
+    // Resolve the selected document's original operand rows before sorting or
+    // extending its nodes; those rows describe the original node positions.
+    fixture_support::resolve_operands(&mut wire);
     // The selected support document predates the explicit base bit on a
     // source dimension. Complete monitor fixtures use the current V2 body.
     for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {

@@ -2659,17 +2659,7 @@ fn validate_body<'a, V: TermSource<'a>>(
         BodyGrammar::Extension => {
             extension::read_body(node, at.pointer(), ids).map(|body| extension::body_work(&body))
         }
-        BodyGrammar::Frame => {
-            let count = ["modifies", "creates", "deletes", "deletes_scoped"]
-                .into_iter()
-                .map(|key| {
-                    body.member(key)
-                        .and_then(TermSource::items)
-                        .map_or(0, |rows| rows.count() as u64)
-                })
-                .fold(1_u64, u64::saturating_add);
-            Ok(count)
-        }
+        BodyGrammar::Frame => frame::read_frame_body_legacy(body, at).map(|(_, work)| work),
         BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence => {
             abstraction::scan_body(node, at, visit, ids)
         }
@@ -3406,10 +3396,13 @@ fn validate_graph(
                 extension::body_work(&body)
             }
             BodyGrammar::Frame => {
-                let (body, row) = meter.body(position).expect("graph bodies are attached");
-                let (body, work) =
-                    frame::read_frame_body(body, row, meter, &Trail::Base(&body_steps))?;
-                frame_term = Some(body.clone().into_checked_term(meter)?);
+                let (body, work) = frame::read_frame_body(
+                    TermNode::of(&bodies[position]),
+                    position,
+                    &wire.semantic_graph.operand_rows[position],
+                    meter,
+                )?;
+                frame_term = Some(body.checked_term(meter)?);
                 frames.push((&node.node_id, position, body));
                 work
             }
@@ -3618,6 +3611,7 @@ fn validate_graph(
         &references,
         &index,
         structural_keys,
+        meter,
     )?;
     refinement::validate_dependencies(
         &graph.nodes,
@@ -3663,7 +3657,7 @@ fn validate_graph(
         &owners,
         meter,
     )?;
-    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners)?;
+    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     validate_temporal(
         &terms,
         &graph.nodes,
@@ -3719,7 +3713,15 @@ fn validate_graph(
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, meter)?;
-    guarantee_composition::validate(&graph.nodes, &kinds, &index, &owners, dependencies, meter)?;
+    guarantee_composition::validate(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        &owners,
+        dependencies,
+        meter,
+    )?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     validate_hyperproperties(&graph.nodes, &kinds, &index, &owners, &terms, meter)?;
