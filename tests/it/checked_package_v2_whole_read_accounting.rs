@@ -150,6 +150,115 @@ fn positive_cases() -> Vec<Case> {
     cases
 }
 
+struct DependencyCallCase {
+    input: Case,
+    mutation: Option<Value>,
+}
+
+/// Reuses the dependency-call driver's original patch and unsupplied-evidence
+/// helpers. The raw importer base is never resolved before its wire patches.
+fn dependency_call_cases() -> (Vec<DependencyCallCase>, BTreeSet<String>) {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("QUIRE_SPECIFICATION_DIR").expect("selected QSpec checkout"),
+    );
+    let proposal = root.join("proposals/checked-package-v2");
+    let fixtures = proposal.join("fixtures");
+    let document = proposal.join(qspec_inputs::DOMAIN_DOCUMENT);
+    let vectors = qspec_inputs::read_json(&proposal.join("dependency-call-vectors.json"))
+        .expect("published dependency-call vectors");
+    assert_eq!(vectors["base"], "fixtures/positive-dependency-call.json");
+    assert_eq!(vectors["library"]["package"], "fixtures/positive-dependency-library.json");
+    let base = qspec_inputs::read_json_wire(&fixtures.join("positive-dependency-call.json"))
+        .expect("original raw importer base");
+    let mut cases = Vec::new();
+    let mut providers = BTreeSet::new();
+    for name in ["positive-dependency-call.json", "positive-dependency-library.json"] {
+        let wire = if name == "positive-dependency-call.json" {
+            base.clone()
+        } else {
+            qspec_inputs::read_json(&fixtures.join(name)).expect("original library input")
+        };
+        let evidence = qspec_inputs::evidence_for_published(
+            &wire, "checked package", &document, true, None, &fixtures,
+        ).expect("original read_package evidence");
+        cases.push(DependencyCallCase {
+            input: Case {
+                label: format!("QSpec/dependency-call/{name}"),
+                bytes: canonical(&wire), evidence, expected: Expected::Admitted,
+            },
+            mutation: None,
+        });
+        providers.insert(format!("conformance_qspec/dependency_call.rs: fixtures/{name}"));
+    }
+    let mutations = vectors["mutations"].as_array().expect("published dependency mutations");
+    assert_eq!(mutations.len(), 11, "original complete dependency-call family");
+    for row in mutations {
+        let id = row["id"].as_str().expect("mutation id");
+        let mut wire = base.clone();
+        for patch in row["patch"].as_array().expect("original patch list") {
+            qspec_inputs::apply_dependency_call_patch(&mut wire, patch);
+        }
+        let evidence = if row["supplied"] == false {
+            qspec_inputs::dependency_call_evidence_without_dependency(&wire)
+        } else {
+            qspec_inputs::evidence_for_published(
+                &wire, "checked package", &document, true, None, &fixtures,
+            ).expect("original supplied dependency evidence")
+        };
+        let outcome = row["outcome"].as_str().expect("published outcome");
+        let code = outcome.strip_prefix("refused:").expect("published refusal")
+            .split('/').next().expect("refusal code");
+        cases.push(DependencyCallCase {
+            input: Case {
+                label: format!("QSpec/dependency-call/{id}"),
+                bytes: canonical(&wire), evidence,
+                expected: Expected::Refused(serde_json::from_value(json!(code))
+                    .expect("published refusal code")),
+            },
+            mutation: Some(row.clone()),
+        });
+        providers.insert(format!("conformance_qspec/dependency_call.rs: dependency-call-vectors.json#/mutations#{id}"));
+    }
+    (cases, providers)
+}
+
+/// The existing driver's complete code/cause/primary-locus assertions are
+/// checked before these inputs may be credited to the allocation registry.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn dependency_call_providers_preserve_original_outcomes_and_loci() {
+    initialize_operation_catalog().expect("catalog gate");
+    let (cases, _) = dependency_call_cases();
+    let (mut admitted, mut refused) = (0, 0);
+    for case in cases {
+        let actual = CheckedPackageV2::read(
+            &case.input.bytes,
+            quire_contract_model::CheckedPackageReadLimits::bounded(),
+            &case.input.evidence,
+        );
+        if let Some(row) = case.mutation {
+            let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
+                panic!("{}: original mutation must refuse: {actual:?}", case.input.label);
+            };
+            let code = serde_json::to_value(refusal.code).expect("code wire word");
+            let expected = match refusal.cause {
+                Some(cause) => format!("refused:{}/{}", code.as_str().expect("code"),
+                    serde_json::to_value(cause).expect("cause wire word").as_str().expect("cause")),
+                None => format!("refused:{}", code.as_str().expect("code")),
+            };
+            assert_eq!(expected, row["outcome"], "{}: code and cause", case.input.label);
+            assert_eq!(refusal.loci[0].path.as_ref().map(ToString::to_string),
+                row["locus"].as_str().map(str::to_owned), "{}: primary locus", case.input.label);
+            refused += 1;
+        } else {
+            assert!(matches!(actual, CheckedPackageV2ReadResult::Admitted(_)),
+                "{}: original direct input must admit: {actual:?}", case.input.label);
+            admitted += 1;
+        }
+    }
+    eprintln!("Dependency-call family: direct admitted {admitted}; published mutations refused {refused}; unresolved 0; original-source-site census join pending");
+}
+
 fn normalized_reference(reference: &str) -> &str {
     reference
         .strip_prefix("proposals/checked-package-v2/")
@@ -699,6 +808,9 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
             expected,
         });
     }
+    let (dependency_inputs, dependency_providers) = dependency_call_cases();
+    cases.extend(dependency_inputs.into_iter().map(|case| case.input));
+    providers.extend(dependency_providers);
     (cases, providers)
 }
 

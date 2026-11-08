@@ -8,7 +8,7 @@ use super::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageEvidence, CheckedPackageReadLimits,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits,
     CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
     ContractDependencies, ContractDependencyInput, ContractPackageReadResult,
     ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
@@ -16,34 +16,10 @@ use quire_contract_model::{
 use serde_json::Value;
 use std::collections::BTreeSet;
 
-fn apply_patch(package: &mut Value, patch: &Value) {
-    let path = patch["path"].as_str().expect("published patch path");
-    let (parent, member) = path.rsplit_once('/').expect("patch member");
-    let target = package.pointer_mut(parent).expect("published patch parent");
-    match (patch["op"].as_str().expect("published operation"), target) {
-        ("replace", Value::Object(map)) => {
-            *map.get_mut(member).expect("replaced member") = patch["value"].clone();
-        }
-        ("replace", Value::Array(items)) => {
-            items[member.parse::<usize>().expect("array index")] = patch["value"].clone();
-        }
-        ("add", Value::Object(map)) => {
-            assert!(map
-                .insert(member.to_owned(), patch["value"].clone())
-                .is_none());
-        }
-        (operation, _) => panic!("unsupported published patch {operation}: {path}"),
-    }
-}
+use super::qspec_inputs::apply_dependency_call_patch as apply_patch;
 
 fn without_dependency(package: &Value) -> CheckedPackageV2ReadResult {
-    let mut evidence = CheckedPackageEvidence::new();
-    for feature in package["lock"]["required_features"]
-        .as_array()
-        .expect("required features")
-    {
-        evidence.support_feature(feature.as_str().expect("feature"));
-    }
+    let evidence = super::qspec_inputs::dependency_call_evidence_without_dependency(package);
     crate::read_and_account(
         &crate::fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
