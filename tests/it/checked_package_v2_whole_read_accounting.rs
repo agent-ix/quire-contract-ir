@@ -96,6 +96,23 @@ fn positive_cases() -> Vec<Case> {
     cases.push(positive("native/operand_families/quantity_sum_control", wire));
     let (wire, _) = crate::checked_package_v2_operand_families::carried_sum_control();
     cases.push(positive("native/operand_families/carried_sum_control", wire));
+    cases.push(positive(
+        "native/checked_package/admitted_protocol_families",
+        crate::support::checked_package::admitted_protocol_families(),
+    ));
+    let (wire, document, _) =
+        crate::support::checked_package::protocol_ports::role_port_fixture();
+    let evidence = crate::support::checked_package::evidence_with_document(
+        &wire,
+        "test/families",
+        &document,
+    );
+    cases.push(case(
+        "native/protocol_ports/role_port_fixture",
+        wire,
+        evidence,
+        Expected::Admitted,
+    ));
     let catalog: Value = serde_json::from_str(
         quire_verification_contracts::operation_catalog::CHECKED_OPERATION_CATALOG_V1,
     )
