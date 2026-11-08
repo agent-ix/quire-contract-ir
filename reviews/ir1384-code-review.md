@@ -135,3 +135,13 @@ bindings:
   ac_id: FR-361-AC-4
   trace: correct
 ```
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | high | The new same_clause function reimplements structural CheckedNodeId equality, including Name/Index/Operand/Dependency/Node and nested continuation rules already owned by CheckedNodeId::cmp_growing. A future identity-rule change now requires editing two algorithms. Keep bounded work preflight and reuse or extend the existing fallible comparator in its single shared home. Searched shared.rs structural equality, CheckedNodeIdOrder, cmp_growing and native comparison helpers. | crates/quire-contract-model/src/checked_package/v2/monitor_plan/authority.rs:244; crates/quire-contract-model/src/checked_package/shared.rs:1444 |
+
+## Disposition preparation
+
+Fix source inspected at committed 3c30a537. FND-002 moves length-only work reservation before split_once. FND-003 prepays outer node, dependency text, Box and occurrence storage and has allocation-counter regression tests. FND-001 now prepays identity comparisons but introduces FND-005 duplication. FND-004 requires final standalone formatting evidence. No final dispositions or native qualification are asserted until the complete exact-head fix/test handoff.
