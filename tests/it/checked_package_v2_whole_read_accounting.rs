@@ -394,6 +394,45 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
             expected,
         });
     }
+    let vectors = qspec_inputs::read_json(&proposal.join("node-index-vectors.json"))
+        .expect("published operand vectors");
+    assert_eq!(vectors["base"], "fixtures/positive-dependency-call.json");
+    let base = qspec_inputs::read_json_wire(&fixtures.join("positive-dependency-call.json"))
+        .expect("published operand base");
+    for row in vectors["cases"].as_array().expect("operand cases") {
+        let id = row["id"].as_str().expect("operand case id");
+        let expected = row["expected"].as_str().expect("operand outcome");
+        // These two vectors specify only an intermediate-stage oracle, not
+        // the complete reader outcome. They retain their unresolved recipes.
+        if expected.starts_with("passes_") {
+            continue;
+        }
+        let expected = Expected::Refused(
+            serde_json::from_value(Value::String(expected.into()))
+                .expect("published operand refusal code"),
+        );
+        let mut wire = base.clone();
+        for patch in row["patch"].as_array().expect("operand patches") {
+            qspec_inputs::apply_node_index_patch(&mut wire, patch);
+        }
+        providers.insert(format!(
+            "conformance_qspec/node_index.rs: node-index-vectors.json#/cases#{id}"
+        ));
+        cases.push(Case {
+            label: format!("QSpec/node-index/{id}"),
+            bytes: canonical(&wire),
+            evidence: qspec_inputs::evidence_for_published(
+                &wire,
+                id,
+                &proposal.join(qspec_inputs::DOMAIN_DOCUMENT),
+                true,
+                None,
+                &fixtures,
+            )
+            .expect("operand evidence"),
+            expected,
+        });
+    }
     (cases, providers)
 }
 

@@ -369,3 +369,27 @@ pub(crate) fn ordinal_case_package(base: &Value, case: &Value) -> (Value, Vec<us
     }
     (package, positions)
 }
+
+pub(crate) fn apply_node_index_patch(package: &mut Value, patch: &Value) {
+    let path = patch["path"].as_str().expect("published patch path");
+    let (parent, member) = path.rsplit_once('/').expect("published patch member");
+    let target = package.pointer_mut(parent).expect("published patch parent");
+    let operation = patch["op"].as_str().expect("published patch operation");
+    match (operation, target) {
+        ("replace", Value::Array(items)) => {
+            let index: usize = member.parse().expect("published array index");
+            *items.get_mut(index).expect("published replacement target") = patch["value"].clone();
+        }
+        ("add", Value::Array(items)) if member == "-" => items.push(patch["value"].clone()),
+        ("remove", Value::Array(items)) => {
+            let index: usize = member.parse().expect("published array index");
+            items.remove(index);
+        }
+        ("add", Value::Array(items)) => {
+            let index: usize = member.parse().expect("published array index");
+            assert!(index <= items.len(), "{path}: published insertion target");
+            items.insert(index, patch["value"].clone());
+        }
+        _ => panic!("unsupported published patch {operation} at {path}"),
+    }
+}
