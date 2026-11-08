@@ -4,7 +4,7 @@
 //! Selected model operation effects carried by the checked package (TC-977).
 
 use super::identity::is_identifier;
-use super::model_fields::{RetainedModels, Selected};
+use super::model_fields::RetainedModels;
 use super::model_members::{
     member_name, DeclarationForm, DomainModel, FieldBearingTypeDecl, OperationDecl,
 };
@@ -379,7 +379,6 @@ fn validate_effect_entries(
                             .binary_search_by(|exposed| exposed.as_ref().cmp(name))
                             .is_ok()
                     })
-
                 {
                     return Err(refused(
                         meter,
