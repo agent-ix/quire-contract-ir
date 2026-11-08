@@ -52,6 +52,7 @@ use super::{
 use crate::checked_package::common::{
     body_term, exact_members, visit_reference, ReferenceMember, Trail, ValidationFailure,
 };
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 use serde_json::Value;
@@ -326,7 +327,7 @@ pub(super) fn read_frame_body_legacy(
 pub(super) fn read_frame_body(
     body: super::term_view::TermNode<'_>,
     position: usize,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
     meter: &mut WorkMeter,
 ) -> Result<(FrameBody, u64), ValidationFailure> {
     use super::native_join_budget::PackageReadStage;
@@ -1078,7 +1079,9 @@ mod document_storage_tests {
                     read_frame_body(
                         super::super::term_view::TermNode::of(&body),
                         7,
-                        &[42],
+                        &[crate::checked_package::shared::CheckedOperandEntry::Node(
+                            42,
+                        )],
                         &mut meter,
                     )
                     .and_then(|(frame, work)| {
@@ -1128,7 +1131,9 @@ mod document_storage_tests {
                 result = Some(read_frame_body(
                     super::super::term_view::TermNode::of(&body),
                     7,
-                    &[42],
+                    &[crate::checked_package::shared::CheckedOperandEntry::Node(
+                        42,
+                    )],
                     &mut meter,
                 ));
             });

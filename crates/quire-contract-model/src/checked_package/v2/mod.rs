@@ -256,11 +256,11 @@ use super::common::{
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedNodePathSegment,
-    CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageIncomplete,
-    CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusal,
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection, CheckedSourceMapEntry,
-    CheckedSourceRef, CheckedSourceRegion, JsonPointer,
+    CheckedArtifactRef, CheckedCapability, CheckedDependencyOperand, CheckedNodeId,
+    CheckedNodePathSegment, CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedOperandEntry, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits,
+    CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection,
+    CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, ForeignNodeKey, JsonPointer,
 };
 use super::terms::TermSource;
 use lock_tables::{
@@ -624,9 +624,11 @@ pub struct CheckedSemanticGraphV2<Body = CheckedTerm> {
     #[serde(deserialize_with = "document_de::exact_vec")]
     pub nodes: Vec<CheckedSemanticNodeV2<Body>>,
     /// One operand row per node, in graph order: slot `k` of node `i` names
-    /// `nodes[operand_rows[i][k]]`. Required on read.
+    /// `nodes[operand_rows[i][k]]`, or, for a `{package, node}` entry, the
+    /// node at that position in the selected dependency's graph. Required on
+    /// read.
     #[serde(deserialize_with = "document_de::exact_rows")]
-    pub operand_rows: Vec<Vec<u64>>,
+    pub operand_rows: Vec<Vec<CheckedOperandEntry>>,
 }
 
 type RawSemanticGraphV2 = CheckedSemanticGraphV2<Value>;
@@ -1740,6 +1742,28 @@ impl CheckedPackageV2 {
                 .is_none_or(|&next| nodes[next].node_id != *id);
             return unique.then_some(*found);
         }
+        if id
+            .path
+            .iter()
+            .any(|segment| matches!(segment, CheckedNodePathSegment::Dependency { .. }))
+        {
+            // An importing document names this package's graph positions as
+            // dependency positions of this package; a position of another
+            // package names no node here.
+            if id.path.iter().any(|segment| {
+                matches!(
+                    segment,
+                    CheckedNodePathSegment::Dependency { package, .. }
+                        if package.as_ref() != self.name()
+                )
+            }) {
+                return None;
+            }
+            let key = ForeignNodeKey::new(id, self.name());
+            return self
+                .node_index
+                .node_by_probe(&self.wire.semantic_graph.nodes, &key);
+        }
         self.node_position(id)
     }
 
@@ -1777,10 +1801,17 @@ impl CheckedPackageV2 {
         for segment in &id.path {
             path.push(match segment {
                 CheckedNodePathSegment::Operand(slot) => {
-                    let entry = row.get(usize::try_from(*slot).ok()?)?;
-                    CheckedNodePathSegment::Node(Arc::clone(
-                        self.structural_keys.get(usize::try_from(*entry).ok()?)?,
-                    ))
+                    match row.get(usize::try_from(*slot).ok()?)? {
+                        CheckedOperandEntry::Node(entry) => CheckedNodePathSegment::Node(
+                            Arc::clone(self.structural_keys.get(usize::try_from(*entry).ok()?)?),
+                        ),
+                        CheckedOperandEntry::Dependency(operand) => {
+                            CheckedNodePathSegment::Dependency {
+                                package: operand.package.clone(),
+                                node: operand.node,
+                            }
+                        }
+                    }
                 }
                 CheckedNodePathSegment::Index(index) => CheckedNodePathSegment::Node(Arc::clone(
                     self.structural_keys.get(usize::try_from(*index).ok()?)?,
@@ -2485,7 +2516,7 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
 fn decode_admitted_body(
     kind: CheckedNodeKind,
     body: &CheckedJson,
-    row: &[u64],
+    row: &[CheckedOperandEntry],
     position: usize,
     meter: &mut WorkMeter,
 ) -> Result<CheckedTerm, ValidationFailure> {
@@ -5465,7 +5496,15 @@ mod admitted_document_bridge_tests {
                 let measured = allocation_counter::measure(|| {
                     let mut meter = WorkMeter::over(&mut budget);
                     meter.at_node(7, "body");
-                    outcome = Some(decode_admitted_body(kind, &body, &[19], 7, &mut meter));
+                    outcome = Some(decode_admitted_body(
+                        kind,
+                        &body,
+                        &[crate::checked_package::shared::CheckedOperandEntry::Node(
+                            19,
+                        )],
+                        7,
+                        &mut meter,
+                    ));
                 });
                 (
                     outcome.expect("ran"),

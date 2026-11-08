@@ -43,7 +43,8 @@ use super::{
 use crate::checked_package::common::{count, node_pointer, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
-    CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
+    CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+    ForeignNodeKey, JsonPointer, NodeKeyProbe,
 };
 
 /// The form of every request the dependency checks make.
@@ -60,15 +61,6 @@ pub(super) struct SuppliedDependency<'e> {
     package: &'e CheckedPackageV2,
     /// The package's node ids with their positions, sorted by id.
     index: Vec<(&'e CheckedNodeId, usize)>,
-}
-
-impl SuppliedDependency<'_> {
-    /// The position of the graph node with this id.
-    fn position(&self, id: &CheckedNodeId) -> Option<usize> {
-        let after = self.index.partition_point(|row| row.0 <= id);
-        let row = self.index.get(after.checked_sub(1)?)?;
-        (row.0 == id).then_some(row.1)
-    }
 }
 
 /// `table` filled with the node ids of `package`'s graph and their
@@ -88,6 +80,33 @@ fn fill_table<'e>(
     );
     table.sort_unstable_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(&b.1)));
     table
+}
+
+impl SuppliedDependency<'_> {
+    /// The position of the node `id` names in this dependency's graph. The
+    /// dependency's own ids hold index segments of its graph; an importing
+    /// document names those as `{package, node}` dependency positions of this
+    /// dependency, and a local index segment names no node here.
+    fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
+        // A local index segment, or a position of another dependency, names
+        // no node here. The lookup reads the rest in place.
+        if id.path.iter().any(|segment| match segment {
+            CheckedNodePathSegment::Dependency { package, .. } => package.as_ref() != self.identity,
+            CheckedNodePathSegment::Index(_) => true,
+            _ => false,
+        }) {
+            return None;
+        }
+        let key = ForeignNodeKey::new(id, self.identity);
+        let probe: &dyn NodeKeyProbe = &key;
+        let after = self.index.partition_point(|row| {
+            let held: &dyn NodeKeyProbe = row.0;
+            held.cmp(probe) != std::cmp::Ordering::Greater
+        });
+        let row = self.index.get(after.checked_sub(1)?)?;
+        let held: &dyn NodeKeyProbe = row.0;
+        (held.cmp(probe) == std::cmp::Ordering::Equal).then_some(row.1)
+    }
 }
 
 /// The dependency packages the caller supplied, one per
@@ -136,7 +155,7 @@ impl<'e> SuppliedDependencies<'e> {
     pub(super) fn holds_node(&self, id: &CheckedNodeId) -> bool {
         self.packages
             .iter()
-            .any(|supplied| supplied.position(id).is_some())
+            .any(|supplied| supplied.position_of(id).is_some())
     }
 
     /// The node `id` of the directly selected package `package`: the package
@@ -147,7 +166,7 @@ impl<'e> SuppliedDependencies<'e> {
         id: &CheckedNodeId,
     ) -> Option<(&'e CheckedPackageV2, usize)> {
         let supplied = self.resolve(package)?;
-        Some((supplied.package, supplied.position(id)?))
+        Some((supplied.package, supplied.position_of(id)?))
     }
 
     /// The admitted directly selected package with this exact identity.
@@ -531,7 +550,7 @@ impl<'a> DependencyReferences<'a> {
         // The lookup is one unit, charged at the term.
         budget.charge_at(1, form, || at.pointer())?;
         let target = supplied
-            .position(node)
+            .position_of(node)
             .and_then(|position| Some((position, dependency.resolved_graph().nodes.get(position)?)))
             .filter(|(_, target)| target.declaration.is_some());
         let Some((position, _)) = target else {
@@ -650,7 +669,7 @@ fn signature_closure(
     let nodes = &supplied.package.resolved_graph().nodes;
     let kinds = supplied.package.node_kinds();
     let node_of = |id: &CheckedNodeId| {
-        let position = supplied.position(id)?;
+        let position = supplied.position_of(id)?;
         Some((position, nodes.get(position)?, *kinds.get(position)?))
     };
     let Some(function) = nodes.get(function) else {

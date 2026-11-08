@@ -10,6 +10,7 @@ use super::native_join_budget::{
     NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
 };
 use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::shared::CheckedOperandEntry;
 use std::cell::{RefCell, RefMut};
 use std::sync::Arc;
 
@@ -312,7 +313,7 @@ pub(in crate::checked_package) fn ids<'s, 'r>(
     stage: PackageReadStage,
     index: usize,
     form: &'static str,
-    row: &'r [u64],
+    row: &'r [CheckedOperandEntry],
 ) -> crate::checked_package::common::Ids<'s, 'r> {
     crate::checked_package::common::Ids {
         sink,

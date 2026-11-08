@@ -615,10 +615,17 @@ recompute, hash, rekey or seal a node id.
 The reader SHALL accept only string, closed operand slot `{"operand": k}` or
 closed index segment `{"node": i}` path segments, where `k` and `i` are I-JSON
 integers from zero through 9007199254740991; `semantic_graph.operand_rows` is
-required, and the reader reads no other form of a node-held operand. It SHALL
-reject a nested node id, a malformed operand slot or index segment or any
-segment in a `dependency_reference.node` declaration path as `malformed_wire`
-at the offending segment. After closed-schema validation and before every
+required, and the reader reads no other form of a node-held operand. An
+`operand_rows` entry is a graph index `i`, or the closed dependency position
+`{"package": P, "node": j}` naming the node at index `j` of the graph of the
+directly supplied dependency `P`. A dependency position is the one form of an
+id that names a dependency's node by that node's own operands: a slot whose
+row entry is a dependency position holds the position, the importing graph
+holds no copy of the dependency's node, and the position is never written as a
+path segment. The reader SHALL reject a nested node id, a malformed operand
+slot or index segment or any segment in a `dependency_reference.node`
+declaration path as `malformed_wire` at the offending segment. After
+closed-schema validation and before every
 `semantic_graph` check, it SHALL run the QSpec FR-322 reader checks in their
 order and refuse at the first defect of the first step that has one, as
 `malformed_wire` without cause: rows (an `operand_rows` whose length differs
@@ -628,9 +635,15 @@ member, first in canonical byte order); range (an operand slot not below its
 holding node's row length, an index segment or row entry not below the node
 count); numbering (a row not numbered by first occurrence); and cycle (a self
 or longer cycle through node-own-path operand slots, at the first slot ordered
-by holding node's graph index and path position). A foreign `{package, node}`
-key takes part in neither placement nor range. Forward references without a
-cycle are admitted. Graph order stays producer chosen; reordering nodes
+by holding node's graph index and path position). A row entry that is a
+dependency position is in range only when `P` is a supplied dependency package
+and `j` is below that package's node count; an unsupplied package or a `j` past
+its last node, at the entry, and a `{package, node}` object written as a path
+segment, at the segment, refuse `malformed_wire`. A node's own `node_id` names
+only nodes of its own graph and refuses a slot whose entry is a dependency
+position. A foreign `{package, node}` key takes part in neither placement nor
+range. Forward references without a cycle are admitted. Graph order stays
+producer chosen; reordering nodes
 rewrites row entries and document-held index segments and never changes a
 node's bytes or an ordinal by itself.
 
@@ -5795,11 +5808,17 @@ IR reading (QSpec FR-490 and FR-491 fix the refusal code and cause but no
 locus): the loci above are the entry or array, and the locus node key is the
 target or, where the entry names none, the node.
 A composition's component packages are the admitted dependency packages
-selected through FR-322. Each component subject resolves to an object type
-in its named package; each component clause resolves to a temporal clause
-of that package over the component's model subject. An absent selected
-package or subject refuses `missing_declaration`/`missing-name` at the
-component; a target of another kind refuses
+selected through FR-322. A component subject or clause that the component
+package names by its own operands is written in the composition's id as the
+dependency position of that package in place of the operand, and the target
+resolves in the component package when the id, with each such position read as
+the component package's own index segment, is a node of its graph. A local
+index segment in such an id names no node of the component package, and a
+position of another package names none either. Each component subject
+resolves to an object type in its named package; each component clause
+resolves to a temporal clause of that package over the component's model
+subject. An absent selected package or subject refuses
+`missing_declaration`/`missing-name` at the component; a target of another kind refuses
 `invalid_model_binding`/`malformed-declaration` at the member. Scheduling
 contexts resolve in a component package and assumptions in the composing
 package. A scheduling operation outside every component's model subject
@@ -6488,6 +6507,8 @@ the minimum the read uses.
 | FR-038-AC-536 | A guarantee whose `clause` is no temporal clause or selects another profile, whose `relation` is no abstraction relation, whose `progress` or fairness `context` is no object type or whose `assumption` is no predicate refuses `invalid_model_binding`/`malformed-declaration` at the member. | Test (TC-474) |
 | FR-038-AC-537 | A guarantee whose `progress` or fairness operation its context does not declare refuses `missing_declaration`/`missing-name`; an operation the context only inherits, a non-Rust `initial` or `decreases` path and `bound` 0 refuse `invalid_model_binding`/`malformed-declaration`; two `progress` members for one operation and two `environment` members of one name refuse `invalid_model_binding`/`conflicting-binding` at the second. | Test (TC-474) |
 | FR-038-AC-538 | A composition with two components of one name or over one subject refuses `invalid_model_binding`/`conflicting-binding` at the second; a guarantee or premise naming an undeclared component refuses `missing_declaration`/`missing-name`; a premise whose guarantee is undeclared, whose two sides name one component, a rely on liveness or a depends with a non-liveness side refuses `invalid_model_binding`/`malformed-declaration`; component subjects and clauses resolve through admitted dependency packages, clauses must belong to the component model subject, scheduling operations must belong to a component subject, and environment assumptions and names obey the guarantee checks. | Test (TC-474) |
+| FR-038-AC-539 | A package holding a `correspondence`/`component_composition` node whose component clause is a node of a supplied dependency named by its own operand admits when the composition's `operand_rows` entry for that operand is the dependency position `{package, node}`; the importing graph holds no node of the dependency, the position lies past the importing graph's last node, the typed body keeps the dependency position, and the graph as shown is read again. | Test (TC-474) |
+| FR-038-AC-540 | A dependency position naming an unsupplied package or a `node` past the dependency's last node refuses `malformed_wire` at the row entry; a `{package, node}` object written as an id path segment refuses `malformed_wire` at the segment; a local index segment in a foreign id refuses `missing_declaration`/`missing-name` at the member holding it. | Test (TC-474) |
 | FR-038-AC-495 | `CheckedPackageV2::read_with_budget(bytes, limits, evidence, &mut NativeJoinBudget)` and `read_checked_package_with_budget` are the budgeted V2 read entries, and `CheckedPackageV2::read(bytes, limits, evidence)` and `read_checked_package(bytes, limits, evidence)` keep their existing signatures, result types and outcomes. The call graph holds one read implementation: each unbudgeted entry creates `NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX)`, calls its budgeted entry and maps the result variant for variant, with no second decoder, fallback limit or private work meter. No existing in-repository or downstream caller of the unbudgeted entries changes. For every TC-048 input, including each fixture at its exact work limit and one below it, the unbudgeted entry's outcome equals today's outcome; one below the work requirement it returns `CheckedPackageIncomplete` with `Work`, `limits.work`, the same `consumed` and the same pointer. `read_checked_package_with_budget` has no V1 branch and passes the budget through unchanged. Changing `CheckedPackageReadLimits.work` changes no budgeted-entry outcome; each other member keeps its own `Incomplete` outcome and pointer on every entry. | Test, Inspection (TC-472) |
 | FR-038-AC-496 | A budgeted read clears the budget's previous success deltas and first-unpaid records, keeps cumulative consumption and the configured limits, and on admission records a work delta and a read-storage delta equal to its own charges and a logical storage delta of zero. A refused, `Incomplete`, `BudgetIncomplete` or `Exhausted` read leaves the deltas absent and its admitted charges in cumulative consumption. Two budgeted reads, each affordable alone, composed on one budget whose work or read-storage limit is below their sum, admit the first and stop the second at its first unpaid charge; an FR-358 native join after a read on the same budget has its own unchanged logical storage requirement and shares the work counter. | Test (TC-472) |
 | FR-038-AC-497 | Envelope stage. For a genuine admitted package and for the adverse shapes of FR-038-AC-511, a read-storage limit equal to the read's measured requirement admits the package, and a read-storage limit one below the cumulative read storage admitted through the shared reader's last package-bytes reservation refuses at that reservation: first unpaid `ReadStorage` with the reservation's byte amount, locus `PackageRead(Envelope, 0)` and form `"package_bytes"`, no document and no package. Each reader list class (arena nodes, child ids/members, decoded text, open-container stack and children, duplicate-name sort buffer) is the denied class in at least one one-below case, and the pointer and lexeme of a duplicate-name and of a number-out-of-range refusal are each charged before the refusal is returned. | Test (TC-472) |

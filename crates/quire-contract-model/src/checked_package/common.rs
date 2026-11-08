@@ -16,6 +16,7 @@ use super::shared::{
 use super::terms::{At, Cursor, TermSource};
 use super::v2::read_charge::{ReadStorage, Site};
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, NodeIdRead};
+use crate::checked_package::shared::CheckedOperandEntry;
 use closed_members::ClosedMemberProvenance;
 use quire_walk::{Children, Walk};
 use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
@@ -859,7 +860,7 @@ pub(super) fn validate_term<'a, V: TermSource<'a>>(
 pub(super) struct Ids<'s, 'r> {
     pub(super) sink: &'s mut dyn ReadStorage,
     pub(super) site: Site,
-    pub(super) row: &'r [u64],
+    pub(super) row: &'r [CheckedOperandEntry],
 }
 
 impl<'s, 'r> Ids<'s, 'r> {
@@ -912,7 +913,7 @@ struct TermWalk<'a, 'v, 'w, 'i, 's, 'r, V> {
     visit: &'v mut ReferenceVisitor<'w>,
     sink: &'i RefCell<&'s mut dyn ReadStorage>,
     site: Site,
-    row: &'r [u64],
+    row: &'r [CheckedOperandEntry],
     charge: &'i dyn Fn(usize) -> Result<(), ValidationFailure>,
     work: u64,
     _terms: std::marker::PhantomData<V>,
@@ -1106,7 +1107,11 @@ fn validate_one<'a, V: TermSource<'a>>(
 
 /// The shared sink, the charge site and the operand row a term's node IDs are
 /// read with.
-type IdRead<'i, 's, 'r> = (&'i RefCell<&'s mut dyn ReadStorage>, Site, &'r [u64]);
+type IdRead<'i, 's, 'r> = (
+    &'i RefCell<&'s mut dyn ReadStorage>,
+    Site,
+    &'r [CheckedOperandEntry],
+);
 
 /// Reads `value` as a node ID, charging the shared sink.
 fn read_node_id<'a, V: TermSource<'a>>(

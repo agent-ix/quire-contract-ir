@@ -15,6 +15,7 @@ use super::v2::read_charge::{Denied, ReadStorage, Site};
 use super::v2::{
     ApplicationOperator, BodyTerm, CheckedTerm, CheckedTermView, NodeIdRead, TermNode,
 };
+use crate::checked_package::shared::CheckedOperandEntry;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -136,7 +137,7 @@ pub(super) trait TermSource<'a>: Copy {
         self,
         sink: &mut dyn ReadStorage,
         site: Site,
-        row: &[u64],
+        row: &[CheckedOperandEntry],
     ) -> Result<NodeIdRead, Denied>;
 }
 
@@ -227,7 +228,7 @@ impl<'a> TermSource<'a> for &'a Value {
         self,
         _sink: &mut dyn ReadStorage,
         _site: Site,
-        _row: &[u64],
+        _row: &[CheckedOperandEntry],
     ) -> Result<NodeIdRead, Denied> {
         Ok(match CheckedNodeId::deserialize(self) {
             Ok(id) if id.is_well_formed() => NodeIdRead::Id(id),
@@ -314,7 +315,7 @@ impl<'a> TermSource<'a> for TermNode<'a> {
         self,
         sink: &mut dyn ReadStorage,
         site: Site,
-        row: &[u64],
+        row: &[CheckedOperandEntry],
     ) -> Result<NodeIdRead, Denied> {
         self.node_id_in(sink, site, row)
     }

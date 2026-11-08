@@ -27,9 +27,8 @@ impl PositionIndex {
     ) -> Result<Self, ValidationFailure> {
         let mut positions: Vec<usize> = read_charge::with_capacity(budget, site, count)?;
         positions.extend(0..count);
-        positions.sort_unstable_by(|left, right| {
-            order(*left, *right).then_with(|| left.cmp(right))
-        });
+        positions
+            .sort_unstable_by(|left, right| order(*left, *right).then_with(|| left.cmp(right)));
         Ok(Self(positions.into_boxed_slice()))
     }
 
@@ -61,7 +60,13 @@ impl PositionIndex {
     /// This index without the row at `position`, as a damaged index.
     #[cfg(test)]
     pub(in crate::checked_package) fn without(&self, position: usize) -> Self {
-        Self(self.0.iter().copied().filter(|&at| at != position).collect())
+        Self(
+            self.0
+                .iter()
+                .copied()
+                .filter(|&at| at != position)
+                .collect(),
+        )
     }
 
     /// The identities of `nodes` in ascending order.
@@ -70,6 +75,21 @@ impl PositionIndex {
         nodes: &'n [CheckedSemanticNodeV2<Body>],
     ) -> impl Iterator<Item = &'n CheckedNodeId> {
         self.0.iter().map(|&position| &nodes[position].node_id)
+    }
+
+    /// The position of the node `probe` names among `nodes`: an importing
+    /// document's ID read against this package's own graph.
+    pub(in crate::checked_package) fn node_by_probe<Body>(
+        &self,
+        nodes: &[CheckedSemanticNodeV2<Body>],
+        probe: &dyn crate::checked_package::shared::NodeKeyProbe,
+    ) -> Option<usize> {
+        self.find(|position| {
+            nodes.get(position).map_or(Ordering::Greater, |node| {
+                let held: &dyn crate::checked_package::shared::NodeKeyProbe = &node.node_id;
+                held.cmp(probe)
+            })
+        })
     }
 
     /// The position of the source-map entry for an occurrence among `entries`.

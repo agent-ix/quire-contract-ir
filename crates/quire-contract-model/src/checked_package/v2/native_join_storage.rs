@@ -50,7 +50,8 @@ pub(super) fn node(value: &CheckedNodeId) -> u128 {
                     CheckedNodePathSegment::Name(name) => text(name),
                     CheckedNodePathSegment::Node(_)
                     | CheckedNodePathSegment::Index(_)
-                    | CheckedNodePathSegment::Operand(_) => 1,
+                    | CheckedNodePathSegment::Operand(_)
+                    | CheckedNodePathSegment::Dependency { .. } => 1,
                 },
             )
         })

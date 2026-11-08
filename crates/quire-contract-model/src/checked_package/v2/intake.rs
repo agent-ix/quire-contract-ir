@@ -21,8 +21,8 @@ use super::{
 };
 use crate::checked_package::common::{decode_closed_document, node_pointer};
 use crate::checked_package::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSourceMapEntry,
-    CheckedSourceRegion,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedOperandEntry,
+    CheckedSourceMapEntry, CheckedSourceRegion,
 };
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
 use quire_canonical::Document;
@@ -114,8 +114,13 @@ struct BorrowedGraph {
     graph_version: Box<str>,
     #[serde(deserialize_with = "super::document_de::exact_vec")]
     nodes: Vec<BorrowedNode>,
+    // The typed decode of the rows, their dependency package names and the
+    // transient buffer of one untagged entry is bounded by the package byte
+    // limit, since each entry is at most the bytes it spans. It is not charged
+    // separately: `read_envelope` charges only the shared reader's Document
+    // passes.
     #[serde(deserialize_with = "super::document_de::exact_rows")]
-    operand_rows: Vec<Vec<u64>>,
+    operand_rows: Vec<Vec<CheckedOperandEntry>>,
 }
 
 // Keep native wire errors at the logical ID boundary. The refinement below
