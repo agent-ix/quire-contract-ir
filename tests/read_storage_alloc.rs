@@ -764,3 +764,31 @@ fn imported_nominals_work_denial_prepays_original_graph_pointer() {
     drop_without_request::<ThreadCounter>(zero);
     drop_without_request::<ThreadCounter>(zero_repeat);
 }
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn dependency_closure_work_denial_prepays_original_lock_pointer() {
+    let dependency_wire =
+        dependency_selection_inputs::dependency_selection_package("test/geometry");
+    let (_, dependency) = checked_package::admitted_dependency(&dependency_wire);
+    let mut importer = dependency_selection_inputs::dependency_selection_package("test/importer");
+    importer["lock"]["dependency_selections"] = serde_json::json!([{"identity":"test/geometry"}]);
+    let bytes = canonical(&importer);
+    let mut evidence = evidence_for(&importer);
+    evidence
+        .insert_dependency_package("test/geometry", dependency)
+        .expect("dependency");
+    let limits = generous_limits();
+    for work in [0, 1] {
+        eprintln!("target original dependency Work bound {work}");
+        let observation = read_allocation_proof::measure_at::<ThreadCounter>(
+            &bytes,
+            &evidence,
+            limits,
+            work,
+            u64::MAX,
+        );
+        eprintln!("target outcome {:?}", observation.result);
+        drop_without_request::<ThreadCounter>(observation);
+    }
+}
