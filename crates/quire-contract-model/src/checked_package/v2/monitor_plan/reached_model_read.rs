@@ -1619,10 +1619,14 @@ mod tests {
                         base_node: node.node_id.clone(),
                         key_node: Some(key.clone()),
                         element_node: value.clone(),
-                        value_type: ValueType::map(quire_exact::MapType::new(
-                            ValueType::Integer,
-                            None,
-                        )),
+                        value_type: ValueType::map(
+                            quire_exact::MapType::new(
+                                quire_exact::ValueType::String,
+                                ValueType::Integer,
+                                None,
+                            )
+                            .expect("a string map key is a leaf"),
+                        ),
                     });
                 }
                 _ => {}
@@ -1656,7 +1660,10 @@ mod tests {
                     }
                 });
             row.value_type = if row.key_node.is_some() {
-                ValueType::map(quire_exact::MapType::new(value, None))
+                ValueType::map(
+                    quire_exact::MapType::new(quire_exact::ValueType::String, value, None)
+                        .expect("a string map key is a leaf"),
+                )
             } else {
                 ValueType::collection(CollectionType::new(CollectionKind::Sequence, value, None))
             };
@@ -2950,10 +2957,14 @@ mod tests {
                     .position(|row| {
                         row.key_node.is_some()
                             && row.value_type
-                                == ValueType::map(quire_exact::MapType::new(
-                                    ValueType::Boolean,
-                                    None,
-                                ))
+                                == ValueType::map(
+                                    quire_exact::MapType::new(
+                                        quire_exact::ValueType::String,
+                                        ValueType::Boolean,
+                                        None,
+                                    )
+                                    .expect("a string map key is a leaf"),
+                                )
                     })
                     .expect("unrelated boolean map has no opaque record payload");
                 let unrelated = collections.remove(unrelated);
@@ -3037,10 +3048,14 @@ mod tests {
                 .expect("map value record reached");
             assert_eq!(
                 row.value_type,
-                ValueType::map(quire_exact::MapType::new(
-                    ValueType::Composite(record.record_key.clone()),
-                    None
-                ))
+                ValueType::map(
+                    quire_exact::MapType::new(
+                        quire_exact::ValueType::String,
+                        ValueType::Composite(record.record_key.clone()),
+                        None
+                    )
+                    .expect("a string map key is a leaf")
+                )
             );
             let projected = closure
                 .exact_types()
