@@ -2825,11 +2825,12 @@ fn union_type<'g>(
         return Ok(None);
     };
     match kind {
-        CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => Ok(graph
-            .terms
-            .get(position)
-            .and_then(Option::as_ref)
-            .and_then(typed_union_type_body)),
+        CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
+            match graph.terms.get(position).and_then(Option::as_ref) {
+                Some(term) => typed_union_type_body(term, meter),
+                None => Ok(None),
+            }
+        }
         CheckedNodeKind::Model(ModelForm::VariantType) => {
             selected_union_members(&graph.nodes[position].node_id, owners, meter)
         }
@@ -3124,12 +3125,10 @@ fn union_defect(
     };
     let kind = kinds[position];
     if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
-        let Some(members) = graph
-            .terms
-            .get(position)
-            .and_then(Option::as_ref)
-            .and_then(typed_union_type_body)
-        else {
+        let Some(term) = graph.terms.get(position).and_then(Option::as_ref) else {
+            return Ok(None);
+        };
+        let Some(members) = typed_union_type_body(term, meter)? else {
             return Ok(None);
         };
         let mut names = meter.vec(members.len())?;
@@ -3179,11 +3178,12 @@ fn union_defect(
             )
         };
         let members = match kinds[declared] {
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => graph
-                .terms
-                .get(declared)
-                .and_then(Option::as_ref)
-                .and_then(typed_union_type_body),
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
+                match graph.terms.get(declared).and_then(Option::as_ref) {
+                    Some(term) => typed_union_type_body(term, meter)?,
+                    None => None,
+                }
+            }
             CheckedNodeKind::Model(ModelForm::VariantType) => {
                 selected_union_members(&node.semantic_type, owners, meter)?
             }

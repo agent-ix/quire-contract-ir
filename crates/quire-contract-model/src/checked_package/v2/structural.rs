@@ -726,10 +726,11 @@ pub(super) fn validate_structural_nodes_with_keys(
                 .and_then(typed_transition_body)
                 .is_none()
                 .then_some(Defect::Body),
-            Some(StructuralForm::UnionType) => term
-                .and_then(typed_union_type_body)
-                .is_none()
-                .then_some(Defect::Body),
+            Some(StructuralForm::UnionType) => match term {
+                Some(term) => typed_union_type_body(term, meter)?.is_none(),
+                None => true,
+            }
+            .then_some(Defect::Body),
             Some(StructuralForm::MapType) => {
                 let Some([key, value]) = term.and_then(typed_aggregate) else {
                     return Err(refuse(Defect::Body));
@@ -1976,27 +1977,42 @@ pub(super) struct UnionMember<'a> {
 /// named by an identifier and valued by an `aggregate` of `reference` terms
 /// (QSpec's `UnionTypeBody`). A repeated name is not a shape defect here: it
 /// is the operation step's `duplicate-member`.
-pub(super) fn typed_union_type_body(body: &super::CheckedTerm) -> Option<Vec<UnionMember<'_>>> {
-    let members = typed_aggregate(body)?
-        .iter()
-        .map(|member| {
-            let super::CheckedTerm::Binding { name, value } = member else {
-                return None;
-            };
-            if !is_identifier(name) {
-                return None;
-            }
-            let payload = typed_aggregate(value)?
-                .iter()
-                .map(typed_reference)
-                .collect::<Option<Vec<_>>>()?
-                .into_iter()
-                .cloned()
-                .collect();
-            Some(UnionMember { name, payload })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    (!members.is_empty()).then_some(members)
+pub(super) fn typed_union_type_body<'a>(
+    body: &'a super::CheckedTerm,
+    meter: &mut WorkMeter,
+) -> Result<Option<Vec<UnionMember<'a>>>, ValidationFailure> {
+    let Some(members) = typed_aggregate(body).filter(|members| !members.is_empty()) else {
+        return Ok(None);
+    };
+    // Establish the closed shape without allocating partial output.
+    for member in members {
+        let super::CheckedTerm::Binding { name, value } = member else {
+            return Ok(None);
+        };
+        if !is_identifier(name) {
+            return Ok(None);
+        }
+        let Some(payload) = typed_aggregate(value) else {
+            return Ok(None);
+        };
+        if payload.iter().any(|term| typed_reference(term).is_none()) {
+            return Ok(None);
+        }
+    }
+    let mut output = meter.vec(members.len())?;
+    for member in members {
+        let super::CheckedTerm::Binding { name, value } = member else {
+            unreachable!("shape checked above")
+        };
+        let entries = typed_aggregate(value).expect("shape checked above");
+        let mut payload = meter.vec(entries.len())?;
+        for entry in entries {
+            let id = typed_reference(entry).expect("shape checked above");
+            payload.push(meter.clone_id(id)?);
+        }
+        output.push(UnionMember { name, payload });
+    }
+    Ok(Some(output))
 }
 
 /// The active member and payload terms a `value`/`union_value` body holds, or
@@ -2238,6 +2254,51 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
     use std::collections::BTreeSet;
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn union_member_projection_prepays_exact_tables_and_ids() {
+        let id = super::super::test_support::id('a');
+        let body = super::super::CheckedTerm::decode_admitted(&json!({
+            "term":"aggregate", "members":[
+                {"term":"binding","name":"One","value":{"term":"aggregate","members":[
+                    {"term":"reference","target":id}
+                ]}},
+                {"term":"binding","name":"Empty","value":{"term":"aggregate","members":[]}}
+            ]
+        }))
+        .expect("closed union body");
+        let run = |limit| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(3, "union");
+                result = Some(typed_union_type_body(&body, &mut meter));
+            });
+            (
+                result.expect("ran"),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (result, allocated, charged) = run(u64::MAX);
+        assert_eq!(allocated, charged);
+        let members = result.expect("ample").expect("closed union");
+        assert_eq!(
+            members.iter().map(|member| member.name).collect::<Vec<_>>(),
+            ["One", "Empty"]
+        );
+        assert_eq!(members[0].payload.len(), 1);
+        assert!(members[1].payload.is_empty());
+        let (exact, allocated, consumed) = run(charged);
+        assert_eq!(allocated, consumed);
+        assert!(exact.expect("exact").is_some());
+        let (short, allocated, consumed) = run(charged - 1);
+        assert_eq!(allocated, consumed);
+        assert!(short.is_err());
+    }
 
     #[trace("TC-048", "FR-038-AC-380")]
     #[test]
