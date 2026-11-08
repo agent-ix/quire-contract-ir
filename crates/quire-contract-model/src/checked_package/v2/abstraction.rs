@@ -318,7 +318,7 @@ fn read_body(body: &Value, at: &JsonPointer) -> Result<AbstractionBody, Defect> 
 }
 
 /// A model refusal at `path`, located at the key `locus`.
-fn model_refusal(
+pub(super) fn model_refusal(
     refusal: ModelRefusal,
     path: JsonPointer,
     locus: &CheckedNodeId,
@@ -327,7 +327,7 @@ fn model_refusal(
 }
 
 /// `invalid_model_binding`/`conflicting-binding` at `path`.
-fn conflict(path: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
+pub(super) fn conflict(path: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
     ValidationFailure::refused_at(
         CheckedPackageRefusalCode::InvalidModelBinding,
         path,
@@ -338,22 +338,22 @@ fn conflict(path: JsonPointer, locus: &CheckedNodeId) -> ValidationFailure {
 
 /// The one node a step's checks are about, with its position and the
 /// pointers its refusals use.
-struct Site<'a> {
-    node: &'a CheckedSemanticNodeV2,
-    position: usize,
+pub(super) struct Site<'a> {
+    pub(super) node: &'a CheckedSemanticNodeV2,
+    pub(super) position: usize,
 }
 
 impl Site<'_> {
-    fn node_at(&self) -> JsonPointer {
+    pub(super) fn node_at(&self) -> JsonPointer {
         node_pointer(self.position)
     }
 
-    fn body_at(&self) -> JsonPointer {
+    pub(super) fn body_at(&self) -> JsonPointer {
         self.node_at().key("body")
     }
 
     /// `invalid_semantic_graph`, no cause, at `path`, located at the node.
-    fn invalid(&self, path: JsonPointer) -> ValidationFailure {
+    pub(super) fn invalid(&self, path: JsonPointer) -> ValidationFailure {
         ValidationFailure::refused_at(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             path,
@@ -430,7 +430,7 @@ fn check_identity(site: &Site<'_>, body: &AbstractionBody) -> Result<(), Validat
 }
 
 /// Whether `keys` ascend, equal keys in order.
-fn ascending<K: Ord>(keys: impl Iterator<Item = K>) -> bool {
+pub(super) fn ascending<K: Ord>(keys: impl Iterator<Item = K>) -> bool {
     let keys = keys.collect::<Vec<_>>();
     keys.windows(2).all(|pair| pair[0] <= pair[1])
 }

@@ -586,6 +586,8 @@ fn literal_defect(
             | CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
             | CheckedTerm::Refinement { .. }
             | CheckedTerm::ExtensionForm { .. }
             | CheckedTerm::NominalBody(_) => {}
@@ -1583,6 +1585,8 @@ fn argument_family(
         CheckedTerm::DependencyReference { .. }
         | CheckedTerm::Frame { .. }
         | CheckedTerm::AbstractionRelation { .. }
+        | CheckedTerm::ImplementationGuarantee { .. }
+        | CheckedTerm::ComponentComposition { .. }
         | CheckedTerm::Refinement { .. }
         | CheckedTerm::ExtensionForm { .. }
         | CheckedTerm::NominalBody(_) => None,
@@ -1765,7 +1769,9 @@ fn operand_family(kind: CheckedNodeKind) -> Option<&'static str> {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => None,
     }
 }
@@ -1920,7 +1926,9 @@ pub(super) fn is_type_shaped(kind: CheckedNodeKind) -> bool {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => false,
     }
 }
@@ -2218,6 +2226,8 @@ fn check_operands(
                         | CheckedTerm::Aggregate { .. }
                         | CheckedTerm::Frame { .. }
                         | CheckedTerm::AbstractionRelation { .. }
+                        | CheckedTerm::ImplementationGuarantee { .. }
+                        | CheckedTerm::ComponentComposition { .. }
                 )
             )
         {
@@ -2568,7 +2578,7 @@ fn selected_union_members<'m>(
 /// holds as many `reference`s to `value`/`parameter` nodes as the member's
 /// payload arity, each binder's `semantic_type` the payload type at its
 /// position; and every arm body has the application's `result_type`, or
-/// conforms to it when that is a record value type (FR-347).
+/// conforms to it when that is a record value type (FR-362).
 fn union_arms_hold(
     application: Application<'_>,
     scrutinee: usize,
@@ -2638,7 +2648,7 @@ fn union_arms_hold(
                     .zip(&member.payload)
                     .all(|(binder, payload)| binder_matches_payload(binder, payload, graph))
         });
-        // Implements: FR-347. an arm body conforms to a record `result_type`; a binder is
+        // Implements: FR-362. an arm body conforms to a record `result_type`; a binder is
         // bound to the payload type and stays exact.
         let Some(result) = result_type else {
             return Ok(false);
@@ -2675,7 +2685,7 @@ fn binder_matches_payload(
 /// Whether a node of this kind is a type node: a `scalar_type`,
 /// `composite_type` or `bounded_domain`.
 fn is_type_node(kind: CheckedNodeKind) -> bool {
-    // Implements: FR-347. a model record value type is a type a union payload may name.
+    // Implements: FR-362. a model record value type is a type a union payload may name.
     kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
         || matches!(
             kind.tag(),
@@ -2741,7 +2751,7 @@ fn case_placement_defect(position: usize, graph: &Graph<'_>) -> Option<Validatio
 /// `semantic_type` is a structural or selected model union type node; its
 /// binding names a member of it, and
 /// its payload terms are that member's payload in count and in type, a record
-/// payload type also admitting a conforming record (FR-347)
+/// payload type also admitting a conforming record (FR-362)
 /// (`ill_typed`/`type-mismatch`). Each is located at the node. A body that is
 /// not its form's closed shape was refused by the structural stage.
 fn union_defect(
@@ -2842,7 +2852,7 @@ fn union_defect(
         if member.payload.len() != payload.len() {
             return Ok(mismatch());
         }
-        // Implements: FR-347. a payload term conforms to a record payload type.
+        // Implements: FR-362. a payload term conforms to a record payload type.
         for (term, expected) in payload.iter().zip(&member.payload) {
             // Leave an unresolved body reference to the graph reference join,
             // which reports the missing target at that reference's path.
@@ -2863,7 +2873,7 @@ fn union_defect(
     Ok(None)
 }
 
-/// Implements: FR-347. whether the type node `actual` is the type node keyed `expected`
+/// Implements: FR-362. whether the type node `actual` is the type node keyed `expected`
 /// or, when `expected` is a selected record value type, a recovered
 /// `model`/`record_value_type` node of the same selected document with a
 /// chain of declared supertypes to it. Any other type is compared exactly.
@@ -2910,7 +2920,7 @@ fn conforms_to_type(
         .conforms_to(argument.node, parameter.node, &mut budget)
 }
 
-/// Implements: FR-347 "Result positions": the root of a `function` or `expression` node
+/// Implements: FR-362 "Result positions": the root of a `function` or `expression` node
 /// has the node's `semantic_type`, or conforms to it when that is a record
 /// value type; else `ill_typed`/`type-mismatch` at the node. The root of a
 /// `function` node is the node its body binding `body` references; an
@@ -2962,7 +2972,7 @@ fn body_root_defect(
     )))
 }
 
-/// Implements: FR-347 "Function-call arguments": the arguments after a `reference`
+/// Implements: FR-362 "Function-call arguments": the arguments after a `reference`
 /// callee are as many as the callee function node's body binding
 /// `parameters` lists, and each is its parameter's type or conforms to it.
 /// A callee without the binding takes no check; a binding that is present
@@ -3809,7 +3819,7 @@ fn presence_value_type(argument: &CheckedTerm, graph: &Graph<'_>) -> Option<Chec
 /// that is a record value type (`member_of`); an operation is dispatched on a
 /// `Reference<X>` receiver of that node, with one argument per parameter,
 /// each of its parameter's type node, or a record conforming to a record
-/// parameter's type (FR-347). The member type is compared with the
+/// parameter's type (FR-362). The member type is compared with the
 /// application's `result_type` by node key.
 fn check_model_member(
     application: Application<'_>,
@@ -3846,7 +3856,7 @@ fn check_model_member(
     {
         return ineligible(argument_at(0));
     }
-    // Implements: FR-347. the operand is the declaring type, or a record that conforms to
+    // Implements: FR-362. the operand is the declaring type, or a record that conforms to
     // it when that type is a record value type.
     if kind == MemberKind::Field
         && !conforms_to_type(

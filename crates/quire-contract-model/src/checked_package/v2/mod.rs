@@ -8,6 +8,7 @@
 
 mod abstraction;
 mod budgeted_read;
+mod declaration;
 pub(in crate::checked_package) use budgeted_read::BudgetStop;
 pub use budgeted_read::{
     CheckedPackageBudgetIncomplete, CheckedPackageBudgetedDispatchResult,
@@ -2473,7 +2474,9 @@ fn declaration_forbidden(kind: CheckedNodeKind) -> bool {
             | CorrespondenceForm::ModelCorrespondence
             | CorrespondenceForm::BindingRole
             | CorrespondenceForm::ProfileCorrespondence
-            | CorrespondenceForm::AbstractionRelation,
+            | CorrespondenceForm::AbstractionRelation
+            | CorrespondenceForm::ImplementationGuarantee
+            | CorrespondenceForm::ComponentComposition,
         ) => true,
     }
 }
@@ -2630,7 +2633,9 @@ fn validate_body(
             extension::read_body(body, at.pointer()).map(|body| extension::body_work(&body))
         }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
-        BodyGrammar::AbstractionRelation => abstraction::scan_body(body, at, visit),
+        BodyGrammar::AbstractionRelation | BodyGrammar::Declaration => {
+            abstraction::scan_body(body, at, visit)
+        }
         BodyGrammar::Refinement => refinement::validate_body(body, at, visit),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
@@ -2659,6 +2664,9 @@ enum BodyGrammar {
     Frame,
     /// The abstraction relation body of FR-346.
     AbstractionRelation,
+    /// The flat implementation guarantee and component composition bodies of
+    /// FR-362.
+    Declaration,
     /// The closed refinement body of FR-375.
     Refinement,
     /// The closed nested hybrid model, mode or transition shape.
@@ -2814,6 +2822,9 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
         K::Correspondence(CorrespondenceForm::AbstractionRelation) => {
             BodyGrammar::AbstractionRelation
         }
+        K::Correspondence(
+            CorrespondenceForm::ImplementationGuarantee | CorrespondenceForm::ComponentComposition,
+        ) => BodyGrammar::Declaration,
         K::Correspondence(
             CorrespondenceForm::SourceLocus
             | CorrespondenceForm::ModelCorrespondence
@@ -3272,7 +3283,8 @@ fn validate_graph(
             | BodyGrammar::Term
             | BodyGrammar::TimedModel
             | BodyGrammar::Hybrid
-            | BodyGrammar::AbstractionRelation => validate_body(
+            | BodyGrammar::AbstractionRelation
+            | BodyGrammar::Declaration => validate_body(
                 kind,
                 &node.body,
                 &Trail::Base(&body_steps),
@@ -3312,7 +3324,14 @@ fn validate_graph(
         };
         terms.push(match typed_term {
             Ok(term) => Some(term),
-            Err(_) if body_grammar(kind) == BodyGrammar::AbstractionRelation => None,
+            Err(_)
+                if matches!(
+                    body_grammar(kind),
+                    BodyGrammar::AbstractionRelation | BodyGrammar::Declaration
+                ) =>
+            {
+                None
+            }
             Err(_) => {
                 return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
             }
@@ -3510,6 +3529,7 @@ fn validate_graph(
         meter,
     )?;
     abstraction::validate_abstraction(&graph.nodes, &kinds, &index, &owners, meter)?;
+    declaration::validate_declarations(&graph.nodes, &kinds, &index, &owners, meter)?;
     claim_terminal::validate_terminal(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     step_relation::validate_step_relations(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
     refinement::validate_step_rows(

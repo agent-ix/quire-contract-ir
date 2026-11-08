@@ -2111,7 +2111,7 @@ impl<'m> ModelOwners<'m> {
         Ok(owner)
     }
 
-    /// Implements: FR-347. the record value type whose model declaration node key is
+    /// Implements: FR-362. the record value type whose model declaration node key is
     /// `key`, `None` when `key` names no selected record.
     pub(super) fn record_by_key(&self, key: &CheckedNodeId) -> Option<Owner<'m>> {
         self.by_key

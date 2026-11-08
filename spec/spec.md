@@ -121,7 +121,9 @@ nonliteral bodies refuse before bounds-required lowering. FR-040 admits
 QSpec FR-340's frame entries (`modifies` with scope, `deletes_scoped`), FR-342's operation anchors and
 FR-341's state clause and parameter bodies in that reader, and FR-344 refuses
 the ADR-002 2.0.0 members the V2 wire does not yet carry. FR-346 admits
-QSpec FR-451's abstraction relation body in that reader. FR-347 admits a
+QSpec FR-451's abstraction relation body in that reader, and FR-362 admits
+QSpec FR-490's implementation guarantee and FR-491's component composition
+bodies there. FR-347 admits a
 conforming record at operation-call arguments, field reads, case arms, union
 payloads and function-call arguments, and checks function body roots (TC-448
 tests it).

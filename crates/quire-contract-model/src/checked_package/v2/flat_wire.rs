@@ -311,7 +311,7 @@ pub(super) fn check(
                 };
                 super::hybrid::check_wire(node, form, position)
             }
-            BodyGrammar::AbstractionRelation => {
+            BodyGrammar::AbstractionRelation | BodyGrammar::Declaration => {
                 if body_term(&node.body) == Some(BodyTerm::Application) {
                     check_term(&node.body, &at, Place::BodyRoot, false)
                 } else {
@@ -703,7 +703,9 @@ impl<'a> Walk for Flat<'a> {
                 | BodyTerm::Reference
                 | BodyTerm::DependencyReference
                 | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
+                | BodyTerm::AbstractionRelation
+                | BodyTerm::ImplementationGuarantee
+                | BodyTerm::ComponentComposition,
             )
             | None => return ControlFlow::Continue(()),
         };
@@ -744,7 +746,9 @@ fn aggregate_stratum(aggregate: &Value) -> Place {
                 | BodyTerm::DependencyReference
                 | BodyTerm::Application
                 | BodyTerm::Frame
-                | BodyTerm::AbstractionRelation,
+                | BodyTerm::AbstractionRelation
+                | BodyTerm::ImplementationGuarantee
+                | BodyTerm::ComponentComposition,
             )
             | None => None,
         })

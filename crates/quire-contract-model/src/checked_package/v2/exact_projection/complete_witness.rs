@@ -1161,6 +1161,8 @@ fn term_uses_type(
             CheckedTerm::DependencyReference { .. }
             | CheckedTerm::Frame { .. }
             | CheckedTerm::AbstractionRelation { .. }
+            | CheckedTerm::ImplementationGuarantee { .. }
+            | CheckedTerm::ComponentComposition { .. }
             | CheckedTerm::Refinement { .. }
             | CheckedTerm::NominalBody(_) => {}
         }
