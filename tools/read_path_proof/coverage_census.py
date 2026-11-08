@@ -394,3 +394,16 @@ def bind_canonical_denial(provider, counts, facts, source):
     return {"source":str(source),"qualified_function":"quire_canonical::read::Parser::"+function,
             "reservation_expression":expression,"line":sites[0][0],"column":sites[0][1],
             "before_denial_counts":counts,"granted_predecessor_callbacks":predecessors}
+
+
+def canonical_classes_complete(classes, negatives):
+    expected=set(CANONICAL_CLASS_SITES)
+    required_negatives={"negative_empty_string_is_not_text_growth",
+                        "negative_empty_array_is_not_retained_children",
+                        "negative_scratch_child_is_not_retained_children"}
+    return (len(classes)==len(expected) and {item.get("class") for item in classes}==expected
+            and all(item.get("qualified") is True for item in classes)
+            and len(negatives)==len(required_negatives)
+            and {item.get("test") for item in negatives}==required_negatives
+            and all(item.get("rejected") is True and item.get("rust_oracle_passed") is True
+                    for item in negatives))
