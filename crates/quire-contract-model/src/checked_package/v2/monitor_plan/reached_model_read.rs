@@ -807,6 +807,15 @@ impl CheckedMonitorPlanRef<'_> {
 mod fixture_support;
 
 #[cfg(test)]
+fn fixture_read(
+    bytes: &[u8],
+    limits: crate::CheckedPackageReadLimits,
+    evidence: &crate::CheckedPackageEvidence,
+) -> crate::CheckedPackageV2ReadResult {
+    crate::CheckedPackageV2::read(bytes, limits, evidence)
+}
+
+#[cfg(test)]
 fn fixtures_dir() -> std::path::PathBuf {
     std::path::PathBuf::new()
 }
@@ -2814,10 +2823,15 @@ mod tests {
         let entry = plan.init().node_id().clone();
         let target = plan.state().clone();
         let (position, _) = single.node_with_position(&entry).unwrap();
-        std::sync::Arc::make_mut(&mut single.wire).semantic_graph.nodes[position].body =
-            CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
+        std::sync::Arc::make_mut(&mut single.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
         let mut repeated = single.clone();
-        std::sync::Arc::make_mut(&mut repeated.wire).semantic_graph.nodes[position].body = CheckedTerm::aggregate(vec![
+        std::sync::Arc::make_mut(&mut repeated.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::aggregate(vec![
             CheckedTerm::reference(target.clone()),
             CheckedTerm::reference(target),
         ]);

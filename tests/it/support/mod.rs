@@ -12,3 +12,5 @@ pub mod cargo_graph;
 pub mod checked_package;
 #[cfg(feature = "conformance-cli")]
 pub mod corpus;
+
+use crate::read_and_account as fixture_read;

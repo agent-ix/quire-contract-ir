@@ -281,6 +281,15 @@ impl CheckedMonitorPlanRef<'_> {
 mod fixture_support;
 
 #[cfg(all(test, feature = "qspec-conformance"))]
+fn fixture_read(
+    bytes: &[u8],
+    limits: crate::CheckedPackageReadLimits,
+    evidence: &crate::CheckedPackageEvidence,
+) -> crate::CheckedPackageV2ReadResult {
+    crate::CheckedPackageV2::read(bytes, limits, evidence)
+}
+
+#[cfg(all(test, feature = "qspec-conformance"))]
 fn fixtures_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(std::env::var("QUIRE_SPECIFICATION_DIR").expect("QSpec checkout"))
         .join("proposals/checked-package-v2/fixtures")
@@ -422,7 +431,10 @@ mod tests {
             .unwrap();
         let mut foreign = entry;
         foreign.package = "other/package".into();
-        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body = CheckedTerm::DependencyReference {
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::DependencyReference {
             package: "other/package".into(),
             node: foreign.clone(),
         };
@@ -460,7 +472,10 @@ mod tests {
             .iter()
             .position(|node| node.node_id == entry)
             .unwrap();
-        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[position].body = CheckedTerm::Frame {
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::Frame {
             modifies: Vec::new(),
             creates: Vec::new(),
             deletes: Vec::new(),
@@ -500,10 +515,15 @@ mod tests {
             .iter()
             .position(|node| node.node_id == entry)
             .unwrap();
-        std::sync::Arc::make_mut(&mut single.wire).semantic_graph.nodes[position].body =
-            CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
+        std::sync::Arc::make_mut(&mut single.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::aggregate(vec![CheckedTerm::reference(target.clone())]);
         let mut repeated = single.clone();
-        std::sync::Arc::make_mut(&mut repeated.wire).semantic_graph.nodes[position].body = CheckedTerm::aggregate(vec![
+        std::sync::Arc::make_mut(&mut repeated.wire)
+            .semantic_graph
+            .nodes[position]
+            .body = CheckedTerm::aggregate(vec![
             CheckedTerm::reference(target.clone()),
             CheckedTerm::reference(target),
         ]);

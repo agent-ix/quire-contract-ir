@@ -1824,6 +1824,7 @@ fn tc_048_qspec_adverse_run_fails_closed() {
 #[path = "../it/support/qspec_read_proof.rs"]
 mod qspec_read_proof;
 use qspec_read_proof::read_and_account;
+use qspec_read_proof::read_and_account as fixture_read;
 
 fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
     allocation_counter::measure(read).bytes_total

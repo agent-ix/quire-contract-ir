@@ -403,6 +403,7 @@ fn consecutive_reads_charge_each_delta_to_the_same_caller_budget() {
 #[path = "it/support/qspec_read_proof.rs"]
 mod qspec_read_proof;
 use qspec_read_proof::read_and_account;
+use qspec_read_proof::read_and_account as fixture_read;
 
 fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
     if let Some(before) = REQUESTED.with(Cell::get) {
