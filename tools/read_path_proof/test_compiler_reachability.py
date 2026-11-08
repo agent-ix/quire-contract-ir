@@ -313,6 +313,17 @@ pub fn reader_root(x:u8)->u8 {leaf(x)}
         self.assertTrue(any("visit_bound" in item["reason"] for item in result["unresolved"]))
 
     # Trace: TC-472, FR-038-AC-513
+    def test_function_limit_keeps_newly_discovered_bodies_pending(self):
+        result = self.compile("function_limit", """
+#[inline(never)] fn leaf(x:u8)->u8 {x ^ 7}
+pub fn reader_root(x:u8)->u8 {leaf(x)}
+""", analysis_options={"max_functions": 1})
+        self.assertEqual(result["result"]["termination"], "function_bound")
+        self.assertGreater(result["result"]["pending_dirty_functions"], 0)
+        self.assertFalse(result["result"]["pointer_flow_fixed_point"])
+        self.assertTrue(any("function_bound" in item["reason"] for item in result["unresolved"]))
+
+    # Trace: TC-472, FR-038-AC-513
     def test_memory_limit_preserves_unknown_pending_root(self):
         result = self.compile("memory_limit", """
 pub fn reader_root(x:u8)->u8 {x ^ 7}

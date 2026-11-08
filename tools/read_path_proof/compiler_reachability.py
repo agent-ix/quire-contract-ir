@@ -1123,10 +1123,14 @@ class Graph:
         return body, risks
 
     def analyze(self, root: str, *, max_visits: int = 500_000,
-                max_functions: int = 50_000, max_seconds: float = 300,
+                max_functions: int | None = None, max_seconds: float = 300,
                 max_resident_bytes: int = 12 * 1024**3) -> dict:
         if root not in self.functions or self.functions[root].declaration:
             raise EvidenceError("opaque compiler root has no definition")
+        # Every discovered body must belong to the authenticated finite input.
+        # An explicit smaller resource limit still fails closed with queued work.
+        if max_functions is None:
+            max_functions = len(self.functions)
         initial = State(self.functions[root])
         for parameter in initial.function.parameters:
             initial.values[parameter] = scalar(Atom("unknown", f"opaque root argument {parameter}"))
