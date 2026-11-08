@@ -59,7 +59,17 @@ fn default_feature_consumer_borrows_admitted_clock_rows() {
     let clause_index = vectors["clause_graph_index"]
         .as_u64()
         .expect("clause index") as usize;
-    let clause = fixture["semantic_graph"]["nodes"][clause_index]["node_id"].clone();
+    assert_eq!(
+        fixture["semantic_graph"]["nodes"][clause_index]["semantic_form"],
+        "temporal_clause"
+    );
+    let clause = fixture["temporal_bindings"][0]["declaration"].clone();
+    assert_eq!(fixture["temporal_clause_names"][0]["declaration"], clause);
+    assert!(fixture["source_map"]
+        .as_array()
+        .expect("published source map")
+        .iter()
+        .any(|row| row["node_id"] == clause && row["role"] == "claim" && row["ordinal"] == 0));
     for patch in case["patch"].as_array().expect("twin patches") {
         assert_eq!(patch["op"], "add");
         let path = patch["path"].as_str().expect("patch path");
