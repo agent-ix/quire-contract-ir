@@ -9,8 +9,11 @@
 mod native_budget_trace;
 #[cfg(feature = "test-support")]
 pub(crate) use native_budget_trace::checked as observe_native;
+#[path = "read_equivalence.rs"]
+mod equivalence;
 #[path = "read_observation.rs"]
 pub(crate) mod observation;
+pub(crate) use equivalence::{assert_admitted_views_equal, assert_budgeted_results_equal};
 use observation::{accounted, drop_without_request};
 pub(crate) use observation::{measure_at, Counter, Observation};
 use quire_contract_model::{
