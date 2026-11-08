@@ -651,7 +651,10 @@ mod dependency_selection_inputs;
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn imported_nominals_work_denial_prepays_original_graph_pointer() {
-    use quire_contract_model::{NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource, PackageReadResource, PackageReadStage};
+    use quire_contract_model::{
+        NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource, PackageReadResource,
+        PackageReadStage,
+    };
     let dependency_wire =
         dependency_selection_inputs::dependency_selection_package("test/geometry");
     let (_, dependency) = checked_package::admitted_dependency(&dependency_wire);
@@ -729,13 +732,17 @@ fn imported_nominals_work_denial_prepays_original_graph_pointer() {
     for observation in [ample, exact, short, repeated] {
         drop_without_request::<ThreadCounter>(observation);
     }
-}    let zero = read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, 0);
-    assert!(matches!(zero.result, CheckedPackageV2BudgetedReadResult::Exhausted(_)));
+    let zero = read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, 0);
+    assert!(matches!(
+        zero.result,
+        CheckedPackageV2BudgetedReadResult::Exhausted(_)
+    ));
     assert_eq!(zero.requested, 0);
-    let zero_repeat = read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, 0);
+    let zero_repeat =
+        read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, 0);
     assert_eq!(zero_repeat.result, zero.result);
     assert_eq!(zero_repeat.budget, zero.budget);
     assert_eq!(zero_repeat.requested, zero.requested);
     drop_without_request::<ThreadCounter>(zero);
     drop_without_request::<ThreadCounter>(zero_repeat);
-
+}
