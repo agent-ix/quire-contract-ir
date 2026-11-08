@@ -1968,8 +1968,14 @@ mod tests {
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
             .collect();
+        let terms: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                Some(CheckedTerm::decode_admitted(&node.body).expect("closed temporal fixture"))
+            })
+            .collect();
         validate_temporal(
-            &[],
+            &terms,
             nodes,
             &kinds,
             &index,
@@ -1982,6 +1988,68 @@ mod tests {
             },
             &mut WorkMeter::new(1_000),
         )
+    }
+
+    /// Placement borrows terms and asks for the walker's storage before growth.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn temporal_placement_allocates_only_charged_walker_storage() {
+        let nodes = clause_graph(&['1', '2']);
+        let kinds: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                let tag = CheckedNodeTag::from_wire(&node.node_tag).expect("node tag");
+                CheckedNodeKind::decode(tag, &node.semantic_form).expect("node form")
+            })
+            .collect();
+        let terms: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                Some(CheckedTerm::decode_admitted(&node.body).expect("closed temporal fixture"))
+            })
+            .collect();
+        let index: GraphIndex<'_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(at, node)| (&node.node_id, at))
+            .collect();
+        let owners = ModelOwners::default();
+        let graph = StepGraph {
+            nodes: &nodes,
+            kinds: &kinds,
+            index: &index,
+            owners: &owners,
+        };
+        let run = |limit| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocations = allocation_counter::measure(|| {
+                result = Some(placement_defect(
+                    0,
+                    &graph,
+                    &terms,
+                    &mut WorkMeter::over(&mut budget),
+                ));
+            });
+            (
+                result.expect("placement ran"),
+                allocations.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (result, allocated, charged) = run(u64::MAX);
+        assert!(
+            matches!(result, Ok(None)),
+            "valid clause has no placement defect"
+        );
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "only walker storage is requested");
+        assert!(matches!(run(charged).0, Ok(None)));
+        assert!(
+            run(charged - 1).0.is_err(),
+            "denied walker storage stops placement"
+        );
     }
 
     /// FR-038-AC-103: an `over` that names no declared dependency of its clause

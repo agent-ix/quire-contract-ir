@@ -1038,6 +1038,7 @@ pub(super) fn validate(
                             graph.scalar(d, ScalarTypeForm::Dimension)
                                 && super::timed_model::is_base_time_dimension(
                                     &nodes[d],
+                                    graph.term(d),
                                     &model_index,
                                 )
                         })

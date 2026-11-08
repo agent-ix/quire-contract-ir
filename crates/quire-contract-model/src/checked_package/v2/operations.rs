@@ -42,7 +42,6 @@ use crate::checked_package::shared::{
 use quire_exact::TextProfile;
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 /// One application node under validation, and pointers into its body.
@@ -4184,12 +4183,12 @@ fn operand_type_node_typed_with_lookup(
 /// body carries exactly one `binding` named for the kind, e.g.
 /// `float_rounding`'s `{"term":"binding","name":"rounding","value":{"term":
 /// "literal", ..., "value": "nearest-even"}}`.
-fn type_pin(
+fn type_pin<'t>(
     type_id: &CheckedNodeId,
     kind: OperationModeKind,
-    terms: &[Option<CheckedTerm>],
+    terms: &'t [Option<CheckedTerm>],
     index: &GraphIndex<'_>,
-) -> Option<Box<str>> {
+) -> Option<&'t str> {
     let CheckedTerm::Aggregate { members } = terms.get(*index.get(type_id)?)?.as_ref()? else {
         return None;
     };
@@ -4198,7 +4197,7 @@ fn type_pin(
             let CheckedTerm::Literal { value, .. } = value.as_ref() else {
                 return None;
             };
-            value.as_str().map(Box::from)
+            value.as_str()
         }
         _ => None,
     })
@@ -4261,7 +4260,7 @@ fn check_mode_type(
         let pin = type_pin(&type_id, mode_kind, terms, index).or_else(|| {
             (mode_kind == OperationModeKind::Rounding
                 && matches!(family, "decimal" | "float32" | "float64" | "quantity"))
-            .then(|| Box::from("exact"))
+            .then_some("exact")
         });
         if pin
             .as_deref()
@@ -4344,25 +4343,33 @@ fn text_profile_pin(
         return Ok(None);
     };
     let mut walked = Vec::new();
-    let mut seen = BTreeSet::new();
+    let mut seen = Vec::new();
     let found = loop {
         if let Some(known) = walk.pins.get(&position) {
-            break known.clone();
+            break known
+                .as_deref()
+                .map(|pin| walk.meter.boxed_str(pin))
+                .transpose()
+                .map_err(LeafWalkEnd::Work)?;
         }
         let at = &walk.at;
         walk.meter
             .charge(1, || at.clone())
             .map_err(LeafWalkEnd::Work)?;
         let node = &nodes[position];
-        walked.push(position);
-        seen.insert(position);
+        walk.meter
+            .push(&mut walked, position)
+            .map_err(LeafWalkEnd::Work)?;
+        walk.meter
+            .insert_sorted(&mut seen, position)
+            .map_err(LeafWalkEnd::Work)?;
         if let Some(pin) = type_pin(
             &node.node_id,
             OperationModeKind::TextProfile,
             walk.terms,
             index,
         ) {
-            break Some(pin);
+            break Some(walk.meter.boxed_str(pin).map_err(LeafWalkEnd::Work)?);
         }
         let Some(kind) = kinds.get(position).copied() else {
             break None;
@@ -4375,12 +4382,19 @@ fn text_profile_pin(
         }
         match index.get(&node.semantic_type) {
             // A chain that revisits a node is a cycle: no pin.
-            Some(next) if !seen.contains(next) => position = *next,
+            Some(next) if seen.binary_search(next).is_err() => position = *next,
             _ => break None,
         }
     };
     for position in walked {
-        walk.pins.insert(position, found.clone());
+        let pin = found
+            .as_deref()
+            .map(|pin| walk.meter.boxed_str(pin))
+            .transpose()
+            .map_err(LeafWalkEnd::Work)?;
+        walk.pins
+            .insert(position, pin, walk.meter)
+            .map_err(LeafWalkEnd::Work)?;
     }
     Ok(found)
 }
@@ -4478,15 +4492,26 @@ enum Visited {
 struct OpenComposites {
     /// Each open composite and the number of path segments the path held when
     /// it was entered (the `d` of a recursion leaf).
-    entered_at: BTreeMap<usize, usize>,
+    entered_at: SortedTable<usize, usize>,
     /// How many composites of each strongly connected component are open.
-    per_component: BTreeMap<usize, usize>,
+    per_component: SortedTable<usize, usize>,
 }
 
 impl OpenComposites {
-    fn open(&mut self, position: usize, component: usize, depth: usize) {
-        self.entered_at.insert(position, depth);
-        *self.per_component.entry(component).or_default() += 1;
+    fn open(
+        &mut self,
+        position: usize,
+        component: usize,
+        depth: usize,
+        meter: &mut WorkMeter,
+    ) -> Result<(), ValidationFailure> {
+        self.entered_at.insert(position, depth, meter)?;
+        if let Some(open) = self.per_component.get_mut(&component) {
+            *open += 1;
+        } else {
+            self.per_component.insert(component, 1, meter)?;
+        }
+        Ok(())
     }
 
     fn close(&mut self, position: usize, component: usize) {
@@ -4581,13 +4606,13 @@ struct LeafWalk<'g, 'm, 'b> {
     operation_at: JsonPointer,
     /// Each node's derived-leaf count where no composite reachable from it
     /// was open.
-    memo: BTreeMap<usize, usize>,
+    memo: SortedTable<usize, usize>,
     /// The profile each alias or domain node of a text type's chain pins.
-    pins: BTreeMap<usize, Option<Box<str>>>,
+    pins: SortedTable<usize, Option<Box<str>>>,
     /// Each node below the compared type, expanded once.
-    expanded: BTreeMap<usize, Rc<Expansion>>,
+    expanded: SortedTable<usize, Rc<Expansion>>,
     /// The strongly connected component of each node.
-    component_of: BTreeMap<usize, usize>,
+    component_of: SortedTable<usize, usize>,
     /// Whether a `text` type is reachable from each component.
     component_text: Vec<bool>,
     /// Whether an IEEE type is reachable from each component. A compared
@@ -4596,7 +4621,7 @@ struct LeafWalk<'g, 'm, 'b> {
     open: OpenComposites,
     /// The open-composite count at each held visit of an option or
     /// collection, dropped when the walk leaves the node.
-    noted: BTreeMap<usize, Vec<usize>>,
+    noted: SortedTable<usize, Vec<usize>>,
     stack: Vec<LeafFrame>,
 }
 
@@ -4624,14 +4649,14 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
             structural,
             at,
             operation_at,
-            memo: BTreeMap::new(),
-            pins: BTreeMap::new(),
-            expanded: BTreeMap::new(),
-            component_of: BTreeMap::new(),
+            memo: SortedTable::new(),
+            pins: SortedTable::new(),
+            expanded: SortedTable::new(),
+            component_of: SortedTable::new(),
             component_text: Vec::new(),
             component_ieee: Vec::new(),
             open: OpenComposites::default(),
-            noted: BTreeMap::new(),
+            noted: SortedTable::new(),
             stack: Vec::new(),
         }
     }
@@ -4650,79 +4675,108 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
     /// A union is an open composite like a record or tuple: a cycle through
     /// one is a recursion leaf, never a record-free cycle (QSpec FR-322
     /// "Structural leaf walk").
-    fn children(&self, position: usize, kind: CheckedNodeKind) -> Option<(Anchor, RawEdges)> {
-        let members = || match self.terms.get(position)?.as_ref()? {
-            CheckedTerm::Aggregate { members } => Some(members.as_slice()),
-            _ => None,
+    fn children(
+        &mut self,
+        position: usize,
+        kind: CheckedNodeKind,
+    ) -> Result<(Anchor, RawEdges), LeafWalkEnd> {
+        let terms = self.terms;
+        let members = || match terms.get(position).and_then(Option::as_ref) {
+            Some(CheckedTerm::Aggregate { members }) => Ok(members.as_slice()),
+            _ => Err(LeafWalkEnd::Unresolved),
         };
+        let meter = &mut self.meter;
+        let reference =
+            |term| super::structural::typed_reference(term).ok_or(LeafWalkEnd::Unresolved);
         match kind {
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Record) => members()?
-                .iter()
-                .map(|member| {
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Record) => {
+                let members = members()?;
+                let mut edges = meter.vec(members.len()).map_err(LeafWalkEnd::Work)?;
+                for member in members {
                     let CheckedTerm::Binding { name, value } = member else {
-                        return None;
+                        return Err(LeafWalkEnd::Unresolved);
                     };
                     let target = if let CheckedTerm::Aggregate { members } = value.as_ref() {
                         let [CheckedTerm::Binding { name, value }] = members.as_slice() else {
-                            return None;
+                            return Err(LeafWalkEnd::Unresolved);
                         };
                         if name.internal_kind() != super::TermBindingName::Optional {
-                            return None;
+                            return Err(LeafWalkEnd::Unresolved);
                         }
-                        let target = referenced_type(value)?;
-                        let position = *self.index.get(&target)?;
+                        let target = reference(value)?;
+                        let position = *self.index.get(target).ok_or(LeafWalkEnd::Unresolved)?;
                         if self.kinds.get(position)
                             != Some(&CheckedNodeKind::CompositeType(CompositeTypeForm::Option))
                         {
-                            return None;
+                            return Err(LeafWalkEnd::Unresolved);
                         }
                         target
                     } else {
-                        referenced_type(value)?
+                        reference(value)?
                     };
-                    Some((vec![format!("field:{name}").into()], target))
-                })
-                .collect::<Option<Vec<_>>>()
-                .map(|edges| (Anchor::Composite, edges)),
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => members()?
-                .iter()
-                .enumerate()
-                .map(|(at, member)| {
-                    Some((
-                        vec![format!("position:{at}").into()],
-                        referenced_type(member)?,
-                    ))
-                })
-                .collect::<Option<Vec<_>>>()
-                .map(|edges| (Anchor::Composite, edges)),
-            // QSpec FR-322 "Structural leaf walk": a leaf through a union is
-            // `member:<Name>`, `position:<i>` (`i` the index within the
-            // member's payload, even for a single payload), then the segments
-            // into the payload type.
+                    let mut segments = meter.vec(1).map_err(LeafWalkEnd::Work)?;
+                    segments.push(
+                        meter
+                            .formatted(format_args!("field:{name}"))
+                            .map_err(LeafWalkEnd::Work)?,
+                    );
+                    edges.push((segments, meter.clone_id(target).map_err(LeafWalkEnd::Work)?));
+                }
+                Ok((Anchor::Composite, edges))
+            }
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => {
+                let members = members()?;
+                let mut edges = meter.vec(members.len()).map_err(LeafWalkEnd::Work)?;
+                for (at, member) in members.iter().enumerate() {
+                    let target = reference(member)?;
+                    let mut segments = meter.vec(1).map_err(LeafWalkEnd::Work)?;
+                    segments.push(
+                        meter
+                            .formatted(format_args!("position:{at}"))
+                            .map_err(LeafWalkEnd::Work)?,
+                    );
+                    edges.push((segments, meter.clone_id(target).map_err(LeafWalkEnd::Work)?));
+                }
+                Ok((Anchor::Composite, edges))
+            }
+            // A union payload adds member:<Name>, position:<i> before its
+            // payload type's own path, including for a single payload.
             CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
-                let edges = self
-                    .terms
-                    .get(position)
-                    .and_then(Option::as_ref)
-                    .and_then(typed_union_type_body)?
-                    .into_iter()
-                    .flat_map(|member| {
-                        member
-                            .payload
-                            .into_iter()
-                            .enumerate()
-                            .map(move |(at, target)| {
-                                (
-                                    vec![
-                                        format!("member:{}", member.name).into(),
-                                        format!("position:{at}").into(),
-                                    ],
-                                    target,
-                                )
-                            })
-                    })
-                    .collect();
-                Some((Anchor::Composite, edges))
+                let members = members()?;
+                if members.is_empty() {
+                    return Err(LeafWalkEnd::Unresolved);
+                }
+                let mut edges = Vec::new();
+                for member in members {
+                    let CheckedTerm::Binding { name, value } = member else {
+                        return Err(LeafWalkEnd::Unresolved);
+                    };
+                    if !super::identity::is_identifier(name) {
+                        return Err(LeafWalkEnd::Unresolved);
+                    }
+                    let CheckedTerm::Aggregate { members: payload } = value.as_ref() else {
+                        return Err(LeafWalkEnd::Unresolved);
+                    };
+                    for (at, member) in payload.iter().enumerate() {
+                        let target = reference(member)?;
+                        let mut segments = meter.vec(2).map_err(LeafWalkEnd::Work)?;
+                        segments.push(
+                            meter
+                                .formatted(format_args!("member:{name}"))
+                                .map_err(LeafWalkEnd::Work)?,
+                        );
+                        segments.push(
+                            meter
+                                .formatted(format_args!("position:{at}"))
+                                .map_err(LeafWalkEnd::Work)?,
+                        );
+                        let target = meter.clone_id(target).map_err(LeafWalkEnd::Work)?;
+                        meter
+                            .push(&mut edges, (segments, target))
+                            .map_err(LeafWalkEnd::Work)?;
+                    }
+                }
+                Ok((Anchor::Composite, edges))
             }
             CheckedNodeKind::CompositeType(
                 CompositeTypeForm::Option
@@ -4730,11 +4784,15 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                 | CompositeTypeForm::Set
                 | CompositeTypeForm::Bag
                 | CompositeTypeForm::OrderedSet,
-            ) => Some((
-                Anchor::Wrapper,
-                vec![(vec!["inner".into()], referenced_type(members()?.first()?)?)],
-            )),
-            _ => Some((Anchor::Leaf, Vec::new())),
+            ) => {
+                let target = reference(members()?.first().ok_or(LeafWalkEnd::Unresolved)?)?;
+                let mut edges = meter.vec(1).map_err(LeafWalkEnd::Work)?;
+                let mut segments = meter.vec(1).map_err(LeafWalkEnd::Work)?;
+                segments.push(meter.boxed_str("inner").map_err(LeafWalkEnd::Work)?);
+                edges.push((segments, meter.clone_id(target).map_err(LeafWalkEnd::Work)?));
+                Ok((Anchor::Wrapper, edges))
+            }
+            _ => Ok((Anchor::Leaf, Vec::new())),
         }
     }
 
@@ -4794,7 +4852,7 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
     /// where text is reachable. Iterative (Tarjan), on a heap stack.
     fn analyse(&mut self, root: &LeafChild) -> Result<(), LeafWalkEnd> {
         // Each node's discovery number and lowest reachable number.
-        let mut numbers: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
+        let mut numbers: SortedTable<usize, (usize, usize)> = SortedTable::new();
         let mut members: Vec<usize> = Vec::new();
         let mut calls: Vec<ComponentVisit> = Vec::new();
         self.discover(root, &mut numbers, &mut members, &mut calls)?;
@@ -4836,28 +4894,40 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
     fn discover(
         &mut self,
         edge: &LeafChild,
-        numbers: &mut BTreeMap<usize, (usize, usize)>,
+        numbers: &mut SortedTable<usize, (usize, usize)>,
         members: &mut Vec<usize>,
         calls: &mut Vec<ComponentVisit>,
     ) -> Result<(), LeafWalkEnd> {
         self.charge()?;
-        let (anchor, raw) = self
-            .children(edge.position, edge.kind)
-            .ok_or(LeafWalkEnd::Unresolved)?;
-        let children = raw
-            .into_iter()
-            .map(|(segment, target)| self.edge(segment, target))
-            .collect::<Result<Vec<_>, _>>()?;
+        let (anchor, raw) = self.children(edge.position, edge.kind)?;
+        let mut children = self.meter.vec(raw.len()).map_err(LeafWalkEnd::Work)?;
+        for (segment, target) in raw {
+            children.push(self.edge(segment, target)?);
+        }
+        self.meter
+            .reserve(std::mem::size_of::<Expansion>() + 2 * std::mem::size_of::<usize>())
+            .map_err(LeafWalkEnd::Work)?;
         let expansion = Rc::new(Expansion { anchor, children });
-        self.expanded.insert(edge.position, Rc::clone(&expansion));
+        self.expanded
+            .insert(edge.position, Rc::clone(&expansion), self.meter)
+            .map_err(LeafWalkEnd::Work)?;
         let number = numbers.len();
-        numbers.insert(edge.position, (number, number));
-        members.push(edge.position);
-        calls.push(ComponentVisit {
-            position: edge.position,
-            expansion,
-            next: 0,
-        });
+        numbers
+            .insert(edge.position, (number, number), self.meter)
+            .map_err(LeafWalkEnd::Work)?;
+        self.meter
+            .push(members, edge.position)
+            .map_err(LeafWalkEnd::Work)?;
+        self.meter
+            .push(
+                calls,
+                ComponentVisit {
+                    position: edge.position,
+                    expansion,
+                    next: 0,
+                },
+            )
+            .map_err(LeafWalkEnd::Work)?;
         Ok(())
     }
 
@@ -4873,8 +4943,12 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
         let component = self.component_text.len();
         let mut closed = Vec::new();
         while let Some(member) = members.pop() {
-            self.component_of.insert(member, component);
-            closed.push(member);
+            self.component_of
+                .insert(member, component, self.meter)
+                .map_err(LeafWalkEnd::Work)?;
+            self.meter
+                .push(&mut closed, member)
+                .map_err(LeafWalkEnd::Work)?;
             if member == root {
                 break;
             }
@@ -4902,14 +4976,19 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                 }
             }
         }
-        self.component_text.push(text);
-        self.component_ieee.push(ieee);
+        self.meter
+            .push(&mut self.component_text, text)
+            .map_err(LeafWalkEnd::Work)?;
+        self.meter
+            .push(&mut self.component_ieee, ieee)
+            .map_err(LeafWalkEnd::Work)?;
         Ok(())
     }
 
     /// The edge from the root of the compared type, which names no segment.
     fn root_edge(&mut self, root: &CheckedNodeId) -> Result<LeafChild, LeafWalkEnd> {
-        self.edge(Vec::new(), root.clone())
+        let root = self.meter.clone_id(root).map_err(LeafWalkEnd::Work)?;
+        self.edge(Vec::new(), root)
     }
 
     /// One edge entered while counting: its own contribution, or the frame
@@ -4938,40 +5017,60 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
         }
         let expansion = self.expansion(edge.position)?;
         if expansion.children.is_empty() {
-            self.memo.insert(edge.position, 0);
+            self.memo
+                .insert(edge.position, 0, self.meter)
+                .map_err(LeafWalkEnd::Work)?;
             return Ok(LeafEntry::Count(0));
         }
         match expansion.anchor {
-            Anchor::Composite => self.open.open(edge.position, component, 0),
+            Anchor::Composite => self
+                .open
+                .open(edge.position, component, 0, self.meter)
+                .map_err(LeafWalkEnd::Work)?,
             Anchor::Wrapper => {
                 let composites = self.open.len();
-                let held = self.noted.entry(edge.position).or_default();
+                if !self.noted.contains_key(&edge.position) {
+                    self.noted
+                        .insert(edge.position, Vec::new(), self.meter)
+                        .map_err(LeafWalkEnd::Work)?;
+                }
+                let held = self
+                    .noted
+                    .get_mut(&edge.position)
+                    .ok_or(LeafWalkEnd::Unresolved)?;
                 if held.last() == Some(&composites) {
                     // Reached again with no composite entered between the two
                     // visits: a record-free cycle.
                     return Err(LeafWalkEnd::Unresolved);
                 }
-                held.push(composites);
+                self.meter
+                    .push(held, composites)
+                    .map_err(LeafWalkEnd::Work)?;
             }
             Anchor::Leaf => {}
         }
-        self.stack.push(LeafFrame {
-            position: edge.position,
-            component,
-            expansion,
-            next: 0,
-            total: 0,
-            closed,
-            // Counting derives no paths.
-            path_len: 0,
-        });
+        self.meter
+            .push(
+                &mut self.stack,
+                LeafFrame {
+                    position: edge.position,
+                    component,
+                    expansion,
+                    next: 0,
+                    total: 0,
+                    closed,
+                    // Counting derives no paths.
+                    path_len: 0,
+                },
+            )
+            .map_err(LeafWalkEnd::Work)?;
         Ok(LeafEntry::Pushed)
     }
 
     /// Leaves the node of a finished counting frame: it is no longer open or
     /// noted, and its count is memoised where it did not depend on an open
     /// composite.
-    fn leave(&mut self, frame: &LeafFrame) {
+    fn leave(&mut self, frame: &LeafFrame) -> Result<(), LeafWalkEnd> {
         match frame.expansion.anchor {
             Anchor::Composite => self.open.close(frame.position, frame.component),
             Anchor::Wrapper => {
@@ -4985,8 +5084,11 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
             Anchor::Leaf => {}
         }
         if frame.closed {
-            self.memo.insert(frame.position, frame.total);
+            self.memo
+                .insert(frame.position, frame.total, self.meter)
+                .map_err(LeafWalkEnd::Work)?;
         }
+        Ok(())
     }
 
     /// The number of leaves the compared type derives: its text leaves and
@@ -5025,7 +5127,7 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                     LeafEntry::Pushed => None,
                 };
             } else if let Some(frame) = self.stack.pop() {
-                self.leave(&frame);
+                self.leave(&frame)?;
                 finished = Some(frame.total);
             }
         }
@@ -5071,7 +5173,12 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                 let expansion = Rc::clone(&frame.expansion);
                 if let Some(child) = expansion.children.get(frame.next) {
                     frame.next += 1;
-                    path.extend(child.segments.iter().cloned());
+                    self.meter
+                        .room(&mut path, child.segments.len())
+                        .map_err(LeafWalkEnd::Work)?;
+                    for segment in &child.segments {
+                        path.push(self.meter.boxed_str(segment).map_err(LeafWalkEnd::Work)?);
+                    }
                     break self.visit(child, &path, supplied, text_laws, &mut pins)?;
                 }
                 if let Some(frame) = self.stack.pop() {
@@ -5122,7 +5229,9 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
             if !lawful {
                 return Ok(Visited::Fault(LeafFault::Member(placed, "laws")));
             }
-            pins.push(Some(pin));
+            self.meter
+                .push(pins, Some(pin))
+                .map_err(LeafWalkEnd::Work)?;
             return Ok(Visited::Done);
         }
         let component = self.component(edge.position)?;
@@ -5131,14 +5240,17 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                 let Some(leaf) = supplied.get(placed) else {
                     return Ok(Visited::Fault(LeafFault::Missing));
                 };
-                let segment = format!("recursion:{depth}");
+                let segment = self
+                    .meter
+                    .formatted(format_args!("recursion:{depth}"))
+                    .map_err(LeafWalkEnd::Work)?;
                 if !is_recursion_leaf(leaf) || !path_is(leaf, path, Some(&segment)) {
                     return Ok(Visited::Fault(LeafFault::Member(placed, "path")));
                 }
                 if !leaf.laws.is_empty() {
                     return Ok(Visited::Fault(LeafFault::Member(placed, "laws")));
                 }
-                pins.push(None);
+                self.meter.push(pins, None).map_err(LeafWalkEnd::Work)?;
             }
             return Ok(Visited::Done);
         }
@@ -5148,17 +5260,24 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
             return Ok(Visited::Done);
         }
         if expansion.anchor == Anchor::Composite {
-            self.open.open(edge.position, component, path.len());
+            self.open
+                .open(edge.position, component, path.len(), self.meter)
+                .map_err(LeafWalkEnd::Work)?;
         }
-        self.stack.push(LeafFrame {
-            position: edge.position,
-            component,
-            expansion,
-            next: 0,
-            total: 0,
-            closed,
-            path_len: path.len(),
-        });
+        self.meter
+            .push(
+                &mut self.stack,
+                LeafFrame {
+                    position: edge.position,
+                    component,
+                    expansion,
+                    next: 0,
+                    total: 0,
+                    closed,
+                    path_len: path.len(),
+                },
+            )
+            .map_err(LeafWalkEnd::Work)?;
         Ok(Visited::Descended)
     }
 }
@@ -8625,14 +8744,20 @@ mod tests {
             };
             assert_eq!(actual, expected);
             assert_eq!(walk.meter.consumed(), paid);
-            assert_eq!(walk.pins, expected_pins);
+            assert_eq!(
+                walk.pins.iter().cloned().collect::<BTreeMap<_, _>>(),
+                expected_pins
+            );
             for head in ['b', 'a'] {
                 let Ok(actual) = super::text_profile_pin(&node_id(head), &mut walk) else {
                     panic!("cached pin result must be free");
                 };
                 assert_eq!(actual, expected);
                 assert_eq!(walk.meter.consumed(), paid);
-                assert_eq!(walk.pins, expected_pins);
+                assert_eq!(
+                    walk.pins.iter().cloned().collect::<BTreeMap<_, _>>(),
+                    expected_pins
+                );
             }
             assert!(
                 walk.structural.resolved.is_empty(),
@@ -8733,7 +8858,7 @@ mod tests {
                     };
                     assert_eq!(pin.as_deref(), Some("nfc"));
                     assert_eq!(
-                        walk.pins,
+                        walk.pins.iter().cloned().collect::<BTreeMap<_, _>>(),
                         BTreeMap::from([(0, Some(Box::<str>::from("nfc")))])
                     );
                 }
@@ -8784,7 +8909,10 @@ mod tests {
                     2,
                     "a revisited or missing target is not paid again"
                 );
-                assert_eq!(walk.pins, BTreeMap::from([(0, None), (1, None)]));
+                assert_eq!(
+                    walk.pins.iter().cloned().collect::<BTreeMap<_, _>>(),
+                    BTreeMap::from([(0, None), (1, None)])
+                );
             }
             let mut short_meter = WorkMeter::new(1);
             let mut short_structural = StructuralTypes::default();

@@ -893,8 +893,55 @@ pub(super) struct SortedTable<K, V> {
     entries: Vec<(K, V)>,
 }
 
+impl<K, V> Default for SortedTable<K, V> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+}
+
 #[allow(dead_code)] // map-shaped accessors the other read groups fold in
 impl<K: Ord, V> SortedTable<K, V> {
+    /// An empty table. Its first insertion asks the meter for storage.
+    pub(super) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets an entry, charging the whole replacement block before growth.
+    pub(super) fn insert(
+        &mut self,
+        key: K,
+        value: V,
+        meter: &mut WorkMeter,
+    ) -> Result<(), ValidationFailure> {
+        match self.entries.binary_search_by(|(entry, _)| entry.cmp(&key)) {
+            Ok(at) => self.entries[at].1 = value,
+            Err(at) => {
+                meter.room(&mut self.entries, 1)?;
+                self.entries.insert(at, (key, value));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let at = self
+            .entries
+            .binary_search_by(|(entry, _)| entry.cmp(key))
+            .ok()?;
+        self.entries.get_mut(at).map(|(_, value)| value)
+    }
+
+    /// Removes an entry without changing the table's charged capacity.
+    pub(super) fn remove(&mut self, key: &K) -> Option<V> {
+        let at = self
+            .entries
+            .binary_search_by(|(entry, _)| entry.cmp(key))
+            .ok()?;
+        Some(self.entries.remove(at).1)
+    }
+
     /// Builds the table from `entries` held in an exact-capacity vector the
     /// caller charged. Of entries with one key, the one `tie` orders first
     /// is kept. The sort is in place (never a stable sort's scratch block).

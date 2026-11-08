@@ -45,7 +45,6 @@ use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use std::collections::BTreeMap;
 
 /// The form of every request the dependency checks make.
 const F: &str = "dependencies";
