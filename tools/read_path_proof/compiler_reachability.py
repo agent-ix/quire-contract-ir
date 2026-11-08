@@ -173,6 +173,10 @@ def join_into(destination: Value, source: Value) -> bool:
     changed = False
     for path, atoms in source.items():
         original = destination.get(path, frozenset())
+        # Shared identity and a subset are exact no-delta proofs; avoid walking
+        # large unchanged fact sets in Python on every consumer revisit.
+        if atoms is original or atoms <= original:
+            continue
         if not original and isinstance(atoms, frozenset):
             destination[path] = atoms
             changed |= bool(atoms)
