@@ -25,12 +25,12 @@ class CompilerReachabilityTests(unittest.TestCase):
         cls.env = proof.safe_environment(cls.bin)
         proof.lower_process_priority()
 
-    def compile(self, name, source, *, thir=False, run_test=False):
+    def compile(self, name, source, *, thir=False, run_test=False, relative_source=False, analysis_options=None):
         directory = self.output / name
         directory.mkdir(exist_ok=True)
         source_file = directory / "control.rs"
         source_file.write_text(source)
-        command = [str(self.bin / "rustc"), str(source_file), "--crate-name", name,
+        command = [str(self.bin / "rustc"), source_file.name if relative_source else str(source_file), "--crate-name", name,
                    "--crate-type", "lib", "--edition=2024", "--emit=llvm-ir,obj,mir",
                    "--out-dir", str(directory), "-Csymbol-mangling-version=v0",
                    "-Cdebuginfo=2", "-Copt-level=0", "-Ccodegen-units=1",
@@ -42,14 +42,14 @@ class CompilerReachabilityTests(unittest.TestCase):
             proof.execute(["nice", "-n", "10", "ionice", "-c", "3"] + command,
                           self.env, directory, directory / "compiler.log")
             if thir:
-                thir_command = [str(self.bin / "rustc"), str(source_file), "--crate-name", name,
+                thir_command = [str(self.bin / "rustc"), source_file.name if relative_source else str(source_file), "--crate-name", name,
                                 "--crate-type", "lib", "--edition=2024", "-Cpanic=abort",
                                 "-Zunpretty=thir-tree", "-Ztrim-diagnostic-paths=no", "-Zverbose-internals=yes"]
                 proof.execute(["nice", "-n", "10", "ionice", "-c", "3"] + thir_command,
                               self.env, directory, directory / "compiler.thir")
             if run_test:
                 executable = directory / "runtime-control"
-                runtime_command = [str(self.bin / "rustc"), str(source_file), "--crate-name", name,
+                runtime_command = [str(self.bin / "rustc"), source_file.name if relative_source else str(source_file), "--crate-name", name,
                                    "--edition=2024", "--test", "-Cdebuginfo=0", "-o", str(executable)]
                 proof.execute(["nice", "-n", "10", "ionice", "-c", "3"] + runtime_command,
                               self.env, directory, directory / "runtime-compiler.log")
@@ -65,7 +65,7 @@ class CompilerReachabilityTests(unittest.TestCase):
             fcntl.flock(lock, fcntl.LOCK_EX)
             return proof.analyze_artifacts([directory / (name + ".ll")],
                 [directory / (name + ".mir")], [directory / (name + ".o")],
-                self.llvm, self.env, "::reader_root")
+                self.llvm, self.env, "::reader_root", source_root=directory, analysis_options=analysis_options)
 
     def test_monomorphic_callback_closure_drop_operator_and_finite_vtables(self):
         result = self.compile("finite", """
@@ -247,6 +247,42 @@ pub fn reader_root(count:usize,x:u8)->u8 {
         targets = {item["def_path"] for item in result["functions"]}
         self.assertTrue({"pointer_iteration::a", "pointer_iteration::b"} <= targets, targets)
         self.assertNotIn("pointer_iteration::unrelated", targets)
+
+    # Trace: TC-472, FR-038-AC-513
+    def test_nested_generic_and_relative_source_have_compiler_mir_correspondence(self):
+        result = self.compile("nested_generic", """
+#[inline(never)] fn generic<T>(value:T)->T {value}
+pub fn reader_root(x:u8)->Option<Option<u8>> {generic(Some(Some(x)))}
+""", relative_source=True)
+        generic = [item for item in result["functions"] if "nested_generic::generic::<" in item["def_path"]]
+        self.assertEqual(len(generic), 1, result["functions"])
+        self.assertIsNotNone(generic[0]["mir_artifact"], generic)
+        self.assertEqual(generic[0]["mir_resolution"]["status"], "unique_source_body")
+
+    # Trace: TC-472, FR-038-AC-513
+    def test_same_leaf_in_one_source_is_not_assigned_an_arbitrary_mir_body(self):
+        result = self.compile("ambiguous_leaf", """
+mod a {#[inline(never)] pub fn leaf(x:u8)->u8 {x ^ 1}}
+mod b {#[inline(never)] pub fn leaf(x:u8)->u8 {x ^ 128}}
+pub fn reader_root(flag:bool,x:u8)->u8 {if flag {a::leaf(x)} else {b::leaf(x)}}
+""")
+        leaves = [item for item in result["functions"] if item["def_path"].endswith("::leaf")]
+        self.assertEqual(len(leaves), 2)
+        self.assertTrue(all(item["mir_artifact"] is None for item in leaves), leaves)
+        self.assertTrue(all(item["mir_resolution"]["status"] == "ambiguous_source_body" for item in leaves))
+        self.assertFalse(result["result"]["static_ac513_proven"])
+
+    # Trace: TC-472, FR-038-AC-513
+    def test_visit_limit_preserves_pending_work_and_names_the_exhausted_bound(self):
+        result = self.compile("visit_limit", """
+#[inline(never)] fn leaf(x:u8)->u8 {x ^ 7}
+pub fn reader_root(x:u8)->u8 {leaf(x)}
+""", analysis_options={"max_visits": 1})
+        self.assertEqual(result["result"]["termination"], "visit_bound")
+        self.assertEqual(result["result"]["dirty_function_visits"], 1)
+        self.assertGreater(result["result"]["pending_dirty_functions"], 0)
+        self.assertFalse(result["result"]["pointer_flow_fixed_point"])
+        self.assertTrue(any("visit_bound" in item["reason"] for item in result["unresolved"]))
 
     # Trace: TC-472, FR-038-AC-513
     def test_compiler_memory_copy_preserves_callback_targets(self):

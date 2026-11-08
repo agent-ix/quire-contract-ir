@@ -114,6 +114,29 @@ def take_type(text: str) -> tuple[str, str]:
     return match.group(), text[match.end():].strip()
 
 
+def compiler_leaf_name(path: str) -> str:
+    """Extract the callable leaf without mistaking a nested type for its owner.
+
+    This is only a candidate index. Unique compiler body/source correspondence
+    is still required before any MIR statement is attributed to an instance.
+    """
+    depth, outer = 0, []
+    for index, char in enumerate(path):
+        if char == "<":
+            depth += 1
+        elif char == ">" and (index == 0 or path[index - 1] != "-"):
+            depth -= 1
+            if depth < 0:
+                raise EvidenceError("unbalanced compiler callable qualification")
+        elif depth == 0:
+            if char == "(":
+                break
+            outer.append(char)
+    if depth:
+        raise EvidenceError("unfinished compiler callable qualification")
+    return "".join(outer).rstrip(":").split("::")[-1]
+
+
 @dataclass(frozen=True)
 class Atom:
     kind: str
@@ -532,7 +555,8 @@ class Graph:
     compiler-global flows can contribute targets. Missing flows remain red.
     """
 
-    def __init__(self, modules: list[Module], names: dict[str, str], mir_files: list[Path] = ()):
+    def __init__(self, modules: list[Module], names: dict[str, str], mir_files: list[Path] = (),
+                 source_root: Path | None = None):
         self.modules = modules
         self.names = names
         self.functions: dict[str, Function] = {}
@@ -557,11 +581,11 @@ class Graph:
         self.boundaries: dict[str, dict] = {}
         self.inline_functions: dict[str, tuple[Module, int]] = {}
         self.logical_callers: dict[tuple[str, int], str] = {}
-        self.mir_functions = self.read_mir(mir_files)
+        self.mir_functions = self.read_mir(mir_files, source_root)
         self.mir_by_name: dict[str, list[dict]] = defaultdict(list)
         for body in self.mir_functions:
-            header = body["header"].split("(", 1)[0].removeprefix("fn ").strip()
-            short = re.sub(r"::<[^<>]*>", "", header).split("::")[-1].split("<", 1)[0]
+            header = body["header"].removeprefix("fn ").strip()
+            short = compiler_leaf_name(header)
             self.mir_by_name[short].append(body)
         for module in modules:
             for symbol, function in module.functions.items():
@@ -578,7 +602,7 @@ class Graph:
                 self.store(scalar(Atom("global", symbol, offset)), value)
 
     @staticmethod
-    def read_mir(paths: list[Path]) -> list[dict]:
+    def read_mir(paths: list[Path], source_root: Path | None = None) -> list[dict]:
         functions = []
         for path in paths:
             current = None
@@ -589,8 +613,11 @@ class Graph:
                 if current is not None:
                     current["lines"].append(line)
                     for match in re.finditer(r"(?:at |span: )(.+?):(\d+):(\d+): (\d+):(\d+)", line):
+                        source_path = Path(match[1])
+                        if not source_path.is_absolute() and source_root is not None:
+                            source_path = source_root / source_path
                         current["spans"].append({
-                            "path": match[1], "line": int(match[2]), "column": int(match[3]),
+                            "path": str(source_path), "line": int(match[2]), "column": int(match[3]),
                             "end_line": int(match[4]), "end_column": int(match[5]),
                             "origin": "rustc.MIR",
                         })
@@ -1014,18 +1041,27 @@ class Graph:
     def mir_evidence(self, record: dict) -> tuple[dict | None, list[dict]]:
         span = record["source_span"]
         if not span:
+            record["mir_resolution"] = {"status": "missing_llvm_source"}
             return None, []
         # LLVM owns the monomorphic identity. MIR contributes only compiler
         # body/source evidence; ambiguous short names cannot close the claim.
-        qualified = re.sub(r"::<[^<>]*>", "", record["def_path"])
-        name = qualified.split("::")[-1].split("<", 1)[0]
+        name = compiler_leaf_name(record["def_path"])
         candidates = []
-        for body in self.mir_by_name.get(name, []):
-            header = body["header"].split("(", 1)[0]
-            if not re.search(r"(?:^fn |::)" + re.escape(name) + r"(?:<|$)", header):
+        named = self.mir_by_name.get(name, [])
+        for body in named:
+            header = body["header"].removeprefix("fn ").strip()
+            if compiler_leaf_name(header) != name:
                 continue
             if any(item["path"] == span["path"] for item in body["spans"]):
                 candidates.append(body)
+        record["mir_resolution"] = {
+            "status": ("unique_source_body" if len(candidates) == 1 else
+                       "ambiguous_source_body" if candidates else
+                       "source_path_unmatched" if named else "callable_not_in_mir_inputs"),
+            "callable_leaf": name, "named_candidates": len(named),
+            "source_candidates": len(candidates), "llvm_source_path": span["path"],
+            "candidate_source_paths": sorted({item["path"] for body in named for item in body["spans"]}),
+        }
         if len(candidates) != 1:
             return None, []
         body = candidates[0]
@@ -1038,7 +1074,8 @@ class Graph:
                 })
         return body, risks
 
-    def analyze(self, root: str) -> dict:
+    def analyze(self, root: str, *, max_visits: int = 500_000,
+                max_functions: int = 50_000, max_seconds: float = 300) -> dict:
         if root not in self.functions or self.functions[root].declaration:
             raise EvidenceError("opaque compiler root has no definition")
         initial = State(self.functions[root])
@@ -1047,16 +1084,20 @@ class Graph:
         self.states[root] = initial
         self.schedule(root)
         converged = False
-        deadline = time.monotonic() + 45
+        deadline = time.monotonic() + max_seconds
         visits = 0
-        while self.queue and time.monotonic() < deadline and len(self.states) <= 50_000:
+        while (self.queue and time.monotonic() < deadline
+               and len(self.states) <= max_functions and visits < max_visits):
             symbol = self.queue.popleft()
             self.scheduled.remove(symbol)
             self.process(self.states[symbol])
             visits += 1
         converged = not self.queue
-        if self.queue and time.monotonic() >= deadline:
-            self.block(root, None, "compiler pointer-flow analysis time bound reached")
+        termination = "fixed_point"
+        if self.queue:
+            termination = ("time_bound" if time.monotonic() >= deadline else
+                           "function_bound" if len(self.states) > max_functions else "visit_bound")
+            self.block(root, None, "compiler pointer-flow analysis " + termination + " reached")
         if not converged:
             self.block(root, None, "compiler pointer-flow resource bound reached before fixed point")
         callable_cells = defaultdict(set)
@@ -1118,6 +1159,8 @@ class Graph:
                 "static_ac513_proven": False,
                 "scope": "compiler-derived closure of the named opaque root",
                 "pointer_flow_fixed_point": converged,
+                "termination": termination,
+                "analysis_limits": {"max_visits": max_visits, "max_functions": max_functions, "max_seconds": max_seconds},
                 "dirty_function_visits": visits,
                 "pending_dirty_functions": len(self.queue),
                 "reached_functions": len(records),
@@ -1166,7 +1209,8 @@ def demangle(objects: list[Path], llvm_bin: Path, env: dict[str, str]) -> dict[s
 
 
 def analyze_artifacts(llvm_files: list[Path], mir_files: list[Path], objects: list[Path],
-                      llvm_bin: Path, env: dict[str, str], root_suffix: str) -> dict:
+                      llvm_bin: Path, env: dict[str, str], root_suffix: str,
+                      source_root: Path | None = None, analysis_options: dict | None = None) -> dict:
     llvm_files = [path.resolve(strict=True) for path in llvm_files]
     mir_files = [path.resolve(strict=True) for path in mir_files]
     objects = [path.resolve(strict=True) for path in objects]
@@ -1191,12 +1235,12 @@ def analyze_artifacts(llvm_files: list[Path], mir_files: list[Path], objects: li
     for module in modules:
         if not re.search(r'target triple = "x86_64-', module.text):
             raise EvidenceError("unsupported compiler target layout; expected x86_64")
-    graph = Graph(modules, names, mir_files)
+    graph = Graph(modules, names, mir_files, source_root)
     roots = [symbol for symbol, name in names.items() if name.endswith(root_suffix)
              and symbol in graph.functions and not graph.functions[symbol].declaration]
     if len(roots) != 1:
         raise EvidenceError(f"expected one compiler root {root_suffix}, got {len(roots)}")
-    return graph.analyze(roots[0])
+    return graph.analyze(roots[0], **(analysis_options or {}))
 
 
 def recover_embedded_bitcode(archives: list[Path], llvm: Path, directory: Path,
@@ -1388,7 +1432,7 @@ def production_run(arguments: argparse.Namespace) -> dict:
     with open("/tmp/titan-cargo.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         provenance["analysis_lock_acquired"] = time.time()
-        report = analyze_artifacts(llvm_files, mir_files, objects, llvm, env, "::static_reader_root")
+        report = analyze_artifacts(llvm_files, mir_files, objects, llvm, env, "::static_reader_root", source_root=source)
     provenance["analysis_lock_released"] = time.time()
     (output / "provenance.json").write_text(json.dumps(provenance, indent=2))
     report["provenance"] = provenance
