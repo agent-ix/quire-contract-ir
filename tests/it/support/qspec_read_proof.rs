@@ -762,7 +762,15 @@ pub(crate) fn full_native_boundaries(
             let rebound = unlimited_seed
                 .read_proof_snapshot()
                 .read_proof_rebound(work, storage, false);
-            native_budget_trace::checked_seeded(bytes, evidence, limits, &rebound)
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                native_budget_trace::checked_seeded(bytes, evidence, limits, &rebound)
+            })) {
+                Ok(observation) => observation,
+                Err(failure) => {
+                    eprintln!("full native boundary failed: event_index={index} event={event:?} work_bound={work} read_storage_bound={storage}");
+                    std::panic::resume_unwind(failure)
+                }
+            }
         };
         let (exact, exact_events) = probe(bound);
         assert_eq!(
