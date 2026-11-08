@@ -168,18 +168,19 @@ fn refusal(
 ) -> SelectedMonitorTypeClosureError {
     // The cloned outer ID owns its package, path and Arc handles; the Box
     // and optional fixed-size occurrence are additional owned containers.
-    if read_node_work(budget, at).is_err()
-        || read_charge(
-            budget,
-            NativeJoinChargeKind::Storage,
-            at.path.iter().fold(storage::node(at), |units, segment| {
-                match segment {
-                    CheckedNodePathSegment::Dependency { package, .. } => units.saturating_add(1 + package.len() as u128),
-                    _ => units,
-                }
-            }).saturating_add(1 + u128::from(occurrence.is_some())),
-        ).is_err()
-    {
+    if read_node_work(budget, at).is_err() {
+        return native_error(budget);
+    }
+    let mut floor = storage::node(at).saturating_add(1 + u128::from(occurrence.is_some()));
+    for segment in &at.path {
+        if let CheckedNodePathSegment::Dependency { package, .. } = segment {
+            if read_charge(budget, NativeJoinChargeKind::Work, package.len() as u128).is_err() {
+                return native_error(budget);
+            }
+            floor = floor.saturating_add(1 + package.len() as u128);
+        }
+    }
+    if read_charge(budget, NativeJoinChargeKind::Storage, floor).is_err() {
         return native_error(budget);
     }
     let mut error = semantic_error(
@@ -514,9 +515,11 @@ mod tests {
     #[trace("TC-471", "FR-358-AC-3")]
     #[test]
     fn authority_refusal_prepays_its_complete_owned_diagnostic_or_stays_compact() {
-        let at = identity(&"diagnostic".repeat(128), 4);
+        let mut at = identity(&"diagnostic".repeat(128), 4);
+        let dependency = "diagnostic-selected-dependency".repeat(64);
+        at.path.push(CheckedNodePathSegment::Dependency { package: dependency.clone().into(), node: 3 });
         let occurrence = CheckedOccurrence { role: CheckedOccurrenceRole::Claim, ordinal: 7 };
-        let floor = storage::node(&at) + 2;
+        let floor = storage::node(&at) + 2 + 1 + dependency.len() as u128;
         let code = SelectedMonitorAuthorityErrorCode::OccurrenceMismatch;
         let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let full = refusal(code, &at, Some(&occurrence), &mut measured);
