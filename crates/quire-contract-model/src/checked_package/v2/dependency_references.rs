@@ -1247,19 +1247,29 @@ mod allocation_tests {
     fn reference_refusal_prepays_both_diagnostic_blocks_and_preserves_caller_state() {
         use super::{DependencyReferences, Referrer, SuppliedDependencies};
         use crate::checked_package::v2::composite_operands::tests::package;
-        use crate::checked_package::v2::native_join_budget::{NativeJoinChargeKind, NativeJoinLocus};
+        use crate::checked_package::v2::native_join_budget::{
+            NativeJoinChargeKind, NativeJoinLocus,
+        };
         let package = package();
         let node = package.resolved_graph().nodes[0].to_raw();
         let term = super::CheckedTerm::DependencyReference {
-            package: "test/unselected".into(), node: node.node_id.clone(),
+            package: "test/unselected".into(),
+            node: node.node_id.clone(),
         };
         let supplied = SuppliedDependencies::default();
         let observe = |limit| {
             let mut budget = NativeJoinBudget::new(100, 100).with_read_storage_limit(limit);
-            let caller = NativeJoinLocus { source: NativeJoinLocusSource::Package, form: "caller" };
+            let caller = NativeJoinLocus {
+                source: NativeJoinLocusSource::Package,
+                form: "caller",
+            };
+            budget
+                .accounted_charge(NativeJoinChargeKind::Storage, 2, caller)
+                .expect("prior logical storage");
             let before = budget.begin();
-            budget.accounted_charge(NativeJoinChargeKind::Work, 3, caller).expect("prior work");
-            budget.accounted_charge(NativeJoinChargeKind::Storage, 2, caller).expect("prior logical storage");
+            budget
+                .accounted_charge(NativeJoinChargeKind::Work, 3, caller)
+                .expect("prior work");
             budget.finish_read(before, 0);
             let consumed = budget.consumed();
             let success = budget.last_success_delta();
@@ -1268,20 +1278,52 @@ mod allocation_tests {
             let requested = allocation_counter::measure(|| {
                 let mut meter = WorkMeter::over(&mut budget);
                 result = Some(DependencyReferences::new(&supplied).walk_admitted(
-                    Referrer { node: &node, position: 5 }, &term, &mut meter,
+                    Referrer {
+                        node: &node,
+                        position: 5,
+                    },
+                    &term,
+                    &mut meter,
                 ));
-            }).bytes_total;
-            assert_eq!(budget.consumed(), consumed, "the semantic refusal adds no work or logical storage");
-            assert_eq!(budget.last_success_delta(), success, "diagnostic reborrowing preserves the caller success marker");
+            })
+            .bytes_total;
+            assert_eq!(
+                budget.consumed(),
+                consumed,
+                "the semantic refusal adds no work or logical storage"
+            );
+            assert_eq!(
+                budget.last_success_delta(),
+                success,
+                "diagnostic reborrowing preserves the caller success marker"
+            );
             assert_eq!(budget.last_success_read_storage_delta(), read_success);
-            (result.expect("reference walk ran").expect_err("the package was not selected"), budget, requested)
+            (
+                result
+                    .expect("reference walk ran")
+                    .expect_err("the package was not selected"),
+                budget,
+                requested,
+            )
         };
         let (ample, budget, requested) = observe(u64::MAX);
-        assert_eq!(requested, budget.read_storage_consumed(), "scratch, pointer, node identity and refusal payload are all prepaid");
-        let ValidationFailure::Refused(refusal) = &ample else { panic!("semantic refusal: {ample:?}"); };
+        assert_eq!(
+            requested,
+            budget.read_storage_consumed(),
+            "scratch, pointer, node identity and refusal payload are all prepaid"
+        );
+        let ValidationFailure::Refused(refusal) = &ample else {
+            panic!("semantic refusal: {ample:?}");
+        };
         assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
-        assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::MissingSelection));
-        assert_eq!(refusal.loci[0].path.as_ref().map(JsonPointer::as_str), Some("/semantic_graph/nodes/5/body/package"));
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::MissingSelection)
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(JsonPointer::as_str),
+            Some("/semantic_graph/nodes/5/body/package")
+        );
         assert_eq!(refusal.locus.as_ref(), Some(&node.node_id));
         let total = budget.read_storage_consumed();
         let (exact, exact_budget, exact_requested) = observe(total);
@@ -1294,13 +1336,28 @@ mod allocation_tests {
         assert_eq!(short_budget, repeat_budget);
         assert_eq!(short_requested, repeat_requested);
         assert_eq!(short_requested, short_budget.read_storage_consumed());
-        assert!(matches!(short, ValidationFailure::Budget(_)), "a short payload cannot produce an unpaid refusal");
-        assert_eq!(short_budget.take_pending(), Some(CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::MissingDeclaration)));
+        assert!(
+            matches!(short, ValidationFailure::Budget(_)),
+            "a short payload cannot produce an unpaid refusal"
+        );
+        assert_eq!(
+            short_budget.take_pending(),
+            Some(CheckedPackagePendingOutcome::Refused(
+                CheckedPackageRefusalCode::MissingDeclaration
+            ))
+        );
         let walk_blocks = std::mem::size_of::<super::Step>()
             + std::mem::size_of::<(&super::CheckedTerm, usize, bool)>();
-        let (_, mut scratch_denied, scratch_requested) = observe(u64::try_from(walk_blocks).expect("bounded walk blocks"));
+        let (_, mut scratch_denied, scratch_requested) =
+            observe(u64::try_from(walk_blocks).expect("bounded walk blocks"));
         assert_eq!(scratch_requested, scratch_denied.read_storage_consumed());
-        assert_eq!(scratch_denied.take_pending(), Some(CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::MissingDeclaration)), "scratch denial retains the same pending semantic outcome");
+        assert_eq!(
+            scratch_denied.take_pending(),
+            Some(CheckedPackagePendingOutcome::Refused(
+                CheckedPackageRefusalCode::MissingDeclaration
+            )),
+            "scratch denial retains the same pending semantic outcome"
+        );
     }
 
     #[ix_trace_rs::trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
@@ -1308,10 +1365,25 @@ mod allocation_tests {
     fn reference_work_denial_retains_the_first_charge_and_prepays_its_pointer() {
         use super::{Budget, Place, Segment, Step};
         use crate::checked_package::v2::native_join_budget::NativeJoinChargeKind;
-        let steps = [Step { parent: None, segment: Segment::Body },
-            Step { parent: Some(0), segment: Segment::Arguments(2) },
-            Step { parent: Some(1), segment: Segment::Value }];
-        let at = Place { steps: &steps, step: 2, position: 5 };
+        let steps = [
+            Step {
+                parent: None,
+                segment: Segment::Body,
+            },
+            Step {
+                parent: Some(0),
+                segment: Segment::Arguments(2),
+            },
+            Step {
+                parent: Some(1),
+                segment: Segment::Value,
+            },
+        ];
+        let at = Place {
+            steps: &steps,
+            step: 2,
+            position: 5,
+        };
         let observe = |limit| {
             let mut budget = NativeJoinBudget::new(0, u64::MAX).with_read_storage_limit(limit);
             let mut result = None;
@@ -1319,19 +1391,37 @@ mod allocation_tests {
                 let mut meter = WorkMeter::over(&mut budget);
                 let mut source = Budget::node(&mut meter, 5);
                 result = Some(at.charge(7, &mut source, "expression"));
-            }).bytes_total;
-            (result.expect("work probe ran").expect_err("work is exhausted"), budget, requested)
+            })
+            .bytes_total;
+            (
+                result
+                    .expect("work probe ran")
+                    .expect_err("work is exhausted"),
+                budget,
+                requested,
+            )
         };
         let (ample, budget, requested) = observe(u64::MAX);
         assert_eq!(requested, budget.read_storage_consumed());
         let first = budget.first_unpaid().expect("first work charge");
         assert_eq!((first.kind, first.amount), (NativeJoinChargeKind::Work, 7));
         let locus = budget.first_unpaid_locus().expect("work locus");
-        assert_eq!((locus.source, locus.form), (NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 5), "expression"));
-        let ValidationFailure::Budget(stop) = &ample else { panic!("work stop: {ample:?}"); };
+        assert_eq!(
+            (locus.source, locus.form),
+            (
+                NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 5),
+                "expression"
+            )
+        );
+        let ValidationFailure::Budget(stop) = &ample else {
+            panic!("work stop: {ample:?}");
+        };
         assert_eq!(stop.resource, PackageReadResource::Work);
         assert_eq!(stop.amount, 7);
-        assert_eq!(stop.path.as_ref().map(JsonPointer::as_str), Some("/semantic_graph/nodes/5/body/arguments/2/value"));
+        assert_eq!(
+            stop.path.as_ref().map(JsonPointer::as_str),
+            Some("/semantic_graph/nodes/5/body/arguments/2/value")
+        );
         let (exact, exact_budget, exact_requested) = observe(requested);
         assert_eq!(exact, ample);
         assert_eq!(exact_requested, requested);
@@ -1344,9 +1434,13 @@ mod allocation_tests {
         assert_eq!(short_requested, short_budget.read_storage_consumed());
         assert_eq!(short_budget.first_unpaid(), Some(first));
         assert_eq!(short_budget.first_unpaid_locus(), Some(locus));
-        let ValidationFailure::Budget(stop) = short else { panic!("original work stop: {short:?}"); };
+        let ValidationFailure::Budget(stop) = short else {
+            panic!("original work stop: {short:?}");
+        };
         assert_eq!((stop.resource, stop.amount), (PackageReadResource::Work, 7));
-        assert!(stop.path.is_none(), "a short diagnostic builds neither block");
+        assert!(
+            stop.path.is_none(),
+            "a short diagnostic builds neither block"
+        );
     }
-
 }
