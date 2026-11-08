@@ -1435,7 +1435,7 @@ impl CheckedApplicationOperation {
 
         Ok(Self {
             record: Box::new(CheckedApplicationOperationRecord {
-                identity: fixture.identity.map(Into::into),
+                identity: fixture.identity,
                 laws,
                 mode: fixture
                     .mode
