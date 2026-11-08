@@ -373,8 +373,8 @@ pub(super) fn walk<W: quire_walk::Walk + ?Sized>(
     quire_walk::walk_reserved(walker, root, reservation).map_err(|_| meter.denial())
 }
 
-/// Runs `walk` with a reservation that charges nothing. To be deleted with
-/// its two `refinement.rs` callers when that file moves to the node views.
+/// Runs a test-only term oracle with an unlimited reservation.
+#[cfg(test)]
 pub(super) fn with_unmetered_walk<R>(walk: impl FnOnce(&mut WalkReservation<'_>) -> R) -> R {
     let mut budget = NativeJoinBudget::unlimited();
     let meter = Meter::new(&mut budget);

@@ -70,8 +70,10 @@ fn node_path(position: usize) -> Path {
         .key("nodes")
         .index(position)
 }
+// The first malformed position stays on the caller stack until the final
+// closed-schema remapping is known; no intermediate refusal is allocated.
 enum WireFailure {
-    Malformed(Path),
+    Malformed,
     Storage(ValidationFailure),
 }
 impl From<ValidationFailure> for WireFailure {
@@ -79,8 +81,9 @@ impl From<ValidationFailure> for WireFailure {
         Self::Storage(failure)
     }
 }
-fn malformed(at: impl Into<Path>) -> WireFailure {
-    WireFailure::Malformed(at.into())
+fn malformed(at: impl Into<Path>, failure_at: &mut Path) -> WireFailure {
+    *failure_at = at.into();
+    WireFailure::Malformed
 }
 
 /// The selected model of a package identity.
@@ -133,16 +136,17 @@ fn aggregate<'a>(
     at: &Path,
     budget: &mut NativeJoinBudget,
     site: Site,
+    failure_at: &mut Path,
 ) -> Result<Vec<TermNode<'a>>, WireFailure> {
     if !value.exact_members(&["term", "members"])
         || value.kind() != Some(super::BodyTerm::Aggregate)
     {
-        return Err(malformed(at));
+        return Err(malformed(at, failure_at));
     }
     let items = value
         .get("members")
         .and_then(TermNode::items)
-        .ok_or_else(|| malformed(at.key("members")))?;
+        .ok_or_else(|| malformed(at.key("members"), failure_at))?;
     let mut members = Vec::new();
     read_charge::reserve(budget, site, &mut members, items.len())?;
     members.extend(items);
@@ -155,10 +159,11 @@ fn bindings<'a>(
     at: &Path,
     budget: &mut NativeJoinBudget,
     site: Site,
+    failure_at: &mut Path,
 ) -> Result<Vec<(TermNode<'a>, Path)>, WireFailure> {
-    let members = aggregate(value, at, budget, site)?;
+    let members = aggregate(value, at, budget, site, failure_at)?;
     if members.len() != names.len() {
-        return Err(malformed(at.key("members")));
+        return Err(malformed(at.key("members"), failure_at));
     }
     let mut result = Vec::new();
     read_charge::reserve(budget, site, &mut result, names.len())?;
@@ -169,7 +174,7 @@ fn bindings<'a>(
                 name: actual,
                 value,
             }) if actual == *name => (value, member_at.key("value")),
-            _ => return Err(malformed(member_at)),
+            _ => return Err(malformed(member_at, failure_at)),
         };
         result.push(binding);
     }
@@ -181,41 +186,54 @@ fn possible_binding_value<'a>(value: &TermNode<'a>) -> Option<TermNode<'a>> {
 }
 
 #[ix_trace_rs::string_edge]
-fn reference(value: TermNode<'_>, at: &Path) -> Result<(), WireFailure> {
+fn reference(value: TermNode<'_>, at: &Path, failure_at: &mut Path) -> Result<(), WireFailure> {
     match value.view() {
         Some(super::TermView::Reference { .. }) => Ok(()),
-        _ => Err(malformed(at)),
+        _ => Err(malformed(at, failure_at)),
     }
 }
 
-fn literal<'a>(value: TermNode<'a>, kind: &str, at: &Path) -> Result<TermNode<'a>, WireFailure> {
+fn literal<'a>(
+    value: TermNode<'a>,
+    kind: &str,
+    at: &Path,
+    failure_at: &mut Path,
+) -> Result<TermNode<'a>, WireFailure> {
     match value.view() {
         Some(super::TermView::Literal {
             value_kind, value, ..
         }) if Some(value_kind) == LiteralKind::from_wire(kind) => Ok(value),
-        _ => Err(malformed(at)),
+        _ => Err(malformed(at, failure_at)),
     }
 }
 
-fn text<'a>(value: TermNode<'a>, at: &Path) -> Result<&'a str, WireFailure> {
-    literal(value, "text", at)?
+fn text<'a>(value: TermNode<'a>, at: &Path, failure_at: &mut Path) -> Result<&'a str, WireFailure> {
+    literal(value, "text", at, failure_at)?
         .as_str()
-        .ok_or_else(|| malformed(at.key("value")))
+        .ok_or_else(|| malformed(at.key("value"), failure_at))
 }
 
-fn word(value: TermNode<'_>, words: &[&str], at: &Path) -> Result<(), WireFailure> {
-    if words.contains(&text(value, at)?) {
+fn word(
+    value: TermNode<'_>,
+    words: &[&str],
+    at: &Path,
+    failure_at: &mut Path,
+) -> Result<(), WireFailure> {
+    if words.contains(&text(value, at, failure_at)?) {
         Ok(())
     } else {
-        Err(malformed(at.key("value")))
+        Err(malformed(at.key("value"), failure_at))
     }
 }
 
-fn integer(value: TermNode<'_>, at: &Path) -> Result<(), WireFailure> {
-    if literal(value, "integer", at)?.as_u64().is_some() {
+fn integer(value: TermNode<'_>, at: &Path, failure_at: &mut Path) -> Result<(), WireFailure> {
+    if literal(value, "integer", at, failure_at)?
+        .as_u64()
+        .is_some()
+    {
         Ok(())
     } else {
-        Err(malformed(at.key("value")))
+        Err(malformed(at.key("value"), failure_at))
     }
 }
 
@@ -244,14 +262,19 @@ impl<'a> ExactMagnitude<'a> {
     }
 }
 
-fn magnitude(value: TermNode<'_>, kind: &str, at: &Path) -> Result<(), WireFailure> {
-    let Some(spelling) = literal(value, kind, at)?.as_str() else {
-        return Err(malformed(at.key("value")));
+fn magnitude(
+    value: TermNode<'_>,
+    kind: &str,
+    at: &Path,
+    failure_at: &mut Path,
+) -> Result<(), WireFailure> {
+    let Some(spelling) = literal(value, kind, at, failure_at)?.as_str() else {
+        return Err(malformed(at.key("value"), failure_at));
     };
     if ExactMagnitude::from_wire(spelling).is_some() {
         Ok(())
     } else {
-        Err(malformed(at.key("value")))
+        Err(malformed(at.key("value"), failure_at))
     }
 }
 
@@ -260,9 +283,13 @@ fn references(
     at: &Path,
     budget: &mut NativeJoinBudget,
     site: Site,
+    failure_at: &mut Path,
 ) -> Result<(), WireFailure> {
-    for (index, member) in aggregate(value, at, budget, site)?.into_iter().enumerate() {
-        reference(member, &at.key("members").index(index))?;
+    for (index, member) in aggregate(value, at, budget, site, failure_at)?
+        .into_iter()
+        .enumerate()
+    {
+        reference(member, &at.key("members").index(index), failure_at)?;
     }
     Ok(())
 }
@@ -272,31 +299,32 @@ fn path(
     at: &Path,
     budget: &mut NativeJoinBudget,
     site: Site,
+    failure_at: &mut Path,
 ) -> Result<(), WireFailure> {
-    let steps = aggregate(value, at, budget, site)?;
-    if steps.len() == 0 {
-        return Err(malformed(at.key("members")));
+    let steps = aggregate(value, at, budget, site, failure_at)?;
+    if steps.is_empty() {
+        return Err(malformed(at.key("members"), failure_at));
     }
     for (index, step) in steps.iter().copied().enumerate() {
         let step_at = at.key("members").index(index);
-        let members = aggregate(step, &step_at, budget, site)?;
+        let members = aggregate(step, &step_at, budget, site, failure_at)?;
         let kind_at = step_at.key("members").index(0).key("value");
         let kind = members
             .first()
             .and_then(possible_binding_value)
-            .ok_or_else(|| malformed(step_at))?;
-        match PathStepKind::from_wire(text(kind, &kind_at)?) {
+            .ok_or_else(|| malformed(step_at, failure_at))?;
+        match PathStepKind::from_wire(text(kind, &kind_at, failure_at)?) {
             Some(PathStepKind::Field) => {
-                let b = bindings(step, &["kind", "name"], &step_at, budget, site)?;
-                text(b[1].0, &b[1].1)?;
+                let b = bindings(step, &["kind", "name"], &step_at, budget, site, failure_at)?;
+                text(b[1].0, &b[1].1, failure_at)?;
             }
             Some(PathStepKind::Tuple) => {
-                let b = bindings(step, &["kind", "index"], &step_at, budget, site)?;
-                integer(b[1].0, &b[1].1)?;
+                let b = bindings(step, &["kind", "index"], &step_at, budget, site, failure_at)?;
+                integer(b[1].0, &b[1].1, failure_at)?;
             }
             Some(PathStepKind::Union) => {
-                let b = bindings(step, &["kind", "case"], &step_at, budget, site)?;
-                text(b[1].0, &b[1].1)?;
+                let b = bindings(step, &["kind", "case"], &step_at, budget, site, failure_at)?;
+                text(b[1].0, &b[1].1, failure_at)?;
             }
             Some(PathStepKind::Slot) => {
                 let b = bindings(
@@ -305,18 +333,20 @@ fn path(
                     &step_at,
                     budget,
                     site,
+                    failure_at,
                 )?;
                 word(
                     b[1].0,
                     &["sequence", "map", "set", "bag", "ordered_set"],
                     &b[1].1,
+                    failure_at,
                 )?;
                 if matches!(b[2].0.view(), Some(super::TermView::Reference { .. })) {
-                    reference(b[2].0, &b[2].1)?;
+                    reference(b[2].0, &b[2].1, failure_at)?;
                 } else {
-                    integer(b[2].0, &b[2].1)?;
+                    integer(b[2].0, &b[2].1, failure_at)?;
                 }
-                integer(b[3].0, &b[3].1)?;
+                integer(b[3].0, &b[3].1, failure_at)?;
                 if matches!(
                     b[4].0.view(),
                     Some(super::TermView::Literal {
@@ -324,12 +354,12 @@ fn path(
                         ..
                     })
                 ) {
-                    word(b[4].0, &["unbounded"], &b[4].1)?;
+                    word(b[4].0, &["unbounded"], &b[4].1, failure_at)?;
                 } else {
-                    integer(b[4].0, &b[4].1)?;
+                    integer(b[4].0, &b[4].1, failure_at)?;
                 }
             }
-            _ => return Err(malformed(kind_at.key("value"))),
+            _ => return Err(malformed(kind_at.key("value"), failure_at)),
         }
     }
     Ok(())
@@ -343,12 +373,14 @@ pub(super) fn check_wire(
     position: usize,
     budget: &mut NativeJoinBudget,
 ) -> Result<(), ValidationFailure> {
-    check_wire_shape(node, form, position, budget).map_err(|failure| match failure {
+    let mut failure_at = node_path(position);
+    check_wire_shape(node, form, position, budget, &mut failure_at).map_err(|failure| match failure
+    {
         WireFailure::Storage(failure) => failure,
-        WireFailure::Malformed(at) => stage_storage::refuse(
+        WireFailure::Malformed => stage_storage::refuse(
             &mut WorkMeter::over(budget),
-            &at.site(),
-            Refusal::new(CheckedPackageRefusalCode::MalformedWire, at.trail()),
+            &failure_at.site(),
+            Refusal::new(CheckedPackageRefusalCode::MalformedWire, failure_at.trail()),
         ),
     })
 }
@@ -358,30 +390,31 @@ fn check_wire_shape(
     form: TimedModelForm,
     position: usize,
     budget: &mut NativeJoinBudget,
+    failure_at: &mut Path,
 ) -> Result<(), WireFailure> {
     let site = Site::new(super::PackageReadStage::WireChecks, position, "timed_model");
     let mut at = node_path(position);
     at.stage = super::PackageReadStage::WireChecks;
     if node.recursion_group.is_some() {
-        return Err(malformed(at.key("recursion_group")));
+        return Err(malformed(at.key("recursion_group"), failure_at));
     }
     let root = form == TimedModelForm::Model;
     if root {
         if node.owner.is_none() || node.declaration.is_none() {
-            return Err(malformed(at));
+            return Err(malformed(at, failure_at));
         }
         if node.occurrences.len() != 1 {
-            return Err(malformed(at.key("occurrences")));
+            return Err(malformed(at.key("occurrences"), failure_at));
         }
     } else {
         if node.owner.is_some() {
-            return Err(malformed(at.key("owner")));
+            return Err(malformed(at.key("owner"), failure_at));
         }
         if node.declaration.is_some() {
-            return Err(malformed(at.key("declaration")));
+            return Err(malformed(at.key("declaration"), failure_at));
         }
         if node.occurrences.is_empty() {
-            return Err(malformed(at.key("occurrences")));
+            return Err(malformed(at.key("occurrences"), failure_at));
         }
     }
     let role = if root {
@@ -391,7 +424,10 @@ fn check_wire_shape(
     };
     for (index, occurrence) in node.occurrences.iter().enumerate() {
         if occurrence.role != role {
-            return Err(malformed(at.key("occurrences").index(index).key("role")));
+            return Err(malformed(
+                at.key("occurrences").index(index).key("role"),
+                failure_at,
+            ));
         }
     }
     let body_at = at.key("body");
@@ -414,25 +450,26 @@ fn check_wire_shape(
                 &body_at,
                 budget,
                 site,
+                failure_at,
             )?;
-            reference(b[0].0, &b[0].1)?;
-            reference(b[1].0, &b[1].1)?;
-            reference(b[2].0, &b[2].1)?;
+            reference(b[0].0, &b[0].1, failure_at)?;
+            reference(b[1].0, &b[1].1, failure_at)?;
+            reference(b[2].0, &b[2].1, failure_at)?;
             for (value, at) in &b[3..] {
-                references(*value, at, budget, site)?;
+                references(*value, at, budget, site, failure_at)?;
             }
         }
         TimedModelForm::Source => {
-            let members = aggregate(body, &body_at, budget, site)?;
+            let members = aggregate(body, &body_at, budget, site, failure_at)?;
             let kind_at = body_at.key("members").index(0).key("value");
             let kind = members
                 .first()
                 .and_then(possible_binding_value)
-                .ok_or_else(|| malformed(body_at))?;
-            match TimeSourceKind::from_wire(text(kind, &kind_at)?) {
+                .ok_or_else(|| malformed(body_at, failure_at))?;
+            match TimeSourceKind::from_wire(text(kind, &kind_at, failure_at)?) {
                 Some(TimeSourceKind::Dense) => {
-                    let b = bindings(body, &["kind", "unit"], &body_at, budget, site)?;
-                    reference(b[1].0, &b[1].1)?;
+                    let b = bindings(body, &["kind", "unit"], &body_at, budget, site, failure_at)?;
+                    reference(b[1].0, &b[1].1, failure_at)?;
                 }
                 Some(TimeSourceKind::Tick) => {
                     let b = bindings(
@@ -441,13 +478,14 @@ fn check_wire_shape(
                         &body_at,
                         budget,
                         site,
+                        failure_at,
                     )?;
-                    reference(b[1].0, &b[1].1)?;
-                    reference(b[2].0, &b[2].1)?;
-                    reference(b[3].0, &b[3].1)?;
-                    magnitude(b[4].0, "rational", &b[4].1)?;
+                    reference(b[1].0, &b[1].1, failure_at)?;
+                    reference(b[2].0, &b[2].1, failure_at)?;
+                    reference(b[3].0, &b[3].1, failure_at)?;
+                    magnitude(b[4].0, "rational", &b[4].1, failure_at)?;
                 }
-                _ => return Err(malformed(kind_at.key("value"))),
+                _ => return Err(malformed(kind_at.key("value"), failure_at)),
             }
         }
         TimedModelForm::Place => {
@@ -457,14 +495,15 @@ fn check_wire_shape(
                 &body_at,
                 budget,
                 site,
+                failure_at,
             )
             .map_err(|failure| match failure {
-                WireFailure::Malformed(_) => malformed(body_at),
+                WireFailure::Malformed => malformed(body_at, failure_at),
                 other => other,
             })?;
-            reference(b[0].0, &b[0].1)?;
-            path(b[1].0, &b[1].1, budget, site)?;
-            let rows = aggregate(b[2].0, &b[2].1, budget, site)?;
+            reference(b[0].0, &b[0].1, failure_at)?;
+            path(b[1].0, &b[1].1, budget, site, failure_at)?;
+            let rows = aggregate(b[2].0, &b[2].1, budget, site, failure_at)?;
             for (index, row) in rows.iter().copied().enumerate() {
                 let row_at = b[2].1.key("members").index(index);
                 let fields = bindings(
@@ -481,21 +520,22 @@ fn check_wire_shape(
                     &row_at,
                     budget,
                     site,
+                    failure_at,
                 )?;
-                integer(fields[0].0, &fields[0].1)?;
+                integer(fields[0].0, &fields[0].1, failure_at)?;
                 for (value, at) in &fields[1..] {
-                    text(*value, at)?;
+                    text(*value, at, failure_at)?;
                 }
             }
         }
         TimedModelForm::Reset => {
-            let members = aggregate(body, &body_at, budget, site)?;
+            let members = aggregate(body, &body_at, budget, site, failure_at)?;
             let kind_at = body_at.key("members").index(0).key("value");
             let kind = members
                 .first()
                 .and_then(possible_binding_value)
-                .ok_or_else(|| malformed(body_at))?;
-            match text(kind, &kind_at)? {
+                .ok_or_else(|| malformed(body_at, failure_at))?;
+            match text(kind, &kind_at, failure_at)? {
                 "place" => {
                     let b = bindings(
                         body,
@@ -512,18 +552,19 @@ fn check_wire_shape(
                         &body_at,
                         budget,
                         site,
+                        failure_at,
                     )
                     .map_err(|failure| match failure {
-                        WireFailure::Malformed(_) => malformed(body_at),
+                        WireFailure::Malformed => malformed(body_at, failure_at),
                         other => other,
                     })?;
-                    reference(b[1].0, &b[1].1)?;
-                    reference(b[2].0, &b[2].1)?;
-                    reference(b[3].0, &b[3].1)?;
-                    references(b[4].0, &b[4].1, budget, site)?;
-                    references(b[5].0, &b[5].1, budget, site)?;
-                    reference(b[6].0, &b[6].1)?;
-                    magnitude(b[7].0, "quantity", &b[7].1)?;
+                    reference(b[1].0, &b[1].1, failure_at)?;
+                    reference(b[2].0, &b[2].1, failure_at)?;
+                    reference(b[3].0, &b[3].1, failure_at)?;
+                    references(b[4].0, &b[4].1, budget, site, failure_at)?;
+                    references(b[5].0, &b[5].1, budget, site, failure_at)?;
+                    reference(b[6].0, &b[6].1, failure_at)?;
+                    magnitude(b[7].0, "quantity", &b[7].1, failure_at)?;
                 }
                 "parameter" => {
                     let b = bindings(
@@ -532,30 +573,38 @@ fn check_wire_shape(
                         &body_at,
                         budget,
                         site,
+                        failure_at,
                     )
                     .map_err(|failure| match failure {
-                        WireFailure::Malformed(_) => malformed(body_at),
+                        WireFailure::Malformed => malformed(body_at, failure_at),
                         other => other,
                     })?;
-                    reference(b[1].0, &b[1].1)?;
-                    text(b[2].0, &b[2].1)?;
-                    magnitude(b[3].0, "quantity", &b[3].1)?;
+                    reference(b[1].0, &b[1].1, failure_at)?;
+                    text(b[2].0, &b[2].1, failure_at)?;
+                    magnitude(b[3].0, "quantity", &b[3].1, failure_at)?;
                 }
-                _ => return Err(malformed(kind_at.key("value"))),
+                _ => return Err(malformed(kind_at.key("value"), failure_at)),
             }
         }
         TimedModelForm::Guard => {
-            let b = bindings(body, &["operation", "parts"], &body_at, budget, site)?;
-            reference(b[0].0, &b[0].1)?;
-            let parts = aggregate(b[1].0, &b[1].1, budget, site)?;
+            let b = bindings(
+                body,
+                &["operation", "parts"],
+                &body_at,
+                budget,
+                site,
+                failure_at,
+            )?;
+            reference(b[0].0, &b[0].1, failure_at)?;
+            let parts = aggregate(b[1].0, &b[1].1, budget, site, failure_at)?;
             if parts.is_empty() {
-                return Err(malformed(body_at));
+                return Err(malformed(body_at, failure_at));
             }
             for (index, part) in parts.iter().enumerate() {
                 let at = b[1].1.key("members").index(index);
-                let members = aggregate(*part, &at, budget, site)?;
+                let members = aggregate(*part, &at, budget, site, failure_at)?;
                 if members.len() < 2 {
-                    return Err(malformed(body_at));
+                    return Err(malformed(body_at, failure_at));
                 }
                 // A part starts with its predicate, may bind quantified slots, then names constraints.
                 let first_at = at.key("members").index(0);
@@ -564,33 +613,37 @@ fn check_wire_shape(
                         name: "predicate",
                         value,
                     }) => value,
-                    _ => return Err(malformed(first_at)),
+                    _ => return Err(malformed(first_at, failure_at)),
                 };
-                reference(predicate, &first_at.key("value"))?;
+                reference(predicate, &first_at.key("value"), failure_at)?;
                 let first_constraint = match members.get(1).and_then(|member| member.view()) {
                     Some(super::TermView::Binding {
                         name: "binders",
                         value,
                     }) => {
                         let binders_at = at.key("members").index(1).key("value");
-                        if aggregate(value, &binders_at, budget, site)?.is_empty() {
-                            return Err(malformed(binders_at.key("members")));
+                        if aggregate(value, &binders_at, budget, site, failure_at)?.is_empty() {
+                            return Err(malformed(binders_at.key("members"), failure_at));
                         }
-                        references(value, &binders_at, budget, site)?;
+                        references(value, &binders_at, budget, site, failure_at)?;
                         2
                     }
                     _ => 1,
                 };
                 if members.len() <= first_constraint {
-                    return Err(malformed(body_at));
+                    return Err(malformed(body_at, failure_at));
                 }
                 for (reference_index, member) in members.iter().enumerate().skip(first_constraint) {
-                    reference(*member, &at.key("members").index(reference_index))?;
+                    reference(
+                        *member,
+                        &at.key("members").index(reference_index),
+                        failure_at,
+                    )?;
                 }
             }
         }
         TimedModelForm::Invariant => {
-            let members = aggregate(body, &body_at, budget, site)?;
+            let members = aggregate(body, &body_at, budget, site, failure_at)?;
             let quantified = matches!(
                 members.get(1).and_then(|member| member.view()),
                 Some(super::TermView::Binding {
@@ -605,37 +658,62 @@ fn check_wire_shape(
                     &body_at,
                     budget,
                     site,
+                    failure_at,
                 )?
             } else {
-                bindings(body, &["predicate", "bounds"], &body_at, budget, site)?
+                bindings(
+                    body,
+                    &["predicate", "bounds"],
+                    &body_at,
+                    budget,
+                    site,
+                    failure_at,
+                )?
             };
-            reference(b[0].0, &b[0].1)?;
+            reference(b[0].0, &b[0].1, failure_at)?;
             if quantified {
-                if aggregate(b[1].0, &b[1].1, budget, site)?.is_empty() {
-                    return Err(malformed(b[1].1.key("members")));
+                if aggregate(b[1].0, &b[1].1, budget, site, failure_at)?.is_empty() {
+                    return Err(malformed(b[1].1.key("members"), failure_at));
                 }
-                references(b[1].0, &b[1].1, budget, site)?;
+                references(b[1].0, &b[1].1, budget, site, failure_at)?;
             }
             let bounds_index = if quantified { 2 } else { 1 };
-            let bounds = aggregate(b[bounds_index].0, &b[bounds_index].1, budget, site)?;
+            let bounds = aggregate(
+                b[bounds_index].0,
+                &b[bounds_index].1,
+                budget,
+                site,
+                failure_at,
+            )?;
             if bounds.is_empty() {
-                return Err(malformed(body_at));
+                return Err(malformed(body_at, failure_at));
             }
             for (index, member) in bounds.iter().enumerate() {
-                reference(*member, &b[bounds_index].1.key("members").index(index))?;
+                reference(
+                    *member,
+                    &b[bounds_index].1.key("members").index(index),
+                    failure_at,
+                )?;
             }
         }
         TimedModelForm::Urgency => {
-            let members = aggregate(body, &body_at, budget, site)?;
+            let members = aggregate(body, &body_at, budget, site, failure_at)?;
             let kind_at = body_at.key("members").index(0).key("value");
             let kind = members
                 .first()
                 .and_then(possible_binding_value)
-                .ok_or_else(|| malformed(body_at))?;
-            match UrgencyKind::from_wire(text(kind, &kind_at)?) {
+                .ok_or_else(|| malformed(body_at, failure_at))?;
+            match UrgencyKind::from_wire(text(kind, &kind_at, failure_at)?) {
                 Some(UrgencyKind::When) => {
-                    let b = bindings(body, &["kind", "predicate"], &body_at, budget, site)?;
-                    reference(b[1].0, &b[1].1)?;
+                    let b = bindings(
+                        body,
+                        &["kind", "predicate"],
+                        &body_at,
+                        budget,
+                        site,
+                        failure_at,
+                    )?;
+                    reference(b[1].0, &b[1].1, failure_at)?;
                 }
                 Some(UrgencyKind::Operation) => {
                     let b = bindings(
@@ -644,21 +722,22 @@ fn check_wire_shape(
                         &body_at,
                         budget,
                         site,
+                        failure_at,
                     )?;
-                    reference(b[1].0, &b[1].1)?;
-                    text(b[2].0, &b[2].1)?;
+                    reference(b[1].0, &b[1].1, failure_at)?;
+                    text(b[2].0, &b[2].1, failure_at)?;
                 }
-                _ => return Err(malformed(kind_at.key("value"))),
+                _ => return Err(malformed(kind_at.key("value"), failure_at)),
             }
         }
         TimedModelForm::Constraint => {
-            let members = aggregate(body, &body_at, budget, site)?;
+            let members = aggregate(body, &body_at, budget, site, failure_at)?;
             let kind_at = body_at.key("members").index(0).key("value");
             let kind = members
                 .first()
                 .and_then(possible_binding_value)
-                .ok_or_else(|| malformed(body_at))?;
-            match text(kind, &kind_at)? {
+                .ok_or_else(|| malformed(body_at, failure_at))?;
+            match text(kind, &kind_at, failure_at)? {
                 "place" => {
                     let b = bindings(
                         body,
@@ -666,17 +745,18 @@ fn check_wire_shape(
                         &body_at,
                         budget,
                         site,
+                        failure_at,
                     )?;
-                    reference(b[1].0, &b[1].1)?;
-                    reference(b[2].0, &b[2].1)?;
-                    references(b[3].0, &b[3].1, budget, site)?;
-                    word(b[4].0, &["lt", "le", "eq", "ge", "gt"], &b[4].1).map_err(|failure| {
-                        match failure {
-                            WireFailure::Malformed(_) => malformed(body_at),
+                    reference(b[1].0, &b[1].1, failure_at)?;
+                    reference(b[2].0, &b[2].1, failure_at)?;
+                    references(b[3].0, &b[3].1, budget, site, failure_at)?;
+                    word(b[4].0, &["lt", "le", "eq", "ge", "gt"], &b[4].1, failure_at).map_err(
+                        |failure| match failure {
+                            WireFailure::Malformed => malformed(body_at, failure_at),
                             other => other,
-                        }
-                    })?;
-                    magnitude(b[5].0, "quantity", &b[5].1)?;
+                        },
+                    )?;
+                    magnitude(b[5].0, "quantity", &b[5].1, failure_at)?;
                 }
                 "parameter" => {
                     let b = bindings(
@@ -685,18 +765,19 @@ fn check_wire_shape(
                         &body_at,
                         budget,
                         site,
+                        failure_at,
                     )?;
-                    reference(b[1].0, &b[1].1)?;
-                    text(b[2].0, &b[2].1)?;
-                    word(b[3].0, &["lt", "le", "eq", "ge", "gt"], &b[3].1).map_err(|failure| {
-                        match failure {
-                            WireFailure::Malformed(_) => malformed(body_at),
+                    reference(b[1].0, &b[1].1, failure_at)?;
+                    text(b[2].0, &b[2].1, failure_at)?;
+                    word(b[3].0, &["lt", "le", "eq", "ge", "gt"], &b[3].1, failure_at).map_err(
+                        |failure| match failure {
+                            WireFailure::Malformed => malformed(body_at, failure_at),
                             other => other,
-                        }
-                    })?;
-                    magnitude(b[4].0, "quantity", &b[4].1)?;
+                        },
+                    )?;
+                    magnitude(b[4].0, "quantity", &b[4].1, failure_at)?;
                 }
-                _ => return Err(malformed(kind_at.key("value"))),
+                _ => return Err(malformed(kind_at.key("value"), failure_at)),
             }
         }
     }
@@ -1620,6 +1701,72 @@ fn frame_writes_clock(
     Ok(false)
 }
 
+fn canonical_value_bytes(
+    value: &super::CheckedJson,
+    meter: &mut WorkMeter,
+    at: &Path,
+) -> Result<Option<Vec<u8>>, ValidationFailure> {
+    let site = at.site();
+    let limits = quire_canonical::Limits::new(u64::MAX);
+    let mut count = stage_storage::CountingSink::default();
+    let mut charges = stage_storage::WriterCharges::new(meter, site);
+    let encoded = quire_canonical::encode_with_reservation(&mut count, value, limits, &mut charges);
+    if let Some(failure) = charges.failure.take() {
+        return Err(failure);
+    }
+    if encoded.is_err() {
+        return Ok(None);
+    }
+    let mut bytes: Vec<u8> = stage_storage::vec(meter, &site, count.0)?;
+    let mut charges = stage_storage::WriterCharges::new(meter, site);
+    let encoded = quire_canonical::encode_with_reservation(&mut bytes, value, limits, &mut charges);
+    if let Some(failure) = charges.failure.take() {
+        return Err(failure);
+    }
+    Ok(encoded.ok().map(|_| bytes))
+}
+
+// Canonical scalar equality reads the retained values directly. The closed
+// path schema uses text and nonnegative integers; the paid fallback preserves
+// the same canonical-encoding equality for other retained JSON shapes.
+fn same_literal_value(
+    left: &super::CheckedJson,
+    right: &super::CheckedJson,
+    meter: &mut WorkMeter,
+    at: &Path,
+) -> Result<bool, ValidationFailure> {
+    use quire_canonical::Node;
+    match (left.node().node(), right.node().node()) {
+        (Node::Null, Node::Null) => Ok(true),
+        (Node::Bool(left), Node::Bool(right)) => Ok(left == right),
+        (Node::Number(left), Node::Number(right)) => {
+            // Match CheckedJson's canonical encoder: exact integer tokens
+            // past 2^53 are refused before any rounded double is compared.
+            let encodable = |text: &str, value: f64| match text.parse::<i128>() {
+                Ok(integer) => integer.unsigned_abs() <= (1_u128 << 53),
+                Err(_) => {
+                    value.is_finite()
+                        && !(value.fract() == 0.0 && value.abs() > 9_007_199_254_740_992.0)
+                }
+            };
+            Ok(encodable(left.text(), left.value())
+                && encodable(right.text(), right.value())
+                && left.value() == right.value())
+        }
+        (Node::String(left), Node::String(right)) => Ok(left == right),
+        (Node::Array(_), Node::Array(_)) | (Node::Object(_), Node::Object(_)) => Ok(
+            match (
+                canonical_value_bytes(left, meter, at)?,
+                canonical_value_bytes(right, meter, at)?,
+            ) {
+                (Some(left), Some(right)) => left == right,
+                _ => false,
+            },
+        ),
+        _ => Ok(false),
+    }
+}
+
 /// Compare the retained path terms exactly, charging each actual term visit.
 fn same_place_path(
     left: &CheckedTerm,
@@ -1676,7 +1823,7 @@ fn same_place_path(
             ) => {
                 if !meter.compare_ids(left_type, right_type)?.is_eq()
                     || left_kind != right_kind
-                    || left != right
+                    || !same_literal_value(left, right, meter, at)?
                 {
                     return Ok(false);
                 }
@@ -1738,7 +1885,7 @@ fn check_quantified_binders(
             .enumerate()
             .map(|(position, id)| (*id, position)),
     );
-    let mut order = paid_id_order(slots.iter().copied(), slots.len(), graph.nodes.len(), meter)?;
+    let mut order = paid_id_order(slots.iter().copied(), slots.len(), meter)?;
     slot_positions.sort_unstable_by(|left, right| {
         order
             .compare_bounded(left.0, right.0)
@@ -2258,6 +2405,38 @@ fn comparison_rank(value: &str) -> Option<u64> {
 
 /// A source-map entry may add an earlier region to an existing node. Keep
 /// the minimum across every occurrence and region, independently of node id.
+fn search_id_refs(
+    rows: &[&CheckedNodeId],
+    target: &CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<Result<usize, usize>, ValidationFailure> {
+    let mut lower = 0;
+    let mut upper = rows.len();
+    while lower < upper {
+        let middle = lower + (upper - lower) / 2;
+        match meter.compare_ids(rows[middle], target)? {
+            Ordering::Less => lower = middle + 1,
+            Ordering::Equal => return Ok(Ok(middle)),
+            Ordering::Greater => upper = middle,
+        }
+    }
+    Ok(Err(lower))
+}
+fn insert_id_ref<'a>(
+    rows: &mut Vec<&'a CheckedNodeId>,
+    target: &'a CheckedNodeId,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    match search_id_refs(rows, target, meter)? {
+        Ok(_) => Ok(false),
+        Err(position) => {
+            meter.room(rows, 1)?;
+            rows.insert(position, target);
+            Ok(true)
+        }
+    }
+}
+
 fn matches_id(
     actual: Option<&CheckedNodeId>,
     expected: &CheckedNodeId,
@@ -2290,21 +2469,81 @@ fn find_id<T>(
     }
 }
 
-// Authenticated identities are graph DAGs: every nested node operand names
-// another node, so the complete graph bounds the comparison continuation.
-fn paid_id_order<'a>(
+// The depth belongs to the retained identities themselves, including any
+// foreign-package operands. Memoizing by borrowed address visits a shared DAG
+// only once; both traversal scratch vectors are paid before each growth.
+fn identity_depth<'a>(
     ids: impl Iterator<Item = &'a CheckedNodeId>,
+    meter: &mut WorkMeter,
+) -> Result<usize, ValidationFailure> {
+    struct Frame<'a> {
+        id: &'a CheckedNodeId,
+        next: usize,
+        depth: usize,
+    }
+    let mut pending: Vec<Frame<'a>> = Vec::new();
+    let mut depths: Vec<(*const CheckedNodeId, usize)> = Vec::new();
+    let mut maximum = 0;
+    for id in ids {
+        if let Ok(position) = depths.binary_search_by_key(&std::ptr::from_ref(id), |row| row.0) {
+            maximum = maximum.max(depths[position].1);
+            continue;
+        }
+        meter.push(
+            &mut pending,
+            Frame {
+                id,
+                next: 0,
+                depth: 0,
+            },
+        )?;
+        while let Some(frame) = pending.last_mut() {
+            if let Some(segment) = frame.id.path.get(frame.next) {
+                frame.next += 1;
+                if let CheckedNodePathSegment::Node(child) = segment {
+                    match depths.binary_search_by_key(&std::sync::Arc::as_ptr(child), |row| row.0) {
+                        Ok(position) => {
+                            frame.depth = frame.depth.max(depths[position].1.saturating_add(1))
+                        }
+                        Err(_) => meter.push(
+                            &mut pending,
+                            Frame {
+                                id: child,
+                                next: 0,
+                                depth: 0,
+                            },
+                        )?,
+                    }
+                }
+            } else {
+                let Some(frame) = pending.pop() else { break };
+                let pointer = std::ptr::from_ref(frame.id);
+                if let Err(position) = depths.binary_search_by_key(&pointer, |row| row.0) {
+                    meter.room(&mut depths, 1)?;
+                    depths.insert(position, (pointer, frame.depth));
+                }
+                maximum = maximum.max(frame.depth);
+                if let Some(parent) = pending.last_mut() {
+                    parent.depth = parent.depth.max(frame.depth.saturating_add(1));
+                }
+            }
+        }
+    }
+    Ok(maximum)
+}
+
+fn paid_id_order<'a>(
+    ids: impl Iterator<Item = &'a CheckedNodeId> + Clone,
     count: usize,
-    depth: usize,
     meter: &mut WorkMeter,
 ) -> Result<CheckedNodeIdOrder<'a>, ValidationFailure> {
     let capacity = if count > 1
-        && ids.into_iter().any(|id| {
+        && ids.clone().any(|id| {
             id.path
                 .iter()
                 .any(|step| matches!(step, CheckedNodePathSegment::Node(_)))
         }) {
-        depth
+        identity_depth(ids, meter)?
     } else {
         0
     };
@@ -2316,7 +2555,6 @@ fn paid_id_order<'a>(
 fn source_order_keys<'a>(
     source_map: &'a [CheckedSourceMapEntry],
     meter: &mut WorkMeter,
-    depth: usize,
 ) -> Result<Vec<(&'a CheckedNodeId, SourceOrderKey<'a>)>, ValidationFailure> {
     let regions = source_map.iter().fold(0_usize, |sum, entry| {
         sum.saturating_add(entry.regions.len())
@@ -2332,7 +2570,7 @@ fn source_order_keys<'a>(
             ));
         }
     }
-    let mut order = paid_id_order(keys.iter().map(|row| row.0), keys.len(), depth, meter)?;
+    let mut order = paid_id_order(keys.iter().map(|row| row.0), keys.len(), meter)?;
     keys.sort_unstable_by(|left, right| {
         order
             .compare_bounded(left.0, right.0)
@@ -2400,7 +2638,7 @@ fn check_timed_reference_order(
     source_map: &[CheckedSourceMapEntry],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let keys = source_order_keys(source_map, meter, graph.nodes.len())?;
+    let keys = source_order_keys(source_map, meter)?;
     // The positions on the reference path the key walk is on.
     let mut active = meter.filled(graph.nodes.len(), false)?;
     for position in 0..graph.nodes.len() {
@@ -2750,12 +2988,7 @@ pub(super) fn validate_models<'a>(
             }
         }
     }
-    let mut order = paid_id_order(
-        represented.iter().copied(),
-        represented.len(),
-        nodes.len(),
-        meter,
-    )?;
+    let mut order = paid_id_order(represented.iter().copied(), represented.len(), meter)?;
     represented.sort_unstable_by(|left, right| order.compare_bounded(left, right));
     represented.dedup_by(|left, right| order.compare_bounded(left, right).is_eq());
     if !roots.is_empty() {
@@ -2773,10 +3006,7 @@ pub(super) fn validate_models<'a>(
                 Path::root().key("semantic_graph").key("nodes"),
             ));
         }
-        if represented
-            .binary_search_by(|key| order.compare_bounded(key, &nodes[position].node_id))
-            .is_err()
-        {
+        if search_id_refs(&represented, &nodes[position].node_id, meter)?.is_err() {
             return Err(graph.issue(
                 meter,
                 position,
@@ -3345,15 +3575,22 @@ pub(super) fn validate_models<'a>(
         let mut listed_constraints: Vec<&CheckedNodeId> =
             meter.vec(listed.iter().filter_map(typed_target).count())?;
         listed_constraints.extend(listed.iter().filter_map(typed_target));
-        listed_constraints.sort_unstable();
-        listed_constraints.dedup();
+        let mut listed_order = paid_id_order(
+            listed_constraints.iter().copied(),
+            listed_constraints.len(),
+            meter,
+        )?;
+        listed_constraints
+            .sort_unstable_by(|left, right| listed_order.compare_bounded(left, right));
+        listed_constraints
+            .dedup_by(|left, right| listed_order.compare_bounded(left, right).is_eq());
         for guard in bound(body, 5).map(typed_members).unwrap_or_default() {
             let Some(&guard) = typed_target(guard).and_then(|id| index.get(id)) else {
                 continue;
             };
             let guard_body = graph.body(meter, guard)?;
             if let Some(anchor) = bound(guard_body, 0).and_then(typed_target) {
-                if !meter.insert_sorted(&mut anchors, anchor)? {
+                if !insert_id_ref(&mut anchors, anchor, meter)? {
                     return Err(graph.issue(
                         meter,
                         guard,
@@ -3379,7 +3616,7 @@ pub(super) fn validate_models<'a>(
                     .skip(first_constraint)
                 {
                     if let Some(target) = typed_target(member) {
-                        if listed_constraints.binary_search(&target).is_err() {
+                        if search_id_refs(&listed_constraints, target, meter)?.is_err() {
                             return Err(graph.issue(
                                 meter,
                                 guard,
@@ -3392,7 +3629,7 @@ pub(super) fn validate_models<'a>(
                                     .key("target"),
                             ));
                         }
-                        meter.insert_sorted(&mut used_constraints, target)?;
+                        insert_id_ref(&mut used_constraints, target, meter)?;
                     }
                 }
             }
@@ -3414,7 +3651,7 @@ pub(super) fn validate_models<'a>(
                 .enumerate()
             {
                 if let Some(target) = typed_target(member) {
-                    if listed_constraints.binary_search(&target).is_err() {
+                    if search_id_refs(&listed_constraints, target, meter)?.is_err() {
                         return Err(graph.issue(
                             meter,
                             invariant,
@@ -3425,7 +3662,7 @@ pub(super) fn validate_models<'a>(
                                 .key("target"),
                         ));
                     }
-                    meter.insert_sorted(&mut used_constraints, target)?;
+                    insert_id_ref(&mut used_constraints, target, meter)?;
                 }
             }
         }
@@ -3435,9 +3672,11 @@ pub(super) fn validate_models<'a>(
             .iter()
             .enumerate()
         {
-            if typed_target(constraint)
-                .is_some_and(|target| used_constraints.binary_search(&target).is_err())
-            {
+            let unused = match typed_target(constraint) {
+                Some(target) => search_id_refs(&used_constraints, target, meter)?.is_err(),
+                None => false,
+            };
+            if unused {
                 return Err(graph.issue(
                     meter,
                     root,
@@ -3500,10 +3739,16 @@ mod tests {
     use std::path::Path as FilePath;
 
     fn published_timed_nodes() -> Vec<(usize, CheckedSemanticNodeV2, TimedModelForm)> {
+        published_timed_nodes_from("fixtures/positive-tick-timed-model-nodes.json")
+    }
+    fn published_timed_nodes_from(
+        relative: &str,
+    ) -> Vec<(usize, CheckedSemanticNodeV2, TimedModelForm)> {
         let root = std::env::var("QUIRE_SPECIFICATION_DIR").expect("published QSpec checkout");
         let bytes = std::fs::read(
             FilePath::new(&root)
-                .join("proposals/checked-package-v2/fixtures/positive-tick-timed-model-nodes.json"),
+                .join("proposals/checked-package-v2")
+                .join(relative),
         )
         .expect("published tick timed model");
         let wire: super::super::RawCheckedPackageWireV2 =
@@ -3558,6 +3803,209 @@ mod tests {
 
     #[trace("TC-472", "FR-038-AC-511")]
     #[test]
+    fn every_published_slot_wire_shape_prepays_its_actual_requests() {
+        let root = std::env::var("QUIRE_SPECIFICATION_DIR").expect("published QSpec checkout");
+        let vectors: Value = serde_json::from_slice(
+            &std::fs::read(
+                FilePath::new(&root)
+                    .join("proposals/checked-package-v2/timed-slot-selector-vectors.json"),
+            )
+            .expect("published selector vectors"),
+        )
+        .expect("vector JSON");
+        let nodes = published_timed_nodes_from(
+            vectors["selected_package"]
+                .as_str()
+                .expect("published selected package reference"),
+        );
+        assert!(nodes
+            .iter()
+            .any(|(_, _, form)| *form == TimedModelForm::Place));
+        assert!(nodes
+            .iter()
+            .any(|(_, _, form)| *form == TimedModelForm::Guard));
+        for (position, node, form) in &nodes {
+            let run = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    result = Some(check_wire(node, *form, *position, &mut budget))
+                });
+                (result.expect("ran"), allocated.bytes_total, budget)
+            };
+            let (result, allocated, budget) = run(u64::MAX);
+            assert!(
+                result.is_ok(),
+                "published node {position} {form:?}: {result:?}"
+            );
+            assert_eq!(
+                allocated,
+                budget.read_storage_consumed(),
+                "wire node {position} {form:?}"
+            );
+            assert!(allocated > 0);
+            assert!(run(allocated).0.is_ok(), "exact wire node {position}");
+            for limit in [allocated - 1, 0] {
+                let (result, actual, budget) = run(limit);
+                assert!(
+                    matches!(result, Err(ValidationFailure::Budget(_))),
+                    "short wire node {position}"
+                );
+                assert_eq!(
+                    actual,
+                    budget.read_storage_consumed(),
+                    "short wire node {position}"
+                );
+            }
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn published_clock_place_semantic_paths_prepay_every_actual_request() {
+        let root = std::env::var("QUIRE_SPECIFICATION_DIR").expect("published QSpec checkout");
+        let proposal = FilePath::new(&root).join("proposals/checked-package-v2");
+        let vectors: Value = serde_json::from_slice(
+            &std::fs::read(proposal.join("timed-slot-selector-vectors.json"))
+                .expect("published slot vectors"),
+        )
+        .expect("vector JSON");
+        let mut wire: super::super::RawCheckedPackageWireV2 = serde_json::from_slice(
+            &std::fs::read(
+                proposal.join(
+                    vectors["selected_package"]
+                        .as_str()
+                        .expect("published package reference"),
+                ),
+            )
+            .expect("published slot package"),
+        )
+        .expect("wire JSON");
+        let selected: Value = serde_json::from_slice(
+            &std::fs::read(proposal.join("domain-package-acme-timed-slots.json"))
+                .expect("original selected model"),
+        )
+        .expect("selected JSON");
+        let models = [super::super::model_members::tests::read(&selected)
+            .expect("original selected model intake")];
+        let bodies: Vec<_> = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| node.body.clone())
+            .collect();
+        let mut setup = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        super::super::node_index::resolve_slots(&mut wire, &bodies, &mut setup)
+            .expect("original wire slot resolution");
+        let nodes = &wire.semantic_graph.nodes;
+        let owners = ModelOwners::new(&models, nodes, |_| Ok(())).expect("actual model owners");
+        let kinds: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                super::super::CheckedNodeTag::from_wire(&node.node_tag)
+                    .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+                    .expect("published node kind")
+            })
+            .collect();
+        let terms: Vec<_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, _)| {
+                super::super::decode_admitted_body(
+                    kinds[position],
+                    &bodies[position],
+                    wire.semantic_graph
+                        .operand_rows
+                        .get(position)
+                        .map_or(&[][..], Vec::as_slice),
+                    position,
+                    &mut WorkMeter::over(&mut setup),
+                )
+                .ok()
+            })
+            .collect();
+        let index: GraphIndex<'_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let graph = Graph {
+            nodes,
+            kinds: &kinds,
+            terms: &terms,
+            index: &index,
+        };
+        let mut checked = 0;
+        for (position, kind) in kinds.iter().enumerate() {
+            if *kind != CheckedNodeKind::TimedModel(TimedModelForm::Place) {
+                continue;
+            }
+            checked += 1;
+            let place = terms[position].as_ref().expect("published place body");
+            let model = *index
+                .get(
+                    bound(place, 0)
+                        .and_then(typed_target)
+                        .expect("published model target"),
+                )
+                .expect("model node");
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(check_resolved_path(
+                    &graph,
+                    position,
+                    place,
+                    model,
+                    &owners,
+                    &mut WorkMeter::over(&mut budget),
+                ))
+            });
+            assert!(result.expect("ran").is_ok(), "published place {position}");
+            assert_eq!(
+                allocated.bytes_total,
+                budget.read_storage_consumed(),
+                "semantic clock place {position}"
+            );
+        }
+        assert!(checked > 1, "published nested and optional places");
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.attach_bodies(&bodies, &wire.semantic_graph.operand_rows);
+                result = Some(validate_models(
+                    nodes,
+                    &kinds,
+                    &terms,
+                    &index,
+                    &wire.source_map,
+                    &owners,
+                    &models,
+                    &mut meter,
+                ));
+            });
+            (result.expect("ran"), allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert!(result.is_ok(), "published timed Graph family: {result:?}");
+        assert_eq!(
+            allocated,
+            budget.read_storage_consumed(),
+            "complete timed Graph family"
+        );
+        assert!(allocated > 0);
+        assert!(run(allocated).0.is_ok());
+        for limit in [allocated - 1, 0] {
+            let (result, allocated, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
     fn timed_wire_first_defect_refusal_and_its_denial_are_paid() {
         let (position, mut node, form) = published_timed_nodes()
             .into_iter()
@@ -3595,42 +4043,149 @@ mod tests {
         }
     }
 
+    fn foreign_node(name: &str) -> CheckedNodeId {
+        let mut id = node(name);
+        for _ in 0..65 {
+            id = CheckedNodeId {
+                package: "dependency/orders".into(),
+                path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(id))],
+                ordinal: 0,
+            };
+        }
+        id
+    }
+
     #[trace("TC-472", "FR-038-AC-511")]
     #[test]
-    fn timed_sort_scratch_prepays_deep_identity_comparisons() {
-        let nested = |name| {
-            let mut id = node(name);
-            for _ in 0..65 {
-                id = CheckedNodeId {
-                    package: "p".into(),
-                    path: vec![CheckedNodePathSegment::Node(std::sync::Arc::new(id))],
-                    ordinal: 0,
-                };
-            }
-            id
-        };
-        let left = nested("a");
-        let right = nested("b");
+    fn timed_sort_scratch_prepays_foreign_identity_depth_without_a_graph_bound() {
+        let left = foreign_node("a");
+        let right = foreign_node("b");
+        assert!(left.is_well_formed() && right.is_well_formed());
         let run = |limit| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let mut outcome = Ok(());
             let allocated = allocation_counter::measure(|| {
                 let mut meter = WorkMeter::over(&mut budget);
                 let mut ids = [&right, &left];
-                outcome = paid_id_order(ids.iter().copied(), ids.len(), 66, &mut meter).map(
-                    |mut order| {
+                outcome =
+                    paid_id_order(ids.iter().copied(), ids.len(), &mut meter).map(|mut order| {
                         ids.sort_unstable_by(|left, right| order.compare_bounded(left, right));
                         assert!(std::ptr::eq(ids[0], &left));
-                    },
-                );
+                    });
             });
             (outcome, allocated.bytes_total, budget)
         };
         let (result, allocated, budget) = run(u64::MAX);
         assert!(result.is_ok());
-        assert_eq!(allocated, CheckedNodeIdOrder::bytes(66) as u64);
+        assert!(
+            allocated > CheckedNodeIdOrder::bytes(65) as u64,
+            "discovery scratch is also charged"
+        );
         assert_eq!(allocated, budget.read_storage_consumed());
         assert!(run(allocated).0.is_ok());
+        for limit in [allocated - 1, 0] {
+            let (result, allocated, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn singleton_foreign_key_lookup_prepays_the_distinct_deep_needle() {
+        let left = foreign_node("a");
+        let needle = foreign_node("b");
+        let rows = [&left];
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(search_id_refs(
+                    &rows,
+                    &needle,
+                    &mut WorkMeter::over(&mut budget),
+                ))
+            });
+            (result.expect("ran"), allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert_eq!(result.unwrap(), Err(1), "the distinct deep key is absent");
+        assert!(allocated > 0);
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert_eq!(run(allocated).0.unwrap(), Err(1));
+        for limit in [allocated - 1, 0] {
+            let (result, allocated, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+        }
+    }
+
+    fn literal_handle(raw: &str) -> super::super::CheckedJson {
+        let document = quire_canonical::read(raw.as_bytes(), 1 << 20).expect("literal document");
+        let node = document.root().id();
+        super::super::CheckedJson::new(std::sync::Arc::new(document), node)
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn borrowed_scalar_equality_matches_canonical_spelling_and_refusal() {
+        for (left, right) in [
+            ("1", "1.0"),
+            ("0", "-0"),
+            ("1.5", "1.50"),
+            (r#""\u0061""#, r#""a""#),
+            (r#""a""#, r#""b""#),
+            ("true", "false"),
+            ("null", "null"),
+            ("9007199254740992", "9007199254740992.0"),
+            ("9007199254740993", "9007199254740993"),
+            ("-9007199254740993", "-9007199254740993"),
+            ("1e300", "1e300"),
+        ] {
+            let left = literal_handle(left);
+            let right = literal_handle(right);
+            let expected = left == right;
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(0);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(same_literal_value(
+                    &left,
+                    &right,
+                    &mut WorkMeter::over(&mut budget),
+                    &node_path(17).key("body"),
+                ))
+            });
+            assert_eq!(result.expect("ran").unwrap(), expected);
+            assert_eq!(allocated.bytes_total, 0);
+            assert_eq!(budget.read_storage_consumed(), 0);
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn canonical_literal_fallback_prepays_arbitrary_depth_and_denials() {
+        let raw = format!("{}1{}", "[".repeat(128), "]".repeat(128));
+        let left = literal_handle(&raw);
+        let right = literal_handle(&raw);
+        assert!(left == right, "canonical oracle");
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(same_literal_value(
+                    &left,
+                    &right,
+                    &mut WorkMeter::over(&mut budget),
+                    &node_path(17).key("body"),
+                ))
+            });
+            (result.expect("ran"), allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert!(result.unwrap());
+        assert!(allocated > 0);
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert!(run(allocated).0.unwrap());
         for limit in [allocated - 1, 0] {
             let (result, allocated, budget) = run(limit);
             assert!(matches!(result, Err(ValidationFailure::Budget(_))));
