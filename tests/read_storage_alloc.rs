@@ -912,5 +912,91 @@ fn nonidentifier_enum_member_refusal_is_paid_before_construction() {
         refusal.loci[0].path.as_ref().map(|path| path.as_str()),
         Some("/semantic_graph/nodes/0/body/value")
     );
-    drop_without_request::<ThreadCounter>(observation);
+    assert!(refusal.locus.is_none());
+    assert!(refusal.loci[0].source_region.is_none());
+    assert!(refusal.contract_version.is_none());
+    assert!(refusal.document_pointer.is_none());
+    assert!(refusal.extension_detail.is_none());
+    assert!(refusal.protocol_detail.is_none());
+    assert!(refusal.terminal_duplicate.is_none());
+    let paid = observation.budget.read_storage_consumed();
+    let exact = read_allocation_proof::measure_at::<ThreadCounter>(
+        &bytes,
+        &evidence,
+        generous_limits(),
+        u64::MAX,
+        paid,
+    );
+    assert_eq!(exact.result, observation.result);
+    assert_eq!(exact.requested, observation.requested);
+    let short = read_allocation_proof::measure_at::<ThreadCounter>(
+        &bytes,
+        &evidence,
+        generous_limits(),
+        u64::MAX,
+        paid - 1,
+    );
+    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = &short.result else {
+        panic!(
+            "the complete refusal must be denied before construction: {:?}",
+            short.result
+        );
+    };
+    assert_eq!(
+        exhausted.denied.resource,
+        quire_contract_model::PackageReadResource::ReadStorage
+    );
+    assert_eq!(exhausted.configured_bound, paid - 1);
+    assert_eq!(
+        exhausted.pending,
+        Some(quire_contract_model::CheckedPackagePendingOutcome::Refused(
+            refusal.code
+        ))
+    );
+    let request = short
+        .budget
+        .first_unpaid_read_storage()
+        .expect("actual complete refusal request");
+    assert_eq!(exhausted.denied.amount, request);
+    assert_eq!(u128::from(short.requested) + request, u128::from(paid));
+    assert_eq!(
+        exhausted.locus.source,
+        quire_contract_model::NativeJoinLocusSource::PackageRead(
+            quire_contract_model::PackageReadStage::Graph,
+            0
+        )
+    );
+    assert_eq!(exhausted.locus.form, "diagnostic");
+    let prefix = short.requested;
+    // No remaining diagnostic storage: the same semantic refusal remains pending,
+    // and neither its pointer nor record/location is constructed.
+    let zero_diagnostic = read_allocation_proof::measure_at::<ThreadCounter>(
+        &bytes,
+        &evidence,
+        generous_limits(),
+        u64::MAX,
+        prefix,
+    );
+    let CheckedPackageV2BudgetedReadResult::Exhausted(zero_outcome) = &zero_diagnostic.result
+    else {
+        panic!("zero diagnostic storage must exhaust");
+    };
+    assert_eq!(zero_outcome.pending, exhausted.pending);
+    assert_eq!(zero_outcome.denied, exhausted.denied);
+    assert_eq!(zero_outcome.configured_bound, prefix);
+    assert_eq!(zero_outcome.locus, exhausted.locus);
+    assert_eq!(zero_diagnostic.requested, prefix);
+    let repeated = read_allocation_proof::measure_at::<ThreadCounter>(
+        &bytes,
+        &evidence,
+        generous_limits(),
+        u64::MAX,
+        paid - 1,
+    );
+    assert_eq!(repeated.result, short.result);
+    assert_eq!(repeated.budget, short.budget);
+    assert_eq!(repeated.requested, short.requested);
+    for observed in [observation, exact, short, zero_diagnostic, repeated] {
+        drop_without_request::<ThreadCounter>(observed);
+    }
 }

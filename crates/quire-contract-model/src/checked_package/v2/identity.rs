@@ -1854,7 +1854,7 @@ pub(super) fn validate_nominal_nodes<B>(
                 validate_enum_declaration(declaration, &site, &graph, lock, meter)?;
             }
             NominalRecord::EnumMember(member) => {
-                validate_enum_member(&site, member, &graph)?;
+                validate_enum_member(&site, member, &graph, meter)?;
             }
             NominalRecord::Dimension(dimension) => {
                 validate_dimension(&site, dimension, &graph, lock, meter)?;
@@ -3028,6 +3028,7 @@ fn validate_enum_member(
     site: &Site<'_>,
     member: &EnumMemberRecord,
     graph: &NominalGraph<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let node = site.node;
     if graph.is_model_variant(&member.declaration_node_id) {
@@ -3039,9 +3040,22 @@ fn validate_enum_member(
             require(cases.contains_key(&member.case), || site.pointer())?;
         }
     } else {
-        require(is_identifier(&member.case), || {
-            site.nominal_member(&["case"])
-        })?;
+        if !is_identifier(&member.case) {
+            let at = super::stage_storage::Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(site.position)
+                .key("body")
+                .key("value");
+            return Err(super::stage_storage::refuse(
+                meter,
+                &super::natural::site(meter, at),
+                super::stage_storage::Refusal::new(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    at,
+                ),
+            ));
+        }
         let Some(NominalRecord::EnumDeclaration(declaration)) =
             graph.nominal(&member.declaration_node_id)
         else {
