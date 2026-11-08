@@ -279,7 +279,7 @@ struct SelectionPath {
     root: usize,
 }
 
-fn selection_pointer(root: &Path<_>, paths: &[SelectionPath], path: usize) -> JsonPointer {
+fn selection_pointer(root: &Path<'_>, paths: &[SelectionPath], path: usize) -> JsonPointer {
     let mut indices = Vec::new();
     let mut cursor = Some(path);
     while let Some(position) = cursor {
@@ -1125,7 +1125,13 @@ mod tests {
         let (exact, exact_budget, exact_requested) = observe(requested);
         assert_eq!(exact, ample);
         assert_eq!(exact_requested, requested);
-        assert_eq!(exact_budget, budget);
+        assert_eq!(exact_budget.first_unpaid(), Some(first));
+        assert_eq!(exact_budget.first_unpaid_locus(), Some(locus));
+        assert_eq!(exact_budget.consumed(), budget.consumed());
+        assert_eq!(
+            exact_budget.read_storage_consumed(),
+            budget.read_storage_consumed()
+        );
         for storage in [0, requested - 1] {
             let (short, short_budget, short_requested) = observe(storage);
             let (repeated, repeated_budget, repeated_requested) = observe(storage);
