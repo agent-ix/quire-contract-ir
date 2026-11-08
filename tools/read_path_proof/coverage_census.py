@@ -255,7 +255,9 @@ def check_run(export, root, report, records, mode):
            for record in records):
         raise CensusError("missing original driver/test/callsite provenance")
     if mode == "full":
-        for record in plain:
+        # A caller-budget original entry is not a probe exemption. It must
+        # carry actual full-boundary evidence too; core-only captures stay RED.
+        for record in records:
             validate_normative_boundaries(record)
     result.update({"original_tests_passed": len(passed), "mode": mode,
                    "normative_boundary_proof": mode == "full"})
