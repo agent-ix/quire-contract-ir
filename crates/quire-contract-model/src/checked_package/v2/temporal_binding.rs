@@ -10,10 +10,8 @@ use super::{
     CheckedSelectionRole, CheckedSemanticNodeV2, LawRole, ProtocolForm, TemporalForm,
     TemporalProfile, WorkMeter,
 };
-use crate::checked_package::common::{node_pointer, ValidationFailure};
-use crate::checked_package::shared::{
-    CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
-};
+use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
 
@@ -85,8 +83,10 @@ impl Encode for TemporalBinding {
     }
 }
 
-fn row_pointer(index: usize) -> JsonPointer {
-    JsonPointer::root().key("temporal_bindings").index(index)
+fn row_path(index: usize) -> super::stage_storage::Path<'static> {
+    super::stage_storage::Path::root()
+        .key("temporal_bindings")
+        .index(index)
 }
 
 fn binding_work(
@@ -97,16 +97,39 @@ fn binding_work(
     super::natural::work_at(meter, site, 1)
 }
 
-fn malformed(at: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
+fn malformed(meter: &mut WorkMeter, at: super::stage_storage::Path<'_>) -> ValidationFailure {
+    super::stage_storage::refuse(
+        meter,
+        &super::natural::site(meter, at),
+        super::stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, at),
+    )
 }
 
-fn invalid(at: JsonPointer, declaration: &CheckedNodeId) -> ValidationFailure {
-    ValidationFailure::refused_at(
-        CheckedPackageRefusalCode::InvalidPackage,
+fn invalid(
+    meter: &mut WorkMeter,
+    at: super::stage_storage::Path<'_>,
+    declaration: &CheckedNodeId,
+) -> ValidationFailure {
+    binding_refusal(
+        meter,
         at,
-        Some(CheckedPackageRefusalCause::TimedNodeReference),
-        declaration.clone(),
+        declaration,
+        CheckedPackageRefusalCause::TimedNodeReference,
+    )
+}
+
+fn binding_refusal(
+    meter: &mut WorkMeter,
+    at: super::stage_storage::Path<'_>,
+    declaration: &CheckedNodeId,
+    cause: CheckedPackageRefusalCause,
+) -> ValidationFailure {
+    super::stage_storage::refuse(
+        meter,
+        &super::natural::site(meter, at),
+        super::stage_storage::Refusal::new(CheckedPackageRefusalCode::InvalidPackage, at)
+            .because(cause)
+            .at_node(declaration),
     )
 }
 
@@ -130,13 +153,6 @@ fn validate_number(
     at: super::stage_storage::Path<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let malformed = |meter: &mut WorkMeter, path| {
-        super::stage_storage::refuse(
-            meter,
-            &super::natural::site(meter, path),
-            super::stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
-        )
-    };
     match number {
         ClockExactNumber::Integer { decimal } => {
             let Some((_, zero)) = decimal_magnitude(decimal) else {
@@ -186,7 +202,7 @@ fn validate_shape(
 ) -> Result<(), ValidationFailure> {
     for (index, row) in rows.iter().enumerate() {
         meter.at_row("temporal_bindings", index);
-        let at = || row_pointer(index);
+        let at = || row_path(index);
         binding_work(
             meter,
             super::stage_storage::Path::root()
@@ -194,13 +210,13 @@ fn validate_shape(
                 .index(index),
         )?;
         if row.clock_name.is_empty() {
-            return Err(malformed(at().key("clock_name")));
+            return Err(malformed(meter, at().key("clock_name")));
         }
         let clock_at = || at().key("clock");
         match &row.clock {
             ClockConfiguration::EventPosition { sequence_authority } => {
                 if sequence_authority.is_empty() {
-                    return Err(malformed(clock_at().key("sequence_authority")));
+                    return Err(malformed(meter, clock_at().key("sequence_authority")));
                 }
             }
             ClockConfiguration::FixedSample {
@@ -209,7 +225,7 @@ fn validate_shape(
                 unit,
             } => {
                 if unit.is_empty() {
-                    return Err(malformed(clock_at().key("unit")));
+                    return Err(malformed(meter, clock_at().key("unit")));
                 }
                 validate_number(
                     epoch,
@@ -234,7 +250,7 @@ fn validate_shape(
             }
             ClockConfiguration::TimestampedEvent { timestamp_unit } => {
                 if timestamp_unit.is_empty() {
-                    return Err(malformed(clock_at().key("timestamp_unit")));
+                    return Err(malformed(meter, clock_at().key("timestamp_unit")));
                 }
             }
         }
@@ -435,16 +451,16 @@ pub(super) fn validate<B>(
     let mut previous: Option<(super::graph_storage::ResolvedKey<'_>, u64)> = None;
     let mut resolved = meter.vec(rows.len())?;
     for (row_index, row) in rows.iter().enumerate() {
-        let at = || row_pointer(row_index);
+        let at = || row_path(row_index);
         let Some(&position) = index.get(&row.declaration) else {
-            return Err(invalid(at().key("declaration"), &row.declaration));
+            return Err(invalid(meter, at().key("declaration"), &row.declaration));
         };
         if !matches!(
             kinds[position],
             CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
                 | CheckedNodeKind::Protocol(ProtocolForm::Compensation)
         ) {
-            return Err(invalid(at().key("declaration"), &row.declaration));
+            return Err(invalid(meter, at().key("declaration"), &row.declaration));
         }
         if kinds[position] == CheckedNodeKind::Temporal(TemporalForm::TemporalClause)
             && profile_law(position, meter)?
@@ -452,7 +468,7 @@ pub(super) fn validate<B>(
                 .and_then(|law| TemporalProfile::from_wire(&law.identity))
                 == Some(TemporalProfile::Timed)
         {
-            return Err(invalid(at(), &row.declaration));
+            return Err(invalid(meter, at(), &row.declaration));
         }
         let role = if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
             CheckedOccurrenceRole::Declaration
@@ -474,26 +490,26 @@ pub(super) fn validate<B>(
             }
         }
         if !owned {
-            return Err(invalid(at().key("occurrence"), &row.declaration));
+            return Err(invalid(meter, at().key("occurrence"), &row.declaration));
         }
         let key = (position, row.occurrence);
         let insertion = seen.binary_search(&key);
         if insertion.is_ok() {
-            return Err(ValidationFailure::refused_at(
-                CheckedPackageRefusalCode::InvalidPackage,
+            return Err(binding_refusal(
+                meter,
                 at(),
-                Some(CheckedPackageRefusalCause::ConflictingDefinition),
-                row.declaration.clone(),
+                &row.declaration,
+                CheckedPackageRefusalCause::ConflictingDefinition,
             ));
         }
         seen.insert(insertion.expect_err("duplicate refused above"), key);
         let structural = index.resolved_at(position, structural_keys);
         if let Some((previous_id, previous_occurrence)) = previous {
             if previous_id > structural {
-                return Err(invalid(at().key("declaration"), &row.declaration));
+                return Err(invalid(meter, at().key("declaration"), &row.declaration));
             }
             if previous_id == structural && previous_occurrence > row.occurrence {
-                return Err(invalid(at().key("occurrence"), &row.declaration));
+                return Err(invalid(meter, at().key("occurrence"), &row.declaration));
             }
         }
         previous = Some((structural, row.occurrence));
@@ -534,18 +550,27 @@ pub(super) fn validate<B>(
     }
     if let Some(position) = missing {
         return Err(invalid(
-            node_pointer(position).key("body"),
+            meter,
+            super::stage_storage::Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+                .key("body"),
             &nodes[position].node_id,
         ));
     }
     for (row_index, (row, &position)) in rows.iter().zip(&resolved).enumerate() {
-        let at = || row_pointer(row_index);
+        let at = || row_path(row_index);
         if kinds[position] == CheckedNodeKind::Protocol(ProtocolForm::Compensation) {
             if clock_name(meter, position, 4) != Some(row.clock_name.as_ref()) {
-                return Err(invalid(at().key("clock_name"), &row.declaration));
+                return Err(invalid(meter, at().key("clock_name"), &row.declaration));
             }
             if !clock_matches(compensation_profile, &row.clock) {
-                return Err(invalid(at().key("clock").key("kind"), &row.declaration));
+                return Err(invalid(
+                    meter,
+                    at().key("clock").key("kind"),
+                    &row.declaration,
+                ));
             }
             continue;
         }
@@ -559,7 +584,7 @@ pub(super) fn validate<B>(
             continue;
         }
         if clock_name(meter, position, 1) != Some(row.clock_name.as_ref()) {
-            return Err(invalid(at().key("clock_name"), &row.declaration));
+            return Err(invalid(meter, at().key("clock_name"), &row.declaration));
         }
         let profile = configured_profile(position, meter)?;
         let mut selected = false;
@@ -582,7 +607,11 @@ pub(super) fn validate<B>(
             }
         }
         if !selected || !clock_matches(profile, &row.clock) {
-            return Err(invalid(at().key("clock").key("kind"), &row.declaration));
+            return Err(invalid(
+                meter,
+                at().key("clock").key("kind"),
+                &row.declaration,
+            ));
         }
     }
     Ok(())
@@ -680,7 +709,7 @@ mod tests {
         assert!(run(charged).0.is_some(), "the measured limit admits");
         assert!(run(charged - 1).0.is_none(), "one byte short is denied");
     }
-    #[trace("TC-472", "FR-038-AC-504")]
+    #[trace("TC-472", "FR-038-AC-504", "FR-038-AC-510", "FR-038-AC-511")]
     #[test]
     fn temporal_binding_tables_allocate_only_charged_storage() {
         let id = super::super::test_support::node_id('1');
@@ -760,6 +789,114 @@ mod tests {
         assert_eq!(allocated, charged);
         run(charged).0.expect("exact allowance admits");
         assert!(run(charged - 1).0.is_err(), "one byte short refuses");
+
+        // Mutate the existing admitted table to reach the actual strict shape,
+        // reference, conflict, missing-binding and clock-name refusal paths.
+        for case in 0..6 {
+            let mut refused_rows = rows.clone();
+            let (path, cause, located) = match case {
+                0 => {
+                    refused_rows[0].clock_name = "".into();
+                    ("/temporal_bindings/0/clock_name", None, false)
+                }
+                1 => {
+                    refused_rows[0].declaration = super::super::test_support::node_id('2');
+                    (
+                        "/temporal_bindings/0/declaration",
+                        Some(CheckedPackageRefusalCause::TimedNodeReference),
+                        true,
+                    )
+                }
+                2 => {
+                    refused_rows[1].occurrence = 0;
+                    (
+                        "/temporal_bindings/1",
+                        Some(CheckedPackageRefusalCause::ConflictingDefinition),
+                        true,
+                    )
+                }
+                3 => {
+                    refused_rows.pop();
+                    (
+                        "/semantic_graph/nodes/0/body",
+                        Some(CheckedPackageRefusalCause::TimedNodeReference),
+                        true,
+                    )
+                }
+                4 => {
+                    refused_rows[0].clock_name = "wrong".into();
+                    (
+                        "/temporal_bindings/0/clock_name",
+                        Some(CheckedPackageRefusalCause::TimedNodeReference),
+                        true,
+                    )
+                }
+                _ => {
+                    refused_rows.swap(0, 1);
+                    (
+                        "/temporal_bindings/1/occurrence",
+                        Some(CheckedPackageRefusalCause::TimedNodeReference),
+                        true,
+                    )
+                }
+            };
+            let run_refused = |budget: &mut NativeJoinBudget| {
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(budget);
+                    bodies.attach(&mut meter);
+                    result = Some(validate(
+                        Some(&refused_rows),
+                        &nodes,
+                        &kinds,
+                        &index,
+                        &keys,
+                        &lock,
+                        &mut meter,
+                    ));
+                })
+                .bytes_total;
+                (result.unwrap(), allocated)
+            };
+            let mut ample = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let (expected, allocated) = run_refused(&mut ample);
+            let Err(ValidationFailure::Refused(refusal)) = &expected else {
+                panic!("semantic fault {case}")
+            };
+            assert_eq!(
+                refusal.code,
+                if case == 0 {
+                    CheckedPackageRefusalCode::MalformedWire
+                } else {
+                    CheckedPackageRefusalCode::InvalidPackage
+                }
+            );
+            assert_eq!(refusal.cause, cause);
+            assert_eq!(refusal.loci[0].path.as_ref().unwrap().as_str(), path);
+            let expected_id = if case == 1 {
+                &refused_rows[0].declaration
+            } else {
+                &nodes[0].node_id
+            };
+            assert_eq!(refusal.locus.as_ref(), located.then_some(expected_id));
+            let required = ample.read_storage_consumed();
+            assert_eq!(allocated, required, "case {case}");
+            let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+            assert_eq!(run_refused(&mut exact), (expected.clone(), required));
+            for limit in [0, required - 1] {
+                let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let (result, allocated) = run_refused(&mut short);
+                assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+                assert_eq!(allocated, short.read_storage_consumed());
+                assert!(short.first_unpaid_read_storage().is_some());
+            }
+            let mut repeated =
+                NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(2 * required);
+            assert_eq!(run_refused(&mut repeated), (expected.clone(), required));
+            assert_eq!(run_refused(&mut repeated), (expected, required));
+            assert_eq!(repeated.read_storage_consumed(), 2 * required);
+            assert_eq!(repeated.consumed().work, 2 * ample.consumed().work);
+        }
     }
 }
 
