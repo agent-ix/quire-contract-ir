@@ -1255,12 +1255,6 @@ pub(super) fn dependency_reference_node(term: WireTerm<'_>) -> Option<CheckedNod
     node.is_well_formed().then_some(node)
 }
 
-/// An `application` term's decoded `operator` class.
-// Reads the JSON `operator` member of an application and decodes it.
-pub(super) fn application_operator(value: &Value) -> Option<ApplicationOperator> {
-    WireTerm::decode(value).operator()
-}
-
 /// Reports the node reference held in `object[key]` (the term at `at`).
 fn visit_member(
     object: &Map<String, Value>,

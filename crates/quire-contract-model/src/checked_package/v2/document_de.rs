@@ -95,6 +95,10 @@ pub(in crate::checked_package) struct DecodeContext<'d> {
     /// A locus every charge is made at, for a decode of one term below the
     /// wire's root rather than of the wire itself.
     fixed_locus: Option<NativeJoinLocus>,
+    /// The operand row of the node whose body is decoded: an operand slot
+    /// `{"operand": k}` in a node ID's path reads as `{"node": row[k]}`, the
+    /// form the reader's resolved wire gives it.
+    operand_row: Option<&'d [u64]>,
 }
 
 impl<'d> DecodeContext<'d> {
@@ -112,7 +116,14 @@ impl<'d> DecodeContext<'d> {
             charging: Cell::new(true),
             path: RefCell::new(([None; TRACKED_DEPTH], 0)),
             fixed_locus: None,
+            operand_row: None,
         }
+    }
+
+    /// Reads operand slots through `row` (see the field).
+    pub(in crate::checked_package) fn with_operand_row(mut self, row: &'d [u64]) -> Self {
+        self.operand_row = Some(row);
+        self
     }
 
     /// [`Self::new`] for a decode whose every charge is made at `locus`.
@@ -132,6 +143,7 @@ impl<'d> DecodeContext<'d> {
         ValueDe {
             node,
             context: self,
+            slots: false,
         }
     }
 
@@ -166,6 +178,7 @@ impl<'d> DecodeContext<'d> {
         ValueDe {
             node: self.document.root(),
             context: self,
+            slots: false,
         }
     }
 
@@ -257,13 +270,21 @@ impl<'d> DecodeContext<'d> {
 pub(in crate::checked_package) struct ValueDe<'c, 'd> {
     node: NodeRef<'d>,
     context: &'c DecodeContext<'d>,
+    /// Whether this value is the `path` of a node ID, or a segment of one, in
+    /// a decode that resolves operand slots through a row.
+    slots: bool,
 }
 
 impl<'c, 'd> ValueDe<'c, 'd> {
     fn child(&self, node: NodeRef<'d>) -> ValueDe<'c, 'd> {
+        self.child_with(node, true)
+    }
+
+    fn child_with(&self, node: NodeRef<'d>, inherit_slots: bool) -> ValueDe<'c, 'd> {
         ValueDe {
             node,
             context: self.context,
+            slots: self.slots && inherit_slots,
         }
     }
 }
@@ -296,11 +317,40 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
                     parent: self,
                 })
             }
-            Node::Object(members) => visitor.visit_map(Mapping {
-                members,
-                value: None,
-                parent: self,
-            }),
+            Node::Object(members) => {
+                if let (true, Some(row)) = (self.slots, self.context.operand_row) {
+                    let mut only = members.clone();
+                    if let (Some(("operand", slot)), None) = (only.next(), only.next()) {
+                        let entry = match slot.node() {
+                            Node::Number(number) => number
+                                .text()
+                                .parse::<u64>()
+                                .ok()
+                                .and_then(|slot| usize::try_from(slot).ok())
+                                .and_then(|slot| row.get(slot)),
+                            _ => None,
+                        };
+                        if let Some(&entry) = entry {
+                            return visitor.visit_map(ResolvedSlot {
+                                entry: Some(entry),
+                                keyed: false,
+                            });
+                        }
+                    }
+                }
+                let path_slots = self.context.operand_row.is_some()
+                    && members.len() == 3
+                    && ["package", "ordinal"]
+                        .iter()
+                        .all(|name| members.clone().any(|(member, _)| member == *name));
+                visitor.visit_map(Mapping {
+                    members,
+                    value: None,
+                    parent: self,
+                    path_slots,
+                    name: "",
+                })
+            }
         }
     }
 
@@ -339,6 +389,7 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
             let decoded = CheckedNodeId::deserialize(ValueDe {
                 node: self.node,
                 context: self.context,
+                slots: false,
             })?;
             NODE_ID.with(|slot| *slot.borrow_mut() = Some(decoded));
             return visitor.visit_unit();
@@ -427,6 +478,44 @@ struct Mapping<'c, 'd> {
     members: Members<'d>,
     value: Option<NodeRef<'d>>,
     parent: ValueDe<'c, 'd>,
+    /// This object is a node ID read through an operand row: its `path`
+    /// resolves operand slots.
+    path_slots: bool,
+    /// The name of the member whose value is next.
+    name: &'d str,
+}
+
+/// An operand slot `{"operand": k}` read as `{"node": row[k]}`.
+struct ResolvedSlot {
+    entry: Option<u64>,
+    keyed: bool,
+}
+
+impl<'de> MapAccess<'de> for ResolvedSlot {
+    type Error = Error;
+
+    fn next_key_seed<K: DeserializeSeed<'de>>(
+        &mut self,
+        seed: K,
+    ) -> Result<Option<K::Value>, Error> {
+        if self.keyed || self.entry.is_none() {
+            return Ok(None);
+        }
+        self.keyed = true;
+        seed.deserialize(KeyDe { name: "node" }).map(Some)
+    }
+
+    fn next_value_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<T::Value, Error> {
+        let entry = self
+            .entry
+            .take()
+            .ok_or_else(|| de::Error::custom("a value without a member name"))?;
+        seed.deserialize(entry.into_deserializer())
+    }
+
+    fn size_hint(&self) -> Option<usize> {
+        Some(1)
+    }
 }
 
 impl<'de, 'c> MapAccess<'de> for Mapping<'c, 'de> {
@@ -440,6 +529,7 @@ impl<'de, 'c> MapAccess<'de> for Mapping<'c, 'de> {
             return Ok(None);
         };
         self.value = Some(value);
+        self.name = name;
         self.parent.context.push(Segment::Key(name));
         seed.deserialize(KeyDe { name }).map(Some)
     }
@@ -449,7 +539,11 @@ impl<'de, 'c> MapAccess<'de> for Mapping<'c, 'de> {
             .value
             .take()
             .ok_or_else(|| de::Error::custom("a value without a member name"))?;
-        let decoded = seed.deserialize(self.parent.child(value));
+        let slots = self.path_slots && self.name == "path";
+        let decoded = seed.deserialize(ValueDe {
+            slots,
+            ..self.parent.child_with(value, false)
+        });
         self.parent.context.pop();
         decoded
     }

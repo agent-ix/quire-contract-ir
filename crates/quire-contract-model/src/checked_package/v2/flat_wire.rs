@@ -27,17 +27,18 @@
 //! (FR-038 "The timed interval form" stage 1); the term's own closed shape is
 //! [`crate::checked_package::common::validate_term`]'s, later.
 
+use super::budgeted_read::denial;
+use super::checked_json::CheckedJson;
 use super::native_join_budget::{NativeJoinBudget, PackageReadStage};
 use super::read_charge::{self, Meter, Site, WalkReservation};
 use super::temporal::{interval_bound_outside_pattern, timed_upper_is_null};
+use super::TermNode;
 use super::{
     body_grammar, BodyGrammar, CheckedNodeId, CheckedNodeKind, CheckedNodeTag, CheckedTerm,
     CheckedTermView, HybridForm, TemporalForm, ValueForm,
 };
 use super::{ApplicationOperator, BodyTerm, RawCheckedPackageWireV2 as CheckedPackageWireV2};
-use crate::checked_package::common::{
-    application_operator, body_term, node_pointer, Step, Trail, ValidationFailure, WireTerm,
-};
+use crate::checked_package::common::{node_pointer, Step, Trail, ValidationFailure, WireTerm};
 use crate::checked_package::shared::{CheckedPackageRefusalCause, CheckedPackageRefusalCode};
 use crate::checked_package::terms::{At, Cursor, TermSource};
 use quire_walk::{Children, Walk};
@@ -72,11 +73,17 @@ enum Place {
     BindingValue,
 }
 
+/// The member `name` of an optional term.
+fn member_of<'d>(term: Option<TermNode<'d>>, name: &str) -> Option<TermNode<'d>> {
+    term.and_then(|term| term.get(name))
+}
+
 /// Classify the two published profile identities at the wire intake boundary.
 #[ix_trace_rs::string_edge]
-fn wrong_profile_member(operation: &Value) -> bool {
-    let member_operator = operation["member"]["operator"].as_str();
-    match operation["identity"].as_str() {
+fn wrong_profile_member(operation: Option<TermNode<'_>>) -> bool {
+    let member_operator =
+        member_of(member_of(operation, "member"), "operator").and_then(TermNode::as_str);
+    match member_of(operation, "identity").and_then(TermNode::as_str) {
         Some("quire.op.state.transition") => {
             member_operator.is_some_and(|name| name != "transition")
         }
@@ -87,14 +94,24 @@ fn wrong_profile_member(operation: &Value) -> bool {
 
 /// Check the closed transition profile layout before semantic joins.
 #[ix_trace_rs::string_edge]
-fn transition_profile_wire_shape(operation: &Value) -> bool {
-    operation["laws"]
-        .as_array()
-        .is_some_and(|laws| laws.len() == 1 && laws[0]["role"] == "protocol_profile")
-        && operation["member"]["kind"] == "profile_operator"
-        && operation["member"]["operator"] == "transition"
-        && operation["mode"].is_null()
-        && operation["leaves"].as_array().is_some_and(Vec::is_empty)
+fn transition_profile_wire_shape(operation: Option<TermNode<'_>>) -> bool {
+    let member = member_of(operation, "member");
+    member_of(operation, "laws")
+        .and_then(TermNode::items)
+        .is_some_and(|mut laws| {
+            laws.len() == 1
+                && laws
+                    .next()
+                    .and_then(|law| law.get("role"))
+                    .and_then(TermNode::as_str)
+                    == Some("protocol_profile")
+        })
+        && member_of(member, "kind").and_then(TermNode::as_str) == Some("profile_operator")
+        && member_of(member, "operator").and_then(TermNode::as_str) == Some("transition")
+        && member_of(operation, "mode").is_none_or(TermNode::is_null)
+        && member_of(operation, "leaves")
+            .and_then(TermNode::items)
+            .is_some_and(|leaves| leaves.len() == 0)
 }
 
 /// Checks every node body and every `details` term of `wire` against the flat
@@ -103,6 +120,7 @@ fn transition_profile_wire_shape(operation: &Value) -> bool {
 /// the same header decoder as the graph stage.
 pub(super) fn check(
     wire: &CheckedPackageWireV2,
+    bodies: &[CheckedJson],
     budget: &mut NativeJoinBudget,
 ) -> Result<Vec<CheckedNodeKind>, ValidationFailure> {
     let meter = Meter::new(budget);
@@ -163,16 +181,18 @@ pub(super) fn check(
             Step::Key("body"),
         ];
         let at = Trail::Base(&steps);
+        let json = &bodies[position];
+        let body = TermNode::of(json);
         let checked = match body_grammar(kind) {
             BodyGrammar::Literal => {
-                if body_term(&node.body) != Some(BodyTerm::Literal) {
+                if body.kind() != Some(BodyTerm::Literal) {
                     Err(ValidationFailure::refused(
                         CheckedPackageRefusalCode::MalformedWire,
                         at.pointer(),
                     ))
                 } else {
                     check_term(
-                        &node.body,
+                        body,
                         &at,
                         Place::BodyRoot,
                         false,
@@ -204,16 +224,14 @@ pub(super) fn check(
             // application at the root of an abstraction relation body is a
             // term of the closed grammar, placed by the abstraction step.
             BodyGrammar::Frame => {
-                scan_members(&node.body, &at, &mut meter.reservation(flat_site(position)))
-                    .map(|_| ())
+                scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
             }
             BodyGrammar::Term => {
                 if kind == CheckedNodeKind::Claim(super::ClaimForm::StepRelation) {
-                    scan_members(&node.body, &at, &mut meter.reservation(flat_site(position)))
-                        .map(|_| ())
+                    scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
                 } else if kind == CheckedNodeKind::Claim(super::ClaimForm::Schedulability) {
                     check_term_with_empty_leaf(
-                        &node.body,
+                        body,
                         &at,
                         Place::BodyRoot,
                         false,
@@ -221,15 +239,10 @@ pub(super) fn check(
                         &mut meter.reservation(flat_site(position)),
                     )
                 } else if kind == CheckedNodeKind::State(super::StateForm::OperationAnchor) {
-                    check_anchor_flat_wire(
-                        &node.body,
-                        &at,
-                        &mut meter.reservation(flat_site(position)),
-                    )
+                    check_anchor_flat_wire(body, &at, &mut meter.reservation(flat_site(position)))
                 } else if kind == CheckedNodeKind::Protocol(super::ProtocolForm::ProtocolReference)
-                    && body_term(&node.body) == Some(BodyTerm::Application)
-                    && application_operator(&node.body)
-                        == Some(ApplicationOperator::ProtocolControl)
+                    && body.kind() == Some(BodyTerm::Application)
+                    && body.operator() == Some(ApplicationOperator::ProtocolControl)
                 {
                     Err(ValidationFailure::refused(
                         CheckedPackageRefusalCode::MalformedWire,
@@ -237,7 +250,7 @@ pub(super) fn check(
                     ))
                 } else {
                     check_term(
-                        &node.body,
+                        body,
                         &at,
                         Place::BodyRoot,
                         false,
@@ -248,19 +261,24 @@ pub(super) fn check(
                         // pairs in the published schema. Reject them during
                         // wire validation, before a stale application key or
                         // the operation step can decide the outcome.
-                        let operation = &node.body["operation"];
+                        let operation = body.get("operation");
                         if wrong_profile_member(operation) {
                             return Err(ValidationFailure::refused(
                                 CheckedPackageRefusalCode::MalformedWire,
                                 at.key("operation").key("member").key("operator").pointer(),
                             ));
                         }
-                        let member = &operation["member"];
-                        if member["kind"].as_str() == Some("relationship_end")
-                            && member
-                                .get("destination_type")
-                                .and_then(CheckedNodeId::from_value)
-                                .is_none()
+                        let member = member_of(operation, "member");
+                        if member_of(member, "kind").and_then(TermNode::as_str)
+                            == Some("relationship_end")
+                            && match member_of(member, "destination_type") {
+                                Some(destination) => destination
+                                    .node_id(&mut **meter.budget(), flat_site(position))
+                                    .map_err(|_| denial(&meter.budget()))?
+                                    .valid()
+                                    .is_none(),
+                                None => true,
+                            }
                         {
                             return Err(ValidationFailure::refused(
                                 CheckedPackageRefusalCode::MalformedWire,
@@ -271,8 +289,10 @@ pub(super) fn check(
                             ));
                         }
                         if kind == CheckedNodeKind::State(super::StateForm::Transition) {
-                            let body = CheckedTerm::decode_admitted(&node.body).ok();
-                            let transition_shape = body
+                            let decoded = body
+                                .decode(json.document(), &mut meter.budget(), flat_site(position))?
+                                .ok();
+                            let transition_shape = decoded
                                 .as_ref()
                                 .and_then(super::structural::typed_transition_body)
                                 .is_some()
@@ -299,10 +319,14 @@ pub(super) fn check(
                         let CheckedNodeKind::Protocol(form) = kind else {
                             return Ok(());
                         };
-                        let Some(body) = CheckedTerm::decode_admitted(&node.body).ok() else {
+                        let Some(decoded) = body
+                            .decode(json.document(), &mut meter.budget(), flat_site(position))?
+                            .ok()
+                        else {
                             return Ok(());
                         };
-                        if let Some(defect) = super::protocol_body::wire_layout_defect(form, &body)
+                        if let Some(defect) =
+                            super::protocol_body::wire_layout_defect(form, &decoded)
                         {
                             let path = match defect {
                                 super::protocol_body::ProtocolLayoutWireDefect::Body => {
@@ -355,17 +379,16 @@ pub(super) fn check(
                 super::hybrid::check_wire(node, form, position)
             }
             BodyGrammar::AbstractionRelation => {
-                if body_term(&node.body) == Some(BodyTerm::Application) {
+                if body.kind() == Some(BodyTerm::Application) {
                     check_term(
-                        &node.body,
+                        body,
                         &at,
                         Place::BodyRoot,
                         false,
                         &mut meter.reservation(flat_site(position)),
                     )
                 } else {
-                    scan_members(&node.body, &at, &mut meter.reservation(flat_site(position)))
-                        .map(|_| ())
+                    scan_members(body, &at, &mut meter.reservation(flat_site(position))).map(|_| ())
                 }
             }
             BodyGrammar::Refinement => super::refinement::check_wire(&node.body, &at),
@@ -375,7 +398,6 @@ pub(super) fn check(
     }
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
-            let detail = &detail.to_value();
             let steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),
@@ -384,7 +406,7 @@ pub(super) fn check(
                 Step::Index(detail_index),
             ];
             check_term(
-                detail,
+                TermNode::of(detail),
                 &Trail::Base(&steps),
                 Place::Member,
                 true,
@@ -983,7 +1005,16 @@ mod tests {
     }
 
     fn header_refusal(nodes: Vec<Value>, code: CheckedPackageRefusalCode, path: &str) {
-        let failure = check(&header_wire(nodes), &mut NativeJoinBudget::unlimited())
+        let wire = header_wire(nodes);
+        let bodies = wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .map(|node| {
+                crate::checked_package::v2::CheckedJson::from_value(&node.body).expect("body")
+            })
+            .collect::<Vec<_>>();
+        let failure = check(&wire, &bodies, &mut NativeJoinBudget::unlimited())
             .expect_err("damaged wire refuses");
         let crate::checked_package::common::ValidationFailure::Refused(refusal) = failure else {
             panic!("a refusal, not an incomplete result");
