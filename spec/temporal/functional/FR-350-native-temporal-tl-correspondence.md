@@ -100,8 +100,9 @@ previous link is in `result().relation`.
 Every `EvidenceRequest` member has exactly one disposition. **Checked** members
 are compared in the binding step named; **recorded** members are written into
 the correspondence record; **excluded** members carry no fact the TL side can
-represent, are not read, and reach the join only through the native result's
-outcome, which the join compares.
+represent and are not read for TL construction. Exclusion does not remove
+them from the original request binding checked at the join; their evaluation
+effects remain native result outcomes, which the join compares.
 
 | Member | Disposition |
 | --- | --- |
@@ -112,6 +113,7 @@ outcome, which the join compares.
 | `positions` (each `observation` reference and `position` stamp) | checked (steps 6, 7) and recorded (`positions`) |
 | `positions` `order_key` | recorded (`positions[].orderKey`) |
 | `positions[].valuations`, `positions[].instance_valuations` | checked (step 9); selected Boolean cells recorded (`valuations`); all provided entries charged, including unselected instance maps |
+| `positions[].aggregate_samples`, `positions[].instance_aggregate_samples` | excluded from TL construction and the correspondence record: not Boolean valuation inputs, not read or charged as entries by projection; retained in the original request identity binding at join. This exclusion does not admit aggregate atoms: the existing non-`holds` formula refusal still applies. |
 | `decision_progress`, `decision_closure`, `surrounding_progress`, `surrounding_closure`, `completeness` | checked (step 8) and recorded (`native`) |
 | `authoritative_origin` | checked (history premise) and recorded |
 | `execution` | recorded (`native.execution`) and compared by the join |
