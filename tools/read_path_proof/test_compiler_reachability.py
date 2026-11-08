@@ -285,6 +285,17 @@ pub fn reader_root(x:u8)->u8 {leaf(x)}
         self.assertTrue(any("visit_bound" in item["reason"] for item in result["unresolved"]))
 
     # Trace: TC-472, FR-038-AC-513
+    def test_memory_limit_preserves_unknown_pending_root(self):
+        result = self.compile("memory_limit", """
+pub fn reader_root(x:u8)->u8 {x ^ 7}
+""", analysis_options={"max_resident_bytes": 1})
+        self.assertEqual(result["result"]["termination"], "memory_bound")
+        self.assertEqual(result["result"]["dirty_function_visits"], 0)
+        self.assertEqual(result["result"]["pending_dirty_functions"], 1)
+        self.assertFalse(result["result"]["pointer_flow_fixed_point"])
+        self.assertTrue(any("memory_bound" in item["reason"] for item in result["unresolved"]))
+
+    # Trace: TC-472, FR-038-AC-513
     def test_compiler_memory_copy_preserves_callback_targets(self):
         result = self.compile("copied_callbacks", """
 #[inline(never)] fn initial(x:u8)->u8 {x ^ 1}

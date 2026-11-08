@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import shutil
 import subprocess
 import sys
@@ -604,25 +605,32 @@ class Graph:
     @staticmethod
     def read_mir(paths: list[Path], source_root: Path | None = None) -> list[dict]:
         functions = []
+        source_paths: dict[str, str] = {}
+        risk = re.compile(r"\b(?:Value|RawValue|BTreeMap|BTreeSet|HashMap|Map)::(?:[A-Z]\w*|new|default|from_iter|insert|entry)\b")
         for path in paths:
             current = None
-            for line in path.read_text().splitlines():
-                if line.startswith("fn "):
-                    current = {"header": line, "lines": [], "spans": [], "artifact": str(path)}
-                    functions.append(current)
-                if current is not None:
-                    current["lines"].append(line)
-                    for match in re.finditer(r"(?:at |span: )(.+?):(\d+):(\d+): (\d+):(\d+)", line):
-                        source_path = Path(match[1])
-                        if not source_path.is_absolute() and source_root is not None:
-                            source_path = source_root / source_path
-                        current["spans"].append({
-                            "path": str(source_path), "line": int(match[2]), "column": int(match[3]),
-                            "end_line": int(match[4]), "end_column": int(match[5]),
-                            "origin": "rustc.MIR",
-                        })
-                if line == "}":
-                    current = None
+            # Keep the actual compiler artifact on disk. Correspondence needs
+            # source membership and risky statements, not a duplicate dictionary
+            # for each debug span in a large dependency closure.
+            with path.open() as source:
+                for raw in source:
+                    line = raw.rstrip("\n")
+                    if line.startswith("fn "):
+                        current = {"header": line, "risk_statements": [], "source_paths": set(), "artifact": str(path)}
+                        functions.append(current)
+                    if current is not None:
+                        if risk.search(line):
+                            current["risk_statements"].append(line.strip())
+                        for match in re.finditer(r"(?:at |span: )(.+?):(\d+):(\d+): (\d+):(\d+)", line):
+                            spelling = match[1]
+                            if spelling not in source_paths:
+                                source_path = Path(spelling)
+                                if not source_path.is_absolute() and source_root is not None:
+                                    source_path = source_root / source_path
+                                source_paths[spelling] = str(source_path)
+                            current["source_paths"].add(source_paths[spelling])
+                    if line == "}":
+                        current = None
         return functions
 
     def name(self, symbol: str) -> str:
@@ -1052,7 +1060,7 @@ class Graph:
             header = body["header"].removeprefix("fn ").strip()
             if compiler_leaf_name(header) != name:
                 continue
-            if any(item["path"] == span["path"] for item in body["spans"]):
+            if span["path"] in body["source_paths"]:
                 candidates.append(body)
         record["mir_resolution"] = {
             "status": ("unique_source_body" if len(candidates) == 1 else
@@ -1060,22 +1068,20 @@ class Graph:
                        "source_path_unmatched" if named else "callable_not_in_mir_inputs"),
             "callable_leaf": name, "named_candidates": len(named),
             "source_candidates": len(candidates), "llvm_source_path": span["path"],
-            "candidate_source_paths": sorted({item["path"] for body in named for item in body["spans"]}),
+            "candidate_source_paths": sorted({path for body in named for path in body["source_paths"]}),
         }
         if len(candidates) != 1:
             return None, []
         body = candidates[0]
-        risks = []
-        for line in body["lines"]:
-            if re.search(r"\b(?:Value|RawValue|BTreeMap|BTreeSet|HashMap|Map)::(?:[A-Z]\w*|new|default|from_iter|insert|entry)\b", line):
-                risks.append({
-                    "reason": "compiler MIR aggregate/API requires unambiguous forbidden-type qualification",
-                    "artifact": body["artifact"], "compiler_statement": line.strip(),
-                })
+        risks = [{
+            "reason": "compiler MIR aggregate/API requires unambiguous forbidden-type qualification",
+            "artifact": body["artifact"], "compiler_statement": line,
+        } for line in body["risk_statements"]]
         return body, risks
 
     def analyze(self, root: str, *, max_visits: int = 500_000,
-                max_functions: int = 50_000, max_seconds: float = 300) -> dict:
+                max_functions: int = 50_000, max_seconds: float = 300,
+                max_resident_bytes: int = 12 * 1024**3) -> dict:
         if root not in self.functions or self.functions[root].declaration:
             raise EvidenceError("opaque compiler root has no definition")
         initial = State(self.functions[root])
@@ -1087,7 +1093,8 @@ class Graph:
         deadline = time.monotonic() + max_seconds
         visits = 0
         while (self.queue and time.monotonic() < deadline
-               and len(self.states) <= max_functions and visits < max_visits):
+               and len(self.states) <= max_functions and visits < max_visits
+               and resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024 < max_resident_bytes):
             symbol = self.queue.popleft()
             self.scheduled.remove(symbol)
             self.process(self.states[symbol])
@@ -1096,7 +1103,8 @@ class Graph:
         termination = "fixed_point"
         if self.queue:
             termination = ("time_bound" if time.monotonic() >= deadline else
-                           "function_bound" if len(self.states) > max_functions else "visit_bound")
+                           "function_bound" if len(self.states) > max_functions else
+                           "memory_bound" if resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024 >= max_resident_bytes else "visit_bound")
             self.block(root, None, "compiler pointer-flow analysis " + termination + " reached")
         if not converged:
             self.block(root, None, "compiler pointer-flow resource bound reached before fixed point")
@@ -1160,7 +1168,8 @@ class Graph:
                 "scope": "compiler-derived closure of the named opaque root",
                 "pointer_flow_fixed_point": converged,
                 "termination": termination,
-                "analysis_limits": {"max_visits": max_visits, "max_functions": max_functions, "max_seconds": max_seconds},
+                "analysis_limits": {"max_visits": max_visits, "max_functions": max_functions, "max_seconds": max_seconds, "max_resident_bytes": max_resident_bytes},
+                "peak_resident_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
                 "dirty_function_visits": visits,
                 "pending_dirty_functions": len(self.queue),
                 "reached_functions": len(records),
@@ -1235,6 +1244,10 @@ def analyze_artifacts(llvm_files: list[Path], mir_files: list[Path], objects: li
     for module in modules:
         if not re.search(r'target triple = "x86_64-', module.text):
             raise EvidenceError("unsupported compiler target layout; expected x86_64")
+    # Parsing and the target/name checks above authenticate the full text.
+    # The graph consumes parsed metadata, globals and instructions only.
+    for module in modules:
+        module.text = ""
     graph = Graph(modules, names, mir_files, source_root)
     roots = [symbol for symbol, name in names.items() if name.endswith(root_suffix)
              and symbol in graph.functions and not graph.functions[symbol].declaration]
