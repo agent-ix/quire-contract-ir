@@ -4120,6 +4120,79 @@ mod tests {
         }
     }
 
+    fn literal_handle(raw: &str) -> super::super::CheckedJson {
+        let document = quire_canonical::read(raw.as_bytes(), 1 << 20).expect("literal document");
+        let node = document.root().id();
+        super::super::CheckedJson::new(std::sync::Arc::new(document), node)
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn borrowed_scalar_equality_matches_canonical_spelling_and_refusal() {
+        for (left, right) in [
+            ("1", "1.0"),
+            ("0", "-0"),
+            ("1.5", "1.50"),
+            (r#""\u0061""#, r#""a""#),
+            (r#""a""#, r#""b""#),
+            ("true", "false"),
+            ("null", "null"),
+            ("9007199254740992", "9007199254740992.0"),
+            ("9007199254740993", "9007199254740993"),
+            ("-9007199254740993", "-9007199254740993"),
+            ("1e300", "1e300"),
+        ] {
+            let left = literal_handle(left);
+            let right = literal_handle(right);
+            let expected = left == right;
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(0);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(same_literal_value(
+                    &left,
+                    &right,
+                    &mut WorkMeter::over(&mut budget),
+                    &node_path(17).key("body"),
+                ))
+            });
+            assert_eq!(result.expect("ran").unwrap(), expected);
+            assert_eq!(allocated.bytes_total, 0);
+            assert_eq!(budget.read_storage_consumed(), 0);
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn canonical_literal_fallback_prepays_arbitrary_depth_and_denials() {
+        let raw = format!("{}1{}", "[".repeat(128), "]".repeat(128));
+        let left = literal_handle(&raw);
+        let right = literal_handle(&raw);
+        assert!(left == right, "canonical oracle");
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(same_literal_value(
+                    &left,
+                    &right,
+                    &mut WorkMeter::over(&mut budget),
+                    &node_path(17).key("body"),
+                ))
+            });
+            (result.expect("ran"), allocated.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert!(result.unwrap());
+        assert!(allocated > 0);
+        assert_eq!(allocated, budget.read_storage_consumed());
+        assert!(run(allocated).0.unwrap());
+        for limit in [allocated - 1, 0] {
+            let (result, allocated, budget) = run(limit);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+        }
+    }
+
     /// Trace: FR-038-AC-323, TC-367.
     #[trace("TC-367", "FR-038-AC-323")]
     #[test]
