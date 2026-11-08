@@ -13,3 +13,6 @@ target-*/
 .cargo/config.toml
 .cargo/Cargo.lock.pre-local
 worktrees/
+
+# The explicit FR-361 lane is a standalone package; its lock is seeded from this one.
+tests/conformance_qsl_ir1384/Cargo.lock

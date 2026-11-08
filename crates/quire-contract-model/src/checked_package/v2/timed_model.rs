@@ -2798,6 +2798,28 @@ pub(super) fn admitted_model_time<'a, E>(
     Ok(None)
 }
 
+/// The kind, and for a tick source the exact period spelling, of one admitted
+/// checked time source.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AdmittedTimeSource<'a> {
+    Dense,
+    Tick { period: &'a str },
+}
+
+/// Read the admitted `kind` and `period` bindings of one checked time source.
+pub(super) fn admitted_time_source<'a>(
+    package: &'a super::CheckedPackageV2,
+    source: &CheckedNodeId,
+) -> Option<AdmittedTimeSource<'a>> {
+    let body = package.term(source)?;
+    match TimeSourceKind::from_wire(text_member(body, 0)?)? {
+        TimeSourceKind::Dense => Some(AdmittedTimeSource::Dense),
+        TimeSourceKind::Tick => Some(AdmittedTimeSource::Tick {
+            period: bound(body, 4).and_then(spelling)?,
+        }),
+    }
+}
+
 /// A checked model-time binding borrowed from one admitted Timed clause.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CheckedModelTimeRead<'a> {

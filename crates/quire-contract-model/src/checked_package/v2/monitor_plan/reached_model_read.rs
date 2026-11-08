@@ -849,6 +849,51 @@ mod tests {
     };
     use quire_semantic_value::declaration::{EqualityOperator, EqualitySchedule};
 
+    /// A row for the fixture's first claim, read from the package under test.
+    fn test_authority(package: &CheckedPackageV2) -> crate::SelectedMonitorAuthorityRow<'static> {
+        use crate::{CheckedMonitorClock, SelectedMonitorAuthorityRow, SelectedMonitorTimeSource};
+        let plan = package.monitor_plans().next().unwrap();
+        let clause = plan.clause().clone();
+        let occurrence = package
+            .node(&clause)
+            .unwrap()
+            .occurrences
+            .iter()
+            .find(|occurrence| occurrence.role == crate::CheckedOccurrenceRole::Claim)
+            .unwrap()
+            .clone();
+        let clock = plan
+            .clock_for_claim(
+                &clause,
+                &occurrence,
+                &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
+            )
+            .unwrap();
+        let CheckedMonitorClock::ModelTime { source, .. } = clock.clock() else {
+            panic!("the fixture clause is a Timed model-time clause");
+        };
+        let time_source = match package.term(source) {
+            Some(crate::CheckedTerm::Aggregate { members }) if members.len() == 2 => {
+                SelectedMonitorTimeSource::Dense
+            }
+            _ => SelectedMonitorTimeSource::Tick {
+                period: crate::CheckedRational {
+                    numerator: "1".into(),
+                    denominator: "1".into(),
+                },
+            },
+        };
+        SelectedMonitorAuthorityRow::try_new(
+            package.admission_binding(),
+            clause,
+            occurrence,
+            time_source,
+            b"order",
+            b"progress",
+        )
+        .unwrap()
+    }
+
     fn admitted_monitor() -> CheckedPackageV2 {
         admitted_monitor_with_variant(false)
     }
@@ -1071,6 +1116,7 @@ mod tests {
                 ));
             inputs["dependencies"].as_array_mut().unwrap().push(map);
         }
+        use_model_time(&mut wire);
         fixture_support::rebuild_complete_source_map(&mut wire);
         fixture_support::refresh_identity(&mut wire);
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
@@ -1084,6 +1130,119 @@ mod tests {
                 });
         }
         admit_wire(&wire, &document)
+    }
+
+    /// Give the closure fixture an admitted dense model clock. Its existing
+    /// entry, type, equality and map facts stay the subjects of their tests.
+    fn use_model_time(wire: &mut serde_json::Value) {
+        use monitor_plan_fixtures::{aggregate, binding, reference};
+        use serde_json::json;
+        let model = monitor_plan_fixtures::find(wire, "object_type");
+        let unit = fixture_support::node_id("qualified:Example/Second");
+        let unit_at = monitor_plan_fixtures::position(wire, &unit);
+        let dimension =
+            wire["semantic_graph"]["nodes"][unit_at]["body"]["dimension_node_id"].clone();
+        let text = monitor_plan_fixtures::find(wire, "text");
+        let clause = monitor_plan_fixtures::find(wire, "temporal_clause");
+        let clause_at = monitor_plan_fixtures::position(wire, &clause);
+        let parameter =
+            wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][0]["target"].clone();
+        let parameter_at = monitor_plan_fixtures::position(wire, &parameter);
+        let subject_type = monitor_plan_fixtures::type_node(
+            wire,
+            "reference",
+            aggregate(vec![reference(&model)]),
+            "MonitorSubject",
+        );
+        let subject_type_at = monitor_plan_fixtures::position(wire, &subject_type);
+        wire["semantic_graph"]["nodes"][parameter_at]["semantic_type"] = subject_type;
+        let profile = json!({"role":"temporal_profile", "definition":{
+            "authority":"agent-ix", "identity":"quire.temporal.timed/v1"}});
+        wire["lock"]["profile_selections"]
+            .as_array_mut()
+            .unwrap()
+            .push(profile.clone());
+        for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            if node["body"]["term"] != "application" {
+                continue;
+            }
+            if let Some(laws) = node["body"]["operation"]["laws"].as_array_mut() {
+                for law in laws {
+                    if law["role"] == "temporal_profile" {
+                        *law = profile.clone();
+                    }
+                }
+            }
+            if node["body"]["operation"]["member"]["kind"] != "temporal_interval" {
+                continue;
+            }
+            let interval = &mut node["body"]["operation"]["member"]["interval"];
+            if interval.is_object() && interval["lower"].is_string() {
+                let lower = interval["lower"].clone();
+                let upper = interval["upper"].clone();
+                *interval = json!({"lower":{"numerator":lower,"denominator":"1"},
+                    "upper":{"numerator":upper,"denominator":"1"},
+                    "lower_end":"closed", "upper_end":"closed"});
+            }
+        }
+        wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][1]["value"] =
+            json!("model-time");
+        wire["semantic_graph"]["nodes"][clause_at]["body"]["arguments"][2] =
+            aggregate(vec![binding(
+                "kind",
+                monitor_plan_fixtures::literal(&text, "text", json!("origin")),
+            )]);
+        let source = monitor_plan_fixtures::append(
+            wire,
+            "timed_model",
+            "time_source",
+            None,
+            aggregate(vec![
+                binding(
+                    "kind",
+                    monitor_plan_fixtures::literal(&text, "text", json!("dense")),
+                ),
+                binding("unit", reference(&unit)),
+            ]),
+            "dense",
+        );
+        let source_at = monitor_plan_fixtures::position(wire, &source);
+        wire["semantic_graph"]["nodes"][source_at]["occurrences"] =
+            json!([{"role":"expression", "ordinal":0}]);
+        monitor_plan_fixtures::rekey(wire, source_at);
+        let source = wire["semantic_graph"]["nodes"][source_at]["node_id"].clone();
+        let mut members = vec![
+            binding("model", reference(&model)),
+            binding("time_dimension", reference(&dimension)),
+            binding("source", reference(&source)),
+        ];
+        for name in [
+            "clock_places",
+            "resets",
+            "guards",
+            "invariants",
+            "urgencies",
+            "constraints",
+        ] {
+            members.push(binding(name, aggregate(vec![])));
+        }
+        let root = monitor_plan_fixtures::append(
+            wire,
+            "timed_model",
+            "timed_model",
+            None,
+            aggregate(members),
+            "Timed",
+        );
+        let root_at = monitor_plan_fixtures::position(wire, &root);
+        let owner = fixture_support::source_owner(&wire["lock"]["sources"][0]);
+        wire["semantic_graph"]["nodes"][root_at]["owner"] = owner;
+        wire["semantic_graph"]["nodes"][root_at]["declaration"] =
+            json!({"qualified_name":["Example","Timed"]});
+        wire["semantic_graph"]["nodes"][root_at]["occurrences"] =
+            json!([{"role":"declaration", "ordinal":0}]);
+        monitor_plan_fixtures::finish_from(wire, subject_type_at);
+        fixture_support::settle(wire);
     }
 
     fn equality_rows(package: &CheckedPackageV2) -> Vec<crate::SelectedEqualityApplicationRow> {
@@ -1143,6 +1302,7 @@ mod tests {
                 .any(|wrapper| wrapper.base_node == row.structural_node)
         });
         source_collections.extend(wrappers);
+        let authority = test_authority(package);
         let rows = super::super::selected_type_closure::SelectedMonitorClosureRows {
             declarations: &declarations,
             fields: &fields,
@@ -1158,6 +1318,7 @@ mod tests {
             source_collections: &source_collections,
             equality_applications: &equality_apps,
             equality_facts: &[],
+            authority: &authority,
         };
         let plan = package.monitor_plans().next().unwrap();
         let closure = plan
@@ -1694,6 +1855,7 @@ mod tests {
     #[test]
     fn selected_monitor_closure_reuses_one_meter_for_reached_model_facts() {
         let package = admitted_monitor_for_closure();
+        let authority = test_authority(&package);
         let equality_apps = equality_rows(&package);
         let (declarations, fields, source_units) = producer_rows(&package);
         let (source_records, source_tuples, source_unions, source_collections) =
@@ -1713,6 +1875,7 @@ mod tests {
             source_collections: &source_collections,
             equality_applications: &equality_apps,
             equality_facts: &[],
+            authority: &authority,
         };
         let plan = package.monitor_plans().next().unwrap();
         let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
@@ -1869,6 +2032,7 @@ mod tests {
         use super::super::selected_type_closure::SelectedMonitorClosureRows;
 
         let package = admitted_monitor_for_closure();
+        let authority = test_authority(&package);
         let applications = equality_rows(&package);
         let (declarations, fields, source_units) = producer_rows(&package);
         let (source_records, source_tuples, source_unions, source_collections) =
@@ -1892,9 +2056,11 @@ mod tests {
                     source_collections: &source_collections,
                     equality_applications: apps,
                     equality_facts: &[],
+                    authority: &authority,
                 },
                 budget,
             )
+            .map(|closure| closure.equalities().to_vec())
         };
         let mut short_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         read(&applications, &mut short_budget).expect("short key closure");
@@ -1913,14 +2079,11 @@ mod tests {
         let mut ample = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let closure = read(&long_applications, &mut ample).expect("long key closure");
         let exact_charge = ample.consumed();
-        assert_eq!(closure.equalities()[0].decision.application(), &long_key);
+        assert_eq!(closure[0].decision.application(), &long_key);
         assert!(exact_charge.storage >= short_charge.storage + (width as u64 - 16) * 2);
         assert!(exact_charge.work > short_charge.work);
         let mut exact = NativeJoinBudget::new(exact_charge.work, exact_charge.storage);
-        assert_eq!(
-            read(&long_applications, &mut exact).unwrap().equalities(),
-            closure.equalities()
-        );
+        assert_eq!(read(&long_applications, &mut exact).unwrap(), closure);
 
         let mut probe = NativeJoinBudget::new(exact_charge.work, short_charge.storage);
         let refusal =
@@ -1960,6 +2123,7 @@ mod tests {
             SelectedMonitorClosureRows, SelectedMonitorTypeClosureErrorCode as Code,
         };
         let package = admitted_monitor_for_closure();
+        let authority = test_authority(&package);
         let equality_apps = equality_rows(&package);
         let (declarations, fields, source_units) = producer_rows(&package);
         let (source_records, source_tuples, source_unions, source_collections) =
@@ -1981,6 +2145,7 @@ mod tests {
                 source_collections: &source_collections,
                 equality_applications: &equality_apps,
                 equality_facts: &[],
+                authority: &authority,
             };
             plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
                 .map(|closure| (closure.work(), closure.identities().clone()))
@@ -2002,6 +2167,7 @@ mod tests {
                 source_collections: &source_collections,
                 equality_applications: applications,
                 equality_facts: &[],
+                authority: &authority,
             };
             plan.project_selected_type_closure(rows, &mut NativeJoinBudget::new(u64::MAX, u64::MAX))
                 .map(|closure| (closure.work(), closure.equalities().to_vec()))
@@ -2069,6 +2235,7 @@ mod tests {
             source_collections: &source_collections,
             equality_applications: &equality_apps,
             equality_facts: &[],
+            authority: &authority,
         };
         let mut diagnostic_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let semantic = plan
@@ -2120,6 +2287,7 @@ mod tests {
             "unreached row lookup still charges inspection"
         );
         let unrepresentable = admitted_monitor_for_closure_with_status("text");
+        let unrepresentable_authority = test_authority(&unrepresentable);
         let unrepresentable_equalities = equality_rows(&unrepresentable);
         let (unrepresentable_declarations, unrepresentable_fields, unrepresentable_units) =
             producer_rows(&unrepresentable);
@@ -2149,6 +2317,7 @@ mod tests {
                     source_collections: &unrepresentable_collections,
                     equality_applications: &unrepresentable_equalities,
                     equality_facts: &[],
+                    authority: &unrepresentable_authority,
                 },
                 &mut NativeJoinBudget::new(u64::MAX, u64::MAX),
             )
@@ -2961,6 +3130,7 @@ mod tests {
             unions: Vec<SelectedSourceUnionRow>,
             collections: Vec<SelectedSourceCollectionRow>,
             equalities: Vec<SelectedEqualityApplicationRow>,
+            authority: crate::SelectedMonitorAuthorityRow<'static>,
         }
         impl Rows {
             fn new(package: &CheckedPackageV2) -> Self {
@@ -2997,6 +3167,7 @@ mod tests {
                     unions,
                     collections,
                     equalities: equality_rows(package),
+                    authority: test_authority(package),
                 }
             }
             fn view(&self) -> SelectedMonitorClosureRows<'_> {
@@ -3015,6 +3186,7 @@ mod tests {
                     source_collections: &self.collections,
                     equality_applications: &self.equalities,
                     equality_facts: &[],
+                    authority: &self.authority,
                 }
             }
             fn reached_map(&self) -> &SelectedSourceCollectionRow {

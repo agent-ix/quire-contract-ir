@@ -282,3 +282,9 @@ release-check: ci
 .PHONY: model-boundary-builds
 model-boundary-builds:
 	$(CARGO) test $(LOCKED) --workspace --test it cycle_free_model::production_default_all_feature_and_msrv_builds -- --ignored --exact --nocapture
+
+.PHONY: conformance-qsl-ir1384
+conformance-qsl-ir1384:
+	@test -n "$(QUIRE_SPEC_LANGUAGE_DIR)" || { echo "conformance-qsl-ir1384 reads the owner's domain package: set QUIRE_SPEC_LANGUAGE_DIR"; exit 2; }
+	cp Cargo.lock tests/conformance_qsl_ir1384/Cargo.lock
+	QUIRE_SPEC_LANGUAGE_DIR="$(QUIRE_SPEC_LANGUAGE_DIR)" $(CARGO) test --workspace --manifest-path tests/conformance_qsl_ir1384/Cargo.toml -- --nocapture
