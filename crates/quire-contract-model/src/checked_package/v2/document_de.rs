@@ -879,4 +879,74 @@ mod tests {
             Err(ValidationFailure::Budget(_))
         ));
     }
+
+    /// A denial retains the deepest supported borrowed path without allocation;
+    /// only an affordable diagnostic builds its exact escaped pointer.
+    #[trace("TC-472", "FR-038-AC-510", "FR-358-AC-14")]
+    #[test]
+    fn denied_decode_prepays_the_deep_escaped_diagnostic_before_building_it() {
+        use serde::Deserialize;
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct Leaf {
+            value: Box<str>,
+        }
+        macro_rules! layer {
+            ($name:ident, $inner:ty) => {
+                #[derive(Deserialize)]
+                #[allow(dead_code)]
+                struct $name {
+                    child: $inner,
+                }
+            };
+        }
+        layer!(L1, Leaf);
+        layer!(L2, L1);
+        layer!(L3, L2);
+        layer!(L4, L3);
+        layer!(L5, L4);
+        layer!(L6, L5);
+        layer!(L7, L6);
+        layer!(L8, L7);
+        layer!(L9, L8);
+        layer!(L10, L9);
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct Root {
+            #[serde(rename = "a/~é")]
+            top: L10,
+        }
+        let mut source = format!(r#"{{"value":"{}"}}"#, "x".repeat(128));
+        for _ in 0..10 {
+            source = format!(r#"{{"child":{source}}}"#);
+        }
+        source = format!(r#"{{"a/~é":{source}}}"#);
+        let document =
+            Arc::new(quire_canonical::read(source.as_bytes(), u64::MAX).expect("nested document"));
+        let expected = format!("/a~1~0é{}/value", "/child".repeat(10));
+        for affordable in [false, true] {
+            let allowance = expected.len() as u64 - u64::from(!affordable);
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(allowance);
+            let mut pointer = None;
+            let observed = allocation_counter::measure(|| {
+                let context = super::DecodeContext::new(&document, &mut budget);
+                assert!(matches!(
+                    Root::deserialize(context.root()),
+                    Err(super::Error::Denied)
+                ));
+                pointer = context.denied_at();
+                budget = context.finish();
+            });
+            assert_eq!(
+                observed.bytes_total,
+                if affordable { expected.len() as u64 } else { 0 }
+            );
+            assert_eq!(observed.bytes_total, budget.read_storage_consumed());
+            assert_eq!(
+                pointer.as_ref().map(|pointer| pointer.as_str()),
+                affordable.then_some(expected.as_str())
+            );
+            assert_eq!(budget.take_prepaid_diagnostic(), Some(affordable));
+        }
+    }
 }

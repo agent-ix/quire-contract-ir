@@ -250,7 +250,6 @@ trait CatalogKey: Sized {
 
 impl CatalogKey for Box<str> {
     fn read(name: &str, context: &DecodeContext<'_>) -> Result<Self, DecodeError> {
-        use serde::de::Error;
         if !context.charge_bytes(name.len()) {
             return Err(DecodeError::Denied);
         }
