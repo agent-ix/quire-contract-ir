@@ -5165,7 +5165,7 @@ mod admitted_document_bridge_tests {
     fn admitted_document_bridge_prepays_retention_and_preserves_operand_rows() {
         let cases = [
             (
-                CheckedNodeKind::Value(ValueForm::Reference),
+                CheckedNodeKind::Expression(ExpressionForm::Reference),
                 json!({"term":"reference","target":{"package":"fixture","path":[{"operand":0}],"ordinal":0}}),
             ),
             (
@@ -5228,5 +5228,39 @@ mod admitted_document_bridge_tests {
         .expect_err("malformed scalar");
         assert!(matches!(failure,ValidationFailure::Refused(refusal)
             if refusal.code==CheckedPackageRefusalCode::MalformedWire && refusal.primary_path().is_some_and(|path|path.as_str()=="/semantic_graph/nodes/3/body/scale/numerator")));
+    }
+    #[test]
+    fn lock_duration_partial_defers_shape_refusal_but_propagates_reservation_denial() {
+        let malformed = serde_json::json!({"term":"unit","dimension_node_id":{},"target_unit_node_id":null,
+            "scale":{"numerator":"1","denominator":"1"},"offset":{"numerator":"0","denominator":"1"}});
+        let id = test_support::node_id('1');
+        let nodes = [CheckedSemanticNodeV2 {
+            node_id: id.clone(),
+            schema_version: "test".into(),
+            node_tag: "scalar_type".into(),
+            semantic_form: "unit".into(),
+            semantic_type: id,
+            dependencies: vec![],
+            occurrences: vec![],
+            recursion_group: None,
+            declaration: None,
+            owner: None,
+            owner_model: None,
+            body: (),
+        }];
+        let bodies = graph_storage::OwnedBodies::of_values(&[malformed.clone()], vec![vec![]]);
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            bodies.attach(&mut meter);
+            identity::duration_terms(&nodes, &mut meter)
+        };
+        assert!(run(u64::MAX).expect("shape is deferred")[0].is_none());
+        assert!(matches!(run(0), Err(ValidationFailure::Budget(_))));
+        let handle = CheckedJson::from_value(&malformed).expect("document");
+        assert!(
+            matches!(decode_admitted_body(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),&handle,&[],0,&mut WorkMeter::new(u64::MAX)),
+            Err(ValidationFailure::Refused(refusal)) if refusal.code==CheckedPackageRefusalCode::MalformedWire)
+        );
     }
 }
