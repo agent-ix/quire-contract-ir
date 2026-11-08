@@ -1019,35 +1019,62 @@ fn forbid_plain_spill() {
     }
 }
 
-impl CheckedNodeId {
-    /// The `Ord` order, where the frame list the walk allocates on meeting
-    /// two distinct operand IDs asks `grow` for permission first. `grow`
-    /// receives the byte size of the whole new block, before it is
-    /// requested; its refusal ends the comparison. Flat IDs compare without
-    /// allocating.
-    ///
-    /// Operand chains are flat index references, so the wire bounds an
-    /// identity's nesting only by the node count; no depth is assumed.
-    pub(crate) fn cmp_growing<E>(
-        &self,
-        other: &Self,
+/// Continuations of the existing structural-ID order. Borrowing input
+/// slices lets a prepaid sort reuse one exact block without cloning identities.
+struct NodeIdComparisonFrame<'a> {
+    left: &'a [CheckedNodePathSegment],
+    right: &'a [CheckedNodePathSegment],
+    ordinals: (u64, u64),
+}
+
+/// Caller-prepaid comparison scratch for authenticated structural-ID DAGs.
+/// The caller establishes a maximum continuation depth before sorting. Other
+/// callers keep the fallible growing comparison below.
+pub(crate) struct CheckedNodeIdOrder<'a> {
+    frames: Vec<NodeIdComparisonFrame<'a>>,
+}
+impl<'a> CheckedNodeIdOrder<'a> {
+    pub(crate) fn bytes(capacity: usize) -> usize {
+        capacity.saturating_mul(std::mem::size_of::<NodeIdComparisonFrame<'_>>())
+    }
+    /// The caller must reserve `bytes(capacity)` before this allocation.
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            frames: Vec::with_capacity(capacity),
+        }
+    }
+    /// `capacity` is a checked upper bound on the authenticated input DAG's
+    /// depth. No allocation or fallible comparator runs inside the sort.
+    pub(crate) fn compare_bounded(
+        &mut self,
+        left: &'a CheckedNodeId,
+        right: &'a CheckedNodeId,
+    ) -> std::cmp::Ordering {
+        match self.compare_growing(left, right, &mut |_| -> Result<
+            (),
+            std::convert::Infallible,
+        > {
+            unreachable!("authenticated identity depth exceeds its prepaid bound")
+        }) {
+            Ok(order) => order,
+            Err(never) => match never {},
+        }
+    }
+    fn compare_growing<E>(
+        &mut self,
+        left_key: &'a CheckedNodeId,
+        right_key: &'a CheckedNodeId,
         grow: &mut dyn FnMut(usize) -> Result<(), E>,
     ) -> Result<std::cmp::Ordering, E> {
         use std::cmp::Ordering;
-        /// What a pair of IDs still has to compare once a nested pair is done:
-        /// the rest of both paths, then both ordinals.
-        struct Frame<'a> {
-            left: &'a [CheckedNodePathSegment],
-            right: &'a [CheckedNodePathSegment],
-            ordinals: (u64, u64),
-        }
-        let mut frames: Vec<Frame<'_>> = Vec::new();
-        let (mut left, mut right) = (self.path.as_slice(), other.path.as_slice());
-        let mut ordinals = (self.ordinal, other.ordinal);
+        self.frames.clear();
+        let frames = &mut self.frames;
+        let (mut left, mut right) = (left_key.path.as_slice(), right_key.path.as_slice());
+        let mut ordinals = (left_key.ordinal, right_key.ordinal);
         #[cfg(test)]
         checked_node_comparisons::visited();
-        if !std::ptr::eq(self, other) {
-            match self.package.cmp(&other.package) {
+        if !std::ptr::eq(left_key, right_key) {
+            match left_key.package.cmp(&right_key.package) {
                 Ordering::Equal => {}
                 order => return Ok(order),
             }
@@ -1110,12 +1137,13 @@ impl CheckedNodeId {
                                     }
                                     if frames.len() == frames.capacity() {
                                         let target = frames.capacity().saturating_mul(2).max(4);
-                                        grow(
-                                            target.saturating_mul(std::mem::size_of::<Frame<'_>>()),
-                                        )?;
+                                        grow(target.saturating_mul(std::mem::size_of::<
+                                            NodeIdComparisonFrame<'_>,
+                                        >(
+                                        )))?;
                                         frames.reserve_exact(target - frames.len());
                                     }
-                                    frames.push(Frame {
+                                    frames.push(NodeIdComparisonFrame {
                                         left,
                                         right,
                                         ordinals,
@@ -1131,6 +1159,18 @@ impl CheckedNodeId {
                 }
             }
         }
+    }
+}
+
+impl CheckedNodeId {
+    /// The `Ord` order, reserving every whole continuation block before a
+    /// growing comparison allocates it. Flat IDs request no scratch.
+    pub(crate) fn cmp_growing<E>(
+        &self,
+        other: &Self,
+        grow: &mut dyn FnMut(usize) -> Result<(), E>,
+    ) -> Result<std::cmp::Ordering, E> {
+        CheckedNodeIdOrder::with_capacity(0).compare_growing(self, other, grow)
     }
 }
 

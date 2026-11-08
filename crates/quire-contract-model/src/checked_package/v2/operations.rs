@@ -1098,6 +1098,62 @@ struct OperationWork<'a, 'b> {
     structural: &'a mut StructuralTypes,
 }
 
+/// A stored test pointer or a borrowed strict-reader position. Healthy reads
+/// carry fixed steps; diagnostic strings are constructed only after denial.
+#[derive(Clone)]
+enum OperationPath {
+    Held(JsonPointer),
+    Read(super::stage_storage::Path<'static>),
+}
+impl From<JsonPointer> for OperationPath {
+    fn from(pointer: JsonPointer) -> Self {
+        Self::Held(pointer)
+    }
+}
+trait DiagnosticPath {
+    fn position(&self) -> super::stage_storage::Position<'_>;
+    fn pointer(&self) -> JsonPointer {
+        self.position().build()
+    }
+}
+impl DiagnosticPath for JsonPointer {
+    fn position(&self) -> super::stage_storage::Position<'_> {
+        super::stage_storage::Position::Recorded(self)
+    }
+}
+impl DiagnosticPath for OperationPath {
+    fn position(&self) -> super::stage_storage::Position<'_> {
+        match self {
+            Self::Held(pointer) => super::stage_storage::Position::Recorded(pointer),
+            Self::Read(path) => (*path).into(),
+        }
+    }
+}
+impl OperationPath {
+    fn index(&self, index: usize) -> JsonPointer {
+        self.pointer().index(index)
+    }
+}
+fn work_at_path(
+    meter: &mut WorkMeter,
+    at: &impl DiagnosticPath,
+    amount: u64,
+) -> Result<(), ValidationFailure> {
+    let locus = meter.budget_mut().and_then(|budget| budget.active_locus());
+    let (stage, index, form) = match locus {
+        Some(super::NativeJoinLocus {
+            source: super::NativeJoinLocusSource::PackageRead(stage, index),
+            form,
+        }) => (stage, index, form),
+        _ => (super::PackageReadStage::Graph, 0, "leaves"),
+    };
+    super::stage_storage::work(
+        meter,
+        &super::stage_storage::Site::new(stage, index, form, at.position()),
+        amount,
+    )
+}
+
 impl StructuralTypes {
     /// Resolve aliases and non-population domains, charging each forwarding node
     /// before reading its successor. Successful suffixes share their answer.
@@ -1106,7 +1162,7 @@ impl StructuralTypes {
         type_id: &CheckedNodeId,
         graph: &Graph<'_>,
         meter: &mut WorkMeter,
-        at: &JsonPointer,
+        at: &impl DiagnosticPath,
     ) -> Result<Option<(usize, CheckedNodeKind)>, ValidationFailure> {
         let Some(mut position) = graph.index.get(type_id).copied() else {
             return Ok(None);
@@ -1135,7 +1191,7 @@ impl StructuralTypes {
             if !forwards {
                 break Some((position, kind));
             }
-            meter.charge(1, || at.clone())?;
+            work_at_path(meter, at, 1)?;
             meter.push(&mut walked, position)?;
             if node.semantic_type == node.node_id {
                 break Some((position, kind));
@@ -3520,11 +3576,11 @@ fn check_tuple_position(
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     // The published TW-18..20 wire cases locate tuple-project failures at
     // the application node as a whole.
-    let member_at = node_pointer(application.position);
+    let member_at = || node_pointer(application.position);
     let ineligible = || {
         Ok(Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            member_at.clone(),
+            member_at(),
             CheckedPackageRefusalCause::OperatorIneligible,
         )))
     };
@@ -3579,7 +3635,7 @@ fn check_tuple_position(
     )? {
         return Ok(Some(application.refuse(
             CheckedPackageRefusalCode::MissingDeclaration,
-            member_at,
+            member_at(),
             CheckedPackageRefusalCause::MissingName,
         )));
     }
@@ -4496,7 +4552,7 @@ fn inner_type(
     graph: &Graph<'_>,
     meter: &mut WorkMeter,
     structural: &mut StructuralTypes,
-    at: &JsonPointer,
+    at: &impl DiagnosticPath,
 ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
     let Some((position, kind)) = structural.resolve(type_id, graph, meter, at)? else {
         return Ok(None);
@@ -4560,9 +4616,7 @@ fn text_profile_pin(
                 .map_err(LeafWalkEnd::Work)?;
         }
         let at = &walk.at;
-        walk.meter
-            .charge(1, || at.clone())
-            .map_err(LeafWalkEnd::Work)?;
+        work_at_path(walk.meter, at, 1).map_err(LeafWalkEnd::Work)?;
         let node = &nodes[position];
         walk.meter
             .push(&mut walked, position)
@@ -4809,8 +4863,8 @@ struct LeafWalk<'g, 'm, 'b> {
     terms: &'g [Option<CheckedTerm>],
     meter: &'m mut WorkMeter<'b>,
     structural: &'m mut StructuralTypes,
-    at: JsonPointer,
-    operation_at: JsonPointer,
+    at: OperationPath,
+    operation_at: OperationPath,
     /// Each node's derived-leaf count where no composite reachable from it
     /// was open.
     memo: SortedTable<usize, usize>,
@@ -4844,8 +4898,8 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
         graph: Graph<'g>,
         meter: &'m mut WorkMeter<'b>,
         structural: &'m mut StructuralTypes,
-        at: JsonPointer,
-        operation_at: JsonPointer,
+        at: impl Into<OperationPath>,
+        operation_at: impl Into<OperationPath>,
     ) -> LeafWalk<'g, 'm, 'b> {
         LeafWalk {
             nodes: graph.nodes,
@@ -4854,8 +4908,8 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
             terms: graph.terms,
             meter,
             structural,
-            at,
-            operation_at,
+            at: at.into(),
+            operation_at: operation_at.into(),
             memo: SortedTable::new(),
             pins: SortedTable::new(),
             expanded: SortedTable::new(),
@@ -4871,9 +4925,7 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
     /// One unit to the work budget, at `operation.leaves`.
     fn charge(&mut self) -> Result<(), LeafWalkEnd> {
         let at = &self.at;
-        self.meter
-            .charge(1, || at.clone())
-            .map_err(LeafWalkEnd::Work)
+        work_at_path(self.meter, at, 1).map_err(LeafWalkEnd::Work)
     }
 
     /// The anchor and edges of the node at `position`: a `record`'s
@@ -5536,8 +5588,14 @@ fn check_leaf_count(
         return Ok(None);
     };
     let arguments = admitted_arguments(application, graph).unwrap_or_default();
-    let operation_at = application.body(&["operation"]);
-    let at = application.body(&["operation", "leaves"]);
+    let operation_path = super::stage_storage::Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(application.position)
+        .key("body")
+        .key("operation");
+    let operation_at = OperationPath::Read(operation_path);
+    let at = OperationPath::Read(operation_path.key("leaves"));
     let ineligible = |path| {
         Ok(Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
@@ -5598,10 +5656,10 @@ fn check_leaf_count(
                 None => None,
             }
         }
-        _ => return ineligible(at),
+        _ => return ineligible(at.pointer()),
     };
     let Some(compared) = compared else {
-        return ineligible(at);
+        return ineligible(at.pointer());
     };
     let Some(compared) = compared else {
         return if operation.leaves.is_empty() {
@@ -5634,7 +5692,7 @@ fn check_leaf_count(
     match walked {
         Ok(Err(LeafFault::Missing)) => refuse(
             CheckedPackageRefusalCode::InvalidPackage,
-            at,
+            at.pointer(),
             CheckedPackageRefusalCause::OperationLawMissing,
         ),
         Ok(Err(LeafFault::Unplaced(leaf))) => refuse(
@@ -5664,20 +5722,20 @@ fn check_leaf_count(
                 );
             }
             for (at_leaf, (leaf, pin)) in operation.leaves.iter().zip(&pins).enumerate() {
-                let leaf_at = at.clone().index(at_leaf);
+                let leaf_at = || at.index(at_leaf);
                 let admitted = match &leaf.mode {
                     // A recursion leaf carries no mode.
-                    Some(_) if pin.is_none() => Err(leaf_at.clone().key("mode")),
+                    Some(_) if pin.is_none() => Err(leaf_at().key("mode")),
                     None if pin.is_none() => Ok(()),
-                    None => Err(leaf_at.clone().key("mode")),
+                    None => Err(leaf_at().key("mode")),
                     Some(mode) if mode.kind_class() != Some(OperationModeKind::TextProfile) => {
-                        Err(leaf_at.clone().key("mode").key("kind"))
+                        Err(leaf_at().key("mode").key("kind"))
                     }
                     Some(mode)
                         if !catalog
                             .mode_value_admitted(OperationModeKind::TextProfile, &mode.value) =>
                     {
-                        Err(leaf_at.clone().key("mode").key("value"))
+                        Err(leaf_at().key("mode").key("value"))
                     }
                     Some(_) => Ok(()),
                 };
@@ -5703,7 +5761,7 @@ fn check_leaf_count(
         }
         Err(LeafWalkEnd::Unresolved) => refuse(
             CheckedPackageRefusalCode::IllTyped,
-            at,
+            at.pointer(),
             CheckedPackageRefusalCause::OperatorIneligible,
         ),
         Err(LeafWalkEnd::Work(failure)) => Err(failure),
