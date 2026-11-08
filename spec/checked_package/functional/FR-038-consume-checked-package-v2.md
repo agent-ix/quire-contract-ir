@@ -5671,6 +5671,23 @@ NOT substitute for that selection. Reads SHALL expose the selected package's
 actual keys and referenced values, without merging equal-named plans or
 copying QSL execution semantics into IR.
 
+### Fold and reduce binder bounds
+
+For `quire.op.collection.fold` and `quire.op.collection.reduce`, the reader
+SHALL resolve `bound_is_member` through [QSL FR-093](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-093-lower-checked-value-expressions-to-fr-322-terms.md)'s
+two-binder encoding in [QSpec FR-322](https://github.com/agent-ix/quire-specification/blob/main/spec/objects/interfaces/FR-322-checked-package-artifact.md) terms: an accumulator `binding` whose value is an `aggregate`
+containing exactly one element `binding`, whose value names the final step.
+The final step's resolved type SHALL equal the `type_argument` declaration.
+An empty or multiple-member aggregate, a non-binding member, or a final step
+of a different type SHALL refuse `ill_typed`/`operator-ineligible` at the
+application node. A further nested aggregate step retains the earlier
+`malformed_wire` refusal at that step's value, without a cause. Direct single-binder
+bounds retain their existing meaning. This rule does not assign a type to
+arbitrary aggregate operands or change other operations' binder resolution.
+FR-038-AC-247 and FR-038-AC-251 include these positive and negative controls
+and strict admission of both genuine Integer-only QSL fold bytes and the
+complete original monitor-base document with its selected model evidence.
+
 ### Carried-quantity sum admission (IR-1398)
 
 When reading `quire.op.collection.sum.carried_quantity`, the strict V2 reader
