@@ -1002,7 +1002,7 @@ pub struct CheckedPackageV2 {
     /// Exact identities reachable through the direct edges, shared with children.
     closure_index: ClosureIndex,
     /// The operation catalog this package was admitted against.
-    catalog: &'static operation_catalog::OperationCatalog,
+    catalog: operation_catalog::CatalogRef,
 }
 
 /// The original immutable buffers read by native identity validation. No
@@ -1461,7 +1461,7 @@ impl CheckedPackageV2 {
     }
 
     fn admit_bytes(
-        catalog: &'static operation_catalog::OperationCatalog,
+        catalog: operation_catalog::CatalogRef,
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
@@ -1514,7 +1514,9 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(catalog, &wire, &bodies, &document, limits, evidence, budget)?;
+        } = validate(
+            &catalog, &wire, &bodies, &document, limits, evidence, budget,
+        )?;
         let direct_dependencies = wire
             .lock
             .dependency_selections

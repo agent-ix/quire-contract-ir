@@ -153,17 +153,34 @@ impl CheckedPackageV2 {
         evidence: &CheckedPackageEvidence,
         budget: &mut NativeJoinBudget,
     ) -> CheckedPackageV2BudgetedReadResult {
-        Self::read_with_budget_against(
-            super::operation_catalog::production_catalog(),
+        let work_before = budget.consumed();
+        let storage_before = budget.read_storage_mark();
+        budget.resume();
+        let catalog = match super::operation_catalog::read_catalog_budgeted(budget) {
+            Ok(catalog) => catalog,
+            Err(super::operation_catalog_index::CatalogStop::Unavailable(error)) => {
+                budget.abort();
+                return CheckedPackageV2BudgetedReadResult::CatalogUnavailable(error);
+            }
+            Err(super::operation_catalog_index::CatalogStop::Budget(stop)) => {
+                budget.abort();
+                return budgeted_outcome(stop, budget);
+            }
+        };
+        Self::admit_with_catalog(
+            catalog,
             bytes,
             limits,
             evidence,
             budget,
+            work_before,
+            storage_before,
         )
     }
 
     /// [`Self::read_with_budget`] against the given result of reading the
     /// operation catalog: an unreadable catalog returns before any charge.
+    #[cfg(test)]
     pub(super) fn read_with_budget_against(
         catalog: &'static Result<super::operation_catalog::OperationCatalog, CatalogReadError>,
         bytes: &[u8],
@@ -178,6 +195,26 @@ impl CheckedPackageV2 {
         let work_before = budget.consumed();
         let storage_before = budget.read_storage_mark();
         budget.resume();
+        Self::admit_with_catalog(
+            catalog,
+            bytes,
+            limits,
+            evidence,
+            budget,
+            work_before,
+            storage_before,
+        )
+    }
+
+    fn admit_with_catalog(
+        catalog: super::operation_catalog::CatalogRef,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        evidence: &CheckedPackageEvidence,
+        budget: &mut NativeJoinBudget,
+        work_before: super::NativeJoinCharge,
+        storage_before: u64,
+    ) -> CheckedPackageV2BudgetedReadResult {
         match Self::admit_bytes(catalog, bytes, limits, evidence, budget) {
             Ok(package) => {
                 budget.finish_read(work_before, storage_before);
@@ -199,16 +236,15 @@ impl CheckedPackageV2 {
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageV2ReadResult {
-        Self::read_against(
-            super::operation_catalog::production_catalog(),
-            bytes,
-            limits,
-            evidence,
-        )
+        let mut budget =
+            NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX);
+        let outcome = Self::read_with_budget(bytes, limits, evidence, &mut budget);
+        Self::unbudgeted_result(outcome, limits, &budget)
     }
 
     /// [`Self::read`] against the given result of reading the operation
     /// catalog.
+    #[cfg(test)]
     pub(super) fn read_against(
         catalog: &'static Result<super::operation_catalog::OperationCatalog, CatalogReadError>,
         bytes: &[u8],
@@ -217,7 +253,16 @@ impl CheckedPackageV2 {
     ) -> CheckedPackageV2ReadResult {
         let mut budget =
             NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX);
-        match Self::read_with_budget_against(catalog, bytes, limits, evidence, &mut budget) {
+        let outcome = Self::read_with_budget_against(catalog, bytes, limits, evidence, &mut budget);
+        Self::unbudgeted_result(outcome, limits, &budget)
+    }
+
+    fn unbudgeted_result(
+        outcome: CheckedPackageV2BudgetedReadResult,
+        limits: CheckedPackageReadLimits,
+        budget: &NativeJoinBudget,
+    ) -> CheckedPackageV2ReadResult {
+        match outcome {
             CheckedPackageV2BudgetedReadResult::Admitted(package) => {
                 CheckedPackageV2ReadResult::Admitted(package)
             }

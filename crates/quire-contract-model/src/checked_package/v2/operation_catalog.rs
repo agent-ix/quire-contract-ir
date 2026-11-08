@@ -25,7 +25,7 @@ use super::{
     ApplicationOperator, LawRole, OperationConstraintKind, OperationMemberKind, OperationModeKind,
 };
 use serde::Deserialize;
-use std::sync::OnceLock;
+use std::sync::Arc;
 
 #[cfg(test)]
 use super::operation_catalog_index::OperationCatalogWire;
@@ -152,6 +152,7 @@ pub(super) struct OperationCatalogEntry {
     /// Required application `operator` class.
     pub(super) operator: ApplicationOperator,
     /// Fixed leading operand families or group names, in order.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub(super) operands: Vec<CatalogFamily>,
     /// The family or group name every operand past `operands` must fit, or
     /// `None` when no further operand is admitted.
@@ -160,12 +161,14 @@ pub(super) struct OperationCatalogEntry {
     /// (`check_inner_result`), the other forms are not.
     pub(super) result: CatalogResult,
     /// Required law roles, in order.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub(super) laws: Vec<LawRole>,
     /// Required mode kind, or `None` when the operation carries no mode.
     pub(super) mode: Option<OperationModeKind>,
     /// Required member kind, or `None` when the operation carries no member.
     pub(super) member: Option<OperationMemberKind>,
     /// Cross-operand constraints.
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub(super) constraints: Vec<OperationConstraint>,
     /// The leaf source this operation compares, or `None` when it carries no
     /// leaves.
@@ -177,50 +180,52 @@ pub(super) struct OperationCatalogEntry {
 #[serde(deny_unknown_fields)]
 pub(super) struct OperationConstraint {
     pub(super) kind: OperationConstraintKind,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     pub(super) operands: Vec<u64>,
     #[allow(dead_code)]
     pub(super) family: Option<Box<str>>,
 }
 
-static CATALOG: OnceLock<Result<OperationCatalog, CatalogReadError>> = OnceLock::new();
-
-/// The result of reading the production catalog bytes, read once.
-pub(super) fn production_catalog() -> &'static Result<OperationCatalog, CatalogReadError> {
-    CATALOG.get_or_init(|| read_catalog(CATALOG_BYTES))
+/// Reads a fresh production catalog, owned by the caller.
+pub(super) fn production_catalog() -> Result<CatalogRef, CatalogReadError> {
+    read_catalog(CATALOG_BYTES).map(|catalog| CatalogRef(Arc::new(catalog)))
 }
 
-/// The catalog a read result stands for, or why it is unavailable. Every
-/// reader entry point obtains its catalog here and passes the reference down,
-/// so no check can run without a readable catalog.
+/// Reads a fresh production catalog through the read's caller budget.
+pub(super) fn read_catalog_budgeted(
+    budget: &mut super::NativeJoinBudget,
+) -> Result<CatalogRef, super::operation_catalog_index::CatalogStop> {
+    super::operation_catalog_index::read_catalog_budgeted(CATALOG_BYTES, budget)
+}
+
+/// Owns a catalog supplied by a test that injects an unavailable catalog.
+#[cfg(test)]
 pub(super) fn available(
     read: &'static Result<OperationCatalog, CatalogReadError>,
-) -> Result<&'static OperationCatalog, CatalogReadError> {
-    read.as_ref().map_err(Clone::clone)
-}
-
-/// Reads the production operation catalog now, so a later read's first call
-/// pays nothing for it. Returns the catalog's read error when it is
-/// unreadable, which every package read then reports as `CatalogUnavailable`.
-///
-/// # Errors
-///
-/// [`CatalogReadError`] when the production catalog bytes cannot be read.
-pub fn initialize_operation_catalog() -> Result<(), CatalogReadError> {
-    production_catalog()
-        .as_ref()
-        .map(|_| ())
+) -> Result<CatalogRef, CatalogReadError> {
+    read.as_ref()
+        .map(|catalog| CatalogRef(Arc::new(catalog.clone())))
         .map_err(Clone::clone)
 }
 
-/// The catalog an admitted package was read against, kept so the package's
-/// own queries use it. Packages compare equal by content, not by catalog.
-#[derive(Clone, Copy)]
-pub(super) struct CatalogRef(pub(super) &'static OperationCatalog);
+/// Validates the published operation catalog now. Every package read still
+/// owns and charges its own catalog; this call creates no process cache.
+///
+/// # Errors
+/// [`CatalogReadError`] when the published catalog cannot be read.
+pub fn initialize_operation_catalog() -> Result<(), CatalogReadError> {
+    production_catalog().map(drop)
+}
+
+/// The owned catalog an admitted package was read against. Packages compare
+/// equal by content, not by catalog allocation.
+#[derive(Clone)]
+pub(super) struct CatalogRef(pub(super) Arc<OperationCatalog>);
 
 impl std::ops::Deref for CatalogRef {
     type Target = OperationCatalog;
     fn deref(&self) -> &OperationCatalog {
-        self.0
+        &self.0
     }
 }
 
@@ -235,15 +240,14 @@ impl PartialEq for CatalogRef {
         true
     }
 }
-
 impl Eq for CatalogRef {}
 
 /// The production catalog, for tests that read an operation's entry.
 #[cfg(test)]
 pub(super) fn operation_catalog() -> &'static OperationCatalog {
-    production_catalog()
-        .as_ref()
-        .expect("the production catalog reads")
+    Box::leak(Box::new(
+        read_catalog(CATALOG_BYTES).expect("the production catalog reads"),
+    ))
 }
 
 /// The production operation catalog could not be read: the member the bytes

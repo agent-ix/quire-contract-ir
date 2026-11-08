@@ -88,6 +88,7 @@ pub(super) struct OperationCatalogWire {
 }
 
 /// The parsed, indexed `quire.checked-operation-catalog/v1`.
+#[derive(Clone)]
 pub(super) struct OperationCatalog {
     /// The entries sorted by identity.
     operations: Vec<OperationCatalogEntry>,
@@ -203,4 +204,202 @@ fn index_catalog(wire: OperationCatalogWire) -> OperationCatalog {
         modes: wire.modes,
         type_pinned_modes: wire.type_pinned_modes,
     }
+}
+
+/// Catalog admission stopped by its bytes or by the caller's budget.
+pub(super) enum CatalogStop {
+    Unavailable(CatalogReadError),
+    Budget(super::ValidationFailure),
+}
+
+/// One sequence decoded at its exact final capacity.
+struct Exact<T>(Vec<T>);
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Exact<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        super::document_de::exact_vec(deserializer).map(Self)
+    }
+}
+
+type DecodeError = serde::de::value::Error;
+
+fn decode<'d, T: Deserialize<'d>>(
+    context: &DecodeContext<'d>,
+    node: quire_canonical::NodeRef<'d>,
+) -> Result<T, DecodeError> {
+    T::deserialize(context.value_at(node))
+}
+
+fn field<'d>(
+    root: quire_canonical::NodeRef<'d>,
+    name: &str,
+) -> Result<quire_canonical::NodeRef<'d>, DecodeError> {
+    use serde::de::Error;
+    let Node::Object(mut members) = root.node() else {
+        return Err(DecodeError::custom("catalog is not an object"));
+    };
+    members
+        .find(|(key, _)| *key == name)
+        .map(|(_, value)| value)
+        .ok_or_else(|| DecodeError::custom("missing catalog member"))
+}
+
+trait CatalogKey: Sized {
+    fn read(name: &str, context: &DecodeContext<'_>) -> Result<Self, DecodeError>;
+}
+
+impl CatalogKey for Box<str> {
+    fn read(name: &str, context: &DecodeContext<'_>) -> Result<Self, DecodeError> {
+        use serde::de::Error;
+        if !context.charge_bytes(name.len()) {
+            return Err(DecodeError::custom("catalog key reservation denied"));
+        }
+        Ok(name.into())
+    }
+}
+
+macro_rules! catalog_key {
+    ($type:ty) => {
+        impl CatalogKey for $type {
+            fn read(name: &str, _: &DecodeContext<'_>) -> Result<Self, DecodeError> {
+                use serde::de::Error;
+                Self::from_wire(name).ok_or_else(|| DecodeError::custom("unknown catalog key"))
+            }
+        }
+    };
+}
+catalog_key!(LawRole);
+catalog_key!(OperationModeKind);
+
+fn table<'d, K: CatalogKey + Ord, V: Deserialize<'d>>(
+    context: &DecodeContext<'d>,
+    node: quire_canonical::NodeRef<'d>,
+) -> Result<Table<K, Vec<V>>, DecodeError> {
+    use serde::de::Error;
+    let Node::Object(members) = node.node() else {
+        return Err(DecodeError::custom("catalog table is not an object"));
+    };
+    let count = members.len();
+    if !context.charge_bytes(count.saturating_mul(std::mem::size_of::<(K, Vec<V>)>())) {
+        return Err(DecodeError::custom("catalog table reservation denied"));
+    }
+    let mut rows = Vec::with_capacity(count);
+    for (name, node) in members {
+        let key = K::read(name, context)?;
+        let values: Exact<V> = decode(context, node)?;
+        rows.push((key, values.0));
+    }
+    rows.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    Ok(rows)
+}
+
+fn decode_catalog<'d>(
+    context: &DecodeContext<'d>,
+    root: quire_canonical::NodeRef<'d>,
+) -> Result<OperationCatalogWire, DecodeError> {
+    use serde::de::Error;
+    const FIELDS: &[&str] = &[
+        "version",
+        "families",
+        "groups",
+        "law_roles",
+        "profile_law_roles",
+        "modes",
+        "type_pinned_modes",
+        "member_kinds",
+        "constraint_kinds",
+        "result_forms",
+        "leaf_sources",
+        "operations",
+    ];
+    let Node::Object(members) = root.node() else {
+        return Err(DecodeError::custom("catalog is not an object"));
+    };
+    if members.len() != FIELDS.len() || members.into_iter().any(|(name, _)| !FIELDS.contains(&name))
+    {
+        return Err(DecodeError::custom("unknown or missing catalog member"));
+    }
+    Ok(OperationCatalogWire {
+        version: decode(context, field(root, "version")?)?,
+        families: decode::<Exact<Box<str>>>(context, field(root, "families")?)?.0,
+        groups: table(context, field(root, "groups")?)?,
+        law_roles: table(context, field(root, "law_roles")?)?,
+        profile_law_roles: decode::<Exact<Box<str>>>(context, field(root, "profile_law_roles")?)?.0,
+        modes: table(context, field(root, "modes")?)?,
+        type_pinned_modes: table(context, field(root, "type_pinned_modes")?)?,
+        member_kinds: decode::<Exact<Box<str>>>(context, field(root, "member_kinds")?)?.0,
+        constraint_kinds: decode::<Exact<Box<str>>>(context, field(root, "constraint_kinds")?)?.0,
+        result_forms: decode::<Exact<Box<str>>>(context, field(root, "result_forms")?)?.0,
+        leaf_sources: decode::<Exact<Box<str>>>(context, field(root, "leaf_sources")?)?.0,
+        operations: decode::<Exact<OperationCatalogEntry>>(context, field(root, "operations")?)?.0,
+    })
+}
+
+/// Parses a fresh catalog and retains it under the caller's read-storage
+/// account. The catalog has no process-global allocation or hidden budget.
+pub(super) fn read_catalog_budgeted(
+    bytes: &str,
+    budget: &mut NativeJoinBudget,
+) -> Result<super::operation_catalog::CatalogRef, CatalogStop> {
+    use super::budgeted_read::{self, ReadStorageReservation};
+    use super::native_join_budget::{NativeJoinLocus, NativeJoinLocusSource, PackageReadStage};
+    use super::read_charge;
+    let locus = NativeJoinLocus {
+        source: NativeJoinLocusSource::PackageRead(PackageReadStage::Envelope, 0),
+        form: "operation_catalog",
+    };
+    budget.set_active_locus(Some(locus));
+    let document = match quire_canonical::read_with_reservation(
+        bytes.as_bytes(),
+        u64::MAX,
+        &mut ReadStorageReservation(budget),
+    ) {
+        Ok(document) => document,
+        Err(quire_canonical::ReadError::ReservationDenied { .. }) => {
+            return Err(CatalogStop::Budget(budgeted_read::denial(budget)))
+        }
+        Err(error) => return Err(catalog_error(budget, &error)),
+    };
+    if !budget
+        .charge_read_storage(read_charge::arc_block_bytes::<quire_canonical::Document>() as u128)
+    {
+        return Err(CatalogStop::Budget(budgeted_read::denial(budget)));
+    }
+    let document = Arc::new(document);
+    let context = DecodeContext::at_locus(&document, budget, locus);
+    let decoded = decode_catalog(&context, document.root());
+    let denied = context.denied();
+    *budget = context.finish();
+    if denied {
+        return Err(CatalogStop::Budget(budgeted_read::denial(budget)));
+    }
+    let wire = decoded.map_err(|error| catalog_error(budget, &error))?;
+    if !budget.charge_read_storage(read_charge::arc_block_bytes::<OperationCatalog>() as u128) {
+        return Err(CatalogStop::Budget(budgeted_read::denial(budget)));
+    }
+    let catalog = super::operation_catalog::CatalogRef(Arc::new(index_catalog(wire)));
+    budget.set_active_locus(None);
+    Ok(catalog)
+}
+
+fn catalog_error(budget: &mut NativeJoinBudget, error: &impl std::fmt::Display) -> CatalogStop {
+    use std::fmt::Write;
+    struct Count(usize);
+    impl std::fmt::Write for Count {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            self.0 = self.0.saturating_add(text.len());
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    let _ = write!(count, "{error}");
+    if !budget.charge_read_storage(count.0.saturating_add(1) as u128) {
+        return CatalogStop::Budget(super::budgeted_read::denial(budget));
+    }
+    let mut message = String::with_capacity(count.0);
+    let _ = write!(message, "{error}");
+    CatalogStop::Unavailable(CatalogReadError {
+        path: ".".into(),
+        message,
+    })
 }
