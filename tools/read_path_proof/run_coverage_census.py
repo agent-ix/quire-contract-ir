@@ -23,6 +23,7 @@ import coverage_census as census
 LOCKED = ["flock", "--no-fork", "/tmp/titan-cargo.lock", "nice", "-n", "10", "ionice", "-c", "3"]
 CONTROL_CASES = {
     "wrapped_function_item_has_no_unaccounted_entry": True,
+    "qspec_read_proof::provider_scope_tests::provider_designated_read_preserves_the_original_scalar_refusal": True,
     "qspec_read_proof::caller_budget_tests::caller_budget_observation_preserves_prior_charges_and_outer_capture": True,
     "unwrapped_type_alias_before_trusted_read_must_fail_census": False,
     "unwrapped_function_item_after_trusted_read_must_fail_census": False,
@@ -376,6 +377,8 @@ def run_controls(args, binary, config, env, compiled_tests):
         evidence = merge_export(args, output, profiles, binary, env)
         try:
             result = census.check(evidence, args.repo)
+            if name == "qspec_read_proof::provider_scope_tests::provider_designated_read_preserves_the_original_scalar_refusal":
+                census.validate_provenance(evidence, args.repo, {name}, records)
         except census.CensusError as error:
             if should_pass or not str(error).startswith("unaccounted "):
                 raise RunError(f"control failed for the wrong reason: {error}") from error

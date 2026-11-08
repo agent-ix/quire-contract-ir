@@ -366,9 +366,10 @@ fn same_observation(left: &Observation, right: &Observation) {
             "sufficient finite budgets differ only in their explicit configured bounds"
         );
     }
-    assert_eq!(
-        left.result, right.result,
-        "complete repeated budgeted outcome"
+    assert_budgeted_results_equal(
+        &left.result,
+        &right.result,
+        "complete repeated budgeted outcome",
     );
     assert_eq!(
         left.requested, right.requested,
@@ -396,7 +397,9 @@ fn same_observation(left: &Observation, right: &Observation) {
 
 fn same_public_result(plain: &Plain, measured: &Observation, limits: CheckedPackageReadLimits) {
     match (plain, &measured.result) {
-        (Plain::Admitted(a), Budgeted::Admitted(b)) => assert_eq!(a, b),
+        (Plain::Admitted(a), Budgeted::Admitted(b)) => {
+            assert_admitted_views_equal(a, b, "original plain/measured admitted views")
+        }
         (Plain::Refused(a), Budgeted::Refused(b)) => assert_eq!(a, b),
         (Plain::Incomplete(a), Budgeted::Incomplete(b)) => assert_eq!(a, b),
         (Plain::CatalogUnavailable(a), Budgeted::CatalogUnavailable(b)) => assert_eq!(a, b),
@@ -652,9 +655,10 @@ pub(crate) fn full_native_boundaries(
             Budgeted::BudgetIncomplete(_) | Budgeted::Exhausted(_)
         )
     {
-        assert_eq!(
-            complete.result, reference.result,
-            "sufficient original context preserves full outcome"
+        assert_budgeted_results_equal(
+            &complete.result,
+            &reference.result,
+            "sufficient original context preserves full outcome",
         );
     }
     let (repeated, repeated_events) =
@@ -676,9 +680,10 @@ pub(crate) fn full_native_boundaries(
         .read_proof_rebound(work, storage, false);
     let (exact, exact_events) =
         native_budget_trace::checked_seeded(bytes, evidence, limits, &exact_seed);
-    assert_eq!(
-        complete.result, exact.result,
-        "exact complete requirement preserves full outcome"
+    assert_budgeted_results_equal(
+        &complete.result,
+        &exact.result,
+        "exact complete requirement preserves full outcome",
     );
     assert_eq!(
         complete.requested, exact.requested,
@@ -709,9 +714,10 @@ pub(crate) fn full_native_boundaries(
             .read_proof_rebound(above_work, above_storage, false);
     let (above, above_events) =
         native_budget_trace::checked_seeded(bytes, evidence, limits, &above_seed);
-    assert_eq!(
-        complete.result, above.result,
-        "above complete requirement preserves full outcome"
+    assert_budgeted_results_equal(
+        &complete.result,
+        &above.result,
+        "above complete requirement preserves full outcome",
     );
     assert_eq!(complete.requested, above.requested);
     assert_eq!(events, above_events);

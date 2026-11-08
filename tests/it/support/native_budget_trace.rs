@@ -51,9 +51,10 @@ fn scoped<T>(recorder: Recorder, read: impl FnOnce() -> T) -> (T, Recorder) {
     (result, recorded)
 }
 fn unchanged(off: &Observation, on: &Observation) {
-    assert_eq!(
-        off.result, on.result,
-        "observer preserves full typed outcome"
+    super::assert_budgeted_results_equal(
+        &off.result,
+        &on.result,
+        "observer preserves full typed outcome and admitted views",
     );
     assert_eq!(
         off.budget, on.budget,
