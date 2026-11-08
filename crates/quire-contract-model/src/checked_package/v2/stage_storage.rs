@@ -453,6 +453,9 @@ pub(super) fn node_id_clone_bytes(id: &CheckedNodeId) -> usize {
         ),
         |total, segment| match segment {
             CheckedNodePathSegment::Name(name) => total.saturating_add(name.len()),
+            CheckedNodePathSegment::Dependency { package, .. } => {
+                total.saturating_add(package.len())
+            }
             _ => total,
         },
     )

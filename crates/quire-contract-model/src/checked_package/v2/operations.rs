@@ -11705,7 +11705,7 @@ mod tests {
                         .cloned()
                         .collect();
                     for key in rows {
-                        let row: Vec<u64> =
+                        let row: Vec<crate::CheckedOperandEntry> =
                             serde_json::from_value(object.remove(&key).expect("row"))
                                 .expect("operand row");
                         let name = key.trim_end_matches("_operand_row");
@@ -11718,7 +11718,7 @@ mod tests {
                 _ => {}
             }
         }
-        fn resolve_slots(value: &mut Value, row: &[u64]) {
+        fn resolve_slots(value: &mut Value, row: &[crate::CheckedOperandEntry]) {
             match value {
                 Value::Array(items) => items.iter_mut().for_each(|item| resolve_slots(item, row)),
                 Value::Object(object) => {
@@ -11726,8 +11726,13 @@ mod tests {
                         .then(|| object.get("operand").and_then(Value::as_u64))
                         .flatten();
                     if let Some(slot) = slot {
-                        let entry = row[usize::try_from(slot).expect("slot")];
-                        *value = json!({ "node": entry });
+                        let entry = &row[usize::try_from(slot).expect("slot")];
+                        *value = match entry {
+                            crate::CheckedOperandEntry::Node(node) => json!({ "node": node }),
+                            crate::CheckedOperandEntry::Dependency(operand) => {
+                                json!({ "node": operand.node, "package": operand.package })
+                            }
+                        };
                         return;
                     }
                     object

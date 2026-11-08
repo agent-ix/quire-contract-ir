@@ -315,6 +315,7 @@ pub(in crate::checked_package::v2) fn node_id_bytes(id: &CheckedNodeId) -> usize
         id.package.len() + id.path.len() * std::mem::size_of::<CheckedNodePathSegment>(),
         |total, segment| match segment {
             CheckedNodePathSegment::Name(name) => total + name.len(),
+            CheckedNodePathSegment::Dependency { package, .. } => total + package.len(),
             _ => total,
         },
     )

@@ -57,6 +57,19 @@ impl PositionIndex {
         })
     }
 
+    /// Read a borrowed foreign-coordinate key against the retained document IDs.
+    pub(in crate::checked_package) fn node_probe<Body>(
+        &self,
+        nodes: &[CheckedSemanticNodeV2<Body>],
+        probe: &dyn crate::checked_package::shared::NodeKeyProbe,
+    ) -> Option<usize> {
+        self.find(|position| {
+            nodes.get(position).map_or(Ordering::Greater, |node| {
+                (&node.node_id as &dyn crate::checked_package::shared::NodeKeyProbe).cmp(probe)
+            })
+        })
+    }
+
     /// This index without the row at `position`, as a damaged index.
     #[cfg(test)]
     pub(in crate::checked_package) fn without(&self, position: usize) -> Self {

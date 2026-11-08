@@ -13,6 +13,7 @@ use super::checked_json::{CheckedJson, CHECKED_JSON_TOKEN};
 use super::native_join_budget::{NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource};
 use super::PackageReadStage;
 use crate::checked_package::shared::CheckedNodeId;
+use crate::checked_package::shared::CheckedOperandEntry;
 use crate::checked_package::shared::{push_index, push_key, JsonPointer};
 use quire_canonical::{Document, Items, Members, Node, NodeRef};
 use serde::de::{
@@ -119,13 +120,13 @@ where
 /// grows by doubling.
 pub(in crate::checked_package) fn exact_rows<'de, D>(
     deserializer: D,
-) -> Result<Vec<Vec<u64>>, D::Error>
+) -> Result<Vec<Vec<CheckedOperandEntry>>, D::Error>
 where
     D: de::Deserializer<'de>,
 {
     struct RowSeed;
     impl<'de> de::DeserializeSeed<'de> for RowSeed {
-        type Value = Vec<u64>;
+        type Value = Vec<CheckedOperandEntry>;
         fn deserialize<D: de::Deserializer<'de>>(
             self,
             deserializer: D,
@@ -135,7 +136,7 @@ where
     }
     struct Rows;
     impl<'de> Visitor<'de> for Rows {
-        type Value = Vec<Vec<u64>>;
+        type Value = Vec<Vec<CheckedOperandEntry>>;
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             formatter.write_str("operand rows")
         }
@@ -153,7 +154,7 @@ where
             inner.deserialize_seq(self)
         }
     }
-    ELEMENT_BYTES.with(|bytes| bytes.set(std::mem::size_of::<Vec<u64>>()));
+    ELEMENT_BYTES.with(|bytes| bytes.set(std::mem::size_of::<Vec<CheckedOperandEntry>>()));
     deserializer.deserialize_newtype_struct(SEQUENCE_TOKEN, Rows)
 }
 
@@ -269,7 +270,7 @@ pub(in crate::checked_package) struct DecodeContext<'d> {
     /// The operand row of the node whose body is decoded: an operand slot
     /// `{"operand": k}` in a node ID's path reads as `{"node": row[k]}`, the
     /// form the reader's resolved wire gives it.
-    operand_row: Option<&'d [u64]>,
+    operand_row: Option<&'d [CheckedOperandEntry]>,
 }
 
 impl<'d> DecodeContext<'d> {
@@ -293,7 +294,10 @@ impl<'d> DecodeContext<'d> {
     }
 
     /// Reads operand slots through `row` (see the field).
-    pub(in crate::checked_package) fn with_operand_row(mut self, row: &'d [u64]) -> Self {
+    pub(in crate::checked_package) fn with_operand_row(
+        mut self,
+        row: &'d [CheckedOperandEntry],
+    ) -> Self {
         self.operand_row = Some(row);
         self
     }
@@ -624,9 +628,11 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
                                 .and_then(|slot| row.get(slot)),
                             _ => None,
                         };
-                        if let Some(&entry) = entry {
+                        if let Some(entry) = entry {
                             return visitor.visit_map(ResolvedSlot {
-                                entry: Some(entry),
+                                entry,
+                                context: self.context,
+                                position: 0,
                                 keyed: false,
                             });
                         }
@@ -979,35 +985,62 @@ struct Mapping<'c, 'd> {
 }
 
 /// An operand slot `{"operand": k}` read as `{"node": row[k]}`.
-struct ResolvedSlot {
-    entry: Option<u64>,
+struct ResolvedSlot<'c, 'de> {
+    entry: &'de CheckedOperandEntry,
+    context: &'c DecodeContext<'de>,
+    position: u8,
     keyed: bool,
 }
 
-impl<'de> MapAccess<'de> for ResolvedSlot {
+impl<'de> MapAccess<'de> for ResolvedSlot<'_, 'de> {
     type Error = Error;
-
     fn next_key_seed<K: DeserializeSeed<'de>>(
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, Error> {
-        if self.keyed || self.entry.is_none() {
+        let length = match self.entry {
+            CheckedOperandEntry::Node(_) => 1,
+            CheckedOperandEntry::Dependency(_) => 2,
+        };
+        if self.keyed || self.position >= length {
             return Ok(None);
         }
         self.keyed = true;
-        seed.deserialize(KeyDe { name: "node" }).map(Some)
+        seed.deserialize(KeyDe {
+            name: if self.position == 0 {
+                "node"
+            } else {
+                "package"
+            },
+        })
+        .map(Some)
     }
-
     fn next_value_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<T::Value, Error> {
-        let entry = self
-            .entry
-            .take()
-            .ok_or_else(|| de::Error::custom("a value without a member name"))?;
-        seed.deserialize(entry.into_deserializer())
+        if !self.keyed {
+            return Err(de::Error::custom("a value without a member name"));
+        }
+        self.keyed = false;
+        let position = self.position;
+        self.position += 1;
+        match (position, self.entry) {
+            (0, CheckedOperandEntry::Node(node)) => seed.deserialize((*node).into_deserializer()),
+            (0, CheckedOperandEntry::Dependency(operand)) => {
+                seed.deserialize(operand.node.into_deserializer())
+            }
+            (1, CheckedOperandEntry::Dependency(operand)) => {
+                self.context.charge(operand.package.len())?;
+                seed.deserialize(serde::de::value::BorrowedStrDeserializer::new(
+                    operand.package.as_ref(),
+                ))
+            }
+            _ => Err(de::Error::custom("a value beyond the resolved operand")),
+        }
     }
-
     fn size_hint(&self) -> Option<usize> {
-        Some(1)
+        Some(match self.entry {
+            CheckedOperandEntry::Node(_) => 1,
+            CheckedOperandEntry::Dependency(_) => 2,
+        })
     }
 }
 
