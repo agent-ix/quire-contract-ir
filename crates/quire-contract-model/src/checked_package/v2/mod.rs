@@ -948,8 +948,9 @@ pub enum CheckedPackageV2ReadResult {
 /// holds an operand slot, by those bytes.
 struct SlotView {
     graph: CheckedSemanticGraphV2,
-    /// `None` when several nodes have the same bytes.
-    positions: BTreeMap<CheckedNodeId, Option<usize>>,
+    /// The positions of the slot-holding nodes, sorted by node ID bytes and
+    /// then position.
+    positions: Vec<usize>,
 }
 
 /// Immutable, admitted `quire.checked-package/v2` data.
@@ -1063,13 +1064,7 @@ impl CheckedPackageV2 {
     /// Finish internal construction by retaining the original immutable fact
     /// buffers. The public reader calls this only after strict admission;
     /// private unit fixture builders use the same construction invariant.
-    #[cfg(test)]
-    fn retain_original_admission(self) -> Self {
-        self.retain_admission(&mut NativeJoinBudget::unlimited())
-            .expect("unlimited budget")
-    }
-
-    /// [`Self::retain_original_admission`], its shared block charged to the
+    /// Retains the original immutable fact buffers, their shared block charged to the
     /// read's budget first.
     fn retain_admission(mut self, budget: &mut NativeJoinBudget) -> Result<Self, ValidationFailure> {
         let site = read_charge::Site::new(PackageReadStage::Retained, 0, "admission_binding");
@@ -1134,19 +1129,6 @@ impl PartialEq for CheckedPackageV2 {
 }
 
 impl Eq for CheckedPackageV2 {}
-
-/// The node index of a fixture package, charged to no one.
-#[cfg(test)]
-fn retained_node_index(wire: &CheckedPackageWireV2) -> PositionIndex {
-    retained_index::node_index(wire, &mut NativeJoinBudget::unlimited()).expect("unlimited budget")
-}
-
-/// The source index of a fixture package, charged to no one.
-#[cfg(test)]
-fn retained_source_index(wire: &CheckedPackageWireV2) -> PositionIndex {
-    super::selected_population::source_index(&wire.source_map, &mut NativeJoinBudget::unlimited())
-        .expect("unlimited budget")
-}
 
 /// Cumulative validation work, charged either to the caller's budget (the
 /// strict read) or against one limit of its own (lowering and unit tests).
@@ -1663,15 +1645,16 @@ impl CheckedPackageV2 {
     fn slot_view(&self) -> &SlotView {
         self.slot_graph.get_or_init(|| {
             let graph = node_index::slot_graph(&self.wire.semantic_graph);
-            let mut positions = BTreeMap::new();
-            for (position, node) in graph.nodes.iter().enumerate() {
-                if node_index::holds_slot(&node.node_id) {
-                    positions
-                        .entry(node.node_id.clone())
-                        .and_modify(|first| *first = None)
-                        .or_insert(Some(position));
-                }
-            }
+            let nodes = &graph.nodes;
+            let mut positions: Vec<usize> = (0..nodes.len())
+                .filter(|&position| node_index::holds_slot(&nodes[position].node_id))
+                .collect();
+            positions.sort_unstable_by(|left, right| {
+                nodes[*left]
+                    .node_id
+                    .cmp(&nodes[*right].node_id)
+                    .then(left.cmp(right))
+            });
             SlotView { graph, positions }
         })
     }
@@ -1679,13 +1662,6 @@ impl CheckedPackageV2 {
     /// The graph position of `id` by the retained node index.
     fn node_position(&self, id: &CheckedNodeId) -> Option<usize> {
         self.node_index.node(&self.wire.semantic_graph.nodes, id)
-    }
-
-    /// Rebuilds the node and source indexes after a fixture changes the graph.
-    #[cfg(test)]
-    pub(in crate::checked_package) fn reindex(&mut self) {
-        self.node_index = Arc::new(retained_node_index(&self.wire));
-        self.source_index = Arc::new(retained_source_index(&self.wire));
     }
 
     /// The graph's node identities in ascending order.
@@ -1721,7 +1697,21 @@ impl CheckedPackageV2 {
     /// when their rows differ, so such an ID names none.
     fn position_of(&self, id: &CheckedNodeId) -> Option<usize> {
         if node_index::holds_slot(id) {
-            return self.slot_view().positions.get(id).copied().flatten();
+            let view = self.slot_view();
+            let nodes = &view.graph.nodes;
+            let first = view
+                .positions
+                .partition_point(|&position| nodes[position].node_id < *id);
+            let found = view
+                .positions
+                .get(first)
+                .filter(|&&position| nodes[position].node_id == *id)?;
+            // Equal bytes in two nodes name none: the rows tell them apart.
+            let unique = view
+                .positions
+                .get(first + 1)
+                .is_none_or(|&next| nodes[next].node_id != *id);
+            return unique.then_some(*found);
         }
         self.node_position(id)
     }
@@ -5062,3 +5052,8 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod retained_fixture;
+#[cfg(test)]
+use retained_fixture::{retained_node_index, retained_source_index};
