@@ -2302,17 +2302,36 @@ fn validate_node_id_charged(
 /// anonymous derived member uses that path only when the label has exactly one
 /// declared member. With zero or several declarations its path is authored;
 /// the ordinary ID shape, uniqueness and reference rules still apply.
-fn validate_recursion_group_paths(nodes: &[RawSemanticNodeV2]) -> Result<(), ValidationFailure> {
-    let mut declarations = Vec::<(&str, Option<&CheckedNodeId>)>::new();
-    for node in nodes {
-        if let (Some(label), Some(_)) = (node.recursion_group.as_deref(), &node.declaration) {
-            if let Some((_, anchor)) = declarations.iter_mut().find(|(prior, _)| *prior == label) {
-                *anchor = None;
-            } else {
-                declarations.push((label, Some(&node.node_id)));
-            }
+fn validate_recursion_group_paths(
+    nodes: &[RawSemanticNodeV2],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    meter.at_node(0, "recursion_groups");
+    let count = nodes
+        .iter()
+        .filter(|node| node.recursion_group.is_some() && node.declaration.is_some())
+        .count();
+    let mut declarations = meter.vec::<(&str, Option<&CheckedNodeId>)>(count)?;
+    declarations.extend(
+        nodes
+            .iter()
+            .filter_map(|node| {
+                Some((
+                    node.recursion_group.as_deref()?,
+                    node.declaration.as_ref().map(|_| &node.node_id)?,
+                ))
+            })
+            .map(|(label, id)| (label, Some(id))),
+    );
+    declarations.sort_unstable_by_key(|row| row.0);
+    declarations.dedup_by(|later, prior| {
+        if later.0 == prior.0 {
+            prior.1 = None;
+            true
+        } else {
+            false
         }
-    }
+    });
     for (position, node) in nodes.iter().enumerate() {
         let Some(label) = node.recursion_group.as_deref() else {
             continue;
@@ -2321,16 +2340,28 @@ fn validate_recursion_group_paths(nodes: &[RawSemanticNodeV2]) -> Result<(), Val
             continue;
         }
         let Some(anchor) = declarations
-            .iter()
-            .find(|(prior, _)| *prior == label)
-            .and_then(|(_, anchor)| *anchor)
+            .binary_search_by_key(&label, |row| row.0)
+            .ok()
+            .and_then(|at| declarations[at].1)
         else {
             continue;
         };
         if node.node_id.path != anchor.path {
-            return Err(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                node_pointer(position).key("node_id").key("path"),
+            let path = stage_storage::Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+                .key("node_id")
+                .key("path");
+            return Err(stage_storage::refuse(
+                meter,
+                &stage_storage::Site::new(
+                    PackageReadStage::Graph,
+                    position,
+                    "recursion_groups",
+                    path,
+                ),
+                stage_storage::Refusal::new(CheckedPackageRefusalCode::InvalidSemanticGraph, path),
             ));
         }
     }
@@ -3761,7 +3792,7 @@ fn validate_graph(
         meter,
     )?;
     validate_declaration_names(&graph.nodes, &kinds, &index, meter)?;
-    validate_recursion_group_paths(&graph.nodes)?;
+    validate_recursion_group_paths(&graph.nodes, meter)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
@@ -4923,9 +4954,16 @@ mod tests {
 
         let declared = member('a', "A", true);
         let anonymous = member('b', "A", false);
-        assert!(validate_recursion_group_paths(&[declared.clone(), anonymous.clone()]).is_ok());
+        assert!(validate_recursion_group_paths(
+            &[declared.clone(), anonymous.clone()],
+            &mut super::WorkMeter::new(u64::MAX)
+        )
+        .is_ok());
         assert_recursion_refusal(
-            validate_recursion_group_paths(&[declared.clone(), member('b', "other", false)]),
+            validate_recursion_group_paths(
+                &[declared.clone(), member('b', "other", false)],
+                &mut super::WorkMeter::new(u64::MAX),
+            ),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_pointer(1).key("node_id").key("path").to_string(),
         );
@@ -4937,25 +4975,72 @@ mod tests {
             identity: "equivalence".into(),
         });
         assert_recursion_refusal(
-            validate_recursion_group_paths(&[declared.clone(), owned_anonymous]),
+            validate_recursion_group_paths(
+                &[declared.clone(), owned_anonymous],
+                &mut super::WorkMeter::new(u64::MAX),
+            ),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_pointer(1).key("node_id").key("path").to_string(),
         );
 
         // With no declared member the reader has no path anchor to invent.
-        assert!(validate_recursion_group_paths(&[
-            member('a', "first", false),
-            member('b', "second", false),
-        ])
+        assert!(validate_recursion_group_paths(
+            &[member('a', "first", false), member('b', "second", false),],
+            &mut super::WorkMeter::new(u64::MAX)
+        )
         .is_ok());
         // Several declared nodes each retain their own path, and an anonymous
         // member has no unique declared path to inherit.
-        assert!(validate_recursion_group_paths(&[
-            declared,
-            member('c', "C", true),
-            member('b', "chosen", false),
-        ])
+        assert!(validate_recursion_group_paths(
+            &[
+                declared,
+                member('c', "C", true),
+                member('b', "chosen", false),
+            ],
+            &mut super::WorkMeter::new(u64::MAX)
+        )
         .is_ok());
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn recursion_group_join_prepays_its_table_and_refusal() {
+        let mut declared = recursion_test_node('a', Some("group"));
+        declared.declaration = Some(super::CheckedDeclaration {
+            qualified_name: vec!["group".into()],
+        });
+        let mut anonymous = recursion_test_node('b', Some("group"));
+        anonymous.node_id.path = declared.node_id.path.clone();
+        let mut nodes = vec![declared, anonymous];
+        for malformed in [false, true] {
+            if malformed {
+                nodes[1].node_id.path = vec![super::CheckedNodePathSegment::Name("other".into())];
+            }
+            let run = |limit| {
+                let mut budget =
+                    super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = super::WorkMeter::over(&mut budget);
+                    result = Some(validate_recursion_group_paths(&nodes, &mut meter));
+                });
+                (
+                    result.expect("ran"),
+                    measured.bytes_total,
+                    budget.read_storage_consumed(),
+                )
+            };
+            let (result, allocated, charged) = run(u64::MAX);
+            assert_eq!(allocated, charged);
+            assert_eq!(result.is_err(), malformed);
+            assert!(charged > 0);
+            let (exact, allocated, consumed) = run(charged);
+            assert_eq!(allocated, consumed);
+            assert_eq!(exact, result);
+            let (short, allocated, consumed) = run(charged - 1);
+            assert_eq!(allocated, consumed);
+            assert!(short.is_err());
+        }
     }
 
     fn assert_recursion_refusal(
