@@ -3796,6 +3796,110 @@ mod tests {
 
     #[trace("TC-472", "FR-038-AC-511")]
     #[test]
+    fn published_clock_place_semantic_paths_prepay_every_actual_request() {
+        let root = std::env::var("QUIRE_SPECIFICATION_DIR").expect("published QSpec checkout");
+        let proposal = FilePath::new(&root).join("proposals/checked-package-v2");
+        let vectors: Value = serde_json::from_slice(
+            &std::fs::read(proposal.join("timed-slot-selector-vectors.json"))
+                .expect("published slot vectors"),
+        )
+        .expect("vector JSON");
+        let wire: super::super::RawCheckedPackageWireV2 = serde_json::from_slice(
+            &std::fs::read(
+                proposal.join(
+                    vectors["selected_package"]
+                        .as_str()
+                        .expect("published package reference"),
+                ),
+            )
+            .expect("published slot package"),
+        )
+        .expect("wire JSON");
+        let selected: Value = serde_json::from_slice(
+            &std::fs::read(proposal.join("domain-package-acme-timed-slots.json"))
+                .expect("original selected model"),
+        )
+        .expect("selected JSON");
+        let models = [super::super::model_members::tests::read(&selected)
+            .expect("original selected model intake")];
+        let nodes = &wire.semantic_graph.nodes;
+        let owners = ModelOwners::new(&models, nodes, |_| Ok(())).expect("actual model owners");
+        let kinds: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                super::super::CheckedNodeTag::from_wire(&node.node_tag)
+                    .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+                    .expect("published node kind")
+            })
+            .collect();
+        let mut setup = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let terms: Vec<_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| {
+                TermNode::of(&node.body)
+                    .decode_in(
+                        node.body.document(),
+                        &mut setup,
+                        Site::new(super::super::PackageReadStage::Graph, position, "body"),
+                        wire.semantic_graph
+                            .operand_rows
+                            .get(position)
+                            .map_or(&[][..], Vec::as_slice),
+                    )
+                    .expect("paid setup decode")
+                    .ok()
+            })
+            .collect();
+        let index: GraphIndex<'_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let graph = Graph {
+            nodes,
+            kinds: &kinds,
+            terms: &terms,
+            index: &index,
+        };
+        let mut checked = 0;
+        for (position, kind) in kinds.iter().enumerate() {
+            if *kind != CheckedNodeKind::TimedModel(TimedModelForm::Place) {
+                continue;
+            }
+            checked += 1;
+            let place = terms[position].as_ref().expect("published place body");
+            let model = *index
+                .get(
+                    bound(place, 0)
+                        .and_then(typed_target)
+                        .expect("published model target"),
+                )
+                .expect("model node");
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(check_resolved_path(
+                    &graph,
+                    position,
+                    place,
+                    model,
+                    &owners,
+                    &mut WorkMeter::over(&mut budget),
+                ))
+            });
+            assert!(result.expect("ran").is_ok(), "published place {position}");
+            assert_eq!(
+                allocated.bytes_total,
+                budget.read_storage_consumed(),
+                "semantic clock place {position}"
+            );
+        }
+        assert!(checked > 1, "published nested and optional places");
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
     fn timed_wire_first_defect_refusal_and_its_denial_are_paid() {
         let (position, mut node, form) = published_timed_nodes()
             .into_iter()
