@@ -210,6 +210,7 @@ def validate_normative_boundaries(record):
                 or designated.get("driver") != record.get("driver")
                 or designated.get("line") != record.get("line")
                 or not designated.get("provider")
+                or designated.get("input_binding") != "exact-borrowed-input-evidence-and-callsite"
                 or not isinstance(designated.get("classes"), dict)):
             raise CensusError("designated growth case lacks exact original-provider provenance")
         requested = designated.get("requested_classes", designated["classes"])
@@ -403,7 +404,9 @@ def validate_full_completion(bundle):
             field, minimum = REQUIRED_PROVIDER_FACTS[role]
             source = evidence.get("source", {})
             fact = evidence.get("input_facts", {}).get(field)
-            if (type(fact) is not int or fact < minimum or not source.get("symbol")
+            if (evidence.get("input_binding") != "exact-borrowed-input-evidence-and-callsite"
+                    or not evidence.get("fact_source")
+                    or type(fact) is not int or fact < minimum or not source.get("symbol")
                     or source.get("file") != row.get("driver") or source.get("line") != row.get("line")):
                 raise CensusError("provider obligation lacks source-bound measured input facts")
             # Growth obligations need actual event-selected requests, not input
@@ -416,7 +419,8 @@ def validate_full_completion(bundle):
                 if (len(indices) < (3 if kind == "walker_growth" else 1)
                         or len(set(indices)) != len(indices)
                         or any(type(i) is not int or i < 0 or i >= len(events) or i not in selected
-                               or events[i].get("allocation_class") != kind for i in indices)
+                               or events[i].get("allocation_class") != kind
+                               or events[i].get("locus") != evidence.get("reservation_locus") for i in indices)
                         or not evidence.get("reservation_source")
                         or (kind == "walker_growth" and not evidence.get("same_walk_instance_source"))):
                     raise CensusError("growth obligation lacks actual selected source-bound reservations")

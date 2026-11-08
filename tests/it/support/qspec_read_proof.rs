@@ -21,10 +21,91 @@ use quire_contract_model::{
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Facts are computed/asserted from the actual prepared input by its original
+/// provider. Reservation loci/sources describe that provider's role, never a
+/// class inferred from allocation size. Completion independently checks roles.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy)]
+pub(crate) struct ReadProviderObligation {
+    pub(crate) role: &'static str,
+    pub(crate) fact: u64,
+    pub(crate) fact_source: &'static str,
+    pub(crate) reservation_locus: Option<quire_contract_model::NativeJoinLocus>,
+    pub(crate) reservation_source: Option<&'static str>,
+    pub(crate) same_walk_instance_source: Option<&'static str>,
+}
+#[cfg(feature = "test-support")]
+pub(crate) struct DesignatedReadProvider<'a> {
+    pub(crate) symbol: &'static str,
+    pub(crate) classes: &'static [&'static str],
+    pub(crate) obligations: &'a [ReadProviderObligation],
+}
+
 #[derive(Clone, Copy)]
 struct ReadProvider {
     symbol: &'static str,
     classes: &'static [&'static str],
+    binding: Option<ReadInputBinding>,
+    verified: bool,
+    #[cfg(feature = "test-support")]
+    obligations: [Option<ReadProviderObligation>; 13],
+}
+
+#[derive(Clone, Copy)]
+struct ReadInputBinding {
+    bytes: usize,
+    length: usize,
+    evidence: usize,
+    file: &'static str,
+    line: u32,
+    column: u32,
+}
+impl ReadInputBinding {
+    fn new(
+        bytes: &[u8],
+        evidence: &CheckedPackageEvidence,
+        site: &'static std::panic::Location<'static>,
+    ) -> Self {
+        Self {
+            bytes: bytes.as_ptr() as usize,
+            length: bytes.len(),
+            evidence: std::ptr::from_ref(evidence) as usize,
+            file: site.file(),
+            line: site.line(),
+            column: site.column(),
+        }
+    }
+    fn matches(
+        self,
+        bytes: &[u8],
+        evidence: &CheckedPackageEvidence,
+        site: &'static std::panic::Location<'static>,
+    ) -> bool {
+        self.bytes == bytes.as_ptr() as usize
+            && self.length == bytes.len()
+            && self.evidence == std::ptr::from_ref(evidence) as usize
+            && self.file == site.file()
+            && self.line == site.line()
+            && self.column == site.column()
+    }
+}
+fn provider_for_input(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    site: &'static std::panic::Location<'static>,
+) -> Option<ReadProvider> {
+    READ_PROVIDER
+        .with(std::cell::Cell::get)
+        .filter(|provider| {
+            provider
+                .binding
+                .is_some_and(|binding| binding.matches(bytes, evidence, site))
+        })
+        .map(|mut provider| {
+            provider.binding = None;
+            provider.verified = true;
+            provider
+        })
 }
 thread_local! {
     // Proof-provider metadata only, never an actual budget or allocation meter.
@@ -55,12 +136,101 @@ pub(crate) fn with_designated_read_provider<R>(
     assert!(classes
         .iter()
         .all(|class| matches!(*class, "walker_growth" | "exact_reservation")));
-    let previous =
-        READ_PROVIDER.with(|provider| provider.replace(Some(ReadProvider { symbol, classes })));
+    let previous = READ_PROVIDER.with(|provider| {
+        provider.replace(Some(ReadProvider {
+            symbol,
+            classes,
+            binding: None,
+            verified: false,
+            #[cfg(feature = "test-support")]
+            obligations: [None; 13],
+        }))
+    });
     let restore = RestoreProvider(previous);
     let result = read();
     drop(restore);
     result
+}
+
+/// Bind provider metadata only after fixture/evidence preparation, at this
+/// exact original call. No pointers escape in artifacts or cross into workers.
+/// Legacy broad scopes have no binding and cannot supply provider evidence.
+#[cfg(feature = "test-support")]
+#[track_caller]
+pub(crate) fn read_designated_and_account(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+    descriptor: DesignatedReadProvider<'_>,
+) -> Plain {
+    let DesignatedReadProvider {
+        symbol,
+        classes,
+        obligations,
+    } = descriptor;
+    assert!(
+        obligations.len() <= 13,
+        "bounded normative obligation inventory"
+    );
+    assert!(classes
+        .iter()
+        .all(|class| matches!(*class, "walker_growth" | "exact_reservation")));
+    let provider = ReadProvider {
+        symbol,
+        classes,
+        verified: false,
+        obligations: std::array::from_fn(|index| obligations.get(index).copied()),
+        binding: Some(ReadInputBinding::new(
+            bytes,
+            evidence,
+            std::panic::Location::caller(),
+        )),
+    };
+    let previous = READ_PROVIDER.with(|current| current.replace(Some(provider)));
+    let restore = RestoreProvider(previous);
+    let result = read_and_account(bytes, limits, evidence);
+    drop(restore);
+    result
+}
+
+#[cfg(feature = "test-support")]
+fn obligation_json(
+    provider: ReadProvider,
+    events: &[serde_json::Value],
+    location: &'static std::panic::Location<'static>,
+) -> Vec<serde_json::Value> {
+    assert!(provider.verified);
+    provider.obligations.into_iter().flatten().map(|obligation| {
+        let (field, class) = match obligation.role {
+            "reference_chain" => ("reference_chain_nodes", None),
+            "flat_graph" => ("flat_graph_nodes", None),
+            "node_dependencies" => ("maximum_node_dependencies", None),
+            "string_member" => ("string_member_utf8_bytes", None),
+            "source_maps" => ("source_map_entries", None),
+            "diagnostic_details" => ("diagnostics_with_detail_terms", None),
+            "direct_dependencies" => ("direct_dependencies", None),
+            "selected_models" => ("selected_model_documents_at_least_524288_bytes", None),
+            "term_walk_multigrowth" => ("same_term_walk_stack_growth_requests", Some("walker_growth")),
+            "canonical_rational_multilimb" => ("canonical_rational_max_bits", Some("exact_reservation")),
+            "dimension_exponent_multilimb" => ("dimension_exponent_max_bits", Some("exact_reservation")),
+            "timed_magnitude_multilimb" => ("timed_magnitude_max_bits", Some("exact_reservation")),
+            "schedulability_bound_multilimb" => ("schedulability_bound_max_bits", Some("exact_reservation")),
+            _ => panic!("unknown normative provider role"),
+        };
+        let expected_locus = obligation.reservation_locus.map(|locus| serde_json::json!({"source":format!("{:?}",locus.source),"form":locus.form}));
+        let indices: Vec<usize> = events.iter().enumerate().filter_map(|(index,event)| {
+            (class.is_some_and(|class| event["allocation_class"] == class)
+                && event["resource"] == "ReadStorage" && event["admitted"] == true
+                && event["amount"].as_u64().is_some_and(|amount| amount>0)
+                && expected_locus.as_ref().is_some_and(|locus| &event["locus"] == locus)).then_some(index)
+        }).collect();
+        let mut facts = serde_json::Map::new();
+        facts.insert(field.to_owned(), obligation.fact.into());
+        serde_json::json!({"role":obligation.role,"source":{"symbol":provider.symbol,"file":location.file(),"line":location.line()},
+            "input_binding":"exact-borrowed-input-evidence-and-callsite","fact_source":obligation.fact_source,
+            "input_facts":facts,"request_event_indices":indices,"reservation_locus":expected_locus,
+            "reservation_source":obligation.reservation_source,"same_walk_instance_source":obligation.same_walk_instance_source})
+    }).collect()
 }
 
 fn provider_json(
@@ -69,6 +239,10 @@ fn provider_json(
     test: &str,
     location: &'static std::panic::Location<'static>,
 ) -> serde_json::Value {
+    assert!(
+        provider.verified,
+        "only caller-bound provider metadata reaches proof records"
+    );
     let requested: serde_json::Map<String, serde_json::Value> = provider
         .classes
         .iter()
@@ -86,7 +260,7 @@ fn provider_json(
         .map(|(class, role)| (class.clone(), role.clone()))
         .collect();
     serde_json::json!({"provider":provider.symbol,"test":test,"driver":location.file(),"line":location.line(),
-                      "requested_classes":requested,"classes":reached})
+                      "requested_classes":requested,"classes":reached,"input_binding":"exact-borrowed-input-evidence-and-callsite"})
 }
 
 struct DriverCounter;
@@ -114,7 +288,7 @@ fn observe(
 
 /// A checked read from an exact caller-state snapshot, not reconstructed totals.
 #[cfg(feature = "test-support")]
-fn measure_seeded(
+pub(crate) fn measure_seeded(
     bytes: &[u8],
     evidence: &CheckedPackageEvidence,
     limits: CheckedPackageReadLimits,
@@ -378,7 +552,7 @@ fn assert_native_denial(
 /// amounts or a fixed number of stages. Designated growth cases additionally
 /// supply source-grounded exhaustive classes at their original provider site.
 #[cfg(feature = "test-support")]
-fn full_native_boundaries(
+pub(crate) fn full_native_boundaries(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
@@ -634,7 +808,7 @@ pub(crate) fn read_and_account(
     evidence: &CheckedPackageEvidence,
 ) -> Plain {
     let location = std::panic::Location::caller();
-    let provider = READ_PROVIDER.with(std::cell::Cell::get);
+    let provider = provider_for_input(bytes, evidence, location);
     let (mode, test_name) = crate::without_qspec_instrumentation(|| {
         let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
         assert!(
@@ -828,7 +1002,14 @@ fn finish_proof(
         let events = &native_events;
         #[cfg(not(feature = "test-support"))]
         let events = &[];
-        row["designated_growth_case"] = provider_json(provider, events, &test_name, location);
+        if !provider.classes.is_empty() {
+            row["designated_growth_case"] = provider_json(provider, events, &test_name, location);
+        }
+        #[cfg(feature = "test-support")]
+        {
+            row["provider_obligation_evidence"] =
+                obligation_json(provider, events, location).into();
+        }
         row
     } else {
         row
@@ -900,7 +1081,7 @@ pub(crate) fn read_budget_and_account(
     budget: &mut quire_contract_model::NativeJoinBudget,
 ) -> Budgeted {
     let location = std::panic::Location::caller();
-    let provider = READ_PROVIDER.with(std::cell::Cell::get);
+    let provider = provider_for_input(bytes, evidence, location);
     #[cfg(feature = "test-support")]
     let mode = crate::without_qspec_instrumentation(|| {
         let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
@@ -1017,7 +1198,14 @@ pub(crate) fn read_budget_and_account(
                     .unwrap_or("unnamed")
                     .to_owned()
             });
-            row["designated_growth_case"] = provider_json(provider, events, &test, location);
+            if !provider.classes.is_empty() {
+                row["designated_growth_case"] = provider_json(provider, events, &test, location);
+            }
+            #[cfg(feature = "test-support")]
+            {
+                row["provider_obligation_evidence"] =
+                    obligation_json(provider, events, location).into();
+            }
             row
         } else {
             row
@@ -1161,6 +1349,73 @@ mod caller_budget_tests {
 #[cfg(test)]
 mod provider_scope_tests {
     use super::{with_designated_read_provider, READ_PROVIDER};
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn provider_binding_rejects_nested_library_input_evidence_and_location() {
+        use super::{provider_for_input, ReadInputBinding, ReadProvider};
+        let bytes = b"null".to_vec();
+        let library = b"null".to_vec();
+        let evidence = quire_contract_model::CheckedPackageEvidence::new();
+        let library_evidence = quire_contract_model::CheckedPackageEvidence::new();
+        let site = std::panic::Location::caller();
+        let binding = ReadInputBinding::new(&bytes, &evidence, site);
+        let previous = READ_PROVIDER.with(|current| {
+            current.replace(Some(ReadProvider {
+                symbol: "actual original provider",
+                classes: &["walker_growth"],
+                binding: Some(binding),
+                verified: false,
+                obligations: [None; 13],
+            }))
+        });
+        let restore = super::RestoreProvider(previous);
+        let verified = provider_for_input(&bytes, &evidence, site).expect("same original input");
+        assert!(verified.verified);
+        assert!(
+            verified.binding.is_none(),
+            "workers receive no borrowed addresses"
+        );
+        assert!(
+            provider_for_input(&library, &evidence, site).is_none(),
+            "equal bytes are not the prepared input identity"
+        );
+        assert!(provider_for_input(&bytes, &library_evidence, site).is_none());
+        READ_PROVIDER.with(|current| {
+            let mut provider = current.get().expect("scope");
+            provider.binding.as_mut().expect("caller binding").line += 1;
+            current.set(Some(provider));
+        });
+        assert!(provider_for_input(&bytes, &evidence, site).is_none());
+        drop(restore);
+        with_designated_read_provider("legacy broad scope", &["walker_growth"], || {
+            assert!(
+                provider_for_input(&bytes, &evidence, site).is_none(),
+                "legacy scopes cannot credit any input"
+            );
+        });
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn provider_designated_read_preserves_the_original_scalar_refusal() {
+        let evidence = quire_contract_model::CheckedPackageEvidence::new();
+        let result = super::read_designated_and_account(
+            b"null",
+            quire_contract_model::CheckedPackageReadLimits::bounded(),
+            &evidence,
+            super::DesignatedReadProvider {
+                symbol: "minimal scalar binding control",
+                classes: &[],
+                obligations: &[],
+            },
+        );
+        assert!(matches!(
+            result,
+            quire_contract_model::CheckedPackageV2ReadResult::Refused(_)
+        ));
+        assert!(READ_PROVIDER.with(std::cell::Cell::get).is_none());
+    }
 
     #[test]
     fn provider_metadata_restores_after_nested_scope_and_panic() {

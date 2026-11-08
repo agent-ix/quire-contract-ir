@@ -205,11 +205,13 @@ class FullCorpusCompletion(unittest.TestCase):
                  one_below_event_denied=True, full_repeat_equal=True, accounting_equal=True)
             for i, event in enumerate(row["native_budget_events"])]
         row["designated_growth_case"] = {"test": "original", "driver": "original.rs", "line": 7,
-            "provider": "unit-schema-provider", "classes": {"walker_growth": "walker_growth", "exact_reservation": "exact_reservation"}}
+            "provider": "unit-schema-provider", "input_binding":"exact-borrowed-input-evidence-and-callsite", "classes": {"walker_growth": "walker_growth", "exact_reservation": "exact_reservation"}}
         row["complete_reference"].update(read_storage=32, requested=32, exact_read_storage_limit=32,
                                           outcome="refused", refusal_code="UnitRefusal", above_read_storage_limit=33)
         row["provider_obligation_evidence"] = [
             {"role": role, "source": {"file": "original.rs", "line": 7, "symbol": "unit_schema_provider"},
+             "input_binding":"exact-borrowed-input-evidence-and-callsite", "fact_source":"unit schema input assertion",
+             "reservation_locus": {"source":"PackageRead(Graph, 0)","form":"walk" if role=="term_walk_multigrowth" else "exact_number"},
              "input_facts": {field: minimum}, "request_event_indices": [0, 1, 2] if role == "term_walk_multigrowth" else [3],
              "reservation_source": "unit schema reservation source", "same_walk_instance_source": "unit schema single walk"}
             for role, (field, minimum) in census.REQUIRED_PROVIDER_FACTS.items()]
@@ -267,6 +269,7 @@ class FullCorpusCompletion(unittest.TestCase):
         bundle = self.bundle()
         bundle["runs"][0]["records"][0]["provider_obligation_evidence"] = [{
             "role": "term_walk_multigrowth", "source": {"file": "original.rs", "line": 7, "symbol": "graph_builder"},
+            "input_binding":"exact-borrowed-input-evidence-and-callsite", "fact_source":"unit size assertion",
             "input_facts": {"same_term_walk_stack_growth_requests": 100000}}]
         with self.assertRaisesRegex(census.CensusError, "actual selected source-bound reservations"):
             census.validate_full_completion(bundle)
@@ -281,7 +284,7 @@ class DesignatedGrowthEvidence(unittest.TestCase):
             record = {"proof_schema": "native-budget-events/v1", "read_storage": 24,
                       "test": "actual::case", "driver": "actual.rs", "line": 17,
                       "designated_growth_case": {"test": "actual::case", "driver": "actual.rs", "line": 17,
-                           "provider": "original_source_builder", "classes": {"actual_source_class": role}},
+                           "provider": "original_source_builder", "input_binding":"exact-borrowed-input-evidence-and-callsite", "classes": {"actual_source_class": role}},
                       "native_budget_events": events,
                       "original_context_outcome":"budget-incomplete",
                       "complete_reference":{"native_budget":"unlimited","outcome":"admitted",
