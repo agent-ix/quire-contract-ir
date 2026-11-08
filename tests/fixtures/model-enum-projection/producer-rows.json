@@ -1,0 +1,265 @@
+{
+  "declarations": [
+    {
+      "node_key": {
+        "ordinal": 0,
+        "package": "example/config-version",
+        "path": [
+          "model",
+          "variant_type",
+          "ix://example/config-version/Tier"
+        ]
+      },
+      "original_identity": "ix://example/config-version/Tier",
+      "selected_document": "example/config-version",
+      "structural_node": {
+        "ordinal": 0,
+        "package": "example/config-version",
+        "path": [
+          "model",
+          "variant_type",
+          "ix://example/config-version/Tier"
+        ]
+      }
+    }
+  ],
+  "members": [
+    {
+      "case": "Gold",
+      "declaration_node": {
+        "ordinal": 0,
+        "package": "example/config-version",
+        "path": [
+          "model",
+          "variant_type",
+          "ix://example/config-version/Tier"
+        ]
+      },
+      "enum_original_identity": "ix://example/config-version/Tier",
+      "member_key": {
+        "ordinal": 0,
+        "package": "fixture",
+        "path": [
+          "value",
+          "enum_value",
+          {
+            "ordinal": 0,
+            "package": "example/config-version",
+            "path": [
+              "model",
+              "variant_type",
+              "ix://example/config-version/Tier"
+            ]
+          },
+          "Gold"
+        ]
+      },
+      "member_original_identity": "ix://example/config-version/variant/Tier-Gold",
+      "selected_document": "example/config-version",
+      "structural_node": {
+        "ordinal": 0,
+        "package": "fixture",
+        "path": [
+          "value",
+          "enum_value",
+          {
+            "node": 1
+          },
+          "Gold"
+        ]
+      }
+    },
+    {
+      "case": "Standard",
+      "declaration_node": {
+        "ordinal": 0,
+        "package": "example/config-version",
+        "path": [
+          "model",
+          "variant_type",
+          "ix://example/config-version/Tier"
+        ]
+      },
+      "enum_original_identity": "ix://example/config-version/Tier",
+      "member_key": {
+        "ordinal": 0,
+        "package": "fixture",
+        "path": [
+          "value",
+          "enum_value",
+          {
+            "ordinal": 0,
+            "package": "example/config-version",
+            "path": [
+              "model",
+              "variant_type",
+              "ix://example/config-version/Tier"
+            ]
+          },
+          "Standard"
+        ]
+      },
+      "member_original_identity": "ix://example/config-version/variant/Tier-Standard",
+      "selected_document": "example/config-version",
+      "structural_node": {
+        "ordinal": 0,
+        "package": "fixture",
+        "path": [
+          "value",
+          "enum_value",
+          {
+            "node": 1
+          },
+          "Standard"
+        ]
+      }
+    }
+  ],
+  "shapes": [
+    {
+      "cases": [
+        {
+          "case": "Gold",
+          "member_key": {
+            "ordinal": 0,
+            "package": "fixture",
+            "path": [
+              "value",
+              "enum_value",
+              {
+                "ordinal": 0,
+                "package": "example/config-version",
+                "path": [
+                  "model",
+                  "variant_type",
+                  "ix://example/config-version/Tier"
+                ]
+              },
+              "Gold"
+            ]
+          },
+          "member_original_identity": "ix://example/config-version/variant/Tier-Gold",
+          "structural_node": {
+            "ordinal": 0,
+            "package": "fixture",
+            "path": [
+              "value",
+              "enum_value",
+              {
+                "node": 1
+              },
+              "Gold"
+            ]
+          },
+          "variant": {
+            "case": "Gold",
+            "owner": {
+              "ordinal": 0,
+              "package": "example/config-version",
+              "path": [
+                "model",
+                "variant_type",
+                "ix://example/config-version/Tier"
+              ]
+            }
+          }
+        },
+        {
+          "case": "Standard",
+          "member_key": {
+            "ordinal": 0,
+            "package": "fixture",
+            "path": [
+              "value",
+              "enum_value",
+              {
+                "ordinal": 0,
+                "package": "example/config-version",
+                "path": [
+                  "model",
+                  "variant_type",
+                  "ix://example/config-version/Tier"
+                ]
+              },
+              "Standard"
+            ]
+          },
+          "member_original_identity": "ix://example/config-version/variant/Tier-Standard",
+          "structural_node": {
+            "ordinal": 0,
+            "package": "fixture",
+            "path": [
+              "value",
+              "enum_value",
+              {
+                "node": 1
+              },
+              "Standard"
+            ]
+          },
+          "variant": {
+            "case": "Standard",
+            "owner": {
+              "ordinal": 0,
+              "package": "example/config-version",
+              "path": [
+                "model",
+                "variant_type",
+                "ix://example/config-version/Tier"
+              ]
+            }
+          }
+        }
+      ],
+      "node_key": {
+        "ordinal": 0,
+        "package": "example/config-version",
+        "path": [
+          "model",
+          "variant_type",
+          "ix://example/config-version/Tier"
+        ]
+      },
+      "original_identity": "ix://example/config-version/Tier",
+      "selected_document": "example/config-version",
+      "shape": {
+        "ordered": false,
+        "variants": [
+          {
+            "case": "Gold",
+            "owner": {
+              "ordinal": 0,
+              "package": "example/config-version",
+              "path": [
+                "model",
+                "variant_type",
+                "ix://example/config-version/Tier"
+              ]
+            }
+          },
+          {
+            "case": "Standard",
+            "owner": {
+              "ordinal": 0,
+              "package": "example/config-version",
+              "path": [
+                "model",
+                "variant_type",
+                "ix://example/config-version/Tier"
+              ]
+            }
+          }
+        ]
+      },
+      "structural_node": {
+        "ordinal": 0,
+        "package": "example/config-version",
+        "path": [
+          "model",
+          "variant_type",
+          "ix://example/config-version/Tier"
+        ]
+      }
+    }
+  ]
+}

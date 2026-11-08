@@ -255,7 +255,7 @@ impl<'b> WorkMeter<'b> {
     /// Admits `bytes` of heap at the current site before it is requested, with
     /// the site's own form or `form` when the request belongs to a library the
     /// check calls.
-    fn reserve_as(
+    pub(super) fn reserve_as(
         &mut self,
         bytes: u128,
         form: Option<&'static str>,

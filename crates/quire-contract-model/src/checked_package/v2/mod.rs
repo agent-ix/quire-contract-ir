@@ -2108,8 +2108,8 @@ fn validate_lock<'a>(
     let unit_refs = if roots.is_empty() {
         no_unit_refs(meter)?
     } else {
-        let duration_terms = identity::duration_terms(&wire.semantic_graph.nodes, meter)?;
-        checked_unit_refs(&wire.semantic_graph.nodes, &duration_terms, meter)?
+        let terms = identity::duration_terms(&wire.semantic_graph.nodes, meter)?;
+        checked_unit_refs(&wire.semantic_graph.nodes, &terms, meter)?
     };
     let (mut models, documents) =
         validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
@@ -2737,14 +2737,17 @@ fn validate_body<'a, V: TermSource<'a>>(
             extension::read_body(node, stage_storage::Position::Trail(*at), ids)
                 .map(|body| extension::body_work(&body))
         }
-        BodyGrammar::Frame => Ok(["modifies", "creates", "deletes", "deletes_scoped"]
-            .into_iter()
-            .map(|key| {
-                body.member(key)
-                    .and_then(TermSource::items)
-                    .map_or(0, |rows| rows.count() as u64)
-            })
-            .fold(1_u64, u64::saturating_add)),
+        BodyGrammar::Frame => {
+            let count = ["modifies", "creates", "deletes", "deletes_scoped"]
+                .into_iter()
+                .map(|key| {
+                    body.member(key)
+                        .and_then(TermSource::items)
+                        .map_or(0, |rows| rows.count() as u64)
+                })
+                .fold(1_u64, u64::saturating_add);
+            Ok(count)
+        }
         BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence => {
             abstraction::scan_body(node, at, visit, ids)
         }
@@ -3532,13 +3535,10 @@ fn validate_graph(
                 extension::body_work(&body)
             }
             BodyGrammar::Frame => {
-                let (body, work) = frame::read_frame_body(
-                    TermNode::of(&bodies[position]),
-                    position,
-                    &wire.semantic_graph.operand_rows[position],
-                    meter,
-                )?;
-                frame_term = Some(body.checked_term(meter)?);
+                let (body, row) = meter.body(position).expect("graph bodies are attached");
+                let (body, work) =
+                    frame::read_frame_body(body, row, meter, &Trail::Base(&body_steps))?;
+                frame_term = Some(body.clone().into_checked_term(meter)?);
                 frames.push((&node.node_id, position, body));
                 work
             }
@@ -3827,7 +3827,7 @@ fn validate_graph(
         &owners,
         meter,
     )?;
-    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners)?;
     validate_temporal(
         &terms,
         &graph.nodes,
@@ -4135,7 +4135,7 @@ fn validate_graph(
                             | ScalarTypeForm::Unit
                             | ScalarTypeForm::DimensionEquivalence
                     )
-                ) || imported_nominals.binary_search(dependency).is_err())
+                ) || !imported_nominals.contains(dependency))
             {
                 return Err(refuse(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -4153,7 +4153,7 @@ fn validate_graph(
                             | ScalarTypeForm::DimensionEquivalence
                     )
                 )
-                && imported_nominals.binary_search(target).is_ok()
+                && imported_nominals.contains(target)
             {
                 // A selected nominal in an admitted dependency is validated
                 // by the nominal join above. It is outside this local graph's
@@ -4241,7 +4241,7 @@ fn validate_graph(
     lower::assign_components_charged(&mut lowering_facts, meter)?;
     let mut admitted_terms = meter.vec(terms.len())?;
     for (position, term) in terms.into_iter().enumerate() {
-        admitted_terms.push(match term {
+        let term = match term {
             Some(term) => term,
             None => decode_admitted_body(
                 kinds[position],
@@ -4250,7 +4250,8 @@ fn validate_graph(
                 position,
                 meter,
             )?,
-        });
+        };
+        meter.push(&mut admitted_terms, term)?;
     }
     Ok(ValidatedGraph {
         kinds,
