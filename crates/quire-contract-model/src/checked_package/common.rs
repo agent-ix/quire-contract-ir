@@ -867,12 +867,7 @@ impl<'s, 'r> Ids<'s, 'r> {
     }
 }
 
-/// Runs `body` with an [`Ids`] that charges nothing, for a validator that
-/// reads a `Value` and holds no budget.
-///
-/// To be deleted: its read-path caller is `refinement.rs`'s row-term
-/// validation, which moves to the node views; the V1 reader's `Value` callers
-/// then use an unlimited budget of their own.
+/// Runs a test oracle over a `Value` with an [`Ids`] that charges nothing.
 #[cfg(test)]
 pub(super) fn with_unmetered_ids<R>(body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
     with_unmetered_ids_row(&[], body)
