@@ -3377,8 +3377,11 @@ fn hyperproperty(
 /// The model-enabled fixture with a fairness node, the clause's formula node
 /// and the labels of both.
 fn hyper_fixture() -> (Value, String, String) {
-    let (mut package, fair) =
-        with_fairness(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"));
+    hyper_fixture_with(INFINITE, fairness_member(&model_key(ORDER_NODE), "scaled"))
+}
+
+fn hyper_fixture_with(profile: &str, member: Value) -> (Value, String, String) {
+    let (mut package, fair) = with_fairness(profile, member);
     let fair_key = node_label(&package, fair);
     let formula_key = node_label(
         &package,
@@ -3524,4 +3527,80 @@ fn tc_346_a_formula_reference_anywhere_in_a_hyperproperty_refuses_at_the_node() 
         settle(&mut package);
         misplaced(case, &package, position);
     }
+}
+
+/// A package whose hyperproperty node has one Group, aliased `m` to the
+/// `model_root` of `subject`, holding one reference to a fairness node over
+/// `member`. The hyperproperty node's position.
+fn hyper_resolution(profile: &str, member: Value, subject: &str) -> (Value, usize) {
+    let (mut package, fair, keys) = hyper_fixture_with(profile, member);
+    select_model(&mut package, subject);
+    let clause_key = keys.split('\n').nth(1).expect("clause").to_owned();
+    let mut node = hyperproperty(
+        "hyperproperty",
+        vec![group(vec![refer(&fair)])],
+        vec![],
+        vec![],
+        refer(&clause_key),
+    );
+    let root = json!({"package": subject, "path": ["model", "model_root"], "ordinal": 0});
+    node["body"]["members"][1]["value"]["members"] =
+        json!([named("m", json!({"term": "reference", "target": root}))]);
+    let position = push(&mut package, node);
+    settle(&mut package);
+    (package, position)
+}
+
+fn at_hyper_reference(position: usize) -> String {
+    at_node(position, "/body/members/3/value/members/0/members/3")
+}
+
+#[trace("TC-346", "FR-038-AC-519")]
+#[test]
+fn tc_346_a_group_fairness_reference_resolves_as_a_clause_member_does() {
+    let order = model_key(ORDER_NODE);
+    let (package, _) = hyper_resolution(INFINITE, fairness_member(&order, "scaled"), ORDERS);
+    admitted("a resolving reference under its alias's package", &package);
+
+    let (package, at) = hyper_resolution(INFINITE, fairness_member(&order, "nope"), ORDERS);
+    expect_located(
+        "an operation the declaration lacks",
+        &package,
+        (
+            Code::MissingDeclaration,
+            Cause::MissingName,
+            &at_hyper_reference(at),
+        ),
+        &order,
+    );
+
+    let mut member = fairness_member(&order, "scaled");
+    member["target"] = json!({"kind": "protocol_root", "node": node_id(&aaaa())});
+    let (package, at) = hyper_resolution(INFINITE, member, ORDERS);
+    expect(
+        "a target that is not an operation",
+        &package,
+        Code::InvalidModelBinding,
+        Cause::MalformedDeclaration,
+        &at_hyper_reference(at),
+    );
+
+    let (package, at) =
+        hyper_resolution(INFINITE, fairness_member(&order, "scaled"), OTHER_PACKAGE);
+    expect(
+        "a declaring node outside the alias's package",
+        &package,
+        Code::InvalidModelBinding,
+        Cause::MalformedDeclaration,
+        &at_hyper_reference(at),
+    );
+
+    let (package, at) = hyper_resolution(BOUNDED, fairness_member(&order, "scaled"), ORDERS);
+    expect(
+        "a set under a profile that admits none",
+        &package,
+        Code::InvalidPackage,
+        Cause::OperationMemberMismatch,
+        &at_hyper_reference(at),
+    );
 }

@@ -550,6 +550,13 @@ pub(super) fn validate_temporal(
             )?;
         }
     }
+    for &position in index.values() {
+        if graph.kinds.get(position)
+            == Some(&CheckedNodeKind::Claim(super::ClaimForm::Hyperproperty))
+        {
+            check_hyper_fairness(position, &graph, meter)?;
+        }
+    }
     // A formula node no clause reaches is no clause's to fit, but its
     // interval is an interval all the same.
     for &position in index.values() {
@@ -1599,6 +1606,134 @@ fn resolve_fairness(
             Err(refusal) => Err(FairnessRefusal::at_name(refusal)),
         },
     )
+}
+
+/// QSpec FR-402 "Reader order" step 4, for a `claim`/`hyperproperty` node: each
+/// fairness reference of a quantifier Group resolves as a clause's fairness
+/// member does, located at the reference. Layout defects are not this check's;
+/// a body it cannot read is skipped.
+fn check_hyper_fairness(
+    position: usize,
+    graph: &StepGraph<'_, '_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let Some(members) = aggregate_members(&graph.nodes[position].body) else {
+        return Ok(());
+    };
+    let binding_value = |at: usize, wanted: &str| match members
+        .get(at)
+        .and_then(|member| CheckedTerm::view(member))
+    {
+        Some(CheckedTermView::Binding { name, value }) if name == wanted => Some(value),
+        _ => None,
+    };
+    let (Some(quantifiers), Some(subjects)) = (
+        binding_value(3, "quantifiers").and_then(aggregate_members),
+        binding_value(1, "subjects").and_then(aggregate_members),
+    ) else {
+        return Ok(());
+    };
+    let profile = binding_value(6, "body")
+        .and_then(reference_target)
+        .and_then(|body| graph.node(&body))
+        .and_then(|(wrapper, _)| operation_of(wrapper))
+        .and_then(|operation| match operation.laws.as_slice() {
+            [law] if law.role_class() == Some(LawRole::TemporalProfile) => {
+                TemporalProfile::from_wire(&law.definition.identity)
+            }
+            _ => None,
+        });
+    let reference_pointer = |group: usize, member: usize| {
+        node_pointer(position)
+            .key("body")
+            .key("members")
+            .index(3)
+            .key("value")
+            .key("members")
+            .index(group)
+            .key("members")
+            .index(member)
+    };
+    let malformed = |group: usize, member: usize, fair: &CheckedNodeId| {
+        ValidationFailure::refused_at(
+            CheckedPackageRefusalCode::InvalidModelBinding,
+            reference_pointer(group, member),
+            Some(CheckedPackageRefusalCause::MalformedDeclaration),
+            fair.clone(),
+        )
+    };
+    for (group_at, group) in quantifiers.iter().enumerate() {
+        let Some(group_members) = aggregate_members(group) else {
+            continue;
+        };
+        let alias = group_members
+            .iter()
+            .find_map(|member| match CheckedTerm::view(member) {
+                Some(CheckedTermView::Binding {
+                    name: "alias",
+                    value,
+                }) => match CheckedTerm::view(value) {
+                    Some(CheckedTermView::Literal { value, .. }) => value.as_str(),
+                    _ => None,
+                },
+                _ => None,
+            });
+        let alias_root = alias.and_then(|alias| {
+            subjects
+                .iter()
+                .find_map(|subject| match CheckedTerm::view(subject) {
+                    Some(CheckedTermView::Binding { name, value }) if name == alias => {
+                        reference_target(value)
+                    }
+                    _ => None,
+                })
+        });
+        let alias_package = alias_root.and_then(|root| match graph.node(&root)? {
+            (node, CheckedNodeKind::Model(ModelForm::ModelRoot)) => match node.owner.as_ref()? {
+                super::CheckedNodeOwner::ModelRoot { identity } => Some(identity.clone()),
+                _ => None,
+            },
+            _ => None,
+        });
+        for (member_at, member) in group_members.iter().enumerate() {
+            let Some((_, fairness)) = fairness_member(member, graph) else {
+                continue;
+            };
+            let fair_id = &graph.nodes[position].node_id;
+            let super::CheckedFairnessTarget::Operation { declaration, name } = &fairness.target
+            else {
+                return Err(malformed(group_at, member_at, fair_id));
+            };
+            if let Err(failure) = resolve_fairness(declaration, name, graph, meter)? {
+                return Err(ValidationFailure::refused_at(
+                    failure.refusal.code,
+                    reference_pointer(group_at, member_at),
+                    Some(failure.refusal.cause),
+                    if failure.locus_is_target {
+                        declaration.clone()
+                    } else {
+                        fair_id.clone()
+                    },
+                ));
+            }
+            let declaring_package = graph
+                .node(declaration)
+                .and_then(|(declaring, _)| graph.owners.recover(declaring).ok())
+                .map(|owner| owner.package.identity.clone());
+            if alias_package.is_some() && declaring_package != alias_package {
+                return Err(malformed(group_at, member_at, fair_id));
+            }
+            if profile.is_some_and(|profile| !profile.admits_fairness()) {
+                return Err(ValidationFailure::refused_at(
+                    CheckedPackageRefusalCode::InvalidPackage,
+                    reference_pointer(group_at, member_at),
+                    Some(CheckedPackageRefusalCause::OperationMemberMismatch),
+                    fair_id.clone(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The interval of every interval operator of the formula tree under `root`,
