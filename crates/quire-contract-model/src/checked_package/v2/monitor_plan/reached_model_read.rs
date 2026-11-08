@@ -1145,7 +1145,7 @@ mod tests {
         let model = monitor_plan_fixtures::find(wire, "object_type");
         let unit = fixture_support::node_id("qualified:Example/Second");
         let unit_at = monitor_plan_fixtures::position(wire, &unit);
-        let dimension = wire["semantic_graph"]["nodes"][unit_at]["body"]["dimension"].clone();
+        let dimension = wire["semantic_graph"]["nodes"][unit_at]["body"]["dimension_node_id"].clone();
         let text = monitor_plan_fixtures::find(wire, "text");
         let clause = monitor_plan_fixtures::find(wire, "temporal_clause");
         let clause_at = monitor_plan_fixtures::position(wire, &clause);
