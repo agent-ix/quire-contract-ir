@@ -7,6 +7,8 @@
 
 #[path = "support/read_allocation_proof.rs"]
 mod proof;
+#[path = "support/qspec_fma_inputs.rs"]
+mod qspec_fma_inputs;
 #[path = "support/qspec_inputs.rs"]
 mod qspec_inputs;
 #[path = "support/qspec_text_inputs.rs"]
@@ -367,6 +369,28 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
                 &fixtures,
             )
             .expect("ordinal evidence"),
+            expected,
+        });
+    }
+    let vectors = qspec_inputs::read_json(&proposal.join("fma-application-vectors.json"))
+        .expect("published FMA vectors");
+    for row in vectors["cases"].as_array().expect("FMA cases") {
+        let id = row["id"].as_str().expect("FMA case id");
+        let (wire, _) = qspec_fma_inputs::package_for(row);
+        let expected = match row["expected"].as_str().expect("FMA outcome") {
+            "admitted" => Expected::Admitted,
+            "refused" => Expected::Refused(
+                serde_json::from_value(row["code"].clone()).expect("published FMA refusal code"),
+            ),
+            other => panic!("{id}: unknown FMA outcome {other}"),
+        };
+        providers.insert(format!(
+            "conformance_qspec/fma_application.rs: fma-application-vectors.json#/cases#{id}"
+        ));
+        cases.push(Case {
+            label: format!("QSpec/FMA/{id}"),
+            bytes: canonical(&wire),
+            evidence: evidence_for(&wire),
             expected,
         });
     }
