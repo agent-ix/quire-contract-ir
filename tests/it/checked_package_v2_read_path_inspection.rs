@@ -86,10 +86,10 @@ impl Inspection {
             }
             syn::UseTree::Glob(_) => {
                 let prefix = prefix.trim_end_matches("::").to_owned();
+                self.check(&prefix);
                 if !self.globs.contains(&prefix) {
                     self.globs.push(prefix);
                 }
-                self.check(prefix);
             }
         }
     }

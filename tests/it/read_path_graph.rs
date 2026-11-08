@@ -22,6 +22,7 @@ pub struct Graph {
     pub functions: BTreeMap<String, Function>,
     pub imports: BTreeMap<String, BTreeMap<String, String>>,
     methods: BTreeSet<String>,
+    types: BTreeSet<String>,
     duplicate: BTreeSet<String>,
 }
 
@@ -127,6 +128,29 @@ impl Graph {
         }
         for item in items {
             match item {
+                syn::Item::Struct(t) if !test_only(&t.attrs) => {
+                    self.types.insert(if module.is_empty() {
+                        t.ident.to_string()
+                    } else {
+                        format!("{module}::{}", t.ident)
+                    });
+                }
+                syn::Item::Enum(t) if !test_only(&t.attrs) => {
+                    self.types.insert(if module.is_empty() {
+                        t.ident.to_string()
+                    } else {
+                        format!("{module}::{}", t.ident)
+                    });
+                }
+                syn::Item::Trait(t) if !test_only(&t.attrs) => {
+                    for item in &t.items {
+                        if let syn::TraitItem::Fn(f) = item {
+                            if !test_only(&f.attrs) {
+                                self.methods.insert(f.sig.ident.to_string());
+                            }
+                        }
+                    }
+                }
                 syn::Item::Fn(f) if !test_only(&f.attrs) => self.insert(
                     format!(
                         "{}{}",
@@ -145,6 +169,13 @@ impl Graph {
                     },
                 ),
                 syn::Item::Impl(i) if !test_only(&i.attrs) => {
+                    for item in &i.items {
+                        if let syn::ImplItem::Fn(f) = item {
+                            if !test_only(&f.attrs) {
+                                self.methods.insert(f.sig.ident.to_string());
+                            }
+                        }
+                    }
                     let syn::Type::Path(ty) = i.self_ty.as_ref() else {
                         continue;
                     };
@@ -377,7 +408,8 @@ impl Calls<'_> {
                         path.segments.pop();
                         Some(self.graph.resolve(&self.function.module, &path_text(&path)))
                     } else {
-                        None
+                        let name = self.graph.resolve(&self.function.module, &path_text(&path));
+                        self.graph.types.contains(&name).then_some(name)
                     }
                 } else {
                     None
@@ -419,12 +451,28 @@ impl<'ast> Visit<'ast> for Calls<'_> {
         }
         visit::visit_local(self, local);
     }
+    fn visit_macro(&mut self, invocation: &'ast syn::Macro) {
+        self.unresolved.insert(format!(
+            "unresolved macro expansion {}",
+            path_text(&invocation.path)
+        ));
+    }
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         if let syn::Expr::Path(path) = call.func.as_ref() {
             let target = self.target(&path.path);
             if self.graph.functions.contains_key(&target) {
                 self.edges.insert(target);
             } else {
+                if call
+                    .args
+                    .iter()
+                    .filter_map(|a| self.expression_type(a))
+                    .any(|ty| self.graph.types.contains(&ty))
+                {
+                    self.unresolved.insert(format!(
+                        "external call {target} may dispatch a reader-local trait implementation"
+                    ));
+                }
                 let last = path
                     .path
                     .segments
