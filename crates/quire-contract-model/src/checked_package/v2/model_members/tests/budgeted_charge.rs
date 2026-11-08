@@ -198,6 +198,206 @@ fn population_keys_are_paid_before_both_retained_copies_are_allocated() {
     assert_eq!(run(&selected, 0), zero, "the zero allowance repeats");
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct PopulationFaultOutcome {
+    failure: ValidationFailure,
+    consumed: u64,
+    allocated: u64,
+    work: u64,
+    unpaid: Option<(crate::checked_package::v2::PackageReadResource, u128)>,
+    locus: Option<NativeJoinLocus>,
+    paid: Option<crate::checked_package::v2::CheckedPackagePendingOutcome>,
+    pending: Option<crate::checked_package::v2::CheckedPackagePendingOutcome>,
+}
+
+/// Measures the actual selected-model read and its public refusal projection.
+fn run_population_fault(document: &Value, allowance: u64) -> PopulationFaultOutcome {
+    let mut evidence = CheckedPackageEvidence::new();
+    evidence
+        .insert_domain_package_document(
+            "acme/orders",
+            serde_json::to_vec(document).expect("authored selected document"),
+        )
+        .expect("first selected document");
+    let roots = [("acme/orders", 4)];
+    let unit_refs = UnitRefs::default();
+    let mut budget = NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(allowance);
+    let mut result = None;
+    let measured = allocation_counter::measure(|| {
+        result = Some(crate::checked_package::v2::validate_domain_packages(
+            &roots,
+            "checked",
+            &evidence,
+            &mut WorkMeter::over(&mut budget),
+            u64::MAX,
+            &unit_refs,
+        ));
+    });
+    PopulationFaultOutcome {
+        failure: result
+            .expect("the selected-model read ran")
+            .expect_err("the malformed population refuses"),
+        consumed: budget.read_storage_consumed(),
+        allocated: measured.bytes_total,
+        work: budget.consumed().work,
+        unpaid: budget.first_unpaid_resource(),
+        locus: budget.first_unpaid_locus(),
+        paid: budget.take_paid(),
+        pending: budget.take_pending(),
+    }
+}
+
+/// A bare population refusal pays its private carrier and public record at
+/// their respective construction boundaries, without exposing intake metadata.
+#[trace("TC-229", "FR-038-AC-304", "FR-038-AC-511")]
+#[test]
+fn bare_population_faults_prepay_the_private_carrier_and_public_diagnostic() {
+    use crate::checked_package::shared::{CheckedPackageRefusal, CheckedPackageRefusalLocation};
+    use crate::checked_package::v2::{CheckedPackagePendingOutcome, PackageReadResource};
+
+    const POPULATION: &str = "ix://acme/orders/widgets";
+    const PATH: &str = "/semantic_graph/nodes/4/owner";
+    let mut selected = document(vec![object_type(WIDGET, &[], vec![])]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("construct rows")
+        .push(json!({
+            "kind": {"module": "acme/orders", "name": "population"},
+            "construct": {"meaning": "quire.meaning.model.population/v1"},
+        }));
+    selected["populations"] = json!([{
+        "identity": POPULATION,
+        "kind": {"module": "acme/orders", "name": "population"},
+        "members": [WIDGET],
+    }]);
+    let model = read(&selected).expect("the unmodified population is genuine");
+    assert!(model.populations.contains(POPULATION));
+
+    let mut missing_identity = selected.clone();
+    missing_identity["populations"][0]
+        .as_object_mut()
+        .expect("population row")
+        .remove("identity");
+    let mut forbidden_node = selected.clone();
+    forbidden_node["populations"][0]["node"] = json!(POPULATION);
+    let mut unresolved = selected.clone();
+    unresolved["constructs"]
+        .as_array_mut()
+        .expect("construct rows")
+        .retain(|entry| entry["kind"]["name"] != "population");
+    let mut wrong_meaning = selected.clone();
+    wrong_meaning["populations"][0]["kind"]["name"] = json!("entity");
+    let mut duplicate = selected.clone();
+    duplicate["populations"] = json!([
+        selected["populations"][0].clone(),
+        selected["populations"][0].clone(),
+    ]);
+    let mut wrong_members = selected.clone();
+    wrong_members["populations"][0]["members"] = json!(0);
+    let mut wrong_member = selected;
+    wrong_member["populations"][0]["members"] = json!([0]);
+
+    let code = Code::InvalidModelBinding;
+    let pending = CheckedPackagePendingOutcome::Refused(code);
+    let private_bytes = std::mem::size_of::<SelectionRefusal>() as u128;
+    let public_bytes = (std::mem::size_of::<CheckedPackageRefusal>()
+        + std::mem::size_of::<CheckedPackageRefusalLocation>()
+        + PATH.len()) as u64;
+    for (name, document) in [
+        ("missing identity", missing_identity),
+        ("forbidden node", forbidden_node),
+        ("unresolved construct", unresolved),
+        ("wrong meaning", wrong_meaning),
+        ("duplicate population", duplicate),
+        ("wrong members", wrong_members),
+        ("wrong member", wrong_member),
+    ] {
+        let unlimited = run_population_fault(&document, u64::MAX);
+        assert_eq!(unlimited.allocated, unlimited.consumed, "{name}");
+        let ValidationFailure::Refused(refusal) = &unlimited.failure else {
+            panic!("{name}: the selected population must refuse semantically");
+        };
+        assert_eq!(refusal.code, code, "{name}");
+        assert_eq!(refusal.cause, Some(Cause::MalformedDeclaration), "{name}");
+        assert_eq!(refusal.loci.len(), 1, "{name}");
+        assert_eq!(
+            refusal.loci[0].path.as_ref().map(|path| path.as_str()),
+            Some(PATH),
+            "{name}"
+        );
+        assert!(refusal.document_pointer.is_none(), "{name}");
+        assert!(refusal.locus.is_none(), "{name}");
+        assert!(refusal.contract_version.is_none(), "{name}");
+        assert!(refusal.extension_detail.is_none(), "{name}");
+        assert!(refusal.protocol_detail.is_none(), "{name}");
+        assert!(refusal.terminal_duplicate.is_none(), "{name}");
+        assert_eq!(unlimited.paid, Some(pending), "{name}");
+        assert_eq!(unlimited.pending, None, "{name}");
+        assert_eq!(unlimited.unpaid, None, "{name}");
+        assert_eq!(
+            run_population_fault(&document, u64::MAX),
+            unlimited,
+            "{name}: repeat"
+        );
+        assert_eq!(
+            run_population_fault(&document, unlimited.consumed),
+            unlimited,
+            "{name}: exact"
+        );
+
+        let private_exact = unlimited.consumed - public_bytes;
+        for (allowance, first_unpaid) in [
+            (unlimited.consumed - 1, u128::from(public_bytes)),
+            (private_exact, u128::from(public_bytes)),
+            (private_exact - 1, private_bytes),
+        ] {
+            let short = run_population_fault(&document, allowance);
+            assert!(
+                matches!(short.failure, ValidationFailure::Budget(_)),
+                "{name}"
+            );
+            assert_eq!(short.allocated, short.consumed, "{name}: short {allowance}");
+            assert!(short.consumed <= allowance, "{name}");
+            assert_eq!(
+                short.work, unlimited.work,
+                "{name}: no changed work at projection"
+            );
+            assert_eq!(
+                short.unpaid,
+                Some((PackageReadResource::ReadStorage, first_unpaid)),
+                "{name}"
+            );
+            assert_eq!(short.pending, Some(pending), "{name}");
+            assert_eq!(short.paid, None, "{name}: the public record was never paid");
+            assert_eq!(
+                short.locus.map(|locus| locus.source),
+                Some(NativeJoinLocusSource::PackageRead(
+                    PackageReadStage::ModelDocument,
+                    0
+                )),
+                "{name}"
+            );
+            assert_eq!(
+                run_population_fault(&document, allowance),
+                short,
+                "{name}: short repeats"
+            );
+        }
+        let zero = run_population_fault(&document, 0);
+        assert!(
+            matches!(zero.failure, ValidationFailure::Budget(_)),
+            "{name}"
+        );
+        assert_eq!((zero.allocated, zero.consumed), (0, 0), "{name}");
+        assert_eq!((zero.paid, zero.pending), (None, None), "{name}");
+        assert_eq!(
+            run_population_fault(&document, 0),
+            zero,
+            "{name}: zero repeats"
+        );
+    }
+}
+
 /// An exact allowance admits the read and a byte less refuses it at the
 /// ModelDocument locus, so every allocation is requested before it is made
 /// and none is made that was not requested.
