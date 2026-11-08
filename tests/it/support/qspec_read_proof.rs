@@ -7,6 +7,8 @@
 #[cfg(feature = "test-support")]
 #[path = "native_budget_trace.rs"]
 mod native_budget_trace;
+#[cfg(feature = "test-support")]
+pub(crate) use native_budget_trace::checked as observe_native;
 #[path = "read_observation.rs"]
 pub(crate) mod observation;
 use observation::{accounted, drop_without_request};
@@ -103,7 +105,7 @@ fn observe(
 ) -> Observation {
     #[cfg(feature = "test-support")]
     let (observation, _events) =
-        native_budget_trace::checked::<DriverCounter>(bytes, evidence, limits, work, storage);
+        observe_native::<DriverCounter>(bytes, evidence, limits, work, storage);
     #[cfg(not(feature = "test-support"))]
     let observation = measure_at::<DriverCounter>(bytes, evidence, limits, work, storage);
     accounted("original driver read", &observation);
