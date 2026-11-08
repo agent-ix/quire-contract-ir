@@ -821,6 +821,234 @@ pub(super) enum MemberType {
 }
 
 impl MemberType {
+    /// Builds the selected member type's structural identity, reserving every
+    /// owned path, text, wrapper and shared-node block before construction.
+    pub(super) fn node_id_in(
+        &self,
+        package: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
+        use CheckedNodePathSegment as S;
+        fn name(value: &str, b: &mut Budget<'_, '_>) -> Result<S, ValidationFailure> {
+            Ok(S::Name(b.text(value, "member_type")?))
+        }
+        fn copy(
+            id: &CheckedNodeId,
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let bytes = id
+                .path
+                .len()
+                .saturating_mul(std::mem::size_of::<S>())
+                .saturating_add(id.package.len())
+                .saturating_add(
+                    id.path
+                        .iter()
+                        .map(|part| match part {
+                            S::Name(text) => text.len(),
+                            _ => 0,
+                        })
+                        .sum::<usize>(),
+                );
+            b.request(bytes, "member_type")?;
+            Ok(id.clone())
+        }
+        fn node(id: CheckedNodeId, b: &mut Budget<'_, '_>) -> Result<S, ValidationFailure> {
+            b.request(
+                super::budgeted_read::arc_bytes::<CheckedNodeId>(),
+                "member_type",
+            )?;
+            Ok(S::Node(std::sync::Arc::new(id)))
+        }
+        fn number(value: i128, b: &mut Budget<'_, '_>) -> Result<S, ValidationFailure> {
+            let mut digits = [0_u8; 40];
+            let mut at = digits.len();
+            let mut magnitude = value.unsigned_abs();
+            loop {
+                at -= 1;
+                digits[at] = b'0' + (magnitude % 10) as u8;
+                magnitude /= 10;
+                if magnitude == 0 {
+                    break;
+                }
+            }
+            if value < 0 {
+                at -= 1;
+                digits[at] = b'-';
+            }
+            name(
+                std::str::from_utf8(&digits[at..]).expect("decimal ASCII"),
+                b,
+            )
+        }
+        fn derived<const N: usize>(
+            package: &str,
+            tag: &str,
+            form: &str,
+            extra: [S; N],
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let mut path = b.vec(N + 2, "member_type")?;
+            path.push(name(tag, b)?);
+            path.push(name(form, b)?);
+            path.extend(extra);
+            Ok(CheckedNodeId {
+                package: b.text(package, "member_type")?,
+                path,
+                ordinal: 0,
+            })
+        }
+        fn bounded<const N: usize>(
+            package: &str,
+            form: &str,
+            lower: i128,
+            upper: i128,
+            tail: [S; N],
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let integer = derived(package, "scalar_type", "integer", [], b)?;
+            let mut path = b.vec(7 + N, "member_type")?;
+            path.push(name("bounded_domain", b)?);
+            path.push(name(form, b)?);
+            path.push(name("min", b)?);
+            path.push(node(integer, b)?);
+            path.push(number(lower, b)?);
+            path.push(name("max", b)?);
+            path.push(number(upper, b)?);
+            path.extend(tail);
+            Ok(CheckedNodeId {
+                package: b.text(package, "member_type")?,
+                path,
+                ordinal: 0,
+            })
+        }
+        fn rational(
+            package: &str,
+            bounds: RationalBounds,
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let integer = derived(package, "scalar_type", "integer", [], b)?;
+            let extra = [
+                name("numerator_min", b)?,
+                node(integer, b)?,
+                number(bounds.numerator_min, b)?,
+                name("numerator_max", b)?,
+                number(bounds.numerator_max, b)?,
+                name("denominator_min", b)?,
+                number(bounds.denominator_min, b)?,
+                name("denominator_max", b)?,
+                number(bounds.denominator_max, b)?,
+            ];
+            derived(package, "bounded_domain", "rational_range", extra, b)
+        }
+        let mut wrappers = Vec::new();
+        let mut current = self;
+        loop {
+            match current {
+                Self::Option(inner) => {
+                    budget.push(&mut wrappers, current, "member_type")?;
+                    current = inner;
+                }
+                Self::Collection { element, .. } => {
+                    budget.push(&mut wrappers, current, "member_type")?;
+                    current = element;
+                }
+                _ => break,
+            }
+        }
+        let mut id = match current {
+            Self::Clock => return Ok(None),
+            Self::Record(id) | Self::Tuple(id) | Self::Variant(id) | Self::Quantity(id) => {
+                copy(id, budget)?
+            }
+            Self::Reference(id) => {
+                let target = copy(id, budget)?;
+                let target = node(target, budget)?;
+                derived(package, "composite_type", "reference", [target], budget)?
+            }
+            Self::IntRange(bounds) => bounded(
+                package,
+                "integer_range",
+                bounds.lower,
+                bounds.upper,
+                [],
+                budget,
+            )?,
+            Self::RationalRange(bounds) => rational(package, *bounds, budget)?,
+            Self::CarriedRational(bounds, unit) => {
+                let carrier = rational(package, *bounds, budget)?;
+                let unit = copy(unit, budget)?;
+                let text = derived(package, "scalar_type", "text", [], budget)?;
+                let extra = [
+                    node(unit, budget)?,
+                    node(carrier, budget)?,
+                    name("rounding", budget)?,
+                    node(text, budget)?,
+                    name("exact", budget)?,
+                ];
+                derived(package, "scalar_type", "carried_quantity", extra, budget)?
+            }
+            Self::TextBounds(bounds) => {
+                let text = derived(package, "scalar_type", "text", [], budget)?;
+                let tail = [
+                    name("text_profile", budget)?,
+                    node(text, budget)?,
+                    name(&bounds.profile, budget)?,
+                ];
+                bounded(
+                    package,
+                    "text_bounds",
+                    bounds.lower.into(),
+                    bounds.upper.into(),
+                    tail,
+                    budget,
+                )?
+            }
+            primitive => {
+                let form = match primitive {
+                    Self::Boolean => "boolean",
+                    Self::Integer => "integer",
+                    Self::Float32 => "float32",
+                    Self::Float64 => "float64",
+                    Self::String => "string",
+                    Self::Uuid => "uuid",
+                    Self::Timestamp => "timestamp",
+                    Self::Bytes => "bytes",
+                    Self::JsonObject => "json_object",
+                    _ => return Ok(None),
+                };
+                derived(package, "scalar_type", form, [], budget)?
+            }
+        };
+        while let Some(wrapper) = wrappers.pop() {
+            id = match wrapper {
+                Self::Option(_) => {
+                    let inner = node(id, budget)?;
+                    derived(package, "composite_type", "option", [inner], budget)?
+                }
+                Self::Collection { kind, bounds, .. } => {
+                    let inner = node(id, budget)?;
+                    let collection =
+                        derived(package, "composite_type", kind.form(), [inner], budget)?;
+                    if let Some((lower, upper)) = bounds {
+                        let tail = [node(collection, budget)?];
+                        bounded(
+                            package,
+                            "collection_bounds",
+                            (*lower).into(),
+                            (*upper).into(),
+                            tail,
+                            budget,
+                        )?
+                    } else {
+                        collection
+                    }
+                }
+                _ => unreachable!("only unary member wrappers are stacked"),
+            };
+        }
+        Ok(Some(id))
+    }
     /// The exact structural ID a selected member type names. A later graph
     /// join requires this ID to exist before admitting the member use.
     pub(super) fn node_id(&self, package: &str) -> Option<CheckedNodeId> {
@@ -5614,6 +5842,64 @@ pub(super) mod tests;
 mod structural_member_type_tests {
     use super::{declaration_id, CollectionKind, DeclarationForm, IntegerBounds, MemberType};
     use serde_json::json;
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn member_type_identity_allocates_only_reserved_storage() {
+        use super::{Budget, RationalBounds, TextBounds};
+        use crate::checked_package::v2::{native_join_budget::NativeJoinBudget, WorkMeter};
+        let target = declaration_id("model", DeclarationForm::ObjectType, "Thing");
+        let bounds = RationalBounds {
+            numerator_min: i128::MIN,
+            numerator_max: i128::MAX,
+            denominator_min: 1,
+            denominator_max: 99,
+        };
+        let cases = [
+            MemberType::Integer,
+            MemberType::Reference(target.clone()),
+            MemberType::Record(target.clone()),
+            MemberType::IntRange(IntegerBounds {
+                lower: i128::MIN,
+                upper: i128::MAX,
+            }),
+            MemberType::RationalRange(bounds),
+            MemberType::CarriedRational(bounds, target),
+            MemberType::TextBounds(TextBounds {
+                lower: 0,
+                upper: u64::MAX,
+                profile: "nfc".into(),
+            }),
+            MemberType::Option(Box::new(MemberType::Collection {
+                kind: CollectionKind::Set,
+                element: Box::new(MemberType::Boolean),
+                bounds: Some((0, u64::MAX)),
+            })),
+        ];
+        for member in cases {
+            let expected = member.node_id("checked");
+            let run = |limit| {
+                let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut native);
+                    let mut budget = Budget::new(&mut meter, 0, u64::MAX);
+                    result = Some(member.node_id_in("checked", &mut budget));
+                });
+                (
+                    result.expect("ran"),
+                    measured.bytes_total,
+                    native.read_storage_consumed(),
+                )
+            };
+            let (actual, allocated, charged) = run(u64::MAX);
+            assert_eq!(actual.expect("unlimited"), expected);
+            assert!(charged > 0);
+            assert_eq!(allocated, charged, "{member:?}");
+            assert_eq!(run(charged).0.expect("exact limit"), expected);
+            assert!(run(charged - 1).0.is_err(), "one short: {member:?}");
+        }
+    }
 
     /// Trace: FR-038-AC-364, FR-322-AC-62.
     #[test]
