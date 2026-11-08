@@ -3902,6 +3902,18 @@ impl<'v> Declared<'v> {
     }
 }
 
+/// [`read_semantic_ir`] over a retained document, for a test outside this
+/// module.
+#[cfg(test)]
+pub(super) fn read_semantic_ir_of(
+    document: &quire_canonical::Document,
+    checked_package: &str,
+    budget: &mut Budget<'_, '_>,
+    unit_refs: &UnitRefs,
+) -> Result<DomainModel, SelectionFailure> {
+    read_semantic_ir(View::root(document), checked_package, budget, unit_refs)
+}
+
 /// Reads an admitted Semantic IR 2.0.0 document's declarations (FR-154),
 /// with tuple declarations in document order before variants, then the
 /// remaining nodes in ascending IR identity; each node's own failures report

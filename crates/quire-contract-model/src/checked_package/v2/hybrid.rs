@@ -1,5 +1,6 @@
 //! QSpec FR-481 hybrid node wire shapes and model joins.
 
+use super::graph_storage::GraphIndex;
 use super::{
     CheckedNodeKind, CheckedTerm, CheckedTermView, HybridForm, LiteralKind,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, ScalarTypeForm, TemporalForm, ValueForm, WorkMeter,
@@ -142,7 +143,7 @@ fn number(value: &CheckedTerm) -> Option<usize> {
 fn node_at<'a>(
     target: &CheckedNodeId,
     nodes: &'a [CheckedSemanticNodeV2],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Option<(usize, &'a CheckedSemanticNodeV2)> {
     let position = *index.get(target)?;
     Some((position, nodes.get(position)?))
@@ -162,7 +163,7 @@ fn term_type(
     required: ScalarTypeForm,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> bool {
     let Some((position, node)) = node_at(key, nodes, index) else {
         return false;
@@ -184,7 +185,7 @@ fn rational_or_variable(
     variables: &BTreeSet<CheckedNodeId>,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> bool {
     variables.contains(key) || term_type(key, ScalarTypeForm::Rational, nodes, kinds, index)
 }
@@ -193,7 +194,7 @@ fn numeric_or_boolean_type(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
 ) -> Result<bool, ValidationFailure> {
@@ -221,7 +222,7 @@ fn scalar_base_type(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
 ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
@@ -283,7 +284,7 @@ fn claim_parameter_reads(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     decoded: DecodedNodes<'_>,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
 ) -> Result<BTreeMap<(String, usize), Vec<CheckedNodeId>>, ValidationFailure> {
@@ -316,7 +317,7 @@ fn reads_allowed(
     allowed: &ReadScope,
     nodes: &[CheckedSemanticNodeV2],
     decoded: DecodedNodes<'_>,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     at: JsonPointer,
     source: &CheckedSemanticNodeV2,
     meter: &mut WorkMeter,
@@ -480,7 +481,7 @@ pub(super) fn validate_models(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let decoded = DecodedNodes { kinds, terms };
@@ -915,7 +916,7 @@ pub(super) fn validate_claims(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let decoded = DecodedNodes { kinds, terms };

@@ -1875,7 +1875,15 @@ impl ContractPackageWireV1 {
                 CheckedPackageRefusalCause::WrongValueKind,
             )
         })?;
+        let bodies =
+            super::graph_storage::OwnedBodies::of(&wire.semantic_graph.nodes).ok_or_else(|| {
+                malformed(
+                    JsonPointer::root().key("semantic_graph").key("nodes"),
+                    CheckedPackageRefusalCause::InvalidValue,
+                )
+            })?;
         let mut work_meter = super::WorkMeter::new(limits.work);
+        bodies.attach(&mut work_meter);
         let (node_kinds, unsupported_tags) = wire.validate_values(limits, &mut work_meter)?;
         wire.validate_correspondence(limits, &frames)?;
         wire.validate_accounting(&frames)?;
@@ -3427,16 +3435,21 @@ impl ContractPackageWireV1 {
                 }
             }
         }
+        let graph_index = super::graph_storage::GraphIndex::build(
+            self.semantic_graph.nodes.iter().map(|node| &node.node_id),
+            &mut *meter,
+        )?;
         super::structural::validate_structural_nodes(
             &self.semantic_graph.nodes,
             &kinds,
             &terms,
-            &positions,
+            &graph_index,
+            &mut *meter,
         )?;
         super::identity::validate_nominal_nodes(
             &self.semantic_graph.nodes,
             &kinds,
-            &positions,
+            &graph_index,
             &self.package.source.lock,
             &[],
             &supplied,

@@ -43,6 +43,7 @@
 //! the resolution; a target that carries its own `declaration` is declared by
 //! this package's source and is joined by kind alone.
 
+use super::graph_storage::GraphIndex;
 use super::flat_wire::scan_members;
 use super::frame::{join, StepGraph};
 use super::identity::is_identifier;
@@ -62,7 +63,7 @@ use crate::checked_package::shared::{
 };
 use crate::checked_package::terms::TermSource;
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// One `{name, rust_*}` binding: a `fields` entry (`rust_field`) or a
 /// `parameters` entry (`rust_parameter`).
@@ -373,7 +374,7 @@ impl Site<'_> {
 pub(super) fn validate_abstraction(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {

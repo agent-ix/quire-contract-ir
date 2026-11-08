@@ -13,89 +13,7 @@ use super::{CheckedNodePathSegment, RawCheckedPackageWireV2, ValidationFailure};
 use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
 use quire_canonical::{Document, Items, Members, Node, NodeRef};
-use std::collections::BTreeMap;
 use std::sync::Arc;
-
-#[derive(Eq, Ord, PartialEq, PartialOrd)]
-enum TokenSegment {
-    Name(Box<str>),
-    Operand(usize),
-}
-
-#[derive(Eq, Ord, PartialEq, PartialOrd)]
-struct TokenDescriptor {
-    package: Box<str>,
-    path: Vec<TokenSegment>,
-    ordinal: u64,
-}
-
-/// Assign compact equality tokens to resolved keys from multiple documents.
-/// Descriptors compare only immediate names and operand tokens, so a long
-/// derived chain never triggers repeated deep structural comparisons.
-pub(super) struct StructuralInterner {
-    descriptors: BTreeMap<TokenDescriptor, usize>,
-    pointers: BTreeMap<*const super::CheckedNodeId, usize>,
-}
-
-impl StructuralInterner {
-    pub(super) fn new() -> Self {
-        Self {
-            descriptors: BTreeMap::new(),
-            pointers: BTreeMap::new(),
-        }
-    }
-
-    pub(super) fn tokens(&mut self, keys: &[Arc<super::CheckedNodeId>]) -> Option<Vec<usize>> {
-        enum Task<'a> {
-            Visit(&'a super::CheckedNodeId),
-            Finish(&'a super::CheckedNodeId),
-        }
-        let mut output = Vec::with_capacity(keys.len());
-        for root in keys {
-            let mut pending = vec![Task::Visit(root)];
-            while let Some(task) = pending.pop() {
-                match task {
-                    Task::Visit(node) => {
-                        if self.pointers.contains_key(&std::ptr::from_ref(node)) {
-                            continue;
-                        }
-                        pending.push(Task::Finish(node));
-                        for segment in node.path.iter().rev() {
-                            if let CheckedNodePathSegment::Node(operand) = segment {
-                                pending.push(Task::Visit(operand));
-                            }
-                        }
-                    }
-                    Task::Finish(node) => {
-                        let mut path = Vec::with_capacity(node.path.len());
-                        for segment in &node.path {
-                            path.push(match segment {
-                                CheckedNodePathSegment::Name(name) => {
-                                    TokenSegment::Name(name.clone())
-                                }
-                                CheckedNodePathSegment::Node(operand) => TokenSegment::Operand(
-                                    *self.pointers.get(&Arc::as_ptr(operand))?,
-                                ),
-                                CheckedNodePathSegment::Index(_)
-                                | CheckedNodePathSegment::Operand(_) => return None,
-                            });
-                        }
-                        let descriptor = TokenDescriptor {
-                            package: node.package.clone(),
-                            path,
-                            ordinal: node.ordinal,
-                        };
-                        let next = self.descriptors.len();
-                        let token = *self.descriptors.entry(descriptor).or_insert(next);
-                        self.pointers.insert(std::ptr::from_ref(node), token);
-                    }
-                }
-            }
-            output.push(*self.pointers.get(&Arc::as_ptr(root))?);
-        }
-        Some(output)
-    }
-}
 
 /// The sentinel of a pointer-table slot whose key has no entry yet.
 const NO_ENTRY: usize = usize::MAX;
@@ -702,6 +620,26 @@ pub(super) fn contains_inline_node_path(bytes: &[u8]) -> bool {
         at += 1;
     }
     !stack.is_empty()
+}
+
+/// `resolve_id` with the copy's blocks (path, package, names) charged first.
+pub(super) fn resolve_id_charged(
+    wire: &super::CheckedNodeId,
+    keys: &[Arc<super::CheckedNodeId>],
+    meter: &mut super::WorkMeter,
+) -> Result<Option<super::CheckedNodeId>, ValidationFailure> {
+    let mut bytes = wire
+        .path
+        .len()
+        .saturating_mul(std::mem::size_of::<CheckedNodePathSegment>())
+        .saturating_add(wire.package.len());
+    for segment in &wire.path {
+        if let CheckedNodePathSegment::Name(name) = segment {
+            bytes = bytes.saturating_add(name.len());
+        }
+    }
+    meter.reserve(bytes)?;
+    Ok(resolve_id(wire, keys))
 }
 
 /// Rebuild an ID written in one package document against that document's

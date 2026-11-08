@@ -19,7 +19,10 @@ impl Natural {
         meter: &mut WorkMeter,
         at: &dyn Fn() -> JsonPointer,
     ) -> Result<Self, ValidationFailure> {
-        let mut limbs = Vec::new();
+        // Ten digits per 33.2 bits: the limbs the whole number can need,
+        // asked for once, before the first digit is read.
+        let bits = digits.len().saturating_mul(10).div_ceil(3);
+        let mut limbs: Vec<u32> = meter.vec(bits.div_ceil(32))?;
         for byte in digits.bytes() {
             meter.charge(limb_work(limbs.len()), at)?;
             let mut carry = u64::from(byte.wrapping_sub(b'0'));
@@ -94,7 +97,7 @@ impl Natural {
         at: &dyn Fn() -> JsonPointer,
     ) -> Result<Self, ValidationFailure> {
         meter.charge(self.work().saturating_mul(other.work()), at)?;
-        let mut limbs = vec![0_u32; self.0.len().saturating_add(other.0.len())];
+        let mut limbs = meter.filled(self.0.len().saturating_add(other.0.len()), 0_u32)?;
         for (left_at, left) in self.0.iter().enumerate() {
             let mut carry = 0_u64;
             for (right_at, right) in other.0.iter().enumerate() {

@@ -841,8 +841,31 @@ impl CheckedNodeId {
         node.is_well_formed().then_some(node)
     }
 
+    /// Whether the package, path and every segment of this ID, which holds
+    /// no nested ID, are within the V2 wire bounds.
+    fn is_flat_well_formed(&self) -> bool {
+        !self.package.is_empty()
+            && !self.path.is_empty()
+            && self.ordinal <= 9_007_199_254_740_991
+            && self.path.iter().all(|segment| match segment {
+                CheckedNodePathSegment::Name(_) => true,
+                CheckedNodePathSegment::Index(index) | CheckedNodePathSegment::Operand(index) => {
+                    *index <= 9_007_199_254_740_991
+                }
+                CheckedNodePathSegment::Node(_) => false,
+            })
+    }
+
     /// Whether every segment and nested operand is within the V2 wire bounds.
     pub(crate) fn is_well_formed(&self) -> bool {
+        // An ID with no nested ID in its path is checked without a stack.
+        if !self
+            .path
+            .iter()
+            .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
+        {
+            return self.is_flat_well_formed();
+        }
         let mut pending = vec![self];
         while let Some(candidate) = pending.pop() {
             if candidate.package.is_empty()
@@ -911,6 +934,54 @@ impl Ord for CheckedNodeId {
     /// operand IDs, so flat IDs (names, indices and slots only) compare
     /// without allocating.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Without a meter nothing refuses a spill, so the comparison cannot
+        // fail. The read path charges its comparisons (`cmp_growing` through
+        // the meter) or compares graph ranks; this plain order serves keys
+        // after admission, and a debug build can be told to refuse a frame
+        // allocation on one thread so a test proves a read never reaches it.
+        match self.cmp_growing(other, &mut |_| {
+            #[cfg(debug_assertions)]
+            forbid_plain_spill();
+            Ok::<(), std::convert::Infallible>(())
+        }) {
+            Ok(order) => order,
+            Err(never) => match never {},
+        }
+    }
+}
+
+/// Debug builds only: names the thread (by `std::thread` name) on which an
+/// uncharged `Ord::cmp` frame allocation must panic. Tests set it to their
+/// own thread around a full read to prove the read path never reaches a
+/// plain comparison of two distinct deep operand chains. `*` names every
+/// thread.
+#[cfg(debug_assertions)]
+pub const FORBID_PLAIN_SPILL_ENV: &str = "QUIRE_FORBID_PLAIN_CMP_SPILL_ON";
+
+#[cfg(debug_assertions)]
+fn forbid_plain_spill() {
+    if let Ok(name) = std::env::var(FORBID_PLAIN_SPILL_ENV) {
+        assert!(
+            name != "*" && std::thread::current().name() != Some(name.as_str()),
+            "an uncharged CheckedNodeId::cmp frame allocation on the read path"
+        );
+    }
+}
+
+impl CheckedNodeId {
+    /// The `Ord` order, where the frame list the walk allocates on meeting
+    /// two distinct operand IDs asks `grow` for permission first. `grow`
+    /// receives the byte size of the whole new block, before it is
+    /// requested; its refusal ends the comparison. Flat IDs compare without
+    /// allocating.
+    ///
+    /// Operand chains are flat index references, so the wire bounds an
+    /// identity's nesting only by the node count; no depth is assumed.
+    pub(crate) fn cmp_growing<E>(
+        &self,
+        other: &Self,
+        grow: &mut dyn FnMut(usize) -> Result<(), E>,
+    ) -> Result<std::cmp::Ordering, E> {
         use std::cmp::Ordering;
         /// What a pair of IDs still has to compare once a nested pair is done:
         /// the rest of both paths, then both ordinals.
@@ -927,7 +998,7 @@ impl Ord for CheckedNodeId {
         if !std::ptr::eq(self, other) {
             match self.package.cmp(&other.package) {
                 Ordering::Equal => {}
-                order => return order,
+                order => return Ok(order),
             }
         } else {
             left = &[];
@@ -938,40 +1009,40 @@ impl Ord for CheckedNodeId {
                 (None, None) => {
                     match ordinals.0.cmp(&ordinals.1) {
                         Ordering::Equal => {}
-                        order => return order,
+                        order => return Ok(order),
                     }
                     let Some(frame) = frames.pop() else {
-                        return Ordering::Equal;
+                        return Ok(Ordering::Equal);
                     };
                     (left, right, ordinals) = (frame.left, frame.right, frame.ordinals);
                 }
-                (None, Some(_)) => return Ordering::Less,
-                (Some(_), None) => return Ordering::Greater,
+                (None, Some(_)) => return Ok(Ordering::Less),
+                (Some(_), None) => return Ok(Ordering::Greater),
                 (Some((head_left, rest_left)), Some((head_right, rest_right))) => {
                     (left, right) = (rest_left, rest_right);
                     match (head_left, head_right) {
                         (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => {
                             match a.cmp(b) {
                                 Ordering::Equal => {}
-                                order => return order,
+                                order => return Ok(order),
                             }
                         }
-                        (CheckedNodePathSegment::Name(_), _) => return Ordering::Less,
-                        (_, CheckedNodePathSegment::Name(_)) => return Ordering::Greater,
+                        (CheckedNodePathSegment::Name(_), _) => return Ok(Ordering::Less),
+                        (_, CheckedNodePathSegment::Name(_)) => return Ok(Ordering::Greater),
                         (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b))
                         | (
                             CheckedNodePathSegment::Operand(a),
                             CheckedNodePathSegment::Operand(b),
                         ) => match a.cmp(b) {
                             Ordering::Equal => {}
-                            order => return order,
+                            order => return Ok(order),
                         },
-                        (CheckedNodePathSegment::Index(_), _) => return Ordering::Less,
+                        (CheckedNodePathSegment::Index(_), _) => return Ok(Ordering::Less),
                         (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Index(_)) => {
-                            return Ordering::Greater
+                            return Ok(Ordering::Greater)
                         }
                         (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Node(_)) => {
-                            return Ordering::Less
+                            return Ok(Ordering::Less)
                         }
                         (CheckedNodePathSegment::Node(_), _) => {
                             if let (
@@ -984,7 +1055,14 @@ impl Ord for CheckedNodeId {
                                     checked_node_comparisons::visited();
                                     match a.package.cmp(&b.package) {
                                         Ordering::Equal => {}
-                                        order => return order,
+                                        order => return Ok(order),
+                                    }
+                                    if frames.len() == frames.capacity() {
+                                        let target = frames.capacity().saturating_mul(2).max(4);
+                                        grow(
+                                            target.saturating_mul(std::mem::size_of::<Frame<'_>>()),
+                                        )?;
+                                        frames.reserve_exact(target - frames.len());
                                     }
                                     frames.push(Frame {
                                         left,
@@ -995,7 +1073,7 @@ impl Ord for CheckedNodeId {
                                     ordinals = (a.ordinal, b.ordinal);
                                 }
                             } else {
-                                return Ordering::Greater;
+                                return Ok(Ordering::Greater);
                             }
                         }
                     }
@@ -1003,19 +1081,6 @@ impl Ord for CheckedNodeId {
             }
         }
     }
-}
-
-/// Rank resolved structural IDs in `CheckedNodeId::cmp` order without
-/// repeatedly walking a shared operand spine, under a budget that charges
-/// nothing. The charged ranking is `StructuralOrder::build`.
-pub(crate) fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> Vec<usize> {
-    super::v2::StructuralOrder::build_unmetered(&[keys])
-        .map(|order| {
-            keys.iter()
-                .map(|key| order.rank(key).unwrap_or_default())
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 impl Encode for CheckedNodeId {
@@ -1098,10 +1163,19 @@ pub(crate) mod checked_node_comparisons {
 #[cfg(test)]
 mod structural_node_identity_tests {
     use super::{
-        rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal,
-        CheckedPackageRefusalCode, JsonPointer, RefusalFields,
+        CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal, CheckedPackageRefusalCode,
+        JsonPointer, RefusalFields,
     };
-    use ix_trace_rs::trace;
+
+    /// Ranks of `keys` in `CheckedNodeId::cmp` order, from the charged
+    /// structural order under a budget that charges nothing.
+    fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> Vec<usize> {
+        let order = crate::checked_package::v2::StructuralOrder::build_unmetered(&[keys])
+            .expect("keys are their own operands");
+        keys.iter()
+            .map(|key| order.rank(key).expect("every key is in the order"))
+            .collect()
+    }
 
     /// Trace: FR-038-AC-185, TC-048.
     #[test]
@@ -1188,7 +1262,7 @@ mod structural_node_identity_tests {
         }
     }
 
-    #[trace("TC-472", "FR-358-AC-13")]
+    #[ix_trace_rs::trace("TC-472", "FR-358-AC-13")]
     #[test]
     fn checked_node_id_encoding_is_charged_through_the_writer_reservation() {
         let inner = CheckedNodeId {
@@ -1522,4 +1596,326 @@ pub struct CheckedCapability {
     pub feature: Box<str>,
     /// Producer/model disposition.
     pub disposition: super::v2::CheckedCapabilityDisposition,
+}
+
+#[cfg(test)]
+pub(crate) mod node_order_tests {
+    use super::{CheckedNodeId, CheckedNodePathSegment as Segment};
+    use ix_trace_rs::trace;
+    use std::cmp::Ordering;
+    use std::sync::Arc;
+
+    fn rank(segment: &Segment) -> u8 {
+        match segment {
+            Segment::Name(_) => 0,
+            Segment::Index(_) => 1,
+            Segment::Operand(_) => 2,
+            Segment::Node(_) => 3,
+        }
+    }
+
+    /// The canonical key of an id: the bytes whose lexicographic order is
+    /// the id order. A string is written with `0x00` escaped as `0x00 0xFF`
+    /// and ended by `0x00 0x01`; a path segment is a kind tag (name 1,
+    /// index 2, operand 3, node 4) and its value, a nested node being its
+    /// own whole key; a path ends with tag 0; the ordinal comes last.
+    fn canonical_key(id: &CheckedNodeId, out: &mut Vec<u8>) {
+        fn text(value: &str, out: &mut Vec<u8>) {
+            for byte in value.bytes() {
+                out.push(byte);
+                if byte == 0 {
+                    out.push(0xFF);
+                }
+            }
+            out.extend([0, 1]);
+        }
+        text(&id.package, out);
+        for segment in &id.path {
+            match segment {
+                Segment::Name(name) => {
+                    out.push(1);
+                    text(name, out);
+                }
+                Segment::Index(index) => {
+                    out.push(2);
+                    out.extend(index.to_be_bytes());
+                }
+                Segment::Operand(slot) => {
+                    out.push(3);
+                    out.extend(slot.to_be_bytes());
+                }
+                Segment::Node(node) => {
+                    out.push(4);
+                    canonical_key(node, out);
+                }
+            }
+        }
+        out.push(0);
+        out.extend(id.ordinal.to_be_bytes());
+    }
+
+    /// Every pair of a corpus of adversarial ids orders the same by the id
+    /// order and by the canonical key's bytes.
+    fn assert_key_order_equals_id_order(ids: &[CheckedNodeId]) -> usize {
+        let keys: Vec<Vec<u8>> = ids
+            .iter()
+            .map(|id| {
+                let mut key = Vec::new();
+                canonical_key(id, &mut key);
+                key
+            })
+            .collect();
+        let mut pairs = 0;
+        for (left, left_key) in ids.iter().zip(&keys) {
+            for (right, right_key) in ids.iter().zip(&keys) {
+                assert_eq!(
+                    left.cmp(right),
+                    left_key.cmp(right_key),
+                    "first divergence: {left:?} against {right:?}"
+                );
+                pairs += 1;
+            }
+        }
+        pairs
+    }
+
+    pub(crate) fn corpus() -> Vec<CheckedNodeId> {
+        let packages = [
+            "", "a", "ab", "b", "a\u{0}", "a\u{0}b", "\u{0}", "\u{1}", "\u{ff}",
+        ];
+        let atoms = [
+            Segment::Name("".into()),
+            Segment::Name("a".into()),
+            Segment::Name("a\u{0}".into()),
+            Segment::Name("ab".into()),
+            Segment::Name("b".into()),
+            Segment::Index(0),
+            Segment::Index(1),
+            Segment::Index(255),
+            Segment::Index(256),
+            Segment::Index(u64::MAX),
+            Segment::Operand(0),
+            Segment::Operand(1),
+            Segment::Operand(256),
+        ];
+        let ordinals = [0_u64, 1, 255, 256, u64::MAX];
+        let mut level: Vec<CheckedNodeId> = Vec::new();
+        // Paths of up to two atoms (including the empty path and every
+        // proper prefix of another path).
+        let mut paths: Vec<Vec<Segment>> = vec![Vec::new()];
+        for first in &atoms {
+            paths.push(vec![first.clone()]);
+            for second in &atoms {
+                paths.push(vec![first.clone(), second.clone()]);
+            }
+        }
+        for package in ["a", "ab", "a\u{0}"] {
+            for path in &paths {
+                for ordinal in [0, 1, 256] {
+                    level.push(CheckedNodeId {
+                        package: package.into(),
+                        path: path.clone(),
+                        ordinal,
+                    });
+                }
+            }
+        }
+        for package in packages {
+            for ordinal in ordinals {
+                level.push(CheckedNodeId {
+                    package: package.into(),
+                    path: vec![Segment::Name("x".into())],
+                    ordinal,
+                });
+            }
+        }
+        // Nodes holding nested nodes, among atoms, at every position.
+        let shared: Vec<Arc<CheckedNodeId>> = level
+            .iter()
+            .step_by(37)
+            .take(24)
+            .cloned()
+            .map(Arc::new)
+            .collect();
+        let mut nested = Vec::new();
+        for (at, child) in shared.iter().enumerate() {
+            for package in ["a", "b"] {
+                for ordinal in [0, 1] {
+                    nested.push(CheckedNodeId {
+                        package: package.into(),
+                        path: vec![Segment::Node(Arc::clone(child))],
+                        ordinal,
+                    });
+                    nested.push(CheckedNodeId {
+                        package: package.into(),
+                        path: vec![Segment::Name("w".into()), Segment::Node(Arc::clone(child))],
+                        ordinal,
+                    });
+                    nested.push(CheckedNodeId {
+                        package: package.into(),
+                        path: vec![Segment::Node(Arc::clone(child)), Segment::Name("a".into())],
+                        ordinal,
+                    });
+                    nested.push(CheckedNodeId {
+                        package: package.into(),
+                        path: vec![
+                            Segment::Node(Arc::clone(child)),
+                            Segment::Node(Arc::clone(&shared[(at + 1) % shared.len()])),
+                        ],
+                        ordinal,
+                    });
+                    nested.push(CheckedNodeId {
+                        package: package.into(),
+                        path: vec![Segment::Index(2), Segment::Node(Arc::clone(child))],
+                        ordinal,
+                    });
+                    nested.push(CheckedNodeId {
+                        package: package.into(),
+                        path: vec![Segment::Operand(2), Segment::Node(Arc::clone(child))],
+                        ordinal,
+                    });
+                }
+            }
+        }
+        level.extend(nested);
+        // Deep chains, and chains differing only at their innermost node,
+        // at their ordinal, or by one extra trailing segment.
+        for depth in [1, 2, 5, 17, 40] {
+            for (leaf, ordinal) in [
+                (Segment::Name("a".into()), 0),
+                (Segment::Name("a".into()), 1),
+                (Segment::Name("b".into()), 0),
+                (Segment::Index(1), 0),
+                (Segment::Operand(1), 0),
+            ] {
+                level.push(nested_chain(depth, leaf, ordinal));
+            }
+        }
+        level
+    }
+
+    fn nested_chain(depth: usize, leaf: Segment, ordinal: u64) -> CheckedNodeId {
+        nested(depth, leaf, ordinal)
+    }
+
+    /// The id order and the canonical key's byte order agree on every pair
+    /// of the corpus (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn node_id_order_equals_canonical_key_byte_order() {
+        let ids = corpus();
+        assert!(ids.len() > 600, "corpus size {}", ids.len());
+        let pairs = assert_key_order_equals_id_order(&ids);
+        assert_eq!(pairs, ids.len() * ids.len());
+    }
+
+    /// The order stated by recursion: package, then the path segment by
+    /// segment (kind, then value, a nested node by this same order), then
+    /// the ordinal.
+    fn reference(left: &CheckedNodeId, right: &CheckedNodeId) -> Ordering {
+        left.package
+            .cmp(&right.package)
+            .then_with(|| {
+                for (a, b) in left.path.iter().zip(&right.path) {
+                    let order = rank(a).cmp(&rank(b)).then_with(|| match (a, b) {
+                        (Segment::Name(a), Segment::Name(b)) => a.cmp(b),
+                        (Segment::Index(a), Segment::Index(b))
+                        | (Segment::Operand(a), Segment::Operand(b)) => a.cmp(b),
+                        (Segment::Node(a), Segment::Node(b)) => reference(a, b),
+                        _ => Ordering::Equal,
+                    });
+                    if order != Ordering::Equal {
+                        return order;
+                    }
+                }
+                left.path.len().cmp(&right.path.len())
+            })
+            .then_with(|| left.ordinal.cmp(&right.ordinal))
+    }
+
+    fn nested(depth: usize, leaf: Segment, ordinal: u64) -> CheckedNodeId {
+        let mut id = CheckedNodeId {
+            package: "p".into(),
+            path: vec![leaf],
+            ordinal,
+        };
+        for level in 0..depth {
+            id = CheckedNodeId {
+                package: "p".into(),
+                path: vec![Segment::Name("w".into()), Segment::Node(Arc::new(id))],
+                ordinal: u64::try_from(level % 2).unwrap_or(0),
+            };
+        }
+        id
+    }
+
+    /// The comparison keeps its order whether its pending work fits the call
+    /// stack or spills past it (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn node_id_order_matches_recursion_shallow_and_beyond_the_inline_stack() {
+        let leaves = [
+            Segment::Name("a".into()),
+            Segment::Name("b".into()),
+            Segment::Index(1),
+            Segment::Index(2),
+            Segment::Operand(1),
+        ];
+        let mut ids = Vec::new();
+        for depth in [0, 1, 2, 7, 15, 16, 17, 31, 32, 33, 40, 100] {
+            for (at, leaf) in leaves.iter().enumerate() {
+                ids.push(nested(
+                    depth,
+                    leaf.clone(),
+                    u64::try_from(at % 2).unwrap_or(0),
+                ));
+            }
+        }
+        for left in &ids {
+            for right in &ids {
+                assert_eq!(left.cmp(right), reference(left, right));
+            }
+        }
+    }
+
+    /// The frame list the walk allocates on meeting two distinct operand IDs
+    /// is requested through the caller before it is allocated, and the
+    /// caller's refusal ends the comparison; a flat ID never asks
+    /// (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn node_id_spill_is_asked_for_before_it_is_allocated() {
+        let leaf = Segment::Name("a".into());
+        let flat = |ordinal| CheckedNodeId {
+            package: "p".into(),
+            path: vec![leaf.clone(), Segment::Index(3), Segment::Operand(1)],
+            ordinal,
+        };
+        let shallow = (flat(0), flat(1));
+        let mut asked = Vec::new();
+        let order = shallow.0.cmp_growing(&shallow.1, &mut |bytes| {
+            asked.push(bytes);
+            Ok::<(), ()>(())
+        });
+        assert_eq!(order, Ok(shallow.0.cmp(&shallow.1)));
+        assert!(asked.is_empty(), "a flat ID asked to grow: {asked:?}");
+
+        let deep = (nested(100, leaf.clone(), 0), nested(100, leaf, 1));
+        let mut asked = Vec::new();
+        let refused = deep.0.cmp_growing(&deep.1, &mut |bytes| {
+            asked.push(bytes);
+            Err(bytes)
+        });
+        assert_eq!(refused, Err(asked[0]));
+        assert_eq!(asked.len(), 1);
+        assert!(asked[0] > 0);
+
+        let mut granted = 0_usize;
+        let order = deep.0.cmp_growing(&deep.1, &mut |bytes| {
+            granted = bytes;
+            Ok::<(), ()>(())
+        });
+        assert_eq!(order, Ok(deep.0.cmp(&deep.1)));
+        assert!(granted > 0);
+    }
 }

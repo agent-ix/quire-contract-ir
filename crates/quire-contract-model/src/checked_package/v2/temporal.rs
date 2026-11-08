@@ -27,6 +27,7 @@
 //! ([`validate_timed_bounds_reduced`]), which runs before the frame step.
 
 use super::frame::StepGraph;
+use super::graph_storage::{GraphIndex, Stamps};
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::natural::{compare_rationals, coprime};
@@ -38,19 +39,18 @@ use super::{
     CheckedPackageLockV2, CheckedSelectionRole, CheckedTerm, CheckedTermView, ClockConfiguration,
     FairnessGranularity, FairnessKind, HybridForm, IntervalEnd, IntervalFit, LawRole, ModelForm,
     OperationMemberKind, RawSemanticNodeV2 as CheckedSemanticNodeV2, TemporalBinding, TemporalForm,
-    TemporalProfile, ValueForm, WorkMeter,
+    TemporalProfile, TermNode, TermView, ValueForm, WorkMeter,
 };
 use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCause,
     CheckedPackageRefusalCode, JsonPointer,
 };
-use crate::checked_package::terms::visit_terms;
 use quire_walk::{walk, Children, Walk};
 use serde::Deserialize;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 
 /// The three temporal operator classes whose applications stand only at the
@@ -86,18 +86,40 @@ fn is_placed_class(operator: ApplicationOperator) -> bool {
 /// or `value`/`union_value` node). An application in a `details` term is
 /// outside the body grammar and is refused ahead of this check (`flat_wire`).
 pub(in crate::checked_package) fn references_refused_node(
-    term: &Value,
+    term: TermNode<'_>,
     refused_target: impl Fn(&CheckedNodeId) -> bool,
-) -> bool {
-    visit_terms(term, |term| {
-        let refused = reference_target(term).is_some_and(|target| refused_target(&target));
-        if refused {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let mut pending: Vec<TermNode<'_>> = meter.vec(1)?;
+    pending.push(term);
+    while let Some(term) = pending.pop() {
+        if let Some(TermView::Reference { target }) = term.view() {
+            // The target ID is charged before it is allocated; the budget is
+            // the caller's, or a free one for a meter that owns its limit.
+            let id = match meter.budget_and_site() {
+                Some((budget, site)) => target
+                    .node_id(budget, site)
+                    .map_err(|_| super::budgeted_read::denial(budget))?,
+                None => target
+                    .node_id(
+                        &mut super::NativeJoinBudget::unlimited(),
+                        super::read_charge::Site::new(super::PackageReadStage::Graph, 0, "details"),
+                    )
+                    .map_err(|_| {
+                        super::budgeted_read::denial(&super::NativeJoinBudget::unlimited())
+                    })?,
+            };
+            if id.valid().is_some_and(|id| refused_target(&id)) {
+                return Ok(true);
+            }
         }
-    })
-    .is_break()
+        let subterms = term.subterms();
+        meter.room(&mut pending, subterms.size_hint().0)?;
+        for subterm in subterms {
+            meter.push(&mut pending, subterm.value)?;
+        }
+    }
+    Ok(false)
 }
 
 /// An integer string: the schema's `IntegerString`, `^(0|-?[1-9][0-9]*)$`.
@@ -391,7 +413,7 @@ pub(super) fn timed_upper_is_null(operation: &Value) -> bool {
 /// work limit at the node's body.
 pub(super) fn validate_timed_bounds_reduced(
     nodes: &[CheckedSemanticNodeV2],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for &position in index.values() {
@@ -514,7 +536,7 @@ pub(super) fn validate_temporal(
     terms: &[Option<CheckedTerm>],
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &ModelOwners<'_>,
     context: TemporalContext<'_>,
     meter: &mut WorkMeter,
@@ -530,9 +552,11 @@ pub(super) fn validate_temporal(
             return Err(failure);
         }
     }
-    validate_diagnostic_references(nodes, kinds, context.diagnostics)?;
-    let clock_units = aggregate_clock_units(context.bindings);
-    let mut covered = BTreeSet::new();
+    validate_diagnostic_references(nodes, kinds, context.diagnostics, meter)?;
+    meter.at_node(0, "temporal");
+    let clock_units = aggregate_clock_units(context.bindings, meter)?;
+    let mut covered = meter.filled(nodes.len(), false)?;
+    let mut stamps = Stamps::new(nodes.len(), meter)?;
     for &position in index.values() {
         if graph.kinds.get(position)
             == Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
@@ -544,11 +568,14 @@ pub(super) fn validate_temporal(
                 terms,
                 context.lock,
                 clock_units
-                    .get(&graph.nodes[position].node_id)
-                    .copied()
-                    .flatten(),
+                    .binary_search_by(|(declaration, _)| {
+                        (*declaration).cmp(&graph.nodes[position].node_id)
+                    })
+                    .ok()
+                    .and_then(|at| clock_units[at].1),
                 meter,
                 &mut covered,
+                &mut stamps,
             )?;
         }
     }
@@ -556,7 +583,7 @@ pub(super) fn validate_temporal(
     // interval is an interval all the same.
     for &position in index.values() {
         if graph.kinds.get(position) == Some(&CheckedNodeKind::Temporal(TemporalForm::Formula))
-            && !covered.contains(&position)
+            && !covered.get(position).copied().unwrap_or(false)
         {
             if let Some(interval) = interval_of(context.catalog, position, &graph) {
                 check_bounds(position, &interval, &graph, meter)?;
@@ -572,6 +599,7 @@ fn validate_diagnostic_references(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     diagnostics: &[CheckedDiagnosticV2],
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let never_referenced = nodes
         .iter()
@@ -587,8 +615,12 @@ fn validate_diagnostic_references(
         .collect::<BTreeSet<_>>();
     for (entry_index, entry) in diagnostics.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
-            let detail = &detail.to_value();
-            if references_refused_node(detail, |target| never_referenced.contains(target)) {
+            meter.at_row("diagnostic_details", entry_index);
+            if references_refused_node(
+                TermNode::of(detail),
+                |target| never_referenced.contains(target),
+                meter,
+            )? {
                 return Err(ValidationFailure::refused_because(
                     CheckedPackageRefusalCode::IllTyped,
                     member_pointer(&["diagnostics", "entries"])
@@ -856,9 +888,11 @@ fn check_clause(
     lock: &CheckedPackageLockV2,
     clock_unit: Option<&str>,
     meter: &mut WorkMeter,
-    covered: &mut BTreeSet<usize>,
+    covered: &mut [bool],
+    stamps: &mut Stamps,
 ) -> Result<(), ValidationFailure> {
     let node = &graph.nodes[position];
+    meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
     let Some(operation) = operation_of(node) else {
         return Ok(());
     };
@@ -871,13 +905,9 @@ fn check_clause(
     }
     let at_node = node_pointer(position);
     let at_body = at_node.clone().key("body");
-    let arguments: Vec<&Value> = application_arguments(&node.body)
-        .into_iter()
-        .flatten()
-        .collect();
+    let arguments: &[Value] = application_arguments(&node.body).unwrap_or(&[]);
     let hybrid_claim = arguments
         .first()
-        .copied()
         .and_then(reference_target)
         .is_some_and(|over| {
             graph.node(&over).is_some_and(|(parameter, kind)| {
@@ -924,7 +954,7 @@ fn check_clause(
     // reference is (FR-040), refused with the path on the argument and, as a
     // frame entry's refusal is, the target's key as locus; a target that is no
     // node has none, so the clause's key stands.
-    if let Some(over) = arguments.first().copied().and_then(reference_target) {
+    if let Some(over) = arguments.first().and_then(reference_target) {
         let refusal = match graph.node(&over) {
             None => Some((ModelRefusal::missing_name(), node.node_id.clone())),
             Some(_) if !node.dependencies.contains(&over) => {
@@ -946,12 +976,8 @@ fn check_clause(
     }
 
     // Each fairness member resolves on its declaring node.
-    let fairness: Vec<&Value> = arguments
-        .get(4)
-        .into_iter()
-        .flat_map(|aggregate| aggregate_members(aggregate).into_iter().flatten())
-        .collect();
-    for reference in &fairness {
+    let fairness: &[Value] = arguments.get(4).and_then(aggregate_members).unwrap_or(&[]);
+    for reference in fairness {
         let Some((fair, member)) = fairness_member(reference, graph) else {
             continue;
         };
@@ -1013,11 +1039,12 @@ fn check_clause(
     // bounds of every interval.
     let FormulaReach { intervals, reached } = formula_intervals(
         catalog,
-        arguments.get(5).copied(),
+        arguments.get(5),
         graph,
         meter,
         &at_node,
         covered,
+        stamps,
     )?;
     if let Some(profile) = profile {
         let fit = profile.interval_fit();
@@ -1045,27 +1072,23 @@ fn check_clause(
     for (formula, interval) in &intervals {
         check_bounds(*formula, interval, graph, meter)?;
     }
-    let mut aggregates = reached
-        .into_iter()
-        .filter(|&formula| {
-            operation_of(&graph.nodes[formula]).is_some_and(|operation| {
-                operation.identity.as_ref() == "quire.op.temporal.aggregate"
-            })
-        })
-        .collect::<Vec<_>>();
-    aggregates.sort_by(|&left, &right| graph.nodes[left].node_id.cmp(&graph.nodes[right].node_id));
+    let mut aggregates = reached;
+    aggregates.retain(|&formula| {
+        operation_of(&graph.nodes[formula])
+            .is_some_and(|operation| operation.identity.as_ref() == "quire.op.temporal.aggregate")
+    });
+    // Equal ids keep position order, as the stable sort did.
+    aggregates.sort_unstable_by(|&left, &right| {
+        graph.nodes[left]
+            .node_id
+            .cmp(&graph.nodes[right].node_id)
+            .then(left.cmp(&right))
+    });
     // The clock unit is matched by `node_id.path` alone: the unit's own node
     // lives in the package that owns it, whatever the clause's package
     // (QSpec FR-370 "Window aggregate atom").
-    let clock_unit = clock_unit.map(|name| {
-        vec![
-            CheckedNodePathSegment::Name("scalar_type".into()),
-            CheckedNodePathSegment::Name("unit".into()),
-            CheckedNodePathSegment::Name(name.into()),
-        ]
-    });
     for formula in aggregates {
-        check_aggregate(formula, profile, clock_unit.as_deref(), graph, meter)?;
+        check_aggregate(formula, profile, clock_unit, graph, meter)?;
     }
     Ok(())
 }
@@ -1084,6 +1107,39 @@ fn interval_fits(fit: IntervalFit, interval: &Interval) -> bool {
             IntervalFit::ClosedOnly,
             Interval::Unbounded | Interval::LowerBounded | Interval::Timed { .. },
         ) => false,
+    }
+}
+
+/// Where each aggregate member is held: one slot per name of the closed set,
+/// so the table needs no heap.
+#[derive(Default)]
+struct Held([Option<usize>; AGGREGATE_NAMES.len()]);
+
+impl Held {
+    fn slot(name: &str) -> Option<usize> {
+        AGGREGATE_NAMES.iter().position(|known| *known == name)
+    }
+
+    fn contains_key(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+
+    fn get(&self, name: &str) -> Option<&usize> {
+        self.0.get(Self::slot(name)?)?.as_ref()
+    }
+
+    fn insert(&mut self, name: &str, at: usize) {
+        if let Some(slot) = Self::slot(name).and_then(|slot| self.0.get_mut(slot)) {
+            *slot = Some(at);
+        }
+    }
+}
+
+impl std::ops::Index<&str> for Held {
+    type Output = usize;
+
+    fn index(&self, name: &str) -> &usize {
+        self.get(name).expect("a held aggregate member")
     }
 }
 
@@ -1254,34 +1310,60 @@ fn aggregate_presence(kind: AggregateKind, name: &str) -> (bool, bool) {
 /// One scan of the occurrence rows records a clock unit only if every row
 /// for a clause names the same timestamp unit. A mixed clock has no single
 /// duration encoding and its aggregate bounds must refuse.
-fn aggregate_clock_units(
-    bindings: Option<&[TemporalBinding]>,
-) -> BTreeMap<&CheckedNodeId, Option<&str>> {
-    let mut units = BTreeMap::new();
-    for row in bindings.into_iter().flatten() {
+fn aggregate_clock_units<'b>(
+    bindings: Option<&'b [TemporalBinding]>,
+    meter: &mut WorkMeter,
+) -> Result<Vec<(&'b CheckedNodeId, Option<&'b str>)>, ValidationFailure> {
+    let rows = bindings.unwrap_or(&[]);
+    let mut keyed: Vec<(&CheckedNodeId, Option<&str>, usize)> = meter.vec(rows.len())?;
+    for (at, row) in rows.iter().enumerate() {
         let unit = match &row.clock {
             ClockConfiguration::TimestampedEvent { timestamp_unit } => {
                 Some(timestamp_unit.as_ref())
             }
             _ => None,
         };
-        units
-            .entry(&row.declaration)
-            .and_modify(|shared| {
+        keyed.push((&row.declaration, unit, at));
+    }
+    keyed.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.2.cmp(&right.2)));
+    let clauses = keyed
+        .iter()
+        .enumerate()
+        .filter(|(at, row)| *at == 0 || keyed[*at - 1].0 != row.0)
+        .count();
+    // One entry per clause, in id order: the unit its rows share, else none.
+    let mut units: Vec<(&CheckedNodeId, Option<&str>)> = meter.vec(clauses)?;
+    for (declaration, unit, _) in keyed {
+        match units.last_mut() {
+            Some((last, shared)) if *last == declaration => {
                 if *shared != unit {
                     *shared = None;
                 }
-            })
-            .or_insert(unit);
+            }
+            _ => units.push((declaration, unit)),
+        }
     }
-    units
+    Ok(units)
+}
+
+/// Whether a bound's type path is the clock's timestamp unit
+/// (`scalar_type/unit/<name>`), or both are absent.
+fn is_clock_unit_path(path: Option<&[CheckedNodePathSegment]>, unit: Option<&str>) -> bool {
+    use CheckedNodePathSegment::Name;
+    match (path, unit) {
+        (None, None) => true,
+        (Some([Name(kind), Name(form), Name(name)]), Some(unit)) => {
+            kind.as_ref() == "scalar_type" && form.as_ref() == "unit" && name.as_ref() == unit
+        }
+        _ => false,
+    }
 }
 
 #[ix_trace_rs::string_edge]
 fn check_aggregate(
     formula: usize,
     profile: Option<TemporalProfile>,
-    clock_unit: Option<&[CheckedNodePathSegment]>,
+    clock_unit: Option<&str>,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -1303,7 +1385,7 @@ fn check_aggregate(
         return Ok(());
     };
 
-    let mut held = BTreeMap::<&str, usize>::new();
+    let mut held = Held::default();
     let mut last_rank = None;
     for (at, candidate) in members.iter().enumerate() {
         let rank = match CheckedTerm::view(candidate) {
@@ -1437,7 +1519,10 @@ fn check_aggregate(
                 };
                 let bound_type = CheckedNodeId::from_value(&term["type"]);
                 if window == AggregateWindow::Duration
-                    && bound_type.as_ref().map(|id| id.path.as_slice()) != clock_unit
+                    && !is_clock_unit_path(
+                        bound_type.as_ref().map(|id| id.path.as_slice()),
+                        clock_unit,
+                    )
                 {
                     return Err(fail(Code::IllTyped, Cause::UnitMismatch, pointer));
                 }
@@ -1606,7 +1691,8 @@ fn resolve_fairness(
 /// node ends its branch.
 struct FormulaReach {
     intervals: Vec<(usize, Interval)>,
-    reached: BTreeSet<usize>,
+    /// The positions reached, ascending.
+    reached: Vec<usize>,
 }
 
 fn formula_intervals(
@@ -1615,44 +1701,55 @@ fn formula_intervals(
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
     at: &JsonPointer,
-    covered: &mut BTreeSet<usize>,
+    covered: &mut [bool],
+    stamps: &mut Stamps,
 ) -> Result<FormulaReach, ValidationFailure> {
-    let mut pending: Vec<usize> = root
+    stamps.next();
+    let mut pending: Vec<usize> = Vec::new();
+    if let Some(start) = root
         .and_then(reference_target)
         .and_then(|target| graph.index.get(&target).copied())
-        .into_iter()
-        .collect();
-    let mut seen = BTreeSet::new();
+    {
+        meter.push(&mut pending, start)?;
+    }
+    let mut reached: Vec<usize> = Vec::new();
     let mut intervals = Vec::new();
     while let Some(position) = pending.pop() {
         if graph.kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::Formula))
-            || !seen.insert(position)
+            || !stamps.insert(position)
         {
             continue;
         }
         meter.charge(1, || at.clone())?;
-        covered.insert(position);
-        if let Some(interval) = interval_of(catalog, position, graph) {
-            intervals.push((position, interval));
+        meter.push(&mut reached, position)?;
+        if let Some(mark) = covered.get_mut(position) {
+            *mark = true;
         }
-        let operands: Vec<usize> = application_arguments(&graph.nodes[position].body)
-            .into_iter()
-            .flatten()
-            .filter_map(reference_target)
-            .filter_map(|target| graph.index.get(&target).copied())
-            .collect();
-        pending.extend(operands.into_iter().rev());
+        if let Some(interval) = interval_of(catalog, position, graph) {
+            meter.push(&mut intervals, (position, interval))?;
+        }
+        let operands = || {
+            application_arguments(&graph.nodes[position].body)
+                .into_iter()
+                .flatten()
+                .filter_map(reference_target)
+                .filter_map(|target| graph.index.get(&target).copied())
+        };
+        // The operands are pushed last-first so the first is visited first.
+        meter.room(&mut pending, operands().count())?;
+        let first = pending.len();
+        pending.extend(operands());
+        pending[first..].reverse();
     }
-    Ok(FormulaReach {
-        intervals,
-        reached: seen,
-    })
+    reached.sort_unstable();
+    Ok(FormulaReach { intervals, reached })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::checked_package::shared::CheckedSelection;
+    use crate::checked_package::v2::CheckedJson;
     use crate::checked_package::v2::CheckedNodeTag;
     use ix_trace_rs::trace;
     use serde_json::json;
@@ -1665,11 +1762,69 @@ mod tests {
     #[test]
     fn tc_048_diagnostic_reference_requires_a_closed_term() {
         let target: CheckedNodeId = serde_json::from_value(id('a')).expect("target");
+        let refused = |value: &Value| {
+            let json = CheckedJson::from_value(value).expect("document");
+            references_refused_node(
+                TermNode::of(&json),
+                |node| node == &target,
+                &mut WorkMeter::new(u64::MAX),
+            )
+            .ok()
+        };
         let reference = json!({"term": "reference", "target": id('a')});
-        assert!(references_refused_node(&reference, |node| node == &target));
+        assert_eq!(refused(&reference), Some(true));
 
         let extra = json!({"term": "reference", "target": id('a'), "members": []});
-        assert!(!references_refused_node(&extra, |node| node == &target));
+        assert_eq!(refused(&extra), Some(false));
+        // Below an aggregate and a binding, and a different target.
+        let nested = json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "n", "value": reference}
+        ]});
+        assert_eq!(refused(&nested), Some(true));
+        assert_eq!(
+            refused(&json!({"term": "reference", "target": id('b')})),
+            Some(false)
+        );
+    }
+
+    /// The diagnostic reference walk requests its stack and each target ID
+    /// before making them: the bytes the allocator is asked for equal the
+    /// bytes charged, the measured requirement admits and one byte below is
+    /// denied (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn diagnostic_reference_walk_allocates_exactly_what_it_charges() {
+        let reference = json!({"term": "reference", "target": id('a')});
+        let value = json!({"term": "aggregate", "members": [
+            {"term": "binding", "name": "n", "value": reference.clone()},
+            reference,
+            {"term": "reference", "target": id('b')},
+        ]});
+        let json = CheckedJson::from_value(&value).expect("document");
+        let run = |limit: u64| {
+            let mut budget =
+                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut walked = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                walked = Some(references_refused_node(
+                    TermNode::of(&json),
+                    |_| false,
+                    &mut meter,
+                ));
+            });
+            (
+                walked.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (walked, allocated, charged) = run(u64::MAX);
+        assert_eq!(walked, Some(false));
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, walked, "the measured limit admits");
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
     }
 
     /// FR-038-AC-97: an interval bound is an integer string of unbounded size,
@@ -1791,7 +1946,7 @@ mod tests {
                 CheckedNodeKind::decode(tag, &node.semantic_form).expect("test node form")
             })
             .collect();
-        let index: BTreeMap<&CheckedNodeId, usize> = nodes
+        let index: GraphIndex<'_> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))

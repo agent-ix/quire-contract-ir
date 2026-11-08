@@ -41,6 +41,7 @@ mod extension;
 mod extension_body;
 mod flat_wire;
 mod frame;
+mod graph_storage;
 mod hybrid;
 mod identity;
 mod intake;
@@ -227,6 +228,7 @@ pub use vocabulary::*;
 use crate::identity::ExecutionPoint;
 use closure_index::ClosureIndex;
 use dependency_references::{admit_dependencies, check_derived_closure, SuppliedDependencies};
+use graph_storage::GraphIndex;
 use ix_trace_rs::string_edge;
 use operations::{validate_operations, OperationNodeOrder};
 use owner::{validate_owner_joins, validate_owner_schema};
@@ -1155,6 +1157,11 @@ fn retained_source_index(
 #[derive(Debug)]
 pub(super) struct WorkMeter<'b> {
     source: WorkSource<'b>,
+    /// Where the graph stage's heap requests are charged.
+    site: Option<graph_storage::ReadSite>,
+    /// The node bodies as handles into the retained document, with the
+    /// operand row of each node, once the graph stage has them.
+    bodies: Option<graph_storage::BodyTable<'b>>,
 }
 
 #[derive(Debug)]
@@ -1189,6 +1196,8 @@ impl<'b> WorkMeter<'b> {
     pub(super) const fn new(limit: u64) -> Self {
         Self {
             source: WorkSource::Own { consumed: 0, limit },
+            site: None,
+            bodies: None,
         }
     }
 
@@ -1206,15 +1215,8 @@ impl<'b> WorkMeter<'b> {
     pub(super) fn over(budget: &'b mut NativeJoinBudget) -> Self {
         Self {
             source: WorkSource::Budget(budget),
-        }
-    }
-
-    /// Names the stage the following charges belong to, so a denial records
-    /// its `PackageRead` locus. A meter over its own limit has no budget to
-    /// record it in.
-    pub(super) fn at_stage(&mut self, stage: PackageReadStage, form: &'static str) {
-        if let WorkSource::Budget(budget) = &mut self.source {
-            budgeted_read::at_stage(budget, stage, form);
+            site: None,
+            bodies: None,
         }
     }
 
@@ -1469,7 +1471,6 @@ impl CheckedPackageV2 {
         // proof of the bytes; the typed decode below still reads the bytes.
         let document = budgeted_read::read_envelope(bytes, limits, budget)?;
         let document = budgeted_read::share_document(document, budget)?;
-        budgeted_read::at_stage(budget, PackageReadStage::WireDecode, "wire_decode");
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
             Some(Value::String(version))
                 if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {
@@ -1861,7 +1862,6 @@ fn validate(
     evidence: &CheckedPackageEvidence,
     budget: &mut NativeJoinBudget,
 ) -> Result<ValidatedPackage, ValidationFailure> {
-    budgeted_read::at_stage(budget, PackageReadStage::WireChecks, "wire_checks");
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
@@ -1869,13 +1869,12 @@ fn validate(
     let structural_keys = node_index::check(document, wire, evidence, budget)?;
     flat_wire::check_interval_bounds(wire, bodies, &flat_kinds, budget)?;
     let mut meter = WorkMeter::over(budget);
-    meter.at_stage(PackageReadStage::Lock, "lock");
+    meter.attach_bodies(bodies, &wire.semantic_graph.operand_rows);
     let LockAdmission {
         models,
         documents,
         dependencies,
     } = validate_lock(wire, evidence, &mut meter, limits.bytes)?;
-    meter.at_stage(PackageReadStage::Graph, "graph");
     let ValidatedGraph {
         kinds,
         schedulability_claim_index,
@@ -1904,17 +1903,15 @@ fn validate(
         limits,
         &mut meter,
     )?;
-    meter.at_stage(PackageReadStage::Equivalence, "equivalence");
     identity::validate_equivalence_occurrences(wire, &kinds, &mut meter)?;
     extension::validate_source_regions(wire, &kinds, &mut meter)?;
     validate_capabilities(wire, evidence, &mut meter)?;
     meter.at_stage(PackageReadStage::Diagnostics, "diagnostics");
+
     validate_diagnostics(wire, limits, &mut meter)?;
     let models = RetainedModels::build(declarations, models, &mut Budget::node(&mut meter, 0))?;
-    meter.at_stage(PackageReadStage::OperationEffects, "operation_effects");
     operation_effects::validate(wire.operation_effects.as_deref(), &models, &mut meter)?;
     if let Some(data) = wire.checked_term_data.as_ref() {
-        meter.at_stage(PackageReadStage::CheckedTermData, "checked_term_data");
         dispatch_projection::validate_checked_term_data(
             data, wire, &kinds, &terms, &models, &mut meter,
         )?;
@@ -2555,7 +2552,7 @@ fn validate_body<'a, V: TermSource<'a>>(
         }
         BodyGrammar::Frame => frame::read_frame_body(body, at).map(|(_, work)| work),
         BodyGrammar::AbstractionRelation => abstraction::scan_body(node, at, visit, ids),
-        BodyGrammar::Refinement => refinement::validate_body(body, at, visit),
+        BodyGrammar::Refinement => refinement::validate_body(node, at, visit, ids),
         // `body` is the node's own top-level term, never a nested one, so
         // this is the one call in the module that reports `is_body_root: true`.
         BodyGrammar::Literal
@@ -2768,7 +2765,7 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
 fn validate_declaration_names(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Result<(), ValidationFailure> {
     let name_pointer = |position: usize| {
         node_pointer(position)
@@ -3004,9 +3001,9 @@ fn imported_node_matches(
         )
 }
 
-pub(super) fn structural_key<'a>(
+fn structural_key<'a>(
     id: &'a CheckedNodeId,
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
 ) -> &'a CheckedNodeId {
     index
@@ -3053,17 +3050,30 @@ fn validate_graph(
             )),
         ));
     }
-    let mut index = BTreeMap::new();
-    let mut kinds = Vec::with_capacity(graph.nodes.len());
-    let mut references: Vec<Vec<BodyReference>> = Vec::with_capacity(graph.nodes.len());
-    let mut body_terms = Vec::with_capacity(graph.nodes.len());
-    let mut terms = Vec::with_capacity(graph.nodes.len());
+    meter.at_node(0, graph_storage::node_form(&graph.nodes[0].node_tag));
+    let index = GraphIndex::build(graph.nodes.iter().map(|node| &node.node_id), meter)?
+        .with_ranks(structural_keys, meter)?;
+    let repeated_id = index.first_repeat();
+    let mut kinds = meter.vec(graph.nodes.len())?;
+    let mut references: Vec<Vec<BodyReference>> = meter.vec(graph.nodes.len())?;
+    let mut body_terms = meter.vec(graph.nodes.len())?;
+    let mut terms = meter.vec(graph.nodes.len())?;
     // Each frame node's typed body, read once here and joined by the frame step.
-    let mut frames = Vec::new();
+    let frame_nodes = graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            CheckedNodeTag::from_wire(&node.node_tag)
+                .and_then(|tag| CheckedNodeKind::decode(tag, &node.semantic_form))
+                == Some(CheckedNodeKind::State(StateForm::Frame))
+        })
+        .count();
+    let mut frames = meter.vec(frame_nodes)?;
     let mut edges = 0_u64;
     let mut import_index = None;
     for (position, node) in graph.nodes.iter().enumerate() {
         let at = |member: &str| node_pointer(position).key(member);
+        meter.at_node(position, graph_storage::node_form(&node.node_tag));
         validate_node_id(&node.node_id, || at("node_id"))?;
         let expected_package = match node.owner.as_ref() {
             Some(
@@ -3110,7 +3120,7 @@ fn validate_graph(
         // Charge the graph-node visit before checking identity uniqueness so
         // a denied visit cannot proceed to the duplicate-id refusal.
         meter.charge(1, || at("node_id"))?;
-        if index.insert(&node.node_id, position).is_some() {
+        if repeated_id == Some(position) {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 at("node_id"),
@@ -3217,9 +3227,17 @@ fn validate_graph(
                 work
             }
             BodyGrammar::Refinement => refinement::validate_body(
-                &node.body,
+                TermNode::of(&bodies[position]),
                 &Trail::Base(&body_steps),
                 &mut |target, site, _target_at| targets.push((target.clone(), site)),
+                read_charge::ids(
+                    &mut *meter,
+                    PackageReadStage::Graph,
+                    position,
+                    CheckedNodeTag::from_wire(&node.node_tag)
+                        .map_or("node", CheckedNodeTag::as_wire),
+                    &wire.semantic_graph.operand_rows[position],
+                ),
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
             BodyGrammar::Literal
@@ -3248,18 +3266,13 @@ fn validate_graph(
         meter.charge(work, || at("body"))?;
         body_terms.push(work);
         references.push(targets);
-        let mut occurrences = BTreeSet::new();
         if node.occurrences.is_empty() {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSourceMap,
                 at("occurrences"),
             ));
         }
-        if let Some(repeat) = node
-            .occurrences
-            .iter()
-            .position(|occurrence| !occurrences.insert(occurrence))
-        {
+        if let Some(repeat) = graph_storage::first_repeat(node.occurrences.iter(), meter)? {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSourceMap,
                 at("occurrences").index(repeat),
@@ -3333,6 +3346,7 @@ fn validate_graph(
         &index,
         structural_keys,
         Some(models),
+        meter,
     )?;
     validate_owner_joins(wire, &kinds, &terms, models, meter)?;
     schedulability::validate_graph(&graph.nodes, &kinds, &terms, &index, meter)?;
@@ -3344,8 +3358,9 @@ fn validate_graph(
         &index,
         structural_keys,
         models,
+        meter,
     )?;
-    validate_selected_type_bounds(models, &terms, structural_keys)?;
+    validate_selected_type_bounds(models, &terms, structural_keys, meter)?;
     for &position in index.values() {
         if !matches!(
             kinds.get(position),
@@ -3356,19 +3371,20 @@ fn validate_graph(
             continue;
         }
         let node = &graph.nodes[position];
-        let expected = references[position]
+        meter.at_node(position, graph_storage::node_form(&node.node_tag));
+        let targets = references[position]
             .iter()
-            .filter(|(_, site)| site.member == ReferenceMember::Target)
-            .map(|(target, _)| structural_key(target, &index, structural_keys).clone())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-        let actual = node
+            .filter(|(_, site)| site.member == ReferenceMember::Target);
+        let mut expected = meter.vec(targets.clone().count())?;
+        expected.extend(targets.map(|(target, _)| index.resolved(target, structural_keys)));
+        expected.sort_unstable();
+        expected.dedup();
+        if !node
             .dependencies
             .iter()
-            .map(|id| structural_key(id, &index, structural_keys).clone())
-            .collect::<Vec<_>>();
-        if actual != expected {
+            .map(|id| index.resolved(id, structural_keys))
+            .eq(expected)
+        {
             return Err(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 node_pointer(position).key("dependencies"),
@@ -3384,7 +3400,14 @@ fn validate_graph(
         &index,
         structural_keys,
     )?;
-    refinement::validate_dependencies(&graph.nodes, &kinds, &terms, &index, structural_keys)?;
+    refinement::validate_dependencies(
+        &graph.nodes,
+        &kinds,
+        &terms,
+        &index,
+        structural_keys,
+        meter,
+    )?;
     let imported_nominals = validate_nominal_nodes(
         &graph.nodes,
         &kinds,
@@ -3809,7 +3832,7 @@ fn validate_graph(
 fn validate_protocol_references(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
 ) -> Result<(), ValidationFailure> {
     for (&carrier_id, &position) in index {
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference))

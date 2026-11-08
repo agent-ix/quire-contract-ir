@@ -3,6 +3,7 @@
 
 //! Authenticated schedulability claim carrier and FR-482 body admission.
 
+use super::graph_storage::{GraphIndex, ResolvedKey, SortedTable};
 use super::{
     CheckedLiteralRead, CheckedLiteralValue, CheckedNodeId, CheckedNodeKind, CheckedPackageV2,
     CheckedTerm, ClaimForm, LiteralKind, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
@@ -14,7 +15,7 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::cmp::Ordering;
 
 /// An untrusted producer row naming one local claim occurrence.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -284,28 +285,42 @@ pub(super) fn validate_carrier(
     rows: Option<&[CheckedSchedulabilityClaimRow]>,
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
 ) -> Result<Vec<(usize, usize)>, ValidationFailure> {
-    let root = JsonPointer::root().key("schedulability_claims");
-    let mut occurrences = BTreeMap::new();
+    let root = || JsonPointer::root().key("schedulability_claims");
+    // Per claim node (ascending position): its claim occurrences as
+    // `(ordinal, occurrence position)` sorted, the last of equal ordinals
+    // being the one a later insertion would have kept.
+    let claims = nodes
+        .iter()
+        .enumerate()
+        .filter(|(p, _)| claim(kinds[*p]))
+        .count();
+    let mut occurrences: Vec<(usize, Vec<(u64, usize)>)> = meter.vec(claims)?;
     for (p, node) in nodes.iter().enumerate().filter(|(p, _)| claim(kinds[*p])) {
-        let mut by_ordinal = BTreeMap::new();
+        let held = node
+            .occurrences
+            .iter()
+            .filter(|occurrence| occurrence.role == CheckedOccurrenceRole::Claim)
+            .count();
+        let mut by_ordinal: Vec<(u64, usize)> = meter.vec(held)?;
         for (position, occurrence) in node.occurrences.iter().enumerate() {
             meter.charge(1, || node_pointer(p).key("occurrences").index(position))?;
             if occurrence.role == CheckedOccurrenceRole::Claim {
-                by_ordinal.insert(occurrence.ordinal, position);
+                by_ordinal.push((occurrence.ordinal, position));
             }
         }
-        occurrences.insert(p, by_ordinal);
+        by_ordinal.sort_unstable();
+        occurrences.push((p, by_ordinal));
     }
-    let mut joined = Vec::with_capacity(rows.map_or(0, <[CheckedSchedulabilityClaimRow]>::len));
-    let mut seen = BTreeSet::new();
-    let mut previous = None;
+    let mut joined = meter.vec(rows.map_or(0, <[CheckedSchedulabilityClaimRow]>::len))?;
+    let mut seen: Vec<(ResolvedKey<'_>, u64)> = Vec::new();
+    let mut previous: Option<(ResolvedKey<'_>, u64)> = None;
     for (i, row) in rows.unwrap_or_default().iter().enumerate() {
-        let at = root.clone().index(i);
-        meter.charge(1, || at.clone())?;
+        let at = || root().index(i);
+        meter.charge(1, at)?;
         let Some(&position) = index
             .get(&row.declaration)
             .filter(|&&p| row.declaration.package.as_ref() == package_name && claim(kinds[p]))
@@ -313,59 +328,104 @@ pub(super) fn validate_carrier(
             return Err(invalid(
                 Code::InvalidPackage,
                 Some(Cause::InvalidValue),
-                at.key("declaration"),
+                at().key("declaration"),
                 &row.declaration,
             ));
         };
         let Some(&occurrence_position) = occurrences
-            .get(&position)
-            .and_then(|occurrences| occurrences.get(&row.occurrence))
+            .binary_search_by_key(&position, |(held, _)| *held)
+            .ok()
+            .and_then(|at| {
+                let held = &occurrences[at].1;
+                let after = held.partition_point(|(ordinal, _)| *ordinal <= row.occurrence);
+                held.get(after.checked_sub(1)?)
+                    .filter(|(ordinal, _)| *ordinal == row.occurrence)
+                    .map(|(_, position)| position)
+            })
         else {
             return Err(invalid(
                 Code::InvalidPackage,
                 Some(Cause::InvalidValue),
-                at.key("occurrence"),
+                at().key("occurrence"),
                 &row.declaration,
             ));
         };
-        let key = (structural_keys[position].as_ref(), row.occurrence);
-        if !seen.insert(key) {
-            return Err(invalid(
-                Code::InvalidPackage,
-                Some(Cause::ConflictingDefinition),
-                at,
-                &row.declaration,
-            ));
-        }
-        if previous.is_some_and(|previous| previous > key) {
-            return Err(invalid(
-                Code::InvalidPackage,
-                Some(Cause::InvalidValue),
-                at,
-                &row.declaration,
-            ));
+        let key = (index.resolved_at(position, structural_keys), row.occurrence);
+        let slot = match search_keys(&seen, &key, meter)? {
+            Ok(_) => {
+                return Err(invalid(
+                    Code::InvalidPackage,
+                    Some(Cause::ConflictingDefinition),
+                    at(),
+                    &row.declaration,
+                ));
+            }
+            Err(slot) => slot,
+        };
+        meter.room(&mut seen, 1)?;
+        seen.insert(slot, key);
+        if let Some(previous) = previous {
+            if compare_keys(&previous, &key, meter)? == Ordering::Greater {
+                return Err(invalid(
+                    Code::InvalidPackage,
+                    Some(Cause::InvalidValue),
+                    at(),
+                    &row.declaration,
+                ));
+            }
         }
         previous = Some(key);
         joined.push((position, occurrence_position));
     }
-    let expected = nodes
-        .iter()
-        .enumerate()
-        .filter(|(p, _)| claim(kinds[*p]))
-        .flat_map(|(p, node)| {
-            node.occurrences
-                .iter()
-                .filter(|o| o.role == CheckedOccurrenceRole::Claim)
-                .map(move |o| (structural_keys[p].as_ref(), o.ordinal))
-        });
-    if expected.clone().any(|key| !seen.contains(&key)) {
-        return Err(ValidationFailure::refused_because(
-            Code::InvalidPackage,
-            root,
-            Cause::InvalidValue,
-        ));
+    for (p, node) in nodes.iter().enumerate().filter(|(p, _)| claim(kinds[*p])) {
+        for occurrence in node
+            .occurrences
+            .iter()
+            .filter(|o| o.role == CheckedOccurrenceRole::Claim)
+        {
+            let key = (index.resolved_at(p, structural_keys), occurrence.ordinal);
+            if search_keys(&seen, &key, meter)?.is_err() {
+                return Err(ValidationFailure::refused_because(
+                    Code::InvalidPackage,
+                    root(),
+                    Cause::InvalidValue,
+                ));
+            }
+        }
     }
     Ok(joined)
+}
+
+/// The order of two `(structural key, ordinal)` rows: ranks when the graph
+/// has them, else a comparison that charges its frame list.
+fn compare_keys(
+    left: &(ResolvedKey<'_>, u64),
+    right: &(ResolvedKey<'_>, u64),
+    meter: &mut WorkMeter,
+) -> Result<Ordering, ValidationFailure> {
+    Ok(left
+        .0
+        .order(&right.0, meter)?
+        .then_with(|| left.1.cmp(&right.1)))
+}
+
+/// Binary search of sorted `rows` for `key` (`Ok` position, or `Err` the
+/// insertion slot), each comparison charged.
+fn search_keys(
+    rows: &[(ResolvedKey<'_>, u64)],
+    key: &(ResolvedKey<'_>, u64),
+    meter: &mut WorkMeter,
+) -> Result<Result<usize, usize>, ValidationFailure> {
+    let (mut low, mut high) = (0, rows.len());
+    while low < high {
+        let middle = low + (high - low) / 2;
+        match compare_keys(&rows[middle], key, meter)? {
+            Ordering::Less => low = middle + 1,
+            Ordering::Greater => high = middle,
+            Ordering::Equal => return Ok(Ok(middle)),
+        }
+    }
+    Ok(Err(low))
 }
 
 const CLAIM_FIELDS: &[&str] = &["kind", "policy", "task", "bound", "tasks"];
@@ -430,28 +490,75 @@ fn greater(
     )
 }
 
+/// The claim nodes in structural-key order: one exact block, charged before
+/// it is made. Ranks order the keys without a comparison that allocates;
+/// positions are unique, so the unstable sort is deterministic.
+fn claim_order(
+    kinds: &[CheckedNodeKind],
+    index: &GraphIndex<'_>,
+    structural_keys: &[std::sync::Arc<CheckedNodeId>],
+    meter: &mut WorkMeter,
+) -> Result<Vec<usize>, ValidationFailure> {
+    let claims = index.values().filter(|&&p| claim(kinds[p])).count();
+    let mut order: Vec<usize> = meter.vec(claims)?;
+    order.extend(index.values().copied().filter(|&p| claim(kinds[p])));
+    order.sort_unstable_by_key(|&p| index.resolved_at(p, structural_keys));
+    Ok(order)
+}
+
+/// Records a task's integer priority in the sorted set of the claim:
+/// `true` when it is new, `false` when it repeats or is not an integer
+/// literal. The value is read by a parse that charges its limbs, and the set
+/// grows under the meter.
+fn record_priority(
+    term: &CheckedTerm,
+    priorities: &mut Vec<quire_exact::Integer>,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let CheckedTerm::Literal {
+        value_kind: LiteralKind::Integer,
+        value,
+        ..
+    } = term
+    else {
+        return Ok(false);
+    };
+    let priority = match (value.as_str(), value.as_i64(), value.as_u64()) {
+        (Some(text), _, _) => meter.exact_integer(text)?,
+        (None, Some(number), _) => Some(quire_exact::Integer::from(number)),
+        (None, None, Some(number)) => Some(quire_exact::Integer::from(number)),
+        _ => None,
+    };
+    match priority {
+        Some(priority) => meter.insert_sorted(priorities, priority),
+        None => Ok(false),
+    }
+}
+
 #[ix_trace_rs::string_edge]
 pub(super) fn validate_bodies(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     models: &[super::model_members::DomainModel],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let models = models
-        .iter()
-        .map(|model| (model.identity.as_ref(), model))
-        .collect();
-    let mut order = index
-        .values()
-        .copied()
-        .filter(|&p| claim(kinds[p]))
-        .collect::<Vec<_>>();
-    order.sort_by(|&a, &b| structural_keys[a].cmp(&structural_keys[b]));
+    // The site is the caller's again once the claims are checked.
+    let caller = meter.site();
+    meter.at_node(0, "claim_order");
+    // Of two models with one identity the later one is kept, as a map built
+    // by insertion would hold; the slice address orders them.
+    let mut identified = meter.vec::<(&str, &super::model_members::DomainModel)>(models.len())?;
+    identified.extend(models.iter().map(|model| (model.identity.as_ref(), model)));
+    let models = SortedTable::from_vec(identified, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    });
+    let order = claim_order(kinds, index, structural_keys, meter)?;
     for p in order {
         let node = &nodes[p];
+        meter.at_node(p, super::graph_storage::node_form(&node.node_tag));
         if node
             .occurrences
             .iter()
@@ -603,7 +710,7 @@ pub(super) fn validate_bodies(
             }
             common_unit = Some(read.type_id);
         }
-        let mut priorities = BTreeSet::new();
+        let mut priorities: Vec<quire_exact::Integer> = Vec::new();
         for (i, task) in tasks.iter().enumerate() {
             let task_at = task_at.clone().key("value").key("members").index(i);
             let b = |j| admitted_bound(task, j);
@@ -620,12 +727,8 @@ pub(super) fn validate_bodies(
             }
             if policy == "edf" {
                 valid &= zero(b(9)) && zero(b(10));
-            } else if let Some(read) = b(8).literal_read() {
-                if let CheckedLiteralValue::Integer(priority) = read.value {
-                    valid &= priorities.insert(priority);
-                }
             } else {
-                valid = false;
+                valid &= record_priority(b(8), &mut priorities, meter)?;
             }
             if valid && policy == "amc" {
                 valid = !greater(b(3), b(2), meter, &task_at)?;
@@ -639,6 +742,7 @@ pub(super) fn validate_bodies(
             }
         }
     }
+    meter.restore_site(caller);
     Ok(())
 }
 
@@ -647,7 +751,7 @@ pub(super) fn validate_graph(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     for &p in index.values() {
@@ -756,4 +860,296 @@ fn validate_literal_values(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::NativeJoinBudget;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    /// The claim carrier join requests every table before it makes it: the
+    /// bytes the allocator is asked for equal the bytes charged, the measured
+    /// requirement admits and one byte below is denied (FR-038-AC-504). The
+    /// carrier holds only flat wire IDs, so the join's comparisons never
+    /// allocate.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn claim_carrier_join_allocates_exactly_what_it_charges() {
+        let claim = |name: &str, occurrences: u64| -> super::super::RawSemanticNodeV2 {
+            serde_json::from_value(json!({
+                "node_id":{"package":"example","path":[name],"ordinal":0},
+                "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"claim", "semantic_form":"schedulability",
+                "semantic_type":{"package":"example","path":["boolean"],"ordinal":0},
+                "dependencies":[],
+                "occurrences":(0..occurrences)
+                    .map(|ordinal| json!({"role":"claim","ordinal":ordinal}))
+                    .collect::<Vec<_>>(),
+                "body":{"term":"aggregate","members":[]}
+            }))
+            .expect("claim node")
+        };
+        let nodes = [claim("a", 2), claim("b", 1), claim("c", 3)];
+        let kinds = [CheckedNodeKind::Claim(ClaimForm::Schedulability); 3];
+        let index = nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect::<GraphIndex<'_>>();
+        let keys: Vec<std::sync::Arc<CheckedNodeId>> = nodes
+            .iter()
+            .map(|node| std::sync::Arc::new(node.node_id.clone()))
+            .collect();
+        let rows: Vec<CheckedSchedulabilityClaimRow> =
+            [(0, 0), (0, 1), (1, 0), (2, 0), (2, 1), (2, 2)]
+                .into_iter()
+                .map(|(position, occurrence)| CheckedSchedulabilityClaimRow {
+                    declaration: nodes[position].node_id.clone(),
+                    occurrence,
+                })
+                .collect();
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut joined = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                joined = Some(validate_carrier(
+                    "example",
+                    Some(&rows),
+                    &nodes,
+                    &kinds,
+                    &index,
+                    &keys,
+                    &mut meter,
+                ));
+            });
+            (
+                joined.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (joined, allocated, charged) = run(u64::MAX);
+        assert_eq!(
+            joined,
+            Some(vec![(0, 0), (0, 1), (1, 0), (2, 0), (2, 1), (2, 2)])
+        );
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, joined, "the measured limit admits");
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
+
+    /// The model table is one charged exact block the table keeps without
+    /// copying: for several models, two sharing an identity, the bytes the
+    /// allocator is asked for equal the bytes charged, the measured
+    /// requirement admits and one byte below is denied (FR-038-AC-504). The
+    /// claim order and the priority set have their own oracles below.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn model_table_allocates_exactly_what_it_charges() {
+        let document = |identity: &str| {
+            json!({
+                "contractVersion":"2.0.0",
+                "package":{"identity":identity,"version":"1.0.0"},
+                "constructs":[], "types":[], "dimensions":[], "units":[]
+            })
+        };
+        let unit_refs = std::sync::Arc::new(Default::default());
+        let read = |identity: &str| {
+            let selected = crate::CheckedJson::from_value(&document(identity)).expect("a document");
+            let mut meter = WorkMeter::new(u64::MAX);
+            let mut budget = super::super::model_members::Budget::new(&mut meter, 0, 1 << 20);
+            super::super::model_members::read_semantic_ir_of(
+                selected.document(),
+                "example",
+                &mut budget,
+                &unit_refs,
+            )
+            .expect("selected declarations")
+        };
+        let models = [read("acme/one"), read("acme/two"), read("acme/one")];
+        let index = std::iter::empty::<(&CheckedNodeId, usize)>().collect::<GraphIndex<'_>>();
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                outcome = Some(validate_bodies(
+                    &[],
+                    &[],
+                    &[],
+                    &index,
+                    &[],
+                    &models,
+                    &mut meter,
+                ));
+            });
+            (
+                outcome.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (outcome, allocated, charged) = run(u64::MAX);
+        assert_eq!(outcome, Some(()));
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, outcome, "the measured limit admits");
+        assert_eq!(run(charged - 1).0, None, "one byte short is denied");
+    }
+
+    /// The claim order is one exact block charged before it is made, at the
+    /// graph locus: the bytes the allocator is asked for equal the bytes
+    /// charged, the measured requirement admits and one byte below is denied
+    /// at `PackageRead(Graph, 0)` (FR-038-AC-504). Claims are listed against
+    /// the key order and mixed with other nodes.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn claim_order_allocates_exactly_what_it_charges() {
+        use super::super::native_join_budget::{
+            NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+        };
+        let id = |name: &str| CheckedNodeId {
+            package: "example".into(),
+            path: vec![crate::CheckedNodePathSegment::Name(name.into())],
+            ordinal: 0,
+        };
+        let names = ["m", "c", "x", "a", "z", "k", "b"];
+        let ids: Vec<CheckedNodeId> = names.iter().map(|name| id(name)).collect();
+        let kinds: Vec<CheckedNodeKind> = names
+            .iter()
+            .map(|name| {
+                if matches!(*name, "x" | "k") {
+                    CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean)
+                } else {
+                    CheckedNodeKind::Claim(ClaimForm::Schedulability)
+                }
+            })
+            .collect();
+        let index = ids
+            .iter()
+            .enumerate()
+            .map(|(position, id)| (id, position))
+            .collect::<GraphIndex<'_>>();
+        let keys: Vec<std::sync::Arc<CheckedNodeId>> =
+            ids.iter().cloned().map(std::sync::Arc::new).collect();
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut order = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(0, "claim_order");
+                order = Some(claim_order(&kinds, &index, &keys, &mut meter));
+            });
+            (
+                order.expect("ran").ok(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+                budget.first_unpaid_locus(),
+            )
+        };
+        let (order, allocated, charged, _) = run(u64::MAX);
+        let names_in_order: Vec<&str> = order
+            .as_ref()
+            .expect("the order")
+            .iter()
+            .map(|&p| names[p])
+            .collect();
+        assert_eq!(names_in_order, ["a", "b", "c", "m", "z"]);
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert_eq!(run(charged).0, order, "the measured limit admits");
+        let (short, _, _, locus) = run(charged - 1);
+        assert_eq!(short, None, "one byte short is denied");
+        assert_eq!(
+            locus,
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 0),
+                form: "claim_order",
+            })
+        );
+    }
+
+    /// The priority set grows under the meter and its values are read by a
+    /// parse that charges its limbs: for priorities that repeat, are
+    /// written as JSON numbers, exceed 128 bits or are not integers, the
+    /// bytes the allocator is asked for equal the bytes charged, the
+    /// measured requirement admits and one byte below is denied at the
+    /// claim's graph locus (FR-038-AC-504).
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn priority_set_allocates_exactly_what_it_charges() {
+        use super::super::native_join_budget::{NativeJoinLocusSource, PackageReadStage};
+        let integer = |value: serde_json::Value| CheckedTerm::Literal {
+            type_id: CheckedNodeId {
+                package: "example".into(),
+                path: vec![crate::CheckedNodePathSegment::Name("integer".into())],
+                ordinal: 0,
+            },
+            value_kind: LiteralKind::Integer,
+            value: crate::CheckedJson::from_value(&value).expect("a canonical literal"),
+        };
+        let huge = format!("1{}", "0".repeat(60));
+        let mut terms: Vec<CheckedTerm> = (0..40_u64)
+            .map(|n| integer(json!(((n * 7) % 40).to_string())))
+            .collect();
+        terms.push(integer(json!(huge)));
+        terms.push(integer(json!(huge)));
+        terms.push(integer(json!(12345)));
+        terms.push(integer(json!(null)));
+        terms.push(CheckedTerm::Aggregate {
+            members: Vec::new(),
+        });
+        let run = |limit: u64| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            // The record of outcomes is made before the measure starts.
+            let mut outcome = Some(Vec::with_capacity(terms.len()));
+            let mut priorities = Vec::new();
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(3, "claim");
+                for term in &terms {
+                    match record_priority(term, &mut priorities, &mut meter) {
+                        Ok(recorded) => outcome.as_mut().expect("running").push(recorded),
+                        Err(_) => {
+                            outcome = None;
+                            break;
+                        }
+                    }
+                }
+            });
+            let held = priorities.len();
+            drop(priorities);
+            (
+                outcome,
+                held,
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+                budget.first_unpaid_locus(),
+            )
+        };
+        let (outcome, held, allocated, charged, _) = run(u64::MAX);
+        let outcome = outcome.expect("every priority is read");
+        // 40 distinct small values, the huge one and its repeat, a JSON
+        // number, a null and an aggregate.
+        assert_eq!(held, 42);
+        assert!(outcome[..40].iter().all(|&recorded| recorded));
+        assert_eq!(outcome[40..], [true, false, true, false, false]);
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "allocated == requested");
+        assert!(run(charged).0.is_some(), "the measured limit admits");
+        let (short, _, _, _, locus) = run(charged - 1);
+        assert!(short.is_none(), "one byte short is denied");
+        // The set's growth is charged as the claim; a limb block is charged
+        // as the exact-number library that parses it.
+        let locus = locus.expect("a denied request has a locus");
+        assert_eq!(
+            locus.source,
+            NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 3)
+        );
+        assert!(matches!(locus.form, "claim" | "exact_number"));
+    }
 }
