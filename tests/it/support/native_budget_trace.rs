@@ -54,7 +54,7 @@ fn unchanged(off: &Observation, on: &Observation, views: ReadViewScope) {
     views.budgeted(
         &off.result,
         &on.result,
-        "observer preserves full typed outcome and admitted views",
+        "observer preserves typed outcome under the explicit comparison scope",
     );
     assert_eq!(
         off.budget, on.budget,

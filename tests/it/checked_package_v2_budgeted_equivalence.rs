@@ -332,7 +332,7 @@ fn core_outcome_comparison_does_not_lower_but_explicit_view_proof_visits_every_n
 }
 
 #[cfg(feature = "test-support")]
-#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[trace("TC-472", "FR-038-AC-512")]
 #[test]
 fn core_observer_keeps_reader_values_and_full_observer_checks_every_node() {
     use crate::qspec_read_proof::{equivalence::take_oracle_visits, Counter, ReadViewScope};
@@ -381,7 +381,7 @@ fn core_observer_keeps_reader_values_and_full_observer_checks_every_node() {
 }
 
 #[cfg(feature = "test-support")]
-#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[trace("TC-472", "FR-038-AC-512")]
 #[test]
 fn direct_full_native_proof_checks_admitted_views_without_a_mode_environment() {
     use crate::qspec_read_proof::{equivalence::take_oracle_visits, Counter};
