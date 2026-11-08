@@ -10,6 +10,12 @@ use quire_contract_model::{
 
 pub(crate) trait Counter {
     fn measure(read: impl FnOnce()) -> u64;
+    /// Nonallocating snapshot of this backend's currently armed counter.
+    /// Opaque backends must report unknown rather than infer a prefix.
+    #[cfg(feature = "test-support")]
+    fn requested_prefix() -> Option<u64> {
+        None
+    }
 }
 /// One complete public read. Fixtures, budget construction and comparison
 /// live outside the counter; the returned outcome remains owned by the caller.
@@ -41,10 +47,24 @@ pub(crate) fn measure_at_unchecked<C: Counter>(
     work: u64,
     read_storage: u64,
 ) -> Observation {
+    measure_at_start::<C>(bytes, evidence, limits, work, read_storage, || {})
+}
+
+/// The callback is test instrumentation only and runs inside the same counter,
+/// immediately before the same public reader. No budget is exposed to it.
+pub(crate) fn measure_at_start<C: Counter>(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limits: CheckedPackageReadLimits,
+    work: u64,
+    read_storage: u64,
+    before_read: impl FnOnce(),
+) -> Observation {
     let mut budget = NativeJoinBudget::new(work, 0).with_read_storage_limit(read_storage);
 
     let mut result = None;
     let requested = C::measure(|| {
+        before_read();
         result = Some(CheckedPackageV2::read_with_budget(
             bytes,
             limits,

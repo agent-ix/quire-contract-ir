@@ -9,6 +9,11 @@
 mod native_budget_trace;
 #[cfg(feature = "test-support")]
 pub(crate) use native_budget_trace::checked as observe_native;
+#[cfg(feature = "test-support")]
+#[path = "native_budget_diagnostic.rs"]
+mod native_budget_diagnostic;
+#[cfg(feature = "test-support")]
+pub(crate) use native_budget_diagnostic::diagnostic_native_read;
 #[path = "read_equivalence.rs"]
 mod equivalence;
 #[path = "read_observation.rs"]
