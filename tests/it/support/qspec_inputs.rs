@@ -458,7 +458,6 @@ pub(crate) fn apply_dependency_call_patch(package: &mut Value, patch: &Value) {
     }
 }
 
-
 /// The original unsupplied-dependency control retains only declared features;
 /// it intentionally does not use the general evidence builder that supplies
 /// the published predicate library.

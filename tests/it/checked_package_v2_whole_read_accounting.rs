@@ -167,31 +167,53 @@ fn dependency_call_cases() -> (Vec<DependencyCallCase>, BTreeSet<String>) {
     let vectors = qspec_inputs::read_json(&proposal.join("dependency-call-vectors.json"))
         .expect("published dependency-call vectors");
     assert_eq!(vectors["base"], "fixtures/positive-dependency-call.json");
-    assert_eq!(vectors["library"]["package"], "fixtures/positive-dependency-library.json");
+    assert_eq!(
+        vectors["library"]["package"],
+        "fixtures/positive-dependency-library.json"
+    );
     let base = qspec_inputs::read_json_wire(&fixtures.join("positive-dependency-call.json"))
         .expect("original raw importer base");
     let mut cases = Vec::new();
     let mut providers = BTreeSet::new();
-    for name in ["positive-dependency-call.json", "positive-dependency-library.json"] {
+    for name in [
+        "positive-dependency-call.json",
+        "positive-dependency-library.json",
+    ] {
         let wire = if name == "positive-dependency-call.json" {
             base.clone()
         } else {
             qspec_inputs::read_json(&fixtures.join(name)).expect("original library input")
         };
         let evidence = qspec_inputs::evidence_for_published(
-            &wire, "checked package", &document, true, None, &fixtures,
-        ).expect("original read_package evidence");
+            &wire,
+            "checked package",
+            &document,
+            true,
+            None,
+            &fixtures,
+        )
+        .expect("original read_package evidence");
         cases.push(DependencyCallCase {
             input: Case {
                 label: format!("QSpec/dependency-call/{name}"),
-                bytes: canonical(&wire), evidence, expected: Expected::Admitted,
+                bytes: canonical(&wire),
+                evidence,
+                expected: Expected::Admitted,
             },
             mutation: None,
         });
-        providers.insert(format!("conformance_qspec/dependency_call.rs: fixtures/{name}"));
+        providers.insert(format!(
+            "conformance_qspec/dependency_call.rs: fixtures/{name}"
+        ));
     }
-    let mutations = vectors["mutations"].as_array().expect("published dependency mutations");
-    assert_eq!(mutations.len(), 11, "original complete dependency-call family");
+    let mutations = vectors["mutations"]
+        .as_array()
+        .expect("published dependency mutations");
+    assert_eq!(
+        mutations.len(),
+        11,
+        "original complete dependency-call family"
+    );
     for row in mutations {
         let id = row["id"].as_str().expect("mutation id");
         let mut wire = base.clone();
@@ -202,22 +224,36 @@ fn dependency_call_cases() -> (Vec<DependencyCallCase>, BTreeSet<String>) {
             qspec_inputs::dependency_call_evidence_without_dependency(&wire)
         } else {
             qspec_inputs::evidence_for_published(
-                &wire, "checked package", &document, true, None, &fixtures,
-            ).expect("original supplied dependency evidence")
+                &wire,
+                "checked package",
+                &document,
+                true,
+                None,
+                &fixtures,
+            )
+            .expect("original supplied dependency evidence")
         };
         let outcome = row["outcome"].as_str().expect("published outcome");
-        let code = outcome.strip_prefix("refused:").expect("published refusal")
-            .split('/').next().expect("refusal code");
+        let code = outcome
+            .strip_prefix("refused:")
+            .expect("published refusal")
+            .split('/')
+            .next()
+            .expect("refusal code");
         cases.push(DependencyCallCase {
             input: Case {
                 label: format!("QSpec/dependency-call/{id}"),
-                bytes: canonical(&wire), evidence,
-                expected: Expected::Refused(serde_json::from_value(json!(code))
-                    .expect("published refusal code")),
+                bytes: canonical(&wire),
+                evidence,
+                expected: Expected::Refused(
+                    serde_json::from_value(json!(code)).expect("published refusal code"),
+                ),
             },
             mutation: Some(row.clone()),
         });
-        providers.insert(format!("conformance_qspec/dependency_call.rs: dependency-call-vectors.json#/mutations#{id}"));
+        providers.insert(format!(
+            "conformance_qspec/dependency_call.rs: dependency-call-vectors.json#/mutations#{id}"
+        ));
     }
     (cases, providers)
 }
@@ -238,21 +274,41 @@ fn dependency_call_providers_preserve_original_outcomes_and_loci() {
         );
         if let Some(row) = case.mutation {
             let CheckedPackageV2ReadResult::Refused(refusal) = actual else {
-                panic!("{}: original mutation must refuse: {actual:?}", case.input.label);
+                panic!(
+                    "{}: original mutation must refuse: {actual:?}",
+                    case.input.label
+                );
             };
             let code = serde_json::to_value(refusal.code).expect("code wire word");
             let expected = match refusal.cause {
-                Some(cause) => format!("refused:{}/{}", code.as_str().expect("code"),
-                    serde_json::to_value(cause).expect("cause wire word").as_str().expect("cause")),
+                Some(cause) => format!(
+                    "refused:{}/{}",
+                    code.as_str().expect("code"),
+                    serde_json::to_value(cause)
+                        .expect("cause wire word")
+                        .as_str()
+                        .expect("cause")
+                ),
                 None => format!("refused:{}", code.as_str().expect("code")),
             };
-            assert_eq!(expected, row["outcome"], "{}: code and cause", case.input.label);
-            assert_eq!(refusal.loci[0].path.as_ref().map(ToString::to_string),
-                row["locus"].as_str().map(str::to_owned), "{}: primary locus", case.input.label);
+            assert_eq!(
+                expected, row["outcome"],
+                "{}: code and cause",
+                case.input.label
+            );
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(ToString::to_string),
+                row["locus"].as_str().map(str::to_owned),
+                "{}: primary locus",
+                case.input.label
+            );
             refused += 1;
         } else {
-            assert!(matches!(actual, CheckedPackageV2ReadResult::Admitted(_)),
-                "{}: original direct input must admit: {actual:?}", case.input.label);
+            assert!(
+                matches!(actual, CheckedPackageV2ReadResult::Admitted(_)),
+                "{}: original direct input must admit: {actual:?}",
+                case.input.label
+            );
             admitted += 1;
         }
     }

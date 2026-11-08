@@ -8,10 +8,10 @@ use super::{
 };
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits,
-    CheckedPackageV2ReadResult, CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2,
-    ContractDependencies, ContractDependencyInput, ContractPackageReadResult,
-    ContractPackageWireV1, ContractRootViewV1, LoweringProfileRef,
+    CheckedNodeId, CheckedNodeTag, CheckedPackageReadLimits, CheckedPackageV2ReadResult,
+    CheckedTerm, CompleteLoweringProfileV2, CompleteLoweringRecordV2, ContractDependencies,
+    ContractDependencyInput, ContractPackageReadResult, ContractPackageWireV1, ContractRootViewV1,
+    LoweringProfileRef,
 };
 use serde_json::Value;
 use std::collections::BTreeSet;
