@@ -4,10 +4,14 @@
 //! Structural V2 dependency selections: exact names, closed entries, ordering,
 //! and complete-value conflicts in the admitted dependency closure.
 
+use crate::support::checked_package;
 use crate::support::checked_package::{
     admitted_dependency, canonical, evidence_for, pointer, read_with_dependencies,
     refresh_temporal_bindings, v2_all_families,
 };
+#[path = "support/dependency_selection_inputs.rs"]
+mod dependency_selection_inputs;
+use dependency_selection_inputs::dependency_selection_package as empty_package;
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCause as Cause,
@@ -17,40 +21,6 @@ use serde_json::{json, Value};
 
 fn entry(identity: &str) -> Value {
     json!({"identity": identity})
-}
-
-fn empty_package(name: &str) -> Value {
-    fn rename_package(value: &mut Value, name: &str) {
-        match value {
-            Value::Array(items) => items.iter_mut().for_each(|item| rename_package(item, name)),
-            Value::Object(members) => {
-                if let Some(package) = members.get_mut("package") {
-                    if package == "test/families" {
-                        *package = json!(name);
-                    }
-                }
-                members
-                    .values_mut()
-                    .for_each(|item| rename_package(item, name));
-            }
-            _ => {}
-        }
-    }
-    let mut package = v2_all_families();
-    let scalar = package["semantic_graph"]["nodes"][0].clone();
-    let scalar_id = scalar["node_id"].clone();
-    package["semantic_graph"]["nodes"] = json!([scalar]);
-    package["source_map"] = json!(package["source_map"]
-        .as_array()
-        .expect("source map")
-        .iter()
-        .filter(|entry| entry["node_id"] == scalar_id)
-        .cloned()
-        .collect::<Vec<_>>());
-    rename_package(&mut package, name);
-    package["name"] = json!(name);
-    refresh_temporal_bindings(&mut package);
-    package
 }
 
 fn with_selections(mut package: Value, entries: Vec<Value>) -> Value {

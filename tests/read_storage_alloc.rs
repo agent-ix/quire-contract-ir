@@ -644,3 +644,98 @@ fn nominal_validation_work_denial_prepays_its_original_body_pointer() {
         drop_without_request::<ThreadCounter>(observation);
     }
 }
+
+#[path = "it/support/dependency_selection_inputs.rs"]
+mod dependency_selection_inputs;
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn imported_nominals_work_denial_prepays_original_graph_pointer() {
+    use quire_contract_model::{NativeJoinChargeKind, NativeJoinLocus, NativeJoinLocusSource, PackageReadResource, PackageReadStage};
+    let dependency_wire =
+        dependency_selection_inputs::dependency_selection_package("test/geometry");
+    let (_, dependency) = checked_package::admitted_dependency(&dependency_wire);
+    let mut importer = dependency_selection_inputs::dependency_selection_package("test/importer");
+    importer["lock"]["dependency_selections"] = serde_json::json!([{"identity":"test/geometry"}]);
+    let bytes = canonical(&importer);
+    let mut evidence = evidence_for(&importer);
+    evidence
+        .insert_dependency_package("test/geometry", dependency)
+        .expect("dependency");
+    let limits = generous_limits();
+    let ample =
+        read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, u64::MAX);
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(outcome) = &ample.result else {
+        panic!(
+            "the original Work5 control must return its affordable diagnostic: {:?}",
+            ample.result
+        );
+    };
+    assert_eq!(outcome.denied.resource, PackageReadResource::Work);
+    assert_eq!(outcome.denied.amount, 1);
+    assert_eq!(outcome.limit, 5);
+    assert_eq!(outcome.consumed, 6);
+    let path = outcome.path.as_ref().expect("original body pointer");
+    assert_eq!(path.as_str(), "/semantic_graph/nodes");
+    let locus = NativeJoinLocus {
+        source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 0),
+        form: "dependency_order",
+    };
+    assert_eq!(
+        ample.budget.first_unpaid_locus(),
+        Some(locus),
+        "preserve the caller's inherited first-denial locus"
+    );
+    let denied = ample.budget.first_unpaid().expect("first unpaid Work");
+    assert_eq!(denied.kind, NativeJoinChargeKind::Work);
+    assert_eq!(denied.amount, 1);
+    assert!(ample.budget.first_unpaid_read_storage().is_none());
+    let paid = ample.budget.read_storage_consumed();
+    let pointer_bytes = u64::try_from(path.as_str().len()).expect("bounded pointer");
+    let prefix = paid
+        .checked_sub(pointer_bytes)
+        .expect("actual prefix before the only outcome pointer");
+    let exact =
+        read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, paid);
+    assert_eq!(exact.result, ample.result);
+    assert_eq!(exact.requested, ample.requested);
+    let short =
+        read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, paid - 1);
+    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = &short.result else {
+        panic!(
+            "one below the actual diagnostic request must exhaust: {:?}",
+            short.result
+        );
+    };
+    assert_eq!(exhausted.denied, outcome.denied);
+    assert_eq!(exhausted.configured_bound, 5);
+    assert_eq!(exhausted.locus, locus);
+    assert!(exhausted.pending.is_none());
+    assert_eq!(short.budget.first_unpaid(), Some(denied));
+    assert!(
+        short.budget.first_unpaid_read_storage().is_none(),
+        "the original Work denial remains first when its diagnostic storage is denied"
+    );
+    assert_eq!(
+        short.requested, prefix,
+        "the denied pointer makes no allocation request"
+    );
+    assert_eq!(short.budget.read_storage_consumed(), prefix);
+    let repeated =
+        read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, paid - 1);
+    assert_eq!(repeated.result, short.result);
+    assert_eq!(repeated.budget, short.budget);
+    assert_eq!(repeated.requested, short.requested);
+    for observation in [ample, exact, short, repeated] {
+        drop_without_request::<ThreadCounter>(observation);
+    }
+}    let zero = read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, 0);
+    assert!(matches!(zero.result, CheckedPackageV2BudgetedReadResult::Exhausted(_)));
+    assert_eq!(zero.requested, 0);
+    let zero_repeat = read_allocation_proof::measure_at::<ThreadCounter>(&bytes, &evidence, limits, 5, 0);
+    assert_eq!(zero_repeat.result, zero.result);
+    assert_eq!(zero_repeat.budget, zero.budget);
+    assert_eq!(zero_repeat.requested, zero.requested);
+    drop_without_request::<ThreadCounter>(zero);
+    drop_without_request::<ThreadCounter>(zero_repeat);
+
