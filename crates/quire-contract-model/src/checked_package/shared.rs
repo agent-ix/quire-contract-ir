@@ -619,8 +619,11 @@ pub enum CheckedNodePathSegment {
     Name(Box<str>),
     /// An operand node's structural identity.
     Node(std::sync::Arc<CheckedNodeId>),
-    /// A graph-local operand index on the V2 wire, before key resolution.
+    /// A document-held graph index on the V2 wire, before key resolution.
     Index(u64),
+    /// A node-held operand slot on the V2 wire: entry `k` of the holding
+    /// node's operand row, before key resolution.
+    Operand(u64),
 }
 
 impl Serialize for CheckedNodePathSegment {
@@ -631,6 +634,11 @@ impl Serialize for CheckedNodePathSegment {
             Self::Index(index) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("node", index)?;
+                map.end()
+            }
+            Self::Operand(slot) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("operand", slot)?;
                 map.end()
             }
             Self::Node(node) => node.serialize(serializer),
@@ -712,6 +720,7 @@ impl std::fmt::Debug for CheckedNodeTableDebug<'_> {
                 match segment {
                     CheckedNodePathSegment::Name(name) => write!(formatter, "Name({name:?})")?,
                     CheckedNodePathSegment::Index(index) => write!(formatter, "Index({index})")?,
+                    CheckedNodePathSegment::Operand(slot) => write!(formatter, "Operand({slot})")?,
                     CheckedNodePathSegment::Node(child) => write!(
                         formatter,
                         "Node(#{})",
@@ -747,7 +756,9 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
             type Value = Segment;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a path string or an object containing only a node index")
+                formatter.write_str(
+                    "a path string or an object containing only a node index or operand slot",
+                )
             }
 
             fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Segment, E> {
@@ -763,21 +774,29 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                 let name: String = map
                     .next_key()?
                     .ok_or_else(|| A::Error::missing_field("node"))?;
-                if name != "node" {
-                    return Err(A::Error::unknown_field(&name, &["node"]));
-                }
+                let is_operand = match name.as_str() {
+                    "node" => false,
+                    "operand" => true,
+                    _ => return Err(A::Error::unknown_field(&name, &["node", "operand"])),
+                };
                 let index: u64 = map.next_value()?;
                 if index > 9_007_199_254_740_991 {
-                    return Err(A::Error::custom("node index exceeds I-JSON bound"));
+                    return Err(A::Error::custom("path segment exceeds I-JSON bound"));
                 }
-                if let Some(name) = map.next_key::<String>()? {
-                    return Err(if name == "node" {
-                        A::Error::duplicate_field("node")
+                if let Some(other) = map.next_key::<String>()? {
+                    return Err(if other == name {
+                        A::Error::duplicate_field(if is_operand { "operand" } else { "node" })
+                    } else if is_operand {
+                        A::Error::unknown_field(&other, &["operand"])
                     } else {
-                        A::Error::unknown_field(&name, &["node"])
+                        A::Error::unknown_field(&other, &["node"])
                     });
                 }
-                Ok(Segment(CheckedNodePathSegment::Index(index)))
+                Ok(Segment(if is_operand {
+                    CheckedNodePathSegment::Operand(index)
+                } else {
+                    CheckedNodePathSegment::Index(index)
+                }))
             }
         }
         impl<'de> Deserialize<'de> for Segment {
@@ -837,6 +856,8 @@ impl CheckedNodeId {
                     CheckedNodePathSegment::Name(_) => {}
                     CheckedNodePathSegment::Index(index) if *index <= 9_007_199_254_740_991 => {}
                     CheckedNodePathSegment::Index(_) => return false,
+                    CheckedNodePathSegment::Operand(slot) if *slot <= 9_007_199_254_740_991 => {}
+                    CheckedNodePathSegment::Operand(_) => return false,
                     CheckedNodePathSegment::Node(node) => pending.push(node),
                 }
             }
@@ -923,12 +944,39 @@ impl Ord for CheckedNodeId {
                             (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Node(_)) => {
                                 return Ordering::Less
                             }
-                            (CheckedNodePathSegment::Name(_), CheckedNodePathSegment::Index(_)) => {
-                                return Ordering::Less
-                            }
-                            (CheckedNodePathSegment::Index(_), CheckedNodePathSegment::Name(_)) => {
-                                return Ordering::Greater
-                            }
+                            (
+                                CheckedNodePathSegment::Name(_),
+                                CheckedNodePathSegment::Index(_)
+                                | CheckedNodePathSegment::Operand(_),
+                            ) => return Ordering::Less,
+                            (
+                                CheckedNodePathSegment::Index(_)
+                                | CheckedNodePathSegment::Operand(_),
+                                CheckedNodePathSegment::Name(_),
+                            ) => return Ordering::Greater,
+                            (
+                                CheckedNodePathSegment::Index(_),
+                                CheckedNodePathSegment::Operand(_),
+                            ) => return Ordering::Less,
+                            (
+                                CheckedNodePathSegment::Operand(_),
+                                CheckedNodePathSegment::Index(_),
+                            ) => return Ordering::Greater,
+                            (
+                                CheckedNodePathSegment::Operand(a),
+                                CheckedNodePathSegment::Operand(b),
+                            ) => match a.cmp(b) {
+                                Ordering::Equal => {}
+                                order => return order,
+                            },
+                            (
+                                CheckedNodePathSegment::Operand(_),
+                                CheckedNodePathSegment::Node(_),
+                            ) => return Ordering::Less,
+                            (
+                                CheckedNodePathSegment::Node(_),
+                                CheckedNodePathSegment::Operand(_),
+                            ) => return Ordering::Greater,
                             (
                                 CheckedNodePathSegment::Index(a),
                                 CheckedNodePathSegment::Index(b),
@@ -1010,7 +1058,8 @@ pub(crate) fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> V
             for (a, b) in left.path.iter().zip(&right.path) {
                 let order = match (a, b) {
                     (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => a.cmp(b),
-                    (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b)) => {
+                    (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b))
+                    | (CheckedNodePathSegment::Operand(a), CheckedNodePathSegment::Operand(b)) => {
                         a.cmp(b)
                     }
                     (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
@@ -1021,6 +1070,10 @@ pub(crate) fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> V
                     (CheckedNodePathSegment::Name(_), _) => Ordering::Less,
                     (_, CheckedNodePathSegment::Name(_)) => Ordering::Greater,
                     (CheckedNodePathSegment::Index(_), _) => Ordering::Less,
+                    (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Index(_)) => {
+                        Ordering::Greater
+                    }
+                    (CheckedNodePathSegment::Operand(_), _) => Ordering::Less,
                     (CheckedNodePathSegment::Node(_), _) => Ordering::Greater,
                 };
                 if order != Ordering::Equal {
@@ -1184,7 +1237,11 @@ impl Encode for CheckedNodeId {
             Segment(&'a CheckedNodePathSegment),
             EndNode(u64),
         }
-        let mut pending = vec![Event::Node(self)];
+        // Every stack allocation and growth is asked of the writer's
+        // reservation first, so a metered writer charges and refuses it.
+        let mut pending = Vec::new();
+        writer.reserve_list(&mut pending, 1)?;
+        pending.push(Event::Node(self));
         while let Some(event) = pending.pop() {
             match event {
                 Event::Node(node) => {
@@ -1193,6 +1250,7 @@ impl Encode for CheckedNodeId {
                     writer.string(&node.package)?;
                     writer.name("path")?;
                     writer.begin_array()?;
+                    writer.reserve_list(&mut pending, node.path.len().saturating_add(1))?;
                     pending.push(Event::EndNode(node.ordinal));
                     pending.extend(node.path.iter().rev().map(Event::Segment));
                 }
@@ -1203,7 +1261,14 @@ impl Encode for CheckedNodeId {
                     writer.integer(i128::from(*index))?;
                     writer.end_object()?;
                 }
+                Event::Segment(CheckedNodePathSegment::Operand(slot)) => {
+                    writer.begin_object()?;
+                    writer.name("operand")?;
+                    writer.integer(i128::from(*slot))?;
+                    writer.end_object()?;
+                }
                 Event::Segment(CheckedNodePathSegment::Node(node)) => {
+                    writer.reserve_list(&mut pending, 1)?;
                     pending.push(Event::Node(node));
                 }
                 Event::EndNode(ordinal) => {
@@ -1245,6 +1310,7 @@ mod structural_node_identity_tests {
         rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal,
         CheckedPackageRefusalCode, JsonPointer, RefusalFields,
     };
+    use ix_trace_rs::trace;
 
     /// Trace: FR-038-AC-185, TC-048.
     #[test]
@@ -1310,6 +1376,76 @@ mod structural_node_identity_tests {
                 CheckedNodeId::from_value(&malformed).is_none(),
                 "{malformed}"
             );
+        }
+    }
+
+    /// A reservation that admits growth while the total stays within `limit`.
+    struct Provision {
+        limit: usize,
+        charged: usize,
+    }
+
+    impl quire_canonical::Reservation for Provision {
+        fn reserve(&mut self, bytes: usize) -> Result<(), quire_canonical::ReservationDenied> {
+            match self.charged.checked_add(bytes) {
+                Some(total) if total <= self.limit => {
+                    self.charged = total;
+                    Ok(())
+                }
+                _ => Err(quire_canonical::ReservationDenied),
+            }
+        }
+    }
+
+    #[trace("TC-472", "FR-358-AC-13")]
+    #[test]
+    fn checked_node_id_encoding_is_charged_through_the_writer_reservation() {
+        let inner = CheckedNodeId {
+            package: "q".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("type".into()),
+                CheckedNodePathSegment::Index(1),
+            ],
+            ordinal: 2,
+        };
+        let id = CheckedNodeId {
+            package: "p".into(),
+            path: vec![
+                CheckedNodePathSegment::Name("owner".into()),
+                CheckedNodePathSegment::Index(0),
+                CheckedNodePathSegment::Operand(3),
+                CheckedNodePathSegment::Node(std::sync::Arc::new(inner)),
+            ],
+            ordinal: 1,
+        };
+        let limits = quire_canonical::Limits::new(1 << 20);
+        let unmetered = quire_canonical::to_vec(&id, limits).expect("unmetered encode");
+
+        let encode = |limit: usize| {
+            let mut bytes = Vec::new();
+            let mut provision = Provision { limit, charged: 0 };
+            let outcome =
+                quire_canonical::encode_with_reservation(&mut bytes, &id, limits, &mut provision);
+            (outcome, bytes, provision.charged)
+        };
+        let (outcome, bytes, needed) = encode(usize::MAX);
+        outcome.expect("ample provision");
+        assert_eq!(bytes, unmetered);
+        assert!(needed > 0, "the pending stack must be charged");
+
+        let (outcome, bytes, _) = encode(needed);
+        outcome.expect("exact provision admits");
+        assert_eq!(bytes, unmetered);
+        for limit in 0..needed {
+            let (outcome, bytes, _) = encode(limit);
+            assert!(
+                matches!(
+                    outcome,
+                    Err(quire_canonical::Error::ReservationDenied { .. })
+                ),
+                "limit {limit}: {outcome:?}"
+            );
+            assert!(bytes.is_empty(), "limit {limit} left partial output");
         }
     }
 

@@ -444,7 +444,7 @@ impl CheckedPackageV2 {
 }
 impl<'a> CheckedMonitorPlanRef<'a> {
     fn id(&self, slot: usize) -> &'a CheckedNodeId {
-        &self.package.graph().nodes[self.plan.references[slot]].node_id
+        &self.package.resolved_graph().nodes[self.plan.references[slot]].node_id
     }
     fn entry(&self, slot: usize) -> CheckedMonitorEntryRef<'a> {
         CheckedMonitorEntryRef {
@@ -455,7 +455,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
     }
     /// The root's graph-local node ID.
     pub fn node_id(&self) -> &'a CheckedNodeId {
-        &self.package.graph().nodes[self.plan.position].node_id
+        &self.package.resolved_graph().nodes[self.plan.position].node_id
     }
     /// The resolved document-independent content key.
     pub fn structural_key(&self) -> &'a CheckedNodeId {
@@ -636,7 +636,7 @@ impl<'a> CheckedMonitorPlanRef<'a> {
 impl<'a> CheckedMonitorEntryRef<'a> {
     /// The anonymous function's graph-local ID.
     pub fn node_id(&self) -> &'a CheckedNodeId {
-        &self.package.graph().nodes[self.entry.position].node_id
+        &self.package.resolved_graph().nodes[self.entry.position].node_id
     }
     /// The function's resolved content key.
     pub fn structural_key(&self) -> &'a CheckedNodeId {
@@ -646,7 +646,7 @@ impl<'a> CheckedMonitorEntryRef<'a> {
     }
     /// The entry's exact admitted result type.
     pub fn result_type(&self) -> &'a CheckedNodeId {
-        &self.package.graph().nodes[self.entry.result].node_id
+        &self.package.resolved_graph().nodes[self.entry.result].node_id
     }
     /// Complete ordinary function body, retained without execution.
     pub fn body(&self) -> &'a CheckedTerm {
@@ -667,13 +667,13 @@ impl<'a> CheckedMonitorEntryRef<'a> {
         self.entry
             .parameters
             .iter()
-            .map(|&position| &self.package.graph().nodes[position].node_id)
+            .map(|&position| &self.package.resolved_graph().nodes[position].node_id)
     }
 }
 impl<'a> CheckedMonitorBufferRef<'a> {
     /// The buffered subformula's exact node ID.
     pub fn subformula(&self) -> &'a CheckedNodeId {
-        &self.package.graph().nodes[self.buffer.subformula].node_id
+        &self.package.resolved_graph().nodes[self.buffer.subformula].node_id
     }
     /// Exact canonical positive decimal capacity, without numeric narrowing.
     pub fn capacity(&self) -> &'a str {

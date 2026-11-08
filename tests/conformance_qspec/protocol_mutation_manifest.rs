@@ -49,9 +49,19 @@ fn assert_manifest_refusal(id: &str, expected_locus: &str, node_index: usize) {
     assert_eq!(row["expect"]["cause"], "operator-ineligible", "{id}");
     assert_eq!(row["expect"]["locus"], expected_locus, "{id}");
 
-    let mut mutated = base.clone();
+    // The published edits address the wire: operand slots and operand rows.
+    let mut mutated = fixture_support::wire_form(&base);
     let edits = row["edit"].as_array().expect("manifest edits");
-    assert_eq!(edits.len(), 2, "{id}: exact two-edit mutation");
+    let published_edits = match id {
+        "V13" => 2,
+        "V14" => 7,
+        other => panic!("{other}: unexpected manifest row"),
+    };
+    assert_eq!(
+        edits.len(),
+        published_edits,
+        "{id}: exact published mutation"
+    );
     for edit in edits {
         assert_eq!(edit["op"], "replace", "{id}: mutation operation");
         let path = edit["path"].as_str().expect("mutation pointer");
@@ -68,6 +78,9 @@ fn assert_manifest_refusal(id: &str, expected_locus: &str, node_index: usize) {
         }
         CheckedPackageV2ReadResult::Incomplete(incomplete) => {
             panic!("{id}: reader incomplete ({incomplete:?}); QSpec FR-464 requires refusal")
+        }
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            panic!("{id}: production operation catalog unavailable: {error:?}")
         }
     };
     assert_eq!(
@@ -89,11 +102,13 @@ fn assert_manifest_refusal(id: &str, expected_locus: &str, node_index: usize) {
         expected_locus,
         "{id}"
     );
+    let mut resolved = mutated.clone();
+    fixture_support::resolve_operands(&mut resolved);
     assert_eq!(
         refusal.locus,
         Some(
             serde_json::from_value(
-                mutated["semantic_graph"]["nodes"][node_index]["node_id"].clone()
+                resolved["semantic_graph"]["nodes"][node_index]["node_id"].clone()
             )
             .expect("published protocol node identity")
         ),
@@ -152,7 +167,7 @@ fn current_qspec_protocol_reader_refusals_preserve_published_provenance() {
         assert_eq!(selected.len(), 1, "{id}: one published row");
         let row = selected[0];
         assert_eq!(row["expect"]["decision"], "refuse", "{id}");
-        let mut edited = base.clone();
+        let mut edited = fixture_support::wire_form(&base);
         for edit in row["edit"].as_array().expect("published edits") {
             apply_layout_edit(&mut edited, edit);
         }
@@ -241,7 +256,7 @@ fn assert_paired_reader_refusal(first: &str, second: &str, first_node: usize) {
             .as_str()
             .expect("selected domain document"),
     );
-    let mut edited = base;
+    let mut edited = fixture_support::wire_form(&base);
     let rows = manifest["rows"].as_array().expect("published rows");
     for id in [first, second] {
         let row = rows
@@ -280,9 +295,11 @@ fn assert_paired_reader_refusal(first: &str, second: &str, first_node: usize) {
         refusal.document_pointer.as_ref().map(|at| at.as_str()),
         expected["expect"]["document_pointer"].as_str(),
     );
+    let mut resolved = edited.clone();
+    fixture_support::resolve_operands(&mut resolved);
     assert_eq!(
         serde_json::to_value(refusal.locus).expect("locus"),
-        edited["semantic_graph"]["nodes"][first_node]["node_id"],
+        resolved["semantic_graph"]["nodes"][first_node]["node_id"],
     );
 }
 
@@ -359,7 +376,7 @@ fn current_qspec_protocol_layout_rows_refuse_at_exact_node_pointer() {
         assert_eq!(row["expect"]["stage"], "schema", "{id}: schema stage");
         assert_eq!(row["expect"]["code"], "malformed_wire", "{id}: schema code");
         assert!(row["expect"]["cause"].is_null(), "{id}: no cause");
-        let mut edited = base.clone();
+        let mut edited = fixture_support::wire_form(&base);
         for edit in row["edit"].as_array().expect("published edits") {
             apply_layout_edit(&mut edited, edit);
         }
@@ -754,14 +771,17 @@ fn qspec_event_package() -> (Value, std::path::PathBuf, Value) {
         .find(|node| node["node_tag"] == "scalar_type" && node["semantic_form"] == "boolean")
         .expect("Boolean type")["node_id"]
         .clone();
-    let mut event = read_json(&fixtures.join("protocol-node-layout-rows.json"))
-        .expect("layout rows")["rows"]
+    let layout = read_json(&fixtures.join("protocol-node-layout-rows.json")).expect("layout rows");
+    let template = layout["rows"]
         .as_array()
         .expect("rows")
         .iter()
         .find(|row| row["id"] == "L12")
-        .expect("fence template")["edit"][0]["value"]
-        .clone();
+        .expect("fence template");
+    // The template is a node in wire form with its operand row beside it.
+    let mut event = template["edit"][0]["value"].clone();
+    let edits = template["edit"].as_array().expect("template edits");
+    fixture_support::resolve_node_row(&mut event, &edits[edits.len() - 1]["value"]);
     event["body"]["operation"]["member"]["operator"] = Value::from("event");
     event["body"]["arguments"] = published_bindings(
         &fixtures,

@@ -141,7 +141,7 @@ fn read_with_selected_model_document(
         )
         .expect("selected model evidence");
     CheckedPackageV2::read(
-        &serde_json::to_vec(package).expect("checked package bytes"),
+        &crate::fixture_support::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence,
     )
@@ -159,7 +159,7 @@ fn published_boolean_transition_retains_five_typed_bindings_through_writer() {
         panic!("published Boolean transition must admit");
     };
     let transition = read
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {
@@ -191,7 +191,7 @@ fn published_boolean_transition_retains_five_typed_bindings_through_writer() {
     );
 
     let written = write(&read);
-    assert_eq!(written, fixture);
+    assert_eq!(written, crate::fixture_support::wire_form(&fixture));
     let CheckedPackageV2ReadResult::Admitted(second) =
         read_package(&written).expect("selected QSpec evidence")
     else {
@@ -253,7 +253,7 @@ fn pointed_clause_anchors_and_a_distinct_unpointed_transition_anchor_round_trip(
     else {
         panic!("pointed clauses with separate unpointed transition anchor must admit");
     };
-    assert_eq!(write(&read), package);
+    assert_eq!(write(&read), crate::fixture_support::wire_form(&package));
     assert!(matches!(
         read_package(&write(&read)).expect("selected QSpec evidence"),
         CheckedPackageV2ReadResult::Admitted(_)
@@ -295,7 +295,7 @@ fn two_source_claims_share_one_transition_identity_and_retain_regions() {
         panic!("two checked source declarations must admit");
     };
     let transition = read
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| serde_json::to_value(&node.node_id).expect("node id") == node_id)
@@ -312,7 +312,7 @@ fn two_source_claims_share_one_transition_identity_and_retain_regions() {
         2
     );
     let written = write(&read);
-    assert_eq!(written, package);
+    assert_eq!(written, crate::fixture_support::wire_form(&package));
     let CheckedPackageV2ReadResult::Admitted(second_read) =
         read_package(&written).expect("selected QSpec evidence")
     else {
@@ -654,7 +654,7 @@ fn a_transition_binds_one_clause_while_its_anchor_has_several_pre_or_post_clause
             panic!("a second {name} clause must not invalidate the transition");
         };
         assert_eq!(
-            read.graph()
+            read.resolved_graph()
                 .nodes
                 .iter()
                 .filter(|node| {
@@ -666,7 +666,7 @@ fn a_transition_binds_one_clause_while_its_anchor_has_several_pre_or_post_clause
             "{name} adds a retained clause"
         );
         let transition = read
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|node| {

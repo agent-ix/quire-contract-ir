@@ -9,6 +9,16 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-409
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-519
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-520
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-521
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-522
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-523
+    type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-410
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-411
@@ -63,6 +73,20 @@ relationships:
     type: verifies
   - target: ix://agent-ix/quire-contract-ir/FR-038-AC-462
     type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-524
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-525
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-526
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-527
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-528
+    type: verifies
+  - target: ix://agent-ix/quire-contract-ir/FR-038-AC-529
+    type: verifies
+  - target: ix://agent-ix/quire-specification/TC-187
+    type: references
 ---
 # TC-048: CheckedPackage V2 strict reader validates structural identities
 
@@ -460,7 +484,7 @@ The catalogue's `result: member` entries with `member: type_argument` are
 
 Read a package whose lock has exactly `sources`, `edition`, `profile_selections`, `definition_selections`, `required_features` and `dependency_selections`, with every direct dependency selection exactly `{identity}`. Supply each dependency under a matching nonempty package `name` and require admission. Extra `package_id`, `version`, `digest`, `identity_preimage` or model-selection members refuse `unknown_member` at the first extra member; missing or empty required names refuse at the closed-wire stage. A missing package refuses `missing_import`/`missing-selection`, and unequal complete packages under one selected name through a diamond refuse `invalid_package`/`conflicting-definition`.
 
-## Catalog words (FR-038-AC-65, FR-038-AC-67 through FR-038-AC-69)
+## Catalog words (FR-038-AC-65, FR-038-AC-67 through FR-038-AC-69, FR-038-AC-519)
 
 Read the production catalog and convert each of `case`, `temporal_formula`,
 `temporal_fairness`, `temporal_interval`, `fairness` and `union_arms` from its
@@ -469,6 +493,22 @@ kind and constraint kind the catalog declares with the enum's member set. Read
 catalog bytes that name an operator class, a member kind and a constraint kind
 outside the vocabulary, one at a time. Put an operator outside the closed
 operator vocabulary on a package application and read the package.
+
+Read the production catalog and check that `carried_member` converts between its
+wire string and enum member and that `quire.op.collection.sum.carried_quantity`
+carries it with no operands and no family (AC-495). Replace that entry's
+constraint kind with a word outside the vocabulary and read the bytes: the read
+error names the entry and the word. Apply the entry with a `type_argument` member
+that is a `carried_quantity` node, then with a `unit`, `compound_unit` and
+`bounded_quantity` scalar node: the first is not refused by `carried_member`, each other
+refuses `ill_typed`/`operator-ineligible` at the application. Give a `unit`
+type argument the mode `nearest-even`: it refuses
+`invalid_package`/`operation-mode-type-mismatch`, the mode before the
+constraint. Read a package against production catalog bytes whose carried-sum
+constraint kind is outside the vocabulary: the read returns `CatalogUnavailable`
+with the path `operations[i].constraints[1].kind` and the word, not a refusal,
+and nothing panics (AC-58). Read an FR-330 package the same way: the read returns
+`CatalogUnavailable` with the same path (FR-035-AC-36).
 
 Name `quire.op.control.case` under operator `unary`, and an identity the catalog
 lacks, and read each. Build two defective body-root nodes, one a
@@ -2817,3 +2857,73 @@ are derived-shape refusals at the map node. Check that none exposes an
 admitted or partial map view. Read MT-07 as the published clock-bearing
 model-type control, joining its Map key to the symbolic clock-place slot
 under QSpec FR-415; it does not require a Clock value node.
+
+## Carried-quantity sum admission (FR-038-AC-524 through FR-038-AC-529)
+
+Status: qualified on the unmerged IR-1396 owner stack (IR-1398); merged-main
+qualification is pending. All 21 published variants and three combined-defect
+controls pass. Five adverse-case groups fail for their intended behavior on
+the IR-1396 reader before the carried-sum changes; CS-01 already passes there.
+The IR-owned behavior fixtures follow manual review of current authoritative
+QSpec FR-322 AC-389 through AC-391 and
+`spec/test-cases/TC-187-quantity-and-unit-conversion.md`, "Carried quantity
+sum wire cases". Require CS-01 through CS-06 and every variant within each
+row; these are published Markdown wire cases, not a JSON vector file. Build
+complete, otherwise valid IR-owned packages around the published types and
+applications using the production catalog. Keep dependencies, structural
+identities, binder scope and collection element types valid so that every
+negative reaches its intended operation check. Store no local QSpec artifact,
+fixture or catalog copy. Tests assert reader behavior rather than source-text
+presence; upstream specification review remains a separate human or agent task.
+
+For CS-01, assert admission separately for Integer, Decimal and Rational.
+Inspect the admitted typed application and assert its exact identity,
+collection operand reference, binder identity and bound, reference to the
+binder in its body, type_argument, result_type, rounding mode and empty laws
+and leaves. Resolve bound/member/result and assert the same exact carried
+node, unit, carrier kind and all numeric bounds as values, including decimal
+scale bounds and rational denominator bounds. Admission alone is insufficient.
+
+Run all five CS-02 variants and compare invalid_package with cause
+operation-mode-type-mismatch. Run both CS-03 variants and compare
+operation-mode-mismatch for null mode and operation-law-mismatch for laws.
+Add combined-defect controls with laws plus null mode plus a bound mismatch,
+then null mode plus a bound mismatch, to establish first-defect precedence.
+The Qn binder-only and result-only CS-02 cases establish mode pinning before
+member equality; CS-04's Qn bound/result pair with unchanged Q member under
+nearest-even establishes that the member is not a mode-pinning input.
+
+Run all five CS-04 variants (Q4, Qc, Qk, Um and the Qn pair), both CS-05
+variants (Q4 and Um), and all four CS-06 variants (Um, Cm, Bm and ordinary
+sum.quantity with carried Q). Compare ill_typed/operator-ineligible in every
+case. For each refusal assert the exact public code, cause, primary RFC 6901
+pointer `/semantic_graph/nodes/{application-index}` and application node
+locus, and assert that no admitted or partial package is exposed. A result
+mismatch pointing at `/body/result_type` fails the test. Each mutation has an
+admitted positive sibling to rule out unrelated earlier rejection.
+
+Tag executable assertions with their owning FR-038 criterion. Record the
+before/after outcome for each CS row and its variants against the old reader;
+distinguish new failing regressions from pre-existing passing controls. Do
+not assert that every existing positive or already-correct mode control was
+red. The IR-1396 production catalog dependency must be available before this
+suite can establish reader behavior; a missing-entry panic or catalog decode
+failure is a dependency failure, not a passing negative admission assertion.
+
+## Operand rows and operand slots (FR-038-AC-520 through FR-038-AC-523)
+
+Read QSpec's `positive-dependency-call.json` (supplied with
+`positive-dependency-library.json`) and `node-index-vectors.json` through
+`QUIRE_SPECIFICATION_DIR`; no QSpec fixture or vector is copied. Admit the
+fixture and assert the rebuilt structural keys: node `2` (`Int[0, 9]`, row `[0]`)
+holds the Integer node's key as its path element after `"min"`, and nodes `2` and
+`3` hold the same Integer key through the same slot `0`. Apply each of NI-01
+through NI-12, NI-15 through NI-21 and NI-23 as published and assert the
+refusal code, the absence of a cause and the exact pointer. Apply NI-22 and
+NI-24 and assert the package is not refused, and for NI-24 each original node's serialized bytes and key are unchanged. Reverse the
+graph with rows and indexes rewritten and assert the same. Construct two nodes
+with equal bytes and different rows and assert unequal keys.
+
+Assert the segment serde shapes, replace a node id through `replace_node_id`
+and assert the written slots, and that a graph read back from `graph()` and
+written again is admitted.

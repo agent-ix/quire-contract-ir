@@ -3,7 +3,6 @@
 
 //! FR-038: metered, package-authored domains of structural comparison operands.
 
-use super::operation_catalog::operation_catalog;
 use super::structural::{
     is_integer_bound, is_non_negative_integer, typed_aggregate, typed_binding, typed_reference,
 };
@@ -411,7 +410,7 @@ impl CheckedPackageV2 {
         let identity = operation
             .get("identity")
             .and_then(Value::as_str)
-            .filter(|id| operation_catalog().entry(id).is_some())
+            .filter(|id| self.catalog.entry(id).is_some())
             .ok_or_else(|| Error::UnknownOperator {
                 application: application.clone(),
             })?;
@@ -483,9 +482,7 @@ impl CheckedPackageV2 {
                     return Err(type_error(ordinal, Some(type_node)));
                 }
             };
-            if !family
-                .is_some_and(|family| operation_catalog().family_fits(family, "structural_kind"))
-            {
+            if !family.is_some_and(|family| self.catalog.family_fits(family, "structural_kind")) {
                 return Err(unsupported(
                     ordinal,
                     Some(child.semantic_type.clone()),
@@ -1476,7 +1473,7 @@ mod tests {
     /// Every corruption below starts from a genuinely reader-admitted package.
     fn package() -> CheckedPackageV2 {
         match CheckedPackageV2::read(
-            &serde_json::to_vec(&fixture().0).expect("fixture bytes"),
+            &crate::checked_package::v2::test_support::canonical(&fixture().0),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         ) {
@@ -1704,7 +1701,7 @@ mod tests {
 
         let wire = bounded_text_equality_wire();
         let package = match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         ) {
@@ -1793,7 +1790,7 @@ mod tests {
 
         let wire = bounded_text_equality_wire();
         let package = match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         ) {
@@ -1966,7 +1963,7 @@ mod tests {
                 json!(ids[&'4']);
         }
         let package = match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         ) {
@@ -2161,7 +2158,7 @@ mod tests {
             )
             .expect("selected model evidence");
         let package = match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence,
         ) {
@@ -2453,7 +2450,7 @@ mod tests {
                     "offset":{"numerator":"1","denominator":"1"}}]}
         }]);
         let package = match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         ) {
@@ -2797,7 +2794,7 @@ mod tests {
             "enum_type":enum_id,"member":member_id,"case":"Ready","ordinal":0,"ordered":false
         }]);
         let package = match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         ) {
@@ -2952,7 +2949,7 @@ mod tests {
     fn converted_plan_equality_joins_original_source_and_selected_target() {
         let wire = converted_decimal_equality_wire();
         let admitted = CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         );
@@ -2965,7 +2962,7 @@ mod tests {
         wrong_target["checked_term_data"]["equality_decisions"][0]["left"]["conversion_target"] =
             json!(fixture().1[&'1']);
         let refused = CheckedPackageV2::read(
-            &serde_json::to_vec(&wrong_target).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wrong_target),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         );
@@ -2990,7 +2987,7 @@ mod tests {
 
         let wire = converted_decimal_equality_wire();
         let package = match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         ) {
@@ -3054,7 +3051,7 @@ mod tests {
         wire["checked_term_data"]["equality_decisions"][0]["left"]["conversion_target"] =
             Value::Null;
         let admitted = CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         );
@@ -3075,7 +3072,7 @@ mod tests {
 
         let wire = boolean_equality_wire();
         let package = match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).expect("wire bytes"),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         ) {
@@ -3340,7 +3337,7 @@ mod tests {
 
         let wire = boolean_equality_wire();
         let package = match CheckedPackageV2::read(
-            &serde_json::to_vec(&wire).unwrap(),
+            &crate::checked_package::v2::test_support::canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &CheckedPackageEvidence::new(),
         ) {
@@ -3613,7 +3610,7 @@ mod tests {
         ];
         for (name, wire, path, cause) in cases {
             let result = CheckedPackageV2::read(
-                &serde_json::to_vec(&wire).expect("wire bytes"),
+                &crate::checked_package::v2::test_support::canonical(&wire),
                 CheckedPackageReadLimits::bounded(),
                 &CheckedPackageEvidence::new(),
             );

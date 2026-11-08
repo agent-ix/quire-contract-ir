@@ -70,7 +70,7 @@ fn literal_node(width: &str, index: usize) -> Value {
     json!({
         "node_id": literal_id(width, index), "schema_version": "quire.checked-semantic-graph/v2",
         "node_tag": "value", "semantic_form": "literal", "semantic_type": ty,
-        "dependencies": [ty], "occurrences": [{"role": "generated", "ordinal": 0}],
+        "dependencies": [], "occurrences": [{"role": "generated", "ordinal": 0}],
         "body": {"term": "literal", "type": ty, "value_kind": kind, "value": value},
     })
 }
@@ -159,7 +159,7 @@ fn tc_048_fma_applications_follow_published_qspec_cases() {
                 let CheckedPackageV2ReadResult::Admitted(admitted) = result else {
                     panic!("{id}: expected admission, got {result:?}");
                 };
-                let node = &admitted.graph().nodes[position];
+                let node = &admitted.resolved_graph().nodes[position];
                 let CheckedTerm::Application {
                     operator,
                     operation,

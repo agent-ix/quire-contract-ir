@@ -251,6 +251,16 @@ fn proposal_dir_of(fixtures: &Path) -> PathBuf {
 
 /// The JSON at `path`, or why it cannot be read.
 fn read_json(path: &Path) -> Result<Value, String> {
+    let mut value = read_json_wire(path)?;
+    // Tests author and mutate packages in resolved index form; `read_package`
+    // writes the wire form back.
+    fixture_support::resolve_operands(&mut value);
+    fixture_support::resolve_vector_rows(&mut value);
+    Ok(value)
+}
+
+/// Read a published JSON file exactly as published, operand rows included.
+fn read_json_wire(path: &Path) -> Result<Value, String> {
     let text = std::fs::read(path)
         .map_err(|error| format!("{} cannot be read: {error}", path.display()))?;
     serde_json::from_slice(&text)
@@ -355,7 +365,7 @@ fn read_package_with_document_override(
     document_override: Option<&[u8]>,
 ) -> Result<CheckedPackageV2ReadResult, String> {
     // The reader takes canonical bytes; the published files are indented.
-    let bytes = serde_json::to_vec(package).map_err(|error| error.to_string())?;
+    let bytes = fixture_support::canonical(package);
     let mut evidence = CheckedPackageEvidence::new();
     if hold_retention
         && package["lock"]["definition_selections"]
@@ -479,6 +489,11 @@ fn reading_of(package: &Value) -> Result<String, String> {
     Ok(match read_package(package)? {
         CheckedPackageV2ReadResult::Admitted(_) => "admitted".to_owned(),
         CheckedPackageV2ReadResult::Incomplete(_) => "incomplete".to_owned(),
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            return Err(format!(
+                "production operation catalog unavailable: {error:?}"
+            ));
+        }
         CheckedPackageV2ReadResult::Refused(refusal) => match refusal.cause {
             Some(cause) => format!("refused:{}/{}", code_word(refusal.code), cause_word(cause)),
             None => format!("refused:{}", code_word(refusal.code)),
@@ -738,7 +753,7 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
             .as_array()
             .expect("published nodes");
         assert_eq!(wire_nodes.len(), admitted.graph().nodes.len());
-        for (wire_node, node) in wire_nodes.iter().zip(&admitted.graph().nodes) {
+        for (wire_node, node) in wire_nodes.iter().zip(&admitted.resolved_graph().nodes) {
             assert_qspec_term_record(&node.body, &wire_node["body"], &catalog);
         }
         let mut pending: Vec<&CheckedTerm> = admitted
@@ -803,8 +818,11 @@ fn qspec_positive_fixtures_expose_complete_public_typed_reads() {
         .expect("QSpec admitted package encodes");
         assert_eq!(
             encoded,
-            quire_canonical::to_vec(&wire, quire_canonical::Limits::new(1 << 24))
-                .expect("QSpec canonical bytes"),
+            quire_canonical::to_vec(
+                &fixture_support::wire_form(&wire),
+                quire_canonical::Limits::new(1 << 24)
+            )
+            .expect("QSpec canonical bytes"),
             "{name}: exact published bytes"
         );
     }
@@ -1146,7 +1164,7 @@ fn qspec_admitted_values_members_and_catalog_constraints_are_exact() {
         .as_array()
         .expect("wire nodes")
         .iter()
-        .zip(&admitted.graph().nodes)
+        .zip(&admitted.resolved_graph().nodes)
     {
         if let Some(literal) = node.body.literal_read() {
             assert_eq!(literal.type_id, &node.semantic_type);
@@ -1205,7 +1223,10 @@ fn qspec_admitted_values_members_and_catalog_constraints_are_exact() {
         quire_canonical::Limits::new(u64::MAX),
     )
     .expect("encode admitted QSpec package");
-    assert_eq!(serde_json::from_slice::<Value>(&encoded).unwrap(), wire);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&encoded).unwrap(),
+        fixture_support::wire_form(&wire)
+    );
 }
 
 #[trace("FR-349-AC-8", "FR-349-AC-9")]
@@ -1220,7 +1241,7 @@ fn qspec_indexed_operation_member_follows_projected_graph_positions() {
     ));
     let (_, admitted) = read_positive(&dir, "positive-operation-identities.json", &document)
         .expect("published indexed operation admits");
-    let source_node = admitted.graph().nodes.iter().find(|node| matches!(&node.body,
+    let source_node = admitted.resolved_graph().nodes.iter().find(|node| matches!(&node.body,
         CheckedTerm::Application { operation, .. } if operation.identity() == Some("quire.op.record.project")))
         .expect("published record projection");
     let source_member = match &source_node.body {
@@ -1310,12 +1331,12 @@ fn tc_048_qspec_union_values_admit_under_their_application_keys() {
         assert_eq!(node["node_tag"], "value");
         assert_eq!(node["semantic_form"], "union_value");
         assert_eq!(
-            retained.node_id,
-            serde_json::from_value(node["node_id"].clone()).expect("node id")
+            admitted.document_held_id(position).expect("graph node"),
+            &serde_json::from_value(node["node_id"].clone()).expect("node id")
         );
         assert_eq!(
             serde_json::to_value(&retained.body).expect("retained body"),
-            node["body"]
+            fixture_support::wire_form(&wire)["semantic_graph"]["nodes"][position]["body"]
         );
         assert_eq!(node["body"]["term"], "aggregate");
         assert_eq!(node["body"]["members"][0]["name"], member);
@@ -1440,7 +1461,10 @@ fn tc_048_qspec_all_positive_packages_and_owner_identities() {
         let document = proposal.join(positive_document(name, &documents));
         let (wire, admitted) =
             read_positive(&fixtures, name, &document).unwrap_or_else(|why| panic!("{why}"));
-        let nodes = wire["semantic_graph"]["nodes"]
+        // The admitted graph keeps the wire form, operand slots included.
+        let mut wire_form = wire.clone();
+        fixture_support::wire_operands(&mut wire_form);
+        let nodes = wire_form["semantic_graph"]["nodes"]
             .as_array()
             .expect("published graph nodes");
         assert_eq!(
@@ -1509,7 +1533,9 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         declared(&["Example", "Dimensionless"]),
         json!({"package":"example", "path":["scalar_type", "dimension_equivalence", distance, length], "ordinal":0}),
     ];
-    let published = wire["semantic_graph"]["nodes"]
+    let mut wire_form = wire.clone();
+    fixture_support::wire_operands(&mut wire_form);
+    let published = wire_form["semantic_graph"]["nodes"]
         .as_array()
         .expect("published nominal nodes");
     assert_eq!(published.len(), expected.len());
@@ -1528,6 +1554,7 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
         assert_eq!(
             serde_json::to_value(node_index::fixture_structural_key(
                 &admitted.graph().nodes,
+                &admitted.graph().operand_rows,
                 position
             ))
             .expect("resolved structural id"),
@@ -1567,8 +1594,11 @@ fn tc_048_published_nominal_structural_ids_survive_reader_and_writer() {
     .expect("published package encodes");
     assert_eq!(
         encoded,
-        quire_canonical::to_vec(&wire, quire_canonical::Limits::new(1 << 24))
-            .expect("published canonical bytes")
+        quire_canonical::to_vec(
+            &fixture_support::wire_form(&wire),
+            quire_canonical::Limits::new(1 << 24)
+        )
+        .expect("published canonical bytes")
     );
     let encoded_wire: Value = serde_json::from_slice(&encoded).expect("encoded JSON");
     let reread = match read_package_with_document(&encoded_wire, name, &document)

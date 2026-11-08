@@ -1334,7 +1334,12 @@ impl SelectedExactIdentities {
         budget: &mut NativeJoinBudget,
     ) -> Result<Self, ExactTypeProjectionError> {
         let before = budget.begin();
-        if let Some(first) = package.graph().nodes.first().map(|node| &node.node_id) {
+        if let Some(first) = package
+            .resolved_graph()
+            .nodes
+            .first()
+            .map(|node| &node.node_id)
+        {
             self.check_binding(package, budget, first)?;
             charge_native_storage(
                 budget,
@@ -1371,7 +1376,13 @@ impl SelectedExactIdentities {
             .peek()
             .map(|row| &row.structural_node)
             .or_else(|| fields.peek().map(|row| &row.record_node))
-            .or_else(|| package.graph().nodes.first().map(|node| &node.node_id));
+            .or_else(|| {
+                package
+                    .resolved_graph()
+                    .nodes
+                    .first()
+                    .map(|node| &node.node_id)
+            });
         if let Some(first) = first {
             complete_witness::check_package_binding(None, package, budget, first)?;
             charge_native_storage(
@@ -3894,9 +3905,20 @@ impl CheckedPackageV2 {
                     )?;
                     ValueType::map(MapType::new(projected.values().clone(), Some(bound)))
                 } else {
-                    let row = identities.source_collections.get(type_id).ok_or_else(|| {
-                        refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
-                    })?;
+                    // A bounded collection's wrapper resolves to its unbounded
+                    // base as its semantic type, but the producer's row is keyed
+                    // by the wrapper that carries the bounds.
+                    let wrapper = (self.node_kind(requested)
+                        == Some(CheckedNodeKind::BoundedDomain(
+                            BoundedDomainForm::CollectionBounds,
+                        )))
+                    .then_some(requested);
+                    let row = wrapper
+                        .and_then(|wrapper| identities.source_collections.get(wrapper))
+                        .or_else(|| identities.source_collections.get(type_id))
+                        .ok_or_else(|| {
+                            refuse!(ExactTypeProjectionErrorCode::UnavailableIdentityWitness)
+                        })?;
                     project_source_collection(self, identities, row, requested, work, work_limit)?
                 }
             }
@@ -4494,6 +4516,7 @@ mod tests {
             timed_model_roots: Vec::new(),
             node_index: std::sync::Arc::new(super::super::retained_node_index(&wire)),
             structural_keys: Vec::new(),
+            slot_graph: Default::default(),
             source_index: std::sync::Arc::new(super::super::retained_source_index(&wire)),
             lowering_facts: Vec::new(),
             wire: std::sync::Arc::new(wire),
@@ -4504,6 +4527,7 @@ mod tests {
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
+            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
             admission_binding: Default::default(),
         }
         .retain_original_admission()

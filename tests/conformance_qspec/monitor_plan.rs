@@ -400,7 +400,10 @@ fn monitor_plan_reads_timed_model_source_and_exact_unit() {
         .model_time_for_clause(plan.clause(), 100)
         .expect("bounded source read")
         .expect("model subject");
-    assert_eq!(model_time.unit(), &package.graph().nodes[43].node_id);
+    assert_eq!(
+        model_time.unit(),
+        &package.document_held_id(43).expect("graph node").clone()
+    );
     assert_eq!(clock.clock_name(), "model-time");
     assert_eq!(clock.claim_name(), "Clause0");
     assert_eq!(

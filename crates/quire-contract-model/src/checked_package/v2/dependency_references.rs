@@ -142,7 +142,7 @@ impl<'e> SuppliedDependencies<'e> {
                 return Err(position);
             };
             let index = package
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .enumerate()
@@ -284,7 +284,7 @@ pub(super) fn admit_dependencies<'e>(
                 CheckedPackageRefusalCause::MissingSelection,
             ));
         }
-        let nodes = &package.graph().nodes;
+        let nodes = &package.resolved_graph().nodes;
         meter.charge(count(nodes.len()), || at(index))?;
         let index_of = nodes
             .iter()
@@ -405,7 +405,9 @@ impl<'a> DependencyReferences<'a> {
         let target = supplied
             .index
             .get(node)
-            .and_then(|position| Some((*position, dependency.graph().nodes.get(*position)?)))
+            .and_then(|position| {
+                Some((*position, dependency.resolved_graph().nodes.get(*position)?))
+            })
             .filter(|(_, target)| target.declaration.is_some());
         let Some((position, _)) = target else {
             return Err(referrer.refuse(
@@ -445,7 +447,7 @@ struct Closure {
 /// Implements: FR-322. No node in the transitive closure of the function's signature
 /// type nodes carries a `declaration` or a `ModelOwner`.
 fn signature_closure(supplied: &SuppliedDependency<'_>, function: usize) -> Closure {
-    let nodes = &supplied.package.graph().nodes;
+    let nodes = &supplied.package.resolved_graph().nodes;
     let kinds = supplied.package.node_kinds();
     let node_of = |id: &CheckedNodeId| {
         let position = *supplied.index.get(id)?;

@@ -236,7 +236,10 @@ fn published_temporal_aggregate_arguments_match_strict_reader() {
             )
             .expect("published formula identity");
             assert_eq!(
-                admitted.graph().nodes[position].node_id,
+                admitted
+                    .document_held_id(position)
+                    .expect("graph node")
+                    .clone(),
                 expected_id,
                 "{case_id}: formula identity retained"
             );
@@ -581,6 +584,9 @@ fn duration_bounds_are_typed_by_the_clock_unit_in_its_owning_package() {
             refusal.loci[0].path.as_ref().map(ToString::to_string)
         ),
         CheckedPackageV2ReadResult::Incomplete(_) => panic!("complete package"),
+        CheckedPackageV2ReadResult::CatalogUnavailable(error) => {
+            panic!("production operation catalog unavailable: {error:?}")
+        }
     }
 
     // QSpec FR-370-AC-20: `upper` typed by the unit `s` node under a clock in

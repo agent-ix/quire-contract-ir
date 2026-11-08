@@ -33,6 +33,9 @@ use std::ops::ControlFlow;
 pub(super) enum ValidationFailure {
     Refused(Box<CheckedPackageRefusal>),
     Incomplete(CheckedPackageIncomplete),
+    /// The caller's budget refused a charge; the budgeted entry builds the
+    /// outcome, charging its diagnostic first.
+    Budget(super::v2::BudgetStop),
 }
 
 impl ValidationFailure {
@@ -188,18 +191,6 @@ impl ValidationFailure {
             consumed: consumed.try_into().unwrap_or(u64::MAX),
             path,
         })
-    }
-
-    /// Wraps the outcome in a version-specific closed read result.
-    pub(super) fn into_result<R>(
-        self,
-        refused: fn(CheckedPackageRefusal) -> R,
-        incomplete: fn(CheckedPackageIncomplete) -> R,
-    ) -> R {
-        match self {
-            Self::Refused(refusal) => refused(*refusal),
-            Self::Incomplete(record) => incomplete(record),
-        }
     }
 }
 
@@ -378,6 +369,12 @@ pub(super) fn read_typed_prefix(
         ));
     }
     require_canonical_tokens(bytes)
+}
+
+/// The byte-limit refusal: `incomplete` for `bytes`, charged before any value
+/// exists, so it carries no pointer.
+pub(super) fn refuse_bytes_exceeded(limit: u64, length: usize) -> ValidationFailure {
+    ValidationFailure::incomplete(CheckedPackageLimit::Bytes, limit, length, None)
 }
 
 /// A sink comparing one scalar's canonical bytes with its original token.

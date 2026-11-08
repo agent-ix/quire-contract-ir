@@ -30,7 +30,7 @@ use super::frame::StepGraph;
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::natural::{compare_rationals, coprime};
-use super::operation_catalog::operation_catalog;
+use super::operation_catalog::OperationCatalog;
 use super::operations::{resolve_family, OperationWire};
 use super::structural::reference_target;
 use super::{
@@ -503,6 +503,7 @@ pub(in crate::checked_package) fn member_is_well_formed(
 
 /// The clause context shared by the temporal checks.
 pub(super) struct TemporalContext<'a> {
+    pub(super) catalog: &'a OperationCatalog,
     pub(super) lock: &'a CheckedPackageLockV2,
     pub(super) diagnostics: &'a [CheckedDiagnosticV2],
     pub(super) bindings: Option<&'a [TemporalBinding]>,
@@ -537,6 +538,7 @@ pub(super) fn validate_temporal(
             == Some(&CheckedNodeKind::Temporal(TemporalForm::TemporalClause))
         {
             check_clause(
+                context.catalog,
                 position,
                 &graph,
                 terms,
@@ -556,7 +558,7 @@ pub(super) fn validate_temporal(
         if graph.kinds.get(position) == Some(&CheckedNodeKind::Temporal(TemporalForm::Formula))
             && !covered.contains(&position)
         {
-            if let Some(interval) = interval_of(position, &graph) {
+            if let Some(interval) = interval_of(context.catalog, position, &graph) {
                 check_bounds(position, &interval, &graph, meter)?;
             }
         }
@@ -585,6 +587,7 @@ fn validate_diagnostic_references(
         .collect::<BTreeSet<_>>();
     for (entry_index, entry) in diagnostics.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
+            let detail = &detail.to_value();
             if references_refused_node(detail, |target| never_referenced.contains(target)) {
                 return Err(ValidationFailure::refused_because(
                     CheckedPackageRefusalCode::IllTyped,
@@ -786,9 +789,13 @@ fn operation_of(node: &CheckedSemanticNodeV2) -> Option<OperationWire> {
 
 /// The interval of the formula node at `position`: the member of a
 /// catalogued interval operator, when it is well formed.
-fn interval_of(position: usize, graph: &StepGraph<'_, '_>) -> Option<Interval> {
+fn interval_of(
+    catalog: &OperationCatalog,
+    position: usize,
+    graph: &StepGraph<'_, '_>,
+) -> Option<Interval> {
     let operation = operation_of(graph.nodes.get(position)?)?;
-    let entry = operation_catalog().entry(&operation.identity)?;
+    let entry = catalog.entry(&operation.identity)?;
     if entry.operator != ApplicationOperator::TemporalFormula
         || entry.member != Some(OperationMemberKind::TemporalInterval)
     {
@@ -858,6 +865,7 @@ fn selected_under_another_role(
 /// missing argument) is skipped here.
 #[ix_trace_rs::string_edge]
 fn check_clause(
+    catalog: &OperationCatalog,
     position: usize,
     graph: &StepGraph<'_, '_>,
     terms: &[Option<CheckedTerm>],
@@ -870,7 +878,7 @@ fn check_clause(
     let Some(operation) = operation_of(node) else {
         return Ok(());
     };
-    if operation_catalog()
+    if catalog
         .entry(&operation.identity)
         .map(|entry| entry.operator)
         != Some(ApplicationOperator::Temporal)
@@ -1019,8 +1027,14 @@ fn check_clause(
 
     // Profile fit of every interval, then of the fairness argument, then the
     // bounds of every interval.
-    let FormulaReach { intervals, reached } =
-        formula_intervals(arguments.get(5).copied(), graph, meter, &at_node, covered)?;
+    let FormulaReach { intervals, reached } = formula_intervals(
+        catalog,
+        arguments.get(5).copied(),
+        graph,
+        meter,
+        &at_node,
+        covered,
+    )?;
     if let Some(profile) = profile {
         let fit = profile.interval_fit();
         for (formula, interval) in &intervals {
@@ -1973,6 +1987,7 @@ struct FormulaReach {
 }
 
 fn formula_intervals(
+    catalog: &OperationCatalog,
     root: Option<&Value>,
     graph: &StepGraph<'_, '_>,
     meter: &mut WorkMeter,
@@ -1994,7 +2009,7 @@ fn formula_intervals(
         }
         meter.charge(1, || at.clone())?;
         covered.insert(position);
-        if let Some(interval) = interval_of(position, graph) {
+        if let Some(interval) = interval_of(catalog, position, graph) {
             intervals.push((position, interval));
         }
         let operands: Vec<usize> = application_arguments(&graph.nodes[position].body)
@@ -2165,6 +2180,7 @@ mod tests {
             &index,
             &ModelOwners::default(),
             TemporalContext {
+                catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
                 lock: &package_lock,
                 diagnostics: &[],
                 bindings: None,

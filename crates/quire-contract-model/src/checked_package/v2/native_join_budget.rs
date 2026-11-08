@@ -47,6 +47,58 @@ pub enum NativeJoinLocusSource {
     TupleRow(usize),
     /// Index into the runtime caller's source-unit rows.
     SourceUnitRow(usize),
+    /// Row `i` of an external adapter's channel being converted into an IR-owned row.
+    AdapterRow(usize),
+    /// An external preparer's charges while building the same-emission authority row.
+    AuthorityRow,
+    /// Selection comparison `k`, by position in the external preparer's comparison order.
+    PreparationSelection(usize),
+    /// Owned output item `k` an external preparer allocates after a native read.
+    PreparationOutput(usize),
+    /// Contract IR's own authority-row inspections before the occurrence is resolved.
+    MonitorAuthority,
+    /// A charge of the strict V2 checked-package read: its stage and the index
+    /// FR-038's stage table names for it.
+    PackageRead(PackageReadStage, usize),
+}
+
+/// The stages of the strict V2 checked-package read, in their order.
+///
+/// The stage table of FR-038 names each stage's index and static form.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PackageReadStage {
+    /// The shared reader's reservations while reading the package bytes.
+    Envelope,
+    /// The shared writer's reservations while encoding the comparison.
+    Canonical,
+    /// The typed decode of the closed wire.
+    WireDecode,
+    /// The header, owner-schema, flat-wire and interval-bound checks.
+    WireChecks,
+    /// The shared structural node keys and the node-index checks.
+    NodeIndex,
+    /// The lock checks and the dependency and model admission.
+    Lock,
+    /// One selected model document's read and declarations.
+    ModelDocument,
+    /// The semantic graph validators and sidecar row checks.
+    Graph,
+    /// The source-map checks.
+    SourceMap,
+    /// The equivalence-occurrence checks.
+    Equivalence,
+    /// The extension source-region checks.
+    Extension,
+    /// The capability-report checks.
+    Capabilities,
+    /// The diagnostic checks.
+    Diagnostics,
+    /// The operation-effect checks.
+    OperationEffects,
+    /// The checked-term-data checks.
+    CheckedTermData,
+    /// The retained structures of the admitted package.
+    Retained,
 }
 
 /// Fixed-size first-denial metadata, resolved using the original caller context.
@@ -70,6 +122,11 @@ pub struct NativeJoinBudget {
     consumed: NativeJoinCharge,
     last_success_delta: Option<NativeJoinCharge>,
     first_unpaid: Option<NativeJoinDeniedCharge>,
+    read_storage_limit: u64,
+    read_storage_consumed: u64,
+    last_read_storage_delta: Option<u64>,
+    first_unpaid_read_storage: Option<u128>,
+    unlimited: bool,
     exact_diagnostics: bool,
     active_locus: Option<NativeJoinLocus>,
     denied_locus: Option<NativeJoinLocus>,
@@ -84,10 +141,63 @@ impl NativeJoinBudget {
             consumed: NativeJoinCharge::default(),
             last_success_delta: None,
             first_unpaid: None,
+            read_storage_limit: 0,
+            read_storage_consumed: 0,
+            last_read_storage_delta: None,
+            first_unpaid_read_storage: None,
+            unlimited: false,
             exact_diagnostics: false,
             active_locus: None,
             denied_locus: None,
         }
+    }
+
+    /// Sets the read-storage limit, in bytes of heap requested by the strict
+    /// V2 read, at construction.
+    #[must_use]
+    pub fn with_read_storage_limit(mut self, bytes: u64) -> Self {
+        self.read_storage_limit = bytes;
+        self
+    }
+
+    /// A budget whose work, logical storage and read-storage allowances are
+    /// unlimited: every charge is admitted and each counter saturates at
+    /// `u64::MAX` instead of denying.
+    #[must_use]
+    pub fn unlimited() -> Self {
+        Self {
+            work_limit: u64::MAX,
+            storage_limit: u64::MAX,
+            read_storage_limit: u64::MAX,
+            unlimited: true,
+            ..Self::new(u64::MAX, u64::MAX)
+        }
+    }
+
+    /// Original configured read-storage limit, unchanged by any charge.
+    #[must_use]
+    pub fn read_storage_limit(&self) -> u64 {
+        self.read_storage_limit
+    }
+
+    /// Cumulative admitted read storage, in bytes, including a refused read's.
+    #[must_use]
+    pub fn read_storage_consumed(&self) -> u64 {
+        self.read_storage_consumed
+    }
+
+    /// The most recent successful operation's read-storage delta, absent after
+    /// a refused or exhausted operation.
+    #[must_use]
+    pub fn last_success_read_storage_delta(&self) -> Option<u64> {
+        self.last_read_storage_delta
+    }
+
+    /// The full attempted amount of the first read-storage charge refused by
+    /// the most recent operation; its locus is `first_unpaid_locus`.
+    #[must_use]
+    pub fn first_unpaid_read_storage(&self) -> Option<u128> {
+        self.first_unpaid_read_storage
     }
 
     /// Original configured work limit, unchanged by admitted or denied charges.
@@ -192,7 +302,9 @@ impl NativeJoinBudget {
 
     pub(super) fn begin(&mut self) -> NativeJoinCharge {
         self.last_success_delta = None;
+        self.last_read_storage_delta = None;
         self.first_unpaid = None;
+        self.first_unpaid_read_storage = None;
         self.denied_locus = None;
         self.consumed
     }
@@ -207,6 +319,52 @@ impl NativeJoinBudget {
     /// Clear a failed outer operation's delta without erasing its first denial.
     pub(super) fn abort(&mut self) {
         self.last_success_delta = None;
+        self.last_read_storage_delta = None;
+    }
+
+    /// Cumulative read storage, the starting point of a read's delta.
+    pub(super) fn read_storage_mark(&self) -> u64 {
+        self.read_storage_consumed
+    }
+
+    /// Records a read's exact work and read-storage deltas, and a logical
+    /// storage delta of zero, from the counters it started at.
+    pub(super) fn finish_read(&mut self, before: NativeJoinCharge, read_storage_before: u64) {
+        self.finish(before);
+        self.last_read_storage_delta = Some(self.read_storage_consumed - read_storage_before);
+    }
+
+    /// Admits `bytes` of heap the strict read is about to request, at the
+    /// active locus. A denial records the first unpaid read-storage charge
+    /// once and increments no counter.
+    pub(super) fn charge_read_storage(&mut self, bytes: u128) -> bool {
+        if self.unlimited {
+            let add = u64::try_from(bytes).unwrap_or(u64::MAX);
+            self.read_storage_consumed = self.read_storage_consumed.saturating_add(add);
+            return true;
+        }
+        let next = u128::from(self.read_storage_consumed).checked_add(bytes);
+        if let Some(next) = next.filter(|next| *next <= u128::from(self.read_storage_limit)) {
+            self.read_storage_consumed =
+                u64::try_from(next).expect("bounded read storage fits u64");
+            true
+        } else {
+            if self.first_unpaid_read_storage.is_none() && self.first_unpaid.is_none() {
+                self.denied_locus = self.active_locus;
+                self.first_unpaid_read_storage = Some(bytes);
+            }
+            false
+        }
+    }
+
+    /// The first unpaid charge of the current read, either resource, with the
+    /// original amount.
+    pub(super) fn first_unpaid_resource(&self) -> Option<(super::PackageReadResource, u128)> {
+        match (self.first_unpaid, self.first_unpaid_read_storage) {
+            (Some(denied), _) => Some((super::PackageReadResource::Work, denied.amount)),
+            (None, Some(amount)) => Some((super::PackageReadResource::ReadStorage, amount)),
+            (None, None) => None,
+        }
     }
 
     pub(super) fn charge(&mut self, kind: NativeJoinChargeKind, amount: u128) -> bool {
@@ -214,6 +372,10 @@ impl NativeJoinBudget {
             NativeJoinChargeKind::Work => (&mut self.consumed.work, self.work_limit),
             NativeJoinChargeKind::Storage => (&mut self.consumed.storage, self.storage_limit),
         };
+        if self.unlimited {
+            *consumed = consumed.saturating_add(u64::try_from(amount).unwrap_or(u64::MAX));
+            return true;
+        }
         let next = u128::from(*consumed).checked_add(amount);
         if let Some(next) = next.filter(|next| *next <= u128::from(limit)) {
             *consumed = u64::try_from(next).expect("bounded native charge fits u64");

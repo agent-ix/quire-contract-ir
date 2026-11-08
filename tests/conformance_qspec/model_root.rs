@@ -3,7 +3,7 @@
 
 //! Model-root structural keys against QSpec's authoritative published vector.
 
-use super::{code_word, fixtures_dir, proposal_dir_of, read_json, read_package};
+use super::{code_word, fixtures_dir, proposal_dir_of, read_json, read_json_wire, read_package};
 use ix_trace_rs::trace;
 use quire_contract_model::CheckedPackageV2ReadResult;
 use serde_json::{json, Value};
@@ -39,7 +39,7 @@ fn published_model_root_vectors_reach_the_reader_stage_and_locus() {
         .expect("QSpec model-root vectors");
     assert_eq!(vectors["base"], "fixtures/positive-all-families.json");
     let base =
-        read_json(&fixtures_dir().join("positive-all-families.json")).expect("published base");
+        read_json_wire(&fixtures_dir().join("positive-all-families.json")).expect("published base");
     let mut seen = BTreeSet::new();
     for row in vectors["vectors"].as_array().expect("published vectors") {
         let id = row["id"].as_str().expect("vector id");

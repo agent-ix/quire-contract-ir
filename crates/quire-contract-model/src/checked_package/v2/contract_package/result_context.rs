@@ -397,7 +397,7 @@ fn direct_narrow_of(node: &CheckedSemanticNodeV2, expression: &CheckedNodeId) ->
     else {
         return false;
     };
-    if super::super::operation_catalog::operation_catalog().known(&operation.identity)
+    if super::super::KnownOperation::from_wire(&operation.identity)
         != Some(super::super::KnownOperation::NumericNarrow)
     {
         return false;

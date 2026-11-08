@@ -48,7 +48,9 @@ pub(super) fn node(value: &CheckedNodeId) -> u128 {
                 units,
                 match segment {
                     CheckedNodePathSegment::Name(name) => text(name),
-                    CheckedNodePathSegment::Node(_) | CheckedNodePathSegment::Index(_) => 1,
+                    CheckedNodePathSegment::Node(_)
+                    | CheckedNodePathSegment::Index(_)
+                    | CheckedNodePathSegment::Operand(_) => 1,
                 },
             )
         })

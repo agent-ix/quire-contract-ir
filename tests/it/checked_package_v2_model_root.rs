@@ -493,8 +493,8 @@ fn root_only_package_keeps_the_root_key_when_its_source_alias_changes() {
     refresh_identity_projection(&mut renamed);
     let second = admitted(&renamed);
     assert_eq!(
-        second.graph().nodes[0].node_id,
-        first.graph().nodes[0].node_id
+        second.document_held_id(0).expect("graph node").clone(),
+        first.document_held_id(0).expect("graph node").clone()
     );
     assert_eq!(second.name(), first.name());
 }

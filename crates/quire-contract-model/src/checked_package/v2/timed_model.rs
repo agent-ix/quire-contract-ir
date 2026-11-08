@@ -1968,7 +1968,7 @@ pub(super) fn admitted_model_time<'a, E>(
         return Ok(None);
     };
     for &position in &package.timed_model_roots {
-        let root = &package.graph().nodes[position];
+        let root = &package.resolved_graph().nodes[position];
         charge(&root.node_id)?;
         let Some(body) = package.term(&root.node_id) else {
             continue;

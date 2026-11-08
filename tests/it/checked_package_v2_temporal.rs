@@ -786,7 +786,9 @@ fn tc_048_out_of_range_operand_precedes_interval_semantics() {
         .expect("node path");
     let slot = path.len();
     path.push(json!({"node": count}));
-    let expected = format!("/semantic_graph/nodes/{root}/node_id/path/{slot}/node");
+    // The out-of-range index is the first entry of the node's operand row.
+    let _ = slot;
+    let expected = format!("/semantic_graph/operand_rows/{root}/0");
     match read(&package) {
         CheckedPackageV2ReadResult::Refused(refusal) => {
             assert_eq!(refusal.code, Code::MalformedWire);

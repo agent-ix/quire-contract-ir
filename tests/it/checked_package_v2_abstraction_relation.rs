@@ -743,7 +743,10 @@ fn tc_225_empty_tuple_field_and_raw_identifier_bodies_admit() {
         let value = relations(std::slice::from_ref(&body));
         let package = admitted(case, &value);
         assert_eq!(
-            package.graph().nodes[at(&value, &body)].node_id,
+            package
+                .document_held_id(at(&value, &body))
+                .expect("graph node")
+                .clone(),
             typed_node_id(&relation_key(0)),
             "{case}"
         );
@@ -1355,7 +1358,10 @@ fn tc_225_identity_members_that_do_not_hold_refuse_at_the_node() {
         node["body"]["objects"][0]["fields"][0]["rust_field"] = json!("other");
     });
     let admitted = admitted("valid body edit with retained id", &edited);
-    assert_eq!(admitted.graph().nodes[n].node_id, typed_node_id(&own));
+    assert_eq!(
+        admitted.document_held_id(n).expect("graph node").clone(),
+        typed_node_id(&own)
+    );
 }
 
 /// ACs: FR-346-AC-4

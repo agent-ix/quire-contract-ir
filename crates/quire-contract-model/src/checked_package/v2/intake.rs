@@ -14,9 +14,9 @@
 
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
-    CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedNodeOwner, CheckedPackageEnvelope,
-    CheckedPackageLockV2, RawCheckedPackageWireV2, RawSemanticGraphV2, RawSemanticNodeV2,
-    ValidationFailure,
+    CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedJson, CheckedNodeOwner,
+    CheckedPackageEnvelope, CheckedPackageLockV2, RawCheckedPackageWireV2, RawSemanticGraphV2,
+    RawSemanticNodeV2, ValidationFailure,
 };
 use crate::checked_package::common::{decode_closed_bytes, node_pointer, strict_parse};
 use crate::checked_package::shared::{
@@ -101,6 +101,7 @@ struct BorrowedGraph<'a> {
     graph_version: Box<str>,
     #[serde(borrow)]
     nodes: Vec<BorrowedNode<'a>>,
+    operand_rows: Vec<Vec<u64>>,
 }
 
 // Keep native wire errors at the logical ID boundary. The refinement below
@@ -290,6 +291,7 @@ pub(super) fn decode_borrowed_wire(
         semantic_graph: RawSemanticGraphV2 {
             graph_version: graph.graph_version,
             nodes,
+            operand_rows: graph.operand_rows,
         },
         source_map: wire.source_map,
         refinement_step_rows: wire.refinement_step_rows,
@@ -312,7 +314,14 @@ pub(super) fn decode_borrowed_wire(
                         details: entry
                             .details
                             .into_iter()
-                            .map(|term| strict_parse(term.get().as_bytes()))
+                            .map(|term| {
+                                let value = strict_parse(term.get().as_bytes())?;
+                                CheckedJson::from_value(&value).map_err(|_| {
+                                    ValidationFailure::refused_bytes(
+                                        CheckedPackageRefusalCode::MalformedWire,
+                                    )
+                                })
+                            })
                             .collect::<Result<Vec<_>, ValidationFailure>>()?,
                         loci: entry.loci,
                     })

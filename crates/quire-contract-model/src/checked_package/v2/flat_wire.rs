@@ -325,6 +325,7 @@ pub(super) fn check(
     }
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
+            let detail = &detail.to_value();
             let steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),
@@ -846,7 +847,7 @@ mod tests {
                 "profile_selections": [], "definition_selections": [],
                 "required_features": [], "dependency_selections": [],
             },
-            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes},
+            "semantic_graph": {"graph_version": "quire.checked-semantic-graph/v2", "nodes": nodes, "operand_rows": vec![Vec::<u64>::new(); nodes.len()]},
             "source_map": [], "capability_report": [],
             "diagnostics": {"catalog": {"authority": "test", "identity": "diagnostics"}, "entries": []},
         })).expect("private flat-wire input")
@@ -1089,7 +1090,8 @@ mod tests {
                         .path
                         .clone()
                         .map_or_else(|| "<none>".to_owned(), |path| path.as_str().to_owned()),
-                    crate::checked_package::common::ValidationFailure::Incomplete(_) => {
+                    crate::checked_package::common::ValidationFailure::Incomplete(_)
+                    | crate::checked_package::common::ValidationFailure::Budget(_) => {
                         "incomplete".to_owned()
                     }
                 })

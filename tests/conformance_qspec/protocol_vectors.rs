@@ -96,8 +96,11 @@ fn qspec_k2_role_rename_changes_declared_and_operand_ids() {
     let CheckedPackageV2ReadResult::Admitted(before) = read_authored(&package) else {
         panic!("K2 Fulfillment base must admit");
     };
-    let before_derived_key =
-        super::node_index::fixture_structural_key(&before.graph().nodes, derived);
+    let before_derived_key = super::node_index::fixture_structural_key(
+        &before.graph().nodes,
+        &before.graph().operand_rows,
+        derived,
+    );
     package["semantic_graph"]["nodes"][role]["declaration"]["qualified_name"][3] =
         json!("Shipping");
     fixture_support::settle(&mut package);
@@ -107,13 +110,22 @@ fn qspec_k2_role_rename_changes_declared_and_operand_ids() {
     let after_role = package["semantic_graph"]["nodes"][role]["node_id"].clone();
     let after_derived = package["semantic_graph"]["nodes"][derived]["node_id"].clone();
     assert_ne!(before_role, after_role);
-    let after_derived_key =
-        super::node_index::fixture_structural_key(&admitted.graph().nodes, derived);
+    let after_derived_key = super::node_index::fixture_structural_key(
+        &admitted.graph().nodes,
+        &admitted.graph().operand_rows,
+        derived,
+    );
     assert_ne!(before_derived_key, after_derived_key);
     assert_eq!(before_derived, after_derived);
     assert_eq!(after_derived["path"][2], json!({"node":role}));
     assert_eq!(
-        serde_json::to_value(&admitted.graph().nodes[derived].node_id).expect("retained id"),
+        serde_json::to_value(
+            &admitted
+                .document_held_id(derived)
+                .expect("graph node")
+                .clone()
+        )
+        .expect("retained id"),
         after_derived
     );
 }
@@ -222,7 +234,13 @@ fn qspec_k4_poll_maximum_changes_body_without_changing_declared_id() {
         original_id
     );
     assert_eq!(
-        serde_json::to_value(&admitted.graph().nodes[poll_position].node_id).expect("retained id"),
+        serde_json::to_value(
+            &admitted
+                .document_held_id(poll_position)
+                .expect("graph node")
+                .clone()
+        )
+        .expect("retained id"),
         original_id
     );
 }
@@ -278,7 +296,13 @@ fn qspec_c4_removing_scheduling_retains_declared_clause_id() {
         original_id
     );
     assert_eq!(
-        serde_json::to_value(&admitted.graph().nodes[clause].node_id).expect("retained id"),
+        serde_json::to_value(
+            &admitted
+                .document_held_id(clause)
+                .expect("graph node")
+                .clone()
+        )
+        .expect("retained id"),
         original_id
     );
 }
@@ -322,7 +346,13 @@ fn qspec_k10_acyclic_protocol_member_admits_a_lone_group_label() {
         Some("lone-group")
     );
     assert_eq!(
-        serde_json::to_value(&admitted.graph().nodes[position].node_id).expect("retained id"),
+        serde_json::to_value(
+            &admitted
+                .document_held_id(position)
+                .expect("graph node")
+                .clone()
+        )
+        .expect("retained id"),
         original_id
     );
 }
