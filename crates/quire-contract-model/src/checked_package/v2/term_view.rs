@@ -97,12 +97,6 @@ impl<'d> TermNode<'d> {
         }
     }
 
-    /// The value as a `serde_json::Value`: an uncharged copy, the bridge for a
-    /// reader that has not moved to the views. Not on the charged read path.
-    pub(in crate::checked_package) fn uncharged_value(self) -> serde_json::Value {
-        super::checked_json::value_of(self.node)
-    }
-
     pub(in crate::checked_package) fn is_object(self) -> bool {
         matches!(self.node.node(), Node::Object(_))
     }

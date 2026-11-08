@@ -214,20 +214,69 @@ impl<'b> Meter<'b> {
 
     /// A reservation for a walk of the check at `check`; the walker's own
     /// growths are charged with the form `"walk"`.
-    pub(super) fn reservation(&self, check: Site) -> WalkReservation<'_, 'b> {
+    pub(super) fn reservation(&self, check: Site) -> WalkReservation<'_> {
         WalkReservation { meter: self, check }
+    }
+}
+
+/// What a metered walk charges: the read's budget through a [`Meter`], or any
+/// [`ReadStorage`] sink through a [`SinkCell`].
+pub(super) trait ChargeAt {
+    /// Charges `bytes` at `site`.
+    fn charge(&self, site: Site, bytes: u128) -> Result<(), ValidationFailure>;
+
+    /// The stop that ends the read after a refused charge.
+    fn denial(&self) -> ValidationFailure;
+}
+
+impl ChargeAt for Meter<'_> {
+    fn charge(&self, site: Site, bytes: u128) -> Result<(), ValidationFailure> {
+        Meter::charge(self, site, bytes)
+    }
+
+    fn denial(&self) -> ValidationFailure {
+        denial(&self.budget())
+    }
+}
+
+/// A [`ReadStorage`] sink shared by the parts of one metered walk.
+pub(super) struct SinkCell<'s> {
+    sink: RefCell<&'s mut dyn ReadStorage>,
+}
+
+impl<'s> SinkCell<'s> {
+    pub(super) fn new(sink: &'s mut dyn ReadStorage) -> Self {
+        Self {
+            sink: RefCell::new(sink),
+        }
+    }
+
+    /// A reservation for a walk of the check at `check`.
+    pub(super) fn reservation(&self, check: Site) -> WalkReservation<'_> {
+        WalkReservation { meter: self, check }
+    }
+}
+
+impl ChargeAt for SinkCell<'_> {
+    fn charge(&self, site: Site, bytes: u128) -> Result<(), ValidationFailure> {
+        let mut sink = self.sink.borrow_mut();
+        sink.reserve(bytes, site).map_err(|_| sink.denial())
+    }
+
+    fn denial(&self) -> ValidationFailure {
+        self.sink.borrow().denial()
     }
 }
 
 /// A reservation for the walker: its growths charge the budget at the calling
 /// check's stage and index with the form `"walk"`.
-pub(super) struct WalkReservation<'m, 'b> {
-    pub(super) meter: &'m Meter<'b>,
+pub(super) struct WalkReservation<'m> {
+    pub(super) meter: &'m dyn ChargeAt,
     /// The calling check's site: its form names the check's own temporaries.
     pub(super) check: Site,
 }
 
-impl quire_walk::Reservation for WalkReservation<'_, '_> {
+impl quire_walk::Reservation for WalkReservation<'_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
         self.meter
             .charge(self.check.form("walk"), bytes as u128)
@@ -241,16 +290,15 @@ impl quire_walk::Reservation for WalkReservation<'_, '_> {
 pub(super) fn walk<W: quire_walk::Walk + ?Sized>(
     walker: &mut W,
     root: W::Node,
-    reservation: &mut WalkReservation<'_, '_>,
+    reservation: &mut WalkReservation<'_>,
 ) -> Result<std::ops::ControlFlow<W::Stop>, ValidationFailure> {
     let meter = reservation.meter;
-    quire_walk::walk_reserved(walker, root, reservation).map_err(|_| denial(&meter.budget()))
+    quire_walk::walk_reserved(walker, root, reservation).map_err(|_| meter.denial())
 }
 
-/// Runs `walk` with a reservation that charges nothing. Only a walk whose
-/// calling stage has not yet threaded the read's budget to it uses this; that
-/// stage replaces the call with a reservation over the budget.
-pub(super) fn with_unmetered_walk<R>(walk: impl FnOnce(&mut WalkReservation<'_, '_>) -> R) -> R {
+/// Runs `walk` with a reservation that charges nothing. To be deleted with
+/// its two `refinement.rs` callers when that file moves to the node views.
+pub(super) fn with_unmetered_walk<R>(walk: impl FnOnce(&mut WalkReservation<'_>) -> R) -> R {
     let mut budget = NativeJoinBudget::unlimited();
     let meter = Meter::new(&mut budget);
     let site = Site::new(PackageReadStage::Graph, 0, "walk");

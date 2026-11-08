@@ -423,7 +423,7 @@ pub(super) fn check(
 fn check_anchor_flat_wire<'a, V: TermSource<'a>>(
     body: V,
     at: &Trail<'a>,
-    reservation: &mut WalkReservation<'_, '_>,
+    reservation: &mut WalkReservation<'_>,
 ) -> Result<(), ValidationFailure> {
     fn is_point<'a, V: TermSource<'a>>(member: V) -> bool {
         member.member("name").and_then(TermSource::text) == Some("execution_point")
@@ -672,7 +672,7 @@ fn check_term<'a, V: TermSource<'a>>(
     at: &Trail<'a>,
     place: Place,
     details: bool,
-    reservation: &mut WalkReservation<'_, '_>,
+    reservation: &mut WalkReservation<'_>,
 ) -> Result<(), ValidationFailure> {
     check_term_with_empty_leaf(root, at, place, details, false, reservation)
 }
@@ -685,7 +685,7 @@ fn check_term_with_empty_leaf<'a, V: TermSource<'a>>(
     place: Place,
     details: bool,
     empty_leaf: bool,
-    reservation: &mut WalkReservation<'_, '_>,
+    reservation: &mut WalkReservation<'_>,
 ) -> Result<(), ValidationFailure> {
     let (meter, site) = (reservation.meter, reservation.check);
     let charge = move |bytes: usize| meter.charge(site, bytes as u128);
@@ -711,7 +711,7 @@ fn check_term_with_empty_leaf<'a, V: TermSource<'a>>(
 pub(super) fn check_refinement_term(
     root: &Value,
     at: &Trail<'_>,
-    reservation: &mut WalkReservation<'_, '_>,
+    reservation: &mut WalkReservation<'_>,
 ) -> Result<(), ValidationFailure> {
     check_term(root, at, Place::BodyRoot, false, reservation)
 }
@@ -726,7 +726,7 @@ pub(super) fn check_refinement_term(
 pub(super) fn scan_members<'a, V: TermSource<'a>>(
     body: V,
     at: &Trail<'a>,
-    reservation: &mut WalkReservation<'_, '_>,
+    reservation: &mut WalkReservation<'_>,
 ) -> Result<u64, ValidationFailure> {
     let (meter, site) = (reservation.meter, reservation.check);
     let charge = move |bytes: usize| meter.charge(site, bytes as u128);
