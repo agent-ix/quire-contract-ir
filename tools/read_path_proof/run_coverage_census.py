@@ -24,6 +24,8 @@ CONTROL_CASES = {
     "unwrapped_function_item_after_trusted_read_must_fail_census": False,
     "unwrapped_shared_helper_before_trusted_read_must_fail_census": False,
     "unwrapped_shared_helper_after_trusted_read_must_fail_census": False,
+    "unwrapped_budgeted_function_item_before_trusted_read_must_fail_census": False,
+    "unwrapped_budgeted_function_item_after_trusted_read_must_fail_census": False,
 }
 
 
