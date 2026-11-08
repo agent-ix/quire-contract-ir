@@ -1231,7 +1231,19 @@ fn check_resolved_path(
                 let exact_one = (multiplicity.lower, multiplicity.upper) == (1, Some(1));
                 // The collection form and the bounds the slot must spell.
                 let expected = match RenderedCollectionType::from_wire(unwrapped) {
-                    RenderedCollectionType::Map(_) if exact_one => Some(("map", 0, None)),
+                    RenderedCollectionType::Map(_) if exact_one => {
+                        // The map type's own declared bound, not an unbounded default.
+                        let bound = field
+                            .slot
+                            .type_ref
+                            .as_ref()
+                            .and_then(|reference| model_owner.package.map_bound(reference));
+                        Some((
+                            "map",
+                            bound.map_or(0, |bound| bound.lower),
+                            bound.and_then(|bound| bound.upper),
+                        ))
+                    }
                     _ if !exact_one => Some((
                         CollectionKind::of(multiplicity.ordered, multiplicity.unique).form(),
                         multiplicity.lower,

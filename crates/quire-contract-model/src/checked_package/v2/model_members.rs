@@ -88,6 +88,7 @@ mod charged;
 mod derive;
 mod document;
 mod intake_origin;
+mod map_types;
 mod option_types;
 mod view;
 pub(super) use charged::{
@@ -259,9 +260,28 @@ pub(super) enum SelectedTypeRef {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum SelectedTypeDefinition {
     Sequence(SelectedTypeRef),
-    Map(SelectedTypeRef),
+    Map(SelectedMap),
     Option(SelectedTypeRef),
     Reference(SelectedTypeRef),
+}
+
+/// A package map type's entry-count bound: `upper` is `None` when unbounded,
+/// which only a `lower` of 0 declares.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct MapBound {
+    pub(super) lower: u64,
+    pub(super) upper: Option<u64>,
+}
+
+/// A package map type: its scalar key type, value type and bound (FR-154).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct SelectedMap {
+    /// The key type, after its alias chain.
+    pub(super) keys: SelectedTypeRef,
+    /// The key reference as authored; a rendering spells it, not the resolved key.
+    pub(super) keys_name: Box<str>,
+    pub(super) values: SelectedTypeRef,
+    pub(super) bound: MapBound,
 }
 
 #[derive(Clone, Copy)]
@@ -2327,6 +2347,17 @@ impl DomainModel {
         ))))
     }
 
+    /// The bound of the package map type `type_ref` names, when it names one.
+    pub(super) fn map_bound(&self, type_ref: &SelectedTypeRef) -> Option<MapBound> {
+        let SelectedTypeRef::Declared(name) = type_ref else {
+            return None;
+        };
+        match self.collection_types.get(name)? {
+            SelectedTypeDefinition::Map(map) => Some(map.bound),
+            _ => None,
+        }
+    }
+
     /// Render the selected field type used by a timed clock-place path.
     pub(super) fn clock_type_name_in(
         &self,
@@ -2346,12 +2377,20 @@ impl DomainModel {
             budget.push(&mut seen, name.as_ref(), "clock_type")?;
             match definition {
                 SelectedTypeDefinition::Sequence(items) => {
-                    budget.push(&mut layers, SelectedValueLayer::Sequence, "clock_type")?;
+                    budget.push(
+                        &mut layers,
+                        (SelectedValueLayer::Sequence, ""),
+                        "clock_type",
+                    )?;
                     current = items;
                 }
-                SelectedTypeDefinition::Map(values) => {
-                    budget.push(&mut layers, SelectedValueLayer::Map, "clock_type")?;
-                    current = values;
+                SelectedTypeDefinition::Map(map) => {
+                    let key = map
+                        .keys_name
+                        .strip_prefix(NATIVE_PREFIX)
+                        .unwrap_or(&map.keys_name);
+                    budget.push(&mut layers, (SelectedValueLayer::Map, key), "clock_type")?;
+                    current = &map.values;
                 }
                 SelectedTypeDefinition::Option(_) | SelectedTypeDefinition::Reference(_) => {
                     return Ok(None);
@@ -2374,13 +2413,13 @@ impl DomainModel {
         }) else {
             return Ok(None);
         };
-        for layer in layers.into_iter().rev() {
+        for (layer, key) in layers.into_iter().rev() {
             rendered = match layer {
                 SelectedValueLayer::Sequence => {
                     budget.concat(&["Sequence<", &rendered, ">"], "clock_type")?
                 }
                 SelectedValueLayer::Map => {
-                    budget.concat(&["Map<Text, ", &rendered, ">"], "clock_type")?
+                    budget.concat(&["Map<", key, ", ", &rendered, ">"], "clock_type")?
                 }
                 SelectedValueLayer::Option => return Ok(None),
             };
@@ -4738,41 +4777,36 @@ pub(super) fn read_semantic_ir(
                 let key = budget.text(node, F)?;
                 model.collection_types.insert(budget, key, definition, F)?;
             }
-            meaning::Kind::SequenceType | meaning::Kind::MapType => {
-                let member = if meaning == meaning::Kind::SequenceType {
-                    "items"
-                } else {
-                    "values"
-                };
-                let reference = text(declared_node, member)?;
+            meaning::Kind::MapType => {
+                let type_index = declared
+                    .position(node)
+                    .ok_or_else(ModelRefusal::malformed)?;
+                let map =
+                    map_types::read(declared_node, type_index, &model, &scope, &declared, budget)?;
+                let key = budget.text(node, F)?;
+                model
+                    .collection_types
+                    .insert(budget, key, SelectedTypeDefinition::Map(map), F)?;
+            }
+            meaning::Kind::SequenceType => {
+                let type_index = declared
+                    .position(node)
+                    .ok_or_else(ModelRefusal::malformed)?;
+                map_types::forbid_map_members(declared_node, type_index, budget)?;
+                let reference = text(declared_node, "items")?;
                 let selected = model
                     .selected_type_ref(reference, budget)?
                     .ok_or_else(ModelRefusal::malformed)?;
-                let refusal = match &selected {
-                    SelectedTypeRef::Map(..) => Some(ModelRefusal::malformed()),
-                    SelectedTypeRef::Unit(name) if !model.unit_refs.contains_key(name) => {
-                        Some(ModelRefusal::missing_name())
-                    }
-                    SelectedTypeRef::Declared(name)
-                        if scope.relationships.contains(name.as_ref()) =>
-                    {
-                        Some(ModelRefusal::malformed())
-                    }
-                    SelectedTypeRef::Declared(name) if !scope.all_types.contains(name.as_ref()) => {
-                        Some(ModelRefusal::missing_name())
-                    }
-                    _ => None,
-                };
-                if let Some(refusal) = refusal {
+                if let Some(refusal) = map_types::member_refusal(&selected, &model, &scope) {
                     return Err(SelectionRefusal::located(refusal, declared_node, budget)?.into());
                 }
-                let definition = if meaning == meaning::Kind::SequenceType {
-                    SelectedTypeDefinition::Sequence(selected)
-                } else {
-                    SelectedTypeDefinition::Map(selected)
-                };
                 let key = budget.text(node, F)?;
-                model.collection_types.insert(budget, key, definition, F)?;
+                model.collection_types.insert(
+                    budget,
+                    key,
+                    SelectedTypeDefinition::Sequence(selected),
+                    F,
+                )?;
             }
             meaning::Kind::ObjectType
             | meaning::Kind::StateMachine

@@ -318,9 +318,9 @@ fn changing_either_operand_changes_the_admitted_map_identity() {
     }
 }
 
-#[trace("TC-048", "FR-038-AC-488", "FR-038-AC-489")]
+#[trace("TC-473", "FR-357-AC-24")]
 #[test]
-fn non_text_scalar_key_admits_but_has_no_exact_projection() {
+fn scalar_key_projects_its_own_exact_key_type() {
     let (mut package, position) = map_package();
     let boolean = package["semantic_graph"]["nodes"][0]["node_id"].clone();
     let integer = package["semantic_graph"]["nodes"][position - 1]["node_id"].clone();
@@ -340,17 +340,19 @@ fn non_text_scalar_key_admits_but_has_no_exact_projection() {
         admitted.node_kind(&id),
         Some(CheckedNodeKind::CompositeType(CompositeTypeForm::Map))
     );
-    let refusal = admitted
+    let projection = admitted
         .project_exact_type(
             &id,
             &SelectedExactIdentities::empty(),
             &mut quire_contract_model::NativeJoinBudget::new(100, u64::MAX),
         )
-        .expect_err("Exact Map requires a Text key");
-    assert_eq!(
-        refusal.code,
-        ExactTypeProjectionErrorCode::UnsupportedExactType
-    );
+        .expect("a Boolean key has an Exact projection");
+    let quire_exact::ValueType::Map(projected) = projection.value_type() else {
+        panic!("exact Map type");
+    };
+    assert_eq!(projected.key(), &quire_exact::ValueType::Boolean);
+    assert_eq!(projected.values(), &quire_exact::ValueType::Integer);
+    assert_eq!(projected.bound(), None);
 }
 
 fn sort_map_fixture_dependencies(wire: &mut Value) {
