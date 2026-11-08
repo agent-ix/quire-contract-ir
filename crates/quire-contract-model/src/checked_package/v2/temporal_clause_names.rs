@@ -14,7 +14,6 @@ use crate::checked_package::shared::{
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
 /// One declared name of a temporal-clause claim occurrence.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -54,9 +53,10 @@ pub(super) fn validate(
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut seen = BTreeSet::new();
+    let rows = rows.unwrap_or_default();
+    let mut seen = meter.vec::<(&CheckedNodeId, u64)>(rows.len())?;
     let mut previous: Option<(super::graph_storage::ResolvedKey<'_>, u64)> = None;
-    for (row_index, row) in rows.unwrap_or_default().iter().enumerate() {
+    for (row_index, row) in rows.iter().enumerate() {
         let at = root().index(row_index);
         meter.charge(1, || at.clone())?;
         if !is_identifier(&row.name) {
@@ -91,7 +91,7 @@ pub(super) fn validate(
                 &row.declaration,
             ));
         }
-        if !seen.insert((&row.declaration, row.occurrence)) {
+        if !meter.insert_sorted(&mut seen, (&row.declaration, row.occurrence))? {
             return Err(invalid(at, Cause::ConflictingDefinition, &row.declaration));
         }
         let key = (index.resolved_at(position, structural_keys), row.occurrence);
@@ -107,7 +107,9 @@ pub(super) fn validate(
         for occurrence in &node.occurrences {
             meter.charge(1, root)?;
             if occurrence.role == CheckedOccurrenceRole::Claim
-                && !seen.contains(&(&node.node_id, occurrence.ordinal))
+                && seen
+                    .binary_search(&(&node.node_id, occurrence.ordinal))
+                    .is_err()
             {
                 return Err(ValidationFailure::refused_because(
                     Code::InvalidPackage,

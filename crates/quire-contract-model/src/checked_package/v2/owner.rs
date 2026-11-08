@@ -12,7 +12,6 @@ use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OwnerRequirement {
@@ -469,7 +468,7 @@ fn model_kind_matches(
     term: &CheckedTerm,
     model: &DomainModel,
     declared: &str,
-    operations: &BTreeSet<&str>,
+    operations: &[&str],
 ) -> bool {
     match kind {
         CheckedNodeKind::ScalarType(super::ScalarTypeForm::Dimension) => {
@@ -520,7 +519,7 @@ fn model_kind_matches(
                     || model.event_types.contains(declared)
             }
             Some(OwnerClauseKind::Precondition | OwnerClauseKind::Body) => {
-                operations.contains(declared)
+                operations.binary_search(&declared).is_ok()
             }
             _ => false,
         },
@@ -545,40 +544,71 @@ pub(super) fn validate_owner_joins(
     models: &[DomainModel],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let selected_sources: BTreeSet<_> = wire
-        .lock
-        .sources
-        .iter()
-        .map(|source| (source.authority.as_ref(), source.identity.as_ref()))
-        .collect();
-    let selected_models: BTreeMap<_, _> = models
-        .iter()
-        .map(|model| (model.identity.as_ref(), model))
-        .collect();
-    let model_operations: BTreeMap<_, BTreeSet<_>> = models
-        .iter()
-        .map(|model| {
-            (
-                model.identity.as_ref(),
-                model
-                    .object_types
-                    .values()
-                    .flat_map(|object| object.operations.iter())
-                    .map(|operation| operation.identity.as_ref())
-                    .collect(),
-            )
-        })
-        .collect();
-    let mut source_entries: BTreeMap<_, Vec<_>> = BTreeMap::new();
-    for (entry_index, entry) in wire.source_map.iter().enumerate() {
-        if entry.role == CheckedOccurrenceRole::Declaration {
-            source_entries
-                .entry(&entry.node_id)
-                .or_default()
-                .push((entry_index, entry));
+    // Every table below is an exact-capacity sorted vector charged before it is
+    // requested; none grows afterwards.
+    let mut selected_sources = meter.vec::<(&str, &str)>(wire.lock.sources.len())?;
+    selected_sources.extend(
+        wire.lock
+            .sources
+            .iter()
+            .map(|source| (source.authority.as_ref(), source.identity.as_ref())),
+    );
+    selected_sources.sort_unstable();
+    // Of models with one identity the last wins, as the map it replaces did.
+    let mut selected_models = meter.vec::<(&str, usize)>(models.len())?;
+    selected_models.extend(
+        models
+            .iter()
+            .enumerate()
+            .map(|(model, entry)| (entry.identity.as_ref(), model)),
+    );
+    selected_models.sort_unstable();
+    let mut distinct = 0;
+    for at in 0..selected_models.len() {
+        if selected_models
+            .get(at + 1)
+            .is_none_or(|next| next.0 != selected_models[at].0)
+        {
+            selected_models[distinct] = selected_models[at];
+            distinct += 1;
         }
     }
-    let mut positions: Vec<_> = (0..wire.semantic_graph.nodes.len()).collect();
+    selected_models.truncate(distinct);
+    let mut model_operations = meter.vec::<Vec<&str>>(models.len())?;
+    for model in models {
+        let count = model
+            .object_types
+            .values()
+            .map(|object| object.operations.len())
+            .sum();
+        let mut operations = meter.vec::<&str>(count)?;
+        operations.extend(
+            model
+                .object_types
+                .values()
+                .flat_map(|object| object.operations.iter())
+                .map(|operation| operation.identity.as_ref()),
+        );
+        operations.sort_unstable();
+        model_operations.push(operations);
+    }
+    let mut declared_entries = meter
+        .vec::<(&crate::checked_package::shared::CheckedNodeId, usize)>(
+            wire.source_map
+                .iter()
+                .filter(|entry| entry.role == CheckedOccurrenceRole::Declaration)
+                .count(),
+        )?;
+    declared_entries.extend(
+        wire.source_map
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.role == CheckedOccurrenceRole::Declaration)
+            .map(|(entry_index, entry)| (&entry.node_id, entry_index)),
+    );
+    declared_entries.sort_unstable();
+    let mut positions = meter.vec::<usize>(wire.semantic_graph.nodes.len())?;
+    positions.extend(0..wire.semantic_graph.nodes.len());
     positions.sort_unstable_by(|&left, &right| {
         wire.semantic_graph.nodes[left]
             .node_id
@@ -601,11 +631,19 @@ pub(super) fn validate_owner_joins(
                 authority,
                 identity,
             }) => {
-                if !selected_sources.contains(&(authority.as_ref(), identity.as_ref())) {
+                if selected_sources
+                    .binary_search(&(authority.as_ref(), identity.as_ref()))
+                    .is_err()
+                {
                     return Err(missing_owner(node, at));
                 }
-                if let Some(entries) = source_entries.get(&node.node_id) {
-                    for &(entry_index, entry) in entries {
+                let first = declared_entries.partition_point(|(id, _)| *id < &node.node_id);
+                let entries = declared_entries[first..]
+                    .iter()
+                    .take_while(|(id, _)| **id == node.node_id);
+                {
+                    for &(_, entry_index) in entries {
+                        let entry = &wire.source_map[entry_index];
                         if node.occurrences.iter().any(|occurrence| {
                             occurrence.role == entry.role && occurrence.ordinal == entry.ordinal
                         }) {
@@ -629,11 +667,15 @@ pub(super) fn validate_owner_joins(
                 identity,
                 node: declared,
             }) => {
-                let Some(model) = selected_models.get(identity.as_ref()) else {
+                let Ok(selected) =
+                    selected_models.binary_search_by(|(name, _)| (*name).cmp(identity.as_ref()))
+                else {
                     return Err(missing_owner(node, at));
                 };
+                let model_index = selected_models[selected].1;
+                let model = &models[model_index];
                 meter.charge(1, || at.clone())?;
-                let operations = model_operations.get(identity.as_ref());
+                let operations = Some(model_operations[model_index].as_slice());
                 if !kinds.get(position).is_some_and(|kind| {
                     operations.is_some_and(|operations| {
                         terms

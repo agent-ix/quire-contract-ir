@@ -274,7 +274,6 @@ use model_members::{
 use quire_canonical::FixedShape;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 // Explicit null is a value; an absent member must remain a schema refusal.
@@ -1908,9 +1907,9 @@ struct ValidatedGraph {
     lowering_facts: Vec<lower::LoweringNodeFacts>,
 }
 
-/// The graph's node index, still a `BTreeMap` until the sorted `GraphIndex`
-/// replaces it, answers the extension joins' lookup.
-impl node_lookup::NodeLookup for BTreeMap<&CheckedNodeId, usize> {
+/// Extension tests answer the joins' lookup from an ordered map.
+#[cfg(test)]
+impl node_lookup::NodeLookup for std::collections::BTreeMap<&CheckedNodeId, usize> {
     fn position(&self, id: &CheckedNodeId) -> Option<&usize> {
         self.get(id)
     }
@@ -2233,16 +2232,36 @@ fn validate_node_id_charged(
 /// anonymous derived member uses that path only when the label has exactly one
 /// declared member. With zero or several declarations its path is authored;
 /// the ordinary ID shape, uniqueness and reference rules still apply.
-fn validate_recursion_group_paths(nodes: &[RawSemanticNodeV2]) -> Result<(), ValidationFailure> {
-    let mut sole_declaration = BTreeMap::<&str, Option<&CheckedNodeId>>::new();
-    for node in nodes {
-        if let (Some(label), Some(_)) = (node.recursion_group.as_deref(), &node.declaration) {
-            sole_declaration
-                .entry(label)
-                .and_modify(|anchor| *anchor = None)
-                .or_insert(Some(&node.node_id));
+fn validate_recursion_group_paths(
+    nodes: &[RawSemanticNodeV2],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    // The declared members of each label, as an exact-capacity sorted table
+    // charged before it is requested.
+    let mut declared = meter.vec::<(&str, &CheckedNodeId)>(
+        nodes
+            .iter()
+            .filter(|node| node.recursion_group.is_some() && node.declaration.is_some())
+            .count(),
+    )?;
+    declared.extend(
+        nodes
+            .iter()
+            .filter(|node| node.declaration.is_some())
+            .filter_map(|node| Some((node.recursion_group.as_deref()?, &node.node_id))),
+    );
+    declared.sort_unstable_by(|left, right| left.0.cmp(right.0));
+    let sole_declaration = |label: &str| -> Option<&CheckedNodeId> {
+        let first = declared.partition_point(|&(entry, _)| entry < label);
+        match &declared[first..] {
+            [(entry, id), rest @ ..]
+                if *entry == label && rest.first().is_none_or(|n| n.0 != label) =>
+            {
+                Some(*id)
+            }
+            _ => None,
         }
-    }
+    };
     for (position, node) in nodes.iter().enumerate() {
         let Some(label) = node.recursion_group.as_deref() else {
             continue;
@@ -2250,7 +2269,7 @@ fn validate_recursion_group_paths(nodes: &[RawSemanticNodeV2]) -> Result<(), Val
         if node.declaration.is_some() {
             continue;
         }
-        let Some(anchor) = sole_declaration.get(label).copied().flatten() else {
+        let Some(anchor) = sole_declaration(label) else {
             continue;
         };
         if node.node_id.path != anchor.path {
@@ -2840,6 +2859,60 @@ fn body_grammar(kind: CheckedNodeKind) -> BodyGrammar {
     }
 }
 
+/// A declaration name as the bytes of its `/`-joined text, which a model-owned
+/// unit shares with a source unit of the same name. The bytes are walked,
+/// never joined, so no string is built.
+#[derive(Clone, Copy)]
+enum HolderName<'a> {
+    Declared(&'a [Box<str>]),
+    ModelUnit(&'a str, &'a str),
+}
+
+impl HolderName<'_> {
+    fn bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        let declared =
+            match self {
+                Self::Declared(parts) => Some(parts.iter().enumerate().flat_map(|(at, part)| {
+                    (at > 0).then_some(b'/').into_iter().chain(part.bytes())
+                })),
+                Self::ModelUnit(..) => None,
+            };
+        let unit = match self {
+            Self::ModelUnit(identity, unit) => Some(
+                identity
+                    .bytes()
+                    .chain(std::iter::once(b'/'))
+                    .chain(unit.bytes()),
+            ),
+            Self::Declared(_) => None,
+        };
+        declared
+            .into_iter()
+            .flatten()
+            .chain(unit.into_iter().flatten())
+    }
+}
+
+impl PartialEq for HolderName<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for HolderName<'_> {}
+
+impl PartialOrd for HolderName<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HolderName<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.bytes().cmp(other.bytes())
+    }
+}
+
 /// FR-322's declaration-name refusals, after the nominal checks and before
 /// frame and operation checks. Declared paths equal their assigned node paths.
 /// Non-protocol declarations share separate unit, dimension and other-type
@@ -2851,6 +2924,7 @@ fn validate_declaration_names(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
+    meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
     let name_pointer = |position: usize| {
         node_pointer(position)
@@ -2878,7 +2952,10 @@ fn validate_declaration_names(
             ));
         }
     }
-    let mut holders = BTreeSet::new();
+    if let Some(first) = nodes.first() {
+        meter.at_node(0, graph_storage::node_form(&first.node_tag));
+    }
+    let mut holders = meter.vec::<(u8, HolderName<'_>)>(index.len())?;
     for (&node_id, &position) in index {
         if matches!(kinds.get(position), Some(CheckedNodeKind::Protocol(_))) {
             continue;
@@ -2890,12 +2967,7 @@ fn validate_declaration_names(
             _ => 2,
         };
         let name = match (&node.declaration, &node.owner, namespace) {
-            (Some(declaration), _, _) => declaration
-                .qualified_name
-                .iter()
-                .map(AsRef::as_ref)
-                .collect::<Vec<&str>>()
-                .join("/"),
+            (Some(declaration), _, _) => HolderName::Declared(&declaration.qualified_name),
             (
                 None,
                 Some(CheckedNodeOwner::Model {
@@ -2904,15 +2976,18 @@ fn validate_declaration_names(
                 }),
                 1,
             ) => {
-                let prefix = format!("ix://{identity}/unit/");
-                let Some(unit_name) = owner_node.strip_prefix(&prefix) else {
+                let Some(unit_name) = owner_node
+                    .strip_prefix("ix://")
+                    .and_then(|rest| rest.strip_prefix(identity.as_ref()))
+                    .and_then(|rest| rest.strip_prefix("/unit/"))
+                else {
                     continue;
                 };
-                format!("{identity}/{unit_name}")
+                HolderName::ModelUnit(identity, unit_name)
             }
             _ => continue,
         };
-        if !holders.insert((namespace, name)) {
+        if !meter.insert_sorted(&mut holders, (namespace, name))? {
             let path = if node.declaration.is_some() {
                 name_pointer(position)
             } else {
@@ -3544,8 +3619,8 @@ fn validate_graph(
         &terms,
         meter,
     )?;
-    validate_declaration_names(&graph.nodes, &kinds, &index)?;
-    validate_recursion_group_paths(&graph.nodes)?;
+    validate_declaration_names(&graph.nodes, &kinds, &index, meter)?;
+    validate_recursion_group_paths(&graph.nodes, meter)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
@@ -4466,11 +4541,10 @@ mod test_support {
 mod tests {
     use super::{
         body_grammar, node_pointer, reference_requires_cycle_edge, validate_recursion,
-        validate_recursion_group_paths, validate_value_body, BodyGrammar,
-        CheckedDependencySelection, CheckedNodeKind, CheckedPackageRefusalCode,
-        CheckedSemanticNodeV2, CorrespondenceForm, EdgeSite, ExpressionForm, ReferenceMember,
-        ReferenceSite, StateForm, Step, Trail, ValidationFailure, WorkMeter,
-        DEPENDENCY_SELECTION_MEMBERS,
+        validate_value_body, BodyGrammar, CheckedDependencySelection, CheckedNodeKind,
+        CheckedPackageRefusalCode, CheckedSemanticNodeV2, CorrespondenceForm, EdgeSite,
+        ExpressionForm, ReferenceMember, ReferenceSite, StateForm, Step, Trail, ValidationFailure,
+        WorkMeter, DEPENDENCY_SELECTION_MEMBERS,
     };
     use ix_trace_rs::trace;
     use serde_json::json;
@@ -4640,9 +4714,9 @@ mod tests {
 
         let declared = member('a', "A", true);
         let anonymous = member('b', "A", false);
-        assert!(validate_recursion_group_paths(&[declared.clone(), anonymous.clone()]).is_ok());
+        assert!(recursion_paths(&[declared.clone(), anonymous.clone()]).is_ok());
         assert_recursion_refusal(
-            validate_recursion_group_paths(&[declared.clone(), member('b', "other", false)]),
+            recursion_paths(&[declared.clone(), member('b', "other", false)]),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_pointer(1).key("node_id").key("path").to_string(),
         );
@@ -4654,25 +4728,117 @@ mod tests {
             identity: "equivalence".into(),
         });
         assert_recursion_refusal(
-            validate_recursion_group_paths(&[declared.clone(), owned_anonymous]),
+            recursion_paths(&[declared.clone(), owned_anonymous]),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_pointer(1).key("node_id").key("path").to_string(),
         );
 
         // With no declared member the reader has no path anchor to invent.
-        assert!(validate_recursion_group_paths(&[
-            member('a', "first", false),
-            member('b', "second", false),
-        ])
-        .is_ok());
+        assert!(
+            recursion_paths(&[member('a', "first", false), member('b', "second", false),]).is_ok()
+        );
         // Several declared nodes each retain their own path, and an anonymous
         // member has no unique declared path to inherit.
-        assert!(validate_recursion_group_paths(&[
+        assert!(recursion_paths(&[
             declared,
             member('c', "C", true),
             member('b', "chosen", false),
         ])
         .is_ok());
+    }
+
+    fn recursion_paths(nodes: &[super::RawSemanticNodeV2]) -> Result<(), ValidationFailure> {
+        super::validate_recursion_group_paths(nodes, &mut WorkMeter::new(u64::MAX))
+    }
+
+    /// The recursion-group join charges its declared-member table to the caller's
+    /// read storage before requesting it: the exact allowance admits and one
+    /// byte under is denied at that table's size.
+    #[trace("FR-038-AC-511", "TC-472")]
+    #[test]
+    fn recursion_group_join_charges_its_table_before_requesting_it() {
+        let mut declared = recursion_test_node('a', Some("group"));
+        declared.declaration = Some(super::CheckedDeclaration {
+            qualified_name: vec!["a".into()],
+        });
+        let mut anonymous = recursion_test_node('b', Some("group"));
+        anonymous.node_id.path = declared.node_id.path.clone();
+        let nodes = [declared, anonymous];
+        let table = std::mem::size_of::<(&str, &super::CheckedNodeId)>() as u128;
+        let run = |limit: u128| {
+            let mut budget = super::NativeJoinBudget::new(u64::MAX, 0)
+                .with_read_storage_limit(u64::try_from(limit).unwrap());
+            let result =
+                super::validate_recursion_group_paths(&nodes, &mut WorkMeter::over(&mut budget));
+            (result, budget.read_storage_consumed())
+        };
+        let (admitted, consumed) = run(table);
+        assert!(admitted.is_ok());
+        assert_eq!(u128::from(consumed), table);
+        let (denied, _) = run(table - 1);
+        let Err(ValidationFailure::Budget(stop)) = denied else {
+            panic!("one byte under refuses at the table")
+        };
+        assert_eq!(stop.amount, table);
+    }
+
+    /// The declaration-name check holds one entry per indexed node in a table it
+    /// charges first, and a duplicate declaration still refuses.
+    #[trace("FR-038-AC-511", "TC-472")]
+    #[test]
+    fn declaration_names_charge_their_holder_table_before_requesting_it() {
+        let declare = |digit: char| {
+            let mut node = recursion_test_node(digit, None);
+            node.node_tag = "scalar_type".into();
+            node.semantic_form = "dimension".into();
+            node.node_id.path = vec![super::CheckedNodePathSegment::Name("same".into())];
+            node.declaration = Some(super::CheckedDeclaration {
+                qualified_name: vec!["same".into()],
+            });
+            node
+        };
+        let kinds = [CheckedNodeKind::ScalarType(super::ScalarTypeForm::Dimension); 2];
+        let one = [declare('a')];
+        fn index(nodes: &[super::RawSemanticNodeV2]) -> super::GraphIndex<'_> {
+            nodes
+                .iter()
+                .enumerate()
+                .map(|(position, node)| (&node.node_id, position))
+                .collect()
+        }
+        let entry = std::mem::size_of::<(u8, super::HolderName<'_>)>() as u64;
+        let run = |nodes: &[super::RawSemanticNodeV2], limit: u64| {
+            let mut budget =
+                super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let result = super::validate_declaration_names(
+                nodes,
+                &kinds,
+                &index(nodes),
+                &mut WorkMeter::over(&mut budget),
+            );
+            (result, budget.read_storage_consumed())
+        };
+        let (admitted, consumed) = run(&one, entry);
+        assert!(admitted.is_ok());
+        assert_eq!(consumed, entry);
+        let (denied, _) = run(&one, entry - 1);
+        let Err(ValidationFailure::Budget(stop)) = denied else {
+            panic!("one byte under refuses at the table")
+        };
+        assert_eq!(stop.amount, u128::from(entry));
+        // Two nodes of equal graph package and one name: the second holder
+        // conflicts, whatever the table held.
+        let mut second = declare('b');
+        second.node_id.path = one[0].node_id.path.clone();
+        let pair = [one[0].clone(), second];
+        let (conflict, _) = run(&pair, 2 * entry);
+        let Err(ValidationFailure::Refused(refusal)) = conflict else {
+            panic!("a repeated declaration name refuses")
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::AmbiguousDeclaration
+        );
     }
 
     fn assert_recursion_refusal(
