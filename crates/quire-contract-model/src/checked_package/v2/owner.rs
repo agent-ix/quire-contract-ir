@@ -786,6 +786,53 @@ mod anonymous_lookup_tests {
         })).expect("owner-schema input")
     }
 
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn selected_model_join_uses_the_last_authentic_document() {
+        use super::super::model_members::tests::{document, object_type, read, GADGET, WIDGET};
+        let widget = read(&document(vec![object_type(WIDGET, &[], vec![])])).unwrap();
+        let gadget = read(&document(vec![object_type(GADGET, &[], vec![])])).unwrap();
+        assert_eq!(widget.identity, gadget.identity);
+        assert!(widget.object_types.contains_key(WIDGET));
+        assert!(!gadget.object_types.contains_key(WIDGET));
+        let mut owned = node(
+            0,
+            "model",
+            "object_type",
+            json!({"term":"aggregate", "members":[]}),
+        );
+        owned["owner"] = json!({"kind":"model", "identity":"acme/orders", "node":WIDGET});
+        let input = wire(vec![owned]);
+        let kinds = [CheckedNodeKind::Model(super::super::ModelForm::ObjectType)];
+        let terms = [Some(CheckedTerm::Aggregate { members: vec![] })];
+        let models = [gadget, widget];
+        assert!(validate_owner_joins(
+            &input,
+            &kinds,
+            &terms,
+            &models,
+            &mut WorkMeter::new(u64::MAX)
+        )
+        .is_ok());
+        let [gadget, widget] = models;
+        let failure = validate_owner_joins(
+            &input,
+            &kinds,
+            &terms,
+            &[widget, gadget],
+            &mut WorkMeter::new(u64::MAX),
+        )
+        .unwrap_err();
+        let ValidationFailure::Refused(refusal) = failure else {
+            panic!("missing selected declaration")
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MissingDeclaration);
+        assert_eq!(
+            refusal.loci[0].path,
+            JsonPointer::parse("/semantic_graph/nodes/0/node_id")
+        );
+    }
+
     /// Trace: TC-048, FR-038-AC-425.
     #[test]
     fn anonymous_owner_lookup_preserves_last_duplicate_target() {
