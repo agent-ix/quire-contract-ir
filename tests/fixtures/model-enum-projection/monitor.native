@@ -1,0 +1,132 @@
+language "ix:native" edition "1-draft";
+profile v = "quire.value.complete/v1";
+profile t = "quire.temporal.timed/v1";
+profile tc = "quire.temporal.complete/v1";
+model M = "example/config-version";
+dimension Time;
+unit s : Time = rational(1, 1);
+unit ms : Time = rational(1, 1000) * s;
+unit us : Time = rational(1, 1000000) * s;
+time M dense unit ms;
+temporal C using t over (c: M::ConfigVersion) clock "model-time" on origin { always holds(is_gold(c.tier)) }
+function is_gold using v(tier: M::Tier): Boolean pure { tier = M::Tier::Gold }
+
+record V { oT: Boolean; oF: Boolean; cT: Boolean; cF: Boolean; lost: Integer; atomLost: Integer; }
+record UVal { u: Integer; v: V; }
+record Atoms { a1: Boolean; }
+record Cell { pf: Integer; pl: Integer; tf: Integer; tl: Integer; lost: Boolean; hasSet: Boolean; fv: V; rep: Integer; inputs: Atoms; uv: Sequence<UVal>; }
+type Cells = Sequence<Cell>;
+record ActStatus { position: Integer; rep: Integer; acc: V; pfx: V; atoms: Atoms; uv: Sequence<UVal>; }
+record Activation { subformula: Integer; origin_tick: Integer; status: ActStatus; }
+record State { now: Integer; history_start: Integer; activations: Sequence<Activation>; event_position: Integer; }
+record Inputs { tier: M::Tier; }
+record Scope { subject: Integer; }
+record Instance { subject: String; subformula: Integer; origin_tick: Integer; }
+record ReadingGapExceeded { gap: Integer; max_reading_gap: Integer; }
+record LimitReached { limit: String; amount: Integer; setting: String; }
+union Outcome { Failed(ReadingGapExceeded), False, Incomplete(LimitReached), Indeterminate, Pending, True }
+record Result { instance: Instance; outcome: Outcome; }
+type Results = Sequence<Result>;
+tuple Step(State, Results);
+record StepR { state: State; results: Results; }
+record Acc { acc: V; pfx: V; }
+record Flag { b: Boolean; }
+record CellsAcc { cells: Cells; }
+record RepAcc { cells: Cells; results: Results; }
+record ActsAcc { acts: Sequence<Activation>; }
+record Fin { u: Integer; p: Integer; w: V; }
+record ActRep { acts: Sequence<Activation>; results: Results; fins: Sequence<Fin>; }
+record StateAcc { s: State; }
+record FoundCell { found: Boolean; c: Cell; }
+record FoundAct { found: Boolean; a: Activation; }
+record FoundUv { found: Boolean; v: V; }
+function vTrue using v(): V pure { V { oT: true, oF: false, cT: true, cF: false, lost: 0, atomLost: 0 } }
+function vFalse using v(): V pure { V { oT: false, oF: true, cT: false, cF: true, lost: 0, atomLost: 0 } }
+function vUnknown using v(): V pure { V { oT: true, oF: true, cT: true, cF: true, lost: 0, atomLost: 0 } }
+function vLostBy using v(k: Integer): V pure { V { oT: true, oF: true, cT: true, cF: true, lost: k, atomLost: 0 } }
+function vFuture using v(): V pure { V { oT: true, oF: true, cT: false, cF: true, lost: 0, atomLost: 0 } }
+function vId using v(a: V): V pure { a }
+function vNot using v(a: V): V pure { V { oT: a.oF, oF: a.oT, cT: a.cF, cF: a.cT, lost: a.lost, atomLost: a.atomLost } }
+function minPos using v(a: Integer, b: Integer): Integer pure { if a = 0 then b else if b = 0 then a else if a < b then a else b }
+function vAnd using v(a: V, b: V): V pure { V { oT: a.oT and b.oT, oF: a.oF or b.oF, cT: a.cT and b.cT, cF: a.cF or b.cF, lost: if a.lost != 0 then a.lost else b.lost, atomLost: minPos(a.atomLost, b.atomLost) } }
+function vAtomLost using v(k: Integer): V pure { V { oT: true, oF: true, cT: true, cF: true, lost: 0, atomLost: k } }
+function vOr using v(a: V, b: V): V pure { vNot(vAnd(vNot(a), vNot(b))) }
+function vOf using v(b: Boolean): V pure { if b then vTrue() else vFalse() }
+function isFinal using v(a: V): Boolean pure { a.oT != a.oF }
+function vIsFalse using v(a: V): Boolean pure { not a.oT and a.oF and not a.cT and a.cF and a.lost = 0 and a.atomLost = 0 }
+function vIsTrue using v(a: V): Boolean pure { a.oT and not a.oF and a.cT and not a.cF and a.lost = 0 and a.atomLost = 0 }
+function capOf using v(k: Integer): Integer pure { 0 }
+function codeOf using v(a: V): Integer pure { if a.oT and not a.oF then 1 else if not a.oT then 2 else if a.atomLost > 0 then 1000 + a.atomLost - 1 else if a.lost > 0 then (if a.lost = 1000000 then 7 else 2000 + capOf(a.lost - 1)) else if a.cT != a.cF then 3 else 4 }
+function outcomeOf using v(c: Integer): Outcome pure { if c >= 2000 then Outcome::Incomplete(LimitReached { limit: "event_buffer", amount: c - 2000, setting: "monitor.max_event_rate" }) else if c >= 1000 then Outcome::Incomplete(LimitReached { limit: "atom_projection", amount: c - 1000, setting: "monitor.atom_projection" }) else if c = 1 then Outcome::True else if c = 2 then Outcome::False else if c = 3 then Outcome::Pending else if c = 7 then Outcome::Incomplete(LimitReached { limit: "activation", amount: 8, setting: "monitor.max_activations" }) else Outcome::Indeterminate }
+function resultOf using v(node: Integer, tick: Integer, c: Integer): Result pure { Result { instance: Instance { subject: "C", subformula: node, origin_tick: tick }, outcome: outcomeOf(c) } }
+function failedOf using v(node: Integer, tick: Integer, gap: Integer): Result pure { Result { instance: Instance { subject: "C", subformula: node, origin_tick: tick }, outcome: Outcome::Failed(ReadingGapExceeded { gap: gap, max_reading_gap: 3600 }) } }
+function atom1 using v(tier: M::Tier): Boolean pure { true }
+record TickUnit { elapsed: Quantity<us>; }
+function pairCells using v(a: Cells, b: Cells): Sequence<Cells> pure { sequence[a, b] }
+function pairResults using v(a: Results, b: Results): Sequence<Results> pure { sequence[a, b] }
+function tripleResults using v(a: Results, b: Results, c: Results): Sequence<Results> pure { sequence[a, b, c] }
+function pairActs using v(a: Sequence<Activation>, b: Sequence<Activation>): Sequence<Sequence<Activation>> pure { sequence[a, b] }
+function pairFins using v(a: Sequence<Fin>, b: Sequence<Fin>): Sequence<Sequence<Fin>> pure { sequence[a, b] }
+function pairUv using v(a: Sequence<UVal>, b: Sequence<UVal>): Sequence<Sequence<UVal>> pure { sequence[a, b] }
+function noActs using v(): Sequence<Activation> pure { sequence[] }
+function noFins using v(): Sequence<Fin> pure { sequence[] }
+function noUv using v(): Sequence<UVal> pure { sequence[] }
+function noCells using v(): Cells pure { sequence[] }
+function oneCell using v(c: Cell): Cells pure { sequence[c] }
+function noResults using v(): Results pure { sequence[] }
+function oneResult using v(r: Result): Results pure { sequence[r] }
+function zeroAtoms using v(): Atoms pure { Atoms { a1: false } }
+function zeroCell using v(): Cell pure { Cell { pf: 0, pl: 0, tf: 0, tl: 0, lost: false, hasSet: false, fv: vUnknown(), rep: 0, inputs: zeroAtoms(), uv: noUv() } }
+function zeroAct using v(): Activation pure { Activation { subformula: 0, origin_tick: 0, status: ActStatus { position: 0, rep: 0, acc: vFalse(), pfx: vTrue(), atoms: zeroAtoms(), uv: noUv() } } }
+function push using v(s: Cells, c: Cell): Cells pure { flatten(pairCells(s, oneCell(c))) }
+function push2 using v(s: Results, r: Result): Results pure { flatten(pairResults(s, oneResult(r))) }
+function pushA using v(s: Sequence<Activation>, a: Activation): Sequence<Activation> pure { flatten(pairActs(s, sequence[a])) }
+function pushF using v(s: Sequence<Fin>, f: Fin): Sequence<Fin> pure { flatten(pairFins(s, sequence[f])) }
+function joinR using v(a: StepR, b: StepR): StepR pure { mk(b.state, flatten(pairResults(a.results, b.results))) }
+function mk using v(s: State, r: Results): StepR pure { StepR { state: s, results: r } }
+function lastOf using v(s: Cells): Cell pure { fold<CellsLast>(a, x in s: CellsLast { c: x }, identity: CellsLast { c: zeroCell() }).c }
+record CellsLast { c: Cell; }
+function dropLast using v(s: Cells): Cells pure { fold<Keep>(k, x in s: if k.j + 1 < size(s) then Keep { j: k.j + 1, kept: push(k.kept, x) } else Keep { j: k.j + 1, kept: k.kept }, identity: Keep { j: 0, kept: noCells() }).kept }
+record Keep { j: Integer; kept: Cells; }
+function findCell using v(s: Cells, p: Integer): FoundCell pure { fold<FoundCell>(a, x in s: if x.pf <= p and p <= x.pl then FoundCell { found: true, c: x } else a, identity: FoundCell { found: false, c: zeroCell() }) }
+function findAct using v(s: Sequence<Activation>, u: Integer, p: Integer): FoundAct pure { fold<FoundAct>(a, e in s: if e.subformula = u and e.status.position = p then FoundAct { found: true, a: e } else a, identity: FoundAct { found: false, a: zeroAct() }) }
+function uvFind using v(uv: Sequence<UVal>, u: Integer): FoundUv pure { fold<FoundUv>(a, x in uv: if x.u = u then FoundUv { found: true, v: x.v } else a, identity: FoundUv { found: false, v: vUnknown() }) }
+function setCell using v(x: Cell, w: V): Cell pure { Cell { pf: x.pf, pl: x.pl, tf: x.tf, tl: x.tl, lost: x.lost, hasSet: true, fv: w, rep: x.rep, inputs: x.inputs, uv: x.uv } }
+function repCell using v(x: Cell, c: Integer): Cell pure { Cell { pf: x.pf, pl: x.pl, tf: x.tf, tl: x.tl, lost: x.lost, hasSet: x.hasSet, fv: x.fv, rep: c, inputs: x.inputs, uv: x.uv } }
+function uvCell using v(x: Cell, u: Integer, w: V): Cell pure { Cell { pf: x.pf, pl: x.pl, tf: x.tf, tl: x.tl, lost: x.lost, hasSet: x.hasSet, fv: x.fv, rep: x.rep, inputs: x.inputs, uv: flatten(pairUv(x.uv, sequence[UVal { u: u, v: w }])) } }
+function actAcc using v(e: Activation, acc: V, pfx: V): Activation pure { Activation { subformula: e.subformula, origin_tick: e.origin_tick, status: ActStatus { position: e.status.position, rep: e.status.rep, acc: acc, pfx: pfx, atoms: e.status.atoms, uv: e.status.uv } } }
+function actRep using v(e: Activation, c: Integer): Activation pure { Activation { subformula: e.subformula, origin_tick: e.origin_tick, status: ActStatus { position: e.status.position, rep: c, acc: e.status.acc, pfx: e.status.pfx, atoms: e.status.atoms, uv: e.status.uv } } }
+function actUv using v(e: Activation, u: Integer, w: V): Activation pure { Activation { subformula: e.subformula, origin_tick: e.origin_tick, status: ActStatus { position: e.status.position, rep: e.status.rep, acc: e.status.acc, pfx: e.status.pfx, atoms: e.status.atoms, uv: flatten(pairUv(e.status.uv, sequence[UVal { u: u, v: w }])) } } }
+function resKey using v(r: Result): Integer pure { r.instance.subformula * 1000000000000 + r.instance.origin_tick }
+function insertRes using v(rs: Results, r: Result): Results pure { flatten(tripleResults(filter(x in rs: resKey(x) <= resKey(r)), oneResult(r), filter(x in rs: resKey(x) > resKey(r)))) }
+function sortRes using v(rs: Results): Results pure { fold<Results>(a, x in rs: insertRes(a, x), identity: noResults()) }
+function with_now using v(s: State, x: Integer): State pure { State { now: x, history_start: s.history_start, activations: s.activations, event_position: s.event_position } }
+function with_history_start using v(s: State, x: Integer): State pure { State { now: s.now, history_start: x, activations: s.activations, event_position: s.event_position } }
+function with_activations using v(s: State, x: Sequence<Activation>): State pure { State { now: s.now, history_start: s.history_start, activations: x, event_position: s.event_position } }
+function with_event_position using v(s: State, x: Integer): State pure { State { now: s.now, history_start: s.history_start, activations: s.activations, event_position: x } }
+
+function psiX_0 using v(s: State, a: Atoms, p: Integer, uv: Sequence<UVal>, hz: Integer): V pure { vOf(a.a1) }
+function foldEvt_0 using v(s: State, e: Activation, atoms: Atoms, pos: Integer, hz: Integer): Activation pure { let psi = vNot(psiX_0(s, atoms, pos, noUv(), hz)) in let phi = vTrue() in actAcc(e, vOr(e.status.acc, vAnd(psi, e.status.pfx)), vAnd(e.status.pfx, phi)) }
+function elemVal_0 using v(s: State, e: Activation, hz: Integer): V pure { vNot(vOr(e.status.acc, vAnd(vFuture(), e.status.pfx))) }
+function uleaf_0 using v(s: State, uv: Sequence<UVal>, p: Integer, hz: Integer): V pure { let f = findAct(s.activations, 0, p) in if f.found then elemVal_0(s, f.a, hz) else let g = uvFind(uv, 0) in if g.found then g.v else vUnknown() }
+
+function elemVal using v(s: State, e: Activation, hz: Integer): V pure { if e.subformula = 0 then elemVal_0(s, e, hz) else vUnknown() }
+function foldEvtOne using v(s: State, e: Activation, atoms: Atoms, pos: Integer, hz: Integer): Activation pure { if e.subformula = 0 then foldEvt_0(s, e, atoms, pos, hz) else e }
+function isUnb using v(sub: Integer): Boolean pure { sub = 0 }
+function rootSettled using v(s: State, p: Integer): Boolean pure { false }
+function dropAll using v(s: State, hz: Integer): State pure { let t0 = with_activations(s, (let a0 = s.activations in a0)) in t0 }
+function settleAll using v(s0: State, hz: Integer): State pure { s0 }
+function pushAll using v(s0: State, now2: Integer, pos: Integer, atoms: Atoms, hz: Integer): State pure { s0 }
+function lostAll using v(sb: State, sa: State, now2: Integer, pos: Integer, hz: Integer): Results pure { let r0 = noResults() in r0 }
+function attach using v(s: State, u: Integer, p: Integer, w: V): State pure { let t0 = s in with_activations(t0, map(e in s.activations: if e.status.position = p then actUv(e, u, w) else e)) }
+function startAct using v(s: State, u: Integer, now2: Integer, pos: Integer, atoms: Atoms): StepR pure { if size(s.activations) >= 8 then mk(attach(s, u, pos, vLostBy(1000000)), oneResult(resultOf(u, now2, 7))) else mk(with_activations(s, pushA(s.activations, Activation { subformula: u, origin_tick: now2, status: ActStatus { position: pos, rep: 0, acc: vFalse(), pfx: vTrue(), atoms: atoms, uv: noUv() } })), noResults()) }
+function startAll using v(s: State, now2: Integer, pos: Integer, atoms: Atoms, active: Boolean): StepR pure { let q0 = mk(s, noResults()) in let q1 = if active then joinR(q0, startAct(q0.state, 0, now2, pos, atoms)) else q0 in q1 }
+function reportActs using v(s: State, wm: Boolean, hz: Integer): StepR pure { let r = fold<ActRep>(a, e in s.activations: let v = elemVal(s, e, hz) in let c = codeOf(v) in let rep = if c = 3 then wm else c != e.status.rep in let fin = isFinal(v) in ActRep { acts: if fin then a.acts else pushA(a.acts, actRep(e, c)), results: if rep then push2(a.results, resultOf(e.subformula, e.origin_tick, c)) else a.results, fins: if fin and isUnb(e.subformula) then pushF(a.fins, Fin { u: e.subformula, p: e.status.position, w: v }) else a.fins }, identity: ActRep { acts: noActs(), results: noResults(), fins: noFins() }) in let s2 = with_activations(s, r.acts) in mk(fold<StateAcc>(a, f in r.fins: StateAcc { s: attach(a.s, f.u, f.p, f.w) }, identity: StateAcc { s: s2 }).s, r.results) }
+function reportAll using v(s: State, wm: Boolean, hz: Integer): StepR pure { let c = let q0 = mk(s, noResults()) in q0 in joinR(c, reportActs(c.state, wm, hz)) }
+function monitorInit using v(): State pure { let initial = State { now: 0, history_start: 0 - 1, activations: noActs(), event_position: 0 } in initial }
+function onEventR using v(s: State, delta: Integer, i: Inputs): StepR pure { let now2 = s.now + delta in let pos = s.event_position + 1 in let atoms = Atoms { a1: atom1(i.tier) } in let active = pos = 1 in let hz = now2 in let sA = dropAll(settleAll(s, hz), hz) in let sB = pushAll(sA, now2, pos, atoms, hz) in let lost = lostAll(sA, sB, now2, pos, hz) in let sC = settleAll(sB, hz) in let st = startAll(sC, now2, pos, atoms, active) in let sD = with_activations(st.state, map(e in st.state.activations: foldEvtOne(st.state, e, atoms, pos, hz))) in let rp = reportAll(sD, false, hz) in mk(with_event_position(with_now(rp.state, now2), pos), sortRes(flatten(tripleResults(lost, st.results, rp.results)))) }
+function onWatermarkR using v(s: State, boundary: Integer, scope_in: Scope): StepR pure { let hz = if s.now > boundary then s.now else boundary + 1 in let rp = reportAll(settleAll(s, hz), true, hz) in mk(dropAll(rp.state, hz), sortRes(rp.results)) }
+function onGapR using v(s: State, gap: Integer): StepR pure { let now2 = s.now + gap in let gcells = let g0 = noResults() in g0 in let gacts = map(e in filter(e in s.activations: e.status.rep = 3): failedOf(e.subformula, e.origin_tick, gap)) in mk(with_history_start(with_now(with_activations(s, noActs()), now2), now2), sortRes(flatten(tripleResults(gcells, gacts, noResults())))) }
+function monitorOnEvent using v(s: State, delta: Integer, i: Inputs): Step pure { let r = onEventR(s, delta, i) in Step(r.state, r.results) }
+function monitorOnWatermark using v(s: State, boundary: Integer, scope_in: Scope): Step pure { let r = onWatermarkR(s, boundary, scope_in) in Step(r.state, r.results) }
+function monitorOnGap using v(s: State, gap: Integer): Step pure { let r = onGapR(s, gap) in Step(r.state, r.results) }
