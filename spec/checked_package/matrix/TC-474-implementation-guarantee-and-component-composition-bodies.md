@@ -10,7 +10,7 @@ relationships:
 
 ## Description
 
-Verify FR-038-AC-531 through FR-038-AC-538: the strict V2 reader admits the
+Verify FR-038-AC-531 through FR-038-AC-540: the strict V2 reader admits the
 `correspondence`/`implementation_guarantee` and `correspondence`/
 `component_composition` bodies of QSpec FR-490 and FR-491 as typed terms and
 refuses every other shape, identity, order, target and member in reader order.
@@ -28,7 +28,10 @@ members, duplicate components, undeclared or self-referring premises, and
 safety/liveness premise mismatches. Supply an admitted dependency package
 for the composition targets and verify cross-package subject, clause,
 operation and environment resolution, including clauses of another model
-subject and malformed structural keys.
+subject and malformed structural keys. Name a dependency clause by its own
+operand through a dependency position in the composition's operand row, and
+refuse an unsupplied package, a position past the dependency's last node, a
+position written as a path segment and a local index in a foreign id.
 
 ## Expected Results
 

@@ -9,7 +9,6 @@
 //! module does not derive an identity from an application body.
 
 use super::dependency_references::{DependencyReferences, Referrer, SuppliedDependencies};
-use super::graph_storage::{GraphIndex, SortedTable};
 use super::model_members::{
     units, Budget, CollectionKind, DeclarationForm, EndSelectionError, MemberKind, MemberType,
     ModelFailure, ModelOwners, ModelRefusal, Resolved, SelectedEnds,
@@ -18,24 +17,21 @@ use super::operation_catalog::{
     CatalogLeafSource, CatalogResult, FamilyClass, OperationCatalog, OperationCatalogEntry,
 };
 use super::structural::{typed_union_type_body, typed_union_value_body, UnionMember};
-use super::temporal::member_is_well_formed_node;
+use super::temporal::member_is_well_formed;
 use super::typed_terms::{
-    CheckedApplicationOperationRecord, CheckedFieldReadForm, CheckedOperationConstraint,
-    CheckedOperationLaw, CheckedOperationLawWire as OperationLawWire, CheckedOperationLeaf,
-    CheckedOperationLeafWire as OperationLeafWire, CheckedOperationMember,
-    CheckedOperationMemberIds, CheckedOperationMode, CheckedOperationModeWire as OperationModeWire,
-    CheckedOperationRecord, CheckedOperationViews,
+    CheckedFieldReadForm, CheckedOperationConstraint, CheckedOperationLaw, CheckedOperationLeaf,
+    CheckedOperationMember, CheckedOperationMode, CheckedOperationRecord, CheckedOperationViews,
 };
 use super::{
     ApplicationOperator, BoundedDomainForm, CheckedArtifactRef, CheckedNodeId, CheckedNodeKind,
     CheckedNodeTag, CheckedPackageLockV2, CheckedTerm, ClaimForm, CompositeTypeForm,
     CorrespondenceForm, ExpressionForm, FunctionForm, LawRole, LiteralKind, ModelForm,
     OperationConstraintKind, OperationMemberKind, OperationModeKind, ProtocolForm,
-    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateForm,
-    TemporalForm, ValueForm, WorkMeter,
+    RawSemanticNodeV2 as CheckedSemanticNodeV2, RelationForm, ScalarTypeForm, StateClauseKind,
+    StateForm, TemporalForm, ValueForm, WorkMeter,
 };
-use crate::checked_package::common::node_pointer;
 use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::common::{decoder_pointer, node_pointer};
 use crate::checked_package::selected_population::{
     is_model_population, least_type_occurrence, population_maximum, population_object_type_typed,
 };
@@ -44,6 +40,9 @@ use crate::checked_package::shared::{
 };
 use quire_exact::TextProfile;
 use serde::Deserialize;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 /// One application node under validation, and pointers into its body.
@@ -66,34 +65,6 @@ impl Application<'_> {
         )
     }
 
-    fn read_node(self) -> super::stage_storage::Path<'static> {
-        super::stage_storage::Path::root()
-            .key("semantic_graph")
-            .key("nodes")
-            .index(self.position)
-    }
-
-    fn refuse_read(
-        self,
-        code: CheckedPackageRefusalCode,
-        path: super::stage_storage::Path<'_>,
-        cause: CheckedPackageRefusalCause,
-        meter: &mut WorkMeter,
-    ) -> ValidationFailure {
-        super::stage_storage::refuse(
-            meter,
-            &super::stage_storage::Site::new(
-                super::PackageReadStage::Graph,
-                self.position,
-                super::graph_storage::node_form(&self.node.node_tag),
-                path,
-            ),
-            super::stage_storage::Refusal::new(code, path)
-                .because(cause)
-                .at_node(&self.node.node_id),
-        )
-    }
-
     fn refuse(
         self,
         code: CheckedPackageRefusalCode,
@@ -104,13 +75,16 @@ impl Application<'_> {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct OperationWire {
     pub(super) identity: Box<str>,
     pub(super) laws: Vec<OperationLawWire>,
+    #[serde(deserialize_with = "super::required_nullable")]
     mode: Option<OperationModeWire>,
-    pub(super) member: Option<super::CheckedJson>,
+    #[serde(deserialize_with = "super::required_nullable")]
+    pub(super) member: Option<Value>,
     leaves: Vec<OperationLeafWire>,
-    member_ids: CheckedOperationMemberIds,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -120,97 +94,12 @@ enum FieldProjectionIdentity {
 }
 
 impl OperationWire {
-    fn member_node(&self) -> Option<super::TermNode<'_>> {
-        self.member.as_ref().map(super::TermNode::of)
-    }
-    fn member_key(&self, field: &str) -> Option<&CheckedNodeId> {
-        match field {
-            "declaration" => self.member_ids.declaration.as_ref(),
-            "context" => self.member_ids.context.as_ref(),
-            "destination_type" => self.member_ids.destination_type.as_ref(),
-            "population" => self.member_ids.population.as_ref(),
-            _ => None,
-        }
-    }
-
-    fn copy_laws(
-        laws: &[OperationLawWire],
-        meter: &mut WorkMeter,
-    ) -> Result<Vec<OperationLawWire>, ValidationFailure> {
-        let mut copied = meter.vec(laws.len())?;
-        for law in laws {
-            copied.push(OperationLawWire {
-                role: meter.boxed_str(&law.role)?,
-                definition: CheckedArtifactRef {
-                    authority: meter.boxed_str(&law.definition.authority)?,
-                    identity: meter.boxed_str(&law.definition.identity)?,
-                },
-            });
-        }
-        Ok(copied)
-    }
-    fn copy_mode(
-        mode: Option<&OperationModeWire>,
-        meter: &mut WorkMeter,
-    ) -> Result<Option<OperationModeWire>, ValidationFailure> {
-        mode.map(|mode| {
-            Ok(OperationModeWire {
-                kind: meter.boxed_str(&mode.kind)?,
-                value: meter.boxed_str(&mode.value)?,
-            })
-        })
-        .transpose()
-    }
-
-    pub(super) fn from_record(
-        record: &CheckedApplicationOperationRecord,
-        meter: &mut WorkMeter,
-    ) -> Result<Option<Self>, ValidationFailure> {
-        let Some(identity) = record.identity.as_deref() else {
-            return Ok(None);
-        };
-        let identity = meter.boxed_str(identity)?;
-        let laws = Self::copy_laws(&record.laws, meter)?;
-        let mode = Self::copy_mode(record.mode.as_ref(), meter)?;
-        let mut leaves = meter.vec(record.leaves.len())?;
-        for leaf in &record.leaves {
-            let mut path = meter.vec(leaf.path.len())?;
-            for segment in &leaf.path {
-                path.push(meter.boxed_str(segment)?);
-            }
-            leaves.push(OperationLeafWire {
-                path,
-                laws: Self::copy_laws(&leaf.laws, meter)?,
-                mode: Self::copy_mode(leaf.mode.as_ref(), meter)?,
-            });
-        }
-        let declaration = record.copy_member_declaration(meter)?;
-        let context = record.copy_member_context(meter)?;
-        let mut copy_id = |id: Option<&CheckedNodeId>| id.map(|id| meter.clone_id(id)).transpose();
-        let member_ids = CheckedOperationMemberIds {
-            declaration,
-            context,
-            destination_type: copy_id(record.member_ids.destination_type.as_ref())?,
-            population: copy_id(record.member_ids.population.as_ref())?,
-            target_declaration: copy_id(record.member_ids.target_declaration.as_ref())?,
-            target_node: copy_id(record.member_ids.target_node.as_ref())?,
-            target_parallel: copy_id(record.member_ids.target_parallel.as_ref())?,
-        };
-        Ok(Some(Self {
-            identity,
-            laws,
-            mode,
-            member: record.member.clone(),
-            leaves,
-            member_ids,
-        }))
-    }
     /// The wire member's decoded `kind`: `None` when the operation carries no
     /// member (or one without a string `kind`), `Some(None)` when the `kind`
     /// is outside the catalog's vocabulary.
     // Decodes the wire member kind.
     fn member_kind_class(&self) -> Option<Option<OperationMemberKind>> {
-        let kind = self.member_node()?.get("kind")?.as_str()?;
+        let kind = self.member.as_ref()?.get("kind")?.as_str()?;
         Some(OperationMemberKind::from_wire(kind))
     }
 
@@ -223,147 +112,124 @@ impl OperationWire {
         }
     }
 
-    fn admitted_views(
-        &self,
-        entry: &OperationCatalogEntry,
-        meter: &mut WorkMeter,
-    ) -> Result<Option<CheckedOperationViews>, ValidationFailure> {
-        macro_rules! need {
-            ($value:expr) => {
-                match $value {
-                    Some(value) => value,
-                    None => return Ok(None),
-                }
-            };
-        }
-        fn definition(
-            value: &CheckedArtifactRef,
-            meter: &mut WorkMeter,
-        ) -> Result<CheckedArtifactRef, ValidationFailure> {
-            Ok(CheckedArtifactRef {
-                authority: meter.boxed_str(&value.authority)?,
-                identity: meter.boxed_str(&value.identity)?,
+    fn admitted_views(&self, entry: &OperationCatalogEntry) -> Option<CheckedOperationViews> {
+        let member_declaration = member_declaration(self);
+        let projection_field = (self.member_kind_class() == Some(Some(OperationMemberKind::Field)))
+            .then(|| {
+                Some((
+                    member_declaration.clone()?,
+                    self.member.as_ref()?.get("name")?.as_str()?.into(),
+                ))
             })
-        }
-        fn mode(
-            value: &OperationModeWire,
-            meter: &mut WorkMeter,
-        ) -> Result<Option<CheckedOperationMode>, ValidationFailure> {
-            Ok(Some(CheckedOperationMode {
-                kind: need!(value.kind_class()),
-                value: meter.boxed_str(&value.value)?,
-            }))
-        }
-        fn laws(
-            values: &[OperationLawWire],
-            meter: &mut WorkMeter,
-        ) -> Result<Option<Vec<CheckedOperationLaw>>, ValidationFailure> {
-            let mut laws = meter.vec(values.len())?;
-            for law in values {
-                laws.push(CheckedOperationLaw {
-                    role: need!(law.role_class()),
-                    definition: definition(&law.definition, meter)?,
-                });
-            }
-            Ok(Some(laws))
-        }
-        let member = match self.member_node() {
-            Some(member) => Some(need!(CheckedOperationMember::from_validated_node(
-                member,
-                &self.member_ids,
-                meter
-            )?)),
-            None => None,
+            .flatten();
+        let state_clause_kind = (self.member_kind_class()
+            == Some(Some(OperationMemberKind::StateClause)))
+        .then(|| StateClauseKind::from_wire(self.member.as_ref()?.get("clause")?.as_str()?))
+        .flatten();
+        let mode = self
+            .mode
+            .as_ref()
+            .and_then(|mode| Some((mode.kind_class()?, mode.value.clone())));
+        let read_mode = |mode: &OperationModeWire| {
+            Some(CheckedOperationMode {
+                kind: mode.kind_class()?,
+                value: mode.value.clone(),
+            })
         };
-        let member_declaration = member_declaration(self)
-            .map(|id| meter.clone_id(id))
-            .transpose()?;
-        let projection_field = match member.as_ref() {
-            Some(CheckedOperationMember::Field {
-                declaration, name, ..
-            }) => Some((meter.clone_id(declaration)?, meter.boxed_str(name)?)),
-            _ => None,
+        let read_laws = |laws: &[OperationLawWire]| {
+            laws.iter()
+                .map(|law| {
+                    Some(CheckedOperationLaw {
+                        role: law.role_class()?,
+                        definition: law.definition.clone(),
+                    })
+                })
+                .collect::<Option<Vec<_>>>()
         };
-        let state_clause_kind = match member.as_ref() {
-            Some(CheckedOperationMember::StateClause { clause }) => Some(*clause),
-            _ => None,
-        };
-        let mode_view = match self.mode.as_ref() {
-            Some(value) => Some((need!(value.kind_class()), meter.boxed_str(&value.value)?)),
-            None => None,
-        };
-        let mut constraints = meter.vec(entry.constraints.len())?;
-        for constraint in &entry.constraints {
-            constraints.push(CheckedOperationConstraint {
-                kind: constraint.kind,
-                operands: meter.copy_slice(&constraint.operands)?,
-                family: constraint
-                    .family
-                    .as_deref()
-                    .map(|family| meter.boxed_str(family))
-                    .transpose()?,
-            });
-        }
-        let mut leaves = meter.vec(self.leaves.len())?;
-        for leaf in &self.leaves {
-            let mut path = meter.vec(leaf.path.len())?;
-            for segment in &leaf.path {
-                path.push(meter.boxed_str(segment)?);
-            }
-            leaves.push(CheckedOperationLeaf {
-                path,
-                laws: need!(laws(&leaf.laws, meter)?),
-                mode: match leaf.mode.as_ref() {
-                    Some(value) => Some(need!(mode(value, meter)?)),
-                    None => None,
-                },
-            });
-        }
-        let mut law_definitions = meter.vec(self.laws.len())?;
-        for law in &self.laws {
-            law_definitions.push(definition(&law.definition, meter)?);
-        }
         let record = CheckedOperationRecord {
-            identity: meter.boxed_str(&self.identity)?,
-            mode: match self.mode.as_ref() {
-                Some(value) => Some(need!(mode(value, meter)?)),
+            identity: self.identity.clone(),
+            mode: match &self.mode {
+                Some(mode) => Some(read_mode(mode)?),
                 None => None,
             },
-            laws: need!(laws(&self.laws, meter)?),
-            member,
-            constraints,
-            leaves,
+            laws: read_laws(&self.laws)?,
+            member: match &self.member {
+                Some(member) => Some(CheckedOperationMember::from_validated_value(member)?),
+                None => None,
+            },
+            constraints: entry
+                .constraints
+                .iter()
+                .map(|constraint| CheckedOperationConstraint {
+                    kind: constraint.kind,
+                    operands: constraint.operands.clone(),
+                    family: constraint.family.clone(),
+                })
+                .collect(),
+            leaves: self
+                .leaves
+                .iter()
+                .map(|leaf| {
+                    Some(CheckedOperationLeaf {
+                        path: leaf.path.clone(),
+                        laws: read_laws(&leaf.laws)?,
+                        mode: match &leaf.mode {
+                            Some(mode) => Some(read_mode(mode)?),
+                            None => None,
+                        },
+                    })
+                })
+                .collect::<Option<Vec<_>>>()?,
         };
-        meter.reserve(std::mem::size_of::<CheckedOperationRecord>())?;
-        Ok(Some(CheckedOperationViews {
+        Some(CheckedOperationViews {
             record: Some(Box::new(record)),
             state_clause_kind,
             projection_field,
             member_declaration,
-            mode: mode_view,
-            law_definitions,
-        }))
+            mode,
+            law_definitions: self.laws.iter().map(|law| law.definition.clone()).collect(),
+        })
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OperationLawWire {
+    role: Box<str>,
+    pub(super) definition: CheckedArtifactRef,
+}
+
 impl OperationLawWire {
+    /// The law's decoded role; `None` outside the catalog's vocabulary.
+    // Decodes the wire law role.
     pub(super) fn role_class(&self) -> Option<LawRole> {
         LawRole::from_wire(&self.role)
     }
 }
+
+#[derive(Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+struct OperationModeWire {
+    kind: Box<str>,
+    value: Box<str>,
+}
+
 impl OperationModeWire {
+    /// The mode's decoded kind; `None` outside the catalog's vocabulary.
+    // Decodes the wire mode kind.
     fn kind_class(&self) -> Option<OperationModeKind> {
         OperationModeKind::from_wire(&self.kind)
     }
 }
 
-impl<'de> Deserialize<'de> for OperationWire {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let operation = super::typed_terms::CheckedApplicationOperation::deserialize(deserializer)?;
-        Self::from_record(operation.record(), &mut WorkMeter::new(u64::MAX))
-            .map_err(|_| serde::de::Error::custom("operation record could not be copied"))?
-            .ok_or_else(|| serde::de::Error::custom("missing operation identity"))
-    }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OperationLeafWire {
+    path: Vec<Box<str>>,
+    /// Read by `check_leaf_count`, which requires exactly one `text_profile`
+    /// law per leaf.
+    laws: Vec<OperationLawWire>,
+    mode: Option<OperationModeWire>,
 }
 
 /// Every application node's `operation`, in ascending structural node-id order,
@@ -384,7 +250,7 @@ impl<'de> Deserialize<'de> for OperationWire {
 /// against the upstream description.
 pub(super) struct OperationNodeOrder<'a> {
     pub(super) catalog: &'a OperationCatalog,
-    pub(super) wire_index: &'a GraphIndex<'a>,
+    pub(super) wire_index: &'a BTreeMap<&'a CheckedNodeId, usize>,
     pub(super) structural_keys: &'a [std::sync::Arc<CheckedNodeId>],
 }
 
@@ -399,8 +265,7 @@ pub(super) fn validate_operations(
     meter: &mut WorkMeter,
 ) -> Result<Vec<(usize, CheckedOperationViews)>, ValidationFailure> {
     let catalog = order.catalog;
-    meter.restore_site(None);
-    let flat_index = FlatWireIndex::new(order.wire_index, meter)?;
+    let flat_index = FlatWireIndex::new(order.wire_index);
     let graph = Graph {
         nodes,
         kinds,
@@ -424,7 +289,6 @@ pub(super) fn validate_operations(
     let mut first_refusal: Option<(usize, ValidationFailure)> = None;
     for &position in order.wire_index.values() {
         let node = &nodes[position];
-        meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
         let checked = (|| -> Result<(), ValidationFailure> {
             if !matches!(
                 graph.terms.get(position).and_then(Option::as_ref),
@@ -438,7 +302,7 @@ pub(super) fn validate_operations(
                 if let Some(term) = graph.terms.get(position).and_then(Option::as_ref) {
                     references.walk_admitted(Referrer { node, position }, term, meter)?;
                 }
-                if let Some(failure) = literal_defect(node, position, &graph, owners, meter)? {
+                if let Some(failure) = literal_defect(node, position, &graph, owners) {
                     return Err(failure);
                 }
                 if let Some(failure) = body_root_defect(position, &graph, owners, meter)? {
@@ -472,10 +336,7 @@ pub(super) fn validate_operations(
                 return Err(failure);
             }
             if first_refusal.as_ref().is_none_or(|(first, _)| {
-                order
-                    .wire_index
-                    .resolved_at(position, order.structural_keys)
-                    < order.wire_index.resolved_at(*first, order.structural_keys)
+                order.structural_keys[position] < order.structural_keys[*first]
             }) {
                 first_refusal = Some((position, failure));
             }
@@ -487,14 +348,14 @@ pub(super) fn validate_operations(
     Ok(admitted_views)
 }
 
-/// A sorted lookup of flat IDs for repeated operand-family reads. Deep
-/// probes outside a wholly flat graph are rejected before structural comparison.
+/// The wire index admits only flat node IDs. Keep a hash lookup for repeated
+/// operand-family reads; ordering still comes from `wire_index` above.
 struct FlatWireIndex<'a> {
-    flat: SortedTable<FlatNodeKey<'a>, usize>,
+    flat: HashMap<FlatNodeKey<'a>, usize>,
     has_nested: bool,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy)]
 struct FlatNodeKey<'a>(&'a CheckedNodeId);
 
 impl<'a> FlatNodeKey<'a> {
@@ -506,25 +367,87 @@ impl<'a> FlatNodeKey<'a> {
     }
 }
 
+impl PartialEq for FlatNodeKey<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.package == other.0.package
+            && self.0.ordinal == other.0.ordinal
+            && self.0.path.len() == other.0.path.len()
+            && self
+                .0
+                .path
+                .iter()
+                .zip(&other.0.path)
+                .all(|(left, right)| match (left, right) {
+                    (CheckedNodePathSegment::Name(left), CheckedNodePathSegment::Name(right)) => {
+                        left == right
+                    }
+                    (CheckedNodePathSegment::Index(left), CheckedNodePathSegment::Index(right))
+                    | (
+                        CheckedNodePathSegment::Operand(left),
+                        CheckedNodePathSegment::Operand(right),
+                    ) => left == right,
+                    (
+                        CheckedNodePathSegment::Dependency {
+                            package: left_package,
+                            node: left,
+                        },
+                        CheckedNodePathSegment::Dependency {
+                            package: right_package,
+                            node: right,
+                        },
+                    ) => left_package == right_package && left == right,
+                    _ => false,
+                })
+    }
+}
+
+impl Eq for FlatNodeKey<'_> {}
+
+impl Hash for FlatNodeKey<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.package.hash(state);
+        self.0.ordinal.hash(state);
+        self.0.path.len().hash(state);
+        for segment in &self.0.path {
+            match segment {
+                CheckedNodePathSegment::Name(name) => {
+                    0_u8.hash(state);
+                    name.hash(state);
+                }
+                CheckedNodePathSegment::Index(index) => {
+                    1_u8.hash(state);
+                    index.hash(state);
+                }
+                CheckedNodePathSegment::Operand(slot) => {
+                    2_u8.hash(state);
+                    slot.hash(state);
+                }
+                CheckedNodePathSegment::Dependency { package, node } => {
+                    3_u8.hash(state);
+                    package.hash(state);
+                    node.hash(state);
+                }
+                CheckedNodePathSegment::Node(_) => unreachable!("flat node key"),
+            }
+        }
+    }
+}
+
 impl<'a> FlatWireIndex<'a> {
-    fn new(index: &GraphIndex<'a>, meter: &mut WorkMeter) -> Result<Self, ValidationFailure> {
-        let mut flat = meter.vec(index.len())?;
+    fn new(index: &BTreeMap<&'a CheckedNodeId, usize>) -> Self {
+        let mut flat = HashMap::with_capacity(index.len());
         let mut has_nested = false;
         for (&id, &position) in index {
             if let Some(key) = FlatNodeKey::new(id) {
-                flat.push((key, position));
+                flat.insert(key, position);
             } else {
                 has_nested = true;
             }
         }
-        // Flat keys contain no nested IDs, so comparing them needs no spill.
-        Ok(Self {
-            flat: SortedTable::from_vec(flat, usize::cmp),
-            has_nested,
-        })
+        Self { flat, has_nested }
     }
 
-    fn get(&self, id: &CheckedNodeId, ordered: &GraphIndex<'_>) -> Option<usize> {
+    fn get(&self, id: &CheckedNodeId, ordered: &BTreeMap<&CheckedNodeId, usize>) -> Option<usize> {
         if let Some(key) = FlatNodeKey::new(id) {
             self.flat.get(&key).copied()
         } else if self.has_nested {
@@ -537,7 +460,7 @@ impl<'a> FlatWireIndex<'a> {
 
 fn operand_position(
     id: &CheckedNodeId,
-    index: &GraphIndex<'_>,
+    index: &BTreeMap<&CheckedNodeId, usize>,
     fast: Option<&FlatWireIndex<'_>>,
 ) -> Option<usize> {
     fast.map_or_else(|| index.get(id).copied(), |fast| fast.get(id, index))
@@ -546,23 +469,15 @@ fn operand_position(
 /// Check each literal type before native payload syntax, including body roots
 /// and arguments in `any_value` positions. The heap stack retains authored
 /// paths and the second pass over native literals preserves type precedence.
-fn literal_defect<'t>(
+fn literal_defect(
     node: &CheckedSemanticNodeV2,
     position: usize,
-    graph: &Graph<'t>,
+    graph: &Graph<'_>,
     owners: &ModelOwners<'_>,
-    meter: &mut WorkMeter,
-) -> Result<Option<ValidationFailure>, ValidationFailure> {
-    let Some(root) = graph.terms.get(position).and_then(Option::as_ref) else {
-        return Ok(None);
-    };
-    // Each term waits with the step that reached it, so a path is built only
-    // for the one refusal that names it.
-    let mut steps: Vec<Step> = meter.vec(1)?;
-    steps.push(Step::BODY);
-    let mut pending: Vec<(&'t CheckedTerm, usize)> = meter.vec(1)?;
-    pending.push((root, 0));
-    let mut native: Vec<(bool, usize)> = Vec::new();
+) -> Option<ValidationFailure> {
+    let root = graph.terms.get(position).and_then(Option::as_ref)?;
+    let mut pending = vec![(root, node_pointer(position).key("body"))];
+    let mut native = Vec::new();
     while let Some((term, path)) = pending.pop() {
         if let CheckedTerm::Literal {
             type_id,
@@ -598,132 +513,89 @@ fn literal_defect<'t>(
                 LiteralKind::None => family == Some("option"),
             };
             if !fits {
-                return Ok(Some(ValidationFailure::refused_at(
+                return Some(ValidationFailure::refused_at(
                     CheckedPackageRefusalCode::IllTyped,
-                    step_pointer(&steps, position, path).key("type"),
+                    path.key("type"),
                     Some(CheckedPackageRefusalCause::OperatorIneligible),
                     node.node_id.clone(),
-                )));
+                ));
             }
             if *kind == LiteralKind::Text {
                 match text_literal_membership(type_id, value, graph) {
                     Ok(Some(false)) => {
-                        return Ok(Some(ValidationFailure::refused_at(
+                        return Some(ValidationFailure::refused_at(
                             CheckedPackageRefusalCode::IllTyped,
-                            step_pointer(&steps, position, path).key("value"),
+                            path.key("value"),
                             Some(CheckedPackageRefusalCause::TypeMismatch),
                             node.node_id.clone(),
-                        )));
+                        ));
                     }
-                    Err(failure) => return Ok(Some(failure)),
+                    Err(failure) => return Some(failure),
                     Ok(Some(true) | None) => {}
                 }
             }
-            let valid_native =
-                match kind {
-                    LiteralKind::String => Some(value.is_string()),
-                    LiteralKind::Uuid => Some(value.as_str().is_some_and(canonical_uuid)),
-                    LiteralKind::Timestamp => Some(value.as_str().is_some_and(|text| {
-                        text.parse::<i128>().is_ok_and(|n| displays_as(n, text))
-                    })),
-                    LiteralKind::Quantity => {
-                        // Closed timed and schedulability body passes already
-                        // validate exact reduced rationals, including an explicit
-                        // denominator of one.
-                        let exact_body_quantity = graph
-                            .index
-                            .get(&node.node_id)
-                            .and_then(|&position| graph.kinds.get(position))
-                            .is_some_and(|kind| {
-                                matches!(
-                                    kind,
-                                    CheckedNodeKind::Claim(ClaimForm::Schedulability)
-                                        | CheckedNodeKind::TimedModel(
-                                            super::TimedModelForm::Reset
-                                                | super::TimedModelForm::Constraint
-                                        )
-                                )
-                            });
-                        if exact_body_quantity {
-                            None
-                        } else {
-                            Some(match value.as_str() {
-                                Some(text) => meter.canonical_rational(text)?.is_some(),
-                                None => false,
-                            })
-                        }
-                    }
-                    LiteralKind::Boolean
-                    | LiteralKind::Integer
-                    | LiteralKind::Rational
-                    | LiteralKind::Decimal
-                    | LiteralKind::Float32Bits
-                    | LiteralKind::Float64Bits
-                    | LiteralKind::Text
-                    | LiteralKind::Enum
-                    | LiteralKind::None => None,
-                };
+            let valid_native = match kind {
+                LiteralKind::String => Some(value.is_string()),
+                LiteralKind::Uuid => Some(value.as_str().is_some_and(canonical_uuid)),
+                LiteralKind::Timestamp => Some(value.as_str().is_some_and(|text| {
+                    text.parse::<i128>()
+                        .is_ok_and(|parsed| parsed.to_string() == text)
+                })),
+                LiteralKind::Quantity => {
+                    // Closed timed and schedulability body passes already
+                    // validate exact reduced rationals, including an explicit
+                    // denominator of one.
+                    let exact_body_quantity = graph
+                        .index
+                        .get(&node.node_id)
+                        .and_then(|&position| graph.kinds.get(position))
+                        .is_some_and(|kind| {
+                            matches!(
+                                kind,
+                                CheckedNodeKind::Claim(ClaimForm::Schedulability)
+                                    | CheckedNodeKind::TimedModel(
+                                        super::TimedModelForm::Reset
+                                            | super::TimedModelForm::Constraint
+                                    )
+                            )
+                        });
+                    (!exact_body_quantity).then(|| {
+                        value.as_str().is_some_and(|value| {
+                            super::structural::canonical_rational(value).is_some()
+                        })
+                    })
+                }
+                LiteralKind::Boolean
+                | LiteralKind::Integer
+                | LiteralKind::Rational
+                | LiteralKind::Decimal
+                | LiteralKind::Float32Bits
+                | LiteralKind::Float64Bits
+                | LiteralKind::Text
+                | LiteralKind::Enum
+                | LiteralKind::None => None,
+            };
             if let Some(valid) = valid_native {
-                meter.push(&mut native, (valid, path))?;
+                native.push((valid, path.clone()));
             }
         }
-        let child = |meter: &mut WorkMeter,
-                     steps: &mut Vec<Step>,
-                     pending: &mut Vec<(&'t CheckedTerm, usize)>,
-                     term: &'t CheckedTerm,
-                     key: &'static str,
-                     index: Option<usize>|
-         -> Result<(), ValidationFailure> {
-            meter.push(
-                steps,
-                Step {
-                    parent: path,
-                    key,
-                    index,
-                },
-            )?;
-            meter.push(pending, (term, steps.len() - 1))
-        };
         match term {
             CheckedTerm::Application { arguments, .. } => {
-                for (index, term) in arguments.iter().enumerate().rev() {
-                    child(
-                        meter,
-                        &mut steps,
-                        &mut pending,
-                        term,
-                        "arguments",
-                        Some(index),
-                    )?;
+                for (index, child) in arguments.iter().enumerate().rev() {
+                    pending.push((child, path.clone().key("arguments").index(index)));
                 }
             }
             CheckedTerm::Aggregate { members } => {
-                for (index, term) in members.iter().enumerate().rev() {
-                    child(
-                        meter,
-                        &mut steps,
-                        &mut pending,
-                        term,
-                        "members",
-                        Some(index),
-                    )?;
+                for (index, child) in members.iter().enumerate().rev() {
+                    pending.push((child, path.clone().key("members").index(index)));
                 }
             }
             CheckedTerm::OperationAnchorBody(body) => {
-                for (index, term) in body.members.iter().enumerate().rev() {
-                    child(
-                        meter,
-                        &mut steps,
-                        &mut pending,
-                        term,
-                        "members",
-                        Some(index),
-                    )?;
+                for (index, child) in body.members.iter().enumerate().rev() {
+                    pending.push((child, path.clone().key("members").index(index)));
                 }
             }
-            CheckedTerm::Binding { value, .. } => {
-                child(meter, &mut steps, &mut pending, value, "value", None)?;
-            }
+            CheckedTerm::Binding { value, .. } => pending.push((value, path.key("value"))),
             CheckedTerm::Literal { .. }
             | CheckedTerm::Reference { .. }
             | CheckedTerm::DependencyReference { .. }
@@ -738,72 +610,21 @@ fn literal_defect<'t>(
     }
     for (valid, path) in native {
         if !valid {
-            return Ok(Some(ValidationFailure::refused_at(
+            return Some(ValidationFailure::refused_at(
                 CheckedPackageRefusalCode::InvalidPackage,
-                step_pointer(&steps, position, path).key("value"),
+                path.key("value"),
                 Some(CheckedPackageRefusalCause::InvalidValue),
                 node.node_id.clone(),
-            )));
+            ));
         }
     }
-    Ok(None)
-}
-
-/// One step from a term to its child in a body: the key, and the index
-/// within it when the key holds a list.
-#[derive(Clone, Copy)]
-struct Step {
-    parent: usize,
-    key: &'static str,
-    index: Option<usize>,
-}
-
-impl Step {
-    const BODY: Self = Self {
-        parent: usize::MAX,
-        key: "body",
-        index: None,
-    };
-}
-
-/// The pointer of the term reached by step `at`, built only when a refusal
-/// names it.
-fn step_pointer(steps: &[Step], position: usize, at: usize) -> JsonPointer {
-    let mut chain = Vec::new();
-    let mut current = at;
-    while let Some(step) = steps.get(current) {
-        chain.push(*step);
-        current = step.parent;
-    }
-    chain
-        .iter()
-        .rev()
-        .fold(node_pointer(position), |pointer, step| {
-            let pointer = pointer.key(step.key);
-            match step.index {
-                Some(index) => pointer.index(index),
-                None => pointer,
-            }
-        })
-}
-
-/// Whether `value` prints exactly as `text`, without printing it anywhere.
-fn displays_as(value: impl std::fmt::Display, text: &str) -> bool {
-    struct Remaining<'a>(&'a str);
-    impl std::fmt::Write for Remaining<'_> {
-        fn write_str(&mut self, part: &str) -> std::fmt::Result {
-            self.0 = self.0.strip_prefix(part).ok_or(std::fmt::Error)?;
-            Ok(())
-        }
-    }
-    let mut remaining = Remaining(text);
-    std::fmt::write(&mut remaining, format_args!("{value}")).is_ok() && remaining.0.is_empty()
+    None
 }
 
 /// `None` keeps scalar Text literals outside the bounded-membership rule.
 fn text_literal_membership(
     type_id: &CheckedNodeId,
-    value: &super::CheckedJson,
+    value: &Value,
     graph: &Graph<'_>,
 ) -> Result<Option<bool>, ValidationFailure> {
     let Some(&position) = graph.index.get(type_id) else {
@@ -839,22 +660,10 @@ fn text_literal_membership(
     let normalized = profile
         .normalization()
         .is_none_or(|form| retained.chars().eq(form.apply(retained)));
-    // u64::MAX has twenty digits; the length is printed on the stack.
-    let mut digits = [0_u8; 20];
-    let mut at = digits.len();
-    let mut rest = profile.length(retained);
-    loop {
-        at -= 1;
-        digits[at] = b'0' + (rest % 10) as u8;
-        rest /= 10;
-        if rest == 0 {
-            break;
-        }
-    }
-    let length = std::str::from_utf8(&digits[at..]).unwrap_or("0");
-    let in_bounds = super::structural::canonical_non_negative_cmp(min, length)
+    let length = profile.length(retained).to_string();
+    let in_bounds = super::structural::canonical_non_negative_cmp(min, &length)
         != std::cmp::Ordering::Greater
-        && super::structural::canonical_non_negative_cmp(length, max)
+        && super::structural::canonical_non_negative_cmp(&length, max)
             != std::cmp::Ordering::Greater;
     Ok(Some(normalized && in_bounds))
 }
@@ -876,7 +685,7 @@ fn canonical_uuid(value: &str) -> bool {
 struct Graph<'g> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
-    index: &'g GraphIndex<'g>,
+    index: &'g BTreeMap<&'g CheckedNodeId, usize>,
     structural_keys: &'g [std::sync::Arc<CheckedNodeId>],
     terms: &'g [Option<CheckedTerm>],
 }
@@ -976,7 +785,6 @@ fn check_bounded_dimensions(
     application: Application<'_>,
     operation: &OperationWire,
     graph: &Graph<'_>,
-    meter: &mut WorkMeter,
 ) -> Option<ValidationFailure> {
     if !matches!(
         operation.identity.as_ref(),
@@ -990,30 +798,23 @@ fn check_bounded_dimensions(
         return None;
     };
     let arguments = admitted_arguments(application, graph)?;
-    let types = || {
-        arguments.iter().map(|argument| {
-            operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index)
-        })
-    };
-    // As before, an unresolved operand leaves this check inapplicable before
-    // any dimension comparison. Borrow resolved IDs without a temporary Vec.
-    if types().any(|type_id| type_id.is_none()) {
-        return None;
-    }
-    if !types()
-        .flatten()
+    let types = arguments
+        .iter()
+        .map(|argument| operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index))
+        .collect::<Option<Vec<_>>>()?;
+    if !types
+        .iter()
         .any(|type_id| bounded_unit(type_id, graph).is_some())
         && bounded_unit(result_type, graph).is_none()
     {
         return None;
     }
-    let first = types()
-        .next()
-        .flatten()
+    let first = types
+        .first()
         .and_then(|type_id| quantity_unit(type_id, graph))?;
     let first_dimension = &graph.nodes[*graph.index.get(first)?].semantic_type;
-    let operand_mismatch = types()
-        .flatten()
+    let operand_mismatch = types
+        .iter()
         .skip(1)
         .filter_map(|type_id| quantity_unit(type_id, graph))
         .filter_map(|unit| graph.index.get(unit))
@@ -1038,11 +839,10 @@ fn check_bounded_dimensions(
         _ => return None,
     };
     (operand_mismatch || result_mismatch).then(|| {
-        application.refuse_read(
+        application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            application.read_node(),
+            node_pointer(application.position),
             CheckedPackageRefusalCause::OperatorIneligible,
-            meter,
         )
     })
 }
@@ -1119,69 +919,13 @@ fn is_model_deref_argument(argument: &CheckedTerm, graph: &Graph<'_>) -> bool {
 /// Structural forwarding already paid for by one application's operation check.
 #[derive(Default)]
 struct StructuralTypes {
-    resolved: Vec<(usize, (usize, CheckedNodeKind))>,
+    resolved: BTreeMap<usize, (usize, CheckedNodeKind)>,
 }
 
 /// Shared accounting state while one application checks operands and leaves.
 struct OperationWork<'a, 'b> {
     meter: &'a mut WorkMeter<'b>,
     structural: &'a mut StructuralTypes,
-}
-
-/// A stored test pointer or a borrowed strict-reader position. Healthy reads
-/// carry fixed steps; diagnostic strings are constructed only after denial.
-#[derive(Clone)]
-enum OperationPath {
-    Held(JsonPointer),
-    Read(super::stage_storage::Path<'static>),
-}
-impl From<JsonPointer> for OperationPath {
-    fn from(pointer: JsonPointer) -> Self {
-        Self::Held(pointer)
-    }
-}
-trait DiagnosticPath {
-    fn position(&self) -> super::stage_storage::Position<'_>;
-    fn pointer(&self) -> JsonPointer {
-        self.position().build()
-    }
-}
-impl DiagnosticPath for JsonPointer {
-    fn position(&self) -> super::stage_storage::Position<'_> {
-        super::stage_storage::Position::Recorded(self)
-    }
-}
-impl DiagnosticPath for OperationPath {
-    fn position(&self) -> super::stage_storage::Position<'_> {
-        match self {
-            Self::Held(pointer) => super::stage_storage::Position::Recorded(pointer),
-            Self::Read(path) => (*path).into(),
-        }
-    }
-}
-impl OperationPath {
-    fn index(&self, index: usize) -> JsonPointer {
-        self.pointer().index(index)
-    }
-}
-fn work_at_path(
-    meter: &mut WorkMeter,
-    at: &impl DiagnosticPath,
-    amount: u64,
-) -> Result<(), ValidationFailure> {
-    let locus = meter.budget_mut().and_then(|budget| budget.active_locus());
-    let (stage, index, form) = match locus {
-        Some(super::NativeJoinLocus {
-            source: super::NativeJoinLocusSource::PackageRead(stage, index),
-            form,
-        }) => (stage, index, form),
-        _ => (super::PackageReadStage::Graph, 0, "leaves"),
-    };
-    super::stage_storage::work(
-        meter,
-        &super::stage_storage::Site::new(stage, index, form, at.position()),
-        amount,
-    )
 }
 
 impl StructuralTypes {
@@ -1192,21 +936,18 @@ impl StructuralTypes {
         type_id: &CheckedNodeId,
         graph: &Graph<'_>,
         meter: &mut WorkMeter,
-        at: &impl DiagnosticPath,
+        at: &JsonPointer,
     ) -> Result<Option<(usize, CheckedNodeKind)>, ValidationFailure> {
         let Some(mut position) = graph.index.get(type_id).copied() else {
             return Ok(None);
         };
         let mut walked = Vec::new();
-        let mut seen = Vec::new();
+        let mut seen = BTreeSet::new();
         let resolved = loop {
-            if let Ok(at) = self
-                .resolved
-                .binary_search_by_key(&position, |entry| entry.0)
-            {
-                break Some(self.resolved[at].1);
+            if let Some(known) = self.resolved.get(&position).copied() {
+                break Some(known);
             }
-            if !meter.insert_sorted(&mut seen, position)? {
+            if !seen.insert(position) {
                 break None;
             }
             let Some(kind) = graph.kinds.get(position).copied() else {
@@ -1221,8 +962,8 @@ impl StructuralTypes {
             if !forwards {
                 break Some((position, kind));
             }
-            work_at_path(meter, at, 1)?;
-            meter.push(&mut walked, position)?;
+            meter.charge(1, || at.clone())?;
+            walked.push(position);
             if node.semantic_type == node.node_id {
                 break Some((position, kind));
             }
@@ -1233,16 +974,7 @@ impl StructuralTypes {
         };
         if let Some(found) = resolved {
             for position in walked {
-                match self
-                    .resolved
-                    .binary_search_by_key(&position, |entry| entry.0)
-                {
-                    Ok(at) => self.resolved[at].1 = found,
-                    Err(at) => {
-                        meter.room(&mut self.resolved, 1)?;
-                        self.resolved.insert(at, (position, found));
-                    }
-                }
+                self.resolved.insert(position, found);
             }
         }
         Ok(resolved)
@@ -1283,14 +1015,12 @@ fn check_type_argument_member_result(
     let Some(member) = member_declaration(operation) else {
         return Some(refuse());
     };
-    let result = graph
-        .terms
-        .get(application.position)
-        .and_then(Option::as_ref)
+    let result: Option<CheckedNodeId> = CheckedTerm::view(&application.node.body)
         .and_then(|term| match term {
-            CheckedTerm::Application { result_type, .. } => Some(result_type),
+            super::CheckedTermView::Application { result_type, .. } => Some(result_type),
             _ => None,
-        });
+        })
+        .and_then(|value| serde_json::from_value(value.clone()).ok());
     let Some(result) = result else {
         return Some(refuse());
     };
@@ -1301,14 +1031,14 @@ fn check_type_argument_member_result(
     // catalog family constraint describes the operation's ordinary result.
     let population_result = graph
         .index
-        .get(member)
+        .get(&member)
         .and_then(|position| graph.kinds.get(*position))
         == Some(&CheckedNodeKind::BoundedDomain(
             BoundedDomainForm::ModelPopulation,
         ));
     if let Some(expected_family) = expected_family {
         if !population_result
-            && resolve_selected_family(member, graph, owners)
+            && resolve_selected_family(&member, graph, owners)
                 .is_some_and(|family| !catalog.family_fits(family, expected_family))
         {
             return Some(refuse());
@@ -1358,23 +1088,20 @@ fn operation_defect(
     else {
         return Ok(None);
     };
-    if operation_value.record().malformed.is_some() {
-        return Ok(Some(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.body(&["operation"]),
-        )));
-    }
-    let Some(operation) = OperationWire::from_record(operation_value.record(), meter)? else {
-        return Ok(Some(ValidationFailure::refused(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            application.body(&["operation", "identity"]),
-        )));
-    };
-    work_at_path(
-        meter,
-        &OperationPath::Read(application.read_node().key("body").key("operation")),
+    let operation =
+        match serde_path_to_error::deserialize::<_, OperationWire>(operation_value.record()) {
+            Ok(operation) => operation,
+            Err(error) => {
+                return Ok(Some(ValidationFailure::refused(
+                    CheckedPackageRefusalCode::InvalidSemanticGraph,
+                    decoder_pointer(application.body(&["operation"]), error.path()),
+                )))
+            }
+        };
+    meter.charge(
         1 + u64::try_from(operation.laws.len()).unwrap_or(u64::MAX)
             + u64::try_from(operation.leaves.len()).unwrap_or(u64::MAX),
+        || application.body(&["operation"]),
     )?;
     let mut structural = StructuralTypes::default();
     let refuse = |path: JsonPointer, cause| {
@@ -1474,7 +1201,13 @@ fn operation_defect(
     }
     // A member present on the wire is the value at fault; an absent one is
     // a defect of the `operation` object that lacks it.
-    let member_or_operation = |member: &str| application.body(&["operation", member]);
+    let member_or_operation = |member: &str| {
+        if operation_value.get(member).is_some() {
+            application.body(&["operation", member])
+        } else {
+            application.body(&["operation"])
+        }
+    };
     if operation.identity.as_ref() == "quire.op.quantity.convert"
         && carried_result(application, graph).is_some()
         && operation.mode.is_none()
@@ -1492,13 +1225,13 @@ fn operation_defect(
             return refuse(
                 application.body(&["operation", "mode", "kind"]),
                 CheckedPackageRefusalCause::OperationModeMismatch,
-            );
+            )
         }
         (None, Some(_)) | (Some(_), None) => {
             return refuse(
                 member_or_operation("mode"),
                 CheckedPackageRefusalCause::OperationModeMismatch,
-            );
+            )
         }
     }
     // Outer `Some` is a member on the wire; inner `None` is a `kind` outside
@@ -1515,9 +1248,10 @@ fn operation_defect(
         (Some(kind), Some(Some(wire_kind))) => {
             // The kind agrees; the member must also be the closed shape that
             // kind has (QSpec FR-370: `temporal_interval`, `fairness`).
-            let shaped = operation.member_node().is_some_and(|member| {
-                member_is_well_formed_node(wire_kind, member, &operation.member_ids)
-            });
+            let shaped = operation
+                .member
+                .as_ref()
+                .is_some_and(|member| member_is_well_formed(wire_kind, member));
             if kind != wire_kind || !shaped {
                 return member_mismatch();
             }
@@ -1528,12 +1262,12 @@ fn operation_defect(
             return refuse(
                 application.body(&[]),
                 CheckedPackageRefusalCause::OperationMemberMismatch,
-            );
+            )
         }
         (Some(_), Some(None)) | (Some(_), None) | (None, Some(_)) => return member_mismatch(),
     }
     if wire_member_kind == Some(Some(OperationMemberKind::Field)) {
-        let Some(member) = operation.member_node() else {
+        let Some(member) = operation.member.as_ref() else {
             return member_mismatch();
         };
         let read_form = member.get("read_form");
@@ -1543,10 +1277,7 @@ fn operation_defect(
                 .and_then(|arguments| arguments.first())
                 .is_some_and(|argument| is_model_deref_argument(argument, graph));
         let valid = match (model_projection, read_form) {
-            (true, Some(value)) => value
-                .as_str()
-                .and_then(CheckedFieldReadForm::from_wire)
-                .is_some(),
+            (true, Some(Value::String(value))) => CheckedFieldReadForm::from_wire(value).is_some(),
             (false, None) => true,
             _ => false,
         };
@@ -1560,9 +1291,10 @@ fn operation_defect(
         }
     }
     let profile_operator = operation
-        .member_node()
+        .member
+        .as_ref()
         .and_then(|member| member.get("operator"))
-        .and_then(super::TermNode::as_str);
+        .and_then(Value::as_str);
     if (entry.known == Some(super::KnownOperation::StateTransition)
         && profile_operator != Some("transition"))
         || (entry.known == Some(super::KnownOperation::ProtocolControl)
@@ -1582,7 +1314,7 @@ fn operation_defect(
         term,
         meter,
     )?;
-    if let Some(failure) = literal_defect(node, application.position, graph, owners, meter)? {
+    if let Some(failure) = literal_defect(node, application.position, graph, owners) {
         return Ok(Some(failure));
     }
 
@@ -1620,7 +1352,7 @@ fn operation_defect(
         let bound = admitted_arguments(application, graph)
             .and_then(|arguments| arguments.get(1))
             .and_then(|binder| binder_bound(binder, &operation, graph));
-        for type_id in result.into_iter().chain(bound) {
+        for type_id in result.into_iter().chain(bound.as_ref()) {
             let pin = carried_unit_and_mode(type_id, graph)
                 .map(|(_, mode)| mode)
                 .or_else(|| {
@@ -1645,7 +1377,7 @@ fn operation_defect(
     }
     if operation.identity.as_ref() == "quire.op.collection.sum.quantity"
         && member_declaration(&operation)
-            .is_some_and(|member| carried_unit_and_mode(member, graph).is_some())
+            .is_some_and(|member| carried_unit_and_mode(&member, graph).is_some())
     {
         return Ok(Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
@@ -1720,7 +1452,7 @@ fn operation_defect(
     };
     if let Some(kind) = member_kind {
         let declaring = member_declaration(&operation).and_then(|declaration| {
-            let position = *index.get(declaration)?;
+            let position = *index.get(&declaration)?;
             Some((&nodes[position], kinds[position].tag()))
         });
         match declaring {
@@ -1763,7 +1495,7 @@ fn operation_defect(
     if let Some(failure) = check_quantity_conversion(application, &operation, graph) {
         return Ok(Some(failure));
     }
-    if let Some(failure) = check_bounded_dimensions(application, &operation, graph, meter) {
+    if let Some(failure) = check_bounded_dimensions(application, &operation, graph) {
         return Ok(Some(failure));
     }
     if let Some(failure) = check_mode_type(application, entry, &operation, graph, owners, catalog) {
@@ -1805,13 +1537,13 @@ fn operation_defect(
         )));
     }
     if leaf_defect.is_none() {
-        let Some(views) = operation.admitted_views(entry, meter)? else {
+        let Some(views) = operation.admitted_views(entry) else {
             return Ok(Some(ValidationFailure::refused(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
                 application.body(&["operation"]),
             )));
         };
-        meter.push(admitted_views, (application.position, views))?;
+        admitted_views.push((application.position, views));
     }
     Ok(leaf_defect)
 }
@@ -1835,7 +1567,7 @@ fn argument_family(
     argument: &CheckedTerm,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &GraphIndex<'_>,
+    index: &BTreeMap<&CheckedNodeId, usize>,
     fast_index: Option<&FlatWireIndex<'_>>,
     catalog: &OperationCatalog,
     owners: Option<&ModelOwners<'_>>,
@@ -1882,7 +1614,8 @@ fn is_clause_application(argument: &CheckedTerm, catalog: &OperationCatalog) -> 
         return false;
     };
     operation
-        .identity()
+        .get("identity")
+        .and_then(Value::as_str)
         .and_then(|identity| catalog.entry(identity))
         .is_some_and(|entry| entry.result == CatalogResult::Clause)
 }
@@ -2224,7 +1957,7 @@ pub(super) fn resolve_family(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &GraphIndex<'_>,
+    index: &BTreeMap<&CheckedNodeId, usize>,
 ) -> Option<&'static str> {
     resolve_family_with_lookup(type_id, nodes, kinds, index, None)
 }
@@ -2233,21 +1966,16 @@ fn resolve_family_with_lookup(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &GraphIndex<'_>,
+    index: &BTreeMap<&CheckedNodeId, usize>,
     fast_index: Option<&FlatWireIndex<'_>>,
 ) -> Option<&'static str> {
-    index.begin_walk();
-    let result = resolve_family_with(
-        type_id,
-        |visit| {
-            Ok::<_, std::convert::Infallible>(match visit {
-                FamilyVisit::Node(id) => operand_position(id, index, fast_index)
-                    .and_then(|position| Some((nodes.get(position)?, *kinds.get(position)?))),
-                FamilyVisit::Forward => None,
-            })
-        },
-        &mut |id| index.first_visit(id),
-    );
+    let result = resolve_family_with(type_id, |visit| {
+        Ok::<_, std::convert::Infallible>(match visit {
+            FamilyVisit::Node(id) => operand_position(id, index, fast_index)
+                .and_then(|position| Some((nodes.get(position)?, *kinds.get(position)?))),
+            FamilyVisit::Forward => None,
+        })
+    });
     match result {
         Ok(FamilyResolution::Family(family)) => Some(family),
         Ok(FamilyResolution::NoFamily | FamilyResolution::Malformed(_)) => None,
@@ -2269,7 +1997,7 @@ fn resolve_family_from_selected(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &GraphIndex<'_>,
+    index: &BTreeMap<&CheckedNodeId, usize>,
     owners: &ModelOwners<'_>,
 ) -> Option<&'static str> {
     resolve_family_from_selected_with_lookup(type_id, nodes, kinds, index, None, owners)
@@ -2279,11 +2007,10 @@ fn resolve_family_from_selected_with_lookup(
     type_id: &CheckedNodeId,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &GraphIndex<'_>,
+    index: &BTreeMap<&CheckedNodeId, usize>,
     fast_index: Option<&FlatWireIndex<'_>>,
     owners: &ModelOwners<'_>,
 ) -> Option<&'static str> {
-    index.begin_walk();
     let result = resolve_family_with_selected(
         type_id,
         |visit| {
@@ -2294,7 +2021,6 @@ fn resolve_family_from_selected_with_lookup(
             })
         },
         |id| owners.variant_family(id),
-        &mut |id| index.first_visit(id),
     );
     match result {
         Ok(FamilyResolution::Family(family)) => Some(family),
@@ -2321,7 +2047,6 @@ pub(super) trait NominalEnumOrder {
     fn enum_ordered(&self) -> Option<bool>;
 }
 
-#[cfg(test)]
 impl NominalEnumOrder for serde_json::Value {
     fn enum_ordered(&self) -> Option<bool> {
         let body = super::identity::NominalBody::from_value(self, JsonPointer::root()).ok()?;
@@ -2344,25 +2069,14 @@ impl NominalEnumOrder for CheckedTerm {
     }
 }
 
-impl NominalEnumOrder for super::CheckedJson {
-    fn enum_ordered(&self) -> Option<bool> {
-        let body = super::TermNode::of(self);
-        if body.get("term").and_then(super::TermNode::as_str) != Some("enum") {
-            return None;
-        }
-        body.get("ordered").and_then(super::TermNode::as_bool)
-    }
-}
-
 pub(super) fn resolve_family_with<'a, E, Body: NominalEnumOrder + 'a>(
     type_id: &CheckedNodeId,
     visit: impl FnMut(
         FamilyVisit<'_>,
     )
         -> Result<Option<(&'a super::CheckedSemanticNodeV2<Body>, CheckedNodeKind)>, E>,
-    first_visit: &mut dyn FnMut(&CheckedNodeId) -> bool,
 ) -> Result<FamilyResolution, E> {
-    resolve_family_with_selected(type_id, visit, |_| None, first_visit)
+    resolve_family_with_selected(type_id, visit, |_| None)
 }
 
 pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
@@ -2374,14 +2088,14 @@ pub(super) fn resolve_family_with_selected<'a, E, Body: NominalEnumOrder + 'a>(
         E,
     >,
     mut selected_family: impl FnMut(&CheckedNodeId) -> Option<&'static str>,
-    first_visit: &mut dyn FnMut(&CheckedNodeId) -> bool,
 ) -> Result<FamilyResolution, E> {
+    let mut seen = BTreeSet::new();
     let mut current = type_id;
     loop {
         let Some((node, kind)) = visit(FamilyVisit::Node(current))? else {
             return Ok(FamilyResolution::Malformed(current.clone()));
         };
-        if !first_visit(&node.node_id) {
+        if !seen.insert(node.node_id.clone()) {
             return Ok(FamilyResolution::Malformed(node.node_id.clone()));
         }
         if let Some(family) = selected_family(&node.node_id) {
@@ -2433,7 +2147,7 @@ fn check_carried_member(
         return None;
     }
     let carried = member_declaration(operation)
-        .and_then(|member| graph.index.get(member).copied())
+        .and_then(|member| graph.index.get(&member).copied())
         .and_then(|position| graph.kinds.get(position))
         == Some(&CheckedNodeKind::ScalarType(
             ScalarTypeForm::CarriedQuantity,
@@ -2608,17 +2322,12 @@ fn check_operands(
         )));
     }
     for constraint in &entry.constraints {
-        if constraint
+        let indices: Option<Vec<usize>> = constraint
             .operands
             .iter()
-            .any(|position| usize::try_from(*position).is_err())
-        {
-            continue;
-        }
-        let mut indices = work.meter.vec(constraint.operands.len())?;
-        for position in &constraint.operands {
-            indices.push(usize::try_from(*position).expect("checked catalogue operand position"));
-        }
+            .map(|position| usize::try_from(*position).ok())
+            .collect();
+        let Some(indices) = indices else { continue };
         if indices
             .iter()
             .any(|position| *position >= typed_arguments.len())
@@ -2627,42 +2336,42 @@ fn check_operands(
         }
         match constraint.kind {
             OperationConstraintKind::SameFamily => {
-                let family = |position| {
-                    typed_arguments.get(position).and_then(|argument| {
-                        argument_family(
-                            argument,
-                            nodes,
-                            kinds,
-                            index,
-                            fast_index,
-                            catalog,
-                            Some(owners),
-                        )
+                let families: Option<Vec<&str>> = indices
+                    .iter()
+                    .map(|position| {
+                        typed_arguments.get(*position).and_then(|argument| {
+                            argument_family(
+                                argument,
+                                nodes,
+                                kinds,
+                                index,
+                                fast_index,
+                                catalog,
+                                Some(owners),
+                            )
+                        })
                     })
-                };
-                if indices.iter().all(|&position| family(position).is_some()) {
-                    if let Some(pair) = indices
-                        .windows(2)
-                        .position(|pair| family(pair[0]) != family(pair[1]))
-                    {
-                        return ineligible(indices.get(pair + 1).copied());
+                    .collect();
+                if let Some(families) = families {
+                    if let Some(pair) = families.windows(2).position(|pair| pair[0] != pair[1]) {
+                        return ineligible(indices.get(pair.saturating_add(1)).copied());
                     }
                 }
             }
             OperationConstraintKind::SameType => {
-                let ty = |position| {
-                    typed_arguments.get(position).and_then(|argument| {
-                        operand_type_node_typed_with_lookup(
-                            argument, nodes, kinds, index, fast_index,
-                        )
+                let types: Option<Vec<CheckedNodeId>> = indices
+                    .iter()
+                    .map(|position| {
+                        typed_arguments.get(*position).and_then(|argument| {
+                            operand_type_node_typed_with_lookup(
+                                argument, nodes, kinds, index, fast_index,
+                            )
+                        })
                     })
-                };
-                if indices.iter().all(|&position| ty(position).is_some()) {
-                    if let Some(pair) = indices
-                        .windows(2)
-                        .position(|pair| ty(pair[0]) != ty(pair[1]))
-                    {
-                        return ineligible(indices.get(pair + 1).copied());
+                    .collect();
+                if let Some(types) = types {
+                    if let Some(pair) = types.windows(2).position(|pair| pair[0] != pair[1]) {
+                        return ineligible(indices.get(pair.saturating_add(1)).copied());
                     }
                 }
             }
@@ -2776,11 +2485,11 @@ fn check_operands(
 
 /// Resolve a binder's body type, including the two binders of a fold step.
 #[ix_trace_rs::string_edge]
-fn binder_bound<'a>(
-    binder: &'a CheckedTerm,
+fn binder_bound(
+    binder: &CheckedTerm,
     operation: &OperationWire,
-    graph: &'a Graph<'_>,
-) -> Option<&'a CheckedNodeId> {
+    graph: &Graph<'_>,
+) -> Option<CheckedNodeId> {
     let CheckedTerm::Binding { value, .. } = binder else {
         return None;
     };
@@ -2850,18 +2559,17 @@ fn union_type<'g>(
     owners: &'g ModelOwners<'_>,
     meter: &mut WorkMeter,
     structural: &mut StructuralTypes,
-    at: &impl DiagnosticPath,
+    at: &JsonPointer,
 ) -> Result<Option<Vec<UnionMember<'g>>>, ValidationFailure> {
     let Some((position, kind)) = structural.resolve(type_id, graph, meter, at)? else {
         return Ok(None);
     };
     match kind {
-        CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
-            match graph.terms.get(position).and_then(Option::as_ref) {
-                Some(term) => typed_union_type_body(term, meter),
-                None => Ok(None),
-            }
-        }
+        CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => Ok(graph
+            .terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(typed_union_type_body)),
         CheckedNodeKind::Model(ModelForm::VariantType) => {
             selected_union_members(&graph.nodes[position].node_id, owners, meter)
         }
@@ -2890,24 +2598,21 @@ fn selected_union_members<'m>(
     }
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(units(cases.len()))?;
-    let mut members = budget.vec(cases.len(), "union_members")?;
+    let mut members = Vec::with_capacity(cases.len());
     for (name, case) in cases {
         let payload = if let Some(payload_type) = &case.payload {
-            let Some(member_type) = owner.package.element_type_in(payload_type, &mut budget)?
-            else {
+            let Some(member_type) = owner.package.element_type(payload_type) else {
                 return Ok(None);
             };
             let id = member_type
-                .node_id_in(&owner.package.checked_package, &mut budget)?
+                .node_id(&owner.package.checked_package)
                 .ok_or_else(|| {
                     ValidationFailure::refused(
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
                         budget.row(),
                     )
                 })?;
-            let mut payload = budget.vec(1, "union_payload")?;
-            payload.push(id);
-            payload
+            vec![id]
         } else {
             Vec::new()
         };
@@ -2952,14 +2657,7 @@ fn union_arms_hold(
         owners,
         meter,
         structural,
-        &OperationPath::Read(
-            super::stage_storage::Path::root()
-                .key("semantic_graph")
-                .key("nodes")
-                .index(application.position)
-                .key("body")
-                .key("operation"),
-        ),
+        &application.body(&["operation"]),
     )?
     else {
         return Ok(false);
@@ -2989,23 +2687,17 @@ fn union_arms_hold(
         let [binders, body] = parts.as_slice() else {
             return Ok(false);
         };
-        let mut binders_hold = match binders {
-            CheckedTerm::Aggregate { members: binders } => {
-                Some(binders.as_slice()).filter(|binders| binders.len() == member.payload.len())
-            }
+        let binders_hold = match binders {
+            CheckedTerm::Aggregate { members: binders } => Some(binders.as_slice()),
             _ => None,
         }
-        .is_some();
-        if binders_hold {
-            if let CheckedTerm::Aggregate { members: binders } = binders {
-                for (binder, payload) in binders.iter().zip(&member.payload) {
-                    if !binder_matches_payload(binder, payload, graph, meter)? {
-                        binders_hold = false;
-                        break;
-                    }
-                }
-            }
-        }
+        .is_some_and(|binders| {
+            binders.len() == member.payload.len()
+                && binders
+                    .iter()
+                    .zip(&member.payload)
+                    .all(|(binder, payload)| binder_matches_payload(binder, payload, graph))
+        });
         // Implements: FR-347. an arm body conforms to a record `result_type`; a binder is
         // bound to the payload type and stays exact.
         let Some(result) = result_type else {
@@ -3014,7 +2706,7 @@ fn union_arms_hold(
         if !binders_hold
             || !conforms_to_type(
                 result,
-                operand_type_node_typed(body, nodes, kinds, index),
+                operand_type_node_typed(body, nodes, kinds, index).as_ref(),
                 graph,
                 owners,
                 meter,
@@ -3026,39 +2718,18 @@ fn union_arms_hold(
     Ok(true)
 }
 
-/// Whether the rebuilt key `held` is the key `expected`, compared through the
-/// meter: both may nest as deep as their operand chains.
-fn same_key(
-    held: Option<&CheckedNodeId>,
-    expected: &CheckedNodeId,
-    meter: &mut WorkMeter,
-) -> Result<bool, ValidationFailure> {
-    match held {
-        Some(held) => Ok(meter.compare_ids(held, expected)? == std::cmp::Ordering::Equal),
-        None => Ok(false),
-    }
-}
-
 fn binder_matches_payload(
     binder: &CheckedTerm,
     payload: &CheckedNodeId,
     graph: &Graph<'_>,
-    meter: &mut WorkMeter,
-) -> Result<bool, ValidationFailure> {
-    let Some(position) =
-        referenced_type(binder).and_then(|target| graph.index.get(&target).copied())
-    else {
-        return Ok(false);
-    };
-    if graph.kinds[position] != CheckedNodeKind::Value(ValueForm::Parameter) {
-        return Ok(false);
-    }
-    let expected = graph.structural_id(payload).unwrap_or(payload);
-    same_key(
-        graph.structural_id(&graph.nodes[position].semantic_type),
-        expected,
-        meter,
-    )
+) -> bool {
+    referenced_type(binder)
+        .and_then(|target| graph.index.get(&target).copied())
+        .is_some_and(|position| {
+            graph.kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter)
+                && graph.structural_id(&graph.nodes[position].semantic_type)
+                    == Some(graph.structural_id(payload).unwrap_or(payload))
+        })
 }
 
 /// Whether a node of this kind is a type node: a `scalar_type`,
@@ -3156,16 +2827,16 @@ fn union_defect(
     };
     let kind = kinds[position];
     if kind == CheckedNodeKind::CompositeType(CompositeTypeForm::Union) {
-        let Some(term) = graph.terms.get(position).and_then(Option::as_ref) else {
+        let Some(members) = graph
+            .terms
+            .get(position)
+            .and_then(Option::as_ref)
+            .and_then(typed_union_type_body)
+        else {
             return Ok(None);
         };
-        let Some(members) = typed_union_type_body(term, meter)? else {
-            return Ok(None);
-        };
-        let mut names = meter.vec(members.len())?;
-        names.extend(members.iter().map(|member| member.name));
-        names.sort_unstable();
-        if names.windows(2).any(|pair| pair[0] == pair[1]) {
+        let mut names = BTreeSet::new();
+        if !members.iter().all(|member| names.insert(member.name)) {
             return Ok(refuse(
                 CheckedPackageRefusalCode::InvalidPackage,
                 CheckedPackageRefusalCause::DuplicateMember,
@@ -3209,12 +2880,11 @@ fn union_defect(
             )
         };
         let members = match kinds[declared] {
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
-                match graph.terms.get(declared).and_then(Option::as_ref) {
-                    Some(term) => typed_union_type_body(term, meter)?,
-                    None => None,
-                }
-            }
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => graph
+                .terms
+                .get(declared)
+                .and_then(Option::as_ref)
+                .and_then(typed_union_type_body),
             CheckedNodeKind::Model(ModelForm::VariantType) => {
                 selected_union_members(&node.semantic_type, owners, meter)?
             }
@@ -3241,7 +2911,7 @@ fn union_defect(
             }
             if !conforms_to_type(
                 expected,
-                operand_type_node_typed(term, nodes, kinds, index),
+                operand_type_node_typed(term, nodes, kinds, index).as_ref(),
                 graph,
                 owners,
                 meter,
@@ -3274,11 +2944,7 @@ fn conforms_to_type(
     let Some(actual_key) = graph.structural_id(actual) else {
         return Ok(false);
     };
-    if meter.compare_ids(
-        actual_key,
-        graph.structural_id(expected).unwrap_or(expected),
-    )? == std::cmp::Ordering::Equal
-    {
+    if actual_key == graph.structural_id(expected).unwrap_or(expected) {
         return Ok(true);
     }
     let Some(parameter) = owners.record_by_key(expected) else {
@@ -3328,7 +2994,7 @@ fn body_root_defect(
         return Ok(None);
     }
     let root_type = match graph.terms.get(position).and_then(Option::as_ref) {
-        Some(CheckedTerm::Application { result_type, .. }) => Some(result_type),
+        Some(CheckedTerm::Application { result_type, .. }) => Some(result_type.clone()),
         Some(CheckedTerm::Aggregate { members }) if tag == CheckedNodeTag::Function => members
             .iter()
             .find_map(|member| match member {
@@ -3415,7 +3081,7 @@ fn check_function_call(
             entries
                 .iter()
                 .map(|entry| {
-                    let position = *index.get(referenced_type(entry)?)?;
+                    let position = *index.get(&referenced_type(entry)?)?;
                     (kinds[position] == CheckedNodeKind::Value(ValueForm::Parameter))
                         .then(|| nodes[position].semantic_type.clone())
                 })
@@ -3431,7 +3097,7 @@ fn check_function_call(
         let position = offset.saturating_add(1);
         if !conforms_to_type(
             expected,
-            operand_type_node_typed(&arguments[position], nodes, kinds, index),
+            operand_type_node_typed(&arguments[position], nodes, kinds, index).as_ref(),
             graph,
             owners,
             meter,
@@ -3479,7 +3145,7 @@ fn check_reference_edge(
         reference_target(&type_id, graph)
     };
     let declaring = member_declaration(operation)
-        .and_then(|declaration| graph.index.get(declaration).copied())
+        .and_then(|declaration| graph.index.get(&declaration).copied())
         .map(|position| (&graph.nodes[position], graph.kinds[position].tag()));
     let Some((declaring, tag)) = declaring else {
         return ineligible(member_at("declaration"));
@@ -3487,7 +3153,7 @@ fn check_reference_edge(
     if !owners.is_model_declaration_node(declaring, tag) {
         return ineligible(member_at("declaration"));
     }
-    if reference_operand(source) != Some(&declaring.node_id) {
+    if reference_operand(source).as_ref() != Some(&declaring.node_id) {
         return ineligible(argument_at(source));
     }
     let owner = match owners.recover(declaring) {
@@ -3497,16 +3163,17 @@ fn check_reference_edge(
                 application,
                 member_at("declaration"),
                 refusal,
-            )));
+            )))
         }
     };
     if owner.object_type().is_none() {
         return ineligible(member_at("name"));
     }
     let name = operation
-        .member_node()
+        .member
+        .as_ref()
         .and_then(|member| member.get("name"))
-        .and_then(super::TermNode::as_str)
+        .and_then(Value::as_str)
         .unwrap_or("");
     let resolved = {
         let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
@@ -3516,7 +3183,7 @@ fn check_reference_edge(
         {
             Ok(resolved) => resolved,
             Err(ModelFailure::Refused(refusal)) => {
-                return Ok(Some(model_refusal(application, member_at("name"), refusal)));
+                return Ok(Some(model_refusal(application, member_at("name"), refusal)))
             }
             Err(ModelFailure::Limit(failure)) => return Err(failure),
         }
@@ -3542,11 +3209,7 @@ fn check_reference_edge(
         return ineligible(member_at("name"));
     };
     let edge = MemberType::Reference(edge_id.clone());
-    let is_edge = match owner.package.field_type_charged(
-        field,
-        &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
-        "member_type",
-    )? {
+    let is_edge = match owner.package.field_type(field) {
         Some(MemberType::Option(inner)) => *inner == edge,
         Some(MemberType::Collection {
             kind: CollectionKind::Sequence,
@@ -3576,7 +3239,7 @@ fn check_reference_edge(
                 application,
                 argument_at(target),
                 refusal,
-            )));
+            )))
         }
     };
     if !std::ptr::eq(end_owner.package, owner.package) || end_owner.object_type().is_none() {
@@ -3594,12 +3257,14 @@ fn check_reference_edge(
 }
 
 /// The admitted member's declaring identity, including a typed fairness target.
-fn member_declaration(operation: &OperationWire) -> Option<&CheckedNodeId> {
-    if operation.member_kind_class() == Some(Some(OperationMemberKind::Fairness)) {
-        operation.member_ids.target_declaration.as_ref()
+fn member_declaration(operation: &OperationWire) -> Option<CheckedNodeId> {
+    let member = operation.member.as_ref()?;
+    let declaration = if member.get("kind").and_then(Value::as_str) == Some("fairness") {
+        member.get("target")?.get("declaration")?
     } else {
-        operation.member_key("declaration")
-    }
+        member.get("declaration")?
+    };
+    CheckedNodeId::from_value(declaration)
 }
 
 /// A selected tuple's positions live in its document, not in the declaration
@@ -3614,15 +3279,15 @@ fn check_tuple_position(
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
     // The published TW-18..20 wire cases locate tuple-project failures at
     // the application node as a whole.
-    let member_at = || node_pointer(application.position);
+    let member_at = node_pointer(application.position);
     let ineligible = || {
         Ok(Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            member_at(),
+            member_at.clone(),
             CheckedPackageRefusalCause::OperatorIneligible,
         )))
     };
-    let Some(member) = operation.member_node() else {
+    let Some(member) = operation.member.as_ref() else {
         return ineligible();
     };
     let Some(arguments) = admitted_arguments(application, graph) else {
@@ -3631,7 +3296,7 @@ fn check_tuple_position(
     let operand_type = arguments.first().and_then(|argument| {
         operand_type_node_typed(argument, graph.nodes, graph.kinds, graph.index)
     });
-    let declaring = member_declaration(operation).and_then(|id| graph.index.get(id).copied());
+    let declaring = member_declaration(operation).and_then(|id| graph.index.get(&id).copied());
     let is_selected_tuple = |position: usize| {
         graph.kinds[position] == CheckedNodeKind::Model(ModelForm::TupleValueType)
     };
@@ -3667,33 +3332,22 @@ fn check_tuple_position(
     else {
         return ineligible();
     };
-    if owner.package.duration_unit_absent(
-        position_ref,
-        &mut Budget::new(meter, owner.package.root, owner.package.bytes),
-    )? {
+    if owner.package.duration_unit_absent(position_ref) {
         return Ok(Some(application.refuse(
             CheckedPackageRefusalCode::MissingDeclaration,
-            member_at(),
+            member_at,
             CheckedPackageRefusalCause::MissingName,
         )));
     }
-    let Some(position_type) = owner.package.element_type_in(
-        position_ref,
-        &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
-    )?
-    else {
+    let Some(position_type) = owner.package.element_type(position_ref) else {
         return ineligible();
     };
-    if operand_type != Some(&declaration.node_id) {
+    if operand_type.as_ref() != Some(&declaration.node_id) {
         return ineligible();
     }
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(1)?;
-    let Some(expected_type) = position_type.node_id_in(
-        &application.node.node_id.package,
-        &mut Budget::new(meter, owner.package.root, owner.package.bytes),
-    )?
-    else {
+    let Some(expected_type) = position_type.node_id(&application.node.node_id.package) else {
         return Ok(Some(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             application.node_id(),
@@ -3707,11 +3361,7 @@ fn check_tuple_position(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if !same_key(
-        result_type.and_then(|id| graph.structural_id(id)),
-        &expected_type,
-        meter,
-    )? {
+    if result_type.and_then(|id| graph.structural_id(id)) != Some(&expected_type) {
         return ineligible();
     }
     Ok(None)
@@ -3731,7 +3381,8 @@ fn check_relationship_member(
         Ok(Some(model_refusal(application, path, refusal)))
     };
     let ineligible = |path: JsonPointer| refuse(path, ModelRefusal::ineligible());
-    let Some(declaring) = member_declaration(operation).and_then(|id| graph.index.get(id).copied())
+    let Some(declaring) =
+        member_declaration(operation).and_then(|id| graph.index.get(&id).copied())
     else {
         return refuse(member_at("declaration"), ModelRefusal::unselected());
     };
@@ -3752,17 +3403,18 @@ fn check_relationship_member(
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(1)?;
     let name = operation
-        .member_node()
+        .member
+        .as_ref()
         .and_then(|member| member.get("name"))
-        .and_then(super::TermNode::as_str)
+        .and_then(Value::as_str)
         .unwrap_or("");
     let selected = match relationship.select_ends(name) {
         Ok(selected) => selected,
         Err(EndSelectionError::MissingName) => {
-            return refuse(member_at("name"), ModelRefusal::missing_name());
+            return refuse(member_at("name"), ModelRefusal::missing_name())
         }
         Err(EndSelectionError::Ambiguous) => {
-            return refuse(member_at("name"), ModelRefusal::ambiguous());
+            return refuse(member_at("name"), ModelRefusal::ambiguous())
         }
     };
     let SelectedEnds {
@@ -3835,13 +3487,18 @@ fn check_relationship_member(
     // QSpec FR-322 supplies this structural label in the member. The selected
     // document establishes the destination kind above; its node need not be in
     // this graph, and the reader must not derive a replacement label.
-    let Some(destination_id) = operation.member_key("destination_type") else {
+    let Some(destination_id) = operation
+        .member
+        .as_ref()
+        .and_then(|member| member.get("destination_type"))
+        .and_then(CheckedNodeId::from_value)
+    else {
         return Ok(Some(ValidationFailure::refused(
             CheckedPackageRefusalCode::MalformedWire,
             member_at("destination_type"),
         )));
     };
-    let member_type = match relationship.navigation_type(forward, meter.clone_id(destination_id)?) {
+    let member_type = match relationship.navigation_type(forward, destination_id.clone()) {
         Ok(member_type) => member_type,
         Err(refusal) => return refuse(member_at("name"), refusal),
     };
@@ -3853,11 +3510,7 @@ fn check_relationship_member(
     } else {
         member_type
     };
-    let Some(expected_id) = expected.node_id_in(
-        &application.node.node_id.package,
-        &mut Budget::new(meter, owner.package.root, owner.package.bytes),
-    )?
-    else {
+    let Some(expected_id) = expected.node_id(&application.node.node_id.package) else {
         return ineligible(application.body(&["result_type"]));
     };
     let result = graph
@@ -3868,17 +3521,14 @@ fn check_relationship_member(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    if !same_key(
-        result.and_then(|id| graph.structural_id(id)),
-        &expected_id,
-        meter,
-    )? {
+    if result.and_then(|id| graph.structural_id(id)) != Some(&expected_id) {
         return ineligible(application.body(&["result_type"]));
     }
     // The population link is the last check of the member: every earlier defect
     // keeps its present outcome.
-    let Some(_named) = operation
-        .member_node()
+    let Some(named) = operation
+        .member
+        .as_ref()
         .and_then(|member| member.get("population"))
     else {
         return Ok(None);
@@ -3893,9 +3543,8 @@ fn check_relationship_member(
             .and_then(|&at| graph.terms.get(at))
             .and_then(Option::as_ref)
     };
-    let linked = operation
-        .member_key("population")
-        .and_then(|id| graph.index.get(id).copied())
+    let linked = CheckedNodeId::from_value(named)
+        .and_then(|id| graph.index.get(&id).copied())
         .and_then(|position| Some((graph.nodes.get(position)?, graph.kinds.get(position)?)))
         .filter(|(node, kind)| {
             is_model_population(**kind)
@@ -3927,10 +3576,7 @@ fn check_relationship_member(
 
 /// The node a `composite_type`/`reference` type node's body references: `X`
 /// of `Reference<X>`. `None` for any other node.
-fn reference_target<'g>(
-    type_id: &CheckedNodeId,
-    graph: &'g Graph<'_>,
-) -> Option<&'g CheckedNodeId> {
+fn reference_target(type_id: &CheckedNodeId, graph: &Graph<'_>) -> Option<CheckedNodeId> {
     let position = *graph.index.get(type_id)?;
     if *graph.kinds.get(position)? != CheckedNodeKind::CompositeType(CompositeTypeForm::Reference) {
         return None;
@@ -3941,7 +3587,7 @@ fn reference_target<'g>(
     let [CheckedTerm::Reference { target }] = members.as_slice() else {
         return None;
     };
-    Some(target)
+    Some(target.clone())
 }
 
 /// A model-owned member refusal at `path`.
@@ -3973,7 +3619,7 @@ fn check_conforming_reference(
             ModelRefusal::ineligible(),
         )))
     };
-    let mut recovered = meter.vec(2)?;
+    let mut recovered = Vec::with_capacity(2);
     let Some(arguments) = admitted_arguments(application, graph) else {
         return Ok(None);
     };
@@ -4137,15 +3783,10 @@ fn check_place_presence(
         if option {
             return Ok(false);
         }
-        return Err(application.refuse_read(
+        return Err(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            application
-                .read_node()
-                .key("body")
-                .key("arguments")
-                .index(0),
+            application.body(&["arguments"]).index(0),
             CheckedPackageRefusalCause::OperatorIneligible,
-            meter,
         ));
     };
     let Some(place_body) = graph.terms.get(place).and_then(Option::as_ref) else {
@@ -4154,17 +3795,12 @@ fn check_place_presence(
     let Some((model, selectors)) = super::timed_model::place_template(place_body) else {
         return Ok(false);
     };
-    work_at_path(
-        meter,
-        &OperationPath::Read(application.read_node().key("body").key("arguments")),
-        units(selectors.len()),
-    )?;
+    meter.charge(units(selectors.len()), || application.body(&["arguments"]))?;
     if arguments.len() != selectors.len() + 2 {
-        return Err(application.refuse_read(
+        return Err(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            application.read_node().key("body").key("arguments"),
+            application.body(&["arguments"]),
             CheckedPackageRefusalCause::OperatorIneligible,
-            meter,
         ));
     }
     let result_type = graph
@@ -4179,52 +3815,38 @@ fn check_place_presence(
         .and_then(|id| graph.index.get(id).copied())
         .and_then(|position| graph.kinds.get(position))
         != Some(&CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))
-        || !same_key(result_type, &application.node.semantic_type, meter)?
+        || result_type != Some(&application.node.semantic_type)
     {
-        return Err(application.refuse_read(
+        return Err(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            application.read_node().key("body").key("result_type"),
+            application.body(&["result_type"]),
             CheckedPackageRefusalCause::OperatorIneligible,
-            meter,
         ));
     }
     let owner_type = presence_value_type(&arguments[1], graph)
-        .and_then(|type_id| reference_target(type_id, graph).or(Some(type_id)));
-    if !same_key(owner_type, model, meter)? {
-        return Err(application.refuse_read(
+        .and_then(|type_id| reference_target(&type_id, graph).or(Some(type_id)));
+    if owner_type.as_ref() != Some(model) {
+        return Err(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
-            application
-                .read_node()
-                .key("body")
-                .key("arguments")
-                .index(1),
+            application.body(&["arguments"]).index(1),
             CheckedPackageRefusalCause::TypeMismatch,
-            meter,
         ));
     }
     for (offset, selector) in selectors.iter().enumerate() {
         let argument_index = offset + 2;
         let actual = presence_value_type(&arguments[argument_index], graph);
-        if !same_key(actual, selector, meter)? {
-            return Err(application.refuse_read(
+        if actual.as_ref() != Some(*selector) {
+            return Err(application.refuse(
                 CheckedPackageRefusalCode::IllTyped,
-                application
-                    .read_node()
-                    .key("body")
-                    .key("arguments")
-                    .index(argument_index),
+                application.body(&["arguments"]).index(argument_index),
                 CheckedPackageRefusalCause::TypeMismatch,
-                meter,
             ));
         }
     }
     Ok(true)
 }
 
-fn presence_value_type<'a>(
-    argument: &'a CheckedTerm,
-    graph: &'a Graph<'_>,
-) -> Option<&'a CheckedNodeId> {
+fn presence_value_type(argument: &CheckedTerm, graph: &Graph<'_>) -> Option<CheckedNodeId> {
     match argument {
         CheckedTerm::Reference { target } => {
             let position = *graph.index.get(target)?;
@@ -4232,10 +3854,10 @@ fn presence_value_type<'a>(
             if is_type_shaped(kind) || kind.tag() == CheckedNodeTag::Model {
                 return None;
             }
-            Some(&graph.nodes.get(position)?.semantic_type)
+            Some(graph.nodes.get(position)?.semantic_type.clone())
         }
-        CheckedTerm::Literal { type_id, .. } => Some(type_id),
-        CheckedTerm::Application { result_type, .. } => Some(result_type),
+        CheckedTerm::Literal { type_id, .. } => Some(type_id.clone()),
+        CheckedTerm::Application { result_type, .. } => Some(result_type.clone()),
         _ => None,
     }
 }
@@ -4287,14 +3909,21 @@ fn check_model_member(
     // Implements: FR-347. the operand is the declaring type, or a record that conforms to
     // it when that type is a record value type.
     if kind == MemberKind::Field
-        && !conforms_to_type(&declaring.node_id, type_node(0), graph, owners, meter)?
+        && !conforms_to_type(
+            &declaring.node_id,
+            type_node(0).as_ref(),
+            graph,
+            owners,
+            meter,
+        )?
     {
         return ineligible(argument_at(0));
     }
     let name = operation
-        .member_node()
+        .member
+        .as_ref()
         .and_then(|member| member.get("name"))
-        .and_then(super::TermNode::as_str)
+        .and_then(Value::as_str)
         .unwrap_or("");
     // A field is read on an object or a record value type; a record owns no
     // operation.
@@ -4311,28 +3940,16 @@ fn check_model_member(
         Err(ModelFailure::Limit(failure)) => return Err(failure),
     };
     let member_type = match resolved {
-        Resolved::Field(field) => owner.package.field_type_charged(
-            field,
-            &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
-            "member_type",
-        )?,
+        Resolved::Field(field) => owner.package.field_type(field),
         Resolved::Operation(resolved) => {
             if object.interface {
                 return ineligible(member_at("name"));
             }
-            let receiver = MemberType::Reference(meter.clone_id(&declaring.node_id)?);
-            let Some(receiver_id) = receiver.node_id_in(
-                &application.node.node_id.package,
-                &mut Budget::new(meter, owner.package.root, owner.package.bytes),
-            )?
-            else {
+            let receiver = MemberType::Reference(declaring.node_id.clone());
+            let Some(receiver_id) = receiver.node_id(&application.node.node_id.package) else {
                 return ineligible(argument_at(0));
             };
-            if !same_key(
-                type_node(0).and_then(|id| graph.structural_id(id)),
-                &receiver_id,
-                meter,
-            )? {
+            if type_node(0).as_ref().and_then(|id| graph.structural_id(id)) != Some(&receiver_id) {
                 return ineligible(argument_at(0));
             }
             if arguments.len().saturating_sub(1) != resolved.parameters.len() {
@@ -4340,40 +3957,26 @@ fn check_model_member(
             }
             for (offset, parameter) in resolved.parameters.iter().enumerate() {
                 let position = offset.saturating_add(1);
-                let Some(expected) = owner.package.slot_type_charged(
-                    parameter,
-                    false,
-                    &mut super::model_members::Budget::new(
-                        meter,
-                        owner.package.root,
-                        owner.package.bytes,
-                    ),
-                    "member_type",
-                )?
-                else {
+                let Some(expected) = owner.package.slot_type(parameter) else {
                     return ineligible(member_at("name"));
                 };
-                let Some(expected_id) = expected.node_id_in(
-                    &application.node.node_id.package,
-                    &mut Budget::new(meter, owner.package.root, owner.package.bytes),
-                )?
-                else {
+                let Some(expected_id) = expected.node_id(&application.node.node_id.package) else {
                     return ineligible(argument_at(position));
                 };
-                if !conforms_to_type(&expected_id, type_node(position), graph, owners, meter)? {
+                if !conforms_to_type(
+                    &expected_id,
+                    type_node(position).as_ref(),
+                    graph,
+                    owners,
+                    meter,
+                )? {
                     return ineligible(argument_at(position));
                 }
             }
-            if let Some(result) = resolved.result.as_ref() {
-                owner.package.slot_type_charged(
-                    result,
-                    false,
-                    &mut Budget::new(meter, owner.package.root, owner.package.bytes),
-                    "member_type",
-                )?
-            } else {
-                None
-            }
+            resolved
+                .result
+                .as_ref()
+                .and_then(|result| owner.package.slot_type(result))
         }
     };
     let Some(member_type) = member_type else {
@@ -4387,18 +3990,10 @@ fn check_model_member(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    let Some(member_id) = member_type.node_id_in(
-        &application.node.node_id.package,
-        &mut Budget::new(meter, owner.package.root, owner.package.bytes),
-    )?
-    else {
+    let Some(member_id) = member_type.node_id(&application.node.node_id.package) else {
         return ineligible(application.body(&["result_type"]));
     };
-    if !same_key(
-        result_type.and_then(|id| graph.structural_id(id)),
-        &member_id,
-        meter,
-    )? {
+    if result_type.and_then(|id| graph.structural_id(id)) != Some(&member_id) {
         return ineligible(application.body(&["result_type"]));
     }
     Ok(None)
@@ -4414,10 +4009,10 @@ fn check_field_member(
     operation: &OperationWire,
     graph: &Graph<'_>,
 ) -> Option<ValidationFailure> {
-    let member = operation.member_node()?;
-    let declaration = operation.member_key("declaration")?;
+    let member = operation.member.as_ref()?;
+    let declaration = CheckedNodeId::from_value(member.get("declaration")?)?;
     let name = member.get("name")?.as_str()?;
-    let Some(&position) = graph.index.get(declaration) else {
+    let Some(&position) = graph.index.get(&declaration) else {
         return Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
             application.body(&["operation", "member", "declaration"]),
@@ -4450,41 +4045,41 @@ fn check_field_member(
 /// and `same_type` need the type node itself (e.g. `float_rounding`), not
 /// the family name [`resolve_family`] reduces it to. Every other term
 /// resolves to no type.
-fn referenced_operand_type<'a>(
-    target: &'a CheckedNodeId,
-    nodes: &'a [CheckedSemanticNodeV2],
+fn referenced_operand_type(
+    target: &CheckedNodeId,
+    nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &GraphIndex<'_>,
-) -> Option<&'a CheckedNodeId> {
-    let position = *index.get(target)?;
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<CheckedNodeId> {
+    let position = *index.get(&target)?;
     let target_node = &nodes[position];
     if is_type_shaped(*kinds.get(position)?) {
-        Some(target)
+        Some(target.clone())
     } else {
-        Some(&target_node.semantic_type)
+        Some(target_node.semantic_type.clone())
     }
 }
 
 /// The admitted-term form of `operand_type_node` for union payloads.
-fn operand_type_node_typed<'a>(
-    argument: &'a CheckedTerm,
-    nodes: &'a [CheckedSemanticNodeV2],
+fn operand_type_node_typed(
+    argument: &CheckedTerm,
+    nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &GraphIndex<'_>,
-) -> Option<&'a CheckedNodeId> {
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<CheckedNodeId> {
     operand_type_node_typed_with_lookup(argument, nodes, kinds, index, None)
 }
 
-fn operand_type_node_typed_with_lookup<'a>(
-    argument: &'a CheckedTerm,
-    nodes: &'a [CheckedSemanticNodeV2],
+fn operand_type_node_typed_with_lookup(
+    argument: &CheckedTerm,
+    nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &GraphIndex<'_>,
+    index: &BTreeMap<&CheckedNodeId, usize>,
     fast_index: Option<&FlatWireIndex<'_>>,
-) -> Option<&'a CheckedNodeId> {
+) -> Option<CheckedNodeId> {
     let target = match argument {
-        CheckedTerm::Literal { type_id, .. } => return Some(type_id),
-        CheckedTerm::Application { result_type, .. } => return Some(result_type),
+        CheckedTerm::Literal { type_id, .. } => return Some(type_id.clone()),
+        CheckedTerm::Application { result_type, .. } => return Some(result_type.clone()),
         CheckedTerm::Reference { target } => target,
         _ => return None,
     };
@@ -4492,9 +4087,9 @@ fn operand_type_node_typed_with_lookup<'a>(
         let position = fast_index.get(target, index)?;
         let target_node = &nodes[position];
         if is_type_shaped(*kinds.get(position)?) {
-            Some(target)
+            Some(target.clone())
         } else {
-            Some(&target_node.semantic_type)
+            Some(target_node.semantic_type.clone())
         }
     } else {
         referenced_operand_type(target, nodes, kinds, index)
@@ -4506,12 +4101,12 @@ fn operand_type_node_typed_with_lookup<'a>(
 /// body carries exactly one `binding` named for the kind, e.g.
 /// `float_rounding`'s `{"term":"binding","name":"rounding","value":{"term":
 /// "literal", ..., "value": "nearest-even"}}`.
-fn type_pin<'t>(
+fn type_pin(
     type_id: &CheckedNodeId,
     kind: OperationModeKind,
-    terms: &'t [Option<CheckedTerm>],
-    index: &GraphIndex<'_>,
-) -> Option<&'t str> {
+    terms: &[Option<CheckedTerm>],
+    index: &BTreeMap<&CheckedNodeId, usize>,
+) -> Option<Box<str>> {
     let CheckedTerm::Aggregate { members } = terms.get(*index.get(type_id)?)?.as_ref()? else {
         return None;
     };
@@ -4520,7 +4115,7 @@ fn type_pin<'t>(
             let CheckedTerm::Literal { value, .. } = value.as_ref() else {
                 return None;
             };
-            value.as_str()
+            value.as_str().map(Box::from)
         }
         _ => None,
     })
@@ -4551,7 +4146,7 @@ fn check_mode_type(
         .get(application.position)
         .and_then(Option::as_ref)
         .and_then(|term| match term {
-            CheckedTerm::Application { result_type, .. } => Some(result_type),
+            CheckedTerm::Application { result_type, .. } => Some(result_type.clone()),
             _ => None,
         });
     let operand_types = entry
@@ -4583,9 +4178,12 @@ fn check_mode_type(
         let pin = type_pin(&type_id, mode_kind, terms, index).or_else(|| {
             (mode_kind == OperationModeKind::Rounding
                 && matches!(family, "decimal" | "float32" | "float64" | "quantity"))
-            .then_some("exact")
+            .then(|| Box::from("exact"))
         });
-        if pin.is_some_and(|pinned| pinned != mode.value.as_ref()) {
+        if pin
+            .as_deref()
+            .is_some_and(|pinned| pinned != mode.value.as_ref())
+        {
             return Some(application.refuse(
                 CheckedPackageRefusalCode::InvalidPackage,
                 application.body(&["operation", "mode", "value"]),
@@ -4597,11 +4195,11 @@ fn check_mode_type(
 }
 
 /// The admitted `reference` term's target, as a node id.
-fn referenced_type(term: &CheckedTerm) -> Option<&CheckedNodeId> {
+fn referenced_type(term: &CheckedTerm) -> Option<CheckedNodeId> {
     let CheckedTerm::Reference { target } = term else {
         return None;
     };
-    Some(target)
+    Some(target.clone())
 }
 
 /// The inner type of an `option`, `sequence`, `set`, `bag` or `ordered_set`
@@ -4611,7 +4209,7 @@ fn inner_type(
     graph: &Graph<'_>,
     meter: &mut WorkMeter,
     structural: &mut StructuralTypes,
-    at: &impl DiagnosticPath,
+    at: &JsonPointer,
 ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
     let Some((position, kind)) = structural.resolve(type_id, graph, meter, at)? else {
         return Ok(None);
@@ -4626,7 +4224,7 @@ fn inner_type(
     else {
         return Ok(None);
     };
-    graph
+    Ok(graph
         .terms
         .get(position)
         .and_then(Option::as_ref)
@@ -4634,9 +4232,7 @@ fn inner_type(
             CheckedTerm::Aggregate { members } => members.first(),
             _ => None,
         })
-        .and_then(referenced_type)
-        .map(|id| meter.clone_id(id))
-        .transpose()
+        .and_then(referenced_type))
 }
 
 /// Why the leaves of a compared type could not be derived.
@@ -4665,31 +4261,25 @@ fn text_profile_pin(
         return Ok(None);
     };
     let mut walked = Vec::new();
-    let mut seen = Vec::new();
+    let mut seen = BTreeSet::new();
     let found = loop {
         if let Some(known) = walk.pins.get(&position) {
-            break known
-                .as_deref()
-                .map(|pin| walk.meter.boxed_str(pin))
-                .transpose()
-                .map_err(LeafWalkEnd::Work)?;
+            break known.clone();
         }
         let at = &walk.at;
-        work_at_path(walk.meter, at, 1).map_err(LeafWalkEnd::Work)?;
+        walk.meter
+            .charge(1, || at.clone())
+            .map_err(LeafWalkEnd::Work)?;
         let node = &nodes[position];
-        walk.meter
-            .push(&mut walked, position)
-            .map_err(LeafWalkEnd::Work)?;
-        walk.meter
-            .insert_sorted(&mut seen, position)
-            .map_err(LeafWalkEnd::Work)?;
+        walked.push(position);
+        seen.insert(position);
         if let Some(pin) = type_pin(
             &node.node_id,
             OperationModeKind::TextProfile,
             walk.terms,
             index,
         ) {
-            break Some(walk.meter.boxed_str(pin).map_err(LeafWalkEnd::Work)?);
+            break Some(pin);
         }
         let Some(kind) = kinds.get(position).copied() else {
             break None;
@@ -4702,19 +4292,12 @@ fn text_profile_pin(
         }
         match index.get(&node.semantic_type) {
             // A chain that revisits a node is a cycle: no pin.
-            Some(next) if seen.binary_search(next).is_err() => position = *next,
+            Some(next) if !seen.contains(next) => position = *next,
             _ => break None,
         }
     };
     for position in walked {
-        let pin = found
-            .as_deref()
-            .map(|pin| walk.meter.boxed_str(pin))
-            .transpose()
-            .map_err(LeafWalkEnd::Work)?;
-        walk.pins
-            .insert(position, pin, walk.meter)
-            .map_err(LeafWalkEnd::Work)?;
+        walk.pins.insert(position, found.clone());
     }
     Ok(found)
 }
@@ -4812,26 +4395,15 @@ enum Visited {
 struct OpenComposites {
     /// Each open composite and the number of path segments the path held when
     /// it was entered (the `d` of a recursion leaf).
-    entered_at: SortedTable<usize, usize>,
+    entered_at: BTreeMap<usize, usize>,
     /// How many composites of each strongly connected component are open.
-    per_component: SortedTable<usize, usize>,
+    per_component: BTreeMap<usize, usize>,
 }
 
 impl OpenComposites {
-    fn open(
-        &mut self,
-        position: usize,
-        component: usize,
-        depth: usize,
-        meter: &mut WorkMeter,
-    ) -> Result<(), ValidationFailure> {
-        self.entered_at.insert(position, depth, meter)?;
-        if let Some(open) = self.per_component.get_mut(&component) {
-            *open += 1;
-        } else {
-            self.per_component.insert(component, 1, meter)?;
-        }
-        Ok(())
+    fn open(&mut self, position: usize, component: usize, depth: usize) {
+        self.entered_at.insert(position, depth);
+        *self.per_component.entry(component).or_default() += 1;
     }
 
     fn close(&mut self, position: usize, component: usize) {
@@ -4918,21 +4490,21 @@ fn path_is(leaf: &OperationLeafWire, prefix: &[Box<str>], last: Option<&str>) ->
 struct LeafWalk<'g, 'm, 'b> {
     nodes: &'g [CheckedSemanticNodeV2],
     kinds: &'g [CheckedNodeKind],
-    index: &'g GraphIndex<'g>,
+    index: &'g BTreeMap<&'g CheckedNodeId, usize>,
     terms: &'g [Option<CheckedTerm>],
     meter: &'m mut WorkMeter<'b>,
     structural: &'m mut StructuralTypes,
-    at: OperationPath,
-    operation_at: OperationPath,
+    at: JsonPointer,
+    operation_at: JsonPointer,
     /// Each node's derived-leaf count where no composite reachable from it
     /// was open.
-    memo: SortedTable<usize, usize>,
+    memo: BTreeMap<usize, usize>,
     /// The profile each alias or domain node of a text type's chain pins.
-    pins: SortedTable<usize, Option<Box<str>>>,
+    pins: BTreeMap<usize, Option<Box<str>>>,
     /// Each node below the compared type, expanded once.
-    expanded: SortedTable<usize, Rc<Expansion>>,
+    expanded: BTreeMap<usize, Rc<Expansion>>,
     /// The strongly connected component of each node.
-    component_of: SortedTable<usize, usize>,
+    component_of: BTreeMap<usize, usize>,
     /// Whether a `text` type is reachable from each component.
     component_text: Vec<bool>,
     /// Whether an IEEE type is reachable from each component. A compared
@@ -4941,7 +4513,7 @@ struct LeafWalk<'g, 'm, 'b> {
     open: OpenComposites,
     /// The open-composite count at each held visit of an option or
     /// collection, dropped when the walk leaves the node.
-    noted: SortedTable<usize, Vec<usize>>,
+    noted: BTreeMap<usize, Vec<usize>>,
     stack: Vec<LeafFrame>,
 }
 
@@ -4957,8 +4529,8 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
         graph: Graph<'g>,
         meter: &'m mut WorkMeter<'b>,
         structural: &'m mut StructuralTypes,
-        at: impl Into<OperationPath>,
-        operation_at: impl Into<OperationPath>,
+        at: JsonPointer,
+        operation_at: JsonPointer,
     ) -> LeafWalk<'g, 'm, 'b> {
         LeafWalk {
             nodes: graph.nodes,
@@ -4967,16 +4539,16 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
             terms: graph.terms,
             meter,
             structural,
-            at: at.into(),
-            operation_at: operation_at.into(),
-            memo: SortedTable::new(),
-            pins: SortedTable::new(),
-            expanded: SortedTable::new(),
-            component_of: SortedTable::new(),
+            at,
+            operation_at,
+            memo: BTreeMap::new(),
+            pins: BTreeMap::new(),
+            expanded: BTreeMap::new(),
+            component_of: BTreeMap::new(),
             component_text: Vec::new(),
             component_ieee: Vec::new(),
             open: OpenComposites::default(),
-            noted: SortedTable::new(),
+            noted: BTreeMap::new(),
             stack: Vec::new(),
         }
     }
@@ -4984,7 +4556,9 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
     /// One unit to the work budget, at `operation.leaves`.
     fn charge(&mut self) -> Result<(), LeafWalkEnd> {
         let at = &self.at;
-        work_at_path(self.meter, at, 1).map_err(LeafWalkEnd::Work)
+        self.meter
+            .charge(1, || at.clone())
+            .map_err(LeafWalkEnd::Work)
     }
 
     /// The anchor and edges of the node at `position`: a `record`'s
@@ -4993,108 +4567,79 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
     /// A union is an open composite like a record or tuple: a cycle through
     /// one is a recursion leaf, never a record-free cycle (QSpec FR-322
     /// "Structural leaf walk").
-    fn children(
-        &mut self,
-        position: usize,
-        kind: CheckedNodeKind,
-    ) -> Result<(Anchor, RawEdges), LeafWalkEnd> {
-        let terms = self.terms;
-        let members = || match terms.get(position).and_then(Option::as_ref) {
-            Some(CheckedTerm::Aggregate { members }) => Ok(members.as_slice()),
-            _ => Err(LeafWalkEnd::Unresolved),
+    fn children(&self, position: usize, kind: CheckedNodeKind) -> Option<(Anchor, RawEdges)> {
+        let members = || match self.terms.get(position)?.as_ref()? {
+            CheckedTerm::Aggregate { members } => Some(members.as_slice()),
+            _ => None,
         };
-        let meter = &mut self.meter;
-        let reference =
-            |term| super::structural::typed_reference(term).ok_or(LeafWalkEnd::Unresolved);
         match kind {
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Record) => {
-                let members = members()?;
-                let mut edges = meter.vec(members.len()).map_err(LeafWalkEnd::Work)?;
-                for member in members {
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Record) => members()?
+                .iter()
+                .map(|member| {
                     let CheckedTerm::Binding { name, value } = member else {
-                        return Err(LeafWalkEnd::Unresolved);
+                        return None;
                     };
                     let target = if let CheckedTerm::Aggregate { members } = value.as_ref() {
                         let [CheckedTerm::Binding { name, value }] = members.as_slice() else {
-                            return Err(LeafWalkEnd::Unresolved);
+                            return None;
                         };
                         if name.internal_kind() != super::TermBindingName::Optional {
-                            return Err(LeafWalkEnd::Unresolved);
+                            return None;
                         }
-                        let target = reference(value)?;
-                        let position = *self.index.get(target).ok_or(LeafWalkEnd::Unresolved)?;
+                        let target = referenced_type(value)?;
+                        let position = *self.index.get(&target)?;
                         if self.kinds.get(position)
                             != Some(&CheckedNodeKind::CompositeType(CompositeTypeForm::Option))
                         {
-                            return Err(LeafWalkEnd::Unresolved);
+                            return None;
                         }
                         target
                     } else {
-                        reference(value)?
+                        referenced_type(value)?
                     };
-                    let mut segments = meter.vec(1).map_err(LeafWalkEnd::Work)?;
-                    segments.push(
-                        meter
-                            .formatted(format_args!("field:{name}"))
-                            .map_err(LeafWalkEnd::Work)?,
-                    );
-                    edges.push((segments, meter.clone_id(target).map_err(LeafWalkEnd::Work)?));
-                }
-                Ok((Anchor::Composite, edges))
-            }
-            CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => {
-                let members = members()?;
-                let mut edges = meter.vec(members.len()).map_err(LeafWalkEnd::Work)?;
-                for (at, member) in members.iter().enumerate() {
-                    let target = reference(member)?;
-                    let mut segments = meter.vec(1).map_err(LeafWalkEnd::Work)?;
-                    segments.push(
-                        meter
-                            .formatted(format_args!("position:{at}"))
-                            .map_err(LeafWalkEnd::Work)?,
-                    );
-                    edges.push((segments, meter.clone_id(target).map_err(LeafWalkEnd::Work)?));
-                }
-                Ok((Anchor::Composite, edges))
-            }
-            // A union payload adds member:<Name>, position:<i> before its
-            // payload type's own path, including for a single payload.
+                    Some((vec![format!("field:{name}").into()], target))
+                })
+                .collect::<Option<Vec<_>>>()
+                .map(|edges| (Anchor::Composite, edges)),
+            CheckedNodeKind::CompositeType(CompositeTypeForm::Tuple) => members()?
+                .iter()
+                .enumerate()
+                .map(|(at, member)| {
+                    Some((
+                        vec![format!("position:{at}").into()],
+                        referenced_type(member)?,
+                    ))
+                })
+                .collect::<Option<Vec<_>>>()
+                .map(|edges| (Anchor::Composite, edges)),
+            // QSpec FR-322 "Structural leaf walk": a leaf through a union is
+            // `member:<Name>`, `position:<i>` (`i` the index within the
+            // member's payload, even for a single payload), then the segments
+            // into the payload type.
             CheckedNodeKind::CompositeType(CompositeTypeForm::Union) => {
-                let members = members()?;
-                if members.is_empty() {
-                    return Err(LeafWalkEnd::Unresolved);
-                }
-                let mut edges = Vec::new();
-                for member in members {
-                    let CheckedTerm::Binding { name, value } = member else {
-                        return Err(LeafWalkEnd::Unresolved);
-                    };
-                    if !super::identity::is_identifier(name) {
-                        return Err(LeafWalkEnd::Unresolved);
-                    }
-                    let CheckedTerm::Aggregate { members: payload } = value.as_ref() else {
-                        return Err(LeafWalkEnd::Unresolved);
-                    };
-                    for (at, member) in payload.iter().enumerate() {
-                        let target = reference(member)?;
-                        let mut segments = meter.vec(2).map_err(LeafWalkEnd::Work)?;
-                        segments.push(
-                            meter
-                                .formatted(format_args!("member:{name}"))
-                                .map_err(LeafWalkEnd::Work)?,
-                        );
-                        segments.push(
-                            meter
-                                .formatted(format_args!("position:{at}"))
-                                .map_err(LeafWalkEnd::Work)?,
-                        );
-                        let target = meter.clone_id(target).map_err(LeafWalkEnd::Work)?;
-                        meter
-                            .push(&mut edges, (segments, target))
-                            .map_err(LeafWalkEnd::Work)?;
-                    }
-                }
-                Ok((Anchor::Composite, edges))
+                let edges = self
+                    .terms
+                    .get(position)
+                    .and_then(Option::as_ref)
+                    .and_then(typed_union_type_body)?
+                    .into_iter()
+                    .flat_map(|member| {
+                        member
+                            .payload
+                            .into_iter()
+                            .enumerate()
+                            .map(move |(at, target)| {
+                                (
+                                    vec![
+                                        format!("member:{}", member.name).into(),
+                                        format!("position:{at}").into(),
+                                    ],
+                                    target,
+                                )
+                            })
+                    })
+                    .collect();
+                Some((Anchor::Composite, edges))
             }
             CheckedNodeKind::CompositeType(
                 CompositeTypeForm::Option
@@ -5102,15 +4647,11 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                 | CompositeTypeForm::Set
                 | CompositeTypeForm::Bag
                 | CompositeTypeForm::OrderedSet,
-            ) => {
-                let target = reference(members()?.first().ok_or(LeafWalkEnd::Unresolved)?)?;
-                let mut edges = meter.vec(1).map_err(LeafWalkEnd::Work)?;
-                let mut segments = meter.vec(1).map_err(LeafWalkEnd::Work)?;
-                segments.push(meter.boxed_str("inner").map_err(LeafWalkEnd::Work)?);
-                edges.push((segments, meter.clone_id(target).map_err(LeafWalkEnd::Work)?));
-                Ok((Anchor::Wrapper, edges))
-            }
-            _ => Ok((Anchor::Leaf, Vec::new())),
+            ) => Some((
+                Anchor::Wrapper,
+                vec![(vec!["inner".into()], referenced_type(members()?.first()?)?)],
+            )),
+            _ => Some((Anchor::Leaf, Vec::new())),
         }
     }
 
@@ -5170,7 +4711,7 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
     /// where text is reachable. Iterative (Tarjan), on a heap stack.
     fn analyse(&mut self, root: &LeafChild) -> Result<(), LeafWalkEnd> {
         // Each node's discovery number and lowest reachable number.
-        let mut numbers: SortedTable<usize, (usize, usize)> = SortedTable::new();
+        let mut numbers: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
         let mut members: Vec<usize> = Vec::new();
         let mut calls: Vec<ComponentVisit> = Vec::new();
         self.discover(root, &mut numbers, &mut members, &mut calls)?;
@@ -5212,40 +4753,28 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
     fn discover(
         &mut self,
         edge: &LeafChild,
-        numbers: &mut SortedTable<usize, (usize, usize)>,
+        numbers: &mut BTreeMap<usize, (usize, usize)>,
         members: &mut Vec<usize>,
         calls: &mut Vec<ComponentVisit>,
     ) -> Result<(), LeafWalkEnd> {
         self.charge()?;
-        let (anchor, raw) = self.children(edge.position, edge.kind)?;
-        let mut children = self.meter.vec(raw.len()).map_err(LeafWalkEnd::Work)?;
-        for (segment, target) in raw {
-            children.push(self.edge(segment, target)?);
-        }
-        self.meter
-            .reserve(std::mem::size_of::<Expansion>() + 2 * std::mem::size_of::<usize>())
-            .map_err(LeafWalkEnd::Work)?;
+        let (anchor, raw) = self
+            .children(edge.position, edge.kind)
+            .ok_or(LeafWalkEnd::Unresolved)?;
+        let children = raw
+            .into_iter()
+            .map(|(segment, target)| self.edge(segment, target))
+            .collect::<Result<Vec<_>, _>>()?;
         let expansion = Rc::new(Expansion { anchor, children });
-        self.expanded
-            .insert(edge.position, Rc::clone(&expansion), self.meter)
-            .map_err(LeafWalkEnd::Work)?;
+        self.expanded.insert(edge.position, Rc::clone(&expansion));
         let number = numbers.len();
-        numbers
-            .insert(edge.position, (number, number), self.meter)
-            .map_err(LeafWalkEnd::Work)?;
-        self.meter
-            .push(members, edge.position)
-            .map_err(LeafWalkEnd::Work)?;
-        self.meter
-            .push(
-                calls,
-                ComponentVisit {
-                    position: edge.position,
-                    expansion,
-                    next: 0,
-                },
-            )
-            .map_err(LeafWalkEnd::Work)?;
+        numbers.insert(edge.position, (number, number));
+        members.push(edge.position);
+        calls.push(ComponentVisit {
+            position: edge.position,
+            expansion,
+            next: 0,
+        });
         Ok(())
     }
 
@@ -5261,12 +4790,8 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
         let component = self.component_text.len();
         let mut closed = Vec::new();
         while let Some(member) = members.pop() {
-            self.component_of
-                .insert(member, component, self.meter)
-                .map_err(LeafWalkEnd::Work)?;
-            self.meter
-                .push(&mut closed, member)
-                .map_err(LeafWalkEnd::Work)?;
+            self.component_of.insert(member, component);
+            closed.push(member);
             if member == root {
                 break;
             }
@@ -5294,19 +4819,14 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                 }
             }
         }
-        self.meter
-            .push(&mut self.component_text, text)
-            .map_err(LeafWalkEnd::Work)?;
-        self.meter
-            .push(&mut self.component_ieee, ieee)
-            .map_err(LeafWalkEnd::Work)?;
+        self.component_text.push(text);
+        self.component_ieee.push(ieee);
         Ok(())
     }
 
     /// The edge from the root of the compared type, which names no segment.
     fn root_edge(&mut self, root: &CheckedNodeId) -> Result<LeafChild, LeafWalkEnd> {
-        let root = self.meter.clone_id(root).map_err(LeafWalkEnd::Work)?;
-        self.edge(Vec::new(), root)
+        self.edge(Vec::new(), root.clone())
     }
 
     /// One edge entered while counting: its own contribution, or the frame
@@ -5335,60 +4855,40 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
         }
         let expansion = self.expansion(edge.position)?;
         if expansion.children.is_empty() {
-            self.memo
-                .insert(edge.position, 0, self.meter)
-                .map_err(LeafWalkEnd::Work)?;
+            self.memo.insert(edge.position, 0);
             return Ok(LeafEntry::Count(0));
         }
         match expansion.anchor {
-            Anchor::Composite => self
-                .open
-                .open(edge.position, component, 0, self.meter)
-                .map_err(LeafWalkEnd::Work)?,
+            Anchor::Composite => self.open.open(edge.position, component, 0),
             Anchor::Wrapper => {
                 let composites = self.open.len();
-                if !self.noted.contains_key(&edge.position) {
-                    self.noted
-                        .insert(edge.position, Vec::new(), self.meter)
-                        .map_err(LeafWalkEnd::Work)?;
-                }
-                let held = self
-                    .noted
-                    .get_mut(&edge.position)
-                    .ok_or(LeafWalkEnd::Unresolved)?;
+                let held = self.noted.entry(edge.position).or_default();
                 if held.last() == Some(&composites) {
                     // Reached again with no composite entered between the two
                     // visits: a record-free cycle.
                     return Err(LeafWalkEnd::Unresolved);
                 }
-                self.meter
-                    .push(held, composites)
-                    .map_err(LeafWalkEnd::Work)?;
+                held.push(composites);
             }
             Anchor::Leaf => {}
         }
-        self.meter
-            .push(
-                &mut self.stack,
-                LeafFrame {
-                    position: edge.position,
-                    component,
-                    expansion,
-                    next: 0,
-                    total: 0,
-                    closed,
-                    // Counting derives no paths.
-                    path_len: 0,
-                },
-            )
-            .map_err(LeafWalkEnd::Work)?;
+        self.stack.push(LeafFrame {
+            position: edge.position,
+            component,
+            expansion,
+            next: 0,
+            total: 0,
+            closed,
+            // Counting derives no paths.
+            path_len: 0,
+        });
         Ok(LeafEntry::Pushed)
     }
 
     /// Leaves the node of a finished counting frame: it is no longer open or
     /// noted, and its count is memoised where it did not depend on an open
     /// composite.
-    fn leave(&mut self, frame: &LeafFrame) -> Result<(), LeafWalkEnd> {
+    fn leave(&mut self, frame: &LeafFrame) {
         match frame.expansion.anchor {
             Anchor::Composite => self.open.close(frame.position, frame.component),
             Anchor::Wrapper => {
@@ -5402,11 +4902,8 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
             Anchor::Leaf => {}
         }
         if frame.closed {
-            self.memo
-                .insert(frame.position, frame.total, self.meter)
-                .map_err(LeafWalkEnd::Work)?;
+            self.memo.insert(frame.position, frame.total);
         }
-        Ok(())
     }
 
     /// The number of leaves the compared type derives: its text leaves and
@@ -5445,7 +4942,7 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                     LeafEntry::Pushed => None,
                 };
             } else if let Some(frame) = self.stack.pop() {
-                self.leave(&frame)?;
+                self.leave(&frame);
                 finished = Some(frame.total);
             }
         }
@@ -5491,12 +4988,7 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                 let expansion = Rc::clone(&frame.expansion);
                 if let Some(child) = expansion.children.get(frame.next) {
                     frame.next += 1;
-                    self.meter
-                        .room(&mut path, child.segments.len())
-                        .map_err(LeafWalkEnd::Work)?;
-                    for segment in &child.segments {
-                        path.push(self.meter.boxed_str(segment).map_err(LeafWalkEnd::Work)?);
-                    }
+                    path.extend(child.segments.iter().cloned());
                     break self.visit(child, &path, supplied, text_laws, &mut pins)?;
                 }
                 if let Some(frame) = self.stack.pop() {
@@ -5547,9 +5039,7 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
             if !lawful {
                 return Ok(Visited::Fault(LeafFault::Member(placed, "laws")));
             }
-            self.meter
-                .push(pins, Some(pin))
-                .map_err(LeafWalkEnd::Work)?;
+            pins.push(Some(pin));
             return Ok(Visited::Done);
         }
         let component = self.component(edge.position)?;
@@ -5558,17 +5048,14 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
                 let Some(leaf) = supplied.get(placed) else {
                     return Ok(Visited::Fault(LeafFault::Missing));
                 };
-                let segment = self
-                    .meter
-                    .formatted(format_args!("recursion:{depth}"))
-                    .map_err(LeafWalkEnd::Work)?;
+                let segment = format!("recursion:{depth}");
                 if !is_recursion_leaf(leaf) || !path_is(leaf, path, Some(&segment)) {
                     return Ok(Visited::Fault(LeafFault::Member(placed, "path")));
                 }
                 if !leaf.laws.is_empty() {
                     return Ok(Visited::Fault(LeafFault::Member(placed, "laws")));
                 }
-                self.meter.push(pins, None).map_err(LeafWalkEnd::Work)?;
+                pins.push(None);
             }
             return Ok(Visited::Done);
         }
@@ -5578,24 +5065,17 @@ impl<'g, 'm, 'b> LeafWalk<'g, 'm, 'b> {
             return Ok(Visited::Done);
         }
         if expansion.anchor == Anchor::Composite {
-            self.open
-                .open(edge.position, component, path.len(), self.meter)
-                .map_err(LeafWalkEnd::Work)?;
+            self.open.open(edge.position, component, path.len());
         }
-        self.meter
-            .push(
-                &mut self.stack,
-                LeafFrame {
-                    position: edge.position,
-                    component,
-                    expansion,
-                    next: 0,
-                    total: 0,
-                    closed,
-                    path_len: path.len(),
-                },
-            )
-            .map_err(LeafWalkEnd::Work)?;
+        self.stack.push(LeafFrame {
+            position: edge.position,
+            component,
+            expansion,
+            next: 0,
+            total: 0,
+            closed,
+            path_len: path.len(),
+        });
         Ok(Visited::Descended)
     }
 }
@@ -5647,14 +5127,8 @@ fn check_leaf_count(
         return Ok(None);
     };
     let arguments = admitted_arguments(application, graph).unwrap_or_default();
-    let operation_path = super::stage_storage::Path::root()
-        .key("semantic_graph")
-        .key("nodes")
-        .index(application.position)
-        .key("body")
-        .key("operation");
-    let operation_at = OperationPath::Read(operation_path);
-    let at = OperationPath::Read(operation_path.key("leaves"));
+    let operation_at = application.body(&["operation"]);
+    let at = application.body(&["operation", "leaves"]);
     let ineligible = |path| {
         Ok(Some(application.refuse(
             CheckedPackageRefusalCode::IllTyped,
@@ -5668,8 +5142,6 @@ fn check_leaf_count(
         CatalogLeafSource::OperandZero => arguments
             .first()
             .and_then(|argument| operand_type_node_typed(argument, nodes, kinds, index))
-            .map(|id| work.meter.clone_id(id))
-            .transpose()?
             .map(Some),
         CatalogLeafSource::InnerZero => {
             match arguments
@@ -5715,10 +5187,10 @@ fn check_leaf_count(
                 None => None,
             }
         }
-        _ => return ineligible(at.pointer()),
+        _ => return ineligible(at),
     };
     let Some(compared) = compared else {
-        return ineligible(at.pointer());
+        return ineligible(at);
     };
     let Some(compared) = compared else {
         return if operation.leaves.is_empty() {
@@ -5751,7 +5223,7 @@ fn check_leaf_count(
     match walked {
         Ok(Err(LeafFault::Missing)) => refuse(
             CheckedPackageRefusalCode::InvalidPackage,
-            at.pointer(),
+            at,
             CheckedPackageRefusalCause::OperationLawMissing,
         ),
         Ok(Err(LeafFault::Unplaced(leaf))) => refuse(
@@ -5781,20 +5253,20 @@ fn check_leaf_count(
                 );
             }
             for (at_leaf, (leaf, pin)) in operation.leaves.iter().zip(&pins).enumerate() {
-                let leaf_at = || at.index(at_leaf);
+                let leaf_at = at.clone().index(at_leaf);
                 let admitted = match &leaf.mode {
                     // A recursion leaf carries no mode.
-                    Some(_) if pin.is_none() => Err(leaf_at().key("mode")),
+                    Some(_) if pin.is_none() => Err(leaf_at.clone().key("mode")),
                     None if pin.is_none() => Ok(()),
-                    None => Err(leaf_at().key("mode")),
+                    None => Err(leaf_at.clone().key("mode")),
                     Some(mode) if mode.kind_class() != Some(OperationModeKind::TextProfile) => {
-                        Err(leaf_at().key("mode").key("kind"))
+                        Err(leaf_at.clone().key("mode").key("kind"))
                     }
                     Some(mode)
                         if !catalog
                             .mode_value_admitted(OperationModeKind::TextProfile, &mode.value) =>
                     {
-                        Err(leaf_at().key("mode").key("value"))
+                        Err(leaf_at.clone().key("mode").key("value"))
                     }
                     Some(_) => Ok(()),
                 };
@@ -5820,7 +5292,7 @@ fn check_leaf_count(
         }
         Err(LeafWalkEnd::Unresolved) => refuse(
             CheckedPackageRefusalCode::IllTyped,
-            at.pointer(),
+            at,
             CheckedPackageRefusalCause::OperatorIneligible,
         ),
         Err(LeafWalkEnd::Work(failure)) => Err(failure),
@@ -5842,75 +5314,11 @@ mod tests {
         CheckedArtifactRef, CheckedPackageLimit, CheckedSelection, JsonPointer,
     };
     use ix_trace_rs::trace;
-    use serde_json::{json, Value};
-
-    #[trace("TC-472", "FR-038-AC-511")]
-    #[test]
-    fn presence_refusal_prepays_the_pointer_and_owned_node_locus() {
-        let id = super::super::test_support::id('a');
-        let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
-            "node_id":id,"schema_version":"quire.checked-semantic-graph/v2",
-            "node_tag":"expression","semantic_form":"query","semantic_type":id,
-            "dependencies":[],"occurrences":[{"role":"expression","ordinal":0}],
-            "body":{"term":"aggregate","members":[]}
-        }))
-        .expect("typed metadata fixture");
-        let application = Application {
-            node: &node,
-            position: 13,
-        };
-        let run = |limit| {
-            let mut budget =
-                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
-            let mut outcome = None;
-            let measured = allocation_counter::measure(|| {
-                let mut meter = WorkMeter::over(&mut budget);
-                outcome = Some(
-                    application.refuse_read(
-                        CheckedPackageRefusalCode::IllTyped,
-                        application
-                            .read_node()
-                            .key("body")
-                            .key("arguments")
-                            .index(3),
-                        CheckedPackageRefusalCause::TypeMismatch,
-                        &mut meter,
-                    ),
-                );
-            });
-            (outcome.expect("ran"), measured.bytes_total, budget)
-        };
-        let (refused, allocated, budget) = run(u64::MAX);
-        let charged = budget.read_storage_consumed();
-        assert_eq!(allocated, charged);
-        assert!(matches!(&refused, ValidationFailure::Refused(failure)
-            if failure.code == CheckedPackageRefusalCode::IllTyped
-                && failure.cause == Some(CheckedPackageRefusalCause::TypeMismatch)
-                && failure.primary_path().is_some_and(|path| path.as_str() == "/semantic_graph/nodes/13/body/arguments/3")
-                && failure.locus.as_ref() == Some(&node.node_id)));
-        let (exact, allocated, budget) = run(charged);
-        assert_eq!(exact, refused);
-        assert_eq!(allocated, budget.read_storage_consumed());
-        let (short, allocated, budget) = run(charged - 1);
-        assert!(matches!(short, ValidationFailure::Budget(_)));
-        assert_eq!((allocated, budget.read_storage_consumed()), (0, 0));
-        assert_eq!(
-            budget.first_unpaid_read_storage(),
-            Some(u128::from(charged))
-        );
-    }
-
-    fn edit_body(node: &mut CheckedSemanticNodeV2, edit: impl FnOnce(&mut Value)) {
-        let mut body = node.body.to_value();
-        edit(&mut body);
-        node.body =
-            super::super::CheckedJson::from_serializable(&body).expect("edited body is canonical");
-    }
 
     fn decoded_terms(nodes: &[CheckedSemanticNodeV2]) -> Vec<Option<super::CheckedTerm>> {
         nodes
             .iter()
-            .map(|node| super::CheckedTerm::decode_admitted(&node.body.to_value()).ok())
+            .map(|node| super::CheckedTerm::decode_admitted(&node.body).ok())
             .collect()
     }
 
@@ -5947,7 +5355,7 @@ mod tests {
     ) -> ValidationFailure {
         ValidationFailure::refused_at(code, pointer(path), cause, locus)
     }
-    use super::super::graph_storage::GraphIndex;
+    use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
     fn relationship_member_outcome(
@@ -6040,16 +5448,12 @@ mod tests {
             vec![json!({"term": "reference", "target": id(&node_id('r'))})],
         );
         if operation_identity == "quire.op.model.reaches" {
-            edit_body(&mut application, |body| {
-                body["arguments"]
-                    .as_array_mut()
-                    .expect("arguments")
-                    .push(json!({"term": "reference", "target": id(&node_id('r'))}));
-            });
+            application.body["arguments"]
+                .as_array_mut()
+                .expect("arguments")
+                .push(json!({"term": "reference", "target": id(&node_id('r'))}));
         }
-        edit_body(&mut application, |body| {
-            body["result_type"] = id(result_key)
-        });
+        application.body["result_type"] = id(result_key);
         let object = |key: &CheckedNodeId, name: &str| {
             let mut node = graph_node(
                 'o',
@@ -6110,7 +5514,7 @@ mod tests {
         ];
         let mut kinds = kinds_of(&nodes);
         configure(&mut nodes, &mut kinds, &mut operation);
-        edit_body(&mut nodes[0], |body| body["operation"] = operation.clone());
+        nodes[0].body["operation"] = operation.clone();
         if !nodes.iter().any(|node| node.node_id == *result_key) {
             let boolean = result_key == &MemberType::Boolean.node_id("checked").expect("boolean");
             let mut result_node = graph_node(
@@ -6144,7 +5548,7 @@ mod tests {
             *node = serde_json::from_value(value).expect("flat fixture node");
         }
         flatten_fixture_ids(&mut operation, &mut fixture_ids);
-        let index: GraphIndex<'_> = nodes
+        let index: BTreeMap<_, _> = nodes
             .iter()
             .enumerate()
             .map(|(at, node)| (&node.node_id, at))
@@ -6380,10 +5784,8 @@ mod tests {
                 "/semantic_graph/nodes/0/body/operation/member/population".into(),
             ))
         );
-        println!(
-            "relationship_population_caller baseline_work={} raw_mismatch_work={} typed_mismatch_work={}",
-            baseline.1, raw_nonpopulation.1, typed_nonpopulation.1
-        );
+        println!("relationship_population_caller baseline_work={} raw_mismatch_work={} typed_mismatch_work={}",
+            baseline.1, raw_nonpopulation.1, typed_nonpopulation.1);
     }
 
     #[trace(
@@ -6607,53 +6009,14 @@ mod tests {
             path: vec![Segment::Node(std::sync::Arc::new(named.clone()))],
             ordinal: 0,
         };
-        let index: GraphIndex<'_> = [(&named, 0), (&indexed, 1), (&nested, 2)]
-            .into_iter()
-            .collect();
-        let fast = FlatWireIndex::new(&index, &mut WorkMeter::new(u64::MAX)).expect("flat index");
+        let index = BTreeMap::from([(&named, 0), (&indexed, 1), (&nested, 2)]);
+        let fast = FlatWireIndex::new(&index);
         for id in [&named, &indexed, &nested, &node_id('z')] {
             assert_eq!(fast.get(id, &index), index.get(id).copied());
         }
-        let flat_index: GraphIndex<'_> = [(&named, 0), (&indexed, 1)].into_iter().collect();
-        let flat =
-            FlatWireIndex::new(&flat_index, &mut WorkMeter::new(u64::MAX)).expect("flat index");
+        let flat_index = BTreeMap::from([(&named, 0), (&indexed, 1)]);
+        let flat = FlatWireIndex::new(&flat_index);
         assert_eq!(flat.get(&nested, &flat_index), None);
-    }
-
-    /// A flat operand lookup charges its exact sorted table before creating it.
-    #[trace("TC-472", "FR-038-AC-504")]
-    #[test]
-    fn flat_operand_lookup_allocates_only_charged_storage() {
-        use super::FlatWireIndex;
-        let ids: Vec<_> = ('a'..='f').map(node_id).collect();
-        let index: GraphIndex<'_> = ids.iter().enumerate().map(|(at, id)| (id, at)).collect();
-        let run = |limit| {
-            let mut budget =
-                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
-            let mut result = None;
-            let allocations = allocation_counter::measure(|| {
-                result = Some(FlatWireIndex::new(
-                    &index,
-                    &mut WorkMeter::over(&mut budget),
-                ));
-            });
-            (
-                result.expect("lookup ran"),
-                allocations.bytes_total,
-                budget.read_storage_consumed(),
-            )
-        };
-        let (lookup, allocated, charged) = run(u64::MAX);
-        let lookup = lookup.expect("sufficient budget");
-        for (at, id) in ids.iter().enumerate() {
-            assert_eq!(lookup.get(id, &index), Some(at));
-        }
-        assert!(charged > 0);
-        assert_eq!(allocated, charged, "the table is the only heap request");
-        assert!(run(charged).0.is_ok());
-        let (denied, allocated, _) = run(charged - 1);
-        assert!(denied.is_err());
-        assert_eq!(allocated, 0, "denied table is never allocated");
     }
 
     #[trace("TC-048", "FR-038-AC-117")]
@@ -6668,8 +6031,8 @@ mod tests {
                 ordinal: 0,
             })
             .collect();
-        let index: GraphIndex<'_> = ids.iter().enumerate().map(|(at, id)| (id, at)).collect();
-        let fast = FlatWireIndex::new(&index, &mut WorkMeter::new(u64::MAX)).expect("flat index");
+        let index: BTreeMap<_, _> = ids.iter().enumerate().map(|(at, id)| (id, at)).collect();
+        let fast = FlatWireIndex::new(&index);
         let deep = CheckedNodeId {
             package: "checked".into(),
             path: vec![Segment::Node(std::sync::Arc::new(ids[0].clone()))],
@@ -6822,7 +6185,7 @@ mod tests {
         let mut node: CheckedSemanticNodeV2 =
             serde_json::from_value(value).expect("test fixture node is well-formed");
         node.semantic_type = semantic_type.clone();
-        node.body = super::super::CheckedJson::from_serializable(&body).expect("canonical body");
+        node.body = body;
         node
     }
 
@@ -6877,7 +6240,8 @@ mod tests {
         node: &CheckedSemanticNodeV2,
     ) -> Result<Option<ValidationFailure>, ValidationFailure> {
         let nodes = std::slice::from_ref(node);
-        let index: GraphIndex<'_> = [(&node.node_id, 0)].into_iter().collect();
+        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
+        index.insert(&node.node_id, 0);
         let lock = empty_lock();
         let mut meter = WorkMeter::new(1_000);
         let kinds = kinds_of(nodes);
@@ -6907,22 +6271,17 @@ mod tests {
     #[test]
     fn admitted_operation_identity_comes_from_the_retained_term() {
         let mut node = application_node(CATALOGUED_IDENTITY, "binary");
-        edit_body(&mut node, |body| {
-            body["result_type"] = json!(node_id('2'));
-            body["arguments"] = json!([
-                {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "1"},
-                {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "2"}
-            ]);
-        });
+        node.body["result_type"] = json!(node_id('2'));
+        node.body["arguments"] = json!([
+            {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "1"},
+            {"term": "literal", "type": node_id('2'), "value_kind": "integer", "value": "2"}
+        ]);
         let expected = defect_for(&node);
-        let retained =
-            super::CheckedTerm::decode_admitted(&node.body.to_value()).expect("admitted term");
-        edit_body(&mut node, |body| {
-            body["operation"]["identity"] = json!(UNCATALOGUED_IDENTITY);
-        });
+        let retained = super::CheckedTerm::decode_admitted(&node.body).expect("admitted term");
+        node.body["operation"]["identity"] = json!(UNCATALOGUED_IDENTITY);
         let nodes = std::slice::from_ref(&node);
         let kinds = kinds_of(nodes);
-        let index: GraphIndex<'_> = [(&node.node_id, 0)].into_iter().collect();
+        let index = BTreeMap::from([(&node.node_id, 0)]);
         let terms = [Some(retained)];
         let actual = operation_defect(
             Application {
@@ -7007,11 +6366,10 @@ mod tests {
         lock: &CheckedPackageLockV2,
         limit: u64,
     ) -> (Result<Option<ValidationFailure>, ValidationFailure>, u64) {
-        let index: GraphIndex<'_> = nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect();
+        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
+        for (position, node) in nodes.iter().enumerate() {
+            index.insert(&node.node_id, position);
+        }
         let mut meter = WorkMeter::new(limit);
         let kinds = kinds_of(&nodes);
         let terms = decoded_terms(&nodes);
@@ -7117,7 +6475,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
-            .collect::<GraphIndex<'_>>();
+            .collect::<BTreeMap<_, _>>();
         let family = |position: usize| {
             let at: CheckedNodeId = serde_json::from_value(id(position)).expect("id");
             super::resolve_family(&at, &nodes, &kinds, &index)
@@ -7215,6 +6573,7 @@ mod tests {
         use crate::checked_package::v2::model_members::{
             declaration_id, tests as model_tests, DeclarationForm, MemberType,
         };
+        use std::sync::Arc;
         const VARIANT: &str = "ix://acme/orders/Measurements";
         const UNIT: &str = "ix://quire/unit/acme/orders/ms";
         let unit_key = node_id('u');
@@ -7236,8 +6595,7 @@ mod tests {
             .expect("constructs")
             .push(json!({"kind":{"module":"acme/orders","name":"variant"},
                 "construct":{"meaning":"quire.meaning.model.variant-type/v1"}}));
-        let unit_refs =
-            model_tests::unit_refs_of(BTreeMap::from([(UNIT.into(), unit_key.clone())]));
+        let unit_refs = Arc::new(BTreeMap::from([(UNIT.into(), unit_key.clone())]));
         let model = model_tests::read_with_unit_refs(&selected, &unit_refs)
             .expect("float and resolved unit payloads admit at model intake");
         let type_id = declaration_id("acme/orders", DeclarationForm::VariantType, VARIANT);
@@ -7393,9 +6751,7 @@ mod tests {
                 }}),
             ],
         );
-        edit_body(&mut application, |body| {
-            body["result_type"] = json!(node_id('4'))
-        });
+        application.body["result_type"] = json!(node_id('4'));
         let parameter = |id, name, type_id| {
             graph_node(
                 id,
@@ -8240,9 +7596,7 @@ mod tests {
             operands.into_iter().map(reference_to).collect(),
         );
         if let Some(result) = result {
-            edit_body(&mut root, |body| {
-                body["result_type"] = json!(node_ref_of(result))
-            });
+            root.body["result_type"] = json!(node_ref_of(result));
         }
         let locus = root.node_id.clone();
         let mut graph = vec![root];
@@ -8821,79 +8175,12 @@ mod tests {
         (nodes, leaves)
     }
 
-    /// Actual leaf derivation pays for graph caches, paths, keys, expansions
-    /// and both walks before each allocation, including the pin memo copies.
-    #[trace("TC-472", "FR-038-AC-504")]
-    #[test]
-    fn structural_leaf_walk_allocates_only_charged_storage() {
-        let (nodes, leaves) = structural_shared_chain();
-        let kinds = kinds_of(&nodes);
-        let index: GraphIndex<'_> = nodes
-            .iter()
-            .enumerate()
-            .map(|(at, node)| (&node.node_id, at))
-            .collect();
-        let terms = decoded_terms(&nodes);
-        let graph = Graph {
-            nodes: &nodes,
-            kinds: &kinds,
-            index: &index,
-            terms: &terms,
-            structural_keys: &[],
-        };
-        let supplied: Vec<super::OperationLeafWire> = leaves
-            .into_iter()
-            .map(|leaf| serde_json::from_value(leaf).expect("leaf"))
-            .collect();
-        let catalog = operation_catalog();
-        let definitions = catalog
-            .law_role_definitions(LawRole::TextProfile)
-            .expect("text profile");
-        let root = node_id('r');
-        let run = |limit| {
-            let mut budget =
-                crate::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
-            let at = pointer("/semantic_graph/nodes/0/body/operation/leaves");
-            let operation_at = pointer("/semantic_graph/nodes/0/body/operation");
-            let mut result = None;
-            let allocated = allocation_counter::measure(|| {
-                let mut meter = WorkMeter::over(&mut budget);
-                let mut structural = StructuralTypes::default();
-                let mut walk =
-                    super::LeafWalk::new(graph, &mut meter, &mut structural, at, operation_at);
-                result = Some((|| {
-                    let count = walk.count(&root).map_err(|_| ())?;
-                    let pins = walk
-                        .first_leaf_fault(&root, &supplied, definitions)
-                        .map_err(|_| ())?
-                        .map_err(|_| ())?;
-                    Ok::<_, ()>((count, pins))
-                })());
-            })
-            .bytes_total;
-            (
-                result.expect("walk ran"),
-                allocated,
-                budget.read_storage_consumed(),
-            )
-        };
-        let (result, allocated, charged) = run(u64::MAX);
-        let (count, pins) = result.expect("sufficient budget");
-        assert_eq!(count, 300);
-        assert_eq!(pins.len(), 300);
-        assert!(pins.iter().all(|pin| pin.as_deref() == Some("nfc")));
-        assert!(charged > 0);
-        assert_eq!(allocated, charged, "every derivation request was charged");
-        assert!(run(charged).0.is_ok());
-        assert!(run(charged - 1).0.is_err());
-    }
-
     #[trace("TC-048", "FR-038-AC-224")]
     #[test]
     fn structural_forwarding_is_paid_once_across_both_leaf_passes() {
         let (nodes, leaves) = structural_shared_chain();
         let kinds = kinds_of(&nodes);
-        let index: GraphIndex<'_> = nodes
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -8959,7 +8246,7 @@ mod tests {
     fn text_profile_pin_retains_its_independent_exact_boundary() {
         let (nodes, _) = structural_shared_chain();
         let kinds = kinds_of(&nodes);
-        let index: GraphIndex<'_> = nodes
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -9093,9 +8380,9 @@ mod tests {
         };
         let paid = if population { 1 } else { 2 };
         let expected_cache = if population {
-            vec![(0, found)]
+            BTreeMap::from([(0, found)])
         } else {
-            vec![(0, found), (1, found)]
+            BTreeMap::from([(0, found), (1, found)])
         };
         for nodes in [&nodes, &damaged] {
             let index = nodes
@@ -9215,20 +8502,14 @@ mod tests {
             };
             assert_eq!(actual, expected);
             assert_eq!(walk.meter.consumed(), paid);
-            assert_eq!(
-                walk.pins.iter().cloned().collect::<BTreeMap<_, _>>(),
-                expected_pins
-            );
+            assert_eq!(walk.pins, expected_pins);
             for head in ['b', 'a'] {
                 let Ok(actual) = super::text_profile_pin(&node_id(head), &mut walk) else {
                     panic!("cached pin result must be free");
                 };
                 assert_eq!(actual, expected);
                 assert_eq!(walk.meter.consumed(), paid);
-                assert_eq!(
-                    walk.pins.iter().cloned().collect::<BTreeMap<_, _>>(),
-                    expected_pins
-                );
+                assert_eq!(walk.pins, expected_pins);
             }
             assert!(
                 walk.structural.resolved.is_empty(),
@@ -9329,7 +8610,7 @@ mod tests {
                     };
                     assert_eq!(pin.as_deref(), Some("nfc"));
                     assert_eq!(
-                        walk.pins.iter().cloned().collect::<BTreeMap<_, _>>(),
+                        walk.pins,
                         BTreeMap::from([(0, Some(Box::<str>::from("nfc")))])
                     );
                 }
@@ -9380,10 +8661,7 @@ mod tests {
                     2,
                     "a revisited or missing target is not paid again"
                 );
-                assert_eq!(
-                    walk.pins.iter().cloned().collect::<BTreeMap<_, _>>(),
-                    BTreeMap::from([(0, None), (1, None)])
-                );
+                assert_eq!(walk.pins, BTreeMap::from([(0, None), (1, None)]));
             }
             let mut short_meter = WorkMeter::new(1);
             let mut short_structural = StructuralTypes::default();
@@ -9417,7 +8695,7 @@ mod tests {
             scalar_type_node('d', "integer"),
         ];
         let kinds = kinds_of(&nodes);
-        let index: GraphIndex<'_> = nodes
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -9478,7 +8756,7 @@ mod tests {
                 last,
             ];
             let kinds = kinds_of(&nodes);
-            let index: GraphIndex<'_> = nodes
+            let index: BTreeMap<&CheckedNodeId, usize> = nodes
                 .iter()
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
@@ -9514,17 +8792,15 @@ mod tests {
     fn union_arms_propagates_structural_work_before_testing_its_constraint() {
         let mut application =
             custom_application_node("case", plain_operation("quire.op.control.case"), Vec::new());
-        edit_body(&mut application, |body| {
-            body["result_type"] = json!(node_id('i'));
-            body["arguments"] = json!([
-                reference_to('p'),
-                { "term": "binding", "name": "Only", "value": {
-                    "term": "aggregate", "members": [
-                        { "term": "aggregate", "members": [] }, reference_to('q'),
-                    ],
-                } },
-            ]);
-        });
+        application.body["result_type"] = json!(node_id('i'));
+        application.body["arguments"] = json!([
+            reference_to('p'),
+            { "term": "binding", "name": "Only", "value": {
+                "term": "aggregate", "members": [
+                    { "term": "aggregate", "members": [] }, reference_to('q'),
+                ],
+            } },
+        ]);
         let union = graph_node(
             'U',
             "composite_type",
@@ -9544,7 +8820,7 @@ mod tests {
             scalar_type_node('i', "integer"),
         ];
         let kinds = kinds_of(&nodes);
-        let index: GraphIndex<'_> = nodes
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -9643,7 +8919,7 @@ mod tests {
         binder.semantic_type = indexed.clone();
         let nodes = [source, type_node, binder];
         let kinds = kinds_of(&nodes);
-        let index: GraphIndex<'_> = nodes
+        let index: BTreeMap<_, _> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -9664,19 +8940,14 @@ mod tests {
         let bound = super::CheckedTerm::Reference {
             target: nodes[2].node_id.clone(),
         };
+        assert!(super::binder_matches_payload(&bound, &generated, &graph));
+        assert!(super::binder_matches_payload(&bound, &indexed, &graph));
+        assert!(!super::binder_matches_payload(
+            &bound,
+            &node_id('z'),
+            &graph
+        ));
         let mut meter = WorkMeter::new(100);
-        assert_eq!(
-            super::binder_matches_payload(&bound, &generated, &graph, &mut meter).ok(),
-            Some(true)
-        );
-        assert_eq!(
-            super::binder_matches_payload(&bound, &indexed, &graph, &mut meter).ok(),
-            Some(true)
-        );
-        assert_eq!(
-            super::binder_matches_payload(&bound, &node_id('z'), &graph, &mut meter).ok(),
-            Some(false)
-        );
         assert_eq!(
             super::conforms_to_type(
                 &generated,
@@ -9708,9 +8979,7 @@ mod tests {
             plain_operation("quire.op.collection.contains"),
             vec![reference_to('p'), reference_to('q')],
         );
-        edit_body(&mut contains, |body| {
-            body["result_type"] = json!(node_id('b'))
-        });
+        contains.body["result_type"] = json!(node_id('b'));
         let inner = vec![
             contains,
             forwarding_node('w', "composite_type", "alias", 's'),
@@ -9726,9 +8995,7 @@ mod tests {
             plain_operation("quire.op.collection.flatten"),
             vec![reference_to('p')],
         );
-        edit_body(&mut flatten, |body| {
-            body["result_type"] = json!(node_id('w'))
-        });
+        flatten.body["result_type"] = json!(node_id('w'));
         let result_inner = vec![
             flatten,
             forwarding_node('w', "composite_type", "alias", 's'),
@@ -9743,9 +9010,7 @@ mod tests {
             plain_operation("quire.op.structural.eq"),
             vec![reference_to('p'), reference_to('q')],
         );
-        edit_body(&mut record, |body| {
-            body["result_type"] = json!(node_id('b'))
-        });
+        record.body["result_type"] = json!(node_id('b'));
         let leaf_edge = vec![
             record,
             record_type_node('r', &[("value", 'w')]),
@@ -9764,13 +9029,9 @@ mod tests {
             let mut direct = nodes.clone();
             match route {
                 "inner:0" => direct[5].semantic_type = node_id('s'),
-                "result_inner" => edit_body(&mut direct[0], |body| {
-                    body["result_type"] = json!(node_id('s'))
-                }),
+                "result_inner" => direct[0].body["result_type"] = json!(node_id('s')),
                 "leaf edge" => {
-                    edit_body(&mut direct[1], |body| {
-                        body["members"][0]["value"]["target"] = json!(node_id('i'));
-                    });
+                    direct[1].body["members"][0]["value"]["target"] = json!(node_id('i'));
                 }
                 _ => unreachable!("the test lists every route"),
             }
@@ -10866,11 +10127,10 @@ mod tests {
         );
         let mut nodes = vec![application];
         nodes.append(&mut types);
-        let index: GraphIndex<'_> = nodes
-            .iter()
-            .enumerate()
-            .map(|(position, node)| (&node.node_id, position))
-            .collect();
+        let mut index: BTreeMap<&CheckedNodeId, usize> = BTreeMap::new();
+        for (position, node) in nodes.iter().enumerate() {
+            index.insert(&node.node_id, position);
+        }
         let mut meter = WorkMeter::new(1_000_000);
         let kinds = kinds_of(&nodes);
         let terms = decoded_terms(&nodes);
@@ -11484,7 +10744,7 @@ mod tests {
             };
             let nodes = vec![high.clone(), low.clone()];
             let kinds = kinds_of(&nodes);
-            let index: GraphIndex<'_> = nodes
+            let index: BTreeMap<&CheckedNodeId, usize> = nodes
                 .iter()
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
@@ -11665,7 +10925,7 @@ mod tests {
         // `any_value` one.
         let nodes = clause_nodes(good(), None);
         let kinds = kinds_of(&nodes);
-        let index: GraphIndex<'_> = nodes
+        let index: BTreeMap<&CheckedNodeId, usize> = nodes
             .iter()
             .enumerate()
             .map(|(position, node)| (&node.node_id, position))
@@ -11822,7 +11082,7 @@ mod tests {
             }
             let kinds = kinds_of(&nodes);
             let terms = decoded_terms(&nodes);
-            let index: GraphIndex<'_> = nodes
+            let index: BTreeMap<_, _> = nodes
                 .iter()
                 .enumerate()
                 .map(|(position, node)| (&node.node_id, position))
@@ -11835,7 +11095,7 @@ mod tests {
                 structural_keys: &[],
             };
             let operation: super::OperationWire =
-                serde_json::from_value(nodes[0].body.to_value()["operation"].clone())
+                serde_json::from_value(nodes[0].body["operation"].clone())
                     .expect("published present operation");
             let actual = super::check_place_presence(
                 super::Application {

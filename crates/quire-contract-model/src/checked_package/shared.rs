@@ -624,63 +624,37 @@ pub enum CheckedNodePathSegment {
     /// A node-held operand slot on the V2 wire: entry `k` of the holding
     /// node's operand row, before key resolution.
     Operand(u64),
+    /// The graph position `node` in the graph of the directly selected
+    /// dependency `package`: what an operand slot resolves to when its row
+    /// entry is a [`CheckedOperandEntry::Dependency`]. The wire carries it
+    /// only as a row entry, never as a path segment.
+    Dependency {
+        /// The selected dependency whose graph `node` indexes.
+        package: Box<str>,
+        /// The position in that dependency's graph.
+        node: u64,
+    },
 }
 
-impl<'de> Deserialize<'de> for CheckedNodePathSegment {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::{Error as _, MapAccess, Visitor};
+/// One entry of a node's operand row.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CheckedOperandEntry {
+    /// A position in the importing package's own graph.
+    Node(u64),
+    /// A position in the graph of a directly selected dependency, for an id
+    /// that names one of that dependency's nodes by its own operands.
+    Dependency(CheckedDependencyOperand),
+}
 
-        struct SegmentVisitor;
-        impl<'de> Visitor<'de> for SegmentVisitor {
-            type Value = CheckedNodePathSegment;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str(
-                    "a path string or an object containing only a node index or operand slot",
-                )
-            }
-
-            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                Ok(CheckedNodePathSegment::Name(value.into()))
-            }
-
-            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
-                Ok(CheckedNodePathSegment::Name(value.into()))
-            }
-
-            #[ix_trace_rs::string_edge]
-            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-                let name: String = map
-                    .next_key()?
-                    .ok_or_else(|| A::Error::missing_field("node"))?;
-                let is_operand = match name.as_str() {
-                    "node" => false,
-                    "operand" => true,
-                    _ => return Err(A::Error::unknown_field(&name, &["node", "operand"])),
-                };
-                let index: u64 = map.next_value()?;
-                if index > 9_007_199_254_740_991 {
-                    return Err(A::Error::custom("path segment exceeds I-JSON bound"));
-                }
-                if let Some(other) = map.next_key::<String>()? {
-                    return Err(if other == name {
-                        A::Error::duplicate_field(if is_operand { "operand" } else { "node" })
-                    } else if is_operand {
-                        A::Error::unknown_field(&other, &["operand"])
-                    } else {
-                        A::Error::unknown_field(&other, &["node"])
-                    });
-                }
-                Ok(if is_operand {
-                    CheckedNodePathSegment::Operand(index)
-                } else {
-                    CheckedNodePathSegment::Index(index)
-                })
-            }
-        }
-
-        deserializer.deserialize_any(SegmentVisitor)
-    }
+/// A position in a selected dependency's graph: `{package, node}`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckedDependencyOperand {
+    /// The selected dependency's identity.
+    pub package: Box<str>,
+    /// The position in that dependency's graph.
+    pub node: u64,
 }
 
 impl Serialize for CheckedNodePathSegment {
@@ -696,6 +670,12 @@ impl Serialize for CheckedNodePathSegment {
             Self::Operand(slot) => {
                 let mut map = serializer.serialize_map(Some(1))?;
                 map.serialize_entry("operand", slot)?;
+                map.end()
+            }
+            Self::Dependency { package, node } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("node", node)?;
+                map.serialize_entry("package", package)?;
                 map.end()
             }
             Self::Node(node) => node.serialize(serializer),
@@ -778,6 +758,9 @@ impl std::fmt::Debug for CheckedNodeTableDebug<'_> {
                     CheckedNodePathSegment::Name(name) => write!(formatter, "Name({name:?})")?,
                     CheckedNodePathSegment::Index(index) => write!(formatter, "Index({index})")?,
                     CheckedNodePathSegment::Operand(slot) => write!(formatter, "Operand({slot})")?,
+                    CheckedNodePathSegment::Dependency { package, node } => {
+                        write!(formatter, "Dependency({package:?}, {node})")?
+                    }
                     CheckedNodePathSegment::Node(child) => write!(
                         formatter,
                         "Node(#{})",
@@ -802,16 +785,112 @@ impl std::fmt::Debug for CheckedNodeId {
 
 impl<'de> Deserialize<'de> for CheckedNodeId {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::{MapAccess, Visitor};
+        use serde::de::{Error as _, MapAccess, Visitor};
 
         // Wire paths are flat: an operand is an index, never a nested ID.
-        // Decode into the final segment vector so the document decoder's
-        // reservation covers the only outer allocation.
+        // Decode through serde's data model so buffered enum content and
+        // borrowed JSON values work as well as the text deserializer.
+        struct Segment(CheckedNodePathSegment);
+        struct SegmentVisitor;
+        impl<'de> Visitor<'de> for SegmentVisitor {
+            type Value = Segment;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(
+                    "a path string or an object containing only a node index or operand slot",
+                )
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Segment, E> {
+                Ok(Segment(CheckedNodePathSegment::Name(value.into())))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Segment, E> {
+                Ok(Segment(CheckedNodePathSegment::Name(value.into())))
+            }
+
+            #[ix_trace_rs::string_edge]
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Segment, A::Error> {
+                let name: String = map
+                    .next_key()?
+                    .ok_or_else(|| A::Error::missing_field("node"))?;
+                // `{package, node}` in either member order is the dependency
+                // position; every other segment object has one member.
+                if name == "package" {
+                    let package: Box<str> = map.next_value()?;
+                    return Self::dependency(&mut map, package);
+                }
+                let is_operand = match name.as_str() {
+                    "node" => false,
+                    "operand" => true,
+                    _ => return Err(A::Error::unknown_field(&name, &["node", "operand"])),
+                };
+                let index: u64 = map.next_value()?;
+                if index > 9_007_199_254_740_991 {
+                    return Err(A::Error::custom("path segment exceeds I-JSON bound"));
+                }
+                if let Some(other) = map.next_key::<String>()? {
+                    if !is_operand && other == "package" {
+                        let package: Box<str> = map.next_value()?;
+                        if let Some(extra) = map.next_key::<String>()? {
+                            return Err(A::Error::unknown_field(&extra, &["node", "package"]));
+                        }
+                        return Ok(Segment(CheckedNodePathSegment::Dependency {
+                            package,
+                            node: index,
+                        }));
+                    }
+                    return Err(if other == name {
+                        A::Error::duplicate_field(if is_operand { "operand" } else { "node" })
+                    } else if is_operand {
+                        A::Error::unknown_field(&other, &["operand"])
+                    } else {
+                        A::Error::unknown_field(&other, &["node"])
+                    });
+                }
+                Ok(Segment(if is_operand {
+                    CheckedNodePathSegment::Operand(index)
+                } else {
+                    CheckedNodePathSegment::Index(index)
+                }))
+            }
+        }
+        impl SegmentVisitor {
+            /// The rest of a `{package, node}` segment whose `package` came first.
+            fn dependency<'de, A: MapAccess<'de>>(
+                map: &mut A,
+                package: Box<str>,
+            ) -> Result<Segment, A::Error> {
+                match map.next_key::<String>()? {
+                    Some(name) if name == "node" => {}
+                    Some(other) => {
+                        return Err(A::Error::unknown_field(&other, &["node", "package"]))
+                    }
+                    None => return Err(A::Error::missing_field("node")),
+                }
+                let node: u64 = map.next_value()?;
+                if node > 9_007_199_254_740_991 {
+                    return Err(A::Error::custom("path segment exceeds I-JSON bound"));
+                }
+                if let Some(extra) = map.next_key::<String>()? {
+                    return Err(A::Error::unknown_field(&extra, &["node", "package"]));
+                }
+                Ok(Segment(CheckedNodePathSegment::Dependency {
+                    package,
+                    node,
+                }))
+            }
+        }
+        impl<'de> Deserialize<'de> for Segment {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                deserializer.deserialize_any(SegmentVisitor)
+            }
+        }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct WireNodeId {
             package: Box<str>,
-            path: Vec<CheckedNodePathSegment>,
+            path: Vec<Segment>,
             ordinal: u64,
         }
         struct NodeVisitor;
@@ -826,32 +905,12 @@ impl<'de> Deserialize<'de> for CheckedNodeId {
                 WireNodeId::deserialize(serde::de::value::MapAccessDeserializer::new(map))
             }
         }
-        struct NodeTokenVisitor;
-        impl<'de> Visitor<'de> for NodeTokenVisitor {
-            type Value = CheckedNodeId;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a flat node ID object")
-            }
-            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
-                crate::checked_package::v2::document_de::take_node_id()
-                    .ok_or_else(|| E::custom("missing decoded node ID"))
-            }
-            fn visit_newtype_struct<D: serde::Deserializer<'de>>(
-                self,
-                deserializer: D,
-            ) -> Result<Self::Value, D::Error> {
-                let wire = deserializer.deserialize_map(NodeVisitor)?;
-                Ok(CheckedNodeId {
-                    package: wire.package,
-                    path: wire.path,
-                    ordinal: wire.ordinal,
-                })
-            }
-        }
-        deserializer.deserialize_newtype_struct(
-            crate::checked_package::v2::document_de::NODE_ID_TOKEN,
-            NodeTokenVisitor,
-        )
+        let wire = deserializer.deserialize_map(NodeVisitor)?;
+        Ok(Self {
+            package: wire.package,
+            path: wire.path.into_iter().map(|segment| segment.0).collect(),
+            ordinal: wire.ordinal,
+        })
     }
 }
 
@@ -864,31 +923,8 @@ impl CheckedNodeId {
         node.is_well_formed().then_some(node)
     }
 
-    /// Whether the package, path and every segment of this ID, which holds
-    /// no nested ID, are within the V2 wire bounds.
-    fn is_flat_well_formed(&self) -> bool {
-        !self.package.is_empty()
-            && !self.path.is_empty()
-            && self.ordinal <= 9_007_199_254_740_991
-            && self.path.iter().all(|segment| match segment {
-                CheckedNodePathSegment::Name(_) => true,
-                CheckedNodePathSegment::Index(index) | CheckedNodePathSegment::Operand(index) => {
-                    *index <= 9_007_199_254_740_991
-                }
-                CheckedNodePathSegment::Node(_) => false,
-            })
-    }
-
     /// Whether every segment and nested operand is within the V2 wire bounds.
     pub(crate) fn is_well_formed(&self) -> bool {
-        // An ID with no nested ID in its path is checked without a stack.
-        if !self
-            .path
-            .iter()
-            .any(|segment| matches!(segment, CheckedNodePathSegment::Node(_)))
-        {
-            return self.is_flat_well_formed();
-        }
         let mut pending = vec![self];
         while let Some(candidate) = pending.pop() {
             if candidate.package.is_empty()
@@ -904,6 +940,9 @@ impl CheckedNodeId {
                     CheckedNodePathSegment::Index(_) => return false,
                     CheckedNodePathSegment::Operand(slot) if *slot <= 9_007_199_254_740_991 => {}
                     CheckedNodePathSegment::Operand(_) => return false,
+                    CheckedNodePathSegment::Dependency { package, node }
+                        if !package.is_empty() && *node <= 9_007_199_254_740_991 => {}
+                    CheckedNodePathSegment::Dependency { .. } => return false,
                     CheckedNodePathSegment::Node(node) => pending.push(node),
                 }
             }
@@ -915,40 +954,12 @@ impl CheckedNodeId {
 impl Drop for CheckedNodeId {
     fn drop(&mut self) {
         let mut pending = std::mem::take(&mut self.path);
-        let mut current = pending.pop();
-        while let Some(segment) = current {
-            if let CheckedNodePathSegment::Node(mut node) = segment {
-                if let Some(inner) = std::sync::Arc::get_mut(&mut node) {
-                    let mut children = std::mem::take(&mut inner.path);
-                    if pending.is_empty() {
-                        // With no siblings there is no continuation to keep.
-                        // This also releases the continuation after its child
-                        // buffer has been exhausted.
-                        pending = children;
-                        current = pending.pop();
-                        continue;
-                    }
-                    if let Some(next) = children.pop() {
-                        // The popped child leaves one slot for this existing
-                        // Arc, whose path now holds the parent's continuation.
-                        // No path buffer grows and no recursive drop is needed.
-                        inner.path = std::mem::take(&mut pending);
-                        // Visit the children before returning to the parent.
-                        // Every original path shifts once; a continuation is
-                        // recognized by the empty-pending case above.
-                        children.insert(0, CheckedNodePathSegment::Node(node));
-                        pending = children;
-                        current = Some(next);
-                        continue;
-                    }
-                } else if let Ok(mut inner) = std::sync::Arc::try_unwrap(node) {
-                    // A unique strong owner with public Weak observers cannot
-                    // lend its Arc mutably. Preserve its existing iterative
-                    // destruction; the strict reader never creates Weak.
-                    pending.append(&mut inner.path);
+        while let Some(segment) = pending.pop() {
+            if let CheckedNodePathSegment::Node(node) = segment {
+                if let Ok(mut node) = std::sync::Arc::try_unwrap(node) {
+                    pending.append(&mut node.path);
                 }
             }
-            current = pending.pop();
         }
     }
 }
@@ -977,201 +988,429 @@ impl PartialOrd for CheckedNodeId {
     }
 }
 
-impl Ord for CheckedNodeId {
-    /// Orders by package, then path segment by segment (names, then document
-    /// indices, then operand slots, then operand IDs), then ordinal. An operand
-    /// ID is compared in full before the rest of its parent's path. The walk
-    /// is iterative; its frame list is allocated only on meeting two distinct
-    /// operand IDs, so flat IDs (names, indices and slots only) compare
-    /// without allocating.
+/// The order of two path segments short of comparing nested operand keys:
+/// names, then index segments, operand slots, dependency positions and
+/// nested keys, each kind by its own members. Two nested keys compare equal
+/// here and are compared by the caller.
+fn segment_order(
+    left: &CheckedNodePathSegment,
+    right: &CheckedNodePathSegment,
+) -> std::cmp::Ordering {
+    use CheckedNodePathSegment as Segment;
+    let rank = |segment: &Segment| match segment {
+        Segment::Name(_) => 0,
+        Segment::Index(_) => 1,
+        Segment::Operand(_) => 2,
+        Segment::Dependency { .. } => 3,
+        Segment::Node(_) => 4,
+    };
+    rank(left)
+        .cmp(&rank(right))
+        .then_with(|| match (left, right) {
+            (Segment::Name(a), Segment::Name(b)) => a.cmp(b),
+            (Segment::Index(a), Segment::Index(b)) | (Segment::Operand(a), Segment::Operand(b)) => {
+                a.cmp(b)
+            }
+            (
+                Segment::Dependency {
+                    package: a,
+                    node: x,
+                },
+                Segment::Dependency {
+                    package: b,
+                    node: y,
+                },
+            ) => a.cmp(b).then(x.cmp(y)),
+            _ => std::cmp::Ordering::Equal,
+        })
+}
+
+/// A lookup key for a node ID of an importing document against a map keyed by
+/// the IDs a selected dependency's own graph holds. A `{package, node}`
+/// segment naming the dependency compares as the index segment `node` the
+/// dependency holds, so the lookup neither clones the ID nor builds a
+/// translated copy.
+pub(crate) trait NodeKeyProbe {
+    /// The ID being compared.
+    fn id(&self) -> &CheckedNodeId;
+    /// The selected dependency whose positions the ID's dependency segments
+    /// name, when the ID is read as that dependency's own.
+    fn foreign(&self) -> Option<&str>;
+}
+
+impl NodeKeyProbe for CheckedNodeId {
+    fn id(&self) -> &CheckedNodeId {
+        self
+    }
+    fn foreign(&self) -> Option<&str> {
+        None
+    }
+}
+
+impl NodeKeyProbe for &CheckedNodeId {
+    fn id(&self) -> &CheckedNodeId {
+        self
+    }
+    fn foreign(&self) -> Option<&str> {
+        None
+    }
+}
+
+/// A node ID read as the own ID of the dependency package `foreign`.
+pub(crate) struct ForeignNodeKey<'a> {
+    id: &'a CheckedNodeId,
+    foreign: &'a str,
+}
+
+impl<'a> ForeignNodeKey<'a> {
+    /// Read `id` as the own ID of the dependency `foreign`.
+    pub(crate) fn new(id: &'a CheckedNodeId, foreign: &'a str) -> Self {
+        Self { id, foreign }
+    }
+}
+
+impl NodeKeyProbe for ForeignNodeKey<'_> {
+    fn id(&self) -> &CheckedNodeId {
+        self.id
+    }
+    fn foreign(&self) -> Option<&str> {
+        Some(self.foreign)
+    }
+}
+
+impl<'a> std::borrow::Borrow<dyn NodeKeyProbe + 'a> for CheckedNodeId {
+    fn borrow(&self) -> &(dyn NodeKeyProbe + 'a) {
+        self
+    }
+}
+
+impl<'a, 'e: 'a> std::borrow::Borrow<dyn NodeKeyProbe + 'a> for &'e CheckedNodeId {
+    fn borrow(&self) -> &(dyn NodeKeyProbe + 'a) {
+        self
+    }
+}
+
+impl PartialEq for dyn NodeKeyProbe + '_ {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for dyn NodeKeyProbe + '_ {}
+
+impl PartialOrd for dyn NodeKeyProbe + '_ {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// The order of two segments after reading each dependency position of its
+/// side's `foreign` package as the index segment it names. An `Index` holds
+/// only an integer, so the reading allocates nothing.
+fn held_segment_order(
+    left: &CheckedNodePathSegment,
+    left_foreign: Option<&str>,
+    right: &CheckedNodePathSegment,
+    right_foreign: Option<&str>,
+) -> std::cmp::Ordering {
+    let held = |segment: &CheckedNodePathSegment, foreign: Option<&str>| match segment {
+        CheckedNodePathSegment::Dependency { package, node }
+            if foreign == Some(package.as_ref()) =>
+        {
+            Some(*node)
+        }
+        _ => None,
+    };
+    match (held(left, left_foreign), held(right, right_foreign)) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(a), None) => segment_order(&CheckedNodePathSegment::Index(a), right),
+        (None, Some(b)) => segment_order(left, &CheckedNodePathSegment::Index(b)),
+        (None, None) => segment_order(left, right),
+    }
+}
+
+impl Ord for dyn NodeKeyProbe + '_ {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Without a meter nothing refuses a spill, so the comparison cannot
-        // fail. The read path charges its comparisons (`cmp_growing` through
-        // the meter) or compares graph ranks; this plain order serves keys
-        // after admission, and a debug build can be told to refuse a frame
-        // allocation on one thread so a test proves a read never reaches it.
-        match self.cmp_growing(other, &mut |_| {
-            #[cfg(debug_assertions)]
-            forbid_plain_spill();
-            Ok::<(), std::convert::Infallible>(())
-        }) {
-            Ok(order) => order,
-            Err(never) => match never {},
-        }
-    }
-}
-
-/// Debug builds only: names the thread (by `std::thread` name) on which an
-/// uncharged `Ord::cmp` frame allocation must panic. Tests set it to their
-/// own thread around a full read to prove the read path never reaches a
-/// plain comparison of two distinct deep operand chains. `*` names every
-/// thread.
-#[cfg(debug_assertions)]
-pub const FORBID_PLAIN_SPILL_ENV: &str = "QUIRE_FORBID_PLAIN_CMP_SPILL_ON";
-
-#[cfg(debug_assertions)]
-fn forbid_plain_spill() {
-    if let Ok(name) = std::env::var(FORBID_PLAIN_SPILL_ENV) {
-        assert!(
-            name != "*" && std::thread::current().name() != Some(name.as_str()),
-            "an uncharged CheckedNodeId::cmp frame allocation on the read path"
-        );
-    }
-}
-
-/// Continuations of the existing structural-ID order. Borrowing input
-/// slices lets a prepaid sort reuse one exact block without cloning identities.
-struct NodeIdComparisonFrame<'a> {
-    left: &'a [CheckedNodePathSegment],
-    right: &'a [CheckedNodePathSegment],
-    ordinals: (u64, u64),
-}
-
-/// Caller-prepaid comparison scratch for authenticated structural-ID DAGs.
-/// The caller establishes a maximum continuation depth before sorting. Other
-/// callers keep the fallible growing comparison below.
-pub(crate) struct CheckedNodeIdOrder<'a> {
-    frames: Vec<NodeIdComparisonFrame<'a>>,
-}
-impl<'a> CheckedNodeIdOrder<'a> {
-    pub(crate) fn bytes(capacity: usize) -> usize {
-        capacity.saturating_mul(std::mem::size_of::<NodeIdComparisonFrame<'_>>())
-    }
-    /// The caller must reserve `bytes(capacity)` before this allocation.
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
-        Self {
-            frames: Vec::with_capacity(capacity),
-        }
-    }
-    /// `capacity` is a checked upper bound on the authenticated input DAG's
-    /// depth. No allocation or fallible comparator runs inside the sort.
-    pub(crate) fn compare_bounded(
-        &mut self,
-        left: &'a CheckedNodeId,
-        right: &'a CheckedNodeId,
-    ) -> std::cmp::Ordering {
-        match self.compare_growing(left, right, &mut |_| -> Result<
-            (),
-            std::convert::Infallible,
-        > {
-            unreachable!("authenticated identity depth exceeds its prepaid bound")
-        }) {
-            Ok(order) => order,
-            Err(never) => match never {},
-        }
-    }
-    fn compare_growing<E>(
-        &mut self,
-        left_key: &'a CheckedNodeId,
-        right_key: &'a CheckedNodeId,
-        grow: &mut dyn FnMut(usize) -> Result<(), E>,
-    ) -> Result<std::cmp::Ordering, E> {
-        use std::cmp::Ordering;
-        self.frames.clear();
-        let frames = &mut self.frames;
-        let (mut left, mut right) = (left_key.path.as_slice(), right_key.path.as_slice());
-        let mut ordinals = (left_key.ordinal, right_key.ordinal);
-        #[cfg(test)]
-        checked_node_comparisons::visited();
-        if !std::ptr::eq(left_key, right_key) {
-            match left_key.package.cmp(&right_key.package) {
-                Ordering::Equal => {}
-                order => return Ok(order),
-            }
-        } else {
-            left = &[];
-            right = &[];
-        }
-        loop {
-            match (left.split_first(), right.split_first()) {
-                (None, None) => {
-                    match ordinals.0.cmp(&ordinals.1) {
-                        Ordering::Equal => {}
-                        order => return Ok(order),
-                    }
-                    let Some(frame) = frames.pop() else {
-                        return Ok(Ordering::Equal);
+        let (left, right) = (self.id(), other.id());
+        left.package
+            .cmp(&right.package)
+            .then_with(|| {
+                for (a, b) in left.path.iter().zip(&right.path) {
+                    let order = match (a, b) {
+                        (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
+                            a.cmp(b)
+                        }
+                        _ => held_segment_order(a, self.foreign(), b, other.foreign()),
                     };
-                    (left, right, ordinals) = (frame.left, frame.right, frame.ordinals);
+                    if order.is_ne() {
+                        return order;
+                    }
                 }
-                (None, Some(_)) => return Ok(Ordering::Less),
-                (Some(_), None) => return Ok(Ordering::Greater),
-                (Some((head_left, rest_left)), Some((head_right, rest_right))) => {
-                    (left, right) = (rest_left, rest_right);
-                    match (head_left, head_right) {
-                        (CheckedNodePathSegment::Name(a), CheckedNodePathSegment::Name(b)) => {
-                            match a.cmp(b) {
-                                Ordering::Equal => {}
-                                order => return Ok(order),
-                            }
+                left.path.len().cmp(&right.path.len())
+            })
+            .then_with(|| left.ordinal.cmp(&right.ordinal))
+    }
+}
+
+impl Ord for CheckedNodeId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        enum Task<'a> {
+            Node(&'a CheckedNodeId, &'a CheckedNodeId),
+            Path(&'a [CheckedNodePathSegment], &'a [CheckedNodePathSegment]),
+            Ordinal(u64, u64),
+        }
+        let mut tasks = vec![Task::Node(self, other)];
+        while let Some(task) = tasks.pop() {
+            match task {
+                Task::Node(left, right) => {
+                    #[cfg(test)]
+                    checked_node_comparisons::visited();
+                    if std::ptr::eq(left, right) {
+                        continue;
+                    }
+                    match left.package.cmp(&right.package) {
+                        Ordering::Equal => {
+                            tasks.push(Task::Ordinal(left.ordinal, right.ordinal));
+                            tasks.push(Task::Path(&left.path, &right.path));
                         }
-                        (CheckedNodePathSegment::Name(_), _) => return Ok(Ordering::Less),
-                        (_, CheckedNodePathSegment::Name(_)) => return Ok(Ordering::Greater),
-                        (CheckedNodePathSegment::Index(a), CheckedNodePathSegment::Index(b))
-                        | (
-                            CheckedNodePathSegment::Operand(a),
-                            CheckedNodePathSegment::Operand(b),
-                        ) => match a.cmp(b) {
-                            Ordering::Equal => {}
-                            order => return Ok(order),
-                        },
-                        (CheckedNodePathSegment::Index(_), _) => return Ok(Ordering::Less),
-                        (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Index(_)) => {
-                            return Ok(Ordering::Greater)
-                        }
-                        (CheckedNodePathSegment::Operand(_), CheckedNodePathSegment::Node(_)) => {
-                            return Ok(Ordering::Less)
-                        }
-                        (CheckedNodePathSegment::Node(_), _) => {
-                            if let (
-                                CheckedNodePathSegment::Node(a),
-                                CheckedNodePathSegment::Node(b),
-                            ) = (head_left, head_right)
-                            {
-                                if !std::sync::Arc::ptr_eq(a, b) {
-                                    #[cfg(test)]
-                                    checked_node_comparisons::visited();
-                                    match a.package.cmp(&b.package) {
-                                        Ordering::Equal => {}
-                                        order => return Ok(order),
+                        order => return order,
+                    }
+                }
+                Task::Path(left, right) => match (left.split_first(), right.split_first()) {
+                    (None, None) => {}
+                    (None, Some(_)) => return Ordering::Less,
+                    (Some(_), None) => return Ordering::Greater,
+                    (Some((head_left, rest_left)), Some((head_right, rest_right))) => {
+                        tasks.push(Task::Path(rest_left, rest_right));
+                        match segment_order(head_left, head_right) {
+                            Ordering::Equal => {
+                                if let (
+                                    CheckedNodePathSegment::Node(a),
+                                    CheckedNodePathSegment::Node(b),
+                                ) = (head_left, head_right)
+                                {
+                                    if !std::sync::Arc::ptr_eq(a, b) {
+                                        tasks.push(Task::Node(a, b));
                                     }
-                                    if frames.len() == frames.capacity() {
-                                        let target = frames.capacity().saturating_mul(2).max(4);
-                                        grow(target.saturating_mul(std::mem::size_of::<
-                                            NodeIdComparisonFrame<'_>,
-                                        >(
-                                        )))?;
-                                        frames.reserve_exact(target - frames.len());
-                                    }
-                                    frames.push(NodeIdComparisonFrame {
-                                        left,
-                                        right,
-                                        ordinals,
-                                    });
-                                    (left, right) = (a.path.as_slice(), b.path.as_slice());
-                                    ordinals = (a.ordinal, b.ordinal);
                                 }
-                            } else {
-                                return Ok(Ordering::Greater);
                             }
+                            order => return order,
                         }
+                    }
+                },
+                Task::Ordinal(left, right) => match left.cmp(&right) {
+                    Ordering::Equal => {}
+                    order => return order,
+                },
+            }
+        }
+        Ordering::Equal
+    }
+}
+
+/// Rank resolved structural IDs in `CheckedNodeId::cmp` order without
+/// repeatedly walking a shared operand spine. Children enter the order tree
+/// before parents, so a parent comparison reads the positions of its children.
+pub(crate) fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> Vec<usize> {
+    use std::collections::HashMap;
+
+    struct Entry<'a> {
+        key: &'a CheckedNodeId,
+        parent: Option<usize>,
+        left: Option<usize>,
+        right: Option<usize>,
+        size: usize,
+        priority: u64,
+    }
+
+    struct Order<'a> {
+        entries: Vec<Entry<'a>>,
+        by_pointer: HashMap<*const CheckedNodeId, usize>,
+        root: Option<usize>,
+        random: u64,
+    }
+
+    impl<'a> Order<'a> {
+        fn size(&self, index: Option<usize>) -> usize {
+            index.map_or(0, |at| self.entries[at].size)
+        }
+
+        fn position(&self, mut at: usize) -> usize {
+            let mut position = self.size(self.entries[at].left);
+            while let Some(parent) = self.entries[at].parent {
+                if self.entries[parent].right == Some(at) {
+                    position += self.size(self.entries[parent].left) + 1;
+                }
+                at = parent;
+            }
+            position
+        }
+
+        fn compare(&self, left: &CheckedNodeId, right: &CheckedNodeId) -> std::cmp::Ordering {
+            use std::cmp::Ordering;
+            let package = left.package.cmp(&right.package);
+            if package != Ordering::Equal {
+                return package;
+            }
+            for (a, b) in left.path.iter().zip(&right.path) {
+                let order = match (a, b) {
+                    (CheckedNodePathSegment::Node(a), CheckedNodePathSegment::Node(b)) => {
+                        let a = self.by_pointer[&std::sync::Arc::as_ptr(a)];
+                        let b = self.by_pointer[&std::sync::Arc::as_ptr(b)];
+                        self.position(a).cmp(&self.position(b))
+                    }
+                    _ => segment_order(a, b),
+                };
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
+            left.path
+                .len()
+                .cmp(&right.path.len())
+                .then_with(|| left.ordinal.cmp(&right.ordinal))
+        }
+
+        fn rotate_up(&mut self, child: usize) {
+            let parent = self.entries[child].parent.expect("rotation has a parent");
+            let grand = self.entries[parent].parent;
+            if self.entries[parent].left == Some(child) {
+                let moved = self.entries[child].right;
+                self.entries[parent].left = moved;
+                if let Some(moved) = moved {
+                    self.entries[moved].parent = Some(parent);
+                }
+                self.entries[child].right = Some(parent);
+            } else {
+                let moved = self.entries[child].left;
+                self.entries[parent].right = moved;
+                if let Some(moved) = moved {
+                    self.entries[moved].parent = Some(parent);
+                }
+                self.entries[child].left = Some(parent);
+            }
+            self.entries[parent].parent = Some(child);
+            self.entries[child].parent = grand;
+            if let Some(grand) = grand {
+                if self.entries[grand].left == Some(parent) {
+                    self.entries[grand].left = Some(child);
+                } else {
+                    self.entries[grand].right = Some(child);
+                }
+            } else {
+                self.root = Some(child);
+            }
+            self.entries[parent].size =
+                1 + self.size(self.entries[parent].left) + self.size(self.entries[parent].right);
+            self.entries[child].size =
+                1 + self.size(self.entries[child].left) + self.size(self.entries[child].right);
+        }
+
+        fn insert(&mut self, key: &'a CheckedNodeId) -> usize {
+            use std::cmp::Ordering;
+            let mut parent = None;
+            let mut at = self.root;
+            let mut side = Ordering::Equal;
+            while let Some(current) = at {
+                side = self.compare(key, self.entries[current].key);
+                if side == Ordering::Equal {
+                    return current;
+                }
+                parent = Some(current);
+                at = if side == Ordering::Less {
+                    self.entries[current].left
+                } else {
+                    self.entries[current].right
+                };
+            }
+            // The priority is for tree balance only; it never identifies a
+            // package, file or tool, and it does not affect structural order.
+            self.random = self
+                .random
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let index = self.entries.len();
+            self.entries.push(Entry {
+                key,
+                parent,
+                left: None,
+                right: None,
+                size: 1,
+                priority: self.random,
+            });
+            if let Some(parent) = parent {
+                if side == Ordering::Less {
+                    self.entries[parent].left = Some(index);
+                } else {
+                    self.entries[parent].right = Some(index);
+                }
+                let mut ancestor = Some(parent);
+                while let Some(current) = ancestor {
+                    self.entries[current].size += 1;
+                    ancestor = self.entries[current].parent;
+                }
+            } else {
+                self.root = Some(index);
+            }
+            while let Some(parent) = self.entries[index].parent {
+                if self.entries[index].priority <= self.entries[parent].priority {
+                    break;
+                }
+                self.rotate_up(index);
+            }
+            index
+        }
+
+        fn positions(&self) -> Vec<usize> {
+            let mut positions = vec![0; self.entries.len()];
+            let mut pending = Vec::new();
+            let mut at = self.root;
+            let mut next = 0;
+            while at.is_some() || !pending.is_empty() {
+                while let Some(current) = at {
+                    pending.push(current);
+                    at = self.entries[current].left;
+                }
+                let current = pending.pop().expect("nonempty traversal stack");
+                positions[current] = next;
+                next += 1;
+                at = self.entries[current].right;
+            }
+            positions
+        }
+    }
+
+    let mut order = Order {
+        entries: Vec::new(),
+        by_pointer: HashMap::new(),
+        root: None,
+        random: 0x9e37_79b9_7f4a_7c15,
+    };
+    for root in keys {
+        let mut pending = vec![(root.as_ref(), false)];
+        while let Some((key, finish)) = pending.pop() {
+            let pointer = std::ptr::from_ref(key);
+            if order.by_pointer.contains_key(&pointer) {
+                continue;
+            }
+            if finish {
+                let index = order.insert(key);
+                order.by_pointer.insert(pointer, index);
+            } else {
+                pending.push((key, true));
+                for segment in key.path.iter().rev() {
+                    if let CheckedNodePathSegment::Node(child) = segment {
+                        pending.push((child, false));
                     }
                 }
             }
         }
     }
-}
-
-impl CheckedNodeId {
-    /// The `Ord` order, reserving every whole continuation block before a
-    /// growing comparison allocates it. Flat IDs request no scratch.
-    pub(crate) fn cmp_growing<E>(
-        &self,
-        other: &Self,
-        grow: &mut dyn FnMut(usize) -> Result<(), E>,
-    ) -> Result<std::cmp::Ordering, E> {
-        CheckedNodeIdOrder::with_capacity(0).compare_growing(self, other, grow)
-    }
+    let positions = order.positions();
+    keys.iter()
+        .map(|key| positions[order.by_pointer[&std::sync::Arc::as_ptr(key)]])
+        .collect()
 }
 
 impl Encode for CheckedNodeId {
@@ -1214,6 +1453,14 @@ impl Encode for CheckedNodeId {
                     writer.integer(i128::from(*slot))?;
                     writer.end_object()?;
                 }
+                Event::Segment(CheckedNodePathSegment::Dependency { package, node }) => {
+                    writer.begin_object()?;
+                    writer.name("node")?;
+                    writer.integer(i128::from(*node))?;
+                    writer.name("package")?;
+                    writer.string(package)?;
+                    writer.end_object()?;
+                }
                 Event::Segment(CheckedNodePathSegment::Node(node)) => {
                     writer.reserve_list(&mut pending, 1)?;
                     pending.push(Event::Node(node));
@@ -1254,19 +1501,10 @@ pub(crate) mod checked_node_comparisons {
 #[cfg(test)]
 mod structural_node_identity_tests {
     use super::{
-        CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal, CheckedPackageRefusalCode,
-        JsonPointer, RefusalFields,
+        rank_checked_node_ids, CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusal,
+        CheckedPackageRefusalCode, JsonPointer, RefusalFields,
     };
-
-    /// Ranks of `keys` in `CheckedNodeId::cmp` order, from the charged
-    /// structural order under a budget that charges nothing.
-    fn rank_checked_node_ids(keys: &[std::sync::Arc<CheckedNodeId>]) -> Vec<usize> {
-        let order = crate::checked_package::v2::StructuralOrder::build_unmetered(&[keys])
-            .expect("keys are their own operands");
-        keys.iter()
-            .map(|key| order.rank(key).expect("every key is in the order"))
-            .collect()
-    }
+    use ix_trace_rs::trace;
 
     /// Trace: FR-038-AC-185, TC-048.
     #[test]
@@ -1353,7 +1591,7 @@ mod structural_node_identity_tests {
         }
     }
 
-    #[ix_trace_rs::trace("TC-472", "FR-358-AC-13")]
+    #[trace("TC-472", "FR-358-AC-13")]
     #[test]
     fn checked_node_id_encoding_is_charged_through_the_writer_reservation() {
         let inner = CheckedNodeId {
@@ -1657,7 +1895,6 @@ pub struct CheckedSourceMapEntry {
     /// Occurrence ordinal.
     pub ordinal: u64,
     /// One or more half-open source regions.
-    #[serde(deserialize_with = "crate::checked_package::v2::exact_vec")]
     pub regions: Vec<CheckedSourceRegion>,
 }
 
@@ -1690,483 +1927,191 @@ pub struct CheckedCapability {
 }
 
 #[cfg(test)]
-pub(crate) mod node_order_tests {
-    use super::{CheckedNodeId, CheckedNodePathSegment as Segment};
-    use ix_trace_rs::trace;
+mod dependency_segment_tests {
+    use super::{segment_order, CheckedNodeId, CheckedNodePathSegment as Segment};
+    use serde_json::{json, Value};
     use std::cmp::Ordering;
-    use std::sync::Arc;
 
-    fn rank(segment: &Segment) -> u8 {
-        match segment {
-            Segment::Name(_) => 0,
-            Segment::Index(_) => 1,
-            Segment::Operand(_) => 2,
-            Segment::Node(_) => 3,
+    const BOUND: u64 = 9_007_199_254_740_991;
+
+    fn dependency(package: &str, node: u64) -> Segment {
+        Segment::Dependency {
+            package: package.into(),
+            node,
         }
     }
 
-    /// The canonical key of an id: the bytes whose lexicographic order is
-    /// the id order. A string is written with `0x00` escaped as `0x00 0xFF`
-    /// and ended by `0x00 0x01`; a path segment is a kind tag (name 1,
-    /// index 2, operand 3, node 4) and its value, a nested node being its
-    /// own whole key; a path ends with tag 0; the ordinal comes last.
-    fn canonical_key(id: &CheckedNodeId, out: &mut Vec<u8>) {
-        fn text(value: &str, out: &mut Vec<u8>) {
-            for byte in value.bytes() {
-                out.push(byte);
-                if byte == 0 {
-                    out.push(0xFF);
-                }
-            }
-            out.extend([0, 1]);
+    fn id_with(segment: Segment) -> CheckedNodeId {
+        CheckedNodeId {
+            package: "importer".into(),
+            path: vec![Segment::Name("clause".into()), segment],
+            ordinal: 3,
         }
-        text(&id.package, out);
-        for segment in &id.path {
-            match segment {
-                Segment::Name(name) => {
-                    out.push(1);
-                    text(name, out);
-                }
-                Segment::Index(index) => {
-                    out.push(2);
-                    out.extend(index.to_be_bytes());
-                }
-                Segment::Operand(slot) => {
-                    out.push(3);
-                    out.extend(slot.to_be_bytes());
-                }
-                Segment::Node(node) => {
-                    out.push(4);
-                    canonical_key(node, out);
-                }
-            }
-        }
-        out.push(0);
-        out.extend(id.ordinal.to_be_bytes());
     }
 
-    /// Every pair of a corpus of adversarial ids orders the same by the id
-    /// order and by the canonical key's bytes.
-    fn assert_key_order_equals_id_order(ids: &[CheckedNodeId]) -> usize {
-        let keys: Vec<Vec<u8>> = ids
-            .iter()
-            .map(|id| {
-                let mut key = Vec::new();
-                canonical_key(id, &mut key);
-                key
-            })
-            .collect();
-        let mut pairs = 0;
-        for (left, left_key) in ids.iter().zip(&keys) {
-            for (right, right_key) in ids.iter().zip(&keys) {
-                assert_eq!(
-                    left.cmp(right),
-                    left_key.cmp(right_key),
-                    "first divergence: {left:?} against {right:?}"
-                );
-                pairs += 1;
-            }
-        }
-        pairs
+    fn wire(segment: &Value) -> Value {
+        json!({"package": "importer", "path": ["clause", segment], "ordinal": 3})
     }
 
-    pub(crate) fn corpus() -> Vec<CheckedNodeId> {
-        let packages = [
-            "", "a", "ab", "b", "a\u{0}", "a\u{0}b", "\u{0}", "\u{1}", "\u{ff}",
-        ];
-        let atoms = [
-            Segment::Name("".into()),
-            Segment::Name("a".into()),
-            Segment::Name("a\u{0}".into()),
-            Segment::Name("ab".into()),
-            Segment::Name("b".into()),
-            Segment::Index(0),
-            Segment::Index(1),
-            Segment::Index(255),
-            Segment::Index(256),
-            Segment::Index(u64::MAX),
-            Segment::Operand(0),
-            Segment::Operand(1),
-            Segment::Operand(256),
-        ];
-        let ordinals = [0_u64, 1, 255, 256, u64::MAX];
-        let mut level: Vec<CheckedNodeId> = Vec::new();
-        // Paths of up to two atoms (including the empty path and every
-        // proper prefix of another path).
-        let mut paths: Vec<Vec<Segment>> = vec![Vec::new()];
-        for first in &atoms {
-            paths.push(vec![first.clone()]);
-            for second in &atoms {
-                paths.push(vec![first.clone(), second.clone()]);
-            }
-        }
-        for package in ["a", "ab", "a\u{0}"] {
-            for path in &paths {
-                for ordinal in [0, 1, 256] {
-                    level.push(CheckedNodeId {
-                        package: package.into(),
-                        path: path.clone(),
-                        ordinal,
-                    });
-                }
-            }
-        }
-        for package in packages {
-            for ordinal in ordinals {
-                level.push(CheckedNodeId {
-                    package: package.into(),
-                    path: vec![Segment::Name("x".into())],
-                    ordinal,
-                });
-            }
-        }
-        // Nodes holding nested nodes, among atoms, at every position.
-        let shared: Vec<Arc<CheckedNodeId>> = level
-            .iter()
-            .step_by(37)
-            .take(24)
-            .cloned()
-            .map(Arc::new)
-            .collect();
-        let mut nested = Vec::new();
-        for (at, child) in shared.iter().enumerate() {
-            for package in ["a", "b"] {
-                for ordinal in [0, 1] {
-                    nested.push(CheckedNodeId {
-                        package: package.into(),
-                        path: vec![Segment::Node(Arc::clone(child))],
-                        ordinal,
-                    });
-                    nested.push(CheckedNodeId {
-                        package: package.into(),
-                        path: vec![Segment::Name("w".into()), Segment::Node(Arc::clone(child))],
-                        ordinal,
-                    });
-                    nested.push(CheckedNodeId {
-                        package: package.into(),
-                        path: vec![Segment::Node(Arc::clone(child)), Segment::Name("a".into())],
-                        ordinal,
-                    });
-                    nested.push(CheckedNodeId {
-                        package: package.into(),
-                        path: vec![
-                            Segment::Node(Arc::clone(child)),
-                            Segment::Node(Arc::clone(&shared[(at + 1) % shared.len()])),
-                        ],
-                        ordinal,
-                    });
-                    nested.push(CheckedNodeId {
-                        package: package.into(),
-                        path: vec![Segment::Index(2), Segment::Node(Arc::clone(child))],
-                        ordinal,
-                    });
-                    nested.push(CheckedNodeId {
-                        package: package.into(),
-                        path: vec![Segment::Operand(2), Segment::Node(Arc::clone(child))],
-                        ordinal,
-                    });
-                }
-            }
-        }
-        level.extend(nested);
-        // Deep chains, and chains differing only at their innermost node,
-        // at their ordinal, or by one extra trailing segment.
-        for depth in [1, 2, 5, 17, 40] {
-            for (leaf, ordinal) in [
-                (Segment::Name("a".into()), 0),
-                (Segment::Name("a".into()), 1),
-                (Segment::Name("b".into()), 0),
-                (Segment::Index(1), 0),
-                (Segment::Operand(1), 0),
-            ] {
-                level.push(nested_chain(depth, leaf, ordinal));
-            }
-        }
-        level
-    }
-
-    fn nested_chain(depth: usize, leaf: Segment, ordinal: u64) -> CheckedNodeId {
-        nested(depth, leaf, ordinal)
-    }
-
-    /// The id order and the canonical key's byte order agree on every pair
-    /// of the corpus (FR-038-AC-504).
-    #[trace("TC-472", "FR-038-AC-504")]
     #[test]
-    fn node_id_order_equals_canonical_key_byte_order() {
-        let ids = corpus();
-        assert!(ids.len() > 600, "corpus size {}", ids.len());
-        let pairs = assert_key_order_equals_id_order(&ids);
-        assert_eq!(pairs, ids.len() * ids.len());
-    }
-
-    /// The order stated by recursion: package, then the path segment by
-    /// segment (kind, then value, a nested node by this same order), then
-    /// the ordinal.
-    fn reference(left: &CheckedNodeId, right: &CheckedNodeId) -> Ordering {
-        left.package
-            .cmp(&right.package)
-            .then_with(|| {
-                for (a, b) in left.path.iter().zip(&right.path) {
-                    let order = rank(a).cmp(&rank(b)).then_with(|| match (a, b) {
-                        (Segment::Name(a), Segment::Name(b)) => a.cmp(b),
-                        (Segment::Index(a), Segment::Index(b))
-                        | (Segment::Operand(a), Segment::Operand(b)) => a.cmp(b),
-                        (Segment::Node(a), Segment::Node(b)) => reference(a, b),
-                        _ => Ordering::Equal,
-                    });
-                    if order != Ordering::Equal {
-                        return order;
-                    }
-                }
-                left.path.len().cmp(&right.path.len())
-            })
-            .then_with(|| left.ordinal.cmp(&right.ordinal))
-    }
-
-    fn nested(depth: usize, leaf: Segment, ordinal: u64) -> CheckedNodeId {
-        let mut id = CheckedNodeId {
-            package: "p".into(),
-            path: vec![leaf],
-            ordinal,
-        };
-        for level in 0..depth {
-            id = CheckedNodeId {
-                package: "p".into(),
-                path: vec![Segment::Name("w".into()), Segment::Node(Arc::new(id))],
-                ordinal: u64::try_from(level % 2).unwrap_or(0),
-            };
-        }
-        id
-    }
-
-    /// The comparison keeps its order whether its pending work fits the call
-    /// stack or spills past it (FR-038-AC-504).
-    #[trace("TC-472", "FR-038-AC-504")]
-    #[test]
-    fn node_id_order_matches_recursion_shallow_and_beyond_the_inline_stack() {
-        let leaves = [
-            Segment::Name("a".into()),
-            Segment::Name("b".into()),
-            Segment::Index(1),
-            Segment::Index(2),
-            Segment::Operand(1),
-        ];
-        let mut ids = Vec::new();
-        for depth in [0, 1, 2, 7, 15, 16, 17, 31, 32, 33, 40, 100] {
-            for (at, leaf) in leaves.iter().enumerate() {
-                ids.push(nested(
-                    depth,
-                    leaf.clone(),
-                    u64::try_from(at % 2).unwrap_or(0),
-                ));
-            }
-        }
-        for left in &ids {
-            for right in &ids {
-                assert_eq!(left.cmp(right), reference(left, right));
-            }
-        }
-    }
-
-    /// The frame list the walk allocates on meeting two distinct operand IDs
-    /// is requested through the caller before it is allocated, and the
-    /// caller's refusal ends the comparison; a flat ID never asks
-    /// (FR-038-AC-504).
-    #[trace("TC-472", "FR-038-AC-504")]
-    #[test]
-    fn node_id_spill_is_asked_for_before_it_is_allocated() {
-        let leaf = Segment::Name("a".into());
-        let flat = |ordinal| CheckedNodeId {
-            package: "p".into(),
-            path: vec![leaf.clone(), Segment::Index(3), Segment::Operand(1)],
-            ordinal,
-        };
-        let shallow = (flat(0), flat(1));
-        let mut asked = Vec::new();
-        let order = shallow.0.cmp_growing(&shallow.1, &mut |bytes| {
-            asked.push(bytes);
-            Ok::<(), ()>(())
-        });
-        assert_eq!(order, Ok(shallow.0.cmp(&shallow.1)));
-        assert!(asked.is_empty(), "a flat ID asked to grow: {asked:?}");
-
-        let deep = (nested(100, leaf.clone(), 0), nested(100, leaf, 1));
-        let mut asked = Vec::new();
-        let refused = deep.0.cmp_growing(&deep.1, &mut |bytes| {
-            asked.push(bytes);
-            Err(bytes)
-        });
-        assert_eq!(refused, Err(asked[0]));
-        assert_eq!(asked.len(), 1);
-        assert!(asked[0] > 0);
-
-        let mut granted = 0_usize;
-        let order = deep.0.cmp_growing(&deep.1, &mut |bytes| {
-            granted = bytes;
-            Ok::<(), ()>(())
-        });
-        assert_eq!(order, Ok(deep.0.cmp(&deep.1)));
-        assert!(granted > 0);
-    }
-}
-
-#[cfg(test)]
-mod node_id_serde_token_tests {
-    use super::{CheckedNodeId, CheckedNodePathSegment};
-    use ix_trace_rs::trace;
-    use serde_json::json;
-
-    /// Non-document deserializers use the unchanged flat wire visitor.
-    #[trace("TC-472", "FR-038-AC-504")]
-    #[test]
-    fn node_id_token_preserves_ordinary_serde_wire() {
-        let value =
-            json!({"package":"example", "path":["decl", {"node":9}, {"operand":0}], "ordinal":0});
-        let node: CheckedNodeId = serde_json::from_value(value.clone()).expect("flat node ID");
-        assert!(matches!(
-            node.path.as_slice(),
-            [
-                CheckedNodePathSegment::Name(_),
-                CheckedNodePathSegment::Index(9),
-                CheckedNodePathSegment::Operand(0)
-            ]
-        ));
-        assert_eq!(serde_json::to_value(&node).expect("encode"), value);
-        let text = serde_json::to_string(&value).expect("JSON");
-        assert_eq!(
-            serde_json::from_str::<CheckedNodeId>(&text).expect("text decode"),
-            node
+    fn dependency_segment_round_trips_with_node_before_package() {
+        let id = id_with(dependency("dep/pkg", 42));
+        let value = serde_json::to_value(&id).expect("serialize");
+        assert_eq!(value, wire(&json!({"node": 42, "package": "dep/pkg"})));
+        let text = serde_json::to_string(&id).expect("serialize text");
+        assert!(
+            text.contains(r#"{"node":42,"package":"dep/pkg"}"#),
+            "members are written in encode order: {text}"
         );
-        for path in [
-            json!([{"node":-1}]),
-            json!([{"unknown":0}]),
-            json!([{"node":1,"operand":0}]),
-            json!([{"node":{"package":"example","path":["nested"],"ordinal":0}}]),
+        let read: CheckedNodeId = serde_json::from_str(&text).expect("deserialize");
+        assert_eq!(read, id);
+        assert_eq!(read.path[1], dependency("dep/pkg", 42));
+    }
+
+    #[test]
+    fn dependency_segment_reads_both_member_orders() {
+        for text in [
+            r#"{"package":"importer","path":["clause",{"package":"dep","node":7}],"ordinal":3}"#,
+            r#"{"package":"importer","path":["clause",{"node":7,"package":"dep"}],"ordinal":3}"#,
         ] {
-            assert!(serde_json::from_value::<CheckedNodeId>(
-                json!({"package":"example", "path":path, "ordinal":0})
-            )
-            .is_err());
+            let read: CheckedNodeId = serde_json::from_str(text).expect(text);
+            assert_eq!(read.path[1], dependency("dep", 7), "{text}");
         }
-        let unchecked: CheckedNodeId =
-            serde_json::from_value(json!({"package":"", "path":[], "ordinal":0}))
-                .expect("ordinary serde does not perform the later well-formedness check");
-        assert!(!unchecked.is_well_formed());
-    }
-}
-
-#[cfg(test)]
-mod node_id_drop_storage_tests {
-    use super::{CheckedNodeId, CheckedNodePathSegment as Segment};
-    use ix_trace_rs::trace;
-    use std::sync::Arc;
-
-    fn named(name: &str) -> CheckedNodeId {
-        CheckedNodeId {
-            package: "drop".into(),
-            path: vec![Segment::Name(name.into())],
-            ordinal: 0,
-        }
-    }
-    fn receiver() -> CheckedNodeId {
-        let declaration = CheckedNodeId {
-            package: "drop".into(),
-            path: vec![
-                Segment::Name("model".into()),
-                Segment::Name("object_type".into()),
-                Segment::Name("Widget".into()),
-            ],
-            ordinal: 0,
-        };
-        CheckedNodeId {
-            package: "drop".into(),
-            path: vec![
-                Segment::Name("composite_type".into()),
-                Segment::Name("reference".into()),
-                Segment::Node(Arc::new(declaration)),
-            ],
-            ordinal: 0,
-        }
-    }
-    fn chain(
-        depth: usize,
-        retain_weak: bool,
-    ) -> (CheckedNodeId, Vec<std::sync::Weak<CheckedNodeId>>) {
-        let mut root = named("leaf");
-        let mut weak = Vec::new();
-        for _ in 0..depth {
-            let child = Arc::new(root);
-            if retain_weak {
-                weak.push(Arc::downgrade(&child));
-            }
-            root = CheckedNodeId {
-                package: "drop".into(),
-                path: vec![
-                    Segment::Name("outer".into()),
-                    Segment::Node(child),
-                    Segment::Name("tail".into()),
-                ],
-                ordinal: 0,
-            };
-        }
-        (root, weak)
-    }
-    fn assert_free_drop(root: CheckedNodeId) {
-        let measured = allocation_counter::measure(|| drop(root));
-        assert_eq!(measured.bytes_total, 0, "destruction requests no storage");
-        assert_eq!(measured.count_total, 0);
     }
 
-    /// Reader-created structural operands use Arc::new and never create Weak.
-    /// The produced IDs are destroyed inside the measured interval.
-    #[trace("TC-472", "FR-038-AC-504")]
     #[test]
-    fn reader_node_ids_drop_without_allocating_for_nested_sibling_and_shared_paths() {
-        assert_free_drop(receiver());
-        let shared = Arc::new(receiver());
-        let root = CheckedNodeId {
-            package: "drop".into(),
-            path: vec![
-                Segment::Node(Arc::new(receiver())),
-                Segment::Name("between".into()),
-                Segment::Node(Arc::clone(&shared)),
-                Segment::Node(Arc::clone(&shared)),
-                Segment::Node(Arc::new(receiver())),
-            ],
-            ordinal: 0,
-        };
-        assert_free_drop(root);
-        assert_eq!(Arc::strong_count(&shared), 1);
-        assert_free_drop(Arc::try_unwrap(shared).expect("last strong owner"));
+    fn dependency_segment_refuses_an_extra_member_in_either_order() {
+        for segment in [
+            r#"{"package":"dep","node":7,"extra":1}"#,
+            r#"{"node":7,"package":"dep","extra":1}"#,
+            r#"{"package":"dep","extra":1,"node":7}"#,
+        ] {
+            let text =
+                format!(r#"{{"package":"importer","path":["clause",{segment}],"ordinal":3}}"#);
+            let error = serde_json::from_str::<CheckedNodeId>(&text)
+                .expect_err(segment)
+                .to_string();
+            assert!(error.contains("unknown field"), "{segment}: {error}");
+            assert!(error.contains("extra"), "{segment}: {error}");
+        }
     }
 
-    #[trace("TC-472", "FR-038-AC-504")]
     #[test]
-    fn deep_reader_paths_drop_without_heap_or_call_stack_growth() {
-        let (root, _) = chain(100_000, false);
-        std::thread::Builder::new()
-            .stack_size(128 * 1024)
-            .spawn(move || assert_free_drop(root))
-            .expect("small-stack thread")
-            .join()
-            .expect("iterative drop");
+    fn dependency_segment_node_is_bounded_by_the_i_json_maximum() {
+        for member in [
+            format!(r#"{{"package":"dep","node":{}}}"#, BOUND + 1),
+            format!(r#"{{"node":{},"package":"dep"}}"#, BOUND + 1),
+        ] {
+            let text =
+                format!(r#"{{"package":"importer","path":["clause",{member}],"ordinal":3}}"#);
+            let error = serde_json::from_str::<CheckedNodeId>(&text)
+                .expect_err(&member)
+                .to_string();
+            assert!(error.contains("I-JSON bound"), "{member}: {error}");
+        }
+        for member in [
+            format!(r#"{{"package":"dep","node":{BOUND}}}"#),
+            format!(r#"{{"node":{BOUND},"package":"dep"}}"#),
+        ] {
+            let text =
+                format!(r#"{{"package":"importer","path":["clause",{member}],"ordinal":3}}"#);
+            let read: CheckedNodeId = serde_json::from_str(&text).expect(&member);
+            assert_eq!(read.path[1], dependency("dep", BOUND));
+            assert!(read.is_well_formed());
+        }
     }
 
-    /// Weak is a public Arc ownership case, outside the strict reader. Its
-    /// pre-existing iterative fallback keeps weak observers safe and expires
-    /// every observer when the last strong root is destroyed.
     #[test]
-    fn weak_observers_preserve_last_owner_destruction_and_deep_stack_safety() {
-        let (root, weak) = chain(10_000, true);
-        std::thread::Builder::new()
-            .stack_size(128 * 1024)
-            .spawn(move || {
-                drop(root);
-                assert!(weak.iter().all(|observer| observer.upgrade().is_none()));
-            })
-            .expect("small-stack thread")
-            .join()
-            .expect("iterative weak drop");
+    fn dependency_segment_with_an_empty_package_is_not_well_formed() {
+        let value = wire(&json!({"node": 1, "package": ""}));
+        let read = serde_json::from_value::<CheckedNodeId>(value.clone())
+            .expect("empty package still reads");
+        assert_eq!(read.path[1], dependency("", 1));
+        assert!(!read.is_well_formed());
+        assert!(CheckedNodeId::from_value(&value).is_none());
+        let named = wire(&json!({"node": 1, "package": "dep"}));
+        assert!(CheckedNodeId::from_value(&named).is_some());
+    }
+
+    #[test]
+    fn dependency_segment_ranks_after_name_index_and_operand_before_node() {
+        let nested = Segment::Node(std::sync::Arc::new(id_with(Segment::Index(0))));
+        let ascending = [
+            Segment::Name("zzz".into()),
+            Segment::Index(BOUND),
+            Segment::Operand(BOUND),
+            dependency("", 0),
+            nested,
+        ];
+        for pair in ascending.windows(2) {
+            assert_eq!(
+                segment_order(&pair[0], &pair[1]),
+                Ordering::Less,
+                "{pair:?}"
+            );
+            assert_eq!(
+                segment_order(&pair[1], &pair[0]),
+                Ordering::Greater,
+                "{pair:?}"
+            );
+        }
+        // Two positions order by package, then node.
+        assert_eq!(
+            segment_order(&dependency("a", 9), &dependency("b", 1)),
+            Ordering::Less
+        );
+        assert_eq!(
+            segment_order(&dependency("a", 1), &dependency("a", 2)),
+            Ordering::Less
+        );
+        assert_eq!(
+            segment_order(&dependency("a", 2), &dependency("a", 2)),
+            Ordering::Equal
+        );
+        // The ID order follows the segment order.
+        assert!(id_with(Segment::Operand(0)) < id_with(dependency("a", 0)));
+        assert!(
+            id_with(dependency("a", 0))
+                < id_with(Segment::Node(std::sync::Arc::new(id_with(Segment::Index(
+                    0
+                )))))
+        );
+    }
+
+    #[test]
+    fn foreign_key_lookup_reads_dependency_positions_as_held_indexes() {
+        use super::{ForeignNodeKey, NodeKeyProbe};
+        use std::collections::BTreeMap;
+        let held = |index: u64| id_with(Segment::Index(index));
+        let map: BTreeMap<CheckedNodeId, usize> = (0..5)
+            .map(|index| (held(index), index as usize + 10))
+            .collect();
+        let by_ref: BTreeMap<&CheckedNodeId, usize> =
+            map.iter().map(|(key, at)| (key, *at)).collect();
+        for index in 0..5_u64 {
+            let named = id_with(dependency("dep", index));
+            let key = ForeignNodeKey::new(&named, "dep");
+            assert_eq!(
+                map.get(&key as &dyn NodeKeyProbe),
+                Some(&(index as usize + 10))
+            );
+            assert_eq!(
+                by_ref.get(&key as &dyn NodeKeyProbe),
+                Some(&(index as usize + 10))
+            );
+        }
+        let past = id_with(dependency("dep", 5));
+        assert_eq!(
+            map.get(&ForeignNodeKey::new(&past, "dep") as &dyn NodeKeyProbe),
+            None
+        );
+        let other = id_with(dependency("dep", 1));
+        assert_eq!(
+            map.get(&ForeignNodeKey::new(&other, "else") as &dyn NodeKeyProbe),
+            None
+        );
+        // A key read without a dependency is the plain lookup.
+        let plain = held(2);
+        assert_eq!(map.get(&plain as &dyn NodeKeyProbe), Some(&12));
     }
 }

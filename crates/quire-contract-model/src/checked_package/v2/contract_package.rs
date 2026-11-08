@@ -606,18 +606,6 @@ fn json_value_count(root: &Value) -> Option<u64> {
     Some(count)
 }
 
-fn decode_admitted_body(
-    _kind: CheckedNodeKind,
-    body: &super::CheckedJson,
-) -> Result<super::CheckedTerm, ()> {
-    let mut budget = super::NativeJoinBudget::unlimited();
-    let site = super::read_charge::Site::new(super::PackageReadStage::Graph, 0, "body");
-    super::TermNode::of(body)
-        .decode(body.document(), &mut budget, site)
-        .map_err(|_| ())?
-        .map_err(|_| ())
-}
-
 impl<'a> ContractPackageTraversalIndex<'a> {
     pub(super) fn build(
         package: &'a ContractPackageV1,
@@ -755,9 +743,9 @@ impl ContractSourceKeyV1 {
                 match segment {
                     CheckedNodePathSegment::Name(_) => {}
                     CheckedNodePathSegment::Node(operand) => pending.push(operand),
-                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
-                        return None;
-                    }
+                    CheckedNodePathSegment::Index(_)
+                    | CheckedNodePathSegment::Operand(_)
+                    | CheckedNodePathSegment::Dependency { .. } => return None,
                 }
             }
         }
@@ -784,6 +772,7 @@ impl ContractSourceKeyV1 {
                 }
                 CheckedNodePathSegment::Index(_)
                 | CheckedNodePathSegment::Operand(_)
+                | CheckedNodePathSegment::Dependency { .. }
                 | CheckedNodePathSegment::Node(_) => return None,
             });
         }
@@ -867,23 +856,15 @@ impl ContractPackageV1 {
                 Step::Index(position),
                 Step::Key("body"),
             ];
-            let body = super::TermNode::of(&node.body);
-            let body_work = crate::checked_package::common::with_unmetered_ids_row(&[], |ids| {
-                super::validate_body(
-                    kind,
-                    body,
-                    body,
-                    &Trail::Base(&steps),
-                    &mut |target, _site, _at, _sink, _charge_site| {
-                        pending.push_back(target);
-                        Ok(())
-                    },
-                    ids,
-                    None,
-                )
-            })?;
-            work.charge(body_work.saturating_mul(4))
+            let body_units = json_value_count(&node.body).unwrap_or(u64::MAX);
+            work.charge(body_units.saturating_mul(4))
                 .map_err(ContractRootViewError::Incomplete)?;
+            super::validate_body(
+                kind,
+                &node.body,
+                &Trail::Base(&steps),
+                &mut |target, _site, _at| pending.push_back(target.clone()),
+            )?;
             let body = self
                 .terms
                 .get(position)
@@ -1039,7 +1020,7 @@ impl ContractPackageV1 {
         else {
             return false;
         };
-        node.body = super::CheckedJson::from_serializable(&()).expect("null is canonical");
+        node.body = Value::Null;
         true
     }
 
@@ -1581,7 +1562,7 @@ impl ContractPackageWireV1 {
                 {
                     return Ok(Some(source_term));
                 }
-                let mut term = decode_admitted_body(
+                let mut term = super::decode_admitted_body(
                     node_kinds[position],
                     &wire.semantic_graph.nodes[position].body,
                 )
@@ -1609,7 +1590,7 @@ impl ContractPackageWireV1 {
                 node_index,
                 unsupported_tags,
                 unsupported_source_kinds: Some(unsupported_source_kinds),
-                catalog: source.catalog.clone(),
+                catalog: super::operation_catalog::CatalogRef(source.catalog),
             },
             bytes,
         ))
@@ -1712,7 +1693,7 @@ impl ContractPackageWireV1 {
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
     ) -> ContractPackageReadResult {
-        Self::read_with_catalog(
+        Self::read_against(
             super::operation_catalog::production_catalog(),
             bytes,
             limits,
@@ -1722,7 +1703,6 @@ impl ContractPackageWireV1 {
 
     /// [`Self::read`] against the given result of reading the operation
     /// catalog: an unreadable catalog returns before any byte is judged.
-    #[cfg(test)]
     pub(super) fn read_against(
         catalog: &'static Result<
             super::operation_catalog::OperationCatalog,
@@ -1732,21 +1712,7 @@ impl ContractPackageWireV1 {
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
     ) -> ContractPackageReadResult {
-        Self::read_with_catalog(
-            super::operation_catalog::available(catalog),
-            bytes,
-            limits,
-            dependencies,
-        )
-    }
-
-    fn read_with_catalog(
-        catalog: Result<super::operation_catalog::CatalogRef, super::CatalogReadError>,
-        bytes: &[u8],
-        limits: CheckedPackageReadLimits,
-        dependencies: &ContractDependencies<'_>,
-    ) -> ContractPackageReadResult {
-        let catalog = match catalog {
+        let catalog = match super::operation_catalog::available(catalog) {
             Ok(catalog) => catalog,
             Err(error) => return ContractPackageReadResult::CatalogUnavailable(error),
         };
@@ -1797,12 +1763,11 @@ impl ContractPackageWireV1 {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        let projected_keys = super::node_index::rebuild_graph_keys(
-            &package.wire.semantic_graph.nodes,
-            |_| unreachable!("admitted V1 graph was already index-checked"),
-            &mut super::native_join_budget::NativeJoinBudget::unlimited(),
-        )
-        .expect("admitted V1 graph keys");
+        let projected_keys =
+            super::node_index::rebuild_graph_keys(&package.wire.semantic_graph.nodes, None, |_| {
+                unreachable!("admitted V1 graph was already index-checked")
+            })
+            .expect("admitted V1 graph keys");
         let mut projected_positions = vec![None; source.resolved_graph().nodes.len()];
         let mut source_positions = Vec::with_capacity(package.wire.semantic_graph.nodes.len());
         for (position, represented) in package.wire.semantic_graph.nodes.iter().enumerate() {
@@ -1856,7 +1821,7 @@ impl ContractPackageWireV1 {
     }
 
     fn admit(
-        catalog: super::operation_catalog::CatalogRef,
+        catalog: &'static super::operation_catalog::OperationCatalog,
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
@@ -1884,13 +1849,13 @@ impl ContractPackageWireV1 {
             Some(Value::String(version))
                 if ContractWireTag::from_wire(version) == Some(ContractWireTag::Version) => {}
             Some(Value::String(version)) => {
-                return Err(ValidationFailure::unknown_contract_version(version));
+                return Err(ValidationFailure::unknown_contract_version(version))
             }
             Some(_) => {
                 return Err(malformed(
                     root.key("contract_version"),
                     CheckedPackageRefusalCause::WrongValueKind,
-                ));
+                ))
             }
             None => return Err(malformed(root, CheckedPackageRefusalCause::MissingMember)),
         }
@@ -1910,15 +1875,7 @@ impl ContractPackageWireV1 {
                 CheckedPackageRefusalCause::WrongValueKind,
             )
         })?;
-        let bodies =
-            super::graph_storage::OwnedBodies::of(&wire.semantic_graph.nodes).ok_or_else(|| {
-                malformed(
-                    JsonPointer::root().key("semantic_graph").key("nodes"),
-                    CheckedPackageRefusalCause::InvalidValue,
-                )
-            })?;
         let mut work_meter = super::WorkMeter::new(limits.work);
-        bodies.attach(&mut work_meter);
         let (node_kinds, unsupported_tags) = wire.validate_values(limits, &mut work_meter)?;
         wire.validate_correspondence(limits, &frames)?;
         wire.validate_accounting(&frames)?;
@@ -1940,7 +1897,7 @@ impl ContractPackageWireV1 {
             node_index,
             unsupported_tags,
             unsupported_source_kinds: None,
-            catalog,
+            catalog: super::operation_catalog::CatalogRef(catalog),
         })
     }
 }
@@ -1983,8 +1940,8 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
         })
         .collect::<Result<Vec<_>, _>>()?;
     let output_keys = super::node_index::rebuild_keys(
-        output_ids.len(),
-        |position| &output_ids[position],
+        &output_ids.iter().collect::<Vec<_>>(),
+        None,
         |position, slot| {
             graph_at
                 .clone()
@@ -1995,7 +1952,6 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
                 .key("node")
         },
         |at| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at),
-        &mut super::native_join_budget::NativeJoinBudget::unlimited(),
     )?;
     let table_at = JsonPointer::root().key("source_keys");
     let table = value["source_keys"]
@@ -2014,8 +1970,8 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
         })
         .collect::<Result<Vec<_>, _>>()?;
     let source_keys = super::node_index::rebuild_keys(
-        source_ids.len(),
-        |position| &source_ids[position],
+        &source_ids.iter().collect::<Vec<_>>(),
+        None,
         |position, slot| {
             table_at
                 .clone()
@@ -2025,7 +1981,6 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
                 .key("node")
         },
         |at| ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at),
-        &mut super::native_join_budget::NativeJoinBudget::unlimited(),
     )?;
     let paths = source_ref_paths(value);
     for at in &paths {
@@ -2042,10 +1997,12 @@ fn resolve_source_frames(value: &Value) -> Result<(Value, ContractFrameKeys), Va
     }
     // Compare shallow interned descriptors: a long chain of source keys must
     // not compare every deep prefix again during duplicate detection.
-    let order = super::StructuralOrder::build_unmetered(&[&source_keys])
+    let mut interner = super::node_index::StructuralInterner::new();
+    let tokens = interner
+        .tokens(&source_keys)
         .ok_or_else(|| malformed(table_at.clone(), CheckedPackageRefusalCause::InvalidValue))?;
     let mut seen = BTreeSet::new();
-    for (position, token) in source_keys.iter().map(|key| order.token(key)).enumerate() {
+    for (position, token) in tokens.into_iter().enumerate() {
         if !seen.insert(token) {
             return Err(malformed(
                 table_at.clone().index(position),
@@ -2261,7 +2218,7 @@ fn id_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFailure> {
                 return Err(malformed(
                     segment_at,
                     CheckedPackageRefusalCause::InvalidValue,
-                ));
+                ))
             }
         }
     }
@@ -2876,22 +2833,16 @@ impl ContractPackageWireV1 {
                 Some(JsonPointer::root().key("semantic_graph").key("nodes")),
             ));
         }
-        let structural_keys = super::node_index::rebuild_graph_keys(
-            nodes,
-            |at| malformed(at, CheckedPackageRefusalCause::InvalidValue),
-            &mut super::native_join_budget::NativeJoinBudget::unlimited(),
-        )?;
-        let order =
-            super::StructuralOrder::build_unmetered(&[&structural_keys]).ok_or_else(|| {
-                malformed(
-                    JsonPointer::root().key("semantic_graph").key("nodes"),
-                    CheckedPackageRefusalCause::InvalidValue,
-                )
-            })?;
-        let structural_tokens = structural_keys
-            .iter()
-            .map(|key| order.token(key))
-            .collect::<Vec<_>>();
+        let structural_keys = super::node_index::rebuild_graph_keys(nodes, None, |at| {
+            malformed(at, CheckedPackageRefusalCause::InvalidValue)
+        })?;
+        let mut interner = super::node_index::StructuralInterner::new();
+        let structural_tokens = interner.tokens(&structural_keys).ok_or_else(|| {
+            malformed(
+                JsonPointer::root().key("semantic_graph").key("nodes"),
+                CheckedPackageRefusalCause::InvalidValue,
+            )
+        })?;
         let mut seen = BTreeSet::new();
         let mut edges = 0_u64;
         let mut node_kinds = Vec::with_capacity(nodes.len());
@@ -2922,18 +2873,8 @@ impl ContractPackageWireV1 {
                 Step::Index(index),
                 Step::Key("body"),
             ];
-            let body = super::TermNode::of(&node.body);
-            let work = crate::checked_package::common::with_unmetered_ids_row(&[], |ids| {
-                super::validate_body(
-                    kind,
-                    body,
-                    body,
-                    &Trail::Base(&steps),
-                    &mut |_, _, _, _, _| Ok(()),
-                    ids,
-                    None,
-                )
-            })?;
+            let work =
+                super::validate_body(kind, &node.body, &Trail::Base(&steps), &mut |_, _, _| {})?;
             work_meter.charge(work, || at.clone().key("body"))?;
             edges =
                 edges.saturating_add(u64::try_from(node.dependencies.len()).unwrap_or(u64::MAX));
@@ -3324,9 +3265,13 @@ impl ContractPackageWireV1 {
         meter: &mut super::WorkMeter,
         frames: &ContractFrameKeys,
     ) -> Result<Vec<Option<CheckedTerm>>, ValidationFailure> {
+        let admitted: BTreeMap<&str, &CheckedPackageV2> = dependencies
+            .iter()
+            .map(|(identity, input)| (*identity, input.package))
+            .collect();
         let supplied = SuppliedDependencies::from_admitted(
             &self.package.source.lock.dependency_selections,
-            |identity| dependencies.get(identity).map(|input| input.package),
+            &admitted,
         )
         .map_err(|index| {
             ValidationFailure::refused_because(
@@ -3382,31 +3327,22 @@ impl ContractPackageWireV1 {
             let mut body_references = Vec::new();
             let mut edges = node.dependencies.clone();
             edges.push(node.semantic_type.clone());
-            let body = super::TermNode::of(&node.body);
-            crate::checked_package::common::with_unmetered_ids_row(&[], |ids| {
-                super::validate_body(
-                    kind,
-                    body,
-                    body,
-                    &Trail::Base(&steps),
-                    &mut |target, site, pointer, _sink, _charge_site| {
-                        edges.push(target.clone());
-                        body_references.push((target, site));
-                        if missing.is_none()
-                            && !nodes.contains_key(edges.last().expect("just pushed"))
-                        {
-                            missing = Some(pointer.pointer());
-                        }
-                        Ok(())
-                    },
-                    ids,
-                    None,
-                )
-            })?;
+            super::validate_body(
+                kind,
+                &node.body,
+                &Trail::Base(&steps),
+                &mut |target, site, pointer| {
+                    edges.push(target.clone());
+                    body_references.push((target.clone(), site));
+                    if missing.is_none() && !nodes.contains_key(target) {
+                        missing = Some(pointer.pointer());
+                    }
+                },
+            )?;
             if let Some(pointer) = missing {
                 return Err(malformed(pointer, CheckedPackageRefusalCause::InvalidValue));
             }
-            terms.push(match decode_admitted_body(kind, &node.body) {
+            terms.push(match super::decode_admitted_body(kind, &node.body) {
                 Ok(term) => Some(term),
                 Err(_)
                     if matches!(
@@ -3446,7 +3382,7 @@ impl ContractPackageWireV1 {
             for (reference_index, (target, site)) in body_references.iter().enumerate() {
                 let Some(&target) = positions.get(target) else {
                     return Err(malformed(
-                        body_reference_pointer(node, kind, index, reference_index, &[]),
+                        super::body_reference_pointer(node, kind, index, reference_index),
                         CheckedPackageRefusalCause::InvalidValue,
                     ));
                 };
@@ -3473,11 +3409,7 @@ impl ContractPackageWireV1 {
         // because the scalar key exists in this graph.
         for (position, (node, kind)) in self.semantic_graph.nodes.iter().zip(&kinds).enumerate() {
             if *kind == super::CheckedNodeKind::CompositeType(super::CompositeTypeForm::Reference) {
-                let target = terms
-                    .get(position)
-                    .and_then(Option::as_ref)
-                    .and_then(super::structural::reference_type_target_ref)
-                    .cloned()
+                let target = super::structural::reference_type_target(node)
                     .and_then(|key| positions.get(&key).copied())
                     .and_then(|target| kinds.get(target));
                 if !matches!(
@@ -3495,33 +3427,28 @@ impl ContractPackageWireV1 {
                 }
             }
         }
-        let graph_index = super::graph_storage::GraphIndex::build(
-            self.semantic_graph.nodes.iter().map(|node| &node.node_id),
-            &mut *meter,
-        )?;
         super::structural::validate_structural_nodes(
             &self.semantic_graph.nodes,
             &kinds,
             &terms,
-            &graph_index,
-            &mut *meter,
+            &positions,
         )?;
         super::identity::validate_nominal_nodes(
             &self.semantic_graph.nodes,
             &kinds,
-            &graph_index,
+            &positions,
             &self.package.source.lock,
             &[],
             &supplied,
-            &terms,
             &mut *meter,
+            limits.bytes,
         )?;
         let reference_pointer = |position: usize, reference: usize| match (
             self.semantic_graph.nodes.get(position),
             kinds.get(position),
         ) {
             (Some(node), Some(kind)) => {
-                body_reference_pointer(node, *kind, position, reference, &[])
+                super::body_reference_pointer(node, *kind, position, reference)
             }
             _ => JsonPointer::root()
                 .key("semantic_graph")
@@ -3529,41 +3456,19 @@ impl ContractPackageWireV1 {
                 .index(position)
                 .key("body"),
         };
-        let recorded_paths: Vec<Vec<JsonPointer>> = self
-            .semantic_graph
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(position, _)| {
-                (0..adjacency[position]
-                    .iter()
-                    .filter_map(|(_, site)| match site {
-                        super::EdgeSite::Reference(reference) => Some(reference + 1),
-                        _ => None,
-                    })
-                    .max()
-                    .unwrap_or(0))
-                    .map(|reference| reference_pointer(position, reference))
-                    .collect()
-            })
-            .collect();
         let edge_pointer = |vertex: usize, site: super::EdgeSite| match site {
-            super::EdgeSite::SemanticType => super::stage_storage::Path::root()
+            super::EdgeSite::SemanticType => JsonPointer::root()
                 .key("semantic_graph")
                 .key("nodes")
                 .index(vertex)
-                .key("semantic_type")
-                .into(),
-            super::EdgeSite::Dependency(dependency) => super::stage_storage::Path::root()
+                .key("semantic_type"),
+            super::EdgeSite::Dependency(dependency) => JsonPointer::root()
                 .key("semantic_graph")
                 .key("nodes")
                 .index(vertex)
                 .key("dependencies")
-                .index(dependency)
-                .into(),
-            super::EdgeSite::Reference(reference) => {
-                super::stage_storage::Position::Recorded(&recorded_paths[vertex][reference])
-            }
+                .index(dependency),
+            super::EdgeSite::Reference(reference) => reference_pointer(vertex, reference),
         };
         super::validate_recursion(
             &self.semantic_graph.nodes,
@@ -3611,42 +3516,4 @@ impl ContractPackageWireV1 {
         }
         Ok(terms)
     }
-}
-
-// V1 retains its existing diagnostic replay; V2 records paths during intake.
-fn body_reference_pointer(
-    node: &CheckedSemanticNodeV2,
-    kind: CheckedNodeKind,
-    position: usize,
-    reference: usize,
-    row: &[u64],
-) -> JsonPointer {
-    let body_steps = [
-        Step::Key("semantic_graph"),
-        Step::Key("nodes"),
-        Step::Index(position),
-        Step::Key("body"),
-    ];
-    let mut seen = 0_usize;
-    let mut found = None;
-    // The walk already succeeded once; a failure here only means no pointer.
-    let body = super::TermNode::of(&node.body);
-    let _ = crate::checked_package::common::with_unmetered_ids_row(row, |ids| {
-        super::validate_body(
-            kind,
-            body,
-            body,
-            &Trail::Base(&body_steps),
-            &mut |_target, _site, target_at, _sink, _charge_site| {
-                if seen == reference && found.is_none() {
-                    found = Some(target_at.pointer());
-                }
-                seen = seen.saturating_add(1);
-                Ok(())
-            },
-            ids,
-            None,
-        )
-    });
-    found.unwrap_or_else(|| super::node_pointer(position).key("body"))
 }
