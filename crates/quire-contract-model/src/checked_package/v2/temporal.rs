@@ -20,7 +20,7 @@
 //! here.
 //!
 //! The module also owns the `temporal_interval` and `fairness` member shapes
-//! ([`member_is_well_formed`]), the unbounded-integer comparison of integer
+//! ([`member_is_well_formed_node`]), the unbounded-integer comparison of integer
 //! interval bounds ([`IntegerString`]) and the exact rational comparison of the
 //! timed form's bounds ([`Rational`]), which the operation step and the term
 //! walk read, and the timed form's lowest-terms graph check
@@ -32,7 +32,7 @@ use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal, Resolved};
 use super::natural::{compare_rationals, coprime};
 use super::operation_catalog::OperationCatalog;
-use super::operations::{resolve_family, OperationWire};
+use super::operations::resolve_family;
 use super::structural::reference_target;
 use super::{
     member_pointer, ApplicationOperator, CheckedDiagnosticV2, CheckedNodeKind,
@@ -47,7 +47,6 @@ use crate::checked_package::shared::{
     CheckedPackageRefusalCode, JsonPointer,
 };
 use quire_walk::{Children, Walk};
-use serde::Deserialize;
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::ops::ControlFlow;
@@ -133,13 +132,10 @@ pub(in crate::checked_package) struct IntegerString {
 }
 
 impl IntegerString {
-    /// The integer `text` spells, `None` when it is not an `IntegerString`.
-    #[ix_trace_rs::string_edge]
-    pub(in crate::checked_package) fn parse(text: &str) -> Option<Self> {
-        let (negative, digits) = match text.strip_prefix('-') {
-            Some(digits) => (true, digits),
-            None => (false, text),
-        };
+    fn parts(text: &str) -> Option<(bool, &str)> {
+        let (negative, digits) = text
+            .strip_prefix('-')
+            .map_or((false, text), |digits| (true, digits));
         let spelled = match digits.as_bytes() {
             [b'0'] => !negative,
             [first, rest @ ..] => {
@@ -147,11 +143,29 @@ impl IntegerString {
             }
             [] => false,
         };
-        spelled.then(|| Self {
+        spelled.then_some((negative, digits))
+    }
+
+    /// The integer `text` spells, outside a budgeted read.
+    #[ix_trace_rs::string_edge]
+    pub(in crate::checked_package) fn parse(text: &str) -> Option<Self> {
+        let (negative, digits) = Self::parts(text)?;
+        Some(Self {
             negative,
             zero: digits == "0",
             digits: digits.into(),
         })
+    }
+
+    fn parse_charged(text: &str, meter: &mut WorkMeter) -> Result<Option<Self>, ValidationFailure> {
+        let Some((negative, digits)) = Self::parts(text) else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            negative,
+            zero: digits == "0",
+            digits: meter.boxed_str(digits)?,
+        }))
     }
 
     /// The magnitude's decimal digits.
@@ -292,48 +306,6 @@ impl IntervalForm {
     }
 }
 
-/// The interval of a `{kind: temporal_interval, interval}` member; `None` for
-/// any other shape: a `null` member, another kind, a third member, an
-/// `interval` that is neither `null` nor of one of the two forms' member sets,
-/// a bound outside its form's pattern, or an end that is neither `closed` nor
-/// `open`.
-fn read_interval_member(member: &Value) -> Option<Interval> {
-    let object = member.as_object()?;
-    let kind = object.get("kind")?.as_str()?;
-    if object.len() != 2
-        || OperationMemberKind::from_wire(kind) != Some(OperationMemberKind::TemporalInterval)
-    {
-        return None;
-    }
-    let interval = match object.get("interval")? {
-        Value::Null => return Some(Interval::Unbounded),
-        Value::Object(interval) => interval,
-        _ => return None,
-    };
-    match IntervalForm::of(interval)? {
-        IntervalForm::Integer => {
-            let lower = IntegerString::parse(interval.get("lower")?.as_str()?)?;
-            match interval.get("upper")? {
-                Value::Null => Some(Interval::LowerBounded),
-                Value::String(upper) => Some(Interval::Closed {
-                    lower,
-                    upper: IntegerString::parse(upper)?,
-                }),
-                _ => None,
-            }
-        }
-        IntervalForm::Timed => Some(Interval::Timed {
-            lower: Rational::read(interval.get("lower")?)?,
-            upper: match interval.get("upper")? {
-                Value::Null => None,
-                value => Some(Rational::read(value)?),
-            },
-            lower_end: IntervalEnd::from_wire(interval.get("lower_end")?.as_str()?)?,
-            upper_end: IntervalEnd::from_wire(interval.get("upper_end")?.as_str()?)?,
-        }),
-    }
-}
-
 /// The `interval` object of a `temporal_interval` member of an application's
 /// `operation`; `None` for any other member or a `null` interval.
 fn interval_object(operation: &Value) -> Option<&serde_json::Map<String, Value>> {
@@ -459,66 +431,126 @@ pub(super) fn validate_timed_bounds_reduced(
 /// A `{kind: fairness, fairness_kind, granularity, target}`
 /// member (QSpec FR-370). The two vocabulary members are decoded for their
 /// closed words and carried no further: nothing here evaluates fairness.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct FairnessMember {
-    kind: OperationMemberKind,
-    #[serde(rename = "fairness_kind")]
     _fairness_kind: FairnessKind,
-    #[serde(rename = "granularity")]
     _granularity: FairnessGranularity,
     target: super::CheckedFairnessTarget,
 }
 
-/// The fairness member `member` is, `None` for any other shape.
-fn read_fairness_member(member: &Value) -> Option<FairnessMember> {
-    let member = FairnessMember::deserialize(member).ok()?;
-    let named = match &member.target {
-        super::CheckedFairnessTarget::Operation { name, .. }
-        | super::CheckedFairnessTarget::HybridTransition { name, .. } => is_identifier(name),
-        super::CheckedFairnessTarget::ParallelBranch { branch, .. } => is_identifier(branch),
-        _ => true,
-    };
-    (member.kind == OperationMemberKind::Fairness && named).then_some(member)
-}
-
-/// Read the canonical fairness target during admission, before public views exist.
-pub(super) fn fairness_target(member: &Value) -> Option<super::CheckedFairnessTarget> {
-    Some(read_fairness_member(member)?.target)
-}
-
-/// Closed type-argument member; the declaration is validated as a node id.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TypeArgumentMember {
+/// Member grammar over the retained document, before typed admission views exist.
+pub(super) fn member_is_well_formed_node(
     kind: OperationMemberKind,
-    #[serde(rename = "declaration")]
-    _declaration: CheckedNodeId,
-}
-
-/// Whether `member` has the closed shape its catalogued member `kind`
-/// requires; deeper member joins are checked elsewhere.
-pub(in crate::checked_package) fn member_is_well_formed(
-    kind: OperationMemberKind,
-    member: &Value,
+    member: TermNode<'_>,
+    ids: &super::typed_terms::CheckedOperationMemberIds,
 ) -> bool {
+    if member
+        .get("kind")
+        .and_then(TermNode::as_str)
+        .and_then(OperationMemberKind::from_wire)
+        != Some(kind)
+    {
+        return false;
+    }
+    fn integer(value: Option<TermNode<'_>>) -> bool {
+        value.and_then(TermNode::as_str).is_some_and(|text| {
+            let digits = text.strip_prefix('-').unwrap_or(text);
+            match digits.as_bytes() {
+                [b'0'] => text == "0",
+                [first, rest @ ..] => {
+                    (b'1'..=b'9').contains(first) && rest.iter().all(u8::is_ascii_digit)
+                }
+                [] => false,
+            }
+        })
+    }
+    fn rational(value: TermNode<'_>) -> bool {
+        value.exact_members(&["numerator", "denominator"])
+            && integer(value.get("numerator"))
+            && integer(value.get("denominator"))
+            && value
+                .get("numerator")
+                .and_then(TermNode::as_str)
+                .is_some_and(|text| !text.starts_with('-'))
+            && value
+                .get("denominator")
+                .and_then(TermNode::as_str)
+                .is_some_and(|text| text != "0" && !text.starts_with('-'))
+    }
     match kind {
-        OperationMemberKind::TemporalInterval => read_interval_member(member).is_some(),
-        OperationMemberKind::Fairness => read_fairness_member(member).is_some(),
-        OperationMemberKind::TypeArgument => TypeArgumentMember::deserialize(member)
-            .is_ok_and(|member| member.kind == OperationMemberKind::TypeArgument),
-        OperationMemberKind::Field => {
-            member.get("name").and_then(Value::as_str).is_some()
-                && member
-                    .get("declaration")
-                    .is_some_and(|value| CheckedNodeId::from_value(value).is_some())
+        OperationMemberKind::TemporalInterval => {
+            if !member.exact_members(&["kind", "interval"]) {
+                return false;
+            }
+            let Some(interval) = member.get("interval") else {
+                return false;
+            };
+            if interval.is_null() {
+                return true;
+            }
+            let upper = interval.get("upper");
+            if interval.exact_members(&["lower", "upper"]) {
+                return integer(interval.get("lower"))
+                    && upper.is_some_and(|value| value.is_null() || integer(Some(value)));
+            }
+            interval.exact_members(&["lower", "upper", "lower_end", "upper_end"])
+                && interval.get("lower").is_some_and(rational)
+                && upper.is_some_and(|value| value.is_null() || rational(value))
+                && ["lower_end", "upper_end"].iter().all(|field| {
+                    interval
+                        .get(field)
+                        .and_then(TermNode::as_str)
+                        .and_then(IntervalEnd::from_wire)
+                        .is_some()
+                })
         }
-        OperationMemberKind::Position
-        | OperationMemberKind::Element
-        | OperationMemberKind::RelationshipEnd
-        | OperationMemberKind::Operation
-        | OperationMemberKind::ProfileOperator
-        | OperationMemberKind::StateClause => true,
+        OperationMemberKind::Fairness => {
+            if !member.exact_members(&["kind", "fairness_kind", "granularity", "target"])
+                || member
+                    .get("fairness_kind")
+                    .and_then(TermNode::as_str)
+                    .and_then(FairnessKind::from_wire)
+                    .is_none()
+                || member
+                    .get("granularity")
+                    .and_then(TermNode::as_str)
+                    .and_then(FairnessGranularity::from_wire)
+                    .is_none()
+            {
+                return false;
+            }
+            let Some(target) = member.get("target") else {
+                return false;
+            };
+            match target.get("kind").and_then(TermNode::as_str) {
+                Some("operation" | "hybrid_transition") => {
+                    target.exact_members(&["kind", "declaration", "name"])
+                        && ids.target_declaration.is_some()
+                        && target
+                            .get("name")
+                            .and_then(TermNode::as_str)
+                            .is_some_and(is_identifier)
+                }
+                Some("protocol_root" | "attempt_node" | "compensation_template") => {
+                    target.exact_members(&["kind", "node"]) && ids.target_node.is_some()
+                }
+                Some("parallel_branch") => {
+                    target.exact_members(&["kind", "parallel", "branch"])
+                        && ids.target_parallel.is_some()
+                        && target
+                            .get("branch")
+                            .and_then(TermNode::as_str)
+                            .is_some_and(is_identifier)
+                }
+                _ => false,
+            }
+        }
+        OperationMemberKind::TypeArgument => {
+            member.exact_members(&["kind", "declaration"]) && ids.declaration.is_some()
+        }
+        OperationMemberKind::Field => {
+            member.get("name").and_then(TermNode::as_str).is_some() && ids.declaration.is_some()
+        }
+        _ => true,
     }
 }
 
@@ -584,7 +616,7 @@ pub(super) fn validate_temporal(
         if graph.kinds.get(position) == Some(&CheckedNodeKind::Temporal(TemporalForm::Formula))
             && !covered.get(position).copied().unwrap_or(false)
         {
-            if let Some(interval) = interval_of(context.catalog, position, &graph) {
+            if let Some(interval) = interval_of(context.catalog, position, terms, meter)? {
                 check_bounds(position, &interval, &graph, meter)?;
             }
         }
@@ -810,31 +842,116 @@ impl<'a> Walk for Placement<'_, 'a, '_> {
     }
 }
 
-/// The wire `operation` of the application at the root of `node`'s body.
-fn operation_of(node: &CheckedSemanticNodeV2) -> Option<OperationWire> {
-    match CheckedTerm::view(&node.body)? {
-        CheckedTermView::Application { operation, .. } => {
-            OperationWire::deserialize(operation).ok()
-        }
-        _ => None,
-    }
+/// The retained typed operation of an application body.
+fn operation_of(
+    term: Option<&CheckedTerm>,
+) -> Option<&super::typed_terms::CheckedApplicationOperationRecord> {
+    let CheckedTerm::Application { operation, .. } = term? else {
+        return None;
+    };
+    Some(operation.record())
 }
 
-/// The interval of the formula node at `position`: the member of a
-/// catalogued interval operator, when it is well formed.
+fn read_interval_member_node(
+    member: TermNode<'_>,
+    meter: &mut WorkMeter,
+) -> Result<Option<Interval>, ValidationFailure> {
+    macro_rules! need {
+        ($value:expr) => {
+            match $value {
+                Some(value) => value,
+                None => return Ok(None),
+            }
+        };
+    }
+    fn integer(
+        value: TermNode<'_>,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<IntegerString>, ValidationFailure> {
+        let Some(text) = value.as_str() else {
+            return Ok(None);
+        };
+        IntegerString::parse_charged(text, meter)
+    }
+    fn rational(
+        value: TermNode<'_>,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<Rational>, ValidationFailure> {
+        let numerator = need!(integer(need!(value.get("numerator")), meter)?);
+        let denominator = need!(integer(need!(value.get("denominator")), meter)?);
+        Ok(Some(Rational {
+            numerator,
+            denominator,
+        }))
+    }
+    if !member_is_well_formed_node(
+        OperationMemberKind::TemporalInterval,
+        member,
+        &Default::default(),
+    ) {
+        return Ok(None);
+    }
+    let interval = need!(member.get("interval"));
+    if interval.is_null() {
+        return Ok(Some(Interval::Unbounded));
+    }
+    let lower = need!(interval.get("lower"));
+    let upper = need!(interval.get("upper"));
+    if interval.exact_members(&["lower", "upper"]) {
+        let lower = need!(integer(lower, meter)?);
+        return Ok(Some(if upper.is_null() {
+            Interval::LowerBounded
+        } else {
+            Interval::Closed {
+                lower,
+                upper: need!(integer(upper, meter)?),
+            }
+        }));
+    }
+    Ok(Some(Interval::Timed {
+        lower: need!(rational(lower, meter)?),
+        upper: if upper.is_null() {
+            None
+        } else {
+            Some(need!(rational(upper, meter)?))
+        },
+        lower_end: need!(interval
+            .get("lower_end")
+            .and_then(TermNode::as_str)
+            .and_then(IntervalEnd::from_wire)),
+        upper_end: need!(interval
+            .get("upper_end")
+            .and_then(TermNode::as_str)
+            .and_then(IntervalEnd::from_wire)),
+    }))
+}
+
+/// The interval of a catalogued interval operator, read from its retained member.
 fn interval_of(
     catalog: &OperationCatalog,
     position: usize,
-    graph: &StepGraph<'_, '_>,
-) -> Option<Interval> {
-    let operation = operation_of(graph.nodes.get(position)?)?;
-    let entry = catalog.entry(&operation.identity)?;
+    terms: &[Option<CheckedTerm>],
+    meter: &mut WorkMeter,
+) -> Result<Option<Interval>, ValidationFailure> {
+    let Some(operation) = operation_of(terms.get(position).and_then(Option::as_ref)) else {
+        return Ok(None);
+    };
+    let Some(entry) = operation
+        .identity
+        .as_deref()
+        .and_then(|identity| catalog.entry(identity))
+    else {
+        return Ok(None);
+    };
     if entry.operator != ApplicationOperator::TemporalFormula
         || entry.member != Some(OperationMemberKind::TemporalInterval)
     {
-        return None;
+        return Ok(None);
     }
-    read_interval_member(operation.member.as_ref()?)
+    let Some(member) = operation.member.as_ref().map(TermNode::of) else {
+        return Ok(None);
+    };
+    read_interval_member_node(member, meter)
 }
 
 /// `invalid_package`/`invalid-value` at the application when a closed integer
@@ -910,11 +1027,11 @@ fn check_clause(
 ) -> Result<(), ValidationFailure> {
     let node = &graph.nodes[position];
     meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
-    let Some(operation) = operation_of(node) else {
+    let Some(operation) = operation_of(terms.get(position).and_then(Option::as_ref)) else {
         return Ok(());
     };
     if catalog
-        .entry(&operation.identity)
+        .entry(operation.identity.as_deref().unwrap_or_default())
         .map(|entry| entry.operator)
         != Some(ApplicationOperator::Temporal)
     {
@@ -995,7 +1112,7 @@ fn check_clause(
     // Each fairness member resolves on its declaring node.
     let fairness: &[Value] = arguments.get(4).and_then(aggregate_members).unwrap_or(&[]);
     for reference in fairness {
-        let Some((fair, member)) = fairness_member(reference, graph) else {
+        let Some((fair, member)) = fairness_member(reference, graph, terms, meter)? else {
             continue;
         };
         let super::CheckedFairnessTarget::Operation { declaration, name } = &member.target else {
@@ -1058,6 +1175,7 @@ fn check_clause(
         catalog,
         arguments.get(5),
         graph,
+        terms,
         meter,
         &at_node,
         covered,
@@ -1091,8 +1209,9 @@ fn check_clause(
     }
     let mut aggregates = reached;
     aggregates.retain(|&formula| {
-        operation_of(&graph.nodes[formula])
-            .is_some_and(|operation| operation.identity.as_ref() == "quire.op.temporal.aggregate")
+        operation_of(terms.get(formula).and_then(Option::as_ref)).is_some_and(|operation| {
+            operation.identity.as_deref() == Some("quire.op.temporal.aggregate")
+        })
     });
     // Equal ids keep position order, as the stable sort did.
     aggregates.sort_unstable_by(|&left, &right| {
@@ -1607,15 +1726,63 @@ fn check_aggregate(
 
 /// The well-formed fairness member of the `temporal`/`fairness` node a clause's
 /// fairness argument entry references, with that node's position.
-fn fairness_member(entry: &Value, graph: &StepGraph<'_, '_>) -> Option<(usize, FairnessMember)> {
-    let target = reference_target(entry)?;
-    let position = *graph.index.get(&target)?;
+fn fairness_member(
+    entry: &Value,
+    graph: &StepGraph<'_, '_>,
+    terms: &[Option<CheckedTerm>],
+    meter: &mut WorkMeter,
+) -> Result<Option<(usize, FairnessMember)>, ValidationFailure> {
+    let Some(target) = reference_target(entry) else {
+        return Ok(None);
+    };
+    let Some(&position) = graph.index.get(&target) else {
+        return Ok(None);
+    };
     if graph.kinds.get(position) != Some(&CheckedNodeKind::Temporal(TemporalForm::Fairness)) {
-        return None;
+        return Ok(None);
     }
-    let operation = operation_of(graph.nodes.get(position)?)?;
-    let member = read_fairness_member(operation.member.as_ref()?)?;
-    Some((position, member))
+    let Some(operation) = operation_of(terms.get(position).and_then(Option::as_ref)) else {
+        return Ok(None);
+    };
+    let Some(member) = operation.member.as_ref().map(TermNode::of) else {
+        return Ok(None);
+    };
+    if !member_is_well_formed_node(OperationMemberKind::Fairness, member, &operation.member_ids) {
+        return Ok(None);
+    }
+    let Some(target_node) = member.get("target") else {
+        return Ok(None);
+    };
+    let Some(target) = super::CheckedFairnessTarget::from_validated_node(
+        target_node,
+        &operation.member_ids,
+        meter,
+    )?
+    else {
+        return Ok(None);
+    };
+    let Some(fairness_kind) = member
+        .get("fairness_kind")
+        .and_then(TermNode::as_str)
+        .and_then(FairnessKind::from_wire)
+    else {
+        return Ok(None);
+    };
+    let Some(granularity) = member
+        .get("granularity")
+        .and_then(TermNode::as_str)
+        .and_then(FairnessGranularity::from_wire)
+    else {
+        return Ok(None);
+    };
+    Ok(Some((
+        position,
+        FairnessMember {
+            _fairness_kind: fairness_kind,
+            _granularity: granularity,
+            target,
+        },
+    )))
 }
 
 /// A fairness resolution refusal and where it is located (the "Path and locus"
@@ -1716,6 +1883,7 @@ fn formula_intervals(
     catalog: &OperationCatalog,
     root: Option<&Value>,
     graph: &StepGraph<'_, '_>,
+    terms: &[Option<CheckedTerm>],
     meter: &mut WorkMeter,
     at: &JsonPointer,
     covered: &mut [bool],
@@ -1742,7 +1910,7 @@ fn formula_intervals(
         if let Some(mark) = covered.get_mut(position) {
             *mark = true;
         }
-        if let Some(interval) = interval_of(catalog, position, graph) {
+        if let Some(interval) = interval_of(catalog, position, terms, meter)? {
             meter.push(&mut intervals, (position, interval))?;
         }
         let operands = || {

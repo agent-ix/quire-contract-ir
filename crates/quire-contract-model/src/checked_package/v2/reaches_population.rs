@@ -47,10 +47,15 @@ impl CheckedPackageV2 {
                 ReachesLookup::Unknown => Error::UnknownNode,
                 ReachesLookup::NotReaches => Error::NotReachesApplication,
             })?;
-        let Some(named) = operation.pointer("/member/population") else {
+        let Some(_named) = operation
+            .member_node()
+            .and_then(|member| member.get("population"))
+        else {
             return Ok(None);
         };
-        let binding = CheckedNodeId::from_value(named).ok_or(Error::UnresolvedPopulation)?;
+        let binding = operation
+            .member_key("population")
+            .ok_or(Error::UnresolvedPopulation)?;
         let population = self
             .node(&binding)
             .filter(|_| {
@@ -65,7 +70,7 @@ impl CheckedPackageV2 {
             .ok_or(Error::UnresolvedPopulation)?;
         Ok(Some(CheckedSelectedPopulationSelector {
             package_name: self.name().into(),
-            binding,
+            binding: binding.clone(),
             occurrence,
         }))
     }

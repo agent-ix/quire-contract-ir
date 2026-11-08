@@ -694,25 +694,15 @@ fn check_transition(
     else {
         return Err(malformed_subject());
     };
-    if project.get("identity").and_then(serde_json::Value::as_str)
-        != Some("quire.op.record.project")
-        || project
-            .pointer("/member/kind")
-            .and_then(serde_json::Value::as_str)
-            != Some("field")
+    if project.identity() != Some("quire.op.record.project")
+        || project.member_text("kind") != Some("field")
     {
         return Err(malformed_subject());
     }
-    let Some(field_name) = project
-        .pointer("/member/name")
-        .and_then(serde_json::Value::as_str)
-    else {
+    let Some(field_name) = project.member_text("name") else {
         return Err(malformed_subject());
     };
-    let Some(declaring) = project
-        .pointer("/member/declaration")
-        .and_then(CheckedNodeId::from_value)
-    else {
+    let Some(declaring) = project.member_key("declaration") else {
         return Err(malformed_subject());
     };
     let [receiver] = arguments.as_slice() else {
@@ -737,10 +727,7 @@ fn check_transition(
     else {
         return Err(malformed_subject());
     };
-    if deref_operation
-        .get("identity")
-        .and_then(serde_json::Value::as_str)
-        != Some("quire.op.model.deref")
+    if deref_operation.identity() != Some("quire.op.model.deref")
         || deref.semantic_type != *anchor_body.context
     {
         return Err(malformed_subject());
@@ -829,7 +816,7 @@ fn check_transition(
     ];
     let (frame_body, work) = read_frame_body(&frame.body, &Trail::Base(&steps))?;
     meter.charge(work, || node_pointer(frame_position).key("body"))?;
-    if !frame_body.modifies.iter().any(|entry| matches!(entry, ModifiesEntry::Field { declaration, name, .. } if declaration == &declaring && name.as_ref() == field_name)) {
+    if !frame_body.modifies.iter().any(|entry| matches!(entry, ModifiesEntry::Field { declaration, name, .. } if declaration == declaring && name.as_ref() == field_name)) {
         return Err(malformed_subject());
     }
     if subject_result != &subject.semantic_type

@@ -268,6 +268,14 @@ impl<'d> DecodeContext<'d> {
         }
     }
 
+    /// A value of this context's document, addressed by an already retained handle.
+    pub(in crate::checked_package) fn value_by_id(
+        &self,
+        id: quire_canonical::NodeId,
+    ) -> Option<ValueDe<'_, 'd>> {
+        self.document.node(id).map(|node| self.value_at(node))
+    }
+
     /// Charges `bytes` of heap the caller is about to request, at the
     /// decode's locus.
     pub(in crate::checked_package) fn charge_bytes(&self, bytes: usize) -> bool {
@@ -501,6 +509,24 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
         name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Error> {
+        if name == super::typed_terms::OPERATION_TOKEN {
+            let context = self.context;
+            let mut record =
+                super::typed_terms::CheckedApplicationOperationRecord::deserialize(self)?;
+            record.decode_member_ids(context);
+            let point = if record.identity.as_deref() == Some("quire.op.state.clause") {
+                record.member.as_ref().and_then(|member| {
+                    let point = super::TermNode::of(member).get("execution_point")?;
+                    super::typed_terms::point_from_node(point, context)
+                })
+            } else {
+                None
+            };
+            super::typed_terms::CheckedApplicationOperation::offer(
+                super::typed_terms::CheckedApplicationOperation::from_typed_record(record, point),
+            );
+            return visitor.visit_unit();
+        }
         if name == CHECKED_JSON_TOKEN {
             // The handle is a clone of the retained document's `Arc`, which
             // allocates nothing.
