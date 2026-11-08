@@ -1844,12 +1844,6 @@ impl<'a> TransitionBody<'a> {
     }
 }
 
-/// Whether a raw term is the catalogued state-transition application.
-pub(super) fn is_state_transition_application(term: &Value) -> bool {
-    matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
-        if operation.get("identity").and_then(Value::as_str).and_then(super::KnownOperation::from_wire) == Some(super::KnownOperation::StateTransition))
-}
-
 /// Decode the closed transition argument shape without doing its semantic joins.
 pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<TransitionBody<'_>> {
     let super::CheckedTerm::Application {
@@ -1889,13 +1883,6 @@ pub(super) fn typed_transition_body(body: &super::CheckedTerm) -> Option<Transit
         pre,
         post,
     })
-}
-
-/// Whether `term` is an application of `quire.op.state.clause`.
-// Reads an application's operation identity.
-pub(super) fn is_state_clause_application(term: &Value) -> bool {
-    matches!(CheckedTerm::view(term), Some(CheckedTermView::Application { operation, .. })
-        if operation.get("identity").and_then(Value::as_str).and_then(super::KnownOperation::from_wire) == Some(super::KnownOperation::StateClause))
 }
 
 /// The admitted state clause body, or `None` for any other shape: an

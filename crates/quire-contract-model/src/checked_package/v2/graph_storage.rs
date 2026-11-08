@@ -13,10 +13,11 @@ use super::budgeted_read::{BudgetStop, PackageReadResource};
 use super::checked_json::CheckedJson;
 use super::native_join_budget::{NativeJoinLocus, NativeJoinLocusSource, PackageReadStage};
 use super::read_charge::{Denied, ReadStorage, Site};
+use super::stage_storage::Path;
 use super::term_view::{NodeIdRead, TermNode};
 use super::{WorkMeter, WorkSource};
-use crate::checked_package::common::{node_pointer, ValidationFailure};
-use crate::checked_package::shared::{CheckedNodeId, JsonPointer};
+use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::shared::CheckedNodeId;
 use std::cmp::Ordering;
 
 /// The value of the package being validated when a request is made.
@@ -47,11 +48,16 @@ impl ReadSite {
         }
     }
 
-    fn pointer(self) -> Option<JsonPointer> {
+    fn path(self) -> Option<Path<'static>> {
         match self.value {
             SiteValue::Package => None,
-            SiteValue::Node(position) => Some(node_pointer(position)),
-            SiteValue::Row(member, row) => Some(JsonPointer::root().key(member).index(row)),
+            SiteValue::Node(position) => Some(
+                Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position),
+            ),
+            SiteValue::Row(member, row) => Some(Path::root().key(member).index(row)),
         }
     }
 }
@@ -244,7 +250,15 @@ impl<'b> WorkMeter<'b> {
                 amount: bytes,
                 // A request made for a library's own heap belongs to no one
                 // value.
-                path: if form.is_some() { None } else { site.pointer() },
+                path: if form.is_some() {
+                    None
+                } else {
+                    site.path().and_then(|path| {
+                        budget
+                            .prepay_diagnostic(path.pointer_len() as u128)
+                            .then(|| path.build())
+                    })
+                },
             }))
         }
     }
@@ -1323,5 +1337,64 @@ mod rank_tests {
             }));
         }
         assert!(ranks_of(&keys).iter().copied().eq(0..keys.len()));
+    }
+}
+
+#[cfg(test)]
+mod denial_pointer_tests {
+    use super::super::native_join_budget::NativeJoinBudget;
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-510")]
+    #[test]
+    fn graph_denial_pointer_is_prepaid_once_and_never_replaces_the_first_request() {
+        for (value, expected) in [
+            (SiteValue::Package, None),
+            (SiteValue::Node(12345), Some("/semantic_graph/nodes/12345")),
+            (SiteValue::Row("rows/~é", 41), Some("/rows~1~0é/41")),
+        ] {
+            for limit in [0, expected.map_or(0, str::len) as u64] {
+                let request = u128::from(limit) + 1;
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let observed = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut budget);
+                    meter.restore_site(Some(ReadSite {
+                        index: 7,
+                        form: "claim",
+                        value,
+                    }));
+                    result = Some(meter.reserve_as(request, None));
+                });
+                let Err(ValidationFailure::Budget(stop)) = result.expect("ran") else {
+                    panic!("oversized request must refuse");
+                };
+                assert_eq!(stop.amount, request);
+                assert_eq!(budget.first_unpaid_read_storage(), Some(request));
+                let locus = budget.first_unpaid_locus().expect("first locus");
+                assert_eq!(
+                    locus.source,
+                    NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 7)
+                );
+                assert_eq!(locus.form, "claim");
+                let expected = expected.filter(|text| text.len() as u64 <= limit);
+                assert_eq!(stop.path.as_ref().map(|path| path.as_str()), expected);
+                let bytes = expected.map_or(0, str::len) as u64;
+                assert_eq!(observed.bytes_total, bytes);
+                assert_eq!(budget.read_storage_consumed(), bytes);
+            }
+        }
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(0);
+        let mut meter = WorkMeter::over(&mut budget);
+        meter.at_node(8, "claim");
+        let Err(ValidationFailure::Budget(stop)) = meter.reserve_as(1, Some("exact_number")) else {
+            panic!("library request refuses");
+        };
+        assert_eq!(stop.path, None);
+        assert_eq!(
+            budget.first_unpaid_locus().expect("library locus").form,
+            "exact_number"
+        );
     }
 }

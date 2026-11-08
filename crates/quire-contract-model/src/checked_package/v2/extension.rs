@@ -1,14 +1,13 @@
 //! FR-348 extension form body and declaration joins.
 
 pub(super) use super::extension_body::{body_work, read_body, targets};
-use super::model_members::{Budget, DeclarationForm, ModelOwners};
+use super::model_members::{Budget, DeclarationForm, EmptyAggregateBody, ModelOwners};
 use super::native_join_budget::PackageReadStage;
 use super::node_lookup::NodeLookup;
 use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
-    BoundedDomainForm, CheckedNodeKind, CheckedTerm, ModelForm,
-    RawCheckedPackageWireV2 as CheckedPackageWireV2, RawSemanticNodeV2 as CheckedSemanticNodeV2,
-    ScalarTypeForm, WorkMeter,
+    BoundedDomainForm, CheckedNodeKind, CheckedPackageWireV2, CheckedSemanticNodeV2, CheckedTerm,
+    ModelForm, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::evidence::CheckedPackageEvidence;
@@ -18,8 +17,8 @@ use crate::checked_package::shared::{
 };
 use std::mem::size_of;
 
-pub(super) fn validate_source_regions(
-    wire: &CheckedPackageWireV2,
+pub(super) fn validate_source_regions<Body>(
+    wire: &CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
@@ -62,11 +61,11 @@ pub(super) fn validate_source_regions(
 }
 
 /// A refusal of `code` at `at` with `cause`, located at the extension node.
-fn located<'a>(
+fn located<'a, Body>(
     code: Code,
     cause: Cause,
     at: Path<'a>,
-    node: &'a CheckedSemanticNodeV2,
+    node: &'a CheckedSemanticNodeV2<Body>,
 ) -> Refusal<'a> {
     Refusal::new(code, at).because(cause).at_node(&node.node_id)
 }
@@ -117,8 +116,8 @@ fn with_detail(
 }
 
 /// Joins selected and held definitions, node kinds, clauses and clause types.
-pub(super) fn validate(
-    wire: &CheckedPackageWireV2,
+pub(super) fn validate<Body: EmptyAggregateBody>(
+    wire: &CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &dyn NodeLookup,
@@ -358,9 +357,9 @@ impl<'a> ExpectedType<'a> {
     }
 }
 
-fn type_matches(
+fn type_matches<Body: EmptyAggregateBody>(
     expected: &str,
-    nodes: &[CheckedSemanticNodeV2],
+    nodes: &[CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     target_position: usize,
@@ -520,11 +519,11 @@ fn structural_text(
     }
 }
 
-fn actual_type<'a>(
+fn actual_type<'a, Body>(
     meter: &mut WorkMeter,
     position: usize,
-    target: &'a CheckedSemanticNodeV2,
-    nodes: &'a [CheckedSemanticNodeV2],
+    target: &'a CheckedSemanticNodeV2<Body>,
+    nodes: &'a [CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
     target_position: usize,
@@ -805,6 +804,58 @@ mod tests {
                 "diagnostic"
             )
         );
+    }
+
+    /// Native typed metadata enters the same extension join without a raw
+    /// body copy. Observe its real temporary tables, including their drop.
+    #[trace("TC-472", "FR-038-AC-506")]
+    #[test]
+    fn typed_metadata_extension_join_reserves_its_actual_allocations() {
+        let join = Join::new(
+            "Boolean",
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean),
+        );
+        let owners = ModelOwners::new(&[], &join.wire.semantic_graph.nodes, |_| Ok(()))
+            .expect("empty selected-model owners");
+        let index: std::collections::BTreeMap<&CheckedNodeId, usize> = join
+            .wire
+            .semantic_graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, node)| (&node.node_id, position))
+            .collect();
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let observed = allocation_counter::measure(|| {
+                result = Some(validate(
+                    &join.wire,
+                    &join.kinds,
+                    &join.terms,
+                    &index,
+                    &join.evidence,
+                    &owners,
+                    &mut WorkMeter::over(&mut budget),
+                ));
+            });
+            (result.expect("the join ran"), observed.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert!(result.is_ok(), "the Boolean target conforms: {result:?}");
+        let required = budget.read_storage_consumed();
+        assert!(required > 0, "the join owns its index and binding tables");
+        assert_eq!(allocated, required, "every actual allocation is prepaid");
+        assert!(run(required).0.is_ok(), "the exact allowance admits");
+        let (short, _, budget) = run(required - 1);
+        assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+        assert!(matches!(
+            budget.first_unpaid_locus().map(|locus| locus.source),
+            Some(NativeJoinLocusSource::PackageRead(
+                PackageReadStage::Extension,
+                2
+            ))
+        ));
     }
 
     #[trace("TC-459")]

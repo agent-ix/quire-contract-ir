@@ -344,6 +344,7 @@ pub(super) struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     /// A cursor at `base`, the position of the walk's root.
+    #[cfg(test)]
     pub(super) fn at(base: &Trail<'a>) -> Self {
         Self {
             steps: base.steps(),
@@ -395,6 +396,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// The node `subterm` of the entered node, with `extra`.
+    #[cfg(test)]
     pub(super) fn subterm<X>(&self, subterm: Subterm<'a>, extra: X) -> At<'a, X> {
         self.child(subterm.value, Some(subterm.key), subterm.index, extra)
     }
