@@ -309,7 +309,7 @@ fn references(term: &Value, out: &mut Vec<String>) {
 }
 
 fn admit(wire: &Value) -> CheckedPackageV2 {
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(wire),
@@ -940,7 +940,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         .iter()
         .position(|node| node["node_id"] == node_id(&inline_subterm))
         .expect("nested application");
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(&nested_wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&nested_wire),
@@ -1009,7 +1009,7 @@ fn tc_048_closed_graph_values_preserve_identity_while_free_values_and_unions_ref
         .iter()
         .position(|node| node["node_id"] == node_id(&integer_application))
         .expect("application");
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&wire),

@@ -149,7 +149,7 @@ fn tc_048_numeric_narrow_result_equals_type_argument() {
     wire["semantic_graph"]["nodes"][at]["body"]["result_type"] = node_id(&integer);
     wire["semantic_graph"]["nodes"][at]["semantic_type"] = node_id(&integer);
     settle(&mut wire);
-    let CheckedPackageV2ReadResult::Refused(refusal) = CheckedPackageV2::read(
+    let CheckedPackageV2ReadResult::Refused(refusal) = crate::read_and_account(
         &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&wire),
@@ -176,7 +176,7 @@ fn tc_048_numeric_narrow_result_equals_type_argument() {
 }
 
 pub(crate) fn admit(value: &Value) -> CheckedPackageV2 {
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(value),
@@ -1103,7 +1103,7 @@ fn scalar_and_result_views_and_work_boundaries_hold_on_the_admitted_fixture() {
         let middle = low + (high - low) / 2;
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = middle;
-        match CheckedPackageV2::read(&bytes, limits, &evidence) {
+        match crate::read_and_account(&bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Admitted(_) => high = middle,
             CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
             other => panic!("baseline work: {other:?}"),
@@ -1112,7 +1112,7 @@ fn scalar_and_result_views_and_work_boundaries_hold_on_the_admitted_fixture() {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high - 1;
     let CheckedPackageV2ReadResult::Incomplete(incomplete) =
-        CheckedPackageV2::read(&bytes, limits, &evidence)
+        crate::read_and_account(&bytes, limits, &evidence)
     else {
         panic!("work boundary");
     };

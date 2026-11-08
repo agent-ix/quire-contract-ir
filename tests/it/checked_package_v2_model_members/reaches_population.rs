@@ -816,7 +816,7 @@ fn least_admitting_work(scenario: &Scenario) -> (u64, String) {
     let read_at = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
-        CheckedPackageV2::read(&bytes, limits, &scenario.evidence)
+        crate::read_and_account(&bytes, limits, &scenario.evidence)
     };
     let (mut insufficient, mut sufficient) = (0, CheckedPackageReadLimits::bounded().work);
     while insufficient + 1 < sufficient {
@@ -1124,12 +1124,12 @@ fn selected_population_result_provenance_and_work_boundary_hold() {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high;
     assert!(matches!(
-        CheckedPackageV2::read(&bytes, limits, &scenario.evidence),
+        crate::read_and_account(&bytes, limits, &scenario.evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     limits.work = high - 1;
     assert!(matches!(
-        CheckedPackageV2::read(&bytes, limits, &scenario.evidence),
+        crate::read_and_account(&bytes, limits, &scenario.evidence),
         CheckedPackageV2ReadResult::Incomplete(_)
     ));
 }

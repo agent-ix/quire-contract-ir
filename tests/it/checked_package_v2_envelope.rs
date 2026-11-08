@@ -13,8 +13,8 @@ use quire_contract_model::{
     encode_checked_package_v2, AdmissionBinding, CheckedCapability, CheckedDiagnosticsV2,
     CheckedJson, CheckedJsonError, CheckedNodeProjectionV2, CheckedPackageLockV2,
     CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageSourceCorrespondenceRef,
-    CheckedPackageV2, CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion,
-    CheckedSemanticGraphV2, CheckedSourceMapEntry, CHECKED_PACKAGE_V2,
+    CheckedPackageV2ReadResult, CheckedRefinementStepRowRegion, CheckedSemanticGraphV2,
+    CheckedSourceMapEntry, CHECKED_PACKAGE_V2,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -60,7 +60,7 @@ fn encode(value: &Value, limits: Limits) -> Result<Vec<u8>, Error> {
 
 fn refused(value: &Value) -> CheckedPackageRefusalCode {
     let evidence = evidence_for(value);
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -78,7 +78,7 @@ fn admission_binding_identifies_clones_but_not_equal_independent_reads() {
     let bytes = canonical(&value);
     let evidence = evidence_for(&value);
     let read =
-        || match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
+        || match crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
             CheckedPackageV2ReadResult::Admitted(package) => package,
             other => panic!("nominal package must admit: {other:?}"),
         };
@@ -111,7 +111,7 @@ fn typed_writer_round_trips_protocol_clause_owner_model() {
         .push(selected_interface_model_node());
     settle(&mut value);
     let evidence = evidence_for(&value);
-    let first = match CheckedPackageV2::read(
+    let first = match crate::read_and_account(
         &canonical(&value),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -147,7 +147,7 @@ fn typed_writer_round_trips_protocol_clause_owner_model() {
         serde_json::to_value(owner).expect("owner")
     );
     let second =
-        match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
+        match crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
             CheckedPackageV2ReadResult::Admitted(package) => package,
             other => panic!("encoded owner-bearing fixture must admit: {other:?}"),
         };
@@ -290,7 +290,7 @@ fn structural_package_round_trips_and_closed_envelope_refuses_mutations() {
     let evidence = evidence_for(&value);
     let bytes = encode(&value, Limits::new(u64::MAX)).expect("typed encode");
     assert!(matches!(
-        CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
+        crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Admitted(_)
     ));
     let mut missing = value.clone();
@@ -309,7 +309,7 @@ fn structural_package_round_trips_and_closed_envelope_refuses_mutations() {
         &text[1..]
     );
     assert!(matches!(
-        CheckedPackageV2::read(duplicate.as_bytes(), CheckedPackageReadLimits::bounded(), &evidence),
+        crate::read_and_account(duplicate.as_bytes(), CheckedPackageReadLimits::bounded(), &evidence),
         CheckedPackageV2ReadResult::Refused(refusal) if refusal.code == CheckedPackageRefusalCode::DuplicateMember
     ));
 }

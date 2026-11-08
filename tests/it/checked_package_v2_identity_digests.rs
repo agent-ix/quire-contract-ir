@@ -130,7 +130,7 @@ fn derived_range_binding_name_is_validated_independently_of_its_id() {
     );
     let mut evidence = CheckedPackageEvidence::new();
     evidence.support_feature("quire.value.complete/v1");
-    let outcome = CheckedPackageV2::read(
+    let outcome = crate::read_and_account(
         &quire_canonical::to_vec(
             &crate::support::checked_package::wire_form(&package),
             Limits::new(u64::MAX),
@@ -192,7 +192,7 @@ fn derived_range_type_and_literal_type_are_checked_independently_of_id() {
         );
         let mut evidence = CheckedPackageEvidence::new();
         evidence.support_feature("quire.value.complete/v1");
-        let outcome = CheckedPackageV2::read(
+        let outcome = crate::read_and_account(
             &quire_canonical::to_vec(
                 &crate::support::checked_package::wire_form(&changed),
                 Limits::new(u64::MAX),
@@ -258,7 +258,7 @@ fn admit(value: &Value) -> Box<CheckedPackageV2> {
         Limits::new(u64::MAX),
     )
     .expect("fixture bytes");
-    match CheckedPackageV2::read(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
+    match crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("structural package must admit, got {other:?}"),
     }
@@ -450,7 +450,7 @@ fn multi_request_lowering_preserves_independent_sibling_on_local_byte_failure() 
     let mut evidence = CheckedPackageEvidence::new();
     evidence.support_feature("quire.value.complete/v1");
     let CheckedPackageV2ReadResult::Admitted(package) =
-        CheckedPackageV2::read(&bytes, limits, &evidence)
+        crate::read_and_account(&bytes, limits, &evidence)
     else {
         panic!("input admits at its exact byte limit");
     };

@@ -64,7 +64,7 @@ fn rename_node(package: &mut Value, stale: &str, fresh: &str) {
 }
 
 fn read(value: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(value),
         CheckedPackageReadLimits::bounded(),
         &step_relation_evidence(value),
@@ -859,7 +859,7 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
     let (mut state_machine, evidence) = crate::checked_package_v2_refinement::machine_package();
     index_fixture_node_ids(&mut state_machine);
     assert!(matches!(
-        CheckedPackageV2::read(
+        crate::read_and_account(
             &canonical(&state_machine),
             CheckedPackageReadLimits::bounded(),
             &evidence
@@ -870,7 +870,7 @@ fn tc_056_exactly_fifteen_model_forms_admit() {
     let (mut persistence, evidence) =
         crate::checked_package_v2_refinement::selected_forms_package();
     index_fixture_node_ids(&mut persistence);
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &canonical(&persistence),
         CheckedPackageReadLimits::bounded(),
         &evidence,
@@ -1186,7 +1186,7 @@ fn assert_pointed_writer_round_trip(package: &StatePackage, positions: &[usize])
             package.value["semantic_graph"]["nodes"][position]["body"]
         );
     }
-    let read_back = match CheckedPackageV2::read(
+    let read_back = match crate::read_and_account(
         &encoded,
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&package.value),
@@ -1356,7 +1356,7 @@ fn tc_056_duplicate_clause_point_precedes_version_and_identity_checks() {
         "one clause point to duplicate"
     );
     let duplicate = bytes.replacen(member, &format!("{member},{member}"), 1);
-    let refusal = match CheckedPackageV2::read(
+    let refusal = match crate::read_and_account(
         duplicate.as_bytes(),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&package.value),
@@ -2103,7 +2103,7 @@ fn tc_056_shared_frame_checks_scoped_deletes_for_each_anchor() {
     refresh_identity(&mut package);
     let read_custom = |value: &Value| {
         let evidence = evidence_with_document(value, "test/families", &document);
-        CheckedPackageV2::read(
+        crate::read_and_account(
             &canonical(value),
             CheckedPackageReadLimits::bounded(),
             &evidence,
@@ -2760,7 +2760,7 @@ fn read_record_package(package: &Value, document: &Value, work: u64) -> CheckedP
     let evidence = evidence_with_document(package, ORDERS, document);
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
-    CheckedPackageV2::read(&canonical(package), limits, &evidence)
+    crate::read_and_account(&canonical(package), limits, &evidence)
 }
 
 /// The object field and the record's own field resolve against separate
@@ -3135,7 +3135,7 @@ fn read_model_with_work(value: &Value, work: u64) -> CheckedPackageV2ReadResult 
     let evidence = evidence_with_document(value, ORDERS, &document);
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = work;
-    CheckedPackageV2::read(&canonical(value), limits, &evidence)
+    crate::read_and_account(&canonical(value), limits, &evidence)
 }
 
 fn model_admits(case: &str, value: &Value) {
@@ -3574,7 +3574,7 @@ fn tc_227_a_frame_field_entry_charges_its_effective_table_end_to_end() {
         let read = |work| {
             let mut limits = CheckedPackageReadLimits::bounded();
             limits.work = work;
-            CheckedPackageV2::read(&canonical(&value), limits, &evidence)
+            crate::read_and_account(&canonical(&value), limits, &evidence)
         };
         let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
         assert!(matches!(
@@ -3736,7 +3736,7 @@ fn tc_056_indexed_parameter_type_binds_a_derived_model_slot() {
     let read = |authored: &Value| {
         let mut wire = authored.clone();
         index_fixture_node_ids(&mut wire);
-        CheckedPackageV2::read(
+        crate::read_and_account(
             &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence_with_document(&wire, ORDERS, &document),
@@ -4818,7 +4818,7 @@ fn step_relation_reader_retains_two_executions_and_roundtrips() {
         Limits::new(u64::MAX),
     )
     .expect("canonical writer");
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &bytes,
         CheckedPackageReadLimits::bounded(),
         &step_relation_evidence(&package),
@@ -5669,7 +5669,7 @@ fn step_relation_tables_are_charged_to_the_read_budget_at_the_relation_node() {
     let evidence = step_relation_evidence(&package);
     let bytes = canonical(&package);
     let read = |budget: &mut quire_contract_model::NativeJoinBudget| {
-        CheckedPackageV2::read_with_budget(
+        crate::qspec_read_proof::read_budget_and_account(
             &bytes,
             CheckedPackageReadLimits::bounded(),
             &evidence,

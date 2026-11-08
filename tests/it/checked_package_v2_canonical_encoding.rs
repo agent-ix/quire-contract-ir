@@ -17,7 +17,7 @@ use quire_contract_model::{
     encode_checked_package_v2, CheckedCapability, CheckedCapabilityDisposition,
     CheckedDependencySelection, CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedJson,
     CheckedJsonError, CheckedNodeId, CheckedNodePathSegment, CheckedPackageLockV2,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageRefusalCode,
     CheckedPackageV2ReadResult, CheckedSelectionRole, CheckedSemanticGraphV2,
     CheckedSemanticNodeV2, CheckedSourceMapEntry, CheckedTerm,
 };
@@ -135,7 +135,7 @@ fn crafted_diagnostics(package: &Value) -> CheckedDiagnosticsV2 {
 }
 
 fn graph_of(package: &Value) -> CheckedSemanticGraphV2 {
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -279,7 +279,7 @@ fn tc_048_closed_envelope_bytes_equal_independent_canonical_json() {
         for retired in ["identity_preimage", "identity_projection"] {
             let mut adverse = package.clone();
             adverse[retired] = json!({});
-            let result = CheckedPackageV2::read(
+            let result = crate::read_and_account(
                 &canonical(&adverse),
                 CheckedPackageReadLimits::bounded(),
                 &evidence_for(&adverse),
@@ -744,7 +744,7 @@ fn package_with_body(body: Value) -> Value {
 }
 
 fn read_bytes(bytes: &[u8], package: &Value) -> CheckedPackageRefusal {
-    match CheckedPackageV2::read(
+    match crate::read_and_account(
         bytes,
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -908,7 +908,7 @@ fn tc_048_the_canonical_bytes_of_those_values_are_not_refused_as_noncanonical() 
         settle(&mut package);
         assert!(
             matches!(
-                CheckedPackageV2::read(
+                crate::read_and_account(
                     &canonical(&package),
                     CheckedPackageReadLimits::bounded(),
                     &evidence_for(&package),

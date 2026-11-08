@@ -10,7 +10,7 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedDeclaredNodeId, CheckedDimensionOperand, CheckedNodeId, CheckedNodePathSegment,
-    CheckedPackageNodeRef, CheckedPackageReadLimits, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageNodeRef, CheckedPackageReadLimits, CheckedPackageRefusalCode,
     CheckedPackageV2ReadResult, CheckedRational, CheckedTerm, DimensionTerm, NominalBody,
 };
 use serde_json::{json, Value};
@@ -139,7 +139,7 @@ fn public_constructors_round_trip_all_four_nominal_forms_through_reader() {
                 Some((position, typed))
             })
             .collect::<Vec<_>>();
-        let admitted = match CheckedPackageV2::read(
+        let admitted = match crate::read_and_account(
             &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&wire),
@@ -192,7 +192,7 @@ fn nominal_semantic_refusals_visit_structural_ids_before_graph_positions() {
             < node_id(&package["semantic_graph"]["nodes"][later_position]["node_id"]),
         "structural order is the opposite of graph order"
     );
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&package),
@@ -239,7 +239,7 @@ fn nominal_record_decoding_refuses_in_structural_order() {
         node_id(&package["semantic_graph"]["nodes"][earlier_position]["node_id"])
             < node_id(&package["semantic_graph"]["nodes"][later_position]["node_id"])
     );
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &canonical(&package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&package),
@@ -274,7 +274,7 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
             ["ACTIVE", "DONE"]
         };
         let wire = nominal_package(&members);
-        let admitted = match CheckedPackageV2::read(
+        let admitted = match crate::read_and_account(
             &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&wire),
@@ -298,7 +298,7 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
         v2_nominal(),
         super::checked_package_v2_dimension_equivalence::package(),
     ] {
-        let admitted = match CheckedPackageV2::read(
+        let admitted = match crate::read_and_account(
             &canonical(&wire),
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&wire),
@@ -341,7 +341,7 @@ fn admitted_nominal_enum_details_borrow_authored_order_and_members() {
         &["test/orders"],
     );
     index_fixture_node_ids(&mut model_wire);
-    let model = match CheckedPackageV2::read(
+    let model = match crate::read_and_account(
         &canonical(&model_wire),
         CheckedPackageReadLimits::bounded(),
         &super::checked_package_v2_reader::model_evidence(&model_wire),
@@ -478,7 +478,7 @@ fn constructed_body_does_not_bypass_package_semantic_admission() {
         serde_json::to_value(CheckedTerm::NominalBody(Box::new(body))).expect("body serializes");
     wire["semantic_graph"]["nodes"][3]["semantic_type"] =
         wire["semantic_graph"]["nodes"][1]["node_id"].clone();
-    let refusal = match CheckedPackageV2::read(
+    let refusal = match crate::read_and_account(
         &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&wire),
@@ -508,7 +508,7 @@ fn constructed_body_does_not_bypass_package_semantic_admission() {
     wire["semantic_graph"]["nodes"][3]["body"] =
         serde_json::to_value(CheckedTerm::NominalBody(Box::new(body))).expect("body serializes");
     wire["semantic_graph"]["nodes"][3]["dependencies"] = json!([absent]);
-    let refusal = match CheckedPackageV2::read(
+    let refusal = match crate::read_and_account(
         &canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(&wire),

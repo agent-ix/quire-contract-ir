@@ -153,6 +153,36 @@ def discover_tests(args, binary, env):
     return intended
 
 
+
+def select_tc048(args, compiled):
+    # Structural claims choose original test symbols, never JSON files/rows.
+    # Intersect with actual compiled tests fail-closed: missing/ambiguous names
+    # cannot silently shrink the declared corpus.
+    command = ["quire", "trace", "--scope", str(args.repo), "--id", "TC-048", "--json"]
+    result = subprocess.run(command, cwd=args.repo, text=True, capture_output=True, check=True)
+    (args.out / "tc048-trace.json").write_text(result.stdout)
+    (args.out / "tc048-trace.stderr").write_text(result.stderr)
+    trace = json.loads(result.stdout)
+    if not trace.get("resolved"):
+        raise RunError("TC-048 structural trace query did not resolve")
+    selected = {}
+    for claim in trace.get("claims", {}).get("verifies", []):
+        path = Path(claim["path"])
+        if not path.is_relative_to("tests/it"):
+            continue
+        if claim.get("form") != "rust-trace-attribute" or claim.get("provenance") != "canonical":
+            raise RunError("TC-048 original test selection lacks canonical source attributes")
+        module = "::".join(path.relative_to("tests/it").with_suffix("").parts)
+        name = module + "::" + claim["symbol"]
+        if name not in compiled:
+            raise RunError(f"claimed TC-048 original test not compiled: {name}")
+        selected[name] = claim
+    if not selected:
+        raise RunError("no actual TC-048 original integration tests selected")
+    write_json(args.out / "tc048-selected-tests.json", selected)
+    return sorted(selected)
+
+
 def merge_export(args, output, profiles, binary, env):
     merged = output / "driver.profdata"
     checked([str(args.llvm_bin / "llvm-profdata"), "merge", "-sparse", *map(str, profiles), "-o", str(merged)],
@@ -251,6 +281,7 @@ def main():
     parser.add_argument("--llvm-bin", type=Path, required=True)
     parser.add_argument("--mode", choices=["sample", "full"], default="sample")
     parser.add_argument("--controls", action="store_true")
+    parser.add_argument("--corpus", choices=["qspec", "tc048"], default="qspec")
     parser.add_argument("--features", action="append", default=[])
     parser.add_argument("--qspec-dir", type=Path, required=True)
     args = parser.parse_args()
@@ -285,12 +316,15 @@ def main():
                    CARGO=str(args.toolchain_bin / "cargo"), QUIRE_SPECIFICATION_DIR=str(args.qspec_dir))
         env["PATH"] = str(args.toolchain_bin) + os.pathsep + env["PATH"]
         config = {"source_head": git(args.repo, "rev-parse", "HEAD"), "rustc": rustc, "llvm": llvm,
-                  "mode": args.mode, "controls": args.controls, "features": args.features,
+                  "mode": args.mode, "controls": args.controls, "corpus": args.corpus, "features": args.features,
                   "qspec": {"path": str(args.qspec_dir), "head": git(args.qspec_dir, "rev-parse", "HEAD")},
                   "environment": safe_environment(env)}
-        target = "read_entry_census_controls" if args.controls else "conformance_qspec"
+        target = ("read_entry_census_controls" if args.controls else
+                  "it" if args.corpus == "tc048" else "conformance_qspec")
         binary = build(args, target, env, config)
         intended = discover_tests(args, binary, env)
+        if not args.controls and args.corpus == "tc048":
+            intended = select_tc048(args, intended)
         results = (run_controls(args, binary, config, env, intended) if args.controls
                    else run_original_corpus(args, binary, config, env, intended))
         write_json(args.out / "result.json", {"passed": True, "results": results,

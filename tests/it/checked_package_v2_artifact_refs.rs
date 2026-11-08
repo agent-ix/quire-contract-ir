@@ -22,7 +22,7 @@ const DEFINITION_MEMBERS: [&str; 2] = ["authority", "identity"];
 const SOURCE_MEMBERS: [&str; 2] = ["authority", "identity"];
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
