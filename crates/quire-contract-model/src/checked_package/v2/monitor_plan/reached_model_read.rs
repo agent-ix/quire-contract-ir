@@ -1153,12 +1153,18 @@ mod tests {
             "authority":"agent-ix", "identity":"quire.temporal.timed/v1"}});
         wire["lock"]["profile_selections"].as_array_mut().unwrap().push(profile.clone());
         for node in wire["semantic_graph"]["nodes"].as_array_mut().unwrap() {
+            if node["body"]["term"] != "application" {
+                continue;
+            }
             if let Some(laws) = node["body"]["operation"]["laws"].as_array_mut() {
                 for law in laws {
                     if law["role"] == "temporal_profile" {
                         *law = profile.clone();
                     }
                 }
+            }
+            if node["body"]["operation"]["member"]["kind"] != "temporal_interval" {
+                continue;
             }
             let interval = &mut node["body"]["operation"]["member"]["interval"];
             if interval.is_object() && interval["lower"].is_string() {
