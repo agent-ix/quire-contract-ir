@@ -3232,6 +3232,26 @@ pub(super) enum SelectionFailure {
     },
 }
 
+impl SelectionFailure {
+    /// Pays the private carrier before retaining a bare selected-model fault.
+    /// The public diagnostic is reserved separately when this fault is projected.
+    fn bare_charged(refusal: ModelRefusal, budget: &mut Budget<'_, '_>) -> Self {
+        if let Err(stop) = budget.request(std::mem::size_of::<SelectionRefusal>(), "diagnostic") {
+            if let Some(reader) = budget.reader_budget("diagnostic") {
+                reader.set_pending(Some(super::CheckedPackagePendingOutcome::Refused(
+                    refusal.code,
+                )));
+            }
+            return Self::Limit(stop);
+        }
+        Self::Refused(Box::new(SelectionRefusal::at(
+            refusal.code,
+            refusal.cause,
+            None,
+        )))
+    }
+}
+
 impl From<SelectionRefusal> for SelectionFailure {
     fn from(refusal: SelectionRefusal) -> Self {
         Self::Refused(Box::new(refusal))
@@ -4502,24 +4522,39 @@ pub(super) fn read_semantic_ir(
     };
     for population in population_rows {
         budget.charge(node_size(population))?;
-        let node = text(population, "identity")?;
+        let node = text(population, "identity")
+            .map_err(|refusal| SelectionFailure::bare_charged(refusal, budget))?;
         if population.get("node").is_some() {
-            return Err(ModelRefusal::malformed().into());
+            return Err(SelectionFailure::bare_charged(
+                ModelRefusal::malformed(),
+                budget,
+            ));
         }
         let group = [(node, 0, population)];
-        let (_, meaning) = classify(&prefix, &meanings, &group, node)?;
+        let (_, meaning) = classify(&prefix, &meanings, &group, node)
+            .map_err(|refusal| SelectionFailure::bare_charged(refusal, budget))?;
         let key = budget.text(node, F)?;
         if meaning != meaning::Kind::Population {
-            return Err(ModelRefusal::malformed().into());
+            return Err(SelectionFailure::bare_charged(
+                ModelRefusal::malformed(),
+                budget,
+            ));
         }
         let population_key = budget.text(node, F)?;
         if !model.populations.insert(budget, population_key, F)? {
-            return Err(ModelRefusal::malformed().into());
+            return Err(SelectionFailure::bare_charged(
+                ModelRefusal::malformed(),
+                budget,
+            ));
         }
-        let member_rows = list(population, "members")?;
+        let member_rows = list(population, "members")
+            .map_err(|refusal| SelectionFailure::bare_charged(refusal, budget))?;
         let mut members = SortedSet::with_capacity(budget, member_rows.len(), F)?;
         for member in member_rows {
-            let member = member.as_str().ok_or_else(ModelRefusal::malformed)?;
+            let member = member
+                .as_str()
+                .ok_or_else(ModelRefusal::malformed)
+                .map_err(|refusal| SelectionFailure::bare_charged(refusal, budget))?;
             let member = budget.text(member, F)?;
             members.insert(budget, member, F)?;
         }

@@ -2193,10 +2193,12 @@ fn validate_domain_packages(
     let mut documents = stage_storage::vec(meter, &site, roots.len())?;
     for (position, (identity, root)) in roots.iter().enumerate() {
         let root = *root;
-        let mut budget =
-            Budget::new(meter, root, bytes).at(PackageReadStage::ModelDocument, position);
-        let selected = admit_selection(identity, checked_package, evidence, &mut budget, unit_refs)
-            .map_err(|failure| {
+        let selected = {
+            let mut budget =
+                Budget::new(meter, root, bytes).at(PackageReadStage::ModelDocument, position);
+            admit_selection(identity, checked_package, evidence, &mut budget, unit_refs)
+        };
+        let selected = selected.map_err(|failure| {
                 match failure {
                     SelectionFailure::Limit(failure) => failure,
                     SelectionFailure::InexactNumber {
@@ -2219,8 +2221,8 @@ fn validate_domain_packages(
                         // Intake metadata is private. Its owning lifetime ends at
                         // this projection; none is attached to the public refusal.
                         drop((declaration_identity, declaration_origin, declaration_path));
-                        let path = member.map_or_else(|| row(root), |member| at(root, member));
                         if let Some(document_pointer) = document_pointer {
+                            let path = member.map_or_else(|| row(root), |member| at(root, member));
                             ValidationFailure::refused_because_in_document(
                                 refusal.code,
                                 path,
@@ -2228,7 +2230,23 @@ fn validate_domain_packages(
                                 document_pointer,
                             )
                         } else {
-                            ValidationFailure::refused_because(refusal.code, path, refusal.cause)
+                            let path = stage_storage::Path::root()
+                                .key("semantic_graph")
+                                .key("nodes")
+                                .index(root)
+                                .key("owner");
+                            let path = member.map_or(path, |member| path.key(member));
+                            stage_storage::refuse(
+                                meter,
+                                &stage_storage::Site::new(
+                                    PackageReadStage::ModelDocument,
+                                    position,
+                                    "model_documents",
+                                    path,
+                                ),
+                                stage_storage::Refusal::new(refusal.code, path)
+                                    .because(refusal.cause),
+                            )
                         }
                     }
                 }
