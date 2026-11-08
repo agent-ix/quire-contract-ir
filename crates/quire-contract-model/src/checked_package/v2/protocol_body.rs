@@ -6587,7 +6587,10 @@ mod tests {
                         else {
                             panic!("profile operator")
                         };
-                        Some((operator, arguments.as_slice()))
+                        Some((
+                            operator.as_deref().expect("fixture profile operator"),
+                            arguments.as_slice(),
+                        ))
                     }
                     _ => None,
                 })
