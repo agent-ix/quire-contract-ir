@@ -971,9 +971,10 @@ fn validate_one<'a, V: TermSource<'a>>(
     ids: IdRead<'_, '_, '_>,
 ) -> Result<u64, ValidationFailure> {
     let invalid = |position: &Trail<'_>| {
-        ValidationFailure::refused(
+        term_refusal(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            position.pointer(),
+            position,
+            ids,
         )
     };
     if !wire.is_object() {
@@ -1049,12 +1050,12 @@ fn validate_one<'a, V: TermSource<'a>>(
                 visit,
                 ids,
             )?;
-            let arguments = require_array(wire, "arguments", at)?;
+            let arguments = require_array(wire, "arguments", at, ids)?;
             Ok(result_type_work.saturating_add(arguments))
         }
         BodyTerm::Aggregate => {
             if wire.exact_members(&["term", "members"]) {
-                require_array(wire, "members", at)
+                require_array(wire, "members", at, ids)
             } else {
                 Err(invalid(at))
             }
@@ -1112,6 +1113,16 @@ type IdRead<'i, 's, 'r> = (
     Site,
     &'r [CheckedOperandEntry],
 );
+
+/// Pay for a term fault before building any of its owned diagnostic fields.
+fn term_refusal(
+    code: CheckedPackageRefusalCode,
+    at: &Trail<'_>,
+    ids: IdRead<'_, '_, '_>,
+) -> ValidationFailure {
+    let mut sink = ids.0.borrow_mut();
+    super::v2::read_charge::refuse_at(&mut **sink, ids.1, code, at)
+}
 
 /// Reads `value` as a node ID, charging the shared sink.
 fn read_node_id<'a, V: TermSource<'a>>(
@@ -1283,9 +1294,10 @@ fn visit_member<'a, V: TermSource<'a>>(
     ids: IdRead<'_, '_, '_>,
 ) -> Result<u64, ValidationFailure> {
     let Some(value) = term.member(key) else {
-        return Err(ValidationFailure::refused(
+        return Err(term_refusal(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at.pointer(),
+            at,
+            ids,
         ));
     };
     visit_reference_with(value, member, is_body_root, &at.key(key), visit, ids)
@@ -1306,13 +1318,15 @@ fn visit_reference_with<'a, V: TermSource<'a>>(
     ids: IdRead<'_, '_, '_>,
 ) -> Result<u64, ValidationFailure> {
     match read_node_id(value, ids)? {
-        NodeIdRead::Malformed => Err(ValidationFailure::refused(
+        NodeIdRead::Malformed => Err(term_refusal(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at.pointer(),
+            at,
+            ids,
         )),
-        NodeIdRead::Invalid(_) => Err(ValidationFailure::refused(
+        NodeIdRead::Invalid(_) => Err(term_refusal(
             CheckedPackageRefusalCode::MalformedWire,
-            at.pointer(),
+            at,
+            ids,
         )),
         NodeIdRead::Id(target) => {
             let mut sink = ids.0.borrow_mut();
@@ -1343,6 +1357,7 @@ fn require_array<'a, V: TermSource<'a>>(
     term: V,
     key: &str,
     at: &Trail<'_>,
+    ids: IdRead<'_, '_, '_>,
 ) -> Result<u64, ValidationFailure> {
     if term
         .member(key)
@@ -1350,9 +1365,10 @@ fn require_array<'a, V: TermSource<'a>>(
     {
         Ok(1)
     } else {
-        Err(ValidationFailure::refused(
+        Err(term_refusal(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
-            at.key(key).pointer(),
+            &at.key(key),
+            ids,
         ))
     }
 }
@@ -2192,5 +2208,123 @@ mod depth_tests {
                 "}".repeat(depth)
             )
         });
+    }
+}
+
+#[cfg(test)]
+mod term_fault_storage_tests {
+    use super::super::v2::{NativeJoinBudget, PackageReadStage, TermNode};
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn term_shape_faults_prepay_the_complete_final_diagnostic() {
+        for (bytes, suffix, code) in [
+            (
+                br#"{"term":"bogus","n":2}"#.as_slice(),
+                "",
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+            ),
+            (
+                br#"{"term":"aggregate","members":false}"#.as_slice(),
+                "/members",
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+            ),
+            (
+                br#"{"term":"reference","target":false}"#.as_slice(),
+                "/target",
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+            ),
+            (
+                br#"{"term":"reference","target":{"package":"","path":["x"],"ordinal":0}}"#
+                    .as_slice(),
+                "/target",
+                CheckedPackageRefusalCode::MalformedWire,
+            ),
+        ] {
+            let document = quire_canonical::read(bytes, u64::MAX).unwrap();
+            let steps = [
+                Step::Key("semantic_graph"),
+                Step::Key("nodes"),
+                Step::Index(2),
+                Step::Key("body"),
+            ];
+            let at = Trail::Base(&steps);
+            let expected_path = format!("/semantic_graph/nodes/2/body{suffix}");
+            let run = |budget: &mut NativeJoinBudget| {
+                let mut outcome = None;
+                let allocated = allocation_counter::measure(|| {
+                    outcome = Some(validate_term(
+                        TermNode::from_ref(document.root()),
+                        TermGrammar::V2,
+                        true,
+                        &at,
+                        &mut |_, _, _, _, _| Ok(()),
+                        Ids {
+                            sink: budget,
+                            site: Site::new(PackageReadStage::Graph, 2, "value"),
+                            row: &[],
+                        },
+                    ));
+                })
+                .bytes_total;
+                (outcome.unwrap(), allocated)
+            };
+            let mut ample = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+            let (expected, allocated) = run(&mut ample);
+            let Err(ValidationFailure::Refused(refusal)) = &expected else {
+                panic!("term shape fault")
+            };
+            assert_eq!(refusal.code, code);
+            assert_eq!(refusal.cause, None);
+            assert_eq!(refusal.locus, None);
+            assert_eq!(refusal.primary_path().unwrap().as_str(), expected_path);
+            // The existing unmetered Value bridge keeps exactly the same
+            // semantic refusal; physical proof belongs to the strict document source.
+            let value: Value = serde_json::from_slice(bytes).unwrap();
+            let value_outcome = with_unmetered_ids(|ids| {
+                validate_term(
+                    &value,
+                    TermGrammar::V2,
+                    true,
+                    &at,
+                    &mut |_, _, _, _, _| Ok(()),
+                    ids,
+                )
+            });
+            assert_eq!(value_outcome, expected);
+            let required = ample.read_storage_consumed();
+            assert_eq!(allocated, required);
+            assert_eq!(
+                ample.take_paid(),
+                Some(super::super::v2::CheckedPackagePendingOutcome::Refused(
+                    code
+                ))
+            );
+            let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(required);
+            assert_eq!(run(&mut exact), (expected.clone(), required));
+            for limit in [0, required - 1] {
+                let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let (outcome, allocated) = run(&mut short);
+                assert!(matches!(outcome, Err(ValidationFailure::Budget(_))));
+                assert_eq!(allocated, short.read_storage_consumed());
+                assert!(short.first_unpaid_read_storage().is_some());
+                if limit != 0 {
+                    assert_eq!(
+                        short.take_pending(),
+                        Some(super::super::v2::CheckedPackagePendingOutcome::Refused(
+                            code
+                        ))
+                    );
+                }
+            }
+            let mut repeated =
+                NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(2 * required);
+            assert_eq!(run(&mut repeated), (expected.clone(), required));
+            assert_eq!(run(&mut repeated), (expected, required));
+            assert_eq!(repeated.read_storage_consumed(), 2 * required);
+            assert_eq!(repeated.first_unpaid_read_storage(), None);
+        }
     }
 }

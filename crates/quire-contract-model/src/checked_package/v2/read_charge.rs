@@ -107,6 +107,30 @@ impl ReadStorage for NativeJoinBudget {
     }
 }
 
+/// Pays a bare term refusal's complete payload before building its pointer,
+/// boxed record or single location. The caller's sink retains the final
+/// pending/paid outcome through the existing diagnostic reservation contract.
+pub(in crate::checked_package) fn refuse_at(
+    sink: &mut dyn ReadStorage,
+    site: Site,
+    code: crate::checked_package::shared::CheckedPackageRefusalCode,
+    at: &crate::checked_package::common::Trail<'_>,
+) -> ValidationFailure {
+    use crate::checked_package::shared::{CheckedPackageRefusal, CheckedPackageRefusalLocation};
+    let at = super::stage_storage::Position::Trail(*at);
+    let bytes = (std::mem::size_of::<CheckedPackageRefusal>() as u128)
+        .saturating_add(std::mem::size_of::<CheckedPackageRefusalLocation>() as u128)
+        .saturating_add(at.pointer_len() as u128);
+    match sink.reserve_diagnostic(
+        bytes,
+        site,
+        super::CheckedPackagePendingOutcome::Refused(code),
+    ) {
+        Ok(()) => ValidationFailure::refused(code, at.build()),
+        Err(_) => sink.denial(),
+    }
+}
+
 /// Charges `bytes` of read storage at `site`.
 pub(super) fn charge(
     budget: &mut NativeJoinBudget,
