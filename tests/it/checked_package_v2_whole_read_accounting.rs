@@ -81,7 +81,10 @@ fn wide_bounded_quantity_case() -> Case {
 fn original_wide_bounded_quantity_provider_has_exact_core_accounting() {
     let input = wide_bounded_quantity_case();
     proof::assert_read::<IntegrationCounter>(
-        &input.label, &input.bytes, &input.evidence, input.expected,
+        &input.label,
+        &input.bytes,
+        &input.evidence,
+        input.expected,
     );
     eprintln!("Original wide bounded-quantity builder: admitted; exact core accounting; no all-family FR-038-AC-516 or source-site census claim");
 }
