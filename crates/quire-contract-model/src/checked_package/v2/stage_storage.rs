@@ -598,6 +598,34 @@ pub(super) fn refuse(
     }
 }
 
+/// Moves a pointer whose String buffer was already paid by the canonical
+/// reader. Only new record/location storage and an actual String-to-Box shrink
+/// request are charged here; the original buffer is never charged twice.
+pub(super) fn refuse_held_pointer(
+    meter: &mut WorkMeter<'_>,
+    site: &Site<'_>,
+    code: CheckedPackageRefusalCode,
+    pointer: String,
+) -> ValidationFailure {
+    let shrink = if pointer.capacity() == pointer.len() {
+        0
+    } else {
+        pointer.len()
+    };
+    let bytes = size_of::<CheckedPackageRefusal>()
+        .saturating_add(size_of::<CheckedPackageRefusalLocation>())
+        .saturating_add(shrink);
+    if let Err(stop) = diagnostic(
+        meter,
+        site,
+        bytes,
+        CheckedPackagePendingOutcome::Refused(code),
+    ) {
+        return stop;
+    }
+    ValidationFailure::refused(code, JsonPointer::from_escaped(pointer))
+}
+
 /// A structural `incomplete` at `path`, its pointer charged before it is built.
 pub(super) fn incomplete(
     meter: &mut WorkMeter<'_>,
