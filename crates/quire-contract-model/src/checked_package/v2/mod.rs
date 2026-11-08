@@ -278,12 +278,11 @@ use super::common::{
 };
 use super::evidence::CheckedPackageEvidence;
 use super::shared::{
-    CheckedArtifactRef, CheckedCapability, CheckedDependencyOperand, CheckedNodeId,
+    CheckedArtifactRef, CheckedCapability, CheckedNodeId,
     CheckedNodePathSegment, CheckedNodeTableDebug, CheckedOccurrence, CheckedOccurrenceRole,
     CheckedOperandEntry, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageReadLimits,
     CheckedPackageRefusal, CheckedPackageRefusalCause, CheckedPackageRefusalCode, CheckedSelection,
     CheckedSourceMapEntry, CheckedSourceRef, CheckedSourceRegion, ForeignNodeKey, JsonPointer,
-    NodeKeyProbe,
 };
 use super::terms::TermSource;
 use lock_tables::{
