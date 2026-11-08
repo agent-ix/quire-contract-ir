@@ -6633,7 +6633,8 @@ mod tests {
                 result.expect("measured clause result")
             };
             let mut ample = super::super::NativeJoinBudget::new(u64::MAX, 0);
-            assert!(run(&mut ample).is_ok(), "healthy clause must validate");
+            let ample_result = run(&mut ample);
+            assert!(ample_result.is_ok(), "healthy clause must validate (slots={slot_checks}, listed={listed}, captures={captures}): {ample_result:?}");
             let required = ample.read_storage_consumed();
             assert!(required > 0, "real clause scratch blocks are exercised");
             let work = ample.consumed().work;
