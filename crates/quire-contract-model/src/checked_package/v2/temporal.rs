@@ -593,6 +593,7 @@ fn validate_diagnostic_references(
         .collect::<BTreeSet<_>>();
     for (entry_index, entry) in diagnostics.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
+            let detail = &detail.to_value();
             if references_refused_node(detail, |target| never_referenced.contains(target)) {
                 return Err(ValidationFailure::refused_because(
                     CheckedPackageRefusalCode::IllTyped,

@@ -15,6 +15,11 @@ pub use budgeted_read::{
     PackageReadDeniedCharge, PackageReadResource,
 };
 mod callable;
+mod checked_json;
+mod document_de;
+pub(in crate::checked_package) use budgeted_read::denial as decode_denial;
+pub use checked_json::{CheckedJson, CheckedJsonError};
+pub(in crate::checked_package) use document_de::DecodeContext;
 mod model_operations;
 pub use model_operations::{
     CheckedModelOperation, CheckedModelOperations, CheckedOperationParameter,
@@ -681,7 +686,7 @@ pub struct CheckedDiagnosticV2 {
     /// Closed cause tag.
     pub cause_tag: CheckedDiagnosticCause,
     /// Typed semantic-term details.
-    pub details: Vec<Value>,
+    pub details: Vec<CheckedJson>,
     /// Source loci under locked sources.
     pub loci: Vec<CheckedSourceRegion>,
 }
@@ -810,6 +815,13 @@ type CheckedPackageWireV2<Body = CheckedTerm> = CheckedPackageEnvelope<
 >;
 
 type RawCheckedPackageWireV2 = CheckedPackageWireV2<Value>;
+
+/// The wire as the charged Document-based decode produces it: node bodies and
+/// diagnostic details are handles into the one retained package document, and
+/// every container holds exactly its final length. The validators still read
+/// [`RawCheckedPackageWireV2`] until each moves to the node API.
+#[allow(dead_code)]
+type DecodedWireV2 = CheckedPackageWireV2<CheckedJson>;
 
 /// Source correspondence supplied to the canonical V2 writer.
 #[derive(Clone, Copy, Debug)]
@@ -1384,6 +1396,7 @@ impl CheckedPackageV2 {
         // The document the shared reader built is the grammar and canonical
         // proof of the bytes; the typed decode below still reads the bytes.
         let document = budgeted_read::read_envelope(bytes, limits, budget)?;
+        let document = budgeted_read::share_document(document, budget)?;
         match intake::source_value(bytes, &member_pointer(&["contract_version"])) {
             Some(Value::String(version))
                 if PackageWireTag::from_wire(&version) == Some(PackageWireTag::ContractVersion) => {
@@ -1410,7 +1423,7 @@ impl CheckedPackageV2 {
                 member_pointer(&["name"]),
             ));
         }
-        let mut wire = intake::decode_borrowed_wire(bytes)
+        let mut wire = intake::decode_borrowed_wire(bytes, &document, budget)
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
@@ -4172,6 +4185,7 @@ fn validate_diagnostics(
         .collect::<BTreeSet<_>>();
     for (entry_index, entry) in wire.diagnostics.entries.iter().enumerate() {
         for (detail_index, detail) in entry.details.iter().enumerate() {
+            let detail = &detail.to_value();
             let detail_steps = [
                 Step::Key("diagnostics"),
                 Step::Key("entries"),
@@ -4856,7 +4870,14 @@ mod tests {
                 .as_ref()
                 .is_none_or(|rows| !rows.is_empty())
             {
-                let decoded = super::intake::decode_borrowed_wire(&bytes).expect("closed intake");
+                let document =
+                    std::sync::Arc::new(quire_canonical::read(&bytes, u64::MAX).expect("reads"));
+                let decoded = super::intake::decode_borrowed_wire(
+                    &bytes,
+                    &document,
+                    &mut super::NativeJoinBudget::unlimited(),
+                )
+                .expect("closed intake");
                 assert_eq!(decoded.schedulability_claims, wire.schedulability_claims);
                 assert_eq!(decoded.operation_effects, wire.operation_effects);
             }

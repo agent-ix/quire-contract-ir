@@ -4,7 +4,9 @@
 //! The budget-charged strict V2 read: entries, deltas, the read-storage
 //! counter's API and the envelope stages' exact charging (TC-472).
 
-use crate::checked_package_v2_graph_read_storage::{assert_exact_and_one_short, stage_requests};
+use crate::checked_package_v2_graph_read_storage::{
+    assert_exact_and_one_short, denial_at, stage_requests,
+};
 use crate::support::checked_package::{
     all_families_read_work, canonical, evidence_for, v2_all_families,
 };
@@ -165,12 +167,46 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
     assert_eq!(short.read_storage_limit(), required - 1);
     assert_eq!(short.consumed().storage, 0);
     let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(incomplete) = result else {
-        panic!("a denial with no pointer to own is affordable: {result:?}");
+        panic!("the graph's pointer is affordable one byte short: {result:?}");
     };
     assert_eq!(incomplete.denied.resource, PackageReadResource::ReadStorage);
     assert_eq!(incomplete.denied.amount, asked);
     assert_eq!(incomplete.limit, required - 1);
     assert!(short.read_storage_consumed() < required);
+
+    // The decode's strings and sequences keep their own last request: one
+    // byte short there, the denied value's pointer is an owned diagnostic the
+    // exhausted budget cannot pay for, so the outcome is the fixed-size one.
+    // The decode runs before the wire checks (and after the retained
+    // document), so its last request is found where the first wire-check
+    // request begins.
+    let first_check = {
+        let (mut low, mut high) = (0_u64, required);
+        while low < high {
+            let middle = low + (high - low) / 2;
+            match denial_at(&read_with, middle) {
+                Some(request)
+                    if request.stage <= PackageReadStage::WireDecode
+                        || request.stage == PackageReadStage::Retained =>
+                {
+                    low = middle + 1
+                }
+                _ => high = middle,
+            }
+        }
+        low
+    };
+    let decode_last = denial_at(&read_with, first_check - 1).expect("the decode makes requests");
+    assert_eq!(decode_last.stage, PackageReadStage::WireDecode);
+    let mut decode_short =
+        NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(first_check - 1);
+    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = read_with(&mut decode_short)
+    else {
+        panic!("one byte short cannot pay for the decode's pointer");
+    };
+    assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
+    assert_eq!(exhausted.denied.amount, decode_last.amount);
+    assert_eq!(exhausted.configured_bound, first_check - 1);
 }
 
 /// A zero read-storage limit refuses at the first allocation of the shared
@@ -178,19 +214,15 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
 /// `incomplete` for `bytes`.
 #[trace("TC-472", "FR-038-AC-510", "FR-358-AC-14")]
 #[test]
-fn zero_read_storage_is_exhausted_at_the_first_request_and_bytes_precede_it() {
+fn zero_read_storage_is_denied_at_the_first_request_and_bytes_precede_it() {
     let mut zero = NativeJoinBudget::new(u64::MAX, u64::MAX);
     assert_eq!(zero.read_storage_limit(), 0);
-    let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = read_with(&mut zero) else {
-        panic!("zero read storage owns no diagnostic");
+    // No allocation is owned by the outcome, so its diagnostic costs nothing.
+    let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(denied) = read_with(&mut zero) else {
+        panic!("an envelope denial with no pointer owns no diagnostic");
     };
-    assert_eq!(exhausted.configured_bound, 0);
-    assert_eq!(exhausted.denied.resource, PackageReadResource::ReadStorage);
-    assert_eq!(
-        exhausted.locus,
-        envelope_locus(PackageReadStage::Envelope, "package_bytes")
-    );
-    assert_eq!(exhausted.pending, None);
+    assert_eq!(denied.limit, 0);
+    assert_eq!(denied.path, None);
     assert_eq!(
         zero.first_unpaid_locus(),
         Some(envelope_locus(PackageReadStage::Envelope, "package_bytes"))
