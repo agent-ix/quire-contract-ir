@@ -153,17 +153,38 @@ impl CheckedPackageV2 {
         evidence: &CheckedPackageEvidence,
         budget: &mut NativeJoinBudget,
     ) -> CheckedPackageV2BudgetedReadResult {
-        Self::read_with_budget_against(
-            super::operation_catalog::production_catalog(),
+        let work_before = budget.consumed();
+        let storage_before = budget.read_storage_mark();
+        budget.resume();
+        if exceeds(bytes.len(), limits.bytes) {
+            budget.abort();
+            return budgeted_outcome(refuse_bytes_exceeded(limits.bytes, bytes.len()), budget);
+        }
+        let catalog = match super::operation_catalog::read_catalog_budgeted(budget) {
+            Ok(catalog) => catalog,
+            Err(super::operation_catalog_index::CatalogStop::Unavailable(error)) => {
+                budget.abort();
+                return CheckedPackageV2BudgetedReadResult::CatalogUnavailable(error);
+            }
+            Err(super::operation_catalog_index::CatalogStop::Budget(stop)) => {
+                budget.abort();
+                return budgeted_outcome(stop, budget);
+            }
+        };
+        Self::admit_with_catalog(
+            catalog,
             bytes,
             limits,
             evidence,
             budget,
+            work_before,
+            storage_before,
         )
     }
 
     /// [`Self::read_with_budget`] against the given result of reading the
     /// operation catalog: an unreadable catalog returns before any charge.
+    #[cfg(test)]
     pub(super) fn read_with_budget_against(
         catalog: &'static Result<super::operation_catalog::OperationCatalog, CatalogReadError>,
         bytes: &[u8],
@@ -178,6 +199,26 @@ impl CheckedPackageV2 {
         let work_before = budget.consumed();
         let storage_before = budget.read_storage_mark();
         budget.resume();
+        Self::admit_with_catalog(
+            catalog,
+            bytes,
+            limits,
+            evidence,
+            budget,
+            work_before,
+            storage_before,
+        )
+    }
+
+    fn admit_with_catalog(
+        catalog: super::operation_catalog::CatalogRef,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        evidence: &CheckedPackageEvidence,
+        budget: &mut NativeJoinBudget,
+        work_before: super::NativeJoinCharge,
+        storage_before: u64,
+    ) -> CheckedPackageV2BudgetedReadResult {
         match Self::admit_bytes(catalog, bytes, limits, evidence, budget) {
             Ok(package) => {
                 budget.finish_read(work_before, storage_before);
@@ -199,16 +240,15 @@ impl CheckedPackageV2 {
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageV2ReadResult {
-        Self::read_against(
-            super::operation_catalog::production_catalog(),
-            bytes,
-            limits,
-            evidence,
-        )
+        let mut budget =
+            NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX);
+        let outcome = Self::read_with_budget(bytes, limits, evidence, &mut budget);
+        Self::unbudgeted_result(outcome, limits, &budget)
     }
 
     /// [`Self::read`] against the given result of reading the operation
     /// catalog.
+    #[cfg(test)]
     pub(super) fn read_against(
         catalog: &'static Result<super::operation_catalog::OperationCatalog, CatalogReadError>,
         bytes: &[u8],
@@ -217,7 +257,16 @@ impl CheckedPackageV2 {
     ) -> CheckedPackageV2ReadResult {
         let mut budget =
             NativeJoinBudget::new(limits.work, u64::MAX).with_read_storage_limit(u64::MAX);
-        match Self::read_with_budget_against(catalog, bytes, limits, evidence, &mut budget) {
+        let outcome = Self::read_with_budget_against(catalog, bytes, limits, evidence, &mut budget);
+        Self::unbudgeted_result(outcome, limits, &budget)
+    }
+
+    fn unbudgeted_result(
+        outcome: CheckedPackageV2BudgetedReadResult,
+        limits: CheckedPackageReadLimits,
+        budget: &NativeJoinBudget,
+    ) -> CheckedPackageV2ReadResult {
+        match outcome {
             CheckedPackageV2BudgetedReadResult::Admitted(package) => {
                 CheckedPackageV2ReadResult::Admitted(package)
             }
@@ -261,6 +310,11 @@ fn budgeted_outcome(
 ) -> CheckedPackageV2BudgetedReadResult {
     match stop {
         ValidationFailure::Refused(refusal) => {
+            // A stage that built the refusal paid its diagnostic first.
+            let pending = CheckedPackagePendingOutcome::Refused(refusal.code);
+            if budget.take_paid() == Some(pending) {
+                return CheckedPackageV2BudgetedReadResult::Refused(*refusal);
+            }
             let bytes = refusal
                 .loci
                 .iter()
@@ -278,6 +332,10 @@ fn budgeted_outcome(
             }
         }
         ValidationFailure::Incomplete(incomplete) => {
+            let pending = CheckedPackagePendingOutcome::Incomplete(incomplete.limit_kind);
+            if budget.take_paid() == Some(pending) {
+                return CheckedPackageV2BudgetedReadResult::Incomplete(incomplete);
+            }
             let bytes = incomplete
                 .path
                 .as_ref()
@@ -348,10 +406,17 @@ fn budget_denial(
         }
     };
     let original_locus = budget.first_unpaid_locus();
-    let diagnostic_bytes = stop
-        .path
-        .as_ref()
-        .map_or(0, |path| path.as_str().len() as u128);
+    // A pointer a stage paid for before building it is already charged; a
+    // diagnostic its stage could not pay for makes this outcome `exhausted`.
+    let pending = budget.take_pending();
+    let diagnostic_bytes = match (pending, budget.take_prepaid_diagnostic()) {
+        (Some(_), _) | (None, Some(false)) => u128::MAX,
+        (None, Some(true)) => 0,
+        (None, None) => stop
+            .path
+            .as_ref()
+            .map_or(0, |path| path.as_str().len() as u128),
+    };
     if let Some(locus) = original_locus {
         budget.set_active_locus(Some(NativeJoinLocus {
             source: locus.source,
@@ -376,7 +441,7 @@ fn budget_denial(
                 denied,
                 configured_bound: limit,
                 locus,
-                pending: None,
+                pending,
             })
         }
         // A budget denial always records its locus; with none recorded the
@@ -389,7 +454,7 @@ fn budget_denial(
                     source: NativeJoinLocusSource::Package,
                     form: DIAGNOSTIC_FORM,
                 },
-                pending: None,
+                pending,
             })
         }
     }
@@ -454,9 +519,6 @@ struct PackageDocument<'d> {
 }
 
 impl quire_canonical::Encode for PackageDocument<'_> {
-    // The one string comparison is a closed-vocabulary guard on a serde_json
-    // private member name, not an open key.
-    #[ix_trace_rs::string_edge]
     fn encode_into<S: quire_canonical::Sink + ?Sized>(
         &self,
         writer: &mut quire_canonical::Writer<'_, S>,

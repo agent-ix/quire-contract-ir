@@ -16,8 +16,8 @@ use super::{
 };
 use crate::checked_package::shared::{CheckedArtifactRef, CheckedNodeId, CheckedNodePathSegment};
 use crate::identity::ExecutionPoint;
-use num_bigint::BigInt;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
+use quire_exact::Integer;
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{error::Category, Value};
@@ -27,7 +27,7 @@ use serde_json::{error::Category, Value};
 /// private provenance and do not affect represented-body equality.
 #[derive(Clone, Debug)]
 pub struct CheckedApplicationOperation {
-    record: Value,
+    record: Box<CheckedApplicationOperationRecord>,
     execution_point: Option<ExecutionPoint>,
     views: Option<CheckedOperationViews>,
     #[cfg(feature = "test-support")]
@@ -36,11 +36,292 @@ pub struct CheckedApplicationOperation {
 
 impl PartialEq for CheckedApplicationOperation {
     fn eq(&self, other: &Self) -> bool {
-        self.record == other.record && self.execution_point == other.execution_point
+        self.record.identity == other.record.identity
+            && self.record.laws == other.record.laws
+            && self.record.mode == other.record.mode
+            && self.record.member == other.record.member
+            && self.record.leaves == other.record.leaves
+            && self.record.malformed == other.record.malformed
+            && self.execution_point == other.execution_point
     }
 }
 
 impl Eq for CheckedApplicationOperation {}
+
+/// The typed wire record retained before operation-catalog admission.
+/// Its member is a view into the caller-charged package document: malformed
+/// member shapes keep the operation step's semantic refusal precedence.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CheckedApplicationOperationRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) identity: Option<Box<str>>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    pub(super) laws: Vec<CheckedOperationLawWire>,
+    #[serde(deserialize_with = "super::required_nullable")]
+    pub(super) mode: Option<CheckedOperationModeWire>,
+    #[serde(deserialize_with = "super::required_nullable")]
+    pub(super) member: Option<CheckedJson>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    pub(super) leaves: Vec<CheckedOperationLeafWire>,
+    #[serde(skip)]
+    pub(super) member_ids: CheckedOperationMemberIds,
+    #[serde(skip)]
+    pub(super) malformed: Option<CheckedJson>,
+}
+
+/// Node-valued member fields decoded with the operation's operand row.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct CheckedOperationMemberIds {
+    pub(super) declaration: Option<CheckedNodeId>,
+    pub(super) context: Option<CheckedNodeId>,
+    pub(super) destination_type: Option<CheckedNodeId>,
+    pub(super) population: Option<CheckedNodeId>,
+    pub(super) target_declaration: Option<CheckedNodeId>,
+    pub(super) target_node: Option<CheckedNodeId>,
+    pub(super) target_parallel: Option<CheckedNodeId>,
+}
+
+impl CheckedApplicationOperationRecord {
+    pub(super) fn malformed(raw: CheckedJson) -> Self {
+        Self {
+            identity: None,
+            laws: Vec::new(),
+            mode: None,
+            member: None,
+            leaves: Vec::new(),
+            member_ids: CheckedOperationMemberIds::default(),
+            malformed: Some(raw),
+        }
+    }
+
+    /// Check wire shape by borrowing the retained document, before decoding fields.
+    #[ix_trace_rs::string_edge]
+    pub(super) fn wire_shape(node: super::TermNode<'_>) -> bool {
+        fn text(node: Option<super::TermNode<'_>>) -> bool {
+            node.and_then(super::TermNode::as_str).is_some()
+        }
+        fn mode(node: super::TermNode<'_>) -> bool {
+            node.is_null()
+                || (node.exact_members(&["kind", "value"])
+                    && text(node.get("kind"))
+                    && text(node.get("value")))
+        }
+        fn laws(node: super::TermNode<'_>) -> bool {
+            node.items().is_some_and(|mut items| {
+                items.all(|law| {
+                    law.exact_members(&["role", "definition"])
+                        && text(law.get("role"))
+                        && law.get("definition").is_some_and(|definition| {
+                            definition.exact_members(&["authority", "identity"])
+                                && text(definition.get("authority"))
+                                && text(definition.get("identity"))
+                        })
+                })
+            })
+        }
+        node.members().is_some_and(|mut fields| {
+            fields
+                .all(|(name, _)| matches!(name, "identity" | "laws" | "mode" | "member" | "leaves"))
+        }) && node
+            .get("identity")
+            .is_none_or(|identity| identity.as_str().is_some())
+            && node.get("laws").is_some_and(laws)
+            && node.get("mode").is_some_and(mode)
+            && node.get("member").is_some()
+            && node
+                .get("leaves")
+                .and_then(super::TermNode::items)
+                .is_some_and(|mut leaves| {
+                    leaves.all(|leaf| {
+                        leaf.members().is_some_and(|mut fields| {
+                            fields.all(|(name, _)| matches!(name, "path" | "laws" | "mode"))
+                        }) && leaf
+                            .get("path")
+                            .and_then(super::TermNode::items)
+                            .is_some_and(|mut path| path.all(|part| part.as_str().is_some()))
+                            && leaf.get("laws").is_some_and(laws)
+                            && leaf.get("mode").is_none_or(mode)
+                    })
+                })
+    }
+
+    pub(super) fn decode_member_ids(&mut self, context: &super::document_de::DecodeContext<'_>) {
+        let Some(member) = self.member.as_ref().map(super::TermNode::of) else {
+            return;
+        };
+        let decode = |value: Option<super::TermNode<'_>>| {
+            value
+                .and_then(|value| {
+                    context
+                        .value_by_id(value.node_ref().id())
+                        .and_then(|value| CheckedNodeId::deserialize(value).ok())
+                })
+                .filter(CheckedNodeId::is_well_formed)
+        };
+        self.member_ids = CheckedOperationMemberIds {
+            declaration: decode(member.get("declaration")),
+            context: decode(member.get("context")),
+            destination_type: decode(member.get("destination_type")),
+            population: decode(member.get("population")),
+            target_declaration: decode(
+                member
+                    .get("target")
+                    .and_then(|target| target.get("declaration")),
+            ),
+            target_node: decode(member.get("target").and_then(|target| target.get("node"))),
+            target_parallel: decode(
+                member
+                    .get("target")
+                    .and_then(|target| target.get("parallel")),
+            ),
+        };
+    }
+
+    pub(super) fn copy_member_context(
+        &self,
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<CheckedNodeId>, crate::checked_package::common::ValidationFailure> {
+        self.member_ids
+            .context
+            .as_ref()
+            .map(|id| meter.clone_id(id))
+            .transpose()
+    }
+    pub(super) fn copy_member_declaration(
+        &self,
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<CheckedNodeId>, crate::checked_package::common::ValidationFailure> {
+        self.member_ids
+            .declaration
+            .as_ref()
+            .map(|id| meter.clone_id(id))
+            .transpose()
+    }
+
+    pub(super) fn member_id(&self, field: &str) -> Option<&CheckedNodeId> {
+        match field {
+            "declaration" => self.member_ids.declaration.as_ref(),
+            "context" => self.member_ids.context.as_ref(),
+            "destination_type" => self.member_ids.destination_type.as_ref(),
+            "population" => self.member_ids.population.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CheckedOperationLawWire {
+    pub(super) role: Box<str>,
+    pub(super) definition: CheckedArtifactRef,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CheckedOperationModeWire {
+    pub(super) kind: Box<str>,
+    pub(super) value: Box<str>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CheckedOperationLeafWire {
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    pub(super) path: Vec<Box<str>>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    pub(super) laws: Vec<CheckedOperationLawWire>,
+    pub(super) mode: Option<CheckedOperationModeWire>,
+}
+
+impl Encode for CheckedApplicationOperationRecord {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        if let Some(raw) = &self.malformed {
+            return raw.encode_into(writer);
+        }
+        writer.begin_object()?;
+        super::encode::present(writer, "identity", &self.identity)?;
+        super::encode::member(writer, "laws", &self.laws)?;
+        super::encode::member(writer, "leaves", &self.leaves)?;
+        writer.name("member")?;
+        match &self.member {
+            Some(member) => member.encode_into(writer)?,
+            None => writer.null()?,
+        }
+        super::encode::member(writer, "mode", &self.mode)?;
+        writer.end_object()
+    }
+}
+
+impl Serialize for CheckedApplicationOperationRecord {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if let Some(raw) = &self.malformed {
+            return raw.serialize(serializer);
+        }
+        let mut map = serializer.serialize_map(None)?;
+        if let Some(identity) = &self.identity {
+            map.serialize_entry("identity", identity)?;
+        }
+        map.serialize_entry("laws", &self.laws)?;
+        map.serialize_entry("mode", &self.mode)?;
+        map.serialize_entry("member", &self.member)?;
+        map.serialize_entry("leaves", &self.leaves)?;
+        map.end()
+    }
+}
+
+impl TryFrom<Value> for CheckedApplicationOperationRecord {
+    type Error = serde_json::Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        let raw = CheckedJson::from_value(&value).map_err(serde::de::Error::custom)?;
+        CheckedApplicationOperation::outside_read_raw(raw)
+            .map(|operation| *operation.record)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl TryFrom<Value> for Box<CheckedApplicationOperationRecord> {
+    type Error = serde_json::Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        CheckedApplicationOperationRecord::try_from(value).map(Box::new)
+    }
+}
+
+/// Read a closed execution point without serde's internally-tagged scratch map.
+#[ix_trace_rs::string_edge]
+pub(super) fn point_from_node(
+    value: super::TermNode<'_>,
+    context: &super::document_de::DecodeContext<'_>,
+) -> Option<ExecutionPoint> {
+    use crate::identity::ExecutionPointName;
+    let kind = value.get("kind")?.as_str()?;
+    let field = match kind {
+        "initialization" | "handler" => "name",
+        "pre" | "post" => "operation",
+        _ => return None,
+    };
+    if !value.exact_members(&["kind", field]) {
+        return None;
+    }
+    let text = value.get(field)?.as_str()?;
+    if text.is_empty() || !context.charge_bytes(text.len()) {
+        return None;
+    }
+    let name = ExecutionPointName::new(Box::<str>::from(text)).ok()?;
+    Some(match kind {
+        "initialization" => ExecutionPoint::Initialization { name },
+        "handler" => ExecutionPoint::Handler { name },
+        "pre" => ExecutionPoint::Pre { operation: name },
+        "post" => ExecutionPoint::Post { operation: name },
+        _ => return None,
+    })
+}
+
+/// The document deserializer offers a typed record with its charged point.
+pub(super) const OPERATION_TOKEN: &str = "$quire::ApplicationOperation";
+thread_local! {
+    static OFFERED_OPERATION: std::cell::RefCell<Option<CheckedApplicationOperation>> = const { std::cell::RefCell::new(None) };
+}
 
 /// An operation view was requested without reader admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
@@ -132,7 +413,7 @@ pub enum CheckedOperationMember {
         /// Declaring tuple node.
         declaration: CheckedNodeId,
         /// Exact position, including beyond the JSON safe integer range.
-        position: BigInt,
+        position: Integer,
     },
     /// An element type of a collection.
     Element {
@@ -302,6 +583,49 @@ impl<'de> Deserialize<'de> for CheckedFairnessTarget {
 }
 
 impl CheckedFairnessTarget {
+    pub(super) fn from_validated_node(
+        value: super::TermNode<'_>,
+        ids: &CheckedOperationMemberIds,
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<Self>, crate::checked_package::common::ValidationFailure> {
+        use super::TermNode;
+        macro_rules! need {
+            ($value:expr) => {
+                match $value {
+                    Some(value) => value,
+                    None => return Ok(None),
+                }
+            };
+        }
+        let kind = need!(value.get("kind").and_then(TermNode::as_str));
+        Ok(Some(match kind {
+            "operation" | "hybrid_transition" => {
+                let declaration = meter.clone_id(need!(ids.target_declaration.as_ref()))?;
+                let name = meter.boxed_str(need!(value.get("name").and_then(TermNode::as_str)))?;
+                if kind == "operation" {
+                    Self::Operation { declaration, name }
+                } else {
+                    Self::HybridTransition { declaration, name }
+                }
+            }
+            "protocol_root" => Self::ProtocolRoot {
+                node: meter.clone_id(need!(ids.target_node.as_ref()))?,
+            },
+            "attempt_node" => Self::AttemptNode {
+                node: meter.clone_id(need!(ids.target_node.as_ref()))?,
+            },
+            "compensation_template" => Self::CompensationTemplate {
+                node: meter.clone_id(need!(ids.target_node.as_ref()))?,
+            },
+            "parallel_branch" => Self::ParallelBranch {
+                parallel: meter.clone_id(need!(ids.target_parallel.as_ref()))?,
+                branch: meter.boxed_str(need!(value.get("branch").and_then(TermNode::as_str)))?,
+            },
+            _ => return Ok(None),
+        }))
+    }
+
+    #[cfg(test)]
     #[ix_trace_rs::string_edge]
     fn from_validated_value(value: &Value) -> Option<Self> {
         let kind = value.get("kind")?.as_str()?;
@@ -325,24 +649,6 @@ impl CheckedFairnessTarget {
                 branch: value.get("branch")?.as_str()?.into(),
             },
             _ => return None,
-        })
-    }
-
-    /// Decode only the hybrid join coordinates at the pre-shape admission step.
-    /// Full member validation still rejects extra fields and bad vocabulary later;
-    /// ignoring those here preserves the specified first-refusal order.
-    #[ix_trace_rs::string_edge]
-    pub(super) fn hybrid_for_join(wire: &Value) -> Option<Self> {
-        if wire.get("kind")?.as_str()? != "hybrid_transition" {
-            return None;
-        }
-        Some(Self::HybridTransition {
-            declaration: structural_member_id(wire.get("declaration")?)?,
-            name: wire
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .into(),
         })
     }
 
@@ -386,11 +692,11 @@ pub enum CheckedOperationInterval {
     /// Integer positions, including an unbounded upper end.
     Integer {
         /// Inclusive lower position.
-        #[serde(deserialize_with = "decode_decimal_bigint")]
-        lower: BigInt,
+        #[serde(deserialize_with = "decode_decimal_integer")]
+        lower: Integer,
         /// Inclusive upper position, or no upper limit.
-        #[serde(deserialize_with = "decode_optional_decimal_bigint")]
-        upper: Option<BigInt>,
+        #[serde(deserialize_with = "decode_optional_decimal_integer")]
+        upper: Option<Integer>,
     },
     /// Time magnitudes with explicit open or closed ends.
     Timed {
@@ -410,11 +716,11 @@ pub enum CheckedOperationInterval {
 #[serde(deny_unknown_fields)]
 pub struct CheckedOperationRational {
     /// Decimal numerator.
-    #[serde(deserialize_with = "decode_decimal_bigint")]
-    pub numerator: BigInt,
+    #[serde(deserialize_with = "decode_decimal_integer")]
+    pub numerator: Integer,
     /// Decimal denominator.
-    #[serde(deserialize_with = "decode_decimal_bigint")]
-    pub denominator: BigInt,
+    #[serde(deserialize_with = "decode_decimal_integer")]
+    pub denominator: Integer,
 }
 
 /// Whether an interval includes its endpoint.
@@ -562,6 +868,163 @@ impl CheckedOperationMember {
         Some(())
     }
 
+    pub(super) fn from_validated_node(
+        value: super::TermNode<'_>,
+        ids: &CheckedOperationMemberIds,
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<Self>, crate::checked_package::common::ValidationFailure> {
+        use super::TermNode;
+        use crate::checked_package::common::ValidationFailure;
+        macro_rules! need {
+            ($value:expr) => {
+                match $value {
+                    Some(value) => value,
+                    None => return Ok(None),
+                }
+            };
+        }
+        fn integer(
+            value: TermNode<'_>,
+            meter: &mut super::WorkMeter,
+        ) -> Result<Option<Integer>, ValidationFailure> {
+            let text = match value.node_ref().node() {
+                quire_canonical::Node::String(text) => text,
+                quire_canonical::Node::Number(number) => number.text(),
+                _ => return Ok(None),
+            };
+            meter.exact_integer(text)
+        }
+        fn rational(
+            value: TermNode<'_>,
+            meter: &mut super::WorkMeter,
+        ) -> Result<Option<CheckedOperationRational>, ValidationFailure> {
+            let numerator = need!(integer(need!(value.get("numerator")), meter)?);
+            let denominator = need!(integer(need!(value.get("denominator")), meter)?);
+            Ok(Some(CheckedOperationRational {
+                numerator,
+                denominator,
+            }))
+        }
+        fn interval(
+            value: TermNode<'_>,
+            meter: &mut super::WorkMeter,
+        ) -> Result<Option<CheckedOperationInterval>, ValidationFailure> {
+            let lower = need!(value.get("lower"));
+            let upper = need!(value.get("upper"));
+            if value.exact_members(&["lower", "upper"]) {
+                return Ok(Some(CheckedOperationInterval::Integer {
+                    lower: need!(integer(lower, meter)?),
+                    upper: if upper.is_null() {
+                        None
+                    } else {
+                        Some(need!(integer(upper, meter)?))
+                    },
+                }));
+            }
+            if !value.exact_members(&["lower", "upper", "lower_end", "upper_end"]) {
+                return Ok(None);
+            }
+            let end = |value: Option<TermNode<'_>>| match value.and_then(TermNode::as_str) {
+                Some("open") => Some(CheckedIntervalEnd::Open),
+                Some("closed") => Some(CheckedIntervalEnd::Closed),
+                _ => None,
+            };
+            Ok(Some(CheckedOperationInterval::Timed {
+                lower: need!(rational(lower, meter)?),
+                upper: if upper.is_null() {
+                    None
+                } else {
+                    Some(need!(rational(upper, meter)?))
+                },
+                lower_end: need!(end(value.get("lower_end"))),
+                upper_end: need!(end(value.get("upper_end"))),
+            }))
+        }
+        let kind = need!(value
+            .get("kind")
+            .and_then(TermNode::as_str)
+            .and_then(OperationMemberKind::from_wire));
+        let declaration = ids.declaration.as_ref();
+        let name = value.get("name").and_then(TermNode::as_str);
+        Ok(Some(match kind {
+            OperationMemberKind::Field => Self::Field {
+                declaration: meter.clone_id(need!(declaration))?,
+                name: meter.boxed_str(need!(name))?,
+                read_form: match value.get("read_form") {
+                    Some(value) => Some(need!(value
+                        .as_str()
+                        .and_then(CheckedFieldReadForm::from_wire))),
+                    None => None,
+                },
+            },
+            OperationMemberKind::Position => Self::Position {
+                declaration: meter.clone_id(need!(declaration))?,
+                position: need!(integer(need!(value.get("position")), meter)?),
+            },
+            OperationMemberKind::Element => Self::Element {
+                declaration: meter.clone_id(need!(declaration))?,
+            },
+            OperationMemberKind::RelationshipEnd => Self::RelationshipEnd {
+                declaration: meter.clone_id(need!(declaration))?,
+                name: meter.boxed_str(need!(name))?,
+                destination_type: meter.clone_id(need!(ids.destination_type.as_ref()))?,
+                population: if value.get("population").is_some() {
+                    Some(meter.clone_id(need!(ids.population.as_ref()))?)
+                } else {
+                    None
+                },
+            },
+            OperationMemberKind::Operation => Self::Operation {
+                declaration: meter.clone_id(need!(declaration))?,
+                name: meter.boxed_str(need!(name))?,
+            },
+            OperationMemberKind::TypeArgument => Self::TypeArgument {
+                declaration: meter.clone_id(need!(declaration))?,
+            },
+            OperationMemberKind::ProfileOperator => Self::ProfileOperator {
+                operator: value
+                    .get("operator")
+                    .and_then(TermNode::as_str)
+                    .map(|text| meter.boxed_str(text))
+                    .transpose()?,
+            },
+            OperationMemberKind::StateClause => Self::StateClause {
+                clause: need!(value
+                    .get("clause")
+                    .and_then(TermNode::as_str)
+                    .and_then(StateClauseKind::from_wire)),
+            },
+            OperationMemberKind::TemporalInterval => Self::TemporalInterval {
+                interval: {
+                    let value = need!(value.get("interval"));
+                    if value.is_null() {
+                        None
+                    } else {
+                        Some(need!(interval(value, meter)?))
+                    }
+                },
+            },
+            OperationMemberKind::Fairness => Self::Fairness {
+                fairness_kind: match value.get("fairness_kind").and_then(TermNode::as_str) {
+                    Some("weak") => CheckedFairnessKind::Weak,
+                    Some("strong") => CheckedFairnessKind::Strong,
+                    _ => return Ok(None),
+                },
+                granularity: match value.get("granularity").and_then(TermNode::as_str) {
+                    Some("whole") => CheckedFairnessGranularity::Whole,
+                    Some("each") => CheckedFairnessGranularity::Each,
+                    _ => return Ok(None),
+                },
+                target: need!(CheckedFairnessTarget::from_validated_node(
+                    need!(value.get("target")),
+                    ids,
+                    meter
+                )?),
+            },
+        }))
+    }
+
+    #[cfg(test)]
     pub(super) fn from_validated_value(value: &Value) -> Option<Self> {
         let kind = OperationMemberKind::from_wire(value.get("kind")?.as_str()?)?;
         let declaration = || structural_member_id(value.get("declaration")?);
@@ -585,7 +1048,7 @@ impl CheckedOperationMember {
                 };
                 Self::Position {
                     declaration: declaration()?,
-                    position: BigInt::parse_bytes(text.as_bytes(), 10)?,
+                    position: text.parse().ok()?,
                 }
             }
             OperationMemberKind::Element => Self::Element {
@@ -662,19 +1125,19 @@ impl CheckedOperationMember {
     }
 }
 
-fn decode_decimal_bigint<'de, D: Deserializer<'de>>(deserializer: D) -> Result<BigInt, D::Error> {
+fn decode_decimal_integer<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Integer, D::Error> {
     let text = Box::<str>::deserialize(deserializer)?;
-    BigInt::parse_bytes(text.as_bytes(), 10)
-        .ok_or_else(|| serde::de::Error::custom("expected a decimal integer"))
+    text.parse()
+        .map_err(|_| serde::de::Error::custom("expected a canonical decimal integer"))
 }
 
-fn decode_optional_decimal_bigint<'de, D: Deserializer<'de>>(
+fn decode_optional_decimal_integer<'de, D: Deserializer<'de>>(
     deserializer: D,
-) -> Result<Option<BigInt>, D::Error> {
+) -> Result<Option<Integer>, D::Error> {
     let text = Option::<Box<str>>::deserialize(deserializer)?;
     text.map(|text| {
-        BigInt::parse_bytes(text.as_bytes(), 10)
-            .ok_or_else(|| serde::de::Error::custom("expected a decimal integer"))
+        text.parse()
+            .map_err(|_| serde::de::Error::custom("expected a canonical decimal integer"))
     })
     .transpose()
 }
@@ -683,10 +1146,19 @@ impl CheckedApplicationOperation {
     /// Construct the catalogued state-clause operation without a JSON payload.
     pub fn state_clause(clause: StateClauseKind, execution_point: Option<ExecutionPoint>) -> Self {
         Self {
-            record: serde_json::json!({
-                "identity": "quire.op.state.clause", "laws": [], "mode": null,
-                "member": {"kind": "state_clause", "clause": clause}, "leaves": []
-            }),
+            record: {
+                let mut member = serde_json::json!({"kind": "state_clause", "clause": clause});
+                if let Some(point) = &execution_point {
+                    member["execution_point"] =
+                        serde_json::to_value(point).expect("a typed point serializes");
+                }
+                serde_json::json!({
+                    "identity": "quire.op.state.clause", "laws": [], "mode": null,
+                    "member": member, "leaves": []
+                })
+                .try_into()
+                .expect("closed state-clause operation")
+            },
             execution_point,
             views: Some(CheckedOperationViews {
                 state_clause_kind: Some(clause),
@@ -765,7 +1237,9 @@ impl CheckedApplicationOperation {
         record.insert("leaves".into(), Value::Array(Vec::new()));
 
         Ok(Self {
-            record: Value::Object(record),
+            record: Value::Object(record)
+                .try_into()
+                .expect("validated fixture operation"),
             execution_point: None,
             views: Some(CheckedOperationViews {
                 member_declaration: fixture.member_declaration,
@@ -790,7 +1264,11 @@ impl CheckedApplicationOperation {
 
     /// The catalogued identity of this application operation.
     pub fn identity(&self) -> Option<&str> {
-        self.record.get("identity").and_then(Value::as_str)
+        self.record.identity.as_deref().or_else(|| {
+            super::TermNode::of(self.record.malformed.as_ref()?)
+                .get("identity")?
+                .as_str()
+        })
     }
 
     /// The admitted state-clause kind, or `None` for another member shape.
@@ -867,37 +1345,98 @@ impl CheckedApplicationOperation {
         self.views = Some(views);
     }
 
-    pub(super) fn record(&self) -> &Value {
+    pub(super) fn record(&self) -> &CheckedApplicationOperationRecord {
         &self.record
     }
 
-    pub(super) fn get(&self, key: &str) -> Option<&Value> {
-        self.record.get(key)
+    /// The unadmitted member, borrowed from the retained document.
+    pub(super) fn member_node(&self) -> Option<super::TermNode<'_>> {
+        self.record.member.as_ref().map(super::TermNode::of)
     }
 
-    pub(super) fn pointer(&self, pointer: &str) -> Option<&Value> {
-        self.record.pointer(pointer)
+    /// One member spelling, without allocation or semantic admission.
+    pub(super) fn member_text(&self, field: &str) -> Option<&str> {
+        self.member_node()?.get(field)?.as_str()
+    }
+
+    pub(super) fn member_kind(&self) -> Option<OperationMemberKind> {
+        OperationMemberKind::from_wire(self.member_text("kind")?)
+    }
+
+    pub(super) fn member_operator(&self) -> Option<&str> {
+        self.member_text("operator")
+    }
+    pub(super) fn member_name(&self) -> Option<&str> {
+        self.member_text("name")
+    }
+
+    pub(super) fn member_key(&self, field: &str) -> Option<&CheckedNodeId> {
+        self.record.member_id(field)
     }
 
     #[cfg(test)]
-    pub(super) fn record_mut(&mut self) -> &mut Value {
-        &mut self.record
+    pub(super) fn record_mut(&mut self) -> OperationRecordEdit<'_> {
+        let value = serde_json::to_value(&self.record).expect("typed fixture record serializes");
+        OperationRecordEdit {
+            operation: self,
+            value,
+        }
     }
 
-    fn from_record(mut record: Value) -> Self {
-        let execution_point =
-            if record.get("identity").and_then(Value::as_str) == Some("quire.op.state.clause") {
-                let member = record.get_mut("member").and_then(Value::as_object_mut);
-                member.and_then(|member| {
-                    let point = ExecutionPoint::from_wire(member.get("execution_point")?)?;
-                    member.remove("execution_point");
-                    Some(point)
-                })
-            } else {
-                None
-            };
+    #[ix_trace_rs::string_edge]
+    pub(super) fn fairness_target_syntax(
+        &self,
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<CheckedFairnessTarget>, crate::checked_package::common::ValidationFailure>
+    {
+        let Some(member) = self.member_node() else {
+            return Ok(None);
+        };
+        if !super::temporal::member_is_well_formed_node(
+            OperationMemberKind::Fairness,
+            member,
+            &self.record.member_ids,
+        ) {
+            return Ok(None);
+        }
+        let Some(target) = member.get("target") else {
+            return Ok(None);
+        };
+        CheckedFairnessTarget::from_validated_node(target, &self.record.member_ids, meter)
+    }
+
+    #[ix_trace_rs::string_edge]
+    pub(super) fn hybrid_target_for_join(
+        &self,
+        meter: &mut super::WorkMeter,
+    ) -> Result<Option<CheckedFairnessTarget>, crate::checked_package::common::ValidationFailure>
+    {
+        let Some(target) = self.member_node().and_then(|member| member.get("target")) else {
+            return Ok(None);
+        };
+        if target.get("kind").and_then(super::TermNode::as_str) != Some("hybrid_transition") {
+            return Ok(None);
+        }
+        let Some(declaration) = self.record.member_ids.target_declaration.as_ref() else {
+            return Ok(None);
+        };
+        Ok(Some(CheckedFairnessTarget::HybridTransition {
+            declaration: meter.clone_id(declaration)?,
+            name: meter.boxed_str(
+                target
+                    .get("name")
+                    .and_then(super::TermNode::as_str)
+                    .unwrap_or_default(),
+            )?,
+        }))
+    }
+
+    pub(super) fn from_typed_record(
+        record: CheckedApplicationOperationRecord,
+        execution_point: Option<ExecutionPoint>,
+    ) -> Self {
         Self {
-            record,
+            record: Box::new(record),
             execution_point,
             views: None,
             #[cfg(feature = "test-support")]
@@ -905,57 +1444,107 @@ impl CheckedApplicationOperation {
         }
     }
 
-    fn with_point(&self) -> Value {
-        let mut record = self.record.clone();
-        if let (Some(point), Some(member)) = (
-            &self.execution_point,
-            record.get_mut("member").and_then(Value::as_object_mut),
-        ) {
-            member.insert(
-                "execution_point".into(),
-                match point {
-                    ExecutionPoint::Initialization { name } => {
-                        serde_json::json!({"kind": "initialization", "name": name})
-                    }
-                    ExecutionPoint::Handler { name } => {
-                        serde_json::json!({"kind": "handler", "name": name})
-                    }
-                    ExecutionPoint::Pre { operation } => {
-                        serde_json::json!({"kind": "pre", "operation": operation})
-                    }
-                    ExecutionPoint::Post { operation } => {
-                        serde_json::json!({"kind": "post", "operation": operation})
-                    }
-                },
-            );
-        }
-        record
+    pub(super) fn offer(operation: Self) {
+        OFFERED_OPERATION.with(|offered| *offered.borrow_mut() = Some(operation));
+    }
+
+    fn outside_read_raw(raw: CheckedJson) -> Result<Self, super::document_de::Error> {
+        let record = if CheckedApplicationOperationRecord::wire_shape(super::TermNode::of(&raw)) {
+            let mut budget =
+                super::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
+            let context = super::document_de::DecodeContext::new(raw.document(), &mut budget);
+            CheckedApplicationOperationRecord::deserialize(
+                context.value_by_id(raw.node().id()).expect("retained node"),
+            )?
+        } else {
+            CheckedApplicationOperationRecord::malformed(raw)
+        };
+        Ok(Self::outside_read(record))
+    }
+
+    fn outside_read(mut record: CheckedApplicationOperationRecord) -> Self {
+        let execution_point = if let Some(member) = record.member.clone() {
+            let mut budget =
+                super::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
+            let context = super::document_de::DecodeContext::new(member.document(), &mut budget);
+            record.decode_member_ids(&context);
+            if record.identity.as_deref() == Some("quire.op.state.clause") {
+                super::TermNode::of(&member)
+                    .get("execution_point")
+                    .and_then(|point| point_from_node(point, &context))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        Self::from_typed_record(record, execution_point)
+    }
+}
+
+#[cfg(test)]
+pub(super) struct OperationRecordEdit<'a> {
+    operation: &'a mut CheckedApplicationOperation,
+    value: Value,
+}
+#[cfg(test)]
+impl std::ops::Deref for OperationRecordEdit<'_> {
+    type Target = Value;
+    fn deref(&self) -> &Value {
+        &self.value
+    }
+}
+#[cfg(test)]
+impl std::ops::DerefMut for OperationRecordEdit<'_> {
+    fn deref_mut(&mut self) -> &mut Value {
+        &mut self.value
+    }
+}
+#[cfg(test)]
+impl Drop for OperationRecordEdit<'_> {
+    fn drop(&mut self) {
+        self.operation.record = self
+            .value
+            .take()
+            .try_into()
+            .expect("edited fixture retains operation record shape");
     }
 }
 
 impl Serialize for CheckedApplicationOperation {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if self.execution_point.is_some() {
-            self.with_point().serialize(serializer)
-        } else {
-            self.record.serialize(serializer)
-        }
+        self.record.serialize(serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for CheckedApplicationOperation {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Self::from_record(Value::deserialize(deserializer)?))
+        struct OperationVisitor;
+        impl<'de> serde::de::Visitor<'de> for OperationVisitor {
+            type Value = CheckedApplicationOperation;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("an application operation record")
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                OFFERED_OPERATION
+                    .with(|offered| offered.borrow_mut().take())
+                    .ok_or_else(|| E::custom("missing decoded operation record"))
+            }
+            fn visit_newtype_struct<D: Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                let raw = CheckedJson::deserialize(deserializer)?;
+                CheckedApplicationOperation::outside_read_raw(raw).map_err(serde::de::Error::custom)
+            }
+        }
+        deserializer.deserialize_newtype_struct(OPERATION_TOKEN, OperationVisitor)
     }
 }
 
 impl Encode for CheckedApplicationOperation {
     fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
-        if self.execution_point.is_some() {
-            self.with_point().encode_into(writer)
-        } else {
-            self.record.encode_into(writer)
-        }
+        self.record.encode_into(writer)
     }
 }
 
@@ -1098,14 +1687,14 @@ pub enum CheckedLiteralValue<'a> {
     /// Boolean value.
     Boolean(bool),
     /// Arbitrary precision signed integer.
-    Integer(BigInt),
+    Integer(Integer),
     /// Reduced rational or quantity magnitude.
     Rational {
-        numerator: BigInt,
-        denominator: BigInt,
+        numerator: Integer,
+        denominator: Integer,
     },
     /// Decimal coefficient and the exact written scale.
-    Decimal { coefficient: BigInt, scale: usize },
+    Decimal { coefficient: Integer, scale: usize },
     /// IEEE binary32 bits, including signed zero and NaN payloads.
     Float32Bits(u32),
     /// IEEE binary64 bits, including signed zero and NaN payloads.
@@ -1135,13 +1724,10 @@ pub struct CheckedLiteralRead<'a> {
     pub value: CheckedLiteralValue<'a>,
 }
 
-fn rational_parts(value: &CheckedJson) -> Option<(BigInt, BigInt)> {
+fn rational_parts(value: &CheckedJson) -> Option<(Integer, Integer)> {
     let text = value.as_str()?;
     let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
-    Some((
-        BigInt::parse_bytes(numerator.as_bytes(), 10)?,
-        BigInt::parse_bytes(denominator.as_bytes(), 10)?,
-    ))
+    Some((numerator.parse().ok()?, denominator.parse().ok()?))
 }
 
 fn literal_value(kind: LiteralKind, value: &CheckedJson) -> Option<CheckedLiteralValue<'_>> {
@@ -1149,7 +1735,7 @@ fn literal_value(kind: LiteralKind, value: &CheckedJson) -> Option<CheckedLitera
         LiteralKind::Boolean => CheckedLiteralValue::Boolean(value.as_bool()?),
         LiteralKind::Integer => {
             let text = value.as_str().or_else(|| value.number_text())?;
-            CheckedLiteralValue::Integer(BigInt::parse_bytes(text.as_bytes(), 10)?)
+            CheckedLiteralValue::Integer(text.parse().ok()?)
         }
         LiteralKind::Rational | LiteralKind::Quantity => {
             let (numerator, denominator) = rational_parts(value)?;
@@ -1163,8 +1749,17 @@ fn literal_value(kind: LiteralKind, value: &CheckedJson) -> Option<CheckedLitera
             let (whole, fractional) = text.split_once('.').unwrap_or((text, ""));
             let scale = fractional.len();
             let digits = format!("{whole}{fractional}");
+            let negative = digits.starts_with('-');
+            let magnitude = digits.trim_start_matches('-').trim_start_matches('0');
+            let canonical = if magnitude.is_empty() {
+                "0".to_owned()
+            } else if negative {
+                format!("-{magnitude}")
+            } else {
+                magnitude.to_owned()
+            };
             CheckedLiteralValue::Decimal {
-                coefficient: BigInt::parse_bytes(digits.as_bytes(), 10)?,
+                coefficient: canonical.parse().ok()?,
                 scale,
             }
         }
@@ -1402,11 +1997,11 @@ fn map_operation_ids(
     operation: &mut CheckedApplicationOperation,
     map: &mut impl FnMut(&CheckedNodeId) -> Option<CheckedNodeId>,
 ) {
-    let Some(member) = operation
-        .record
-        .get_mut("member")
-        .and_then(Value::as_object_mut)
-    else {
+    let Some(member_handle) = operation.record.member.as_ref() else {
+        return;
+    };
+    let mut member_value = member_handle.to_value();
+    let Some(member) = member_value.as_object_mut() else {
         return;
     };
     let kind = member
@@ -1474,6 +2069,15 @@ fn map_operation_ids(
         }
     }
 
+    operation.record.member =
+        Some(CheckedJson::from_value(&member_value).expect("remapped member remains canonical"));
+
+    if let Some(member) = operation.record.member.clone() {
+        let mut budget =
+            super::NativeJoinBudget::new(u64::MAX, u64::MAX).with_read_storage_limit(u64::MAX);
+        let context = super::document_de::DecodeContext::new(member.document(), &mut budget);
+        operation.record.decode_member_ids(&context);
+    }
     let Some(views) = &mut operation.views else {
         return;
     };
@@ -1890,7 +2494,10 @@ impl CheckedTerm {
                 arguments,
                 ..
             } => {
-                replace_node_ids_in_value(&mut operation.record, old, new);
+                let mut record =
+                    serde_json::to_value(&operation.record).expect("typed operation serializes");
+                replace_node_ids_in_value(&mut record, old, new);
+                operation.record = record.try_into().expect("remapped operation shape");
                 if let Some(views) = &mut operation.views {
                     views.replace_node_id(old, new);
                 }
@@ -2854,6 +3461,77 @@ mod tests {
     use quire_canonical::{to_vec, Limits};
     use serde_json::{error::Category, json};
 
+    /// The record and its member keys are decoded from retained views; every
+    /// requested string and vector block is paid for before allocation.
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn operation_document_decode_allocates_only_charged_storage() {
+        use super::super::read_charge::Site;
+        use super::super::{CheckedJson, NativeJoinBudget, PackageReadStage, TermNode};
+        let id = json!({"package":"record-test", "path":["decl", {"operand":0}], "ordinal":0});
+        for (identity, member, has_point) in [
+            (
+                "test.operation",
+                json!({"kind":"field", "declaration":id, "name":"count"}),
+                false,
+            ),
+            (
+                "quire.op.state.clause",
+                json!({"kind":"state_clause", "clause":"invariant", "execution_point":{"kind":"initialization", "name":"Start"}}),
+                true,
+            ),
+        ] {
+            let value = json!({"term":"application", "operator":"unary", "operation":{
+                "identity":identity, "laws":[{"role":"text_profile", "definition":{"authority":"test", "identity":"profile"}}],
+                "mode":{"kind":"text_profile", "value":"nfc"}, "member":member, "leaves":[]
+            }, "result_type":id, "arguments":[]});
+            let json = CheckedJson::from_value(&value).expect("canonical application");
+            let run = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    result = Some(TermNode::of(&json).decode_in(
+                        json.document(),
+                        &mut budget,
+                        Site::new(PackageReadStage::Graph, 7, "application"),
+                        &[9],
+                    ));
+                })
+                .bytes_total;
+                (
+                    result.expect("decode ran"),
+                    allocated,
+                    budget.read_storage_consumed(),
+                )
+            };
+            let (result, allocated, charged) = run(u64::MAX);
+            let CheckedTerm::Application { operation, .. } =
+                result.expect("sufficient budget").expect("closed term")
+            else {
+                panic!("application");
+            };
+            assert_eq!(operation.identity(), Some(identity));
+            assert_eq!(operation.execution_point().is_some(), has_point);
+            assert_eq!(operation.member_key("declaration").is_some(), !has_point);
+            if let Some(key) = operation.member_key("declaration") {
+                assert!(
+                    matches!(key.path.last(), Some(CheckedNodePathSegment::Index(9))),
+                    "member operand slot resolves through its application's row: {key:?}"
+                );
+            }
+            assert!(charged > 0);
+            assert_eq!(
+                allocated, charged,
+                "{identity}: every owned record field was charged"
+            );
+            assert!(matches!(run(charged).0, Ok(Ok(_))));
+            assert!(
+                run(charged - 1).0.is_err(),
+                "one byte short cannot complete the decode"
+            );
+        }
+    }
+
     #[trace("FR-048-AC-7")]
     #[test]
     fn application_member_rewrite_keeps_wire_and_admitted_views_in_step() {
@@ -2877,7 +3555,9 @@ mod tests {
                 "identity": "quire.op.field.read", "laws": [], "mode": null,
                 "member": {"kind": "field", "declaration": original, "name": "field"},
                 "leaves": []
-            }),
+            })
+            .try_into()
+            .expect("closed operation fixture"),
             execution_point: None,
             views: Some(CheckedOperationViews {
                 record: Some(Box::new(CheckedOperationRecord {
@@ -2957,7 +3637,9 @@ mod tests {
                 "member": {"kind": "relationship_end", "declaration": original,
                     "name": "original", "destination_type": original, "population": original},
                 "leaves": []
-            }),
+            })
+            .try_into()
+            .expect("closed operation fixture"),
             execution_point: None,
             views: Some(CheckedOperationViews {
                 record: Some(Box::new(CheckedOperationRecord {
@@ -3102,7 +3784,9 @@ mod tests {
                 .expect("validated structural member");
             let mut operation = CheckedApplicationOperation {
                 record: json!({"identity":"test", "laws":[], "mode":null,
-                    "member":member_wire, "leaves":[]}),
+                    "member":member_wire, "leaves":[]})
+                .try_into()
+                .expect("closed operation fixture"),
                 execution_point: None,
                 views: Some(CheckedOperationViews {
                     record: Some(Box::new(CheckedOperationRecord {
@@ -3128,7 +3812,8 @@ mod tests {
             assert_eq!(visits, 1);
             assert_eq!(operation.member_declaration(), Ok(Some(&replacement)));
             assert_eq!(
-                operation.record()["member"]["declaration"],
+                serde_json::to_value(operation.record()).expect("operation record")["member"]
+                    ["declaration"],
                 json!(replacement)
             );
             let Some(mapped) = operation.read().unwrap().member else {
@@ -3143,7 +3828,11 @@ mod tests {
                 _ => panic!("single-declaration member changed kind"),
             };
             assert_eq!(declaration, &replacement);
-            assert_eq!(operation.record()["member"]["name"], member_wire["name"]);
+            assert_eq!(
+                serde_json::to_value(operation.record()).expect("operation record")["member"]
+                    ["name"],
+                member_wire["name"]
+            );
         }
     }
 
@@ -3482,7 +4171,7 @@ mod tests {
                     | CheckedFairnessTarget::HybridTransition { .. }
             );
             let operation = CheckedApplicationOperation {
-                record: json!({"identity":"quire.op.temporal.fair", "laws":[], "mode":null, "member":{"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":target}, "leaves":[]}),
+                record: json!({"identity":"quire.op.temporal.fair", "laws":[], "mode":null, "member":{"kind":"fairness", "fairness_kind":"weak", "granularity":"whole", "target":target}, "leaves":[]}).try_into().expect("closed operation fixture"),
                 execution_point: None,
                 views: Some(CheckedOperationViews {
                     record: Some(Box::new(CheckedOperationRecord {
@@ -3539,7 +4228,8 @@ mod tests {
             assert_eq!(mapped, &expected);
             assert_eq!(
                 serde_json::to_value(mapped).unwrap(),
-                operation.record()["member"]["target"]
+                serde_json::to_value(operation.record()).expect("operation record")["member"]
+                    ["target"]
             );
         }
     }

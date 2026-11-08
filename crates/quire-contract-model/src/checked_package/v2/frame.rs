@@ -40,6 +40,7 @@
 //! its order key refuses as `invalid_semantic_graph` at the frame body,
 //! located at the frame node. The first frame carrying a defect is reported.
 
+use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::{
@@ -400,7 +401,7 @@ impl MeaningDefect {
 pub(super) struct StepGraph<'a, 'm> {
     pub(super) nodes: &'a [CheckedSemanticNodeV2],
     pub(super) kinds: &'a [CheckedNodeKind],
-    pub(super) index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    pub(super) index: &'a GraphIndex<'a>,
     pub(super) owners: &'a ModelOwners<'m>,
 }
 
@@ -477,7 +478,7 @@ pub(super) fn validate_frame_semantics(
     mut frames: Vec<(&CheckedNodeId, usize, FrameBody)>,
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {

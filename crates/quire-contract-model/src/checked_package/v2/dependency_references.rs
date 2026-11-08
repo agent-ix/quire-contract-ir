@@ -45,8 +45,6 @@ use crate::checked_package::evidence::CheckedPackageEvidence;
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedPackageRefusalCause, CheckedPackageRefusalCode, JsonPointer,
 };
-use serde_json::Value;
-use std::collections::BTreeMap;
 
 /// The form of every request the dependency checks make.
 const F: &str = "dependencies";
@@ -103,7 +101,8 @@ pub(super) struct SuppliedDependencies<'e> {
 /// selected graphs and the importing graph from shallow structural descriptors.
 pub(super) struct StructuralImportIndex<'e> {
     importer: Vec<usize>,
-    selected: Vec<(&'e str, &'e CheckedPackageV2, BTreeMap<usize, usize>)>,
+    /// Each selected package, with its `(token, position)` pairs in token order.
+    selected: Vec<(&'e str, &'e CheckedPackageV2, Vec<(usize, usize)>)>,
 }
 
 impl<'e> StructuralImportIndex<'e> {
@@ -116,7 +115,12 @@ impl<'e> StructuralImportIndex<'e> {
         self.selected
             .iter()
             .find(|(identity, _, _)| *identity == package)
-            .and_then(|(_, selected, positions)| positions.get(token).map(|&at| (at, *selected)))
+            .and_then(|(_, selected, positions)| {
+                let at = positions
+                    .binary_search_by_key(token, |(held, _)| *held)
+                    .ok()?;
+                Some((positions[at].1, *selected))
+            })
     }
 }
 
@@ -136,30 +140,42 @@ impl<'e> SuppliedDependencies<'e> {
         importer_keys: &[std::sync::Arc<CheckedNodeId>],
         meter: &mut WorkMeter,
     ) -> Result<StructuralImportIndex<'e>, ValidationFailure> {
-        let mut interner = super::node_index::StructuralInterner::new();
-        let importer = interner
-            .tokens(importer_keys)
-            .expect("reader rebuilt each importer key");
+        // One order over the importer and every selected graph, so equal keys
+        // of different documents share a token. The tables below are plain
+        // integers, so the order itself ends with this call.
+        let mut lists: Vec<&[std::sync::Arc<CheckedNodeId>]> =
+            meter.vec(self.packages.len() + 1)?;
+        lists.push(importer_keys);
+        lists.extend(
+            self.packages
+                .iter()
+                .map(|package| package.package.structural_keys.as_slice()),
+        );
+        let order = meter
+            .structural_order(&lists)?
+            .expect("reader rebuilt each key of every selected graph");
+        let mut importer = meter.vec(importer_keys.len())?;
+        for key in importer_keys {
+            importer.push(order.token(key).expect("reader rebuilt each importer key"));
+        }
         meter.charge(count(importer.len()), || {
             JsonPointer::root().key("semantic_graph").key("nodes")
         })?;
-        let mut selected = Vec::with_capacity(self.packages.len());
+        let mut selected = meter.vec(self.packages.len())?;
         for package in &self.packages {
-            let tokens = interner
-                .tokens(&package.package.structural_keys)
-                .expect("admitted dependency has rebuilt keys");
-            meter.charge(count(tokens.len()), || {
+            let keys = &package.package.structural_keys;
+            let mut positions = meter.vec(keys.len())?;
+            for (position, key) in keys.iter().enumerate() {
+                let token = order
+                    .token(key)
+                    .expect("admitted dependency has rebuilt keys");
+                positions.push((token, position));
+            }
+            positions.sort_unstable();
+            meter.charge(count(positions.len()), || {
                 JsonPointer::root().key("lock").key("dependency_selections")
             })?;
-            selected.push((
-                package.identity,
-                package.package,
-                tokens
-                    .into_iter()
-                    .enumerate()
-                    .map(|(position, token)| (token, position))
-                    .collect(),
-            ));
+            selected.push((package.identity, package.package, positions));
         }
         Ok(StructuralImportIndex { importer, selected })
     }
@@ -167,11 +183,11 @@ impl<'e> SuppliedDependencies<'e> {
     /// reader that shares FR-322 dependency-reference semantics.
     pub(super) fn from_admitted(
         selections: &'e [CheckedDependencySelection],
-        admitted: &BTreeMap<&str, &'e CheckedPackageV2>,
+        admitted: impl Fn(&str) -> Option<&'e CheckedPackageV2>,
     ) -> Result<Self, usize> {
         let mut packages = Vec::with_capacity(selections.len());
         for (position, selection) in selections.iter().enumerate() {
-            let Some(package) = admitted.get(selection.identity.as_ref()).copied() else {
+            let Some(package) = admitted(selection.identity.as_ref()) else {
                 return Err(position);
             };
             let index = fill_table(
@@ -414,8 +430,7 @@ impl<'a> DependencyReferences<'a> {
                     arguments,
                     ..
                 } => {
-                    let calls_function = operation.get("identity").and_then(Value::as_str)
-                        == Some(FUNCTION_CALL_OPERATION);
+                    let calls_function = operation.identity() == Some(FUNCTION_CALL_OPERATION);
                     for (index, child) in arguments.iter().enumerate().rev() {
                         let child_step = steps.len();
                         budget.push(
@@ -819,7 +834,6 @@ mod tests {
     /// before they are made.
     #[trace("TC-472", "FR-038-AC-502")]
     #[test]
-    #[ignore = "fill_table sorts the dependency graph ids with CheckedNodeId::cmp, whose pre-D heap stack allocates per comparison; passes once D 911aa4da (shared.rs) is folded"]
     fn tc_472_dependency_admission_allocates_exactly_what_it_requests() {
         let dependency = package();
         let name = dependency.name().to_owned();
@@ -863,7 +877,6 @@ mod tests {
     /// referring node, whichever node's closure is walked.
     #[trace("TC-472", "FR-038-AC-502")]
     #[test]
-    #[ignore = "SuppliedDependency::position binary-searches ids with CheckedNodeId::cmp/<=, whose pre-D heap stack allocates per comparison; passes once D 911aa4da (shared.rs) is folded"]
     fn tc_472_signature_closure_allocates_exactly_what_it_requests() {
         let dependency = package();
         let mut evidence = CheckedPackageEvidence::new();

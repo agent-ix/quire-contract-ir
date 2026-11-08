@@ -176,10 +176,7 @@ pub(super) fn scalar_arguments<'a, Body: ScalarBody>(
     let CheckedTerm::Application { operation, .. } = term.as_ref() else {
         return Err(Error::NotApplication);
     };
-    let identity = operation
-        .get("identity")
-        .and_then(Value::as_str)
-        .ok_or(Error::UnknownOperator)?;
+    let identity = operation.identity().ok_or(Error::UnknownOperator)?;
     if catalog.entry(identity).is_none() {
         return Err(Error::UnknownOperator);
     }
@@ -306,7 +303,7 @@ impl CheckedPackageV2 {
             return Err(Error::MissingOccurrence);
         }
         scalar_arguments(
-            self.catalog,
+            &self.catalog,
             nodes,
             &self.node_index,
             &self.kinds,
@@ -500,7 +497,7 @@ mod tests {
             selected_documents: std::sync::Arc::new(Vec::new()),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+            catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
         }
         .retain_original_admission()
@@ -921,7 +918,7 @@ mod tests {
             }
             let node = &package.wire.semantic_graph.nodes[3];
             let mut arguments = scalar_arguments(
-                package.catalog,
+                &package.catalog,
                 &package.wire.semantic_graph.nodes,
                 &package.node_index,
                 &package.kinds,

@@ -26,7 +26,6 @@ use super::model_members::{
 };
 use super::{CheckedNodeId, CheckedPackageV2, CheckedTerm, PackageReadStage, WorkMeter};
 use crate::checked_package::common::ValidationFailure;
-use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -70,6 +69,8 @@ pub(super) struct FieldTable {
     hidden: Vec<Arc<str>>,
     /// The smallest name that two exposed fields share.
     ambiguous: Option<Box<str>>,
+    /// Ascending, without repeats: the name of each exposed field.
+    names: Vec<Box<str>>,
 }
 
 impl FieldTable {
@@ -94,16 +95,25 @@ impl FieldTable {
     }
 
     /// The effective record field types in inherited source order.
-    pub(super) fn binder_types(&self, package: &str) -> Option<RecordBinderTypes> {
+    pub(super) fn binder_types(
+        &self,
+        package: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<RecordBinderTypes>, ValidationFailure> {
         if self.ambiguous.is_some() {
-            return Some(RecordBinderTypes::Ambiguous);
+            return Ok(Some(RecordBinderTypes::Ambiguous));
         }
-        let types = self
-            .ordered_exposed
-            .iter()
-            .map(|entry| entry.entry.member_type.as_ref()?.node_id(package))
-            .collect::<Option<Vec<_>>>()?;
-        Some(RecordBinderTypes::Known(types))
+        let mut types = budget.vec(self.ordered_exposed.len(), "binder_types")?;
+        for entry in &self.ordered_exposed {
+            let Some(member) = entry.entry.member_type.as_ref() else {
+                return Ok(None);
+            };
+            let Some(id) = member.node_id_in(package, budget)? else {
+                return Ok(None);
+            };
+            types.push(id);
+        }
+        Ok(Some(RecordBinderTypes::Known(types)))
     }
 }
 
@@ -142,14 +152,10 @@ impl FieldTables {
         self.components.get(*self.by_type.get(node)?)
     }
 
-    pub(super) fn exposed_names(&self, node: &str) -> Option<BTreeSet<Box<str>>> {
-        Some(
-            self.of(node)?
-                .exposed
-                .iter()
-                .map(|field| Box::from(field.name()))
-                .collect(),
-        )
+    /// The names of the exposed fields of the object type `node`, ascending
+    /// and without repeats, borrowed from its table.
+    pub(super) fn exposed_names(&self, node: &str) -> Option<&[Box<str>]> {
+        Some(self.of(node)?.names.as_slice())
     }
 }
 
@@ -804,11 +810,23 @@ fn build_component(
         .and_then(|pair| pair.first().copied())
         .map(|name| budget.text(name, F))
         .transpose()?;
+    let distinct = names
+        .iter()
+        .enumerate()
+        .filter(|&(at, name)| at == 0 || names.get(at - 1) != Some(name))
+        .count();
+    let mut spelled: Vec<Box<str>> = budget.vec(distinct, F)?;
+    for (at, &name) in names.iter().enumerate() {
+        if at == 0 || names.get(at - 1) != Some(&name) {
+            spelled.push(budget.text(name, F)?);
+        }
+    }
     Ok(FieldTable {
         exposed,
         ordered_exposed,
         hidden,
         ambiguous,
+        names: spelled,
     })
 }
 
@@ -1232,12 +1250,18 @@ impl RetainedModels {
             for operation in model.effective_operation_names(&declared.node, &mut budget)? {
                 let binder_types =
                     model.model_operation_binder_types(&declared.node, &operation, &mut budget)?;
-                classes.push(ModelOperationClass {
-                    object: member_name(&declared.node).into(),
-                    operation,
-                    node: id.clone(),
-                    binder_types,
-                });
+                let object = budget.text(member_name(&declared.node), "operation_class")?;
+                let node = budget.clone_id(id, "operation_class")?;
+                budget.push(
+                    &mut classes,
+                    ModelOperationClass {
+                        object,
+                        operation,
+                        node,
+                        binder_types,
+                    },
+                    "operation_class",
+                )?;
             }
         }
         Ok(classes)
@@ -1329,10 +1353,7 @@ impl RetainedModels {
             .get(case)
     }
 
-    pub(super) fn refinement_object_fields(
-        &self,
-        key: &CheckedNodeId,
-    ) -> Option<BTreeSet<Box<str>>> {
+    pub(super) fn refinement_object_fields(&self, key: &CheckedNodeId) -> Option<&[Box<str>]> {
         let declared = self.index.0.get(key)?;
         if declared.form != DeclarationForm::ObjectType {
             return None;
@@ -1454,14 +1475,22 @@ impl RetainedModels {
         })
     }
 
-    pub(super) fn record_binder_types(&self, key: &CheckedNodeId) -> Option<RecordBinderTypes> {
-        let declared = self.index.0.get(key)?;
+    pub(super) fn record_binder_types(
+        &self,
+        key: &CheckedNodeId,
+        meter: &mut WorkMeter,
+    ) -> Result<Option<RecordBinderTypes>, ValidationFailure> {
+        let Some(declared) = self.index.0.get(key) else {
+            return Ok(None);
+        };
         if declared.form != DeclarationForm::RecordValueType {
-            return None;
+            return Ok(None);
         }
-        self.models
-            .get(declared.selection)?
-            .record_binder_types(&declared.node)
+        let Some(model) = self.models.get(declared.selection) else {
+            return Ok(None);
+        };
+        let mut budget = Budget::new(meter, model.root, model.bytes);
+        model.record_binder_types(&declared.node, &mut budget)
     }
 
     pub(super) fn is_record_type(&self, key: &CheckedNodeId) -> bool {
@@ -2051,12 +2080,12 @@ impl CheckedPackageV2 {
                     Some(DeclaringNode::Ambiguous) => {
                         return Err(CheckedModelFieldsError::AmbiguousDeclaringNode {
                             field_identity: entry.identity.as_ref().into(),
-                        })
+                        });
                     }
                     None => {
                         return Err(CheckedModelFieldsError::MissingDeclaringNode {
                             field_identity: entry.identity.as_ref().into(),
-                        })
+                        });
                     }
                 };
                 Ok(CheckedModelField {

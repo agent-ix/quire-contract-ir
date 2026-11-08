@@ -1589,7 +1589,7 @@ impl ContractPackageWireV1 {
                 node_index,
                 unsupported_tags,
                 unsupported_source_kinds: Some(unsupported_source_kinds),
-                catalog: super::operation_catalog::CatalogRef(source.catalog),
+                catalog: source.catalog.clone(),
             },
             bytes,
         ))
@@ -1692,7 +1692,7 @@ impl ContractPackageWireV1 {
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
     ) -> ContractPackageReadResult {
-        Self::read_against(
+        Self::read_with_catalog(
             super::operation_catalog::production_catalog(),
             bytes,
             limits,
@@ -1702,6 +1702,7 @@ impl ContractPackageWireV1 {
 
     /// [`Self::read`] against the given result of reading the operation
     /// catalog: an unreadable catalog returns before any byte is judged.
+    #[cfg(test)]
     pub(super) fn read_against(
         catalog: &'static Result<
             super::operation_catalog::OperationCatalog,
@@ -1711,7 +1712,21 @@ impl ContractPackageWireV1 {
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
     ) -> ContractPackageReadResult {
-        let catalog = match super::operation_catalog::available(catalog) {
+        Self::read_with_catalog(
+            super::operation_catalog::available(catalog),
+            bytes,
+            limits,
+            dependencies,
+        )
+    }
+
+    fn read_with_catalog(
+        catalog: Result<super::operation_catalog::CatalogRef, super::CatalogReadError>,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        dependencies: &ContractDependencies<'_>,
+    ) -> ContractPackageReadResult {
+        let catalog = match catalog {
             Ok(catalog) => catalog,
             Err(error) => return ContractPackageReadResult::CatalogUnavailable(error),
         };
@@ -1821,7 +1836,7 @@ impl ContractPackageWireV1 {
     }
 
     fn admit(
-        catalog: &'static super::operation_catalog::OperationCatalog,
+        catalog: super::operation_catalog::CatalogRef,
         bytes: &[u8],
         limits: CheckedPackageReadLimits,
         dependencies: &ContractDependencies<'_>,
@@ -1875,7 +1890,15 @@ impl ContractPackageWireV1 {
                 CheckedPackageRefusalCause::WrongValueKind,
             )
         })?;
+        let bodies =
+            super::graph_storage::OwnedBodies::of(&wire.semantic_graph.nodes).ok_or_else(|| {
+                malformed(
+                    JsonPointer::root().key("semantic_graph").key("nodes"),
+                    CheckedPackageRefusalCause::InvalidValue,
+                )
+            })?;
         let mut work_meter = super::WorkMeter::new(limits.work);
+        bodies.attach(&mut work_meter);
         let (node_kinds, unsupported_tags) = wire.validate_values(limits, &mut work_meter)?;
         wire.validate_correspondence(limits, &frames)?;
         wire.validate_accounting(&frames)?;
@@ -1897,7 +1920,7 @@ impl ContractPackageWireV1 {
             node_index,
             unsupported_tags,
             unsupported_source_kinds: None,
-            catalog: super::operation_catalog::CatalogRef(catalog),
+            catalog,
         })
     }
 }
@@ -3275,13 +3298,9 @@ impl ContractPackageWireV1 {
         meter: &mut super::WorkMeter,
         frames: &ContractFrameKeys,
     ) -> Result<Vec<Option<CheckedTerm>>, ValidationFailure> {
-        let admitted: BTreeMap<&str, &CheckedPackageV2> = dependencies
-            .iter()
-            .map(|(identity, input)| (*identity, input.package))
-            .collect();
         let supplied = SuppliedDependencies::from_admitted(
             &self.package.source.lock.dependency_selections,
-            &admitted,
+            |identity| dependencies.get(identity).map(|input| input.package),
         )
         .map_err(|index| {
             ValidationFailure::refused_because(
@@ -3431,16 +3450,21 @@ impl ContractPackageWireV1 {
                 }
             }
         }
+        let graph_index = super::graph_storage::GraphIndex::build(
+            self.semantic_graph.nodes.iter().map(|node| &node.node_id),
+            &mut *meter,
+        )?;
         super::structural::validate_structural_nodes(
             &self.semantic_graph.nodes,
             &kinds,
             &terms,
-            &positions,
+            &graph_index,
+            &mut *meter,
         )?;
         super::identity::validate_nominal_nodes(
             &self.semantic_graph.nodes,
             &kinds,
-            &positions,
+            &graph_index,
             &self.package.source.lock,
             &[],
             &supplied,

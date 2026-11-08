@@ -15,6 +15,7 @@ use quire_exact::{
     EffectiveId, MemberId, MemberOwner, NodeKey, OriginalDeclarationKey, PathSegment,
 };
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 
 /// Trace: FR-038-AC-475.
 #[trace("FR-038-AC-475")]
@@ -959,6 +960,28 @@ fn tc_227_an_ambiguous_table_is_retained_and_charged_like_any_other() {
     assert_eq!(table_for(&model, "T1").ambiguous, None);
 }
 
+/// The names a table retains for refinement are ascending, without repeats,
+/// even where two exposed fields share one name.
+#[trace("TC-227", "FR-038-AC-144")]
+#[test]
+fn tc_227_retained_exposed_names_are_sorted_and_unique() {
+    let (_, model) = built(&document_of("ambiguity"));
+    let names = |short: &str| -> Vec<String> {
+        table_for(&model, short)
+            .names
+            .iter()
+            .map(|name| name.to_string())
+            .collect()
+    };
+    // `x` is exposed twice (two identities) and repeats once in the names.
+    assert_eq!(names("T3"), ["x", "y"]);
+    assert!(table_for(&model, "T3").exposed.len() > 2);
+    for short in ["T1", "T2", "T3"] {
+        let all = names(short);
+        assert!(all.windows(2).all(|pair| pair[0] < pair[1]), "{short}");
+    }
+}
+
 /// A field resolution charges one unit per exposed or hidden entry of the
 /// table it selects from, without the ancestor walk; an operation keeps the
 /// walk.
@@ -1194,7 +1217,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             )]),
             direct_dependencies: Vec::new(),
             closure_index: Default::default(),
-            catalog: crate::checked_package::v2::operation_catalog::operation_catalog(),
+            catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
         }
         .retain_original_admission(),
@@ -1247,7 +1270,9 @@ fn repeated_model_field_reads_do_not_walk_the_whole_graph() {
             }
             let visits = super::probe::node_visits();
             let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
-            println!("model_fields K={requests} R={models} graph_candidates={visits} id_comparisons={comparisons}");
+            println!(
+                "model_fields K={requests} R={models} graph_candidates={visits} id_comparisons={comparisons}"
+            );
             if models == 64 {
                 assert!(comparisons < requests * 64, "a full graph scan must fail");
             }
@@ -1918,7 +1943,6 @@ fn tc_472_declaration_tables_of_one_declaration_allocate_exactly_what_they_reque
 /// comparison allocates until group D's shared.rs change is folded.
 #[trace("TC-472", "FR-038-AC-502")]
 #[test]
-#[ignore = "ModelOwners::build sorts and dedups rows by CheckedNodeId::cmp/==, whose pre-D heap stack allocates per comparison; passes once D 911aa4da (shared.rs) is folded"]
 fn tc_472_declaration_tables_allocate_exactly_what_they_request() {
     let names: Vec<String> = (0..9).map(|i| format!("R{i}")).collect();
     let types = names
@@ -2035,4 +2059,73 @@ fn tc_472_operation_resolution_allocates_exactly_what_it_requests() {
     assert!(family && conforms);
     assert_eq!(found, Some(format!("{third}/act").as_str()));
     assert_graph_exact(|| (), |(), meter| run(meter).map(drop));
+}
+
+/// The real retained-record lookup pays both the ordered binder vector and
+/// the structural ID builder for each declared field.
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn retained_record_binders_allocate_exactly_what_they_request() {
+    let original = format!("{ORDERS}Receipt");
+    let mut record = object_type(
+        &original,
+        &[],
+        vec![
+            field(&original, "total", "ix://quire/native/Integer"),
+            field(&original, "label", "ix://quire/native/String"),
+        ],
+    );
+    record["kind"]["name"] = json!("record");
+    let mut selected = document(vec![record]);
+    selected["constructs"]
+        .as_array_mut()
+        .expect("constructs")
+        .push(json!({
+            "kind":{"module":"acme/orders", "name":"record"},
+            "construct":{"meaning":"quire.meaning.model.record-value-type/v1"}
+        }));
+    let fixture = build_fixture(&selected, &[("Receipt", DeclarationForm::RecordValueType)]);
+    let key = id_at(&fixture, 0);
+    assert_graph_exact(
+        || (),
+        |(), meter| {
+            let result = fixture.package.models.record_binder_types(&key, meter)?;
+            assert!(
+                matches!(result, Some(RecordBinderTypes::Known(ref types)) if types.len() == 2)
+            );
+            Ok(())
+        },
+    );
+}
+
+/// The retained operation-class traversal pays names, IDs, binders and rows.
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn retained_operation_classes_allocate_exactly_what_they_request() {
+    let original = format!("{ORDERS}Widget");
+    let mut object = object_type(&original, &[], vec![]);
+    object["operations"] = json!([{"identity":format!("{original}/act"), "params":[{
+        "identity":format!("{original}/act/value"), "name":"value", "typeRef":"ix://quire/native/Integer", "multiplicity":multiplicity(1, Some(1))
+    }]}]);
+    let fixture = build_fixture(
+        &document(vec![object]),
+        &[("Widget", DeclarationForm::ObjectType)],
+    );
+    assert_graph_exact(
+        || (),
+        |(), meter| {
+            let classes = fixture
+                .package
+                .models
+                .operation_classes("acme/orders", meter)?;
+            assert_eq!(classes.len(), 1);
+            assert_eq!(classes[0].object.as_ref(), "Widget");
+            assert_eq!(classes[0].operation.as_ref(), "act");
+            assert!(classes[0]
+                .binder_types
+                .as_ref()
+                .is_some_and(|types| types.len() == 2));
+            Ok(())
+        },
+    );
 }

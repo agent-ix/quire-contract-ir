@@ -2,6 +2,7 @@
 
 use super::model_members::SelectedEnds;
 use super::{CheckedNodeId, CheckedPackageV2};
+#[cfg(test)]
 use serde_json::Value;
 use thiserror::Error;
 
@@ -59,13 +60,16 @@ pub(super) enum ReachesLookup {
 impl CheckedPackageV2 {
     /// The node `id` when its body root is a `quire.op.model.reaches`
     /// application: the one rule both reaches accessors share.
-    pub(super) fn reaches_application(&self, id: &CheckedNodeId) -> Result<&Value, ReachesLookup> {
+    pub(super) fn reaches_application(
+        &self,
+        id: &CheckedNodeId,
+    ) -> Result<&super::typed_terms::CheckedApplicationOperation, ReachesLookup> {
         self.node(id).ok_or(ReachesLookup::Unknown)?;
         let Some(super::CheckedTerm::Application { operation, .. }) = self.term(id) else {
             return Err(ReachesLookup::NotReaches);
         };
-        (operation.get("identity").and_then(Value::as_str) == Some("quire.op.model.reaches"))
-            .then_some(operation.record())
+        (operation.identity() == Some("quire.op.model.reaches"))
+            .then_some(operation)
             .ok_or(ReachesLookup::NotReaches)
     }
 
@@ -88,22 +92,16 @@ impl CheckedPackageV2 {
                 ReachesLookup::Unknown => Error::UnknownNode,
                 ReachesLookup::NotReaches => Error::NotReachesApplication,
             })?;
-        let member = operation.get("member").ok_or(Error::UnresolvedEnd)?;
-        if member.get("kind").and_then(Value::as_str) != Some("relationship_end") {
+        if operation.member_text("kind") != Some("relationship_end") {
             return Err(Error::UnresolvedEnd);
         }
-        let relationship = member
-            .get("declaration")
-            .and_then(CheckedNodeId::from_value)
+        let relationship = operation
+            .member_key("declaration")
             .ok_or(Error::UnresolvedEnd)?;
-        let destination_type = member
-            .get("destination_type")
-            .and_then(CheckedNodeId::from_value)
+        let destination_type = operation
+            .member_key("destination_type")
             .ok_or(Error::UnresolvedEnd)?;
-        let name = member
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or(Error::UnresolvedEnd)?;
+        let name = operation.member_name().ok_or(Error::UnresolvedEnd)?;
         let retained = node_at(&relationship)
             .and_then(|declaration| {
                 self.term(&declaration.node_id)
@@ -120,9 +118,9 @@ impl CheckedPackageV2 {
             .map_err(|_| Error::UnresolvedEnd)?;
         Ok(CheckedRelationshipEnd {
             application: application.clone(),
-            relationship,
+            relationship: relationship.clone(),
             role: destination.role.clone(),
-            destination_type,
+            destination_type: destination_type.clone(),
             lower: destination.multiplicity.lower,
             upper: destination.multiplicity.upper,
             ordered: destination.multiplicity.ordered,
@@ -399,7 +397,7 @@ pub(super) mod tests {
     fn operation<'a>(
         package: &'a mut CheckedPackageV2,
         ids: &BTreeMap<char, CheckedNodeId>,
-    ) -> &'a mut Value {
+    ) -> super::super::typed_terms::OperationRecordEdit<'a> {
         let position = at(package, &ids[&'7']);
         let super::super::CheckedTerm::Application { operation, .. } =
             &mut std::sync::Arc::make_mut(&mut package.terms)[position]

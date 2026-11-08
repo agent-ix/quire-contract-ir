@@ -163,7 +163,10 @@ fn zero_read_storage_is_denied_at_the_first_request_and_bytes_precede_it() {
     assert_eq!(denied.path, None);
     assert_eq!(
         zero.first_unpaid_locus(),
-        Some(envelope_locus(PackageReadStage::Envelope, "package_bytes"))
+        Some(envelope_locus(
+            PackageReadStage::Envelope,
+            "operation_catalog"
+        ))
     );
     assert_eq!(zero.read_storage_consumed(), 0);
 
@@ -407,12 +410,11 @@ fn duplicate_name_and_out_of_range_number_diagnostics_are_charged_before_return(
     }
 }
 
-/// The catalog gate charges nothing: two reads of the same bytes on fresh
-/// budgets record equal work and read-storage deltas, whichever is the
-/// process's first.
+/// Each read charges its fresh owned catalog, so explicit validation of the
+/// catalog does not change either read's request sequence or deltas.
 #[trace("TC-472", "FR-038-AC-515")]
 #[test]
-fn the_catalog_gate_charges_nothing_to_any_read() {
+fn every_read_charges_its_owned_catalog_independently() {
     assert!(initialize_operation_catalog().is_ok());
     let mut first = NativeJoinBudget::unlimited();
     let mut later = NativeJoinBudget::unlimited();
@@ -430,6 +432,19 @@ fn the_catalog_gate_charges_nothing_to_any_read() {
         later.last_success_read_storage_delta()
     );
     assert_eq!(first.consumed(), later.consumed());
+    let mut denied = storage_budget(0);
+    assert!(matches!(
+        read_with(&mut denied),
+        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_)
+    ));
+    assert_eq!(
+        denied.first_unpaid_locus(),
+        Some(envelope_locus(
+            PackageReadStage::Envelope,
+            "operation_catalog"
+        ))
+    );
+    assert_eq!(denied.read_storage_consumed(), 0);
 }
 
 /// A refusal's owned pointer is a diagnostic the read pays for. Exactly paid,

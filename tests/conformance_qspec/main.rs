@@ -68,6 +68,10 @@ mod checked_package_v2_parameters;
 // alongside the map controls that consume its admitted unit identities.
 #[path = "../it/complete_identity_witness.rs"]
 mod complete_identity_witness;
+// The bounded-quantity charging control walks the read's requests with this
+// harness.
+#[path = "../it/checked_package_v2_graph_read_storage.rs"]
+mod checked_package_v2_graph_read_storage;
 #[path = "../it/checked_package_v2_map_type.rs"]
 mod map_type;
 mod model_root;

@@ -45,6 +45,7 @@
 
 use super::flat_wire::scan_members;
 use super::frame::{join, StepGraph};
+use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
 use super::rust_spelling::{is_rust_field, is_rust_identifier, is_rust_path, is_rust_receiver};
@@ -62,7 +63,7 @@ use crate::checked_package::shared::{
 };
 use crate::checked_package::terms::TermSource;
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// One `{name, rust_*}` binding: a `fields` entry (`rust_field`) or a
 /// `parameters` entry (`rust_parameter`).
@@ -142,7 +143,9 @@ pub(super) fn scan_body<'a, V: TermSource<'a>>(
     if body.kind() == Some(BodyTerm::Application) {
         return validate_term(body, TermGrammar::V2, true, at, visit, ids);
     }
-    super::read_charge::with_unmetered_walk(|walk| scan_members(body, at, walk))
+    let Ids { sink, site, .. } = ids;
+    let cell = super::read_charge::SinkCell::new(sink);
+    scan_members(body, at, &mut cell.reservation(site))
 }
 
 /// A shape defect of the body: the code it refuses with and the path of the
@@ -371,7 +374,7 @@ impl Site<'_> {
 pub(super) fn validate_abstraction(
     nodes: &[CheckedSemanticNodeV2],
     kinds: &[CheckedNodeKind],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     owners: &ModelOwners<'_>,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {

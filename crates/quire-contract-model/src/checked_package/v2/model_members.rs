@@ -55,17 +55,10 @@ use crate::checked_package::shared::{
 };
 use ix_trace_rs::string_edge;
 use serde::Deserialize;
-use serde_json::{json, Value};
 
 /// The fixed declaration body shape in raw intake and admitted typed nodes.
 pub(super) trait EmptyAggregateBody {
     fn is_empty_aggregate(&self) -> bool;
-}
-
-impl EmptyAggregateBody for Value {
-    fn is_empty_aggregate(&self) -> bool {
-        *self == json!({"term": "aggregate", "members": []})
-    }
 }
 
 impl EmptyAggregateBody for CheckedTerm {
@@ -73,7 +66,6 @@ impl EmptyAggregateBody for CheckedTerm {
         matches!(self, Self::Aggregate { members } if members.is_empty())
     }
 }
-use std::collections::BTreeSet;
 
 /// The form of the graph-stage requests of the model checks: the tag of the
 /// selected package's `model_root` node.
@@ -95,6 +87,17 @@ pub(super) use charged::{
 };
 use intake_origin::{retained_origin, IntakeDeclarationOrigin, OriginView};
 use view::{List, View};
+
+/// Puts `name` into the sorted `seen`; `false` when it was already there.
+fn first_visit<'a>(seen: &mut Vec<&'a str>, name: &'a str) -> bool {
+    match seen.binary_search(&name) {
+        Ok(_) => false,
+        Err(at) => {
+            seen.insert(at, name);
+            true
+        }
+    }
+}
 
 const NATIVE_PREFIX: &str = "ix://quire/native/";
 
@@ -741,6 +744,25 @@ pub(super) fn declaration_id(identity: &str, form: DeclarationForm, node: &str) 
     }
 }
 
+pub(super) fn declaration_id_in(
+    identity: &str,
+    form: DeclarationForm,
+    node: &str,
+    budget: &mut Budget<'_, '_>,
+) -> Result<CheckedNodeId, ValidationFailure> {
+    let mut path = budget.vec(3, "member_type")?;
+    for text in [form.tag(), form.form(), node] {
+        path.push(CheckedNodePathSegment::Name(
+            budget.text(text, "member_type")?,
+        ));
+    }
+    Ok(CheckedNodeId {
+        package: budget.text(identity, "member_type")?,
+        path,
+        ordinal: 0,
+    })
+}
+
 /// The last `/` segment of an IR node identity: a member's name.
 pub(super) fn member_name(identity: &str) -> &str {
     identity.rsplit('/').next().unwrap_or(identity)
@@ -818,6 +840,213 @@ pub(super) enum MemberType {
 }
 
 impl MemberType {
+    /// Builds the selected member type's structural identity, reserving every
+    /// owned path, text, wrapper and shared-node block before construction.
+    pub(super) fn node_id_in(
+        &self,
+        package: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<CheckedNodeId>, ValidationFailure> {
+        use CheckedNodePathSegment as S;
+        fn name(value: &str, b: &mut Budget<'_, '_>) -> Result<S, ValidationFailure> {
+            Ok(S::Name(b.text(value, "member_type")?))
+        }
+        fn node(id: CheckedNodeId, b: &mut Budget<'_, '_>) -> Result<S, ValidationFailure> {
+            b.request(
+                super::budgeted_read::arc_bytes::<CheckedNodeId>(),
+                "member_type",
+            )?;
+            Ok(S::Node(std::sync::Arc::new(id)))
+        }
+        fn number(value: i128, b: &mut Budget<'_, '_>) -> Result<S, ValidationFailure> {
+            let mut digits = [0_u8; 40];
+            let mut at = digits.len();
+            let mut magnitude = value.unsigned_abs();
+            loop {
+                at -= 1;
+                digits[at] = b'0' + (magnitude % 10) as u8;
+                magnitude /= 10;
+                if magnitude == 0 {
+                    break;
+                }
+            }
+            if value < 0 {
+                at -= 1;
+                digits[at] = b'-';
+            }
+            name(
+                std::str::from_utf8(&digits[at..]).expect("decimal ASCII"),
+                b,
+            )
+        }
+        fn derived<const N: usize>(
+            package: &str,
+            tag: &str,
+            form: &str,
+            extra: [S; N],
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let mut path = b.vec(N + 2, "member_type")?;
+            path.push(name(tag, b)?);
+            path.push(name(form, b)?);
+            path.extend(extra);
+            Ok(CheckedNodeId {
+                package: b.text(package, "member_type")?,
+                path,
+                ordinal: 0,
+            })
+        }
+        fn bounded<const N: usize>(
+            package: &str,
+            form: &str,
+            lower: i128,
+            upper: i128,
+            tail: [S; N],
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let integer = derived(package, "scalar_type", "integer", [], b)?;
+            let mut path = b.vec(7 + N, "member_type")?;
+            path.push(name("bounded_domain", b)?);
+            path.push(name(form, b)?);
+            path.push(name("min", b)?);
+            path.push(node(integer, b)?);
+            path.push(number(lower, b)?);
+            path.push(name("max", b)?);
+            path.push(number(upper, b)?);
+            path.extend(tail);
+            Ok(CheckedNodeId {
+                package: b.text(package, "member_type")?,
+                path,
+                ordinal: 0,
+            })
+        }
+        fn rational(
+            package: &str,
+            bounds: RationalBounds,
+            b: &mut Budget<'_, '_>,
+        ) -> Result<CheckedNodeId, ValidationFailure> {
+            let integer = derived(package, "scalar_type", "integer", [], b)?;
+            let extra = [
+                name("numerator_min", b)?,
+                node(integer, b)?,
+                number(bounds.numerator_min, b)?,
+                name("numerator_max", b)?,
+                number(bounds.numerator_max, b)?,
+                name("denominator_min", b)?,
+                number(bounds.denominator_min, b)?,
+                name("denominator_max", b)?,
+                number(bounds.denominator_max, b)?,
+            ];
+            derived(package, "bounded_domain", "rational_range", extra, b)
+        }
+        let mut wrappers = Vec::new();
+        let mut current = self;
+        loop {
+            match current {
+                Self::Option(inner) => {
+                    budget.push(&mut wrappers, current, "member_type")?;
+                    current = inner;
+                }
+                Self::Collection { element, .. } => {
+                    budget.push(&mut wrappers, current, "member_type")?;
+                    current = element;
+                }
+                _ => break,
+            }
+        }
+        let mut id = match current {
+            Self::Clock => return Ok(None),
+            Self::Record(id) | Self::Tuple(id) | Self::Variant(id) | Self::Quantity(id) => {
+                budget.clone_id(id, "member_type")?
+            }
+            Self::Reference(id) => {
+                let target = budget.clone_id(id, "member_type")?;
+                let target = node(target, budget)?;
+                derived(package, "composite_type", "reference", [target], budget)?
+            }
+            Self::IntRange(bounds) => bounded(
+                package,
+                "integer_range",
+                bounds.lower,
+                bounds.upper,
+                [],
+                budget,
+            )?,
+            Self::RationalRange(bounds) => rational(package, *bounds, budget)?,
+            Self::CarriedRational(bounds, unit) => {
+                let carrier = rational(package, *bounds, budget)?;
+                let unit = budget.clone_id(unit, "member_type")?;
+                let text = derived(package, "scalar_type", "text", [], budget)?;
+                let extra = [
+                    node(unit, budget)?,
+                    node(carrier, budget)?,
+                    name("rounding", budget)?,
+                    node(text, budget)?,
+                    name("exact", budget)?,
+                ];
+                derived(package, "scalar_type", "carried_quantity", extra, budget)?
+            }
+            Self::TextBounds(bounds) => {
+                let text = derived(package, "scalar_type", "text", [], budget)?;
+                let tail = [
+                    name("text_profile", budget)?,
+                    node(text, budget)?,
+                    name(&bounds.profile, budget)?,
+                ];
+                bounded(
+                    package,
+                    "text_bounds",
+                    bounds.lower.into(),
+                    bounds.upper.into(),
+                    tail,
+                    budget,
+                )?
+            }
+            primitive => {
+                let form = match primitive {
+                    Self::Boolean => "boolean",
+                    Self::Integer => "integer",
+                    Self::Float32 => "float32",
+                    Self::Float64 => "float64",
+                    Self::String => "string",
+                    Self::Uuid => "uuid",
+                    Self::Timestamp => "timestamp",
+                    Self::Bytes => "bytes",
+                    Self::JsonObject => "json_object",
+                    _ => return Ok(None),
+                };
+                derived(package, "scalar_type", form, [], budget)?
+            }
+        };
+        while let Some(wrapper) = wrappers.pop() {
+            id = match wrapper {
+                Self::Option(_) => {
+                    let inner = node(id, budget)?;
+                    derived(package, "composite_type", "option", [inner], budget)?
+                }
+                Self::Collection { kind, bounds, .. } => {
+                    let inner = node(id, budget)?;
+                    let collection =
+                        derived(package, "composite_type", kind.form(), [inner], budget)?;
+                    if let Some((lower, upper)) = bounds {
+                        let tail = [node(collection, budget)?];
+                        bounded(
+                            package,
+                            "collection_bounds",
+                            (*lower).into(),
+                            (*upper).into(),
+                            tail,
+                            budget,
+                        )?
+                    } else {
+                        collection
+                    }
+                }
+                _ => unreachable!("only unary member wrappers are stacked"),
+            };
+        }
+        Ok(Some(id))
+    }
     /// The exact structural ID a selected member type names. A later graph
     /// join requires this ID to exist before admitting the member use.
     pub(super) fn node_id(&self, package: &str) -> Option<CheckedNodeId> {
@@ -1336,6 +1565,45 @@ impl<'w, 'b> Budget<'w, 'b> {
         Ok(())
     }
 
+    pub(super) fn concat(
+        &mut self,
+        parts: &[&str],
+        form: &'static str,
+    ) -> Result<String, ValidationFailure> {
+        let length = parts.iter().map(|part| part.len()).sum();
+        self.request(length, form)?;
+        let mut text = String::with_capacity(length);
+        for part in parts {
+            text.push_str(part);
+        }
+        Ok(text)
+    }
+    pub(super) fn clone_id(
+        &mut self,
+        id: &CheckedNodeId,
+        form: &'static str,
+    ) -> Result<CheckedNodeId, ValidationFailure> {
+        let bytes = id
+            .package
+            .len()
+            .saturating_add(
+                id.path
+                    .len()
+                    .saturating_mul(std::mem::size_of::<CheckedNodePathSegment>()),
+            )
+            .saturating_add(
+                id.path
+                    .iter()
+                    .map(|part| match part {
+                        CheckedNodePathSegment::Name(text) => text.len(),
+                        _ => 0,
+                    })
+                    .sum::<usize>(),
+            );
+        self.request(bytes, form)?;
+        Ok(id.clone())
+    }
+
     /// An owned copy of `text`, requested first.
     pub(super) fn text(
         &mut self,
@@ -1743,7 +2011,7 @@ impl DomainModel {
     ) -> Result<Option<MemberType>, RuntimeTypeBudgetDenied> {
         runtime_storage(&mut budget, 2)?;
         let mut current = type_ref;
-        let mut seen = BTreeSet::new();
+        let mut seen: Vec<&str> = Vec::new();
         let mut layers = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
             runtime_work(&mut budget, 1)?;
@@ -1751,7 +2019,7 @@ impl DomainModel {
                 break;
             };
             runtime_storage(&mut budget, runtime_text_storage(name).saturating_add(1))?;
-            if !seen.insert(name.clone()) {
+            if !first_visit(&mut seen, name) {
                 return Ok(None);
             }
             match definition {
@@ -1797,13 +2065,18 @@ impl DomainModel {
 
     /// A Duration member has no type when its chosen owner declares no `s`
     /// node. Distinguish that missing name from a present but invalid `s`.
-    pub(super) fn duration_unit_absent(&self, type_ref: &SelectedTypeRef) -> bool {
+    pub(super) fn duration_unit_absent(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<bool, ValidationFailure> {
         let mut current = type_ref;
-        let mut seen = BTreeSet::new();
+        let mut seen: Vec<&str> = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
-            if !seen.insert(name) {
-                return false;
+            if seen.contains(&name.as_ref()) {
+                return Ok(false);
             }
+            budget.push(&mut seen, name.as_ref(), "member_type")?;
             match self.collection_types.get(name) {
                 Some(
                     SelectedTypeDefinition::Sequence(items) | SelectedTypeDefinition::Option(items),
@@ -1812,14 +2085,14 @@ impl DomainModel {
             }
         }
         if !matches!(current, SelectedTypeRef::Native(NativeTypeRef::Duration)) {
-            return false;
+            return Ok(false);
         }
         let unit_name = if self.own_seconds_declared {
-            format!("ix://quire/unit/{}/s", self.identity)
+            budget.concat(&["ix://quire/unit/", &self.identity, "/s"], "member_type")?
         } else {
-            "ix://quire/unit/s".to_owned()
+            budget.concat(&["ix://quire/unit/s"], "member_type")?
         };
-        !self.unit_refs.contains_key(unit_name.as_str())
+        Ok(!self.unit_refs.contains_key(unit_name.as_str()))
     }
 
     fn duration_unit_node(
@@ -1995,51 +2268,64 @@ impl DomainModel {
     }
 
     /// Render the selected field type used by a timed clock-place path.
-    pub(super) fn clock_type_name(&self, type_ref: &SelectedTypeRef) -> Option<String> {
+    pub(super) fn clock_type_name_in(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<String>, ValidationFailure> {
         let mut current = type_ref;
-        let mut seen = BTreeSet::new();
+        let mut seen: Vec<&str> = Vec::new();
         let mut layers = Vec::new();
         while let SelectedTypeRef::Declared(name) = current {
             let Some(definition) = self.collection_types.get(name) else {
                 break;
             };
-            if !seen.insert(name.clone()) {
-                return None;
+            if seen.contains(&name.as_ref()) {
+                return Ok(None);
             }
+            budget.push(&mut seen, name.as_ref(), "clock_type")?;
             match definition {
                 SelectedTypeDefinition::Sequence(items) => {
-                    layers.push(SelectedValueLayer::Sequence);
+                    budget.push(&mut layers, SelectedValueLayer::Sequence, "clock_type")?;
                     current = items;
                 }
                 SelectedTypeDefinition::Map(values) => {
-                    layers.push(SelectedValueLayer::Map);
+                    budget.push(&mut layers, SelectedValueLayer::Map, "clock_type")?;
                     current = values;
                 }
                 SelectedTypeDefinition::Option(_) | SelectedTypeDefinition::Reference(_) => {
-                    return None;
+                    return Ok(None);
                 }
             }
         }
-        let mut rendered = match current {
+        let Some(mut rendered) = (match current {
             SelectedTypeRef::Native(NativeTypeRef::Clock) => {
-                Some("ix://quire/native/Clock".to_owned())
+                Some(budget.concat(&["ix://quire/native/Clock"], "clock_type")?)
             }
             SelectedTypeRef::Native(NativeTypeRef::Text) => {
-                Some("ix://quire/native/Text".to_owned())
+                Some(budget.concat(&["ix://quire/native/Text"], "clock_type")?)
             }
             SelectedTypeRef::Native(_) => None,
-            SelectedTypeRef::Unit(name) => Some(name.to_string()),
-            SelectedTypeRef::Map(key, value) => Some(format!("Map<{key}, {value}>")),
-            SelectedTypeRef::Declared(name) => Some(name.to_string()),
-        }?;
+            SelectedTypeRef::Unit(name) => Some(budget.concat(&[name], "clock_type")?),
+            SelectedTypeRef::Map(key, value) => {
+                Some(budget.concat(&["Map<", key, ", ", value, ">"], "clock_type")?)
+            }
+            SelectedTypeRef::Declared(name) => Some(budget.concat(&[name], "clock_type")?),
+        }) else {
+            return Ok(None);
+        };
         for layer in layers.into_iter().rev() {
             rendered = match layer {
-                SelectedValueLayer::Sequence => format!("Sequence<{rendered}>"),
-                SelectedValueLayer::Map => format!("Map<Text, {rendered}>"),
-                SelectedValueLayer::Option => return None,
+                SelectedValueLayer::Sequence => {
+                    budget.concat(&["Sequence<", &rendered, ">"], "clock_type")?
+                }
+                SelectedValueLayer::Map => {
+                    budget.concat(&["Map<Text, ", &rendered, ">"], "clock_type")?
+                }
+                SelectedValueLayer::Option => return Ok(None),
             };
         }
-        Some(rendered)
+        Ok(Some(rendered))
     }
 
     /// FR-322 step 4 over one declared `typeRef` and multiplicity; `None`
@@ -2080,6 +2366,7 @@ impl DomainModel {
 
     /// A field's type. Timed clock collections retain optionality on each
     /// selected clock element; other optional fields wrap the whole slot.
+    #[cfg(test)]
     pub(super) fn field_type(&self, field: &FieldDecl) -> Option<MemberType> {
         let slot = self.slot_type(&field.slot)?;
         Some(match (field.optional, field.slot.type_ref.as_ref(), slot) {
@@ -2110,9 +2397,18 @@ impl DomainModel {
     }
 
     /// Checked binder types of one record in effective field order.
-    pub(super) fn record_binder_types(&self, record: &str) -> Option<RecordBinderTypes> {
-        self.record_types.get(record)?;
-        self.fields.of(record)?.binder_types(&self.checked_package)
+    pub(super) fn record_binder_types(
+        &self,
+        record: &str,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<RecordBinderTypes>, ValidationFailure> {
+        if !self.record_types.contains_key(record) {
+            return Ok(None);
+        }
+        let Some(fields) = self.fields.of(record) else {
+            return Ok(None);
+        };
+        fields.binder_types(&self.checked_package, budget)
     }
 
     /// Checked receiver, parameter and optional result binder types of the
@@ -2153,23 +2449,35 @@ impl DomainModel {
         } else {
             DeclarationForm::ObjectType
         };
-        let object_id = declaration_id(&self.identity, form, object);
-        let Some(receiver) = self.type_node_id(&MemberType::Reference(object_id)) else {
+        let object_id = declaration_id_in(&self.identity, form, object, budget)?;
+        let Some(receiver) =
+            MemberType::Reference(object_id).node_id_in(&self.checked_package, budget)?
+        else {
             return Ok(None);
         };
-        let mut types = vec![receiver];
+        let mut types = budget.vec(
+            1 + operation.parameters.len() + usize::from(operation.result.is_some()),
+            "operation_binders",
+        )?;
+        types.push(receiver);
         for parameter in &operation.parameters {
-            let Some(parameter_type) = self
-                .slot_type(parameter)
-                .and_then(|ty| self.type_node_id(&ty))
+            let Some(parameter_type) =
+                self.slot_type_charged(parameter, false, budget, "member_type")?
+            else {
+                return Ok(None);
+            };
+            let Some(parameter_type) = parameter_type.node_id_in(&self.checked_package, budget)?
             else {
                 return Ok(None);
             };
             types.push(parameter_type);
         }
         if let Some(result) = &operation.result {
-            let Some(result_type) = self.slot_type(result).and_then(|ty| self.type_node_id(&ty))
+            let Some(result_type) = self.slot_type_charged(result, false, budget, "member_type")?
             else {
+                return Ok(None);
+            };
+            let Some(result_type) = result_type.node_id_in(&self.checked_package, budget)? else {
                 return Ok(None);
             };
             types.push(result_type);
@@ -2237,10 +2545,6 @@ impl DomainModel {
         }
         names.truncate(kept);
         Ok(names)
-    }
-
-    fn type_node_id(&self, member_type: &MemberType) -> Option<CheckedNodeId> {
-        member_type.node_id(&self.checked_package)
     }
 }
 
@@ -2375,12 +2679,18 @@ impl<'m> ModelOwners<'m> {
                     owner
                         .package
                         .model_operation_binder_types(owner.node, &name, &mut budget)?;
-                classes.push(ModelOperationClass {
-                    object: member_name(owner.node).into(),
-                    operation: name,
-                    node: id.clone(),
-                    binder_types: binder,
-                });
+                let object = budget.text(member_name(owner.node), "operation_class")?;
+                let node = budget.clone_id(id, "operation_class")?;
+                budget.push(
+                    &mut classes,
+                    ModelOperationClass {
+                        object,
+                        operation: name,
+                        node,
+                        binder_types: binder,
+                    },
+                    "operation_class",
+                )?;
             }
         }
         Ok(classes)
@@ -2388,7 +2698,7 @@ impl<'m> ModelOwners<'m> {
     pub(super) fn refinement_object_fields(
         &self,
         key: &crate::checked_package::shared::CheckedNodeId,
-    ) -> Option<BTreeSet<Box<str>>> {
+    ) -> Option<&[Box<str>]> {
         let owner = &self.row_by_key(key)?.owner;
         if owner.form != DeclarationForm::ObjectType {
             return None;
@@ -3897,6 +4207,18 @@ impl<'v> Declared<'v> {
     fn position(&self, node: &str) -> Option<usize> {
         self.group(node).first().map(|row| row.1)
     }
+}
+
+/// [`read_semantic_ir`] over a retained document, for a test outside this
+/// module.
+#[cfg(test)]
+pub(super) fn read_semantic_ir_of(
+    document: &quire_canonical::Document,
+    checked_package: &str,
+    budget: &mut Budget<'_, '_>,
+    unit_refs: &UnitRefs,
+) -> Result<DomainModel, SelectionFailure> {
+    read_semantic_ir(View::root(document), checked_package, budget, unit_refs)
 }
 
 /// Reads an admitted Semantic IR 2.0.0 document's declarations (FR-154),
@@ -5599,6 +5921,64 @@ pub(super) mod tests;
 mod structural_member_type_tests {
     use super::{declaration_id, CollectionKind, DeclarationForm, IntegerBounds, MemberType};
     use serde_json::json;
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn member_type_identity_allocates_only_reserved_storage() {
+        use super::{Budget, RationalBounds, TextBounds};
+        use crate::checked_package::v2::{native_join_budget::NativeJoinBudget, WorkMeter};
+        let target = declaration_id("model", DeclarationForm::ObjectType, "Thing");
+        let bounds = RationalBounds {
+            numerator_min: i128::MIN,
+            numerator_max: i128::MAX,
+            denominator_min: 1,
+            denominator_max: 99,
+        };
+        let cases = [
+            MemberType::Integer,
+            MemberType::Reference(target.clone()),
+            MemberType::Record(target.clone()),
+            MemberType::IntRange(IntegerBounds {
+                lower: i128::MIN,
+                upper: i128::MAX,
+            }),
+            MemberType::RationalRange(bounds),
+            MemberType::CarriedRational(bounds, target),
+            MemberType::TextBounds(TextBounds {
+                lower: 0,
+                upper: u64::MAX,
+                profile: "nfc".into(),
+            }),
+            MemberType::Option(Box::new(MemberType::Collection {
+                kind: CollectionKind::Set,
+                element: Box::new(MemberType::Boolean),
+                bounds: Some((0, u64::MAX)),
+            })),
+        ];
+        for member in cases {
+            let expected = member.node_id("checked");
+            let run = |limit| {
+                let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut native);
+                    let mut budget = Budget::new(&mut meter, 0, u64::MAX);
+                    result = Some(member.node_id_in("checked", &mut budget));
+                });
+                (
+                    result.expect("ran"),
+                    measured.bytes_total,
+                    native.read_storage_consumed(),
+                )
+            };
+            let (actual, allocated, charged) = run(u64::MAX);
+            assert_eq!(actual.expect("unlimited"), expected);
+            assert!(charged > 0);
+            assert_eq!(allocated, charged, "{member:?}");
+            assert_eq!(run(charged).0.expect("exact limit"), expected);
+            assert!(run(charged - 1).0.is_err(), "one short: {member:?}");
+        }
+    }
 
     /// Trace: FR-038-AC-364, FR-322-AC-62.
     #[test]

@@ -3,6 +3,7 @@
 
 //! Closed tick-monitor admission and package-borrowed reads (FR-038-AC-421..429).
 
+use super::graph_storage::GraphIndex;
 use super::model_members::DomainModel;
 use super::native_join_storage as storage;
 use super::{
@@ -15,7 +16,7 @@ use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedPackageRefusalCause as Cause, CheckedPackageRefusalCode as Code, JsonPointer,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[allow(dead_code)] // The complete selected closure reader will call this prerequisite.
@@ -674,7 +675,7 @@ struct Graph<'a> {
     nodes: &'a [RawSemanticNodeV2],
     kinds: &'a [CheckedNodeKind],
     terms: &'a [Option<CheckedTerm>],
-    index: &'a BTreeMap<&'a CheckedNodeId, usize>,
+    index: &'a GraphIndex<'a>,
     keys: &'a [Arc<CheckedNodeId>],
 }
 impl Graph<'_> {
@@ -923,7 +924,7 @@ pub(super) fn validate(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     keys: &[Arc<CheckedNodeId>],
     models: &[DomainModel],
     meter: &mut WorkMeter,
@@ -935,10 +936,13 @@ pub(super) fn validate(
         index,
         keys,
     };
-    let model_index = models
-        .iter()
-        .map(|model| (model.identity.as_ref(), model))
-        .collect::<BTreeMap<_, _>>();
+    // Of two models with one identity the later one is kept, as a map built
+    // by insertion would hold; the slice address orders them.
+    let mut identified = meter.vec::<(&str, &DomainModel)>(models.len())?;
+    identified.extend(models.iter().map(|model| (model.identity.as_ref(), model)));
+    let model_index = super::graph_storage::SortedTable::from_vec(identified, |left, right| {
+        std::ptr::from_ref(*right).cmp(&std::ptr::from_ref(*left))
+    });
     let mut positions = index
         .values()
         .copied()
@@ -1034,6 +1038,7 @@ pub(super) fn validate(
                             graph.scalar(d, ScalarTypeForm::Dimension)
                                 && super::timed_model::is_base_time_dimension(
                                     &nodes[d],
+                                    graph.term(d),
                                     &model_index,
                                 )
                         })
@@ -1194,7 +1199,7 @@ pub(super) fn validate_dependencies(
     nodes: &[RawSemanticNodeV2],
     kinds: &[CheckedNodeKind],
     references: &[Vec<super::BodyReference>],
-    index: &BTreeMap<&CheckedNodeId, usize>,
+    index: &GraphIndex<'_>,
     keys: &[Arc<CheckedNodeId>],
 ) -> Result<(), ValidationFailure> {
     for (position, node) in nodes.iter().enumerate() {
