@@ -11,10 +11,13 @@
 
 use crate::support::checked_package::{
     canonical, evidence_for, evidence_with_document, family_key, family_model_document,
-    fixture_source, index_fixture_node_ids, node_id as fixture_node_id, reassign_node_id,
+    fixture_source, index_fixture_node_ids, reassign_node_id,
     rebuild_source_map, refresh_identity, select_model, settle, sha256_hex, source_owner,
-    structural_id, typed_node_id, v2_all_families, BOOLEAN_KEY, INTEGER_KEY,
+    structural_id, typed_node_id, v2_all_families, BOOLEAN_KEY,
 };
+use crate::checked_package_v2_whole_read_accounting::read_storage_inputs::state_fixture::{node_id,nodes,position,digest,text_key,reference_key,plain,self_key,anchor_key,reference,binding,text,anchor_body,clause_body,boolean,condition,clause_dependencies,clause_node,INTEGER};
+pub(super) use crate::checked_package_v2_whole_read_accounting::read_storage_inputs::state_fixture::object_key;
+
 use ix_trace_rs::trace;
 use quire_canonical::Limits;
 use quire_contract_model::{
@@ -36,28 +39,6 @@ use std::sync::LazyLock;
 
 use CheckedPackageRefusalCause as Cause;
 use CheckedPackageRefusalCode as Code;
-
-fn node_id(label: &str) -> Value {
-    if label == "model-scalar:integer" {
-        return structural_id(
-            "test/families",
-            vec![json!("scalar_type"), json!("integer")],
-            0,
-        );
-    }
-    if let Some(model) = label.strip_prefix("model:") {
-        let mut parts = model.splitn(3, ':');
-        let form = parts.next().expect("model form");
-        let identity = parts.next().expect("model package");
-        let declaration = parts.next().expect("model declaration");
-        return structural_id(
-            identity,
-            vec![json!("model"), json!(form), json!(declaration)],
-            0,
-        );
-    }
-    fixture_node_id(label)
-}
 
 fn rename_node(package: &mut Value, stale: &str, fresh: &str) {
     reassign_node_id(package, &node_id(stale), &node_id(fresh));
@@ -169,21 +150,10 @@ fn expect(
     }
 }
 
-fn nodes(value: &Value) -> &Vec<Value> {
-    value["semantic_graph"]["nodes"].as_array().expect("nodes")
-}
-
 fn id_order(left: &Value, right: &Value) -> std::cmp::Ordering {
     let left: CheckedNodeId = serde_json::from_value(left.clone()).expect("left node id");
     let right: CheckedNodeId = serde_json::from_value(right.clone()).expect("right node id");
     left.cmp(&right)
-}
-
-fn position(value: &Value, tag: &str, form: &str) -> usize {
-    nodes(value)
-        .iter()
-        .position(|node| node["node_tag"] == tag && node["semantic_form"] == form)
-        .unwrap_or_else(|| panic!("a {tag}/{form} node"))
 }
 
 /// Restores the genuine selected Account declaration after a frame test has
@@ -203,13 +173,6 @@ fn select_other_protocol_owner(value: &mut Value) {
         .push(model);
     let clause = position(value, "protocol", "protocol_clause");
     value["semantic_graph"]["nodes"][clause]["owner_model"] = owner;
-}
-
-fn digest(value: &Value, position: usize) -> String {
-    nodes(value)[position]["node_id"]["path"][0]
-        .as_str()
-        .expect("digest")
-        .to_owned()
 }
 
 fn field(declaration: &str, name: &str) -> Value {
@@ -478,10 +441,6 @@ fn fixture_key(tag: &str, form: &str, ty: Option<&str>, owner: Option<Value>) ->
         preimage["owner"] = owner;
     }
     sha256_hex(&canonical(&preimage))
-}
-
-pub(super) fn object_key() -> &'static str {
-    "fixture/1515"
 }
 
 fn process_key() -> &'static str {
@@ -906,173 +865,9 @@ struct StatePackage {
     value: Value,
 }
 
-fn text_key() -> &'static str {
-    static KEY: LazyLock<String> =
-        LazyLock::new(|| crate::support::checked_package::family_key("a1a1"));
-    &KEY
-}
-
-/// The derived key of the anonymous `Integer` node the fixture already holds.
-const INTEGER: &str = INTEGER_KEY;
-
-/// The derived key of the anonymous `Reference<target>` node (FR-038-AC-134).
-fn reference_key(target: &str) -> String {
-    format!("fixture/frame/reference/{target}")
-}
-
-fn plain(
-    digest: &str,
-    tag: &str,
-    form: &str,
-    ty: &str,
-    deps: &[&str],
-    role: &str,
-    body: Value,
-) -> Value {
-    json!({
-        "node_id": node_id(digest),
-        "schema_version": "quire.checked-semantic-graph/v2",
-        "node_tag": tag,
-        "semantic_form": form,
-        "semantic_type": node_id(ty),
-        "dependencies": deps.iter().map(|d| node_id(d)).collect::<Vec<_>>(),
-        "occurrences": [{"role": role, "ordinal": 0}],
-        "body": body,
-    })
-}
-
-fn self_key() -> &'static str {
-    "fixture/frame/self-parameter"
-}
-
-fn anchor_key() -> &'static str {
-    "fixture/frame/deposit-anchor"
-}
-
-fn reference(digest: &str) -> Value {
-    json!({"term": "reference", "target": node_id(digest)})
-}
-
-fn binding(name: &str, value: Value) -> Value {
-    json!({"term": "binding", "name": name, "value": value})
-}
-
-fn text(value: &str) -> Value {
-    json!({"term": "literal", "type": node_id(text_key()), "value_kind": "text", "value": value})
-}
-
-fn anchor_body(context: &str, operation: Value, frame: &str) -> Value {
-    json!({"term": "aggregate", "members": [
-        binding("context", reference(context)),
-        binding("operation", operation),
-        binding("frame", reference(frame)),
-    ]})
-}
-
-/// A `quire.op.state.clause` application.
-fn clause_body(clause: &str, parameters: &[&str], anchor: &str, condition: &str) -> Value {
-    json!({
-        "term": "application",
-        "operator": "state_clause",
-        "operation": {"identity": "quire.op.state.clause", "laws": [], "mode": null,
-            "member": {"kind": "state_clause", "clause": clause}, "leaves": []},
-        "result_type": node_id(&boolean()),
-        "arguments": [
-            {"term": "aggregate",
-                "members": parameters.iter().map(|p| reference(p)).collect::<Vec<_>>()},
-            reference(anchor),
-            reference(condition),
-        ],
-    })
-}
-
-fn boolean() -> String {
-    BOOLEAN_KEY.to_owned()
-}
-
-fn condition() -> String {
-    crate::support::checked_package::family_key("dddd")
-}
-
-/// The dependency join of a clause body: its reference targets, ascending.
-fn clause_dependencies(parameters: &[&str], anchor: &str) -> Vec<String> {
-    let mut deps: Vec<String> = parameters
-        .iter()
-        .map(|p| (*p).to_owned())
-        .chain([anchor.to_owned(), condition()])
-        .collect();
-    deps.sort();
-    deps.dedup();
-    deps
-}
-
-fn clause_node(clause: &str, parameters: &[&str], anchor: &str) -> Value {
-    let deps = clause_dependencies(parameters, anchor);
-    let deps: Vec<&str> = deps.iter().map(String::as_str).collect();
-    let placeholder = match clause {
-        "invariant" => "c1",
-        "precondition" => "c2",
-        "constraint" => "c7",
-        _ => "c3",
-    };
-    plain(
-        &placeholder.repeat(32),
-        "state",
-        "state_clause",
-        &boolean(),
-        &deps,
-        "claim",
-        clause_body(clause, parameters, anchor, &condition()),
-    )
-}
-
 impl StatePackage {
     fn new() -> Self {
-        let mut value = v2_all_families();
-        let frame = position(&value, "state", "frame");
-        let frame_key = digest(&value, frame);
-        let reference_type = reference_key(object_key());
-        let added = [
-            plain(
-                &reference_type,
-                "composite_type",
-                "reference",
-                &reference_type,
-                &[object_key()],
-                "type",
-                json!({"term": "aggregate", "members": [reference(object_key())]}),
-            ),
-            plain(
-                self_key(),
-                "value",
-                "parameter",
-                &reference_type,
-                &[],
-                "expression",
-                json!({"term": "aggregate", "members": [
-                    binding("name", text("self")),
-                    binding("level", json!({"term": "literal", "type": node_id(INTEGER),
-                        "value_kind": "integer", "value": "0"})),
-                ]}),
-            ),
-            plain(
-                anchor_key(),
-                "state",
-                "operation_anchor",
-                object_key(),
-                &[object_key(), &frame_key],
-                "anchor",
-                anchor_body(object_key(), text("deposit"), &frame_key),
-            ),
-            clause_node("invariant", &[self_key()], object_key()),
-            clause_node("precondition", &[self_key()], anchor_key()),
-        ];
-        value["semantic_graph"]["nodes"]
-            .as_array_mut()
-            .expect("nodes")
-            .extend(added);
-        settle(&mut value);
-        Self { value }
+        Self { value: crate::checked_package_v2_whole_read_accounting::read_storage_inputs::state_fixture::package() }
     }
 
     fn at(&self, tag: &str, form: &str) -> usize {

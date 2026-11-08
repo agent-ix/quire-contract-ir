@@ -19,6 +19,9 @@ mod qspec_protocol_location_inputs;
 mod qspec_text_inputs;
 #[path = "support/qspec_tuple_inputs.rs"]
 mod qspec_tuple_inputs;
+#[path = "support/read_storage_inputs.rs"]
+pub(crate) mod read_storage_inputs;
+use crate::support::checked_package;
 use crate::support::checked_package::{
     canonical, evidence_for, index_fixture_node_ids, positive_operation_identities, settle,
     v2_all_families, v2_nominal,
@@ -149,18 +152,60 @@ fn multilimb_canonical_rational_wire() -> Value {
 /// Reuse the nominal preimage constructor for an actual derived dimension,
 /// whose exponent 2^129 + 1 exceeds the SDK integer inline capacity.
 fn multilimb_dimension_wire() -> Value {
-    use crate::support::checked_package::{node_id, nominal_fixture_members, nominal_package};
-    let mut members = nominal_fixture_members();
-    let mut derived = members
+    use crate::support::checked_package::{
+        nominal_fixture_members, nominal_package, rebuild_complete_source_map,
+    };
+    let mut wire = crate::checked_package_v2_dimension_equivalence::package();
+    let nominal = nominal_package(&nominal_fixture_members());
+    let base = nominal["semantic_graph"]["nodes"]
+        .as_array()
+        .expect("nominal nodes")
         .iter()
-        .find(|(v, _)| v["version"] == "quire.dimension-node/v1")
-        .expect("base dimension")
-        .0
+        .find(|node| node["semantic_form"] == "dimension")
+        .expect("original base dimension")
         .clone();
-    derived["qualified_declaration"] = json!(["Example", "WidePower"]);
-    derived["terms"] = json!([{"dimension_node_id":node_id("qualified:Example/Length"),"exponent":"680564733841876926926749214863536422913"}]);
-    members.push((derived, "qualified:Example/WidePower".into()));
-    nominal_package(&members)
+    let base_id = base["node_id"].clone();
+    let nodes = wire["semantic_graph"]["nodes"]
+        .as_array_mut()
+        .expect("equivalence nodes");
+    // The existing equivalence compares Alpha and Beta. Make both actual
+    // derived dimensions of the same base and huge exponent, so checking
+    // that equivalence must normalize and parse both exponent operands.
+    for node in nodes
+        .iter_mut()
+        .filter(|node| node["semantic_form"] == "dimension")
+    {
+        node["body"]["base"] = json!(false);
+        node["body"]["terms"] = json!([{"dimension_node_id":base_id,"exponent":"680564733841876926926749214863536422913"}]);
+        node["dependencies"] = json!([base_id]);
+    }
+    nodes.push(base);
+    rebuild_complete_source_map(&mut wire);
+    index_fixture_node_ids(&mut wire);
+    wire
+}
+
+/// Compute the positive decimal operand's bit length during fixture setup.
+#[cfg(feature = "test-support")]
+fn witness_decimal_bits(text: &str) -> u64 {
+    let mut digits = text
+        .bytes()
+        .map(|digit| {
+            assert!(digit.is_ascii_digit());
+            digit - b'0'
+        })
+        .collect::<Vec<_>>();
+    let mut bits = 0;
+    while digits.iter().any(|digit| *digit != 0) {
+        let mut carry = 0;
+        for digit in &mut digits {
+            let value = carry * 10 + *digit;
+            *digit = value / 2;
+            carry = value % 2;
+        }
+        bits += 1;
+    }
+    bits
 }
 
 #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-516")]
@@ -172,14 +217,199 @@ fn native_multilimb_witnesses_admit_before_role_designation() {
         ("schedulability bound", multilimb_schedulability_wire()),
         ("dimension exponent", multilimb_dimension_wire()),
     ] {
-        let result = crate::read_and_account(
-            &canonical(&wire),
-            CheckedPackageReadLimits::bounded(),
-            &evidence_for(&wire),
-        );
+        let bytes = canonical(&wire);
+        let evidence = evidence_for(&wire);
+        #[cfg(not(feature = "test-support"))]
+        let result =
+            crate::read_and_account(&bytes, CheckedPackageReadLimits::bounded(), &evidence);
+        #[cfg(feature = "test-support")]
+        let result = {
+            use crate::qspec_read_proof::{
+                read_designated_and_account, DesignatedReadProvider, ReadProviderObligation,
+            };
+            use quire_contract_model::{NativeJoinLocus, NativeJoinLocusSource, PackageReadStage};
+            let nodes = wire["semantic_graph"]["nodes"]
+                .as_array()
+                .expect("actual numeric nodes");
+            let (role,form,spelling,fact_source,reservation_source) = match name {
+                "canonical rational" => ("canonical_rational_multilimb","bounded_quantity",nodes.iter().find(|node|node["semantic_form"] == "bounded_quantity").expect("bounded quantity")["body"]["members"][1]["value"]["value"].as_str().expect("min"),"multilimb_canonical_rational_wire: actual bounded min numerator and denominator both exceed128bits; odd numerator over2^129","structural::noncanonical_bounded_endpoint and bounded_quantity -> WorkMeter::canonical_rational -> Integer::parse_reserved twice, Integer::gcd_reserved; graph_storage::ExactReservation charges before SDK heap callback"),
+                "schedulability bound" => ("schedulability_bound_multilimb","schedulability",nodes.iter().find(|node|node["semantic_form"] == "schedulability").expect("claim")["body"]["members"][3]["value"]["value"].as_str().expect("bound"),"multilimb_schedulability_wire: actual response bound17*(2^129+1)/2^130, uniform timing scale retains all original inequalities","schedulability::validate_graph rational_parts_are_canonical -> natural::coprime -> parse_reserved/exact_gcd; natural::compare_rationals -> reserved cross products, exact_reservation before heap callback"),
+                "dimension exponent" => ("dimension_exponent_multilimb","dimension_equivalence",nodes.iter().find(|node|node["semantic_form"] == "dimension" && node["body"]["base"] == false).expect("derived dimension")["body"]["terms"][0]["exponent"].as_str().expect("exponent"),"multilimb_dimension_wire: actual Alpha/Beta derived dimension exponent2^129+1; original equivalence forces both normalizations","identity::validate_equivalence_graph -> normalized_dimension actual term.exponent -> WorkMeter::exact_integer -> Integer::parse_reserved; graph_storage::ExactReservation charges before SDK heap callback"),
+                _ => unreachable!(),
+            };
+            let fact = if let Some((n, d)) = spelling.split_once('/') {
+                let n = witness_decimal_bits(n);
+                let d = witness_decimal_bits(d);
+                assert!(n >= 129 && d >= 129);
+                n.max(d)
+            } else {
+                witness_decimal_bits(spelling)
+            };
+            assert!(fact >= 129);
+            let position = nodes
+                .iter()
+                .position(|node| node["semantic_form"] == form)
+                .expect("actual reservation owner");
+            let obligations = [ReadProviderObligation {
+                role,
+                fact,
+                fact_source,
+                reservation_locus: Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, position),
+                    form: "exact_number",
+                }),
+                reservation_source: Some(reservation_source),
+                same_walk_instance_source: None,
+            }];
+            read_designated_and_account(
+                &bytes,
+                CheckedPackageReadLimits::bounded(),
+                &evidence,
+                DesignatedReadProvider {
+                    symbol: match name {
+                        "canonical rational" => "multilimb_canonical_rational_wire",
+                        "dimension exponent" => "multilimb_dimension_wire",
+                        "schedulability bound" => "multilimb_schedulability_wire",
+                        _ => unreachable!(),
+                    },
+                    classes: &["exact_reservation"],
+                    obligations: &obligations,
+                },
+            )
+        };
         assert!(
             matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
             "{name}: {result:?}"
+        );
+        #[cfg(feature = "test-support")]
+        {
+            let limits = CheckedPackageReadLimits::bounded();
+            let (observed, events) = crate::qspec_read_proof::observe_native::<IntegrationCounter>(
+                &canonical(&wire),
+                &evidence_for(&wire),
+                limits,
+                limits.work,
+                u64::MAX,
+            );
+            let quire_contract_model::CheckedPackageV2BudgetedReadResult::Admitted(package) =
+                &observed.result
+            else {
+                panic!("{name} budgeted: {:?}", observed.result);
+            };
+            let CheckedPackageV2ReadResult::Admitted(plain) = &result else {
+                unreachable!()
+            };
+            assert_eq!(package, plain, "{name} complete semantic equality");
+            for (index, event) in events
+                .iter()
+                .enumerate()
+                .filter(|(_, event)| event.allocation_class == Some("exact_reservation"))
+            {
+                eprintln!("{name} actual exact event {index}: {event:?}");
+            }
+            proof::drop_without_request::<IntegrationCounter>(observed);
+        }
+    }
+}
+
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-516")]
+#[test]
+fn native_multilimb_timed_witness_requires_exact_accounting() {
+    let input = read_storage_inputs::timed_magnitude_multilimb();
+    let result = crate::read_and_account(
+        &input.bytes,
+        quire_contract_model::CheckedPackageReadLimits::bounded(),
+        &input.evidence,
+    );
+    assert!(
+        matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+        "native tick source: {result:?}"
+    );
+}
+
+/// Builders finish every nested dependency read and all evidence preparation
+/// before this function binds any role to the direct public reader call.
+#[cfg(feature = "test-support")]
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn actual_adverse_native_builders_designate_their_prepared_inputs() {
+    use crate::qspec_read_proof::{
+        read_designated_and_account, DesignatedReadProvider, ReadProviderObligation,
+    };
+    type AdverseBuilder = fn() -> read_storage_inputs::Input;
+    let builders: [(&str, AdverseBuilder); 7] = [
+        ("chain_100000", read_storage_inputs::chain_100000),
+        (
+            "flat_graph_and_source_map_10000",
+            read_storage_inputs::flat_graph_and_source_map_10000,
+        ),
+        (
+            "dependencies_10000",
+            read_storage_inputs::dependencies_10000,
+        ),
+        (
+            "string_one_mebibyte",
+            read_storage_inputs::string_one_mebibyte,
+        ),
+        ("diagnostics_10000", read_storage_inputs::diagnostics_10000),
+        (
+            "direct_dependencies_64",
+            read_storage_inputs::direct_dependencies_64,
+        ),
+        (
+            "selected_models_two_512k",
+            read_storage_inputs::selected_models_two_512k,
+        ),
+    ];
+    for (symbol, build) in builders {
+        let input = build();
+        let wire: Value = serde_json::from_slice(&input.bytes).expect("actual prepared wire");
+        let nodes = wire["semantic_graph"]["nodes"].as_array().expect("nodes");
+        let roles: Vec<(&'static str,u64,&'static str)> = match symbol {
+            "chain_100000" => { assert!(nodes.len() >= 100_000); vec![("reference_chain",100_000,"read_storage_inputs::chain_100000 -> checked_package::v2_reference_chain(100000), each authored reference targets its predecessor")] },
+            "flat_graph_and_source_map_10000" => vec![("flat_graph",nodes.len() as u64,"read_storage_inputs::flat_value appends10000 independent native reference nodes"),("source_maps",wire["source_map"].as_array().expect("source rows").len() as u64,"read_storage_inputs::flat_value -> rebuild_source_map, actual prepared source_map array")],
+            "dependencies_10000" => vec![("node_dependencies",nodes.iter().map(|node|node["dependencies"].as_array().expect("dependencies").len() as u64).max().expect("nodes"),"read_storage_inputs::dependencies_10000 actual tuple value dependency array and matching aggregate")],
+            "string_one_mebibyte" => vec![("string_member",wire["lock"]["sources"][0]["identity"].as_str().expect("source identity").len() as u64,"read_storage_inputs::string_one_mebibyte actual UTF8 source identity, consistently replaced throughout package")],
+            "diagnostics_10000" => vec![("diagnostic_details",wire["diagnostics"]["entries"].as_array().expect("diagnostics").iter().filter(|entry|entry["details"].as_array().is_some_and(|details|!details.is_empty())).count() as u64,"read_storage_inputs::diagnostics_10000 actual nonempty detail terms on every prepared entry")],
+            "direct_dependencies_64" => vec![("direct_dependencies",wire["lock"]["dependency_selections"].as_array().expect("selections").len() as u64,"read_storage_inputs::direct_dependencies_64 strictly admits and inserts each of64 distinct packages before returning evidence")],
+            "selected_models_two_512k" => vec![("selected_models",2,"read_storage_inputs::selected_models_two_512k constructs two selected identities, asserts each canonical document exactly524288 bytes and inserts both before returning evidence")],
+            _ => unreachable!(),
+        };
+        let obligations = roles
+            .iter()
+            .map(|&(role, fact, fact_source)| ReadProviderObligation {
+                role,
+                fact,
+                fact_source,
+                reservation_locus: None,
+                reservation_source: None,
+                same_walk_instance_source: None,
+            })
+            .collect::<Vec<_>>();
+        let result = read_designated_and_account(
+            &input.bytes,
+            proof::generous_limits(),
+            &input.evidence,
+            DesignatedReadProvider {
+                symbol: match symbol {
+                    "chain_100000" => "read_storage_inputs::chain_100000",
+                    "flat_graph_and_source_map_10000" => {
+                        "read_storage_inputs::flat_graph_and_source_map_10000"
+                    }
+                    "dependencies_10000" => "read_storage_inputs::dependencies_10000",
+                    "string_one_mebibyte" => "read_storage_inputs::string_one_mebibyte",
+                    "diagnostics_10000" => "read_storage_inputs::diagnostics_10000",
+                    "direct_dependencies_64" => "read_storage_inputs::direct_dependencies_64",
+                    "selected_models_two_512k" => "read_storage_inputs::selected_models_two_512k",
+                    _ => unreachable!(),
+                },
+                classes: &[],
+                obligations: &obligations,
+            },
+        );
+        assert!(
+            matches!(result, CheckedPackageV2ReadResult::Admitted(_)),
+            "actual original builder {symbol}: {result:?}"
         );
     }
 }
