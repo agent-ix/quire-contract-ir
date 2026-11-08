@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Passive test instrumentation for actual caller-budget requests.
 use super::NativeJoinLocus;
 use std::cell::Cell;
@@ -71,5 +72,62 @@ pub(super) fn emit(mut event: NativeBudgetEvent) {
     event.allocation_class = CLASS.get();
     if let Some(observer) = OBSERVER.get() {
         observer(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    thread_local! {
+        static FIRST: Cell<usize> = const { Cell::new(0) };
+        static SECOND: Cell<usize> = const { Cell::new(0) };
+        static LAST_CLASS: Cell<Option<&'static str>> = const { Cell::new(None) };
+    }
+    fn first(event: NativeBudgetEvent) {
+        FIRST.set(FIRST.get() + 1);
+        LAST_CLASS.set(event.allocation_class);
+    }
+    fn second(_: NativeBudgetEvent) {
+        SECOND.set(SECOND.get() + 1);
+    }
+    fn request() {
+        emit(NativeBudgetEvent {
+            resource: NativeBudgetResource::Work,
+            amount: 1,
+            consumed_before: 0,
+            admitted: true,
+            locus: None,
+            allocation_class: None,
+        });
+    }
+    #[test]
+    #[trace("TC-472", "FR-038-AC-511")]
+    fn observer_and_class_scopes_restore_after_nesting_and_unwind() {
+        FIRST.set(0);
+        SECOND.set(0);
+        with_native_budget_observer(first, || {
+            with_native_allocation_class("outer", || {
+                request();
+                let stopped = std::panic::catch_unwind(|| {
+                    with_native_budget_observer(second, || {
+                        with_native_allocation_class("inner", || {
+                            request();
+                            panic!("scope control");
+                        });
+                    });
+                });
+                assert!(stopped.is_err());
+                request();
+                assert_eq!(LAST_CLASS.get(), Some("outer"));
+            });
+            request();
+            assert_eq!(LAST_CLASS.get(), None);
+        });
+        request();
+        assert_eq!(FIRST.get(), 3);
+        assert_eq!(SECOND.get(), 1);
+        assert!(OBSERVER.get().is_none());
+        assert!(CLASS.get().is_none());
     }
 }

@@ -1261,10 +1261,13 @@ impl CheckedApplicationOperation {
             record: Box::new(CheckedApplicationOperationRecord {
                 identity: fixture.identity.map(Into::into),
                 laws,
-                mode: fixture.mode.map(|(kind, value)| CheckedOperationModeWire {
-                    kind: kind.as_wire().into(),
-                    value,
-                }),
+                mode: fixture
+                    .mode
+                    .as_ref()
+                    .map(|(kind, value)| CheckedOperationModeWire {
+                        kind: kind.as_wire().into(),
+                        value: value.clone(),
+                    }),
                 member,
                 leaves: Vec::new(),
                 member_ids: CheckedOperationMemberIds::default(),
