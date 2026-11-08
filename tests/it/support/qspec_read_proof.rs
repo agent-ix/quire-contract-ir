@@ -240,17 +240,26 @@ fn full_native_boundaries(
     evidence: &CheckedPackageEvidence,
     reference: &Observation,
     exhaustive_classes: &[&str],
+    seed: Option<&quire_contract_model::NativeJoinBudget>,
 ) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
     use quire_contract_model::{NativeBudgetResource as Resource, NativeJoinLocusSource};
     use std::collections::{BTreeMap, BTreeSet};
-    let (observed, events) = native_budget_trace::checked::<DriverCounter>(
-        bytes,
-        evidence,
-        limits,
-        limits.work,
-        u64::MAX,
-    );
+    let (observed, events) = if let Some(seed) = seed {
+        native_budget_trace::checked_seeded(bytes, evidence, limits, seed)
+    } else {
+        native_budget_trace::checked::<DriverCounter>(
+            bytes,
+            evidence,
+            limits,
+            limits.work,
+            u64::MAX,
+        )
+    };
     same_observation(reference, &observed);
+    assert_eq!(
+        reference.budget, observed.budget,
+        "entire original baseline state repeats"
+    );
     drop_without_request::<DriverCounter>(observed);
     let mut stage_last = BTreeMap::new();
     let mut class_ends = BTreeMap::new();
@@ -304,11 +313,25 @@ fn full_native_boundaries(
             .expect("admitted bound fits u64");
         let probe = |bound| {
             let (work, storage) = match event.resource {
-                Resource::Work => (bound, u64::MAX),
-                Resource::ReadStorage => (limits.work, bound),
+                Resource::Work => (
+                    bound,
+                    seed.map_or(u64::MAX, |seed| seed.read_storage_limit()),
+                ),
+                Resource::ReadStorage => {
+                    (seed.map_or(limits.work, |seed| seed.work_limit()), bound)
+                }
                 Resource::LogicalStorage => unreachable!("logical storage rejected"),
             };
-            native_budget_trace::checked::<DriverCounter>(bytes, evidence, limits, work, storage)
+            if let Some(seed) = seed {
+                let rebound = seed
+                    .read_proof_snapshot()
+                    .read_proof_rebound(work, storage, false);
+                native_budget_trace::checked_seeded(bytes, evidence, limits, &rebound)
+            } else {
+                native_budget_trace::checked::<DriverCounter>(
+                    bytes, evidence, limits, work, storage,
+                )
+            }
         };
         let (exact, exact_events) = probe(bound);
         assert_eq!(
@@ -491,7 +514,7 @@ fn finish_proof(
     let (native_events, boundary_results) = if mode == "full" {
         // Original QSpec calls use stage/class endpoints. Designated adverse
         // providers must explicitly request all intermediate growth events.
-        full_native_boundaries(bytes, limits, evidence, &reference, &[])
+        full_native_boundaries(bytes, limits, evidence, &reference, &[], None)
     } else {
         (Vec::new(), Vec::new())
     };
@@ -598,6 +621,15 @@ pub(crate) fn read_budget_and_account(
 ) -> Budgeted {
     let location = std::panic::Location::caller();
     #[cfg(feature = "test-support")]
+    let mode = crate::without_qspec_instrumentation(|| {
+        let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
+        assert!(
+            matches!(mode.as_str(), "sample" | "full"),
+            "unknown caller read-proof mode"
+        );
+        mode
+    });
+    #[cfg(feature = "test-support")]
     let seed = budget.read_proof_snapshot();
     #[cfg(feature = "test-support")]
     let reference = crate::without_qspec_instrumentation(|| {
@@ -635,9 +667,10 @@ pub(crate) fn read_budget_and_account(
         "read storage remains separate from native logical storage"
     );
     #[cfg(feature = "test-support")]
-    crate::without_qspec_instrumentation(|| {
+    let (native_events, boundary_results) = crate::without_qspec_instrumentation(|| {
         std::thread::scope(|scope| {
             let original = result.as_ref().expect("original caller read ran");
+            let full = mode == "full";
             let final_budget = &*budget;
             scope
                 .spawn(move || {
@@ -661,10 +694,23 @@ pub(crate) fn read_budget_and_account(
                         "entire repeated caller state"
                     );
                     drop_without_request::<DriverCounter>(repeated);
+                    let evidence_rows = if full {
+                        full_native_boundaries(
+                            bytes,
+                            limits,
+                            evidence,
+                            &reference,
+                            &[],
+                            Some(&seed),
+                        )
+                    } else {
+                        (Vec::new(), Vec::new())
+                    };
                     drop_without_request::<DriverCounter>(reference);
+                    evidence_rows
                 })
                 .join()
-                .expect("exact caller-state repeat proof");
+                .expect("exact caller-state repeat proof")
         })
     });
     crate::without_qspec_instrumentation(|| {
@@ -677,6 +723,23 @@ pub(crate) fn read_budget_and_account(
             "test":std::env::var("IR1404_ORIGINAL_TEST_NAME").unwrap_or_else(|_| std::thread::current().name().unwrap_or("unnamed").to_owned()),"entry":"caller-budget",
             "input_bytes":bytes.len(),"work_limit":budget.work_limit(),
             "storage_limit":budget.read_storage_limit(),"requested":requested});
+        #[cfg(feature = "test-support")]
+        let row = {
+            let mut row = row;
+            row["mode"] = mode.into();
+            row["read_storage"] = requested.into();
+            row["prior_read_storage"] = before.into();
+            row["prior_logical_storage"] = logical_before.into();
+            row["snapshot_replay"] = "exact-entire-caller-state".into();
+            // Move/destroy every worker-owned evidence allocation only while
+            // caller capture is suspended, including sample's empty vectors.
+            row["native_budget_events"] = native_events.into();
+            row["boundary_results"] = boundary_results.into();
+            if row["mode"] == "full" {
+                row["proof_schema"] = "native-budget-events/v1".into();
+            }
+            row
+        };
         let mut output = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

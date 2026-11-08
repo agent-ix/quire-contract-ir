@@ -122,10 +122,12 @@ def check(export, root):
     seeded_probes = count(wrapper, "measure_seeded")
     caller_budget = count(wrapper, "read_budget_and_account")
     calibration = count(wrapper, "caller_budget_observation_preserves_prior_charges_and_outer_capture")
-    if measured_plain == 0 or probes == 0:
+    if measured_plain + caller_budget == 0 or probes + seeded_probes == 0:
         raise CensusError("the original-driver corpus did not execute measured read boundaries")
     if plain != measured_plain:
         raise CensusError(f"unaccounted plain entries: production {plain}, measured boundaries {measured_plain}")
+    if seeded_probes < 6 * caller_budget:
+        raise CensusError("caller-budget entries lack first/repeated checked OFF/count/record snapshot reads")
     expected_budgeted = plain + probes + seeded_probes + caller_budget + calibration
     if budgeted != expected_budgeted:
         raise CensusError(f"unaccounted budgeted entries: production {budgeted}, expected {expected_budgeted} "
@@ -251,6 +253,8 @@ def check_run(export, root, report, records, mode):
     caller = [record for record in records if record.get("entry") == "caller-budget"]
     if len(plain) != result["measured_plain"] or len(caller) != result["caller_budget"]:
         raise CensusError("temporary original-site records do not match compiler boundary counts")
+    if any(record.get("snapshot_replay") != "exact-entire-caller-state" for record in caller):
+        raise CensusError("caller-budget capture lacks exact entire-state replay evidence")
     if any(record.get("mode") != mode for record in plain):
         raise CensusError("mixed or missing proof modes in original-driver records")
     if any(not record.get("driver") or not record.get("line") or not record.get("test")

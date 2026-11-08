@@ -22,6 +22,7 @@ import coverage_census as census
 LOCKED = ["flock", "--no-fork", "/tmp/titan-cargo.lock", "nice", "-n", "10", "ionice", "-c", "3"]
 CONTROL_CASES = {
     "wrapped_function_item_has_no_unaccounted_entry": True,
+    "qspec_read_proof::caller_budget_tests::caller_budget_observation_preserves_prior_charges_and_outer_capture": True,
     "unwrapped_type_alias_before_trusted_read_must_fail_census": False,
     "unwrapped_function_item_after_trusted_read_must_fail_census": False,
     "unwrapped_shared_helper_before_trusted_read_must_fail_census": False,
