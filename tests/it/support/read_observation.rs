@@ -73,7 +73,18 @@ pub(crate) fn accounted(label: &str, observation: &Observation) {
         CheckedPackageV2BudgetedReadResult::Exhausted(_) => "exhausted",
         CheckedPackageV2BudgetedReadResult::CatalogUnavailable(_) => "catalog unavailable",
     };
-    assert_eq!(observation.requested,observation.budget.read_storage_consumed(),"{label}: actual during-call allocation requests equal admitted read storage; outcome {outcome}; first unpaid {:?}/{:?}",observation.budget.first_unpaid_read_storage(),observation.budget.first_unpaid_locus());
+    let refusal_context = match &observation.result {
+        CheckedPackageV2BudgetedReadResult::Refused(refusal) => Some((
+            &refusal.code,
+            &refusal.cause,
+            refusal
+                .loci
+                .first()
+                .and_then(|locus| locus.path.as_ref().map(|path| path.as_str())),
+        )),
+        _ => None,
+    };
+    assert_eq!(observation.requested,observation.budget.read_storage_consumed(),"{label}: actual during-call allocation requests equal admitted read storage; outcome {outcome}; first unpaid {:?}/{:?}; refusal context {refusal_context:?}",observation.budget.first_unpaid_read_storage(),observation.budget.first_unpaid_locus());
 }
 
 /// Destruction is measured separately from AC-511's during-call total. A
