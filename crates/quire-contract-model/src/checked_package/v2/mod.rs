@@ -1949,16 +1949,21 @@ impl CheckedPackageV2 {
 }
 
 /// Checks the contract version and nonempty package name.
-fn check_package_header(wire: &RawCheckedPackageWireV2) -> Result<(), ValidationFailure> {
+fn check_package_header(
+    wire: &RawCheckedPackageWireV2,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
     if PackageWireTag::from_wire(&wire.contract_version) != Some(PackageWireTag::ContractVersion) {
         return Err(ValidationFailure::unknown_contract_version(
             &wire.contract_version,
         ));
     }
     if !is_nonempty(&wire.name) {
-        return Err(refuse(
-            CheckedPackageRefusalCode::MalformedWire,
-            member_pointer(&["name"]),
+        let path = stage_storage::Path::root().key("name");
+        return Err(stage_storage::refuse(
+            meter,
+            &stage_storage::Site::new(PackageReadStage::WireChecks, 0, "wire", path),
+            stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
         ));
     }
     Ok(())
@@ -1993,7 +1998,7 @@ fn validate(
     evidence: &CheckedPackageEvidence,
     budget: &mut NativeJoinBudget,
 ) -> Result<ValidatedPackage, ValidationFailure> {
-    check_package_header(wire)?;
+    check_package_header(wire, &mut WorkMeter::over(budget))?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
     let flat_kinds = flat_wire::check(wire, bodies, budget)?;
@@ -6182,6 +6187,94 @@ mod namespace_fault_storage_tests {
         assert_eq!(run(&mut repeated), (expected, required));
         assert_eq!(repeated.read_storage_consumed(), 2 * required);
         assert_eq!(repeated.consumed().work, 2 * expected_work);
+        assert_eq!(repeated.first_unpaid_read_storage(), None);
+    }
+}
+
+#[cfg(test)]
+mod header_fault_storage_tests {
+    use super::monitor_plan::model_document_test_fixture as fixture;
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-451", "TC-472", "FR-038-AC-510", "FR-038-AC-511")]
+    #[test]
+    fn empty_name_diagnostic_is_paid_before_allocation_and_keeps_header_order() {
+        let mut value = fixture::v2_all_families();
+        value["name"] = serde_json::json!("");
+        let bytes = fixture::canonical(&value);
+        let document = Arc::new(quire_canonical::read(&bytes, u64::MAX).unwrap());
+        let mut setup = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let (mut wire, _) = intake::decode_borrowed_wire(&document, &mut setup).unwrap();
+
+        let version = std::mem::replace(&mut wire.contract_version, "unknown".into());
+        let mut priority = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        assert!(
+            matches!(check_package_header(&wire, &mut WorkMeter::over(&mut priority)),
+            Err(ValidationFailure::Refused(refusal))
+                if refusal.code == CheckedPackageRefusalCode::UnknownContractVersion)
+        );
+        wire.contract_version = version;
+
+        let run = |budget: &mut NativeJoinBudget| {
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                result = Some(check_package_header(&wire, &mut WorkMeter::over(budget)));
+            })
+            .bytes_total;
+            (result.unwrap(), allocated)
+        };
+        let mut ample = NativeJoinBudget::new(0, 0).with_read_storage_limit(u64::MAX);
+        let (expected, allocated) = run(&mut ample);
+        let Err(ValidationFailure::Refused(refusal)) = &expected else {
+            panic!("empty package name must refuse");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(refusal.cause, None);
+        assert_eq!(refusal.locus, None);
+        assert_eq!(refusal.primary_path().unwrap().as_str(), "/name");
+        let required = ample.read_storage_consumed();
+        assert_eq!(allocated, required);
+        assert_eq!(ample.consumed().work, 0);
+        assert_eq!(
+            ample.take_paid(),
+            Some(CheckedPackagePendingOutcome::Refused(
+                CheckedPackageRefusalCode::MalformedWire
+            ))
+        );
+        let mut exact = NativeJoinBudget::new(0, 0).with_read_storage_limit(required);
+        assert_eq!(run(&mut exact), (expected.clone(), required));
+        for limit in [0, required - 1] {
+            let mut short = NativeJoinBudget::new(0, 0).with_read_storage_limit(limit);
+            assert!(matches!(
+                run(&mut short),
+                (Err(ValidationFailure::Budget(_)), 0)
+            ));
+            assert_eq!(short.read_storage_consumed(), 0);
+            assert_eq!(
+                short.first_unpaid_read_storage(),
+                Some(u128::from(required))
+            );
+            assert_eq!(
+                short.first_unpaid_locus(),
+                Some(NativeJoinLocus {
+                    source: NativeJoinLocusSource::PackageRead(PackageReadStage::WireChecks, 0),
+                    form: "diagnostic",
+                })
+            );
+            assert_eq!(
+                short.take_pending(),
+                Some(CheckedPackagePendingOutcome::Refused(
+                    CheckedPackageRefusalCode::MalformedWire
+                ))
+            );
+            assert_eq!(short.consumed().work, 0);
+        }
+        let mut repeated = NativeJoinBudget::new(0, 0).with_read_storage_limit(2 * required);
+        assert_eq!(run(&mut repeated), (expected.clone(), required));
+        assert_eq!(run(&mut repeated), (expected, required));
+        assert_eq!(repeated.read_storage_consumed(), 2 * required);
+        assert_eq!(repeated.consumed().work, 0);
         assert_eq!(repeated.first_unpaid_read_storage(), None);
     }
 }
