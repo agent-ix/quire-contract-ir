@@ -1486,20 +1486,37 @@ fn nested_fold_and_reduce_binders_resolve_only_the_single_final_step() {
     for identity in ["quire.op.collection.fold", "quire.op.collection.reduce"] {
         let (mut package, _, boolean, integer, _, _) = fixture();
         let set = "operand/type/set";
-        add_node(&mut package, set, "composite_type", "set", set,
-            json!({"term":"aggregate","members":[reference(&integer)]}));
+        add_node(
+            &mut package,
+            set,
+            "composite_type",
+            "set",
+            set,
+            json!({"term":"aggregate","members":[reference(&integer)]}),
+        );
         let step = json!({"term":"literal","type":node_id(&integer),
             "value_kind":"integer","value":"1"});
         let inner = json!({"term":"binding","name":"x","value":step});
-        let mut arguments = vec![reference(set), json!({"term":"binding","name":"acc",
-            "value":{"term":"aggregate","members":[inner.clone()]}})];
+        let mut arguments = vec![
+            reference(set),
+            json!({"term":"binding","name":"acc",
+            "value":{"term":"aggregate","members":[inner.clone()]}}),
+        ];
         if identity.ends_with("fold") {
             arguments.push(step.clone());
         }
-        let at = append_application(&mut package, "collection", "collection",
-            operation(identity, Value::Null,
-                json!({"kind":"type_argument","declaration":node_id(&integer)})),
-            &integer, arguments);
+        let at = append_application(
+            &mut package,
+            "collection",
+            "collection",
+            operation(
+                identity,
+                Value::Null,
+                json!({"kind":"type_argument","declaration":node_id(&integer)}),
+            ),
+            &integer,
+            arguments,
+        );
         admits(&package);
         let path = format!("/semantic_graph/nodes/{at}");
         for members in [
@@ -1512,10 +1529,15 @@ fn nested_fold_and_reduce_binders_resolve_only_the_single_final_step() {
                 {"term":"aggregate","members":[inner.clone()]}}]),
         ] {
             let mut invalid = package.clone();
-            invalid["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"] = members;
+            invalid["semantic_graph"]["nodes"][at]["body"]["arguments"][1]["value"]["members"] =
+                members;
             settle(&mut invalid);
-            refuses(&invalid, CheckedPackageRefusalCode::IllTyped,
-                CheckedPackageRefusalCause::OperatorIneligible, &path);
+            refuses(
+                &invalid,
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::OperatorIneligible,
+                &path,
+            );
         }
     }
 }
@@ -1531,8 +1553,15 @@ fn genuine_integer_fold_with_both_authored_binders_is_admitted() {
     else {
         panic!("genuine Integer fold with accumulator and element binders must admit");
     };
-    assert_eq!(package.graph().nodes.iter().filter(|node|
-        node.semantic_form.as_ref() == "collection").count(), 1);
+    assert_eq!(
+        package
+            .graph()
+            .nodes
+            .iter()
+            .filter(|node| node.semantic_form.as_ref() == "collection")
+            .count(),
+        1
+    );
 }
 
 #[trace("TC-048", "TC-229", "FR-038-AC-247", "FR-038-AC-248", "FR-038-AC-305")]

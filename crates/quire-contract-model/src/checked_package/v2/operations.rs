@@ -2374,6 +2374,22 @@ fn check_operands(
                 }
             }
             OperationConstraintKind::BoundIsMember => {
+                if matches!(
+                    operation.identity.as_ref(),
+                    "quire.op.collection.fold" | "quire.op.collection.reduce"
+                ) {
+                    for position in &indices {
+                        if matches!(typed_arguments.get(*position),
+                            Some(CheckedTerm::Binding { value, .. })
+                                if matches!(value.as_ref(), CheckedTerm::Aggregate { .. }))
+                        {
+                            // Charge the two additional edges through the
+                            // singleton aggregate and its element binding.
+                            work.meter
+                                .charge(2, || node_pointer(application.position))?;
+                        }
+                    }
+                }
                 let member = member_declaration(operation);
                 let held = member.as_ref().is_some_and(|member| {
                     indices.iter().all(|position| {
