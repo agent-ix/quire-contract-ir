@@ -145,3 +145,19 @@ bindings:
 ## Disposition preparation
 
 Fix source inspected at committed 3c30a537. FND-002 moves length-only work reservation before split_once. FND-003 prepays outer node, dependency text, Box and occurrence storage and has allocation-counter regression tests. FND-001 now prepays identity comparisons but introduces FND-005 duplication. FND-004 requires final standalone formatting evidence. No final dispositions or native qualification are asserted until the complete exact-head fix/test handoff.
+
+## Final disposition evidence (round 1)
+
+Final disposition round 1 examines the frozen source at 14d0804dbec41811cc60f1cadf7a38766242742d. Both workspace and standalone conformance formatting passed (fix-format.log exit 0). Workspace locked all-targets check with conformance-cli, 31 monitor-focused tests (31 passed, zero failed/ignored), and workspace all-targets conformance-cli Clippy with warnings denied passed (fix-focused.log exit 0). Static final diff inspection found formatting changes only after the prior source fix. No native build was duplicated. This evidence supersedes earlier queued-check statements in this artifact. The changed IR receipt scope is review-clear and suitable for the user merge request; no aggregate or whole-ecosystem premerge gate is required by this disposition. Genuine QSL lane qualification remains externally blocked in the published QSL compiler, owned by draco/terra; it is not an IR production compilation failure and no QSL workaround or action was taken. No full FR-361, layout-context AC-3/non-authority AC-4, complete AC-1/2/per-charge AC-4, or final quire-integration AC-6 qualification is claimed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Prepaid identity traversal covers package/name/dependency text and nested components before shared equality; allocation tests pass. |
+| FND-002 | fixed | Length-only preflight now precedes separator search and numeric parsing; zero/one-below allocation controls pass. |
+| FND-003 | fixed | Full outer node, Dependency text, Box and occurrence floor is prepaid; zero/one-below compact refusal allocation tests pass. |
+| FND-004 | fixed | Standalone manifest formatting passed; final source was independently inspected. |
+| FND-005 | fixed | Structural equality delegates to the existing cmp_growing seam; only budget traversal remains local. |
+
+Current IR-scope verdict: **PASS**. All five code-review findings are fixed; no unresolved changed-IR defect remains.
