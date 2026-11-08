@@ -462,7 +462,10 @@ pub(super) fn check_wire(
                 budget,
                 site,
             )
-            .map_err(|_| malformed(body_at.clone(), budget))?;
+            .map_err(|failure| match failure {
+                ValidationFailure::Refused(_) => malformed(body_at, budget),
+                other => other,
+            })?;
             reference(b[0].0, &b[0].1, budget)?;
             path(b[1].0, &b[1].1, budget, site)?;
             let rows = aggregate(b[2].0, &b[2].1, budget, site)?;
@@ -514,7 +517,10 @@ pub(super) fn check_wire(
                         budget,
                         site,
                     )
-                    .map_err(|_| malformed(body_at.clone(), budget))?;
+                    .map_err(|failure| match failure {
+                        ValidationFailure::Refused(_) => malformed(body_at, budget),
+                        other => other,
+                    })?;
                     reference(b[1].0, &b[1].1, budget)?;
                     reference(b[2].0, &b[2].1, budget)?;
                     reference(b[3].0, &b[3].1, budget)?;
@@ -531,7 +537,10 @@ pub(super) fn check_wire(
                         budget,
                         site,
                     )
-                    .map_err(|_| malformed(body_at.clone(), budget))?;
+                    .map_err(|failure| match failure {
+                        ValidationFailure::Refused(_) => malformed(body_at, budget),
+                        other => other,
+                    })?;
                     reference(b[1].0, &b[1].1, budget)?;
                     text(b[2].0, &b[2].1, budget)?;
                     magnitude(b[3].0, "quantity", &b[3].1, budget)?;
@@ -673,8 +682,12 @@ pub(super) fn check_wire(
                     reference(b[1].0, &b[1].1, budget)?;
                     reference(b[2].0, &b[2].1, budget)?;
                     references(b[3].0, &b[3].1, budget, site)?;
-                    word(b[4].0, &["lt", "le", "eq", "ge", "gt"], &b[4].1, budget)
-                        .map_err(|_| malformed(body_at.clone(), budget))?;
+                    word(b[4].0, &["lt", "le", "eq", "ge", "gt"], &b[4].1, budget).map_err(
+                        |failure| match failure {
+                            ValidationFailure::Refused(_) => malformed(body_at, budget),
+                            other => other,
+                        },
+                    )?;
                     magnitude(b[5].0, "quantity", &b[5].1, budget)?;
                 }
                 "parameter" => {
@@ -687,8 +700,12 @@ pub(super) fn check_wire(
                     )?;
                     reference(b[1].0, &b[1].1, budget)?;
                     text(b[2].0, &b[2].1, budget)?;
-                    word(b[3].0, &["lt", "le", "eq", "ge", "gt"], &b[3].1, budget)
-                        .map_err(|_| malformed(body_at.clone(), budget))?;
+                    word(b[3].0, &["lt", "le", "eq", "ge", "gt"], &b[3].1, budget).map_err(
+                        |failure| match failure {
+                            ValidationFailure::Refused(_) => malformed(body_at, budget),
+                            other => other,
+                        },
+                    )?;
                     magnitude(b[4].0, "quantity", &b[4].1, budget)?;
                 }
                 _ => return Err(malformed(kind_at.key("value"), budget)),
@@ -3347,7 +3364,7 @@ mod tests {
     use ix_trace_rs::trace;
     use serde_json::{json, Value};
     use std::collections::BTreeSet;
-    use std::path::Path;
+    use std::path::Path as FilePath;
 
     /// Trace: FR-038-AC-323, TC-367.
     #[trace("TC-367", "FR-038-AC-323")]
@@ -3407,8 +3424,8 @@ mod tests {
         let Ok(root) = std::env::var("QUIRE_SPECIFICATION_DIR") else {
             return;
         };
-        let path =
-            Path::new(&root).join("proposals/checked-package-v2/timed-slot-selector-vectors.json");
+        let path = FilePath::new(&root)
+            .join("proposals/checked-package-v2/timed-slot-selector-vectors.json");
         let bytes = std::fs::read(path).expect("published timed slot vectors");
         let vectors: Value = serde_json::from_slice(&bytes).expect("published vector JSON");
         let cases = vectors["cases"].as_array().expect("published slot cases");
