@@ -2734,21 +2734,23 @@ fn selected_union_members<'m>(
     }
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(units(cases.len()))?;
-    let mut members = Vec::with_capacity(cases.len());
+    let mut members = budget.vec(cases.len(), "union_members")?;
     for (name, case) in cases {
         let payload = if let Some(payload_type) = &case.payload {
             let Some(member_type) = owner.package.element_type(payload_type) else {
                 return Ok(None);
             };
             let id = member_type
-                .node_id(&owner.package.checked_package)
+                .node_id_in(&owner.package.checked_package, &mut budget)?
                 .ok_or_else(|| {
                     ValidationFailure::refused(
                         CheckedPackageRefusalCode::InvalidSemanticGraph,
                         budget.row(),
                     )
                 })?;
-            vec![id]
+            let mut payload = budget.vec(1, "union_payload")?;
+            payload.push(id);
+            payload
         } else {
             Vec::new()
         };
@@ -3513,7 +3515,11 @@ fn check_tuple_position(
     }
     let mut budget = Budget::new(meter, owner.package.root, owner.package.bytes);
     budget.charge(1)?;
-    let Some(expected_type) = position_type.node_id(&application.node.node_id.package) else {
+    let Some(expected_type) = position_type.node_id_in(
+        &application.node.node_id.package,
+        &mut Budget::new(meter, owner.package.root, owner.package.bytes),
+    )?
+    else {
         return Ok(Some(ValidationFailure::refused(
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             application.node_id(),
@@ -3674,7 +3680,11 @@ fn check_relationship_member(
     } else {
         member_type
     };
-    let Some(expected_id) = expected.node_id(&application.node.node_id.package) else {
+    let Some(expected_id) = expected.node_id_in(
+        &application.node.node_id.package,
+        &mut Budget::new(meter, owner.package.root, owner.package.bytes),
+    )?
+    else {
         return ineligible(application.body(&["result_type"]));
     };
     let result = graph
@@ -3787,7 +3797,7 @@ fn check_conforming_reference(
             ModelRefusal::ineligible(),
         )))
     };
-    let mut recovered = Vec::with_capacity(2);
+    let mut recovered = meter.vec(2)?;
     let Some(arguments) = admitted_arguments(application, graph) else {
         return Ok(None);
     };
@@ -4112,8 +4122,12 @@ fn check_model_member(
             if object.interface {
                 return ineligible(member_at("name"));
             }
-            let receiver = MemberType::Reference(declaring.node_id.clone());
-            let Some(receiver_id) = receiver.node_id(&application.node.node_id.package) else {
+            let receiver = MemberType::Reference(meter.clone_id(&declaring.node_id)?);
+            let Some(receiver_id) = receiver.node_id_in(
+                &application.node.node_id.package,
+                &mut Budget::new(meter, owner.package.root, owner.package.bytes),
+            )?
+            else {
                 return ineligible(argument_at(0));
             };
             if !same_key(
@@ -4131,7 +4145,11 @@ fn check_model_member(
                 let Some(expected) = owner.package.slot_type(parameter) else {
                     return ineligible(member_at("name"));
                 };
-                let Some(expected_id) = expected.node_id(&application.node.node_id.package) else {
+                let Some(expected_id) = expected.node_id_in(
+                    &application.node.node_id.package,
+                    &mut Budget::new(meter, owner.package.root, owner.package.bytes),
+                )?
+                else {
                     return ineligible(argument_at(position));
                 };
                 if !conforms_to_type(
@@ -4161,7 +4179,11 @@ fn check_model_member(
             CheckedTerm::Application { result_type, .. } => Some(result_type),
             _ => None,
         });
-    let Some(member_id) = member_type.node_id(&application.node.node_id.package) else {
+    let Some(member_id) = member_type.node_id_in(
+        &application.node.node_id.package,
+        &mut Budget::new(meter, owner.package.root, owner.package.bytes),
+    )?
+    else {
         return ineligible(application.body(&["result_type"]));
     };
     if !same_key(

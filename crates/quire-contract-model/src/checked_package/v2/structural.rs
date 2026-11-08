@@ -1374,7 +1374,11 @@ pub(super) fn validate_selected_type_bounds(
                 ValueBounds::Rational(expected, _) => MemberType::RationalRange(*expected),
                 ValueBounds::Text(_) => continue,
             };
-            let Some(id) = member_type.node_id(&model.checked_package) else {
+            let Some(id) = member_type.node_id_in(
+                &model.checked_package,
+                &mut super::model_members::Budget::new(meter, model.root, model.bytes),
+            )?
+            else {
                 continue;
             };
             // The bounds, the id and the `Arc` block holding it.
