@@ -146,8 +146,7 @@ impl FrameBody {
                     scope,
                 } => {
                     let declaration = meter.clone_id(declaration)?;
-                    let mut copied_name = meter.string(name.len())?;
-                    copied_name.push_str(name);
+                    let copied_name = meter.boxed_str(name)?;
                     CheckedFrameModification::Field {
                         declaration,
                         name: copied_name,
@@ -165,8 +164,7 @@ impl FrameBody {
             let copied = match entry {
                 DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
                 DeletesScopedEntry::Parameter { name } => {
-                    let mut copied_name = meter.string(name.len())?;
-                    copied_name.push_str(name);
+                    let copied_name = meter.boxed_str(name)?;
                     CheckedScopedDeletion::Parameter { name: copied_name }
                 }
             };
@@ -181,58 +179,6 @@ impl FrameBody {
         for id in &self.deletes {
             let copied = meter.clone_id(id)?;
             meter.push(&mut deletes, copied)?;
-        }
-        Ok(CheckedTerm::Frame {
-            modifies,
-            creates,
-            deletes,
-            deletes_scoped,
-        })
-    }
-
-    /// Copies the retained typed representation using the same caller meter.
-    pub(super) fn checked_term(
-        &self,
-        meter: &mut WorkMeter,
-    ) -> Result<CheckedTerm, ValidationFailure> {
-        let mut modifies = meter.vec(self.modifies.len())?;
-        for entry in &self.modifies {
-            modifies.push(match entry {
-                ModifiesEntry::Relationship { declaration } => {
-                    CheckedFrameModification::Relationship {
-                        declaration: meter.clone_id(declaration)?,
-                    }
-                }
-                ModifiesEntry::Field {
-                    declaration,
-                    name,
-                    scope,
-                } => CheckedFrameModification::Field {
-                    declaration: meter.clone_id(declaration)?,
-                    name: meter.boxed_str(name)?,
-                    scope: match scope {
-                        FieldScope::EveryObject => CheckedFieldScope::EveryObject,
-                        FieldScope::Receiver => CheckedFieldScope::Receiver,
-                    },
-                },
-            });
-        }
-        let mut creates = meter.vec(self.creates.len())?;
-        for id in &self.creates {
-            creates.push(meter.clone_id(id)?);
-        }
-        let mut deletes = meter.vec(self.deletes.len())?;
-        for id in &self.deletes {
-            deletes.push(meter.clone_id(id)?);
-        }
-        let mut deletes_scoped = meter.vec(self.deletes_scoped.len())?;
-        for entry in &self.deletes_scoped {
-            deletes_scoped.push(match entry {
-                DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
-                DeletesScopedEntry::Parameter { name } => CheckedScopedDeletion::Parameter {
-                    name: meter.boxed_str(name)?,
-                },
-            });
         }
         Ok(CheckedTerm::Frame {
             modifies,
@@ -897,7 +843,7 @@ mod document_storage_tests {
         assert_eq!(
             term,
             frame
-                .into_checked_term(&mut WorkMeter::new(u64::MAX))
+                .checked_term(&mut WorkMeter::new(u64::MAX))
                 .unwrap()
         );
         let required = budget.read_storage_consumed();
