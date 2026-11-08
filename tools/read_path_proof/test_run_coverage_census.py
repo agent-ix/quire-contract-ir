@@ -61,6 +61,22 @@ class ArtifactCustody(unittest.TestCase):
             self.assertIn("FAILED", (output / "run.log").read_text())
             self.assertEqual(records, [])
 
+    def test_timeout_records_incomplete_and_terminates_only_owned_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "slow-original"
+            binary.write_text("#!/usr/bin/python3\nimport time\nprint('test original::slow ... ',flush=True)\ntime.sleep(60)\n")
+            binary.chmod(0o700)
+            args = SimpleNamespace(out=root,mode="sample",repo=root,test_timeout_seconds=0.05)
+            with patch.object(runner,"LOCKED",[]), patch.object(runner,"validate_snapshot"), patch.object(runner,"require_space"):
+                output,report,_,_ = runner.execute_one(args,binary,{"source_head":"unit-artifact-control"},{},
+                                                     "original::slow",0,preserve_failure=True)
+            self.assertTrue(report["timed_out"])
+            self.assertNotEqual(report["exit_code"],0)
+            self.assertFalse(report["passed_tests"])
+            self.assertTrue((output / "timeout.json").exists())
+            self.assertTrue(any("timeout; incomplete" in error for error in report["evidence_errors"]))
+
     def test_config_never_copies_registry_credentials(self):
         result = runner.safe_environment({"CARGO_BUILD_JOBS": "2", "CARGO_REGISTRIES_PRIVATE_TOKEN": "secret"})
         self.assertEqual(result, {"CARGO_BUILD_JOBS": "2"})

@@ -9,6 +9,7 @@ This tool neither installs toolchains nor changes manifests or global config.
 import argparse
 import gzip
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -266,8 +267,22 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
     with (output / "run.log").open("w") as log_output:
         process = subprocess.Popen(command, cwd=args.repo, env=run_env,
                                    stdout=log_output, stderr=subprocess.STDOUT)
-        code = process.wait()
+        timed_out = False
+        timeout = getattr(args, "test_timeout_seconds", None)
+        try:
+            code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            process.terminate()
+            try:
+                code = process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                code = process.wait()
         pid = process.pid
+    if timed_out:
+        write_json(output / "timeout.json", {"pid":pid,"test":name,"timeout_seconds":timeout,
+                   "classification":"timeout/incomplete; no pass or full-proof credit"})
     validate_snapshot(args.repo, config)
     require_space(output, "after exact original test process")
     parse_errors = []
@@ -278,9 +293,12 @@ def execute_one(args, binary, config, env, name, index, *, preserve_failure=Fals
         parse_errors.append(str(error))
     report = {"intended_tests": [name], **outcomes, "exit_code": code, "test_threads": 1,
               "command": command, "pid": pid, "elapsed_seconds": time.monotonic() - start,
+              "timeout_seconds": timeout, "timed_out": timed_out,
               "source_head": config["source_head"]}
     write_json(output / "test-report.json", report)
     errors = list(parse_errors)
+    if timed_out:
+        errors.append(f"original test exceeded recorded {timeout}s timeout; incomplete")
     if code or outcomes["passed_tests"] != [name] or outcomes["failed_tests"] or outcomes["ignored_tests"]:
         errors.append("the intended original-driver test did not execute successfully once")
     raw = sorted(profiles.glob("*.profraw"))
@@ -366,7 +384,15 @@ def main():
     parser.add_argument("--corpus", choices=["qspec", "tc048"], default="qspec")
     parser.add_argument("--features", action="append", default=[])
     parser.add_argument("--qspec-dir", type=Path, required=True)
+    parser.add_argument("--test-timeout-seconds", type=float,
+                        help="per original process; sample defaults to120s, full requires an adequate explicit value")
     args = parser.parse_args()
+    if args.test_timeout_seconds is None:
+        if args.mode == "full":
+            parser.error("full mode requires an explicit adequate --test-timeout-seconds")
+        args.test_timeout_seconds = 120.0
+    if not math.isfinite(args.test_timeout_seconds) or args.test_timeout_seconds <= 0:
+        parser.error("test timeout must be positive")
     args.target_dir = owned_target(args.repo, args.target_dir)
     for field in ["repo", "out", "target_dir", "toolchain_bin", "llvm_bin", "qspec_dir"]:
         setattr(args, field, getattr(args, field).resolve())
@@ -400,6 +426,7 @@ def main():
         env["PATH"] = str(args.toolchain_bin) + os.pathsep + env["PATH"]
         config = {"source_head": git(args.repo, "rev-parse", "HEAD"), "rustc": rustc, "llvm": llvm,
                   "mode": args.mode, "controls": args.controls, "corpus": args.corpus, "features": args.features,
+                  "test_timeout_seconds":args.test_timeout_seconds,
                   "qspec": {"path": str(args.qspec_dir), "head": git(args.qspec_dir, "rev-parse", "HEAD")},
                   "environment": safe_environment(env)}
         target = ("read_entry_census_controls" if args.controls else
