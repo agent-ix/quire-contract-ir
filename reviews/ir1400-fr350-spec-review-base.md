@@ -1397,3 +1397,17 @@ scope:
     \ stop the\n  projection with the owner's typed refusal rather than a converted\
     \ value.\n"
 ```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1: 0d80b5112ad700f14538314f11cc3d678b3adbe3 explicitly excludes both aggregate sample maps from TL construction, correspondence and projection entry charges while preserving whole-request identity binding. Published QSL call.rs encodes both maps; integration projection charges only Boolean maps and join invokes the original matcher. |
+
+## Disposition round 1 verdict
+
+**PASS**. All real findings are fixed; no open or new findings. Only the aggregate-map disposition fix was re-examined. Original findings and original review verdict remain unchanged as historical evidence.
+
+### Fixed excerpt
+
+| `positions[].aggregate_samples`, `positions[].instance_aggregate_samples` | excluded from TL construction and the correspondence record: not Boolean valuation inputs, not read or charged as entries by projection; retained in the original request identity binding at join. This exclusion does not admit aggregate atoms: the existing non-`holds` formula refusal still applies. |
