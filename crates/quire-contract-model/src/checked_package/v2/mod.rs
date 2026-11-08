@@ -82,6 +82,13 @@ mod structural;
 mod temporal;
 mod temporal_binding;
 mod temporal_clause_names;
+// The node views are consumed as each validator moves off `serde_json::Value`.
+#[allow(dead_code)]
+mod term_view;
+#[allow(unused_imports)]
+pub(in crate::checked_package) use term_view::{
+    TermItems, TermMembers, TermNode, TermSubterm, TermSubterms, TermView,
+};
 mod timed_model;
 mod typed_terms;
 mod vocabulary;

@@ -19,7 +19,7 @@ const MINIMUM_CAPACITY: usize = 4;
 
 /// A charge site: the stage, the index its table names and its static form.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Site {
+pub(in crate::checked_package) struct Site {
     pub(super) stage: PackageReadStage,
     pub(super) index: usize,
     pub(super) form: &'static str,
@@ -225,14 +225,16 @@ pub(super) fn with_unmetered_walk<R>(walk: impl FnOnce(&mut WalkReservation<'_, 
 }
 
 /// The node ID the JSON value `value` holds as a V2 wire ID, or `None` when it
-/// is not one: an object of exactly a nonempty `package` string, a nonempty
-/// `path` of names and `{"node": i}` / `{"operand": k}` segments no larger than
-/// 2^53 - 1, and an `ordinal` no larger than 2^53 - 1. The ID's package, path
-/// and names are charged at `site` before each is allocated.
+/// is not one: an object of exactly a `package` string, a `path` of names and
+/// `{"node": i}` / `{"operand": k}` segments no larger than 2^53 - 1, and an
+/// `ordinal`. With `well_formed`, the package and path are also nonempty and
+/// the ordinal no larger than 2^53 - 1. The ID's package, path and names are
+/// charged at `site` before each is allocated.
 pub(super) fn node_id_from_value(
     budget: &mut NativeJoinBudget,
     site: Site,
     value: &serde_json::Value,
+    well_formed: bool,
 ) -> Result<Option<super::CheckedNodeId>, ValidationFailure> {
     use super::CheckedNodePathSegment as Segment;
     const MAXIMUM: u64 = 9_007_199_254_740_991;
@@ -246,7 +248,9 @@ pub(super) fn node_id_from_value(
     ) else {
         return Ok(None);
     };
-    if object.len() != 3 || package.is_empty() || path.is_empty() || ordinal > MAXIMUM {
+    if object.len() != 3
+        || (well_formed && (package.is_empty() || path.is_empty() || ordinal > MAXIMUM))
+    {
         return Ok(None);
     }
     // Check every segment before the first allocation.
@@ -297,7 +301,7 @@ pub(super) fn reference_target(
 ) -> Result<Option<super::CheckedNodeId>, ValidationFailure> {
     match super::CheckedTerm::view(term) {
         Some(super::CheckedTermView::Reference { target }) => {
-            node_id_from_value(budget, site, target)
+            node_id_from_value(budget, site, target, true)
         }
         _ => Ok(None),
     }
