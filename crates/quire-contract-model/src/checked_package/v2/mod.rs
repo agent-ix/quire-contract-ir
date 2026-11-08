@@ -1553,23 +1553,55 @@ impl CheckedPackageV2 {
         let document = budgeted_read::read_envelope(bytes, limits, budget)?;
         let document = budgeted_read::share_document(document, budget)?;
         let package = TermNode::from_ref(document.root());
+        let version_path = stage_storage::Path::root().key("contract_version");
         match package.get("contract_version").and_then(TermNode::as_str) {
             Some(version)
                 if PackageWireTag::from_wire(version) == Some(PackageWireTag::ContractVersion) => {}
             Some(version) => {
-                return Err(ValidationFailure::unknown_contract_version(version));
+                let mut meter = WorkMeter::over(budget);
+                let mut failure = stage_storage::refuse(
+                    &mut meter,
+                    &stage_storage::Site::new(
+                        PackageReadStage::WireDecode,
+                        0,
+                        "wire",
+                        version_path,
+                    ),
+                    stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::UnknownContractVersion,
+                        version_path,
+                    )
+                    .with_extra(version.len()),
+                );
+                if let ValidationFailure::Refused(ref mut refusal) = failure {
+                    refusal.contract_version = Some(version.into());
+                }
+                return Err(failure);
             }
             None => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    member_pointer(&["contract_version"]),
+                let mut meter = WorkMeter::over(budget);
+                return Err(stage_storage::refuse(
+                    &mut meter,
+                    &stage_storage::Site::new(
+                        PackageReadStage::WireDecode,
+                        0,
+                        "wire",
+                        version_path,
+                    ),
+                    stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        version_path,
+                    ),
                 ));
             }
         }
         if package.get("name").is_none() {
-            return Err(refuse(
-                CheckedPackageRefusalCode::MalformedWire,
-                member_pointer(&["name"]),
+            let path = stage_storage::Path::root().key("name");
+            let mut meter = WorkMeter::over(budget);
+            return Err(stage_storage::refuse(
+                &mut meter,
+                &stage_storage::Site::new(PackageReadStage::WireDecode, 0, "wire", path),
+                stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
             ));
         }
         let (mut wire, bodies) = intake::decode_borrowed_wire(&document, budget)
@@ -2041,12 +2073,8 @@ fn validate(
         dispatch_projection::validate_checked_term_data(
             data, wire, &kinds, &terms, &models, &mut meter,
         )?;
-    } else if kinds.contains(&CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)) {
-        return Err(ValidationFailure::refused_because(
-            CheckedPackageRefusalCode::InvalidPackage,
-            JsonPointer::root().key("checked_term_data"),
-            CheckedPackageRefusalCause::InvalidValue,
-        ));
+    } else {
+        require_probabilistic_sidecar(&kinds, &mut meter)?;
     }
     Ok(ValidatedPackage {
         kinds,
@@ -2058,6 +2086,28 @@ fn validate(
         lowering_facts,
         structural_keys,
     })
+}
+
+/// A probabilistic claim cannot silently lose its required sidecar rows.
+fn require_probabilistic_sidecar(
+    kinds: &[CheckedNodeKind],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    if !kinds.contains(&CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)) {
+        return Ok(());
+    }
+    let path = stage_storage::Path::root().key("checked_term_data");
+    Err(stage_storage::refuse(
+        meter,
+        &stage_storage::Site::new(
+            PackageReadStage::CheckedTermData,
+            0,
+            "checked_term_data",
+            path,
+        ),
+        stage_storage::Refusal::new(CheckedPackageRefusalCode::InvalidPackage, path)
+            .because(CheckedPackageRefusalCause::InvalidValue),
+    ))
 }
 
 /// What the lock stage admits: each selected domain package's declarations,
@@ -5848,6 +5898,56 @@ mod admitted_document_bridge_tests {
             matches!(decode_admitted_body(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),&handle,&[],0,&mut WorkMeter::new(u64::MAX)),
             Err(ValidationFailure::Refused(refusal)) if refusal.code==CheckedPackageRefusalCode::MalformedWire)
         );
+    }
+}
+
+#[cfg(test)]
+mod missing_claim_sidecar_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn missing_claim_sidecar_prepays_refusal_and_denies_before_allocation() {
+        let claim = [CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)];
+        let run = |kinds: &[CheckedNodeKind], limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                result = Some(require_probabilistic_sidecar(kinds, &mut meter));
+            });
+            (result.expect("ran"), measured.bytes_total, budget)
+        };
+        let (ordinary, allocated, budget) = run(&[], 0);
+        assert_eq!(ordinary, Ok(()));
+        assert_eq!((allocated, budget.read_storage_consumed()), (0, 0));
+        let (missing, allocated, budget) = run(&claim, u64::MAX);
+        let charged = budget.read_storage_consumed();
+        assert_eq!(allocated, charged);
+        assert!(matches!(&missing, Err(ValidationFailure::Refused(refusal))
+            if refusal.code == CheckedPackageRefusalCode::InvalidPackage
+                && refusal.cause == Some(CheckedPackageRefusalCause::InvalidValue)
+                && refusal.primary_path().is_some_and(|path| path.as_str() == "/checked_term_data")));
+        let (exact, allocated, budget) = run(&claim, charged);
+        assert_eq!(exact, missing);
+        assert_eq!(allocated, budget.read_storage_consumed());
+        let (short, allocated, budget) = run(&claim, charged - 1);
+        assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+        assert_eq!((allocated, budget.read_storage_consumed()), (0, 0));
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some(u128::from(charged))
+        );
+        assert_eq!(
+            budget.first_unpaid_locus(),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::CheckedTermData, 0),
+                form: "diagnostic",
+            })
+        );
+        assert_eq!(budget.consumed().storage, 0);
+        assert_eq!(budget.consumed().work, 0);
     }
 }
 
