@@ -667,24 +667,20 @@ fn assert_native_denial(
         "configured_bound":bound,"locus":native_event_json(&event)["locus"],"entire_repeat_budget_equal":true})
 }
 
-/// These endpoints are selected from actual events, never inferred from byte
-/// amounts or a fixed number of stages. Designated growth cases additionally
-/// supply source-grounded exhaustive classes at their original provider site.
+/// The sufficient-budget phase of full proof, with all derived views enabled
+/// explicitly. It never consults a process mode and makes no one-below claim.
 #[cfg(feature = "test-support")]
-pub(crate) fn full_native_boundaries(
+pub(crate) fn full_native_reference(
     bytes: &[u8],
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
     reference: &Observation,
-    exhaustive_classes: &[&str],
     seed: Option<&quire_contract_model::NativeJoinBudget>,
 ) -> (
-    Vec<serde_json::Value>,
-    Vec<serde_json::Value>,
+    quire_contract_model::NativeJoinBudget,
+    Vec<quire_contract_model::NativeBudgetEvent>,
     serde_json::Value,
 ) {
-    use quire_contract_model::{NativeBudgetResource as Resource, NativeJoinLocusSource};
-    use std::collections::{BTreeMap, BTreeSet};
     let unlimited_seed =
         seed.map_or_else(quire_contract_model::NativeJoinBudget::unlimited, |seed| {
             seed.read_proof_snapshot()
@@ -821,6 +817,29 @@ pub(crate) fn full_native_boundaries(
         "original_context_work_limit":reference.budget.work_limit(),
         "original_context_read_storage_limit":reference.budget.read_storage_limit()});
     drop_without_request::<DriverCounter>(complete);
+    (unlimited_seed, events, complete_reference)
+}
+
+/// These endpoints are selected from actual events, never inferred from byte
+/// amounts or a fixed number of stages. Designated growth cases additionally
+/// supply source-grounded exhaustive classes at their original provider site.
+#[cfg(feature = "test-support")]
+pub(crate) fn full_native_boundaries(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+    reference: &Observation,
+    exhaustive_classes: &[&str],
+    seed: Option<&quire_contract_model::NativeJoinBudget>,
+) -> (
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+    serde_json::Value,
+) {
+    use quire_contract_model::{NativeBudgetResource as Resource, NativeJoinLocusSource};
+    use std::collections::{BTreeMap, BTreeSet};
+    let (unlimited_seed, events, complete_reference) =
+        full_native_reference(bytes, limits, evidence, reference, seed);
     let mut stage_last = BTreeMap::new();
     let mut class_ends = BTreeMap::new();
     let mut selected = BTreeSet::new();
@@ -1300,9 +1319,10 @@ pub(crate) fn read_budget_and_account(
                 let final_budget = &*budget;
                 scope
                     .spawn(move || {
-                        assert_eq!(
-                            &reference.result, original,
-                            "original caller returns the complete snapshot-replay outcome"
+                        views.budgeted(
+                            &reference.result,
+                            original,
+                            "original caller returns the complete snapshot-replay outcome",
                         );
                         assert_eq!(
                             &reference.budget, final_budget,

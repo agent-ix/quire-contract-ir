@@ -383,7 +383,7 @@ fn core_observer_keeps_reader_values_and_full_observer_checks_every_node() {
 #[cfg(feature = "test-support")]
 #[trace("TC-472", "FR-038-AC-512")]
 #[test]
-fn direct_full_native_proof_checks_admitted_views_without_a_mode_environment() {
+fn direct_full_native_reference_checks_admitted_views_without_a_mode_environment() {
     use crate::qspec_read_proof::{equivalence::take_oracle_visits, Counter};
     struct ScopeCounter;
     impl Counter for ScopeCounter {
@@ -404,12 +404,11 @@ fn direct_full_native_proof_checks_admitted_views_without_a_mode_environment() {
     };
     let nodes = package.resolved_graph().nodes.len();
     take_oracle_visits();
-    let (events, results, complete) = crate::qspec_read_proof::full_native_boundaries(
+    let (_, events, complete) = crate::qspec_read_proof::full_native_reference(
         &input.bytes,
         input.limits,
         &input.evidence,
         &reference,
-        &[],
         None,
     );
     assert_eq!(complete["outcome"], "admitted");
@@ -418,7 +417,6 @@ fn direct_full_native_proof_checks_admitted_views_without_a_mode_environment() {
         "derived-views-and-per-node-lowering"
     );
     assert!(!events.is_empty());
-    assert!(!results.is_empty());
     let visits = take_oracle_visits();
     assert!(visits.comparisons > 0);
     assert_eq!(visits.nodes, visits.comparisons * nodes);
