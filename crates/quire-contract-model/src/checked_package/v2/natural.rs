@@ -340,7 +340,8 @@ mod tests {
             source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 4),
             form: "scalar_type",
         };
-        let mut legacy = super::super::NativeJoinBudget::new(1, 0);
+        let mut legacy =
+            super::super::NativeJoinBudget::new(1, 0).with_read_storage_limit(u64::MAX);
         legacy.set_active_locus(Some(original));
         assert!(coprime("1", "1", &mut WorkMeter::over(&mut legacy), &at).is_err());
         for allowance in [
