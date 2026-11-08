@@ -581,16 +581,10 @@ impl NominalBody {
     }
 
     /// Borrow the nominal body already retained by the typed term decode.
-    pub(super) fn from_term(
-        term: &super::CheckedTerm,
-        at: JsonPointer,
-    ) -> Result<&Self, ValidationFailure> {
+    pub(super) fn from_term(term: &super::CheckedTerm) -> Option<&Self> {
         match term {
-            super::CheckedTerm::NominalBody(body) => Ok(body),
-            _ => Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                at,
-            )),
+            super::CheckedTerm::NominalBody(body) => Some(body),
+            _ => None,
         }
     }
 
@@ -1482,7 +1476,29 @@ impl<'a> BodyInput<'a> {
                 CheckedPackageRefusalCode::MalformedWire,
                 at(),
             )),
-            Self::Typed(term) => NominalBody::from_term(term, at())?.duplicate(meter),
+            Self::Typed(term) => match NominalBody::from_term(term) {
+                Some(body) => body.duplicate(meter),
+                None => {
+                    let path = super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(position)
+                        .key("body");
+                    Err(super::stage_storage::refuse(
+                        meter,
+                        &super::stage_storage::Site::new(
+                            super::PackageReadStage::Graph,
+                            position,
+                            "nominal_body",
+                            path,
+                        ),
+                        super::stage_storage::Refusal::new(
+                            CheckedPackageRefusalCode::MalformedWire,
+                            path,
+                        ),
+                    ))
+                }
+            },
         }
     }
 }
