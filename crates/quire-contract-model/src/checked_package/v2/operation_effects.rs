@@ -373,8 +373,13 @@ fn validate_effect_entries(
                 if !entry_owner
                     .package
                     .fields
-                    .of(entry_owner.node)
-                    .is_some_and(|table| !matches!(table.select(name), Selected::Absent))
+                    .exposed_names(entry_owner.node)
+                    .is_some_and(|names| {
+                        names
+                            .binary_search_by(|exposed| exposed.as_ref().cmp(name))
+                            .is_ok()
+                    })
+
                 {
                     return Err(refused(
                         meter,
