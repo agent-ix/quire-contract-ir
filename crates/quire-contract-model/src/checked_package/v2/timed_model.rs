@@ -704,7 +704,7 @@ fn check_wire_shape(
 }
 
 fn work(meter: &mut WorkMeter, at: impl Into<Path>, amount: u64) -> Result<(), ValidationFailure> {
-    stage_storage::work(meter, &at.into().site(), amount)
+    super::natural::work_at(meter, at.into().site(), amount)
 }
 
 use super::{
