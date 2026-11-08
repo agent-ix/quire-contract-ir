@@ -9,6 +9,8 @@
 mod proof;
 #[path = "support/qspec_inputs.rs"]
 mod qspec_inputs;
+#[path = "support/qspec_text_inputs.rs"]
+mod qspec_text_inputs;
 use crate::support::checked_package::{
     canonical, evidence_for, index_fixture_node_ids, positive_operation_identities, settle,
     v2_all_families, v2_nominal,
@@ -247,6 +249,50 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
             evidence: evidence_for(&wire),
             expected,
         });
+    }
+    for (file, shapes) in [
+        ("text-bounds-shape-vectors.json", true),
+        ("text-literal-vectors.json", false),
+    ] {
+        let vectors =
+            qspec_inputs::read_json(&proposal.join(file)).expect("published Text vectors");
+        for row in vectors["cases"].as_array().expect("published Text cases") {
+            let id = row["id"].as_str().expect("Text case id");
+            let (wire, _) = if shapes {
+                let literal = match id {
+                    "TS-02" => "ab",
+                    "TS-03" => "e\u{301}",
+                    _ => "outside-bounds",
+                };
+                qspec_text_inputs::text_bounds_package(
+                    row["members"].as_array().expect("shape members"),
+                    literal,
+                )
+            } else {
+                let ty = &vectors["types"][row["type"].as_str().expect("Text type key")];
+                qspec_text_inputs::bounded_literal(
+                    ty["min"].as_u64().expect("minimum"),
+                    ty["max"].as_u64().expect("maximum"),
+                    ty["text_profile"].as_str().expect("Text profile"),
+                    row["value"].clone(),
+                )
+            };
+            let expected = match row["expected"].as_str().expect("published Text outcome") {
+                "admitted" => Expected::Admitted,
+                "refused" if shapes => Expected::Refused(Code::InvalidPackage),
+                "refused" => Expected::Refused(Code::IllTyped),
+                other => panic!("{file}#{id}: unknown outcome {other}"),
+            };
+            providers.insert(format!(
+                "conformance_qspec/text_literals.rs: {file}#/cases#{id}"
+            ));
+            cases.push(Case {
+                label: format!("QSpec/{file}#{id}"),
+                bytes: canonical(&wire),
+                evidence: evidence_for(&wire),
+                expected,
+            });
+        }
     }
     (cases, providers)
 }

@@ -444,10 +444,12 @@ impl Graph {
                 edges: BTreeSet::new(),
                 unresolved: BTreeSet::new(),
                 bindings: BTreeMap::new(),
+                local_names: BTreeSet::new(),
             };
             for arg in &function.signature.inputs {
                 if let syn::FnArg::Typed(arg) = arg {
                     if let syn::Pat::Ident(p) = arg.pat.as_ref() {
+                        calls.local_names.insert(p.ident.to_string());
                         if let Some(ty) = calls.type_name(&arg.ty) {
                             calls.bindings.insert(p.ident.to_string(), ty);
                         }
@@ -479,6 +481,7 @@ struct Calls<'a> {
     edges: BTreeSet<String>,
     unresolved: BTreeSet<String>,
     bindings: BTreeMap<String, String>,
+    local_names: BTreeSet<String>,
 }
 
 impl Calls<'_> {
@@ -580,8 +583,13 @@ impl<'ast> Visit<'ast> for Calls<'_> {
                 syn::Pat::Ident(n) => (Some(n.ident.to_string()), self.expression_type(&init.expr)),
                 _ => (None, None),
             };
-            if let (Some(name), Some(ty)) = (name, ty) {
-                self.bindings.insert(name, ty);
+            if let Some(name) = name {
+                self.local_names.insert(name.clone());
+                if let Some(ty) = ty {
+                    self.bindings.insert(name, ty);
+                } else {
+                    self.bindings.remove(&name);
+                }
             }
         }
         visit::visit_local(self, local);
@@ -597,7 +605,13 @@ impl<'ast> Visit<'ast> for Calls<'_> {
         visit::visit_expr_struct(self, expr);
     }
     fn visit_expr_path(&mut self, expr: &'ast syn::ExprPath) {
-        self.constructed(self.target(&expr.path));
+        let target = self.target(&expr.path);
+        if self.graph.functions.contains_key(&target) {
+            self.unresolved.insert(format!(
+                "function value {target} requires callback dispatch proof"
+            ));
+        }
+        self.constructed(target);
         visit::visit_expr_path(self, expr);
     }
     fn visit_expr_binary(&mut self, expr: &'ast syn::ExprBinary) {
@@ -621,6 +635,15 @@ impl<'ast> Visit<'ast> for Calls<'_> {
     }
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         if let syn::Expr::Path(path) = call.func.as_ref() {
+            if let Some(name) = path.path.get_ident().map(ToString::to_string) {
+                if self.local_names.contains(&name) {
+                    self.unresolved.insert(format!("lexical callable {name} requires function-pointer or closure dispatch proof"));
+                    for arg in &call.args {
+                        self.visit_expr(arg);
+                    }
+                    return;
+                }
+            }
             let target = self.target(&path.path);
             self.constructed(target.clone());
             if self.graph.functions.contains_key(&target) {
@@ -653,7 +676,14 @@ impl<'ast> Visit<'ast> for Calls<'_> {
         } else {
             self.unresolved.insert("indirect expression call".into());
         }
-        visit::visit_expr_call(self, call);
+        // A path in callee position is a direct call, not an escaped
+        // function value. Argument paths still require callback resolution.
+        for arg in &call.args {
+            self.visit_expr(arg);
+        }
+        if !matches!(call.func.as_ref(), syn::Expr::Path(_)) {
+            self.visit_expr(&call.func);
+        }
     }
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
         let method = call.method.to_string();
