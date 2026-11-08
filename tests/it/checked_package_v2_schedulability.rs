@@ -23,7 +23,7 @@ fn literal(type_id: &Value, kind: &str, value: &str) -> Value {
     json!({"term":"literal", "type":type_id, "value_kind":kind, "value":value})
 }
 
-fn package(policy: &str, response: bool, high: bool, occurrences: u64) -> Value {
+pub(super) fn package(policy: &str, response: bool, high: bool, occurrences: u64) -> Value {
     let mut package = fixtures::v2_all_families();
     let find = |form: &str| {
         package["semantic_graph"]["nodes"]

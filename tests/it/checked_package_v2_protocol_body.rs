@@ -236,7 +236,7 @@ fn sequence_successor_and_finish_read_predecessor_binders() {
     ));
 }
 
-fn decision_fact_fixture() -> (Value, usize, usize, usize) {
+pub(super) fn decision_fact_fixture() -> (Value, usize, usize, usize) {
     let (mut package, effect, _) = package_with_admitted_effect();
     let root = protocol_position(&package, "control");
     let attempt = effect - 1;
@@ -6307,7 +6307,7 @@ pub(crate) fn package_with_admitted_compensation() -> (Value, usize, usize) {
     (package, root, compensation)
 }
 
-fn compensation_clock_case(
+pub(super) fn compensation_clock_case(
     case: &Value,
     declarations: &[Value],
 ) -> (Value, std::collections::BTreeMap<String, Value>) {
@@ -10561,7 +10561,7 @@ fn add_minimal_protocol_named(package: &mut Value, name: &str) -> usize {
     position
 }
 
-fn instantiate_fairness_reader_vector(vector: &Value) -> (Value, usize) {
+pub(super) fn instantiate_fairness_reader_vector(vector: &Value) -> (Value, usize) {
     let mut member = vector["member"].clone();
     let field = if member["target"]["kind"] == "parallel_branch" {
         "parallel"

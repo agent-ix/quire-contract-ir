@@ -1598,7 +1598,7 @@ const CALL: usize = 6;
 
 const RELATIONSHIP: &str = "ix://acme/orders/relationship/Order-links-Order";
 
-fn authored_relationship() -> Value {
+pub(super) fn authored_relationship() -> Value {
     json!({
         "identity": RELATIONSHIP, "category": "structural", "composite": false,
         "direction": "bidirectional",
@@ -1845,7 +1845,7 @@ fn reaches_with_operands(
     reaches_over(authored_relationship(), "links", first_type, second_type)
 }
 
-fn reaches_over(
+pub(super) fn reaches_over(
     relation: Value,
     role: &str,
     first_type: &str,

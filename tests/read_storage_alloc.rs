@@ -67,201 +67,29 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-/// One complete public read. Fixtures, budget construction and comparison
-/// live outside the counter; the returned outcome remains owned by the caller.
-struct Observation {
-    result: CheckedPackageV2BudgetedReadResult,
-    budget: NativeJoinBudget,
-    requested: u64,
-}
+#[path = "it/support/read_allocation_proof.rs"]
+mod read_allocation_proof;
+use read_allocation_proof::{
+    accounted, drop_without_request, every_request, generous_limits, measure_read, Counter,
+    Expected,
+};
 
-fn measure_read(
-    bytes: &[u8],
-    evidence: &CheckedPackageEvidence,
-    limits: CheckedPackageReadLimits,
-    limit: u64,
-) -> Observation {
-    let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
-    REQUESTED.with(|counter| {
-        assert!(counter.get().is_none());
-        counter.set(Some(0));
-    });
-    let result = CheckedPackageV2::read_with_budget(bytes, limits, evidence, &mut budget);
-    let requested = REQUESTED
-        .with(Cell::take)
-        .expect("armed around only the public read");
-    Observation {
-        result,
-        budget,
-        requested,
+struct ThreadCounter;
+impl Counter for ThreadCounter {
+    fn measure(read: impl FnOnce()) -> u64 {
+        REQUESTED.with(|counter| {
+            assert!(counter.get().is_none());
+            counter.set(Some(0));
+        });
+        read();
+        REQUESTED
+            .with(Cell::take)
+            .expect("counter armed around only the requested operation")
     }
-}
-
-fn generous_limits() -> CheckedPackageReadLimits {
-    CheckedPackageReadLimits {
-        bytes: 1 << 30,
-        nodes: 1 << 24,
-        edges: 1 << 26,
-        occurrences: 1 << 26,
-        diagnostics: 1 << 24,
-        work: 1 << 50,
-    }
-}
-
-fn accounted(label: &str, observation: &Observation) {
-    let outcome = match &observation.result {
-        CheckedPackageV2BudgetedReadResult::Admitted(_) => "admitted",
-        CheckedPackageV2BudgetedReadResult::Refused(_) => "refused",
-        CheckedPackageV2BudgetedReadResult::Incomplete(_) => "incomplete",
-        CheckedPackageV2BudgetedReadResult::BudgetIncomplete(_) => "budget incomplete",
-        CheckedPackageV2BudgetedReadResult::Exhausted(_) => "exhausted",
-        CheckedPackageV2BudgetedReadResult::CatalogUnavailable(_) => "catalog unavailable",
-    };
-    assert_eq!(observation.requested,observation.budget.read_storage_consumed(),"{label}: actual during-call allocation requests equal admitted read storage; outcome {outcome}; first unpaid {:?}/{:?}",observation.budget.first_unpaid_read_storage(),observation.budget.first_unpaid_locus());
-}
-
-/// Destruction is measured separately from AC-511's during-call total. A
-/// destructor must not hide a further heap request after the read returns.
-fn drop_without_request(observation: Observation) {
-    REQUESTED.with(|counter| counter.set(Some(0)));
-    drop(observation.result);
-    let requested = REQUESTED.with(Cell::take).expect("drop counter armed");
-    assert_eq!(
-        requested, 0,
-        "dropping the returned outcome allocates nothing"
-    );
 }
 
 fn whole_read(label: &str, bytes: &[u8], evidence: &CheckedPackageEvidence) {
-    initialize_operation_catalog().expect("the specified catalogue gate succeeds");
-    let limits = generous_limits();
-    // Initialize only the specified catalog gate; do not use an unmeasured
-    // public package read to warm per-read owned storage.
-    let reference = measure_read(bytes, evidence, limits, u64::MAX);
-    let plain = CheckedPackageV2::read(bytes, limits, evidence);
-    let CheckedPackageV2ReadResult::Admitted(ref expected) = plain else {
-        panic!("{label}: real fixture must admit: {plain:?}");
-    };
-    let CheckedPackageV2BudgetedReadResult::Admitted(ref package) = reference.result else {
-        panic!("{label}: budgeted admission {:?}", reference.result);
-    };
-    assert_eq!(
-        package, expected,
-        "{label}: full admitted value equals the unbudgeted reader"
-    );
-    accounted(label, &reference);
-    let total = reference.budget.read_storage_consumed();
-    assert!(total > 0);
-    for limit in [total, u64::MAX] {
-        let exact = measure_read(bytes, evidence, limits, limit);
-        assert_eq!(
-            exact.result, reference.result,
-            "{label}: repeated/exact full value"
-        );
-        assert_eq!(
-            exact.budget.consumed(),
-            reference.budget.consumed(),
-            "{label}: repeat work"
-        );
-        assert_eq!(
-            exact.budget.read_storage_consumed(),
-            total,
-            "{label}: catalogue and every owned table are charged again"
-        );
-        accounted(label, &exact);
-        drop_without_request(exact);
-    }
-    let short = measure_read(bytes, evidence, limits, total - 1);
-    assert!(
-        !matches!(
-            short.result,
-            CheckedPackageV2BudgetedReadResult::Admitted(_)
-        ),
-        "one short refuses"
-    );
-    assert!(short.budget.first_unpaid_read_storage().is_some());
-    accounted(label, &short);
-    drop_without_request(short);
-    drop_without_request(reference);
-}
-
-/// Probe actual requests in runtime order. Stage labels may decrease; no
-/// numeric stage-order bisection or phase assumption is used.
-fn every_request(bytes: &[u8], evidence: &CheckedPackageEvidence) {
-    initialize_operation_catalog().expect("catalogue gate");
-    let limits = generous_limits();
-    let reference = measure_read(bytes, evidence, limits, u64::MAX);
-    assert!(matches!(
-        reference.result,
-        CheckedPackageV2BudgetedReadResult::Admitted(_)
-    ));
-    let total = reference.budget.read_storage_consumed();
-    let mut before = 0;
-    loop {
-        let stopped = measure_read(bytes, evidence, limits, before);
-        accounted("exact preceding request boundary", &stopped);
-        if before == total {
-            assert_eq!(stopped.result, reference.result);
-            drop_without_request(stopped);
-            break;
-        }
-        let asked = stopped
-            .budget
-            .first_unpaid_read_storage()
-            .expect("first denied storage request");
-        let locus = stopped
-            .budget
-            .first_unpaid_locus()
-            .expect("first denied request locus");
-        assert!(matches!(
-            locus.source,
-            NativeJoinLocusSource::PackageRead(..)
-        ));
-        // No allowance remains at this exact prefix, so a positive-sized
-        // diagnostic cannot allocate after the denied request.
-        assert_eq!(stopped.budget.read_storage_consumed(), before);
-        assert_eq!(
-            stopped.requested, before,
-            "denied request allocates nothing"
-        );
-        let next = before
-            .checked_add(u64::try_from(asked).expect("bounded request"))
-            .expect("bounded total");
-        assert!(next > before && next <= total);
-        let short = measure_read(bytes, evidence, limits, next - 1);
-        assert_eq!(short.budget.first_unpaid_read_storage(), Some(asked));
-        assert_eq!(short.budget.first_unpaid_locus(), Some(locus));
-        let diagnostic = match &short.result {
-            CheckedPackageV2BudgetedReadResult::BudgetIncomplete(outcome) => outcome
-                .path
-                .as_ref()
-                .map_or(0, |path| path.as_str().len() as u64),
-            CheckedPackageV2BudgetedReadResult::Exhausted(_) => 0,
-            other => panic!("one below actual request boundary: {other:?}"),
-        };
-        assert_eq!(
-            short.budget.read_storage_consumed(),
-            before + diagnostic,
-            "only the charged outcome pointer follows a denial"
-        );
-        accounted("one below actual reservation", &short);
-        let again = measure_read(bytes, evidence, limits, next - 1);
-        assert_eq!(
-            again.result, short.result,
-            "same first fault and full refusal value"
-        );
-        assert_eq!(again.budget.first_unpaid_locus(), Some(locus));
-        assert_eq!(
-            again.budget.read_storage_consumed(),
-            short.budget.read_storage_consumed()
-        );
-        accounted("repeated denial", &again);
-        drop_without_request(stopped);
-        drop_without_request(short);
-        drop_without_request(again);
-        before = next;
-    }
-    drop_without_request(reference);
+    read_allocation_proof::assert_read::<ThreadCounter>(label, bytes, evidence, Expected::Admitted);
 }
 
 #[trace("TC-472", "FR-038-AC-511")]
@@ -284,7 +112,7 @@ fn whole_read_over_one_mebibyte_has_no_unpaid_allocation() {
 #[test]
 fn whole_read_each_actual_request_is_prepaid() {
     let value = v2_all_families();
-    every_request(&canonical(&value), &evidence_for(&value));
+    every_request::<ThreadCounter>(&canonical(&value), &evidence_for(&value));
 }
 
 #[trace("TC-472", "FR-038-AC-512")]
@@ -305,8 +133,9 @@ fn malformed_first_fault_and_exact_budget_match_the_public_reader() {
         canonical(&unknown),
         canonical(&missing),
     ] {
+        let reference =
+            measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), u64::MAX);
         let plain = CheckedPackageV2::read(&bytes, generous_limits(), &evidence);
-        let reference = measure_read(&bytes, &evidence, generous_limits(), u64::MAX);
         let (
             CheckedPackageV2ReadResult::Refused(expected),
             CheckedPackageV2BudgetedReadResult::Refused(actual),
@@ -326,7 +155,7 @@ fn malformed_first_fault_and_exact_budget_match_the_public_reader() {
             "refusal retains ordered primary locations"
         );
         accounted("malformed/refused", &reference);
-        let exact = measure_read(
+        let exact = measure_read::<ThreadCounter>(
             &bytes,
             &evidence,
             generous_limits(),
@@ -334,8 +163,8 @@ fn malformed_first_fault_and_exact_budget_match_the_public_reader() {
         );
         assert_eq!(exact.result, reference.result);
         accounted("exact malformed refusal", &exact);
-        drop_without_request(exact);
-        drop_without_request(reference);
+        drop_without_request::<ThreadCounter>(exact);
+        drop_without_request::<ThreadCounter>(reference);
     }
 }
 
@@ -347,7 +176,7 @@ fn even_a_warm_catalogs_first_owned_request_is_denied_before_allocation() {
     let bytes = canonical(&value);
     let evidence = evidence_for(&value);
     for _ in 0..2 {
-        let stopped = measure_read(&bytes, &evidence, generous_limits(), 0);
+        let stopped = measure_read::<ThreadCounter>(&bytes, &evidence, generous_limits(), 0);
         assert_eq!(stopped.requested, 0);
         assert_eq!(stopped.budget.read_storage_consumed(), 0);
         let CheckedPackageV2BudgetedReadResult::BudgetIncomplete(outcome) = &stopped.result else {
@@ -375,7 +204,7 @@ fn even_a_warm_catalogs_first_owned_request_is_denied_before_allocation() {
                 .form,
             "operation_catalog"
         );
-        drop_without_request(stopped);
+        drop_without_request::<ThreadCounter>(stopped);
     }
 }
 
@@ -388,7 +217,7 @@ fn duplicate_member_precedes_a_later_out_of_range_number() {
         br#"{"name":"first","name":"duplicate"}"#.as_slice(),
         br#"{"name":"first","name":"duplicate","later":1e999}"#.as_slice(),
     ] {
-        let read = measure_read(bytes, &evidence, generous_limits(), u64::MAX);
+        let read = measure_read::<ThreadCounter>(bytes, &evidence, generous_limits(), u64::MAX);
         let CheckedPackageV2BudgetedReadResult::Refused(ref refusal) = read.result else {
             panic!("duplicate member must refuse: {:?}", read.result);
         };
@@ -396,8 +225,14 @@ fn duplicate_member_precedes_a_later_out_of_range_number() {
             refusal.code,
             quire_contract_model::CheckedPackageRefusalCode::DuplicateMember
         );
+        read_allocation_proof::assert_read::<ThreadCounter>(
+            "duplicate first fault",
+            bytes,
+            &evidence,
+            Expected::Refused(quire_contract_model::CheckedPackageRefusalCode::DuplicateMember),
+        );
         accounted("first byte-stream fault", &read);
-        drop_without_request(read);
+        drop_without_request::<ThreadCounter>(read);
     }
 }
 
