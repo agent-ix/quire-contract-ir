@@ -488,6 +488,72 @@ fn qspec_cases() -> (Vec<Case>, BTreeSet<String>) {
             });
         }
     }
+    let base = qspec_inputs::read_json(&fixtures.join("positive-all-families.json"))
+        .expect("published structural/body base");
+    let adverse = qspec_inputs::read_json(&fixtures.join("adverse.json"))
+        .expect("published structural/body mutations");
+    for list in ["structural_mutations", "body_grammar_mutations"] {
+        for row in adverse[list].as_array().expect("published mutation list") {
+            let id = row["id"].as_str().expect("mutation id");
+            let pointer = row["pointer"].as_str().expect("mutation pointer");
+            let mut wire = base.clone();
+            qspec_inputs::replace_at(&mut wire, pointer, &row["replacement"])
+                .expect("published mutation target");
+            let outcome = row["outcome"].as_str().expect("mutation outcome");
+            let code = outcome
+                .strip_prefix("refused:")
+                .expect("published refusal")
+                .split('/')
+                .next()
+                .expect("refusal code");
+            let expected = Expected::Refused(
+                serde_json::from_value(Value::String(code.into()))
+                    .expect("published mutation code"),
+            );
+            providers.insert(format!(
+                "conformance_qspec/main.rs: fixtures/adverse.json#/{list}#{id}"
+            ));
+            let evidence = qspec_inputs::evidence_for_published(
+                &wire,
+                id,
+                &proposal.join(qspec_inputs::DOMAIN_DOCUMENT),
+                true,
+                None,
+                &fixtures,
+            )
+            .expect("mutation evidence");
+            cases.push(Case {
+                label: format!("QSpec/{list}/{id}"),
+                bytes: canonical(&wire),
+                evidence,
+                expected,
+            });
+            if list == "body_grammar_mutations" {
+                let mut control = base.clone();
+                qspec_inputs::replace_at(
+                    &mut control,
+                    pointer,
+                    row.get("flattened").expect("flattened control"),
+                )
+                .expect("flattened target");
+                let evidence = qspec_inputs::evidence_for_published(
+                    &control,
+                    id,
+                    &proposal.join(qspec_inputs::DOMAIN_DOCUMENT),
+                    true,
+                    None,
+                    &fixtures,
+                )
+                .expect("flattened control evidence");
+                cases.push(Case {
+                    label: format!("QSpec/{list}/{id}/flattened-control"),
+                    bytes: canonical(&control),
+                    evidence,
+                    expected: Expected::OriginalOracle(qspec_inputs::flat_body_control_passes),
+                });
+            }
+        }
+    }
     (cases, providers)
 }
 

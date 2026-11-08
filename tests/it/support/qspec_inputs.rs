@@ -410,3 +410,28 @@ pub(crate) fn operand_checks_pass(actual: &CheckedPackageV2ReadResult) -> bool {
         _ => true,
     }
 }
+
+/// The replacement of `package` at `pointer`, or why it cannot be made.
+pub(crate) fn replace_at(
+    package: &mut Value,
+    pointer: &str,
+    replacement: &Value,
+) -> Result<(), String> {
+    let slot = package
+        .pointer_mut(pointer)
+        .ok_or_else(|| format!("pointer {pointer} resolves to nothing in the package"))?;
+    *slot = replacement.clone();
+    Ok(())
+}
+
+/// The original flattened-control oracle rejects malformed wire, while
+/// permitting later semantic refusals. An unavailable catalogue is not a run.
+pub(crate) fn flat_body_control_passes(actual: &CheckedPackageV2ReadResult) -> bool {
+    match actual {
+        CheckedPackageV2ReadResult::Refused(refusal) => {
+            refusal.code != quire_contract_model::CheckedPackageRefusalCode::MalformedWire
+        }
+        CheckedPackageV2ReadResult::CatalogUnavailable(_) => false,
+        _ => true,
+    }
+}
