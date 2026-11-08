@@ -542,6 +542,17 @@ impl Calls<'_> {
             _ => None,
         }
     }
+    fn constructed(&mut self, ty: String) {
+        if self.graph.types.contains(&ty) {
+            let destructor = format!("{ty}::drop");
+            if self.graph.functions.contains_key(&destructor) {
+                self.edges.insert(destructor);
+            }
+            self.unresolved.insert(format!(
+                "implicit field destruction for constructed local type {ty}"
+            ));
+        }
+    }
     fn target(&self, path: &syn::Path) -> String {
         let text = path_text(path);
         if let Some(suffix) = text.strip_prefix("Self::") {
@@ -581,9 +592,37 @@ impl<'ast> Visit<'ast> for Calls<'_> {
             path_text(&invocation.path)
         ));
     }
+    fn visit_expr_struct(&mut self, expr: &'ast syn::ExprStruct) {
+        self.constructed(self.target(&expr.path));
+        visit::visit_expr_struct(self, expr);
+    }
+    fn visit_expr_path(&mut self, expr: &'ast syn::ExprPath) {
+        self.constructed(self.target(&expr.path));
+        visit::visit_expr_path(self, expr);
+    }
+    fn visit_expr_binary(&mut self, expr: &'ast syn::ExprBinary) {
+        if !matches!(expr.left.as_ref(), syn::Expr::Lit(_))
+            || !matches!(expr.right.as_ref(), syn::Expr::Lit(_))
+        {
+            self.unresolved
+                .insert("operator dispatch requires primitive-type or local-trait proof".into());
+        }
+        visit::visit_expr_binary(self, expr);
+    }
+    fn visit_expr_index(&mut self, expr: &'ast syn::ExprIndex) {
+        self.unresolved
+            .insert("index dispatch requires receiver-type proof".into());
+        visit::visit_expr_index(self, expr);
+    }
+    fn visit_expr_for_loop(&mut self, expr: &'ast syn::ExprForLoop) {
+        self.unresolved
+            .insert("IntoIterator dispatch requires receiver-type proof".into());
+        visit::visit_expr_for_loop(self, expr);
+    }
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         if let syn::Expr::Path(path) = call.func.as_ref() {
             let target = self.target(&path.path);
+            self.constructed(target.clone());
             if self.graph.functions.contains_key(&target) {
                 self.edges.insert(target);
             } else if !standard_variant(&target) {
@@ -633,6 +672,11 @@ impl<'ast> Visit<'ast> for Calls<'_> {
                     "local method .{method} on a receiver with unresolved type"
                 ));
             }
+        }
+        if self.expression_type(&call.receiver).is_none() {
+            self.unresolved.insert(format!(
+                "receiver .{method} requires implicit/default trait dispatch proof"
+            ));
         }
         visit::visit_expr_method_call(self, call);
     }

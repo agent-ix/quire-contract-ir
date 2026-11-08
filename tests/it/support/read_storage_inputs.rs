@@ -159,24 +159,31 @@ fn empty_package(name: &str) -> Value {
     value["semantic_graph"]["nodes"] = json!([]);
     value["semantic_graph"]["operand_rows"] = json!([]);
     value["source_map"] = json!([]);
-    value["capability_report"] = json!([]);
+    value
+}
+
+fn named_package(name: &str) -> Value {
+    let mut value = v2_all_families();
+    value["name"] = json!(name);
+    index_fixture_node_ids(&mut value);
     value
 }
 
 pub fn direct_dependencies_64() -> Input {
-    let mut value = empty_package("allocation-root");
+    let mut value = named_package("allocation-root");
     let mut evidence = evidence_for(&value);
     let mut selections = Vec::new();
     for i in 0..64 {
         let identity = format!("allocation-dependency-{i:02}");
-        let dependency = empty_package(&identity);
+        let dependency = named_package(&identity);
         let bytes = canonical(&dependency);
-        let CheckedPackageV2ReadResult::Admitted(package) = CheckedPackageV2::read(
+        let result = CheckedPackageV2::read(
             &bytes,
             CheckedPackageReadLimits::bounded(),
             &evidence_for(&dependency),
-        ) else {
-            panic!("dependency fixture {identity} must admit");
+        );
+        let CheckedPackageV2ReadResult::Admitted(package) = result else {
+            panic!("dependency fixture {identity} must admit: {result:?}");
         };
         evidence
             .insert_dependency_package(identity.clone(), package)

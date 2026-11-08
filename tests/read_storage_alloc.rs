@@ -15,9 +15,8 @@ mod checked_package;
 use checked_package::{canonical, evidence_for, v2_all_families};
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedPackageV2BudgetedReadResult, CheckedPackageV2ReadResult,
-    NativeJoinBudget, NativeJoinLocusSource,
+    initialize_operation_catalog, CheckedPackageEvidence, CheckedPackageV2,
+    CheckedPackageV2BudgetedReadResult, CheckedPackageV2ReadResult,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -373,11 +372,21 @@ fn counted_exact_and_denied_work_budgets_cover_a_malformed_body() {
     let evidence = evidence_for(&value);
     let result = CheckedPackageV2::read(&bytes, generous_limits(), &evidence);
     assert!(
-        matches!(result,CheckedPackageV2ReadResult::Refused(ref refusal) if refusal.code==quire_contract_model::CheckedPackageRefusalCode::MalformedWire),
+        matches!(result,CheckedPackageV2ReadResult::Refused(ref refusal) if refusal.code==quire_contract_model::CheckedPackageRefusalCode::InvalidSemanticGraph),
         "genuine malformed-body first fault: {result:?}"
     );
     assert!(
         read_allocation_proof::work_denials::<ThreadCounter>("malformed body", &bytes, &evidence),
         "malformed body reaches work charges before refusal"
+    );
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn consecutive_reads_charge_each_delta_to_the_same_caller_budget() {
+    let value = v2_all_families();
+    read_allocation_proof::shared_budget_reads::<ThreadCounter>(
+        &canonical(&value),
+        &evidence_for(&value),
     );
 }

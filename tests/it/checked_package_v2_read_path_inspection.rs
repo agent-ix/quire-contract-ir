@@ -425,3 +425,34 @@ fn unshadowed_prelude_constructors_resolve_without_skipping_shadowed_helpers() {
         assert!(unresolved.is_empty(), "{unresolved:?}");
     }
 }
+
+#[trace("TC-472", "FR-038-AC-513")]
+#[test]
+fn implicit_drop_and_overloaded_operators_cannot_escape_reachability() {
+    let graph = root_graph::Graph::from_source(
+        r#"
+        struct Guard;
+        impl Drop for Guard { fn drop(&mut self){ helper(); } }
+        fn helper(){let _=serde_json::from_slice::<()>(b"{}");}
+        fn read(){let _guard=Guard;}
+        fn v1(){let _guard=Guard;}
+        fn clean(){}
+        fn operators(a:Unknown,b:Unknown){let _=a+b;let _=a[0];for _ in b {}}
+    "#,
+    );
+    let (hits, unresolved) = inspect_reached(&graph, &["read"]);
+    assert!(
+        hits.iter().any(|hit| hit.starts_with("helper:")),
+        "{hits:?}"
+    );
+    assert!(!unresolved.is_empty());
+    let (hits, unresolved) = inspect_reached(&graph, &["clean"]);
+    assert!(hits.is_empty() && unresolved.is_empty());
+    let (_, unresolved) = inspect_reached(&graph, &["operators"]);
+    for kind in ["operator dispatch", "index dispatch", "IntoIterator"] {
+        assert!(
+            unresolved.iter().any(|edge| edge.contains(kind)),
+            "{unresolved:?}"
+        );
+    }
+}

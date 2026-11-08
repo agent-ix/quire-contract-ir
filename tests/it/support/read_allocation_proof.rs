@@ -311,7 +311,12 @@ pub(crate) fn work_denials<C: Counter>(
     // Advance actual work requests until an owned pointer exists. Do not
     // infer runtime order from PackageReadStage discriminants.
     let mut prefix = 0;
+    let mut work_probes = 0_u64;
     let pointer_denial = loop {
+        work_probes += 1;
+        if work_probes.is_multiple_of(64) {
+            eprintln!("{label}: work boundary probes={work_probes} prefix={prefix}");
+        }
         let observation = measure_at::<C>(bytes, evidence, limits, prefix, u64::MAX);
         if matches!(&observation.result,CheckedPackageV2BudgetedReadResult::BudgetIncomplete(d) if d.path.as_ref().is_some_and(|p|!p.as_str().is_empty()))
         {
@@ -350,28 +355,35 @@ pub(crate) fn work_denials<C: Counter>(
     // unpaid reservations. Do not assume the implementation already charged
     // the pointer correctly: that is precisely what this oracle checks.
     let mut before_pointer = 0;
-    let exhausted =
-        loop {
-            let observation = measure_at::<C>(bytes, evidence, limits, prefix, before_pointer);
-            if observation.budget.first_unpaid().is_some_and(|charge| {
-                charge.kind == quire_contract_model::NativeJoinChargeKind::Work
-            }) {
-                break observation;
-            }
-            let asked = observation
-                .budget
-                .first_unpaid_read_storage()
-                .expect("actual storage request before the target work charge");
-            let next = before_pointer
-                .checked_add(u64::try_from(asked).expect("bounded storage charge"))
-                .expect("bounded storage prefix");
-            assert!(
-                next > before_pointer && next <= pointer_denial.budget.read_storage_consumed(),
-                "actual request boundary advances towards the work charge"
-            );
-            before_pointer = next;
-            drop_without_request::<C>(observation);
-        };
+    let mut storage_probes = 0_u64;
+    let exhausted = loop {
+        storage_probes += 1;
+        if storage_probes.is_multiple_of(64) {
+            eprintln!("{label}: storage boundary probes={storage_probes} prefix={before_pointer}");
+        }
+        let observation = measure_at::<C>(bytes, evidence, limits, prefix, before_pointer);
+        if observation
+            .budget
+            .first_unpaid()
+            .is_some_and(|charge| charge.kind == quire_contract_model::NativeJoinChargeKind::Work)
+        {
+            break observation;
+        }
+        let asked = observation
+            .budget
+            .first_unpaid_read_storage()
+            .expect("actual storage request before the target work charge");
+        let next = before_pointer
+            .checked_add(u64::try_from(asked).expect("bounded storage charge"))
+            .expect("bounded storage prefix");
+        assert!(
+            next > before_pointer && next <= pointer_denial.budget.read_storage_consumed(),
+            "actual request boundary advances towards the work charge"
+        );
+        before_pointer = next;
+        drop_without_request::<C>(observation);
+    };
+    eprintln!("{label}: work probes={work_probes}; storage probes={storage_probes}");
     eprintln!("{label}/unaffordable diagnostic probe: requested={} charged={} pointer_bytes={} original_work={:?} locus={:?}",exhausted.requested,exhausted.budget.read_storage_consumed(),bytes_of_pointer,exhausted.budget.first_unpaid(),exhausted.budget.first_unpaid_locus());
     let CheckedPackageV2BudgetedReadResult::Exhausted(outcome) = &exhausted.result else {
         panic!("owned pointer cannot be afforded: {:?}", exhausted.result);
@@ -426,4 +438,61 @@ pub(crate) fn work_denials<C: Counter>(
     }
     drop_without_request::<C>(reference);
     true
+}
+
+/// Repeated public calls compose in one caller-owned budget; every counter
+/// interval is compared with that call's admitted storage delta.
+pub(crate) fn shared_budget_reads<C: Counter>(bytes: &[u8], evidence: &CheckedPackageEvidence) {
+    initialize_operation_catalog().expect("catalogue gate");
+    let limits = generous_limits();
+    let reference = measure_read::<C>(bytes, evidence, limits, u64::MAX);
+    assert!(matches!(
+        reference.result,
+        CheckedPackageV2BudgetedReadResult::Admitted(_)
+    ));
+    let storage = reference.budget.read_storage_consumed();
+    let work = reference.budget.consumed().work;
+    let mut observations = Vec::new();
+    for limit in [
+        storage.checked_mul(2).unwrap(),
+        storage.checked_mul(2).unwrap() - 1,
+    ] {
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        for call in 0..2 {
+            let before_storage = budget.read_storage_consumed();
+            let before_work = budget.consumed();
+            let mut result = None;
+            let requested = C::measure(|| {
+                result = Some(CheckedPackageV2::read_with_budget(
+                    bytes,
+                    limits,
+                    evidence,
+                    &mut budget,
+                ));
+            });
+            let result = result.expect("read ran");
+            let delta = budget.read_storage_consumed() - before_storage;
+            eprintln!("shared budget limit={limit} call={call} requested={requested} storage_delta={delta} work_before={before_work:?} work_after={:?}", budget.consumed());
+            if call == 0 || limit == storage * 2 {
+                assert_eq!(result, reference.result);
+                assert_eq!(delta, storage);
+                assert_eq!(budget.consumed().work - before_work.work, work);
+            } else {
+                assert!(!matches!(
+                    result,
+                    CheckedPackageV2BudgetedReadResult::Admitted(_)
+                ));
+                assert!(budget.first_unpaid_read_storage().is_some());
+            }
+            assert_eq!(budget.consumed().storage, 0, "logical storage remains zero");
+            observations.push((requested, delta, result));
+        }
+    }
+    for (requested, delta, result) in observations {
+        assert_eq!(
+            requested, delta,
+            "per-call allocation equals caller-budget delta"
+        );
+        assert_eq!(C::measure(|| drop(result)), 0);
+    }
 }

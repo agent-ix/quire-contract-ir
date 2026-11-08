@@ -39,8 +39,8 @@ use std::path::{Path, PathBuf};
 #[path = "../it/support/qspec_inputs.rs"]
 mod qspec_inputs;
 use qspec_inputs::{
-    policy_definition, positive_document, quota_definition, read_json, read_json_wire,
-    selected_document_assignments, vector_selected_documents, DOMAIN_DOCUMENT, POSITIVE_ALL,
+    positive_document, read_json, read_json_wire, selected_document_assignments,
+    vector_selected_documents, DOMAIN_DOCUMENT, POSITIVE_ALL,
 };
 
 mod carried_quantity;
@@ -52,6 +52,7 @@ mod extension;
 mod fairness_targets;
 #[path = "../it/support/checked_package.rs"]
 mod fixture_support;
+use fixture_support::retention_definition;
 mod fma_application;
 mod grouped_ordinal;
 mod hybrid;
@@ -76,7 +77,8 @@ mod complete_identity_witness;
 #[path = "../it/checked_package_v2_graph_read_storage.rs"]
 mod checked_package_v2_graph_read_storage;
 #[path = "../it/checked_package_v2_map_type.rs"]
-mod map_type;
+mod checked_package_v2_map_type;
+use checked_package_v2_map_type as map_type;
 mod model_root;
 mod model_tuple_union;
 mod monitor_plan;

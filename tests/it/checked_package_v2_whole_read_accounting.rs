@@ -618,32 +618,29 @@ fn by_reference_qspec_inputs_need_registered_whole_package_providers() {
         }
     }
     fn vector_cases(value: &Value, path: &str, out: &mut BTreeSet<String>) {
-        match value {
-            Value::Object(fields) => {
-                for (name, child) in fields {
-                    let path = format!("{path}/{name}");
-                    if let Some(rows) = child.as_array() {
-                        for (i, row) in rows.iter().enumerate() {
-                            let id = row
-                                .get("id")
-                                .or_else(|| row.get("name"))
-                                .and_then(Value::as_str);
-                            if let Some(id) = id.filter(|_| {
-                                row.get("expected").is_some()
-                                    || row.get("outcome").is_some()
-                                    || row.get("expected_code").is_some()
-                            }) {
-                                out.insert(format!("{path}#{id}"));
-                            } else {
-                                vector_cases(row, &format!("{path}/{i}"), out);
-                            }
+        if let Value::Object(fields) = value {
+            for (name, child) in fields {
+                let path = format!("{path}/{name}");
+                if let Some(rows) = child.as_array() {
+                    for (i, row) in rows.iter().enumerate() {
+                        let id = row
+                            .get("id")
+                            .or_else(|| row.get("name"))
+                            .and_then(Value::as_str);
+                        if let Some(id) = id.filter(|_| {
+                            row.get("expected").is_some()
+                                || row.get("outcome").is_some()
+                                || row.get("expected_code").is_some()
+                        }) {
+                            out.insert(format!("{path}#{id}"));
+                        } else {
+                            vector_cases(row, &format!("{path}/{i}"), out);
                         }
-                    } else {
-                        vector_cases(child, &path, out);
                     }
+                } else {
+                    vector_cases(child, &path, out);
                 }
             }
-            _ => {}
         }
     }
     let mut available = Vec::new();
@@ -726,4 +723,11 @@ fn by_reference_qspec_inputs_need_registered_whole_package_providers() {
     ));
     std::fs::write(&report,serde_json::to_vec_pretty(&json!({"unresolved_complete_package_recipes":unresolved_packages,"unresolved_vector_driver_recipes":unresolved_recipes,"auxiliary_or_no_bytes_not_credited":auxiliary})).expect("structured provider report")).expect("write provider report");
     assert!(unresolved_packages.is_empty()&&unresolved_recipes.is_empty(),"Unresolved complete-package recipes ({}), sample:\n{}\nUnresolved vector/consumer provenance ({}), sample:\n{}\nAuxiliary/no-byte references excluded without package credit: {}\nComplete structured classification: {}",unresolved_packages.len(),unresolved_packages.iter().take(15).cloned().collect::<Vec<_>>().join("\n"),unresolved_recipes.len(),unresolved_recipes.iter().take(15).cloned().collect::<Vec<_>>().join("\n"),auxiliary.len(),report.display());
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn repeated_reads_preserve_the_callers_storage_delta_with_the_integration_counter() {
+    let value = v2_all_families();
+    proof::shared_budget_reads::<IntegrationCounter>(&canonical(&value), &evidence_for(&value));
 }
