@@ -4288,6 +4288,9 @@ impl CheckedPackageV2 {
 }
 
 #[cfg(test)]
+mod model_enum_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::checked_package::v2::{CheckedPackageWireV2, RetainedModels};
