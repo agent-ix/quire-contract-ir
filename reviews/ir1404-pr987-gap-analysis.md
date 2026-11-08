@@ -78,3 +78,19 @@ scope:
     admitted operand 0. A unit maximum is represented only in the application''s result-type
     collection bounds, not in the declared population node.'
 ```
+
+## Dispositions
+
+Round 1 on 6d6a6c620a5524f853aa80e8d0243750f59ffcc5.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Removed only the new unrelated AC497 binding; TC472 and partial AC511 remain. Production and runtime assertions are unchanged. |
+
+After excerpt:
+
+```rust
+#[trace("TC-472", "FR-038-AC-511")]
+```
+
+Disposition verdict: PASS for this changed slice. No open findings remain. Inspected the confined trace change, unchanged production bytes, selected Quire0.38 inverse trace resolving exactly TC472/AC511, and retained formatting/diff checks. No new Cargo or aggregate run, no expanded AC503 binding, and no whole-corpus AC511 or AC513 claim. The upstream986 fold is disjoint from the production loop and new regression body.
