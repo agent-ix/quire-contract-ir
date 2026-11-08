@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Agent-IX
 
-//! A sufficient budget returns the unlimited budget's outcome, and the
-//! retained package reports the size its read charged (TC-472).
+//! A sufficient budget returns the unlimited budget's outcome (TC-472).
 
 use crate::support::checked_package::{
     canonical, evidence_for, index_fixture_node_ids, v2_all_families, v2_nominal,
@@ -203,29 +202,4 @@ fn a_repeated_insufficient_read_stops_at_the_same_first_unpaid_charge() {
         )
     };
     assert_eq!(run(), run());
-}
-
-/// Each retained field of an admitted package reports its charged size, and
-/// the retained total equals the Retained stage's charge of the read.
-///
-/// Specification only: `CheckedPackageV2` has no retained-size inspection yet.
-/// It needs, from the retained-structures slice (F1), a public or
-/// `#[doc(hidden)]` accessor returning one `(field name, charged bytes)` pair
-/// per retained field and the sum of those, to compare with the read-storage
-/// charged between the Retained stage's first and last request.
-#[trace("TC-472", "FR-038-AC-513")]
-#[test]
-#[ignore = "waits on F1 retained-size API (luna)"]
-fn the_retained_package_reports_each_field_charge_and_their_total() {
-    initialize_operation_catalog().expect("catalogue reads");
-    let input = input("all_families", &v2_all_families());
-    let mut budget = NativeJoinBudget::unlimited();
-    let CheckedPackageV2BudgetedReadResult::Admitted(_package) = budgeted(&input, &mut budget)
-    else {
-        panic!("the fixture admits");
-    };
-    unimplemented!(
-        "compare package retained-size inspection (per-field charge, total) \
-         with the Retained stage's read-storage charge"
-    );
 }

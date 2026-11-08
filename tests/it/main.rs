@@ -61,6 +61,7 @@ mod checked_package_v2_owners;
 mod checked_package_v2_parameters;
 mod checked_package_v2_protocol_body;
 mod checked_package_v2_protocol_reference;
+mod checked_package_v2_read_path_inspection;
 mod checked_package_v2_reader;
 mod checked_package_v2_recursive_leaves;
 mod checked_package_v2_refinement;
