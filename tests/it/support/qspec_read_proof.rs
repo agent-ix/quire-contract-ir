@@ -510,6 +510,7 @@ fn assert_native_denial(
     observation: &Observation,
     event: quire_contract_model::NativeBudgetEvent,
     bound: u64,
+    events: &[quire_contract_model::NativeBudgetEvent],
 ) -> serde_json::Value {
     use quire_contract_model::NativeBudgetResource as Resource;
     let resource = match event.resource {
@@ -542,10 +543,23 @@ fn assert_native_denial(
             assert_eq!(value.denied.resource, resource);
             assert_eq!(value.denied.amount, event.amount);
             assert_eq!(value.limit, bound);
+            // Stages may pay for a pointer after the primary denial. The
+            // returned cumulative amount includes that paid prefix, before
+            // the final outcome diagnostic reservation itself. Bind that
+            // boundary to the actual terminal diagnostic event, not merely
+            // the earlier primary charge's prefix.
+            let diagnostic = events.last().expect("typed outcome diagnostic event");
+            assert_eq!(diagnostic.resource, Resource::ReadStorage);
+            assert!(diagnostic.admitted);
+            assert_eq!(diagnostic.locus.map(|locus| locus.form), Some("diagnostic"));
+            let consumed = match event.resource {
+                Resource::Work => observation.budget.consumed().work,
+                Resource::ReadStorage => diagnostic.consumed_before,
+                Resource::LogicalStorage => unreachable!(),
+            };
             assert_eq!(
                 value.consumed,
-                event
-                    .consumed_before
+                consumed
                     .saturating_add(u64::try_from(event.amount).expect("admitted request fits"))
             );
             "budget-incomplete"
@@ -778,7 +792,7 @@ pub(crate) fn full_native_boundaries(
             Some(&denied),
             "one below denies this actual amount/locus/class"
         );
-        let denial = assert_native_denial(&short, event, bound - 1);
+        let denial = assert_native_denial(&short, event, bound - 1, &short_events);
         let (repeated, repeated_events) = probe(bound - 1);
         same_observation(&short, &repeated);
         assert_eq!(
