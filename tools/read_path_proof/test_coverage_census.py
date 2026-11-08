@@ -16,11 +16,12 @@ def export_counts(plain=3, probes=20, caller=2, calibration=1):
         ("tests/it/support/qspec_read_proof.rs", "read_and_account"): plain,
         ("tests/it/support/read_observation.rs", "measure_at"): probes,
         ("tests/it/support/qspec_read_proof.rs", "read_budget_and_account"): caller,
+        ("tests/it/support/qspec_read_proof.rs", "measure_seeded"): 6*caller,
         ("tests/it/support/qspec_read_proof.rs",
          "caller_budget_observation_preserves_prior_charges_and_outer_capture"): calibration,
         ("crates/quire-contract-model/src/checked_package/v2/budgeted_read.rs", "read"): plain,
         ("crates/quire-contract-model/src/checked_package/v2/budgeted_read.rs", "read_with_budget"):
-            plain + probes + caller + calibration,
+            plain + probes + 6*caller + caller + calibration,
     }
     functions = []
     for (file, function), count in counts.items():
@@ -44,8 +45,17 @@ def export_counts(plain=3, probes=20, caller=2, calibration=1):
 class ActualEntryCensus(unittest.TestCase):
     def test_accounted_invocations_match(self):
         result = census.check(export_counts(), ROOT)
-        self.assertEqual(result["budgeted"], 26)
+        self.assertEqual(result["budgeted"], 38)
         self.assertFalse(result["static_ac513_proven"])
+
+    def test_seeded_original_entry_requires_six_checked_snapshot_reads(self):
+        data=export_counts(plain=0,probes=0,caller=1,calibration=1)
+        self.assertEqual(census.check(data,ROOT)["budgeted"],8)
+        for row in data["data"][0]["functions"]:
+            if "measure_seeded" in row["name"]:
+                row["count"]=5
+        with self.assertRaisesRegex(census.CensusError,"first/repeated checked"):
+            census.check(data,ROOT)
 
     def test_executed_unwrapped_alias_or_function_item_fails(self):
         data = export_counts()
@@ -96,7 +106,7 @@ class FullRunEvidence(unittest.TestCase):
             lines = (ROOT / file).read_text().splitlines()
             line = next(i for i, value in enumerate(lines, 1) if spelling in value)
             return {"driver": file, "line": line, "column": lines[line - 1].index("crate::") + 1,
-                    "test": "original::first", "mode": "sample", "entry": entry}
+                    "test": "original::first", "mode": "sample", "entry": entry, "snapshot_replay": "exact-entire-caller-state"}
         plain = site("tests/conformance_qspec/main.rs", "crate::read_and_account(", "plain")
         caller = site("tests/it/checked_package_v2_graph_read_storage.rs", "crate::qspec_read_proof::read_budget_and_account(", "caller-budget")
         return [dict(plain) for _ in range(3)] + [dict(caller) for _ in range(2)]

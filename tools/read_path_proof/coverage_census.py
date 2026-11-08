@@ -25,6 +25,7 @@ class CensusError(ValueError):
 BOUNDARIES = {
     ("tests/it/support/qspec_read_proof.rs", "read_and_account"): "plain",
     ("tests/it/support/read_observation.rs", "measure_at"): "budgeted",
+    ("tests/it/support/qspec_read_proof.rs", "measure_seeded"): "budgeted",
     ("tests/it/support/qspec_read_proof.rs", "read_budget_and_account"): "budgeted",
     ("tests/it/support/qspec_read_proof.rs",
      "caller_budget_observation_preserves_prior_charges_and_outer_capture"): "budgeted-calibration",
@@ -118,19 +119,22 @@ def check(export, root):
     budgeted = count(production, "read_with_budget")
     measured_plain = count(wrapper, "read_and_account")
     probes = count("tests/it/support/read_observation.rs", "measure_at")
+    seeded_probes = count(wrapper, "measure_seeded")
     caller_budget = count(wrapper, "read_budget_and_account")
     calibration = count(wrapper, "caller_budget_observation_preserves_prior_charges_and_outer_capture")
-    if measured_plain == 0 or probes == 0:
+    if measured_plain + caller_budget == 0 or probes + seeded_probes == 0:
         raise CensusError("the original-driver corpus did not execute measured read boundaries")
     if plain != measured_plain:
         raise CensusError(f"unaccounted plain entries: production {plain}, measured boundaries {measured_plain}")
-    expected_budgeted = plain + probes + caller_budget + calibration
+    if seeded_probes < 6 * caller_budget:
+        raise CensusError("caller-budget entries lack first/repeated checked OFF/count/record snapshot reads")
+    expected_budgeted = plain + probes + seeded_probes + caller_budget + calibration
     if budgeted != expected_budgeted:
         raise CensusError(f"unaccounted budgeted entries: production {budgeted}, expected {expected_budgeted} "
-                          f"(plain {plain} + probes {probes} + caller-budget {caller_budget} + calibration {calibration})")
-    return {"scope": "executed QSpec original-driver corpus only",
+                          f"(plain {plain} + probes {probes} + seeded-probes {seeded_probes} + caller-budget {caller_budget} + calibration {calibration})")
+    return {"scope": "executed source-snapshot reader invocation census only",
             "plain": plain, "budgeted": budgeted, "measured_plain": measured_plain,
-            "measured_probes": probes, "caller_budget": caller_budget,
+            "measured_probes": probes, "seeded_probes": seeded_probes, "caller_budget": caller_budget,
             "private_counter_calibration": calibration,
             "static_ac513_proven": False}
 
@@ -249,13 +253,17 @@ def check_run(export, root, report, records, mode):
     caller = [record for record in records if record.get("entry") == "caller-budget"]
     if len(plain) != result["measured_plain"] or len(caller) != result["caller_budget"]:
         raise CensusError("temporary original-site records do not match compiler boundary counts")
+    if any(record.get("snapshot_replay") != "exact-entire-caller-state" for record in caller):
+        raise CensusError("caller-budget capture lacks exact entire-state replay evidence")
     if any(record.get("mode") != mode for record in plain):
         raise CensusError("mixed or missing proof modes in original-driver records")
     if any(not record.get("driver") or not record.get("line") or not record.get("test")
            for record in records):
         raise CensusError("missing original driver/test/callsite provenance")
     if mode == "full":
-        for record in plain:
+        # A caller-budget original entry is not a probe exemption. It must
+        # carry actual full-boundary evidence too; core-only captures stay RED.
+        for record in records:
             validate_normative_boundaries(record)
     result.update({"original_tests_passed": len(passed), "mode": mode,
                    "normative_boundary_proof": mode == "full"})

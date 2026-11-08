@@ -75,10 +75,21 @@ pub(crate) fn checked<C: Counter>(
     work: u64,
     storage: u64,
 ) -> (Observation, Vec<NativeBudgetEvent>) {
-    let off = measure_at::<C>(bytes, evidence, limits, work, storage);
-    let (counted, count) = scoped(Recorder::Count(0), || {
-        measure_at::<C>(bytes, evidence, limits, work, storage)
-    });
+    trace(|| measure_at::<C>(bytes, evidence, limits, work, storage))
+}
+
+pub(crate) fn checked_seeded(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limits: CheckedPackageReadLimits,
+    seed: &quire_contract_model::NativeJoinBudget,
+) -> (Observation, Vec<NativeBudgetEvent>) {
+    trace(|| super::measure_seeded(bytes, evidence, limits, seed.read_proof_snapshot()))
+}
+
+fn trace(read: impl Fn() -> Observation) -> (Observation, Vec<NativeBudgetEvent>) {
+    let off = read();
+    let (counted, count) = scoped(Recorder::Count(0), || read());
     unchanged(&off, &counted);
     let Recorder::Count(count) = count else {
         unreachable!("count recorder")
@@ -91,7 +102,7 @@ pub(crate) fn checked<C: Counter>(
             events,
             overflow: false,
         },
-        || measure_at::<C>(bytes, evidence, limits, work, storage),
+        || read(),
     );
     unchanged(&off, &recorded);
     let Recorder::Record { events, overflow } = trace else {

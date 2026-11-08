@@ -83,6 +83,19 @@ and that every sufficient budget returns the unlimited budget's outcome.
    invented. Every probe still asserts requested bytes equal charged bytes.
    Keep the all-input ample/exact/last-short core tier distinct from the full
    normative boundary tier in commands and result records.
+   For a designated walker-growth or exact-reservation adverse provider,
+   replay every actual event in those source-derived classes, including
+   intermediate requests; stage/class endpoints alone do not cover that
+   provider. Bind its designation to the original test and read callsite.
+   For an original explicit caller budget, take the test-support exact
+   snapshot before the call, preserving every prior counter, denial, delta,
+   locus, outcome and configuration field. Compare the original call's full
+   outcome and entire final budget with serial checked snapshot reads; assert
+   the logical-storage consumption is unchanged and actual requested bytes
+   equal the read-storage delta. Boundary replay may explicitly change only
+   the work limit, read-storage limit and unlimited flag of an exact snapshot.
+   Do not reconstruct prior state from consumption totals or replace the
+   original caller's one mutable-budget invocation with a proof invocation.
 5. Repeat the one-below reads with a read-storage limit that leaves too little
    for the outcome's own diagnostic, and with zero read storage, including an
    input over the byte limit.
