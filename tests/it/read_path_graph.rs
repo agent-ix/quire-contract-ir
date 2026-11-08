@@ -91,7 +91,7 @@ impl Graph {
     pub fn from_source(source: &str) -> Self {
         let mut graph = Self::default();
         let syntax = syn::parse_file(source).expect("reachability fixture syntax");
-        graph.items("", Path::new("."), &syntax.items, false);
+        graph.items("", Path::new("."), Path::new("."), &syntax.items, false);
         graph
     }
     pub fn from_crate(root: &Path) -> Self {
@@ -100,12 +100,20 @@ impl Graph {
         graph.items(
             "",
             root.parent().expect("crate source directory"),
+            root.parent().expect("crate source directory"),
             &syn::parse_file(&source).expect("crate syntax").items,
             true,
         );
         graph
     }
-    fn items(&mut self, module: &str, directory: &Path, items: &[syn::Item], load_files: bool) {
+    fn items(
+        &mut self,
+        module: &str,
+        directory: &Path,
+        source_directory: &Path,
+        items: &[syn::Item],
+        load_files: bool,
+    ) {
         for item in items {
             if let syn::Item::Mod(m) = item {
                 if !test_only(&m.attrs) {
@@ -205,7 +213,13 @@ impl Graph {
                         format!("{module}::{name}")
                     };
                     if let Some((_, items)) = &m.content {
-                        self.items(&child, &directory.join(&name), items, load_files);
+                        self.items(
+                            &child,
+                            &directory.join(&name),
+                            &directory.join(&name),
+                            items,
+                            load_files,
+                        );
                     } else if load_files {
                         let custom = m.attrs.iter().find_map(|a| {
                             if !a.path().is_ident("path") {
@@ -220,7 +234,7 @@ impl Graph {
                             let syn::Lit::Str(s) = &l.lit else {
                                 return None;
                             };
-                            Some(directory.join(s.value()))
+                            Some(source_directory.join(s.value()))
                         });
                         let path = custom.unwrap_or_else(|| {
                             let file = directory.join(format!("{name}.rs"));
@@ -242,6 +256,7 @@ impl Graph {
                         self.items(
                             &child,
                             &base,
+                            path.parent().expect("source directory"),
                             &syn::parse_file(&source).expect("module syntax").items,
                             true,
                         );

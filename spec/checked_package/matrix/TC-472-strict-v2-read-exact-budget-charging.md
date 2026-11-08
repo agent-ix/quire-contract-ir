@@ -29,6 +29,10 @@ and that every sufficient budget returns the unlimited budget's outcome.
    `initialize_operation_catalog` before any measured read and runs its reads
    on one thread. A separate case reads first in a fresh process without that
    call and compares its budget deltas with a later read's (FR-038-AC-515).
+   The first package read is measured, not used as an unmeasured warm-up;
+   repeated public reads must charge their owned catalog storage again.
+   Measure dropping a returned outcome in a separate counter interval, so
+   destructor requests cannot be mistaken for during-call accounting.
 2. Corpus: every positive TC-048 fixture, the QSpec checked-package
    conformance packages this repository reads by reference, one refused input
    per refusal code, and the adverse shapes of FR-038-AC-511 generated in the
@@ -38,8 +42,11 @@ and that every sufficient budget returns the unlimited budget's outcome.
    `CheckedPackageV2::read` and `read_checked_package` at ample, exact and
    one-below `limits.work`, and record
    the outcome, the work, logical storage and read-storage deltas, and the
-   observed bytes. With a crate-private stage probe, record the cumulative work
-   and read storage admitted at the last charge of each `PackageReadStage`.
+   observed bytes. Discover actual read-storage request boundaries with the
+   public `first_unpaid_read_storage` and `first_unpaid_locus` probes: start
+   at zero and advance the allowance by exactly the denied request amount.
+   Record the actual cumulative boundaries at each stage's requests; stage
+   labels may decrease and must not be treated as a monotonic search key.
 4. Re-read each input with the exact measured work and read-storage limits;
    then, for each stage S the input reaches, with the read-storage limit one
    below the cumulative read storage at S's last charge (work ample), and, for

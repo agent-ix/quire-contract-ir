@@ -206,14 +206,14 @@ impl<'ast> Visit<'ast> for Inspection {
             .join("::");
         self.check(&format!("{path}!("));
         visit::visit_macro(self, invocation);
-        // Macro bodies are token streams, not syntax visited by syn.
-        self.check(
-            &invocation
-                .tokens
-                .to_string()
-                .split_whitespace()
-                .collect::<String>(),
-        );
+        // Inspect expression-shaped macro arguments as syntax, preserving
+        // literals as literals. Other expansions remain unresolved in the
+        // rooted graph; token substrings are not proof of a live construct.
+        if let Ok(expression) = syn::parse_str::<syn::Expr>(&format!("[{}]", invocation.tokens)) {
+            self.visit_expr(&expression);
+        } else if let Ok(expression) = syn::parse2::<syn::Expr>(invocation.tokens.clone()) {
+            self.visit_expr(&expression);
+        }
     }
 }
 
@@ -319,7 +319,7 @@ fn aliases_globs_reexports_and_slice_ufcs_do_not_hide_banned_calls() {
     }
     assert!(banned_lines(
         "negative",
-        r#"fn reader(){let text="serde_json::Value .sort("; let _=text;} // serde_json::from_str"#
+        r#"fn reader(){let text="serde_json::Value .sort("; let _=format!("serde_json::Value {}",text);} // serde_json::from_str"#
     )
     .is_empty());
 }
