@@ -42,6 +42,45 @@ fn observe(
     observation
 }
 
+/// A checked read from an exact caller-state snapshot, not reconstructed totals.
+#[cfg(feature = "test-support")]
+fn measure_seeded(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limits: CheckedPackageReadLimits,
+    mut budget: quire_contract_model::NativeJoinBudget,
+) -> Observation {
+    let before = budget.read_storage_consumed();
+    let logical_before = budget.consumed().storage;
+    let mut result = None;
+    let requested = <DriverCounter as Counter>::measure(|| {
+        result = Some(CheckedPackageV2::read_with_budget(
+            bytes,
+            limits,
+            evidence,
+            &mut budget,
+        ));
+    });
+    assert_eq!(
+        budget.consumed().storage,
+        logical_before,
+        "seeded replay consumes no new logical storage"
+    );
+    assert_eq!(
+        requested,
+        budget
+            .read_storage_consumed()
+            .checked_sub(before)
+            .expect("monotone caller consumption"),
+        "seeded checked public read pays every actual allocation request"
+    );
+    Observation {
+        result: result.expect("seeded read ran"),
+        budget,
+        requested,
+    }
+}
+
 fn same_observation(left: &Observation, right: &Observation) {
     assert_eq!(
         left.result, right.result,
@@ -558,6 +597,25 @@ pub(crate) fn read_budget_and_account(
     budget: &mut quire_contract_model::NativeJoinBudget,
 ) -> Budgeted {
     let location = std::panic::Location::caller();
+    #[cfg(feature = "test-support")]
+    let seed = budget.read_proof_snapshot();
+    #[cfg(feature = "test-support")]
+    let reference = crate::without_qspec_instrumentation(|| {
+        std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .name(format!(
+                    "ir1404-seeded-first:{}:{}",
+                    location.file(),
+                    location.line()
+                ))
+                .spawn_scoped(scope, || {
+                    native_budget_trace::checked_seeded(bytes, evidence, limits, &seed).0
+                })
+                .expect("start exact caller-state measured worker")
+                .join()
+                .expect("first exact caller-state measured read")
+        })
+    });
     let before = budget.read_storage_consumed();
     let logical_before = budget.consumed().storage;
     let mut result = None;
@@ -576,6 +634,39 @@ pub(crate) fn read_budget_and_account(
         logical_before,
         "read storage remains separate from native logical storage"
     );
+    #[cfg(feature = "test-support")]
+    crate::without_qspec_instrumentation(|| {
+        std::thread::scope(|scope| {
+            let original = result.as_ref().expect("original caller read ran");
+            let final_budget = &*budget;
+            scope
+                .spawn(move || {
+                    assert_eq!(
+                        &reference.result, original,
+                        "original caller returns the complete snapshot-replay outcome"
+                    );
+                    assert_eq!(
+                        &reference.budget, final_budget,
+                        "original caller retains the complete cumulative snapshot state"
+                    );
+                    assert_eq!(
+                        reference.requested, requested,
+                        "original caller requests match exact-state replay"
+                    );
+                    let (repeated, _events) =
+                        native_budget_trace::checked_seeded(bytes, evidence, limits, &seed);
+                    same_observation(&reference, &repeated);
+                    assert_eq!(
+                        reference.budget, repeated.budget,
+                        "entire repeated caller state"
+                    );
+                    drop_without_request::<DriverCounter>(repeated);
+                    drop_without_request::<DriverCounter>(reference);
+                })
+                .join()
+                .expect("exact caller-state repeat proof");
+        })
+    });
     crate::without_qspec_instrumentation(|| {
         let log = std::env::var_os("IR1404_READ_PROOF_LOG")
             .map(std::path::PathBuf::from)

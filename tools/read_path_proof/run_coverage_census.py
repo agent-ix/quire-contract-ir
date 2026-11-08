@@ -404,6 +404,8 @@ def main():
     try:
         if git(args.repo, "status", "--porcelain"):
             raise RunError("freeze and commit the source before compiler evidence")
+        if "test-support" not in set(",".join(args.features).split(",")):
+            raise RunError("compiler proof requires explicit test-support for checked passive/seeded boundaries")
         if git(args.qspec_dir, "status", "--porcelain"):
             raise RunError("select a clean QSpec checkout for the one recorded input snapshot")
         require_space(args.repo, "before compiler build")

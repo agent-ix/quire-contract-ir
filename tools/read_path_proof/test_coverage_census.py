@@ -16,6 +16,7 @@ def export_counts(plain=3, probes=20, caller=2, calibration=1):
         ("tests/it/support/qspec_read_proof.rs", "read_and_account"): plain,
         ("tests/it/support/read_observation.rs", "measure_at"): probes,
         ("tests/it/support/qspec_read_proof.rs", "read_budget_and_account"): caller,
+        ("tests/it/support/qspec_read_proof.rs", "measure_seeded"): 0,
         ("tests/it/support/qspec_read_proof.rs",
          "caller_budget_observation_preserves_prior_charges_and_outer_capture"): calibration,
         ("crates/quire-contract-model/src/checked_package/v2/budgeted_read.rs", "read"): plain,
