@@ -819,13 +819,7 @@ fn placement_defect<'a>(
         super::graph_storage::node_form(&graph.nodes[position].node_tag),
     );
     Ok(
-        match meter.walk(
-            &mut Placement {
-                graph,
-                kind,
-            },
-            (root, true, Slot::Other),
-        )? {
+        match meter.walk(&mut Placement { graph, kind }, (root, true, Slot::Other))? {
             ControlFlow::Continue(()) => None,
             ControlFlow::Break(()) => Some(ineligible(graph, position, meter)),
         },
@@ -3078,7 +3072,8 @@ mod tests {
                 1 => {
                     nodes[0].body = CheckedJson::from_serializable(
                         &json!({"term": "aggregate", "members": []}),
-                    ).expect("closed aggregate body");
+                    )
+                    .expect("closed aggregate body");
                 }
                 // A temporal node holding a different placed class.
                 2 => nodes[0].semantic_form = "formula".into(),
@@ -3088,7 +3083,8 @@ mod tests {
                     nodes[0].semantic_form = "pure_function".into();
                     nodes[0].body = CheckedJson::from_serializable(
                         &json!({"term": "reference", "target": id('2')}),
-                    ).expect("closed reference body");
+                    )
+                    .expect("closed reference body");
                     if route == 4 {
                         nodes[2].semantic_form = "fairness".into();
                     }
@@ -3117,48 +3113,105 @@ mod tests {
                 .map(|(position, node)| (&node.node_id, position))
                 .collect();
             let owners = ModelOwners::default();
-            let graph = StepGraph { nodes: &nodes, kinds: &kinds, index: &index, owners: &owners };
+            let graph = StepGraph {
+                nodes: &nodes,
+                kinds: &kinds,
+                index: &index,
+                owners: &owners,
+            };
             let run = |limit| {
-                let mut budget = super::super::NativeJoinBudget::new(u64::MAX, 0)
-                    .with_read_storage_limit(limit);
+                let mut budget =
+                    super::super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
                 let mut result = None;
                 let allocations = allocation_counter::measure(|| {
                     result = Some(placement_defect(
-                        0, &graph, &terms, &mut WorkMeter::over(&mut budget),
+                        0,
+                        &graph,
+                        &terms,
+                        &mut WorkMeter::over(&mut budget),
                     ));
                 });
-                (result.expect("placement ran"), allocations.bytes_total, budget)
+                (
+                    result.expect("placement ran"),
+                    allocations.bytes_total,
+                    budget,
+                )
             };
             let (result, allocated, mut budget) = run(u64::MAX);
             let Ok(Some(ValidationFailure::Refused(refusal))) = &result else {
                 panic!("route {route} must refuse operator placement")
             };
             assert_eq!(refusal.code, CheckedPackageRefusalCode::IllTyped);
-            assert_eq!(refusal.cause, Some(CheckedPackageRefusalCause::OperatorIneligible));
+            assert_eq!(
+                refusal.cause,
+                Some(CheckedPackageRefusalCause::OperatorIneligible)
+            );
             assert_eq!(refusal.locus.as_ref(), Some(&nodes[0].node_id));
             assert_eq!(refusal.loci.len(), 1);
-            assert_eq!(refusal.loci[0].path.as_ref().unwrap().as_str(), "/semantic_graph/nodes/0");
-            assert_eq!(allocated, budget.read_storage_consumed(), "route {route} pays every request");
+            assert_eq!(
+                refusal.loci[0].path.as_ref().unwrap().as_str(),
+                "/semantic_graph/nodes/0"
+            );
+            assert_eq!(
+                allocated,
+                budget.read_storage_consumed(),
+                "route {route} pays every request"
+            );
             assert_eq!(budget.consumed().work, 0, "placement adds no logical work");
-            assert_eq!(budget.take_paid(), Some(super::super::CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::IllTyped)));
-            assert_eq!(run(allocated).0, result, "exact allowance retains the complete fault");
+            assert_eq!(
+                budget.take_paid(),
+                Some(super::super::CheckedPackagePendingOutcome::Refused(
+                    CheckedPackageRefusalCode::IllTyped
+                ))
+            );
+            assert_eq!(
+                run(allocated).0,
+                result,
+                "exact allowance retains the complete fault"
+            );
             for limit in [allocated - 1, 0] {
                 let (stopped, requested, mut budget) = run(limit);
-                assert!(matches!(stopped, Err(ValidationFailure::Budget(_)) | Ok(Some(ValidationFailure::Budget(_)))));
-                assert_eq!(requested, budget.read_storage_consumed(), "denial allocates only paid storage");
+                assert!(matches!(
+                    stopped,
+                    Err(ValidationFailure::Budget(_)) | Ok(Some(ValidationFailure::Budget(_)))
+                ));
+                assert_eq!(
+                    requested,
+                    budget.read_storage_consumed(),
+                    "denial allocates only paid storage"
+                );
                 assert_eq!(budget.consumed().work, 0);
                 let pending = budget.take_pending();
                 if limit > 0 || route < 3 {
-                    assert_eq!(pending, Some(super::super::CheckedPackagePendingOutcome::Refused(CheckedPackageRefusalCode::IllTyped)));
-                    let locus = budget.first_unpaid_locus().expect("diagnostic denial locus");
+                    assert_eq!(
+                        pending,
+                        Some(super::super::CheckedPackagePendingOutcome::Refused(
+                            CheckedPackageRefusalCode::IllTyped
+                        ))
+                    );
+                    let locus = budget
+                        .first_unpaid_locus()
+                        .expect("diagnostic denial locus");
                     assert_eq!(locus.form, "diagnostic");
-                    assert_eq!(locus.source, super::super::NativeJoinLocusSource::PackageRead(super::super::PackageReadStage::Graph, 0));
+                    assert_eq!(
+                        locus.source,
+                        super::super::NativeJoinLocusSource::PackageRead(
+                            super::super::PackageReadStage::Graph,
+                            0
+                        )
+                    );
                 }
                 let (repeated, repeated_requests, mut repeated_budget) = run(limit);
-                assert_eq!(repeated, stopped, "the same allowance retains its first stop");
+                assert_eq!(
+                    repeated, stopped,
+                    "the same allowance retains its first stop"
+                );
                 assert_eq!(repeated_requests, requested);
                 assert_eq!(repeated_budget.take_pending(), pending);
-                assert_eq!(repeated_budget, budget, "the complete caller budget repeats");
+                assert_eq!(
+                    repeated_budget, budget,
+                    "the complete caller budget repeats"
+                );
             }
         }
     }
