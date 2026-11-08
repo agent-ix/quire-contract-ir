@@ -614,9 +614,17 @@ pub(in crate::checked_package) fn read_envelope(
         Ok(document) => document,
         Err(ReadError::Limit(_)) => return Err(refuse_bytes_exceeded(limits.bytes, bytes.len())),
         Err(ReadError::DuplicateName { pointer, .. }) => {
-            return Err(ValidationFailure::refused(
+            let mut meter = super::WorkMeter::over(budget);
+            return Err(super::stage_storage::refuse_held_pointer(
+                &mut meter,
+                &super::stage_storage::Site::new(
+                    PackageReadStage::Envelope,
+                    0,
+                    "package_bytes",
+                    super::stage_storage::Path::root(),
+                ),
                 CheckedPackageRefusalCode::DuplicateMember,
-                JsonPointer::from_escaped(pointer),
+                pointer,
             ));
         }
         Err(ReadError::ReservationDenied { .. }) => return Err(denial(budget)),
@@ -681,4 +689,148 @@ fn prepaid_bytes_refusal(
         ),
         code,
     )
+}
+
+#[cfg(test)]
+mod early_refusal_allocation_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn minimal_early_refusals_are_paid_for_unlimited_exact_and_short_reads() {
+        let evidence = CheckedPackageEvidence::new();
+        for (bytes, code, path, version) in [
+            (
+                b"null".as_slice(),
+                CheckedPackageRefusalCode::MalformedWire,
+                "/contract_version",
+                None,
+            ),
+            (
+                br#""text""#.as_slice(),
+                CheckedPackageRefusalCode::MalformedWire,
+                "/contract_version",
+                None,
+            ),
+            (
+                b"[]".as_slice(),
+                CheckedPackageRefusalCode::MalformedWire,
+                "/contract_version",
+                None,
+            ),
+            (
+                b"[null]".as_slice(),
+                CheckedPackageRefusalCode::MalformedWire,
+                "/contract_version",
+                None,
+            ),
+            (
+                br#"{"contract_version":"future"}"#.as_slice(),
+                CheckedPackageRefusalCode::UnknownContractVersion,
+                "/contract_version",
+                Some("future"),
+            ),
+            (
+                br#"{"contract_version":"quire.checked-package/v2"}"#.as_slice(),
+                CheckedPackageRefusalCode::MalformedWire,
+                "/name",
+                None,
+            ),
+            (
+                br#"{"":null,"":null}"#.as_slice(),
+                CheckedPackageRefusalCode::DuplicateMember,
+                "/",
+                None,
+            ),
+        ] {
+            let run = |mut budget| {
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    result = Some(CheckedPackageV2::read_with_budget(
+                        bytes,
+                        CheckedPackageReadLimits::bounded(),
+                        &evidence,
+                        &mut budget,
+                    ));
+                });
+                (result.expect("ran"), measured.bytes_total, budget)
+            };
+            // The first measured public read precedes the plain reference.
+            let (result, requested, budget) = run(NativeJoinBudget::unlimited());
+            let total = budget.read_storage_consumed();
+            assert_eq!(requested, total, "{bytes:?}");
+            let CheckedPackageV2BudgetedReadResult::Refused(refusal) = &result else {
+                panic!("typed refusal: {result:?}");
+            };
+            assert_eq!(refusal.code, code);
+            assert_eq!(
+                refusal.loci[0].path.as_ref().map(JsonPointer::as_str),
+                Some(path)
+            );
+            assert_eq!(refusal.contract_version.as_deref(), version);
+            let CheckedPackageV2ReadResult::Refused(plain) =
+                CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), &evidence)
+            else {
+                panic!("plain read refuses");
+            };
+            assert_eq!(&plain, refusal);
+            let (exact, requested, budget) =
+                run(NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(total));
+            assert_eq!(exact, result);
+            assert_eq!(requested, budget.read_storage_consumed());
+            let (short, requested, budget) =
+                run(NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(total - 1));
+            assert!(
+                matches!(short, CheckedPackageV2BudgetedReadResult::Exhausted(exhausted)
+                if exhausted.pending == Some(CheckedPackagePendingOutcome::Refused(code)))
+            );
+            assert_eq!(requested, budget.read_storage_consumed());
+            assert_eq!(budget.consumed().storage, 0);
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn held_pointer_empty_exact_and_shrinking_buffers_charge_only_new_requests() {
+        for (capacity, text) in [(0, ""), (64, ""), (5, "/same"), (64, "/")] {
+            let run = |limit| {
+                // This models the already-paid canonical-reader buffer.
+                let mut pointer = String::with_capacity(capacity);
+                pointer.push_str(text);
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = super::super::WorkMeter::over(&mut budget);
+                    result = Some(super::super::stage_storage::refuse_held_pointer(
+                        &mut meter,
+                        &super::super::stage_storage::Site::new(
+                            PackageReadStage::Envelope,
+                            0,
+                            "package_bytes",
+                            super::super::stage_storage::Path::root(),
+                        ),
+                        CheckedPackageRefusalCode::DuplicateMember,
+                        pointer,
+                    ));
+                });
+                (
+                    result.expect("ran"),
+                    measured.bytes_total,
+                    budget.read_storage_consumed(),
+                )
+            };
+            let (result, requested, charged) = run(u64::MAX);
+            assert_eq!(requested, charged, "capacity {capacity}");
+            assert!(matches!(&result, ValidationFailure::Refused(refusal)
+                if refusal.code == CheckedPackageRefusalCode::DuplicateMember
+                    && refusal.primary_path().is_some_and(|path| path.as_str() == text)));
+            let (exact, requested, consumed) = run(charged);
+            assert_eq!(exact, result);
+            assert_eq!(requested, consumed);
+            let (short, requested, consumed) = run(charged - 1);
+            assert!(matches!(short, ValidationFailure::Budget(_)));
+            assert_eq!((requested, consumed), (0, 0));
+        }
+    }
 }

@@ -1553,23 +1553,55 @@ impl CheckedPackageV2 {
         let document = budgeted_read::read_envelope(bytes, limits, budget)?;
         let document = budgeted_read::share_document(document, budget)?;
         let package = TermNode::from_ref(document.root());
+        let version_path = stage_storage::Path::root().key("contract_version");
         match package.get("contract_version").and_then(TermNode::as_str) {
             Some(version)
                 if PackageWireTag::from_wire(version) == Some(PackageWireTag::ContractVersion) => {}
             Some(version) => {
-                return Err(ValidationFailure::unknown_contract_version(version));
+                let mut meter = WorkMeter::over(budget);
+                let mut failure = stage_storage::refuse(
+                    &mut meter,
+                    &stage_storage::Site::new(
+                        PackageReadStage::WireDecode,
+                        0,
+                        "wire",
+                        version_path,
+                    ),
+                    stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::UnknownContractVersion,
+                        version_path,
+                    )
+                    .with_extra(version.len()),
+                );
+                if let ValidationFailure::Refused(ref mut refusal) = failure {
+                    refusal.contract_version = Some(version.into());
+                }
+                return Err(failure);
             }
             None => {
-                return Err(refuse(
-                    CheckedPackageRefusalCode::MalformedWire,
-                    member_pointer(&["contract_version"]),
+                let mut meter = WorkMeter::over(budget);
+                return Err(stage_storage::refuse(
+                    &mut meter,
+                    &stage_storage::Site::new(
+                        PackageReadStage::WireDecode,
+                        0,
+                        "wire",
+                        version_path,
+                    ),
+                    stage_storage::Refusal::new(
+                        CheckedPackageRefusalCode::MalformedWire,
+                        version_path,
+                    ),
                 ));
             }
         }
         if package.get("name").is_none() {
-            return Err(refuse(
-                CheckedPackageRefusalCode::MalformedWire,
-                member_pointer(&["name"]),
+            let path = stage_storage::Path::root().key("name");
+            let mut meter = WorkMeter::over(budget);
+            return Err(stage_storage::refuse(
+                &mut meter,
+                &stage_storage::Site::new(PackageReadStage::WireDecode, 0, "wire", path),
+                stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, path),
             ));
         }
         let (mut wire, bodies) = intake::decode_borrowed_wire(&document, budget)
@@ -2041,12 +2073,8 @@ fn validate(
         dispatch_projection::validate_checked_term_data(
             data, wire, &kinds, &terms, &models, &mut meter,
         )?;
-    } else if kinds.contains(&CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)) {
-        return Err(ValidationFailure::refused_because(
-            CheckedPackageRefusalCode::InvalidPackage,
-            JsonPointer::root().key("checked_term_data"),
-            CheckedPackageRefusalCause::InvalidValue,
-        ));
+    } else {
+        require_probabilistic_sidecar(&kinds, &mut meter)?;
     }
     Ok(ValidatedPackage {
         kinds,
@@ -2058,6 +2086,28 @@ fn validate(
         lowering_facts,
         structural_keys,
     })
+}
+
+/// A probabilistic claim cannot silently lose its required sidecar rows.
+fn require_probabilistic_sidecar(
+    kinds: &[CheckedNodeKind],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    if !kinds.contains(&CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)) {
+        return Ok(());
+    }
+    let path = stage_storage::Path::root().key("checked_term_data");
+    Err(stage_storage::refuse(
+        meter,
+        &stage_storage::Site::new(
+            PackageReadStage::CheckedTermData,
+            0,
+            "checked_term_data",
+            path,
+        ),
+        stage_storage::Refusal::new(CheckedPackageRefusalCode::InvalidPackage, path)
+            .because(CheckedPackageRefusalCause::InvalidValue),
+    ))
 }
 
 /// What the lock stage admits: each selected domain package's declarations,
@@ -2108,8 +2158,8 @@ fn validate_lock<'a>(
     let unit_refs = if roots.is_empty() {
         no_unit_refs(meter)?
     } else {
-        let duration_terms = identity::duration_terms(&wire.semantic_graph.nodes, meter)?;
-        checked_unit_refs(&wire.semantic_graph.nodes, &duration_terms, meter)?
+        let terms = identity::duration_terms(&wire.semantic_graph.nodes, meter)?;
+        checked_unit_refs(&wire.semantic_graph.nodes, &terms, meter)?
     };
     let (mut models, documents) =
         validate_domain_packages(&roots, &wire.name, evidence, meter, bytes, &unit_refs)?;
@@ -2737,14 +2787,17 @@ fn validate_body<'a, V: TermSource<'a>>(
             extension::read_body(node, stage_storage::Position::Trail(*at), ids)
                 .map(|body| extension::body_work(&body))
         }
-        BodyGrammar::Frame => Ok(["modifies", "creates", "deletes", "deletes_scoped"]
-            .into_iter()
-            .map(|key| {
-                body.member(key)
-                    .and_then(TermSource::items)
-                    .map_or(0, |rows| rows.count() as u64)
-            })
-            .fold(1_u64, u64::saturating_add)),
+        BodyGrammar::Frame => {
+            let count = ["modifies", "creates", "deletes", "deletes_scoped"]
+                .into_iter()
+                .map(|key| {
+                    body.member(key)
+                        .and_then(TermSource::items)
+                        .map_or(0, |rows| rows.count() as u64)
+                })
+                .fold(1_u64, u64::saturating_add);
+            Ok(count)
+        }
         BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence => {
             abstraction::scan_body(node, at, visit, ids)
         }
@@ -3532,13 +3585,10 @@ fn validate_graph(
                 extension::body_work(&body)
             }
             BodyGrammar::Frame => {
-                let (body, work) = frame::read_frame_body(
-                    TermNode::of(&bodies[position]),
-                    position,
-                    &wire.semantic_graph.operand_rows[position],
-                    meter,
-                )?;
-                frame_term = Some(body.checked_term(meter)?);
+                let (body, row) = meter.body(position).expect("graph bodies are attached");
+                let (body, work) =
+                    frame::read_frame_body(body, row, meter, &Trail::Base(&body_steps))?;
+                frame_term = Some(body.clone().into_checked_term(meter)?);
                 frames.push((&node.node_id, position, body));
                 work
             }
@@ -3827,7 +3877,7 @@ fn validate_graph(
         &owners,
         meter,
     )?;
-    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners, meter)?;
+    claim_terminal::validate_state_graph(&graph.nodes, &kinds, &terms, &index, &owners)?;
     validate_temporal(
         &terms,
         &graph.nodes,
@@ -4135,7 +4185,7 @@ fn validate_graph(
                             | ScalarTypeForm::Unit
                             | ScalarTypeForm::DimensionEquivalence
                     )
-                ) || imported_nominals.binary_search(dependency).is_err())
+                ) || !imported_nominals.contains(dependency))
             {
                 return Err(refuse(
                     CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -4153,7 +4203,7 @@ fn validate_graph(
                             | ScalarTypeForm::DimensionEquivalence
                     )
                 )
-                && imported_nominals.binary_search(target).is_ok()
+                && imported_nominals.contains(target)
             {
                 // A selected nominal in an admitted dependency is validated
                 // by the nominal join above. It is outside this local graph's
@@ -4241,7 +4291,7 @@ fn validate_graph(
     lower::assign_components_charged(&mut lowering_facts, meter)?;
     let mut admitted_terms = meter.vec(terms.len())?;
     for (position, term) in terms.into_iter().enumerate() {
-        admitted_terms.push(match term {
+        let term = match term {
             Some(term) => term,
             None => decode_admitted_body(
                 kinds[position],
@@ -4250,7 +4300,8 @@ fn validate_graph(
                 position,
                 meter,
             )?,
-        });
+        };
+        meter.push(&mut admitted_terms, term)?;
     }
     Ok(ValidatedGraph {
         kinds,
@@ -5847,6 +5898,56 @@ mod admitted_document_bridge_tests {
             matches!(decode_admitted_body(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),&handle,&[],0,&mut WorkMeter::new(u64::MAX)),
             Err(ValidationFailure::Refused(refusal)) if refusal.code==CheckedPackageRefusalCode::MalformedWire)
         );
+    }
+}
+
+#[cfg(test)]
+mod missing_claim_sidecar_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn missing_claim_sidecar_prepays_refusal_and_denies_before_allocation() {
+        let claim = [CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)];
+        let run = |kinds: &[CheckedNodeKind], limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                result = Some(require_probabilistic_sidecar(kinds, &mut meter));
+            });
+            (result.expect("ran"), measured.bytes_total, budget)
+        };
+        let (ordinary, allocated, budget) = run(&[], 0);
+        assert_eq!(ordinary, Ok(()));
+        assert_eq!((allocated, budget.read_storage_consumed()), (0, 0));
+        let (missing, allocated, budget) = run(&claim, u64::MAX);
+        let charged = budget.read_storage_consumed();
+        assert_eq!(allocated, charged);
+        assert!(matches!(&missing, Err(ValidationFailure::Refused(refusal))
+            if refusal.code == CheckedPackageRefusalCode::InvalidPackage
+                && refusal.cause == Some(CheckedPackageRefusalCause::InvalidValue)
+                && refusal.primary_path().is_some_and(|path| path.as_str() == "/checked_term_data")));
+        let (exact, allocated, budget) = run(&claim, charged);
+        assert_eq!(exact, missing);
+        assert_eq!(allocated, budget.read_storage_consumed());
+        let (short, allocated, budget) = run(&claim, charged - 1);
+        assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+        assert_eq!((allocated, budget.read_storage_consumed()), (0, 0));
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some(u128::from(charged))
+        );
+        assert_eq!(
+            budget.first_unpaid_locus(),
+            Some(NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::CheckedTermData, 0),
+                form: "diagnostic",
+            })
+        );
+        assert_eq!(budget.consumed().storage, 0);
+        assert_eq!(budget.consumed().work, 0);
     }
 }
 
