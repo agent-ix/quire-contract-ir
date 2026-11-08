@@ -43,19 +43,19 @@
 use super::graph_storage::GraphIndex;
 use super::identity::is_identifier;
 use super::model_members::{MemberKind, ModelOwners, ModelRefusal};
+use super::native_join_budget::PackageReadStage;
+use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
     BodyTerm, CheckedFieldScope, CheckedFrameModification, CheckedNodeKind, CheckedScopedDeletion,
-    CheckedTerm, FrameEntryKind, ModelForm, RawSemanticNodeV2 as CheckedSemanticNodeV2,
-    RelationForm, WorkMeter,
+    CheckedSemanticNodeV2, CheckedTerm, FrameEntryKind, ModelForm, RelationForm, WorkMeter,
 };
 use crate::checked_package::common::{
-    body_term, exact_members, node_pointer, visit_reference, ReferenceMember, Trail,
-    ValidationFailure,
+    body_term, exact_members, visit_reference, ReferenceMember, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::CheckedPackageRefusalCause;
 use crate::checked_package::shared::{CheckedNodeId, CheckedPackageRefusalCode};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// One `modifies` entry.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -132,7 +132,7 @@ pub(super) struct FrameBody {
 impl FrameBody {
     /// Retains the already validated frame as the public typed term. This
     /// avoids a second generic JSON decode of nested structural node IDs.
-    pub(super) fn into_checked_term(self) -> CheckedTerm {
+    pub(super) fn into_checked_term_legacy(self) -> CheckedTerm {
         let modifies = self
             .modifies
             .into_iter()
@@ -169,11 +169,95 @@ impl FrameBody {
             deletes_scoped,
         }
     }
+
+    /// Copies the retained typed representation using the same caller meter.
+    pub(super) fn checked_term(
+        &self,
+        meter: &mut WorkMeter,
+    ) -> Result<CheckedTerm, ValidationFailure> {
+        let mut modifies = meter.vec(self.modifies.len())?;
+        for entry in &self.modifies {
+            modifies.push(match entry {
+                ModifiesEntry::Relationship { declaration } => {
+                    CheckedFrameModification::Relationship {
+                        declaration: meter.clone_id(declaration)?,
+                    }
+                }
+                ModifiesEntry::Field {
+                    declaration,
+                    name,
+                    scope,
+                } => CheckedFrameModification::Field {
+                    declaration: meter.clone_id(declaration)?,
+                    name: meter.boxed_str(name)?,
+                    scope: match scope {
+                        FieldScope::EveryObject => CheckedFieldScope::EveryObject,
+                        FieldScope::Receiver => CheckedFieldScope::Receiver,
+                    },
+                },
+            });
+        }
+        let mut creates = meter.vec(self.creates.len())?;
+        for id in &self.creates {
+            creates.push(meter.clone_id(id)?);
+        }
+        let mut deletes = meter.vec(self.deletes.len())?;
+        for id in &self.deletes {
+            deletes.push(meter.clone_id(id)?);
+        }
+        let mut deletes_scoped = meter.vec(self.deletes_scoped.len())?;
+        for entry in &self.deletes_scoped {
+            deletes_scoped.push(match entry {
+                DeletesScopedEntry::Receiver => CheckedScopedDeletion::Receiver,
+                DeletesScopedEntry::Parameter { name } => CheckedScopedDeletion::Parameter {
+                    name: meter.boxed_str(name)?,
+                },
+            });
+        }
+        Ok(CheckedTerm::Frame {
+            modifies,
+            creates,
+            deletes,
+            deletes_scoped,
+        })
+    }
+}
+
+/// A frame borrowed from the already admitted typed term table.
+pub(super) struct FrameView<'a> {
+    pub(super) modifies: &'a [CheckedFrameModification],
+    pub(super) deletes_scoped: &'a [CheckedScopedDeletion],
+    work: u64,
+}
+impl<'a> FrameView<'a> {
+    pub(super) fn of(term: &'a CheckedTerm) -> Option<Self> {
+        let CheckedTerm::Frame {
+            modifies,
+            creates,
+            deletes,
+            deletes_scoped,
+        } = term
+        else {
+            return None;
+        };
+        Some(Self {
+            modifies,
+            deletes_scoped,
+            work: 1_u64
+                .saturating_add(modifies.len() as u64)
+                .saturating_add(creates.len() as u64)
+                .saturating_add(deletes.len() as u64)
+                .saturating_add(deletes_scoped.len() as u64),
+        })
+    }
+    pub(super) fn work(&self) -> u64 {
+        self.work
+    }
 }
 
 /// Reads a `state`/`frame` node's body at `at`, returning it and its work:
 /// one unit for the body and one per entry.
-pub(super) fn read_frame_body(
+pub(super) fn read_frame_body_legacy(
     body: &Value,
     at: &Trail<'_>,
 ) -> Result<(FrameBody, u64), ValidationFailure> {
@@ -238,6 +322,169 @@ pub(super) fn read_frame_body(
     ))
 }
 
+/// Reads the original checked document directly, charging each owned block.
+pub(super) fn read_frame_body(
+    body: super::term_view::TermNode<'_>,
+    position: usize,
+    row: &[u64],
+    meter: &mut WorkMeter,
+) -> Result<(FrameBody, u64), ValidationFailure> {
+    use super::native_join_budget::PackageReadStage;
+    use super::stage_storage::{self, Path, Refusal, Site};
+    use super::term_view::{NodeIdRead, TermNode};
+    let root = Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(position)
+        .key("body");
+    let site = Site::new(PackageReadStage::Graph, position, "state", root);
+    let invalid = |meter: &mut WorkMeter, path, code| {
+        stage_storage::refuse(meter, &site, Refusal::new(code, path))
+    };
+    let code = CheckedPackageRefusalCode::InvalidSemanticGraph;
+    if !body.exact_members(&["term", "modifies", "creates", "deletes", "deletes_scoped"]) {
+        return Err(invalid(meter, root, code));
+    }
+    if body.kind() != Some(BodyTerm::Frame) {
+        return Err(invalid(meter, root.key("term"), code));
+    }
+    let array = |key: &'static str, meter: &mut WorkMeter| {
+        body.get(key)
+            .and_then(TermNode::items)
+            .ok_or_else(|| invalid(meter, root.key(key), code))
+    };
+    let read_id = |value: Option<TermNode<'_>>, meter: &mut WorkMeter, at| {
+        let Some(value) = value else {
+            return Err(invalid(meter, at, code));
+        };
+        let id_site = super::read_charge::Site::new(PackageReadStage::Graph, position, "state");
+        match value
+            .node_id_in(meter, id_site, row)
+            .map_err(|_| super::read_charge::ReadStorage::denial(meter))?
+        {
+            NodeIdRead::Id(id) => Ok(id),
+            NodeIdRead::Malformed => Err(invalid(meter, at, code)),
+            NodeIdRead::Invalid(_) => {
+                Err(invalid(meter, at, CheckedPackageRefusalCode::MalformedWire))
+            }
+        }
+    };
+    let items = array("modifies", meter)?;
+    let mut modifies = meter.vec(items.clone().count())?;
+    for (index, entry) in items.enumerate() {
+        let at = root.key("modifies").index(index);
+        let kind = entry
+            .get("kind")
+            .and_then(TermNode::as_str)
+            .and_then(FrameEntryKind::from_wire);
+        let members: &[&str] = match kind {
+            Some(FrameEntryKind::Relationship) => &["kind", "declaration"],
+            Some(FrameEntryKind::Field) => &["kind", "declaration", "name", "scope"],
+            None => return Err(invalid(meter, at, code)),
+        };
+        if !entry.exact_members(members) {
+            return Err(invalid(meter, at, code));
+        }
+        let declaration = read_id(entry.get("declaration"), meter, at)?;
+        let value = if kind == Some(FrameEntryKind::Relationship) {
+            ModifiesEntry::Relationship { declaration }
+        } else {
+            let name = entry
+                .get("name")
+                .and_then(TermNode::as_str)
+                .filter(|name| is_identifier(name))
+                .ok_or_else(|| invalid(meter, at, code))?;
+            let scope = entry
+                .get("scope")
+                .and_then(TermNode::as_str)
+                .and_then(FieldScope::from_wire)
+                .ok_or_else(|| invalid(meter, at, code))?;
+            ModifiesEntry::Field {
+                declaration,
+                name: meter.boxed_str(name)?,
+                scope,
+            }
+        };
+        modifies.push(value);
+    }
+    reject_repeat_in(&modifies, position, root.key("modifies"), meter)?;
+    let mut read_keys = |key: &'static str| -> Result<Vec<CheckedNodeId>, ValidationFailure> {
+        let items = array(key, meter)?;
+        let mut keys = meter.vec(items.clone().count())?;
+        for (index, item) in items.enumerate() {
+            keys.push(read_id(Some(item), meter, root.key(key).index(index))?);
+        }
+        reject_repeat_in(&keys, position, root.key(key), meter)?;
+        Ok(keys)
+    };
+    let creates = read_keys("creates")?;
+    let deletes = read_keys("deletes")?;
+    let items = array("deletes_scoped", meter)?;
+    let mut deletes_scoped = meter.vec(items.clone().count())?;
+    for (index, entry) in items.enumerate() {
+        let at = root.key("deletes_scoped").index(index);
+        let value = match entry.get("kind").and_then(TermNode::as_str) {
+            Some("receiver") if entry.exact_members(&["kind"]) => DeletesScopedEntry::Receiver,
+            Some("parameter") if entry.exact_members(&["kind", "name"]) => {
+                let name = entry
+                    .get("name")
+                    .and_then(TermNode::as_str)
+                    .filter(|name| is_identifier(name))
+                    .ok_or_else(|| invalid(meter, at, code))?;
+                DeletesScopedEntry::Parameter {
+                    name: meter.boxed_str(name)?,
+                }
+            }
+            _ => return Err(invalid(meter, at, code)),
+        };
+        deletes_scoped.push(value);
+    }
+    reject_repeat_in(&deletes_scoped, position, root.key("deletes_scoped"), meter)?;
+    let work = 1_u64
+        .saturating_add(modifies.len() as u64)
+        .saturating_add(creates.len() as u64)
+        .saturating_add(deletes.len() as u64)
+        .saturating_add(deletes_scoped.len() as u64);
+    Ok((
+        FrameBody {
+            modifies,
+            creates,
+            deletes,
+            deletes_scoped,
+        },
+        work,
+    ))
+}
+
+/// A paid sorted index finds the earliest repeated wire position without
+/// an input-sized quadratic scan or an owned key copy.
+fn reject_repeat_in<T: Ord>(
+    entries: &[T],
+    position: usize,
+    at: Path<'_>,
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    let mut order = meter.vec(entries.len())?;
+    order.extend(0..entries.len());
+    order.sort_unstable_by(|&a, &b| entries[a].cmp(&entries[b]).then(a.cmp(&b)));
+    if let Some(index) = order
+        .windows(2)
+        .filter(|pair| entries[pair[0]] == entries[pair[1]])
+        .map(|pair| pair[1])
+        .min()
+    {
+        return Err(stage_storage::refuse(
+            meter,
+            &Site::new(PackageReadStage::Graph, position, "state", at),
+            Refusal::new(
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                at.index(index),
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// A repeated entry refuses at its second occurrence.
 fn reject_repeat<T: Ord>(entries: &[T], at: &Trail<'_>) -> Result<(), ValidationFailure> {
     let mut seen = BTreeSet::new();
@@ -258,8 +505,9 @@ fn read_node_key(value: &Value, at: &Trail<'_>) -> Result<CheckedNodeId, Validat
         ReferenceMember::FrameEntry,
         false,
         at,
-        &mut |id, _, _| {
-            target = Some(id.clone());
+        &mut |id, _, _, _, _| {
+            target = Some(id);
+            Ok(())
         },
     )?;
     target.ok_or_else(|| {
@@ -381,35 +629,35 @@ impl Position {
 /// One meaning-join defect of a frame node; [`MeaningDefect::rank`] selects
 /// the reported one.
 #[derive(Clone, Debug)]
-struct MeaningDefect {
+struct MeaningDefect<'a> {
     position: Position,
-    node_id: CheckedNodeId,
-    name: Box<str>,
+    node_id: &'a CheckedNodeId,
+    name: &'a str,
     /// The entry's index in its member array; `None` for `semantic_type`.
     entry: Option<usize>,
     refusal: ModelRefusal,
 }
 
-impl MeaningDefect {
+impl MeaningDefect<'_> {
     /// Position, then entry declaration id, then field name.
     fn rank(&self) -> (Position, &CheckedNodeId, &str) {
-        (self.position, &self.node_id, &self.name)
+        (self.position, self.node_id, self.name)
     }
 }
 
 /// The graph the frame and state steps read.
-pub(super) struct StepGraph<'a, 'm> {
-    pub(super) nodes: &'a [CheckedSemanticNodeV2],
+pub(super) struct StepGraph<'a, 'm, Body = super::CheckedJson> {
+    pub(super) nodes: &'a [CheckedSemanticNodeV2<Body>],
     pub(super) kinds: &'a [CheckedNodeKind],
     pub(super) index: &'a GraphIndex<'a>,
     pub(super) owners: &'a ModelOwners<'m>,
 }
 
-impl StepGraph<'_, '_> {
+impl<Body> StepGraph<'_, '_, Body> {
     pub(super) fn node(
         &self,
         id: &CheckedNodeId,
-    ) -> Option<(&CheckedSemanticNodeV2, CheckedNodeKind)> {
+    ) -> Option<(&CheckedSemanticNodeV2<Body>, CheckedNodeKind)> {
         let position = *self.index.get(id)?;
         Some((self.nodes.get(position)?, *self.kinds.get(position)?))
     }
@@ -418,7 +666,7 @@ impl StepGraph<'_, '_> {
     pub(super) fn each(
         &self,
         kind: CheckedNodeKind,
-    ) -> impl Iterator<Item = (usize, &CheckedSemanticNodeV2)> + '_ {
+    ) -> impl Iterator<Item = (usize, &CheckedSemanticNodeV2<Body>)> + '_ {
         self.index.values().filter_map(move |&position| {
             (self.kinds.get(position) == Some(&kind))
                 .then(|| self.nodes.get(position).map(|node| (position, node)))
@@ -430,12 +678,12 @@ impl StepGraph<'_, '_> {
 /// Joins a reference `target` held by `holder` to a declared dependency of
 /// the admitted kind: `missing-name` when it is not among `holder`'s
 /// `dependencies` or names no node, `malformed-declaration` for another kind.
-pub(super) fn join<'g>(
-    holder: &CheckedSemanticNodeV2,
+pub(super) fn join<'g, Body>(
+    holder: &CheckedSemanticNodeV2<Body>,
     target: &CheckedNodeId,
     admits: impl Fn(CheckedNodeKind) -> bool,
-    graph: &'g StepGraph<'_, '_>,
-) -> Result<(&'g CheckedSemanticNodeV2, CheckedNodeKind), ModelRefusal> {
+    graph: &'g StepGraph<'_, '_, Body>,
+) -> Result<(&'g CheckedSemanticNodeV2<Body>, CheckedNodeKind), ModelRefusal> {
     let (node, kind) = graph
         .node(target)
         .filter(|_| holder.dependencies.contains(target))
@@ -474,9 +722,9 @@ fn field_entry(kind: CheckedNodeKind) -> bool {
 /// The frame step: every `state`/`frame` node, in ascending node-id
 /// order, reporting the first one carrying a defect. `frames` holds each
 /// frame node's key, position and body as [`read_frame_body`] read them.
-pub(super) fn validate_frame_semantics(
+pub(super) fn validate_frame_semantics<Body: super::model_members::EmptyAggregateBody>(
     mut frames: Vec<(&CheckedNodeId, usize, FrameBody)>,
-    nodes: &[CheckedSemanticNodeV2],
+    nodes: &[CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
     owners: &ModelOwners<'_>,
@@ -488,8 +736,9 @@ pub(super) fn validate_frame_semantics(
         index,
         owners,
     };
-    frames.sort_by(|a, b| a.0.cmp(b.0));
+    frames.sort_unstable_by(|a, b| a.0.cmp(b.0));
     for (node_id, position, body) in &frames {
+        meter.at_node(*position, "state");
         let Some(node) = nodes.get(*position) else {
             continue;
         };
@@ -501,15 +750,23 @@ pub(super) fn validate_frame_semantics(
 }
 
 /// The one refusal FR-340 selects for a frame node, or `None`.
-fn frame_defect(
+fn frame_defect<Body: super::model_members::EmptyAggregateBody>(
     frame_id: &CheckedNodeId,
-    frame: &CheckedSemanticNodeV2,
+    frame: &CheckedSemanticNodeV2<Body>,
     frame_position: usize,
     body: &FrameBody,
-    graph: &StepGraph<'_, '_>,
+    graph: &StepGraph<'_, '_, Body>,
     meter: &mut WorkMeter,
 ) -> Result<Option<ValidationFailure>, ValidationFailure> {
-    let mut defects = Vec::new();
+    let mut defect: Option<MeaningDefect<'_>> = None;
+    fn retain<'a>(defect: &mut Option<MeaningDefect<'a>>, candidate: MeaningDefect<'a>) {
+        if defect
+            .as_ref()
+            .is_none_or(|held| candidate.rank() < held.rank())
+        {
+            *defect = Some(candidate);
+        }
+    }
     let receiver_scoped = matches!(
         graph.node(&frame.semantic_type),
         Some((
@@ -524,17 +781,20 @@ fn frame_defect(
                 ModelForm::ObjectType | ModelForm::Process | ModelForm::StateMachine,
             ),
         )) => {}
-        found => defects.push(MeaningDefect {
-            position: Position::SemanticType,
-            node_id: frame.semantic_type.clone(),
-            name: "".into(),
-            entry: None,
-            refusal: if found.is_some() {
-                ModelRefusal::malformed()
-            } else {
-                ModelRefusal::missing_name()
+        found => retain(
+            &mut defect,
+            MeaningDefect {
+                position: Position::SemanticType,
+                node_id: &frame.semantic_type,
+                name: "",
+                entry: None,
+                refusal: if found.is_some() {
+                    ModelRefusal::malformed()
+                } else {
+                    ModelRefusal::missing_name()
+                },
             },
-        }),
+        ),
     }
     for (entry_index, entry) in body.modifies.iter().enumerate() {
         let admits = match entry {
@@ -557,13 +817,16 @@ fn frame_defect(
             },
         };
         if let Some(refusal) = refusal {
-            defects.push(MeaningDefect {
-                position: Position::Modifies,
-                node_id: entry.declaration().clone(),
-                name: entry.name().into(),
-                entry: Some(entry_index),
-                refusal,
-            });
+            retain(
+                &mut defect,
+                MeaningDefect {
+                    position: Position::Modifies,
+                    node_id: entry.declaration(),
+                    name: entry.name(),
+                    entry: Some(entry_index),
+                    refusal,
+                },
+            );
         }
     }
     for (position, entries) in [
@@ -572,99 +835,118 @@ fn frame_defect(
     ] {
         for (entry_index, entry) in entries.iter().enumerate() {
             if let Err(refusal) = join(frame, entry, creates_or_deletes, graph) {
-                defects.push(MeaningDefect {
-                    position,
-                    node_id: entry.clone(),
-                    name: "".into(),
-                    entry: Some(entry_index),
-                    refusal,
-                });
+                retain(
+                    &mut defect,
+                    MeaningDefect {
+                        position,
+                        node_id: entry,
+                        name: "",
+                        entry: Some(entry_index),
+                        refusal,
+                    },
+                );
             }
         }
     }
     if receiver_scoped && body.deletes_scoped.contains(&DeletesScopedEntry::Receiver) {
-        defects.push(MeaningDefect {
-            position: Position::DeletesScoped,
-            node_id: frame_id.clone(),
-            name: "".into(),
-            entry: None,
-            refusal: ModelRefusal::malformed(),
-        });
+        retain(
+            &mut defect,
+            MeaningDefect {
+                position: Position::DeletesScoped,
+                node_id: frame_id,
+                name: "",
+                entry: None,
+                refusal: ModelRefusal::malformed(),
+            },
+        );
     }
-    if let Some(defect) = defects.into_iter().min_by(|a, b| a.rank().cmp(&b.rank())) {
-        let at = node_pointer(frame_position);
+    if let Some(defect) = defect {
+        let at = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(frame_position);
         let path = match defect.entry {
             _ if defect.position == Position::DeletesScoped => at,
             None => at.key(defect.position.wire_key()),
             Some(entry) => at.key("body").key(defect.position.wire_key()).index(entry),
         };
-        return Ok(Some(ValidationFailure::refused_at(
-            defect.refusal.code,
-            path,
-            Some(defect.refusal.cause),
-            defect.node_id,
+        return Ok(Some(stage_storage::refuse(
+            meter,
+            &Site::new(PackageReadStage::Graph, frame_position, "frame", path),
+            Refusal::new(defect.refusal.code, path)
+                .because(defect.refusal.cause)
+                .at_node(defect.node_id),
         )));
     }
-    let mut scopes = BTreeMap::new();
-    let mut conflict = None;
-    for (entry_index, entry) in body.modifies.iter().enumerate() {
-        if let ModifiesEntry::Field {
+    let mut scopes = meter.vec(
+        body.modifies
+            .iter()
+            .filter(|entry| matches!(entry, ModifiesEntry::Field { .. }))
+            .count(),
+    )?;
+    scopes.extend(
+        body.modifies
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| match entry {
+                ModifiesEntry::Field {
+                    declaration,
+                    name,
+                    scope,
+                } => Some((declaration, name.as_ref(), index, *scope)),
+                ModifiesEntry::Relationship { .. } => None,
+            }),
+    );
+    scopes.sort_unstable_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
+    let conflict = scopes.windows(2).find_map(|pair| {
+        let (declaration, name, earlier_index, earlier_scope) = pair[0];
+        let (held, held_name, entry_index, scope) = pair[1];
+        (declaration == held && name == held_name && earlier_scope != scope).then_some((
             declaration,
             name,
-            scope,
-        } = entry
-        {
-            let key = (declaration, name);
-            if let Some((earlier_scope, earlier_index)) = scopes.insert(key, (*scope, entry_index))
-            {
-                if earlier_scope != *scope {
-                    let receiver_index = if *scope == FieldScope::Receiver {
-                        entry_index
-                    } else {
-                        earlier_index
-                    };
-                    let candidate = (declaration, name.as_ref(), receiver_index);
-                    if conflict
-                        .as_ref()
-                        .is_none_or(|best: &(&CheckedNodeId, &str, usize)| {
-                            (candidate.0, candidate.1) < (best.0, best.1)
-                        })
-                    {
-                        conflict = Some(candidate);
-                    }
-                }
-            }
-        }
-    }
+            if scope == FieldScope::Receiver {
+                entry_index
+            } else {
+                earlier_index
+            },
+        ))
+    });
     if let Some((declaration, _, receiver_index)) = conflict {
-        return Ok(Some(ValidationFailure::refused_at(
-            CheckedPackageRefusalCode::InvalidModelBinding,
-            node_pointer(frame_position)
-                .key("body")
-                .key("modifies")
-                .index(receiver_index),
-            Some(CheckedPackageRefusalCause::ConflictingBinding),
-            declaration.clone(),
+        let path = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(frame_position)
+            .key("body")
+            .key("modifies")
+            .index(receiver_index);
+        return Ok(Some(stage_storage::refuse(
+            meter,
+            &Site::new(PackageReadStage::Graph, frame_position, "frame", path),
+            Refusal::new(CheckedPackageRefusalCode::InvalidModelBinding, path)
+                .because(CheckedPackageRefusalCause::ConflictingBinding)
+                .at_node(declaration),
         )));
     }
-    let ascending = |keys: Vec<&CheckedNodeId>| keys.windows(2).all(|pair| pair[0] < pair[1]);
+    let ascending = |keys: &[CheckedNodeId]| keys.windows(2).all(|pair| pair[0] < pair[1]);
     let modifies_ordered = body
         .modifies
         .windows(2)
         .all(|pair| pair[0].order_key() < pair[1].order_key());
     let scoped_ordered = body.deletes_scoped.windows(2).all(|pair| pair[0] < pair[1]);
-    let in_order = modifies_ordered
-        && scoped_ordered
-        && ascending(body.creates.iter().collect())
-        && ascending(body.deletes.iter().collect());
+    let in_order =
+        modifies_ordered && scoped_ordered && ascending(&body.creates) && ascending(&body.deletes);
     if in_order {
         Ok(None)
     } else {
-        Ok(Some(ValidationFailure::refused_at(
-            CheckedPackageRefusalCode::InvalidSemanticGraph,
-            node_pointer(frame_position).key("body"),
-            None,
-            frame_id.clone(),
+        let path = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(frame_position)
+            .key("body");
+        Ok(Some(stage_storage::refuse(
+            meter,
+            &Site::new(PackageReadStage::Graph, frame_position, "frame", path),
+            Refusal::new(CheckedPackageRefusalCode::InvalidSemanticGraph, path).at_node(frame_id),
         )))
     }
 }
@@ -673,11 +955,11 @@ fn frame_defect(
 ///
 /// A selected object or record declaration resolves through its effective
 /// fields. Anonymous and source-declared records carry no selected fields.
-fn resolve_field(
-    declaring: &CheckedSemanticNodeV2,
+fn resolve_field<Body: super::model_members::EmptyAggregateBody>(
+    declaring: &CheckedSemanticNodeV2<Body>,
     kind: CheckedNodeKind,
     name: &str,
-    graph: &StepGraph<'_, '_>,
+    graph: &StepGraph<'_, '_, Body>,
     meter: &mut WorkMeter,
 ) -> Result<Option<ModelRefusal>, ValidationFailure> {
     if (kind == CheckedNodeKind::Model(ModelForm::RecordValueType)
@@ -763,5 +1045,117 @@ mod tests {
         for name in ["", "1a", "a-b", "a b", "é"] {
             assert!(!is_identifier(name), "{name}");
         }
+    }
+}
+
+#[cfg(test)]
+mod document_storage_tests {
+    use super::super::{CheckedJson, NativeJoinBudget};
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    fn document(duplicate: bool) -> CheckedJson {
+        let id = json!({"package":"pkg", "path":[{"operand":0}], "ordinal":0});
+        let creates = if duplicate {
+            json!([id, id])
+        } else {
+            json!([id])
+        };
+        serde_json::from_value(json!({"term":"frame", "modifies":[{"kind":"field", "declaration":id, "name":"field", "scope":"receiver"}], "creates":creates, "deletes":[], "deletes_scoped":[{"kind":"parameter", "name":"argument"}]})).unwrap()
+    }
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn frame_document_and_retained_term_pay_exact_blocks_before_allocation() {
+        let body = document(false);
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(7, "frame");
+                result = Some(
+                    read_frame_body(
+                        super::super::term_view::TermNode::of(&body),
+                        7,
+                        &[42],
+                        &mut meter,
+                    )
+                    .and_then(|(frame, work)| {
+                        frame
+                            .checked_term(&mut meter)
+                            .map(|term| (frame, term, work))
+                    }),
+                );
+            });
+            (result.unwrap(), measured.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        let (frame, term, work) = result.unwrap();
+        assert_eq!(work, 4);
+        assert_eq!(
+            frame.creates[0].path,
+            vec![crate::checked_package::shared::CheckedNodePathSegment::Index(42)]
+        );
+        let view = FrameView::of(&term).unwrap();
+        assert_eq!(view.work(), work);
+        assert!(
+            matches!(&view.modifies[0], CheckedFrameModification::Field { name, scope: CheckedFieldScope::Receiver, .. } if name.as_ref() == "field")
+        );
+        assert!(
+            matches!(&view.deletes_scoped[0], CheckedScopedDeletion::Parameter { name } if name.as_ref() == "argument")
+        );
+        let required = budget.read_storage_consumed();
+        assert_eq!(allocated, required);
+        assert!(run(required).0.is_ok());
+        assert!(matches!(
+            run(required - 1).0,
+            Err(ValidationFailure::Budget(_))
+        ));
+        assert_eq!(run(0).1, 0);
+    }
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn frame_duplicate_keeps_second_entry_fault_and_prepays_diagnostic() {
+        let body = document(true);
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(7, "frame");
+                result = Some(read_frame_body(
+                    super::super::term_view::TermNode::of(&body),
+                    7,
+                    &[42],
+                    &mut meter,
+                ));
+            });
+            (result.unwrap(), measured.bytes_total, budget)
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        let Err(ValidationFailure::Refused(refusal)) = result else {
+            panic!("duplicate must refuse");
+        };
+        assert_eq!(
+            refusal.code,
+            CheckedPackageRefusalCode::InvalidSemanticGraph
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().unwrap().as_str(),
+            "/semantic_graph/nodes/7/body/creates/1"
+        );
+        let required = budget.read_storage_consumed();
+        assert_eq!(allocated, required);
+        assert!(matches!(
+            run(required).0,
+            Err(ValidationFailure::Refused(_))
+        ));
+        assert!(matches!(
+            run(required - 1).0,
+            Err(ValidationFailure::Budget(_))
+        ));
     }
 }

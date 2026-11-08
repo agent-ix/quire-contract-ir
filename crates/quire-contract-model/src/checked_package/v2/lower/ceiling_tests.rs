@@ -145,6 +145,7 @@ fn package(bytes: u64) -> CheckedPackageV2 {
         closure_index: Default::default(),
         catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
         admission_binding: Default::default(),
+        body_documents: Vec::new(),
     }
     .retain_original_admission();
     retain_graph_indices(&mut package);

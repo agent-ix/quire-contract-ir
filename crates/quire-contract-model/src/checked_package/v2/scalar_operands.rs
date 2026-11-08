@@ -1,13 +1,14 @@
 //! Typed, position-preserving operands of admitted scalar integer applications.
 
-use super::retained_index::NodePositions;
 use super::operation_catalog::OperationCatalog;
+use super::retained_index::NodePositions;
 use super::{
     CheckedNodeId, CheckedNodeKind, CheckedOccurrence, CheckedPackageV2, CheckedSemanticNodeV2,
     CheckedTerm, LiteralKind, ValueForm,
 };
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
+#[cfg(test)]
 use serde_json::Value;
 use std::borrow::Cow;
 use thiserror::Error;
@@ -17,6 +18,7 @@ pub(super) trait ScalarBody {
     fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()>;
 }
 
+#[cfg(test)]
 impl ScalarBody for Value {
     fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()> {
         CheckedTerm::decode_admitted(self)
@@ -28,6 +30,12 @@ impl ScalarBody for Value {
 impl ScalarBody for CheckedTerm {
     fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()> {
         Ok(Cow::Borrowed(self))
+    }
+}
+
+impl ScalarBody for super::CheckedJson {
+    fn checked_term(&self) -> Result<Cow<'_, CheckedTerm>, ()> {
+        Err(())
     }
 }
 
@@ -160,7 +168,7 @@ pub(super) fn scalar_arguments<'a, Body: ScalarBody>(
     kinds: &'a [CheckedNodeKind],
     node: &'a CheckedSemanticNodeV2<Body>,
     retained: Option<&'a CheckedTerm>,
-    retained_terms: Option<&'a [CheckedTerm]>,
+    retained_terms: Option<&'a [Option<CheckedTerm>]>,
 ) -> Result<ScalarArguments<'a, Body>, CheckedScalarOperandError> {
     use CheckedScalarOperandError as Error;
 
@@ -212,7 +220,7 @@ pub(super) struct ScalarArguments<'a, Body> {
     nodes: &'a [CheckedSemanticNodeV2<Body>],
     positions: &'a dyn NodePositions,
     kinds: &'a [CheckedNodeKind],
-    retained_terms: Option<&'a [CheckedTerm]>,
+    retained_terms: Option<&'a [Option<CheckedTerm>]>,
     arguments: Cow<'a, [CheckedTerm]>,
     next: usize,
 }
@@ -245,7 +253,7 @@ impl<'a, Body: ScalarBody> ScalarArguments<'a, Body> {
                     let term = graph_term(
                         child,
                         self.retained_terms
-                            .and_then(|terms| terms.get(child_position)),
+                            .and_then(|terms| terms.get(child_position).and_then(Option::as_ref)),
                     )?;
                     typed_literal_integer(&term).and_then(singleton_range)
                 } else {
@@ -377,7 +385,7 @@ fn type_range<Body: ScalarBody>(
     nodes: &[super::CheckedSemanticNodeV2<Body>],
     positions: &dyn NodePositions,
     kinds: &[CheckedNodeKind],
-    retained_terms: Option<&[CheckedTerm]>,
+    retained_terms: Option<&[Option<CheckedTerm>]>,
     ty: &CheckedNodeId,
 ) -> Result<CheckedScalarOperandRange, CheckedScalarOperandError> {
     use CheckedScalarOperandError as Error;
@@ -389,7 +397,10 @@ fn type_range<Body: ScalarBody>(
         Some(CheckedNodeKind::BoundedDomain(super::BoundedDomainForm::IntegerRange)) => {}
         _ => return Err(Error::MissingRange),
     }
-    let term = graph_term(node, retained_terms.and_then(|terms| terms.get(position)))?;
+    let term = graph_term(
+        node,
+        retained_terms.and_then(|terms| terms.get(position).and_then(Option::as_ref)),
+    )?;
     let CheckedTerm::Aggregate { members } = term.as_ref() else {
         return Err(Error::MissingRange);
     };
@@ -492,6 +503,7 @@ mod tests {
             closure_index: Default::default(),
             catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
+            body_documents: Vec::new(),
         }
         .retain_original_admission()
     }
@@ -556,7 +568,9 @@ mod tests {
                 }
                 let visits = scan_probe::count();
                 let comparisons = crate::checked_package::shared::checked_node_comparisons::count();
-                println!("scalar_operands K={requests} R={graph_nodes} graph_candidates={visits} id_comparisons={comparisons}");
+                println!(
+                    "scalar_operands K={requests} R={graph_nodes} graph_candidates={visits} id_comparisons={comparisons}"
+                );
                 if graph_nodes == 64 {
                     assert!(comparisons < requests * 64, "a full graph scan must fail");
                 }
@@ -613,7 +627,10 @@ mod tests {
             Err(CheckedScalarOperandError::MissingChild)
         );
         let mut package = fixture_package();
-        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[1].body = CheckedTerm::Aggregate {
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[1]
+            .body = CheckedTerm::Aggregate {
             members: Vec::new(),
         };
         assert_eq!(
@@ -622,7 +639,10 @@ mod tests {
         );
         let mut package = fixture_package();
         let CheckedTerm::Application { operation, .. } =
-            &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[3].body
+            &mut std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[3]
+                .body
         else {
             panic!("application term");
         };
@@ -692,7 +712,10 @@ mod tests {
             value_kind: LiteralKind::Integer,
             value: crate::checked_package::CheckedJson::scalar(&json!("13")),
         };
-        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[2].body = value.clone();
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .body = value.clone();
         std::sync::Arc::make_mut(&mut package.wire)
             .semantic_graph
             .nodes[2]
@@ -734,8 +757,6 @@ mod tests {
             "application and selected literal only"
         );
     }
-
-
 
     /// These private damaged states are not reader admissions. The indexed
     /// retained type kind, rather than its raw spelling, controls projection.
@@ -808,7 +829,10 @@ mod tests {
             .semantic_graph
             .nodes[0]
             .semantic_form = "integer_range".into();
-        std::sync::Arc::make_mut(&mut unbounded.wire).semantic_graph.nodes[0].body = unbounded.wire.semantic_graph.nodes[1].body.clone();
+        std::sync::Arc::make_mut(&mut unbounded.wire)
+            .semantic_graph
+            .nodes[0]
+            .body = unbounded.wire.semantic_graph.nodes[1].body.clone();
         assert_eq!(
             unbounded.scalar_application_operands(&application, &occurrence),
             Err(CheckedScalarOperandError::UnboundedRange),
@@ -840,13 +864,19 @@ mod tests {
                         .semantic_type = serde_json::from_value(id('1')).expect("integer type");
                 }
                 CheckedScalarOperandError::MissingRange => {
-                    std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[1].body = CheckedTerm::Aggregate {
+                    std::sync::Arc::make_mut(&mut package.wire)
+                        .semantic_graph
+                        .nodes[1]
+                        .body = CheckedTerm::Aggregate {
                         members: Vec::new(),
                     };
                 }
                 CheckedScalarOperandError::RangeOutOfI128 => {
                     let CheckedTerm::Aggregate { members } =
-                        &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[1].body
+                        &mut std::sync::Arc::make_mut(&mut package.wire)
+                            .semantic_graph
+                            .nodes[1]
+                            .body
                     else {
                         panic!("range body");
                     };
@@ -891,7 +921,10 @@ mod tests {
             assert!(arguments.next().is_none());
 
             let CheckedTerm::Application { arguments, .. } =
-                &mut std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[3].body
+                &mut std::sync::Arc::make_mut(&mut package.wire)
+                    .semantic_graph
+                    .nodes[3]
+                    .body
             else {
                 panic!("application");
             };

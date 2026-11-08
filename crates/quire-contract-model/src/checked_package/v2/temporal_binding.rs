@@ -18,7 +18,7 @@ use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
 use serde::{Deserialize, Serialize};
 
 /// An exact number in a fixed-sample clock configuration.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ClockExactNumber {
     /// A canonical signed decimal integer.
@@ -36,7 +36,7 @@ pub enum ClockExactNumber {
 }
 
 /// The three closed clock configurations selected by temporal profiles.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, FixedShape)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, FixedShape)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ClockConfiguration {
     /// Discrete positions from a named event sequence.
@@ -696,5 +696,226 @@ mod tests {
         assert_eq!(allocated, charged);
         run(charged).0.expect("exact allowance admits");
         assert!(run(charged - 1).0.is_err(), "one byte short refuses");
+    }
+}
+
+impl<'de> Deserialize<'de> for ClockExactNumber {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+        enum Wire {
+            Integer {
+                decimal: Box<str>,
+            },
+            Rational {
+                numerator: Box<str>,
+                denominator: Box<str>,
+            },
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Tag {
+            Integer,
+            Rational,
+        }
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = ClockExactNumber;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a closed ClockExactNumber record")
+            }
+            fn visit_newtype_struct<D2: serde::Deserializer<'de>>(
+                self,
+                inner: D2,
+            ) -> Result<Self::Value, D2::Error> {
+                Ok(match Wire::deserialize(inner)? {
+                    Wire::Integer { decimal } => ClockExactNumber::Integer { decimal },
+                    Wire::Rational {
+                        numerator,
+                        denominator,
+                    } => ClockExactNumber::Rational {
+                        numerator,
+                        denominator,
+                    },
+                })
+            }
+            fn visit_enum<A: serde::de::EnumAccess<'de>>(
+                self,
+                record: A,
+            ) -> Result<Self::Value, A::Error> {
+                use serde::de::VariantAccess;
+                let (tag, fields) = record.variant::<Tag>()?;
+                match tag {
+                    Tag::Integer => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            decimal: Box<str>,
+                        }
+                        let Fields { decimal } = fields.newtype_variant::<Fields>()?;
+                        Ok(ClockExactNumber::Integer { decimal })
+                    }
+                    Tag::Rational => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            numerator: Box<str>,
+                            denominator: Box<str>,
+                        }
+                        let Fields {
+                            numerator,
+                            denominator,
+                        } = fields.newtype_variant::<Fields>()?;
+                        Ok(ClockExactNumber::Rational {
+                            numerator,
+                            denominator,
+                        })
+                    }
+                }
+            }
+        }
+        deserializer.deserialize_newtype_struct(super::document_de::CLOSED_ENUM_TOKEN, Visitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for ClockConfiguration {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+        enum Wire {
+            EventPosition {
+                sequence_authority: Box<str>,
+            },
+            FixedSample {
+                epoch: ClockExactNumber,
+                period: ClockExactNumber,
+                unit: Box<str>,
+            },
+            TimestampedEvent {
+                timestamp_unit: Box<str>,
+            },
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Tag {
+            EventPosition,
+            FixedSample,
+            TimestampedEvent,
+        }
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = ClockConfiguration;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a closed ClockConfiguration record")
+            }
+            fn visit_newtype_struct<D2: serde::Deserializer<'de>>(
+                self,
+                inner: D2,
+            ) -> Result<Self::Value, D2::Error> {
+                Ok(match Wire::deserialize(inner)? {
+                    Wire::EventPosition { sequence_authority } => {
+                        ClockConfiguration::EventPosition { sequence_authority }
+                    }
+                    Wire::FixedSample {
+                        epoch,
+                        period,
+                        unit,
+                    } => ClockConfiguration::FixedSample {
+                        epoch,
+                        period,
+                        unit,
+                    },
+                    Wire::TimestampedEvent { timestamp_unit } => {
+                        ClockConfiguration::TimestampedEvent { timestamp_unit }
+                    }
+                })
+            }
+            fn visit_enum<A: serde::de::EnumAccess<'de>>(
+                self,
+                record: A,
+            ) -> Result<Self::Value, A::Error> {
+                use serde::de::VariantAccess;
+                let (tag, fields) = record.variant::<Tag>()?;
+                match tag {
+                    Tag::EventPosition => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            sequence_authority: Box<str>,
+                        }
+                        let Fields { sequence_authority } = fields.newtype_variant::<Fields>()?;
+                        Ok(ClockConfiguration::EventPosition { sequence_authority })
+                    }
+                    Tag::FixedSample => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            epoch: ClockExactNumber,
+                            period: ClockExactNumber,
+                            unit: Box<str>,
+                        }
+                        let Fields {
+                            epoch,
+                            period,
+                            unit,
+                        } = fields.newtype_variant::<Fields>()?;
+                        Ok(ClockConfiguration::FixedSample {
+                            epoch,
+                            period,
+                            unit,
+                        })
+                    }
+                    Tag::TimestampedEvent => {
+                        #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
+                        struct Fields {
+                            timestamp_unit: Box<str>,
+                        }
+                        let Fields { timestamp_unit } = fields.newtype_variant::<Fields>()?;
+                        Ok(ClockConfiguration::TimestampedEvent { timestamp_unit })
+                    }
+                }
+            }
+        }
+        deserializer.deserialize_newtype_struct(super::document_de::CLOSED_ENUM_TOKEN, Visitor)
+    }
+}
+
+#[cfg(test)]
+mod closed_record_storage_tests {
+    use super::*;
+    use crate::checked_package::common::decode_closed_document;
+    use ix_trace_rs::trace;
+    use std::sync::Arc;
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn clock_records_decode_owned_fields_without_tagged_content_buffers() {
+        for bytes in [
+            br#"{"kind":"event_position","sequence_authority":"orders"}"#.as_slice(),
+            br#"{"kind":"timestamped_event","timestamp_unit":"seconds"}"#.as_slice(),
+            br#"{"epoch":{"decimal":"0","kind":"integer"},"kind":"fixed_sample","period":{"denominator":"2","kind":"rational","numerator":"1"},"unit":"s"}"#.as_slice(),
+        ] {
+            let expected: ClockConfiguration = serde_json::from_slice(bytes).unwrap();
+            let document=Arc::new(quire_canonical::read(bytes,u64::MAX).unwrap());
+            let run=|limit| {
+                let mut budget=super::super::NativeJoinBudget::new(u64::MAX,0).with_read_storage_limit(limit);
+                let mut result=None;
+                let allocated=allocation_counter::measure(||result=Some(decode_closed_document::<ClockConfiguration>(&document,&mut budget))).bytes_total;
+                (result.unwrap(),allocated,budget)
+            };
+            let (result,allocated,budget)=run(u64::MAX);
+            assert_eq!(result.unwrap(),expected);
+            let required=budget.read_storage_consumed();
+            assert!(required>0);
+            assert_eq!(allocated,required);
+            let (result,allocated,budget)=run(required);
+            assert_eq!(result.unwrap(),expected);
+            assert_eq!(allocated,budget.read_storage_consumed());
+            let (result,allocated,budget)=run(required-1);
+            assert!(matches!(result,Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated,budget.read_storage_consumed());
+            assert!(budget.first_unpaid_read_storage().is_some());
+        }
     }
 }

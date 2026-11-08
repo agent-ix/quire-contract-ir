@@ -212,7 +212,7 @@ fn typed_envelope_has_exact_members_and_canonical_boundaries() {
     // type"); the wire never carries such an integer (it reads as
     // `noncanonical_wire`).
     assert!(matches!(
-        CheckedJson::from_value(&json!(9_007_199_254_740_993_u64)),
+        CheckedJson::from_serializable(&json!(9_007_199_254_740_993_u64)),
         Err(CheckedJsonError::Encode(
             Error::IntegerMagnitudeAboveMaximum(9_007_199_254_740_993)
         ))

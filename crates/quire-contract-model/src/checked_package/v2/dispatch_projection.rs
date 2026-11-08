@@ -8,8 +8,8 @@ use super::model_members::Budget;
 use super::native_join_budget::PackageReadStage;
 use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
-    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ClaimForm, ExpressionForm,
-    FunctionForm, ModelForm, RawCheckedPackageWireV2, ScalarTypeForm, WorkMeter,
+    ApplicationOperator, CheckedNodeKind, CheckedPackageV2, CheckedPackageWireV2, CheckedTerm,
+    ClaimForm, ExpressionForm, FunctionForm, ModelForm, ScalarTypeForm, WorkMeter,
 };
 use crate::checked_package::common::ValidationFailure;
 use crate::checked_package::shared::{
@@ -68,8 +68,8 @@ pub(super) fn conflicting(
 }
 
 /// The graph's node ids with their positions, ascending by identity.
-fn node_positions<'w>(
-    wire: &'w RawCheckedPackageWireV2,
+fn node_positions<'w, Body>(
+    wire: &'w CheckedPackageWireV2<Body>,
     meter: &mut WorkMeter,
 ) -> Result<Vec<(&'w CheckedNodeId, usize)>, ValidationFailure> {
     let nodes = &wire.semantic_graph.nodes;
@@ -99,8 +99,8 @@ pub(super) fn position_of(index: &[(&CheckedNodeId, usize)], id: &CheckedNodeId)
 pub(super) type Occurrence<'a> = (&'a CheckedNodeId, &'a CheckedOccurrenceRole, u64);
 
 /// The source map's occurrences, ascending.
-fn source_occurrences<'w>(
-    wire: &'w RawCheckedPackageWireV2,
+fn source_occurrences<'w, Body>(
+    wire: &'w CheckedPackageWireV2<Body>,
     meter: &mut WorkMeter,
 ) -> Result<Vec<Occurrence<'w>>, ValidationFailure> {
     let mut held = stage_storage::vec(
@@ -118,9 +118,9 @@ fn source_occurrences<'w>(
 }
 
 /// Checks the producer-captured sidecar after graph and source-map admission.
-pub(super) fn validate_checked_term_data(
+pub(super) fn validate_checked_term_data<Body>(
     data: &CheckedTermDataV2,
-    wire: &RawCheckedPackageWireV2,
+    wire: &CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
     terms: &[CheckedTerm],
     models: &RetainedModels,
@@ -305,9 +305,9 @@ pub(super) fn validate_checked_term_data(
     Ok(())
 }
 
-fn validate_probabilistic_claims(
+fn validate_probabilistic_claims<Body>(
     data: &CheckedTermDataV2,
-    wire: &RawCheckedPackageWireV2,
+    wire: &CheckedPackageWireV2<Body>,
     kinds: &[CheckedNodeKind],
     index: &[(&CheckedNodeId, usize)],
     source_occurrences: &[Occurrence<'_>],
@@ -483,5 +483,102 @@ impl CheckedPackageV2 {
             return Ok(CheckedDispatchView { table });
         }
         Err(CheckedDispatchReadError::Missing)
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::super::native_join_budget::{NativeJoinBudget, NativeJoinLocusSource};
+    use super::super::{CheckedJson, CheckedProbabilisticClaim};
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    /// The checked-term-data stage consumes retained document metadata and
+    /// already checked terms; this fixture enters that actual stage directly.
+    #[trace("TC-472", "FR-038-AC-506")]
+    #[test]
+    fn document_metadata_sidecar_join_prepays_tables_and_checks_occurrence_values() {
+        let id = json!({"package":"test/sidecar", "path":["claim"], "ordinal":0});
+        let definition = json!({"authority":"test", "identity":"sidecar-definition"});
+        let mut wire: CheckedPackageWireV2<CheckedJson> = serde_json::from_value(json!({
+            "contract_version":super::super::CHECKED_PACKAGE_V2, "name":"test/sidecar",
+            "lock":{"sources":[], "edition":{"role":"edition", "definition":definition},
+                "dependency_selections":[], "definition_selections":[],
+                "profile_selections":[], "required_features":[]},
+            "semantic_graph":{"graph_version":"quire.checked-semantic-graph/v2", "operand_rows":[[]], "nodes":[{
+                "node_id":id, "schema_version":"quire.checked-semantic-graph/v2",
+                "node_tag":"claim", "semantic_form":"probabilistic_claim", "semantic_type":id,
+                "dependencies":[], "occurrences":[{"role":"claim", "ordinal":7}],
+                "body":{"term":"aggregate", "members":[]}
+            }]},
+            "source_map":[{"node_id":id, "role":"claim", "ordinal":7, "regions":[]}],
+            "capability_report":[], "diagnostics":{"catalog":definition, "entries":[]}
+        }))
+        .expect("retained document metadata");
+        let data = CheckedTermDataV2 {
+            probabilistic_claims: vec![CheckedProbabilisticClaim {
+                declaration: wire.semantic_graph.nodes[0].node_id.clone(),
+                occurrence: wire.semantic_graph.nodes[0].occurrences[0].clone(),
+            }],
+            ..CheckedTermDataV2::default()
+        };
+        wire.checked_term_data = Some(data.clone());
+        let models = RetainedModels::default();
+        let terms = [CheckedTerm::Aggregate {
+            members: Vec::new(),
+        }];
+        let run = |data: &CheckedTermDataV2, limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let observed = allocation_counter::measure(|| {
+                result = Some(validate_checked_term_data(
+                    data,
+                    &wire,
+                    &[CheckedNodeKind::Claim(ClaimForm::ProbabilisticClaim)],
+                    &terms,
+                    &models,
+                    &mut WorkMeter::over(&mut budget),
+                ));
+            });
+            (
+                result.expect("the actual sidecar join ran"),
+                observed.bytes_total,
+                budget,
+            )
+        };
+        let (result, allocated, budget) = run(&data, u64::MAX);
+        assert!(
+            result.is_ok(),
+            "the original claim occurrence joins: {result:?}"
+        );
+        let required = budget.read_storage_consumed();
+        assert!(required > 0);
+        assert_eq!(allocated, required);
+        assert!(run(&data, required).0.is_ok());
+        let (short, _, budget) = run(&data, required - 1);
+        assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+        let locus = budget
+            .first_unpaid_locus()
+            .expect("the request that did not fit");
+        assert_eq!(
+            locus.source,
+            NativeJoinLocusSource::PackageRead(PackageReadStage::CheckedTermData, 0)
+        );
+        assert_eq!(locus.form, "checked_term_data");
+        let mut changed = data;
+        changed.probabilistic_claims[0].occurrence.ordinal = 8;
+        let Err(ValidationFailure::Refused(refusal)) = run(&changed, u64::MAX).0 else {
+            panic!("an occurrence absent from the node and source map must refuse");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::InvalidPackage);
+        assert_eq!(
+            refusal.cause,
+            Some(CheckedPackageRefusalCause::InvalidValue)
+        );
+        assert_eq!(
+            refusal.loci[0].path.as_ref().expect("path").as_str(),
+            "/checked_term_data/probabilistic_claims/0/occurrence"
+        );
     }
 }

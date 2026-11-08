@@ -4,14 +4,16 @@
 //! Authenticated schedulability claim carrier and FR-482 body admission.
 
 use super::graph_storage::{GraphIndex, ResolvedKey, SortedTable};
+use super::native_join_budget::PackageReadStage;
+use super::stage_storage::{self, Path, Position, Refusal, Site};
 use super::{
-    CheckedLiteralRead, CheckedNodeId, CheckedNodeKind, CheckedPackageV2, CheckedTerm, ClaimForm,
-    LiteralKind, RawSemanticNodeV2, ScalarTypeForm, WorkMeter,
+    CheckedLiteralRead, CheckedNodeId, CheckedNodeKind, CheckedPackageV2, CheckedSemanticNodeV2,
+    CheckedTerm, ClaimForm, LiteralKind, ScalarTypeForm, WorkMeter,
 };
-use crate::checked_package::common::{node_pointer, ValidationFailure};
+use crate::checked_package::common::{Step, Trail, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageRefusalCause as Cause,
-    CheckedPackageRefusalCode as Code, JsonPointer,
+    CheckedPackageRefusalCode as Code,
 };
 use quire_canonical::{Encode, Error, Sink, Writer};
 use serde::{Deserialize, Serialize};
@@ -268,28 +270,43 @@ impl CheckedPackageV2 {
     }
 }
 
-fn invalid(
+fn invalid<'a>(
     code: Code,
     cause: Option<Cause>,
-    at: JsonPointer,
+    at: impl Into<Position<'a>>,
     id: &CheckedNodeId,
+    meter: &mut WorkMeter,
 ) -> ValidationFailure {
-    ValidationFailure::refused_at(code, at, cause, id.clone())
+    let at = at.into();
+    let refusal = Refusal::new(code, at).at_node(id);
+    let refusal = if let Some(cause) = cause {
+        refusal.because(cause)
+    } else {
+        refusal
+    };
+    let index = meter.site().map_or(0, |site| site.index);
+    stage_storage::refuse(
+        meter,
+        &Site::new(PackageReadStage::Graph, index, "claim", at),
+        refusal,
+    )
 }
 fn claim(kind: CheckedNodeKind) -> bool {
     kind == CheckedNodeKind::Claim(ClaimForm::Schedulability)
 }
 
-pub(super) fn validate_carrier(
+pub(super) fn validate_carrier<Body>(
     package_name: &str,
     rows: Option<&[CheckedSchedulabilityClaimRow]>,
-    nodes: &[RawSemanticNodeV2],
+    nodes: &[CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     index: &GraphIndex<'_>,
     structural_keys: &[std::sync::Arc<CheckedNodeId>],
     meter: &mut WorkMeter,
 ) -> Result<Vec<(usize, usize)>, ValidationFailure> {
-    let root = || JsonPointer::root().key("schedulability_claims");
+    let caller = meter.site();
+    meter.at_row("schedulability_claims", 0);
+    let root = || Path::root().key("schedulability_claims");
     // Per claim node (ascending position): its claim occurrences as
     // `(ordinal, occurrence position)` sorted, the last of equal ordinals
     // being the one a later insertion would have kept.
@@ -307,7 +324,17 @@ pub(super) fn validate_carrier(
             .count();
         let mut by_ordinal: Vec<(u64, usize)> = meter.vec(held)?;
         for (position, occurrence) in node.occurrences.iter().enumerate() {
-            meter.charge(1, || node_pointer(p).key("occurrences").index(position))?;
+            let at = Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(p)
+                .key("occurrences")
+                .index(position);
+            stage_storage::work(
+                meter,
+                &Site::new(PackageReadStage::Graph, p, "claim", at),
+                1,
+            )?;
             if occurrence.role == CheckedOccurrenceRole::Claim {
                 by_ordinal.push((occurrence.ordinal, position));
             }
@@ -319,8 +346,13 @@ pub(super) fn validate_carrier(
     let mut seen: Vec<(ResolvedKey<'_>, u64)> = Vec::new();
     let mut previous: Option<(ResolvedKey<'_>, u64)> = None;
     for (i, row) in rows.unwrap_or_default().iter().enumerate() {
+        meter.at_row("schedulability_claims", i);
         let at = || root().index(i);
-        meter.charge(1, at)?;
+        stage_storage::work(
+            meter,
+            &Site::new(PackageReadStage::Graph, i, "schedulability_claims", at()),
+            1,
+        )?;
         let Some(&position) = index
             .get(&row.declaration)
             .filter(|&&p| row.declaration.package.as_ref() == package_name && claim(kinds[p]))
@@ -330,6 +362,7 @@ pub(super) fn validate_carrier(
                 Some(Cause::InvalidValue),
                 at().key("declaration"),
                 &row.declaration,
+                meter,
             ));
         };
         let Some(&occurrence_position) = occurrences
@@ -348,6 +381,7 @@ pub(super) fn validate_carrier(
                 Some(Cause::InvalidValue),
                 at().key("occurrence"),
                 &row.declaration,
+                meter,
             ));
         };
         let key = (index.resolved_at(position, structural_keys), row.occurrence);
@@ -358,6 +392,7 @@ pub(super) fn validate_carrier(
                     Some(Cause::ConflictingDefinition),
                     at(),
                     &row.declaration,
+                    meter,
                 ));
             }
             Err(slot) => slot,
@@ -371,6 +406,7 @@ pub(super) fn validate_carrier(
                     Some(Cause::InvalidValue),
                     at(),
                     &row.declaration,
+                    meter,
                 ));
             }
         }
@@ -385,14 +421,16 @@ pub(super) fn validate_carrier(
         {
             let key = (index.resolved_at(p, structural_keys), occurrence.ordinal);
             if search_keys(&seen, &key, meter)?.is_err() {
-                return Err(ValidationFailure::refused_because(
-                    Code::InvalidPackage,
-                    root(),
-                    Cause::InvalidValue,
+                let at = root();
+                return Err(stage_storage::refuse(
+                    meter,
+                    &Site::new(PackageReadStage::Graph, 0, "schedulability_claims", at),
+                    Refusal::new(Code::InvalidPackage, at).because(Cause::InvalidValue),
                 ));
             }
         }
     }
+    meter.restore_site(caller);
     Ok(joined)
 }
 
@@ -449,8 +487,8 @@ fn shape(term: &CheckedTerm, fields: &[&str]) -> bool {
     })
     })
 }
-fn binding_at(at: &JsonPointer, i: usize) -> JsonPointer {
-    at.clone().key("members").index(i)
+fn binding_at<'a>(at: &Path<'a>, i: usize) -> Path<'a> {
+    at.key("members").index(i)
 }
 fn nonnegative(term: &CheckedTerm) -> bool {
     match term {
@@ -485,15 +523,31 @@ fn magnitude(term: &CheckedTerm) -> (&str, &str) {
     let text = value.as_str().expect("admitted rational spelling");
     text.split_once('/').unwrap_or((text, "1"))
 }
+/// The existing signed rational syntax and reduction check without building
+/// an intermediate owned refusal that the caller would immediately replace.
+pub(super) fn rational_parts_are_canonical(
+    numerator: &str,
+    denominator: &str,
+    meter: &mut WorkMeter,
+    at: &dyn Fn() -> crate::checked_package::shared::JsonPointer,
+) -> Result<bool, ValidationFailure> {
+    let positive = |text: &str| matches!(text.as_bytes(), [first, rest @ ..] if (b'1'..=b'9').contains(first) && rest.iter().all(u8::is_ascii_digit));
+    let magnitude = numerator.strip_prefix('-').unwrap_or(numerator);
+    if !(numerator == "0" || positive(magnitude)) || !positive(denominator) {
+        return Ok(false);
+    }
+    super::natural::coprime(magnitude, denominator, meter, at)
+}
+
 fn greater(
     left: &CheckedTerm,
     right: &CheckedTerm,
     meter: &mut WorkMeter,
-    at: &JsonPointer,
+    at: &Path<'_>,
 ) -> Result<bool, ValidationFailure> {
     Ok(
         super::natural::compare_rationals(magnitude(left), magnitude(right), meter, &|| {
-            at.clone()
+            at.build()
         })?
         .is_gt(),
     )
@@ -545,8 +599,8 @@ fn record_priority(
 }
 
 #[ix_trace_rs::string_edge]
-pub(super) fn validate_bodies(
-    nodes: &[RawSemanticNodeV2],
+pub(super) fn validate_bodies<Body>(
+    nodes: &[CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &GraphIndex<'_>,
@@ -576,27 +630,38 @@ pub(super) fn validate_bodies(
             return Err(invalid(
                 Code::InvalidSemanticGraph,
                 None,
-                node_pointer(p).key("occurrences"),
+                Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(p)
+                    .key("occurrences"),
                 &node.node_id,
+                meter,
             ));
         }
-        let at = node_pointer(p).key("body");
-        let fail = |code, cause, at| invalid(code, cause, at, &node.node_id);
+        let at = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(p)
+            .key("body");
+        let fail =
+            |meter: &mut WorkMeter, code, cause, at| invalid(code, cause, at, &node.node_id, meter);
         let body = terms[p].as_ref().expect("graph admission decoded the term");
         // Six complete sweeps preserve the normative first-defect order.
         if !shape(body, CLAIM_FIELDS) {
-            return Err(fail(Code::InvalidSemanticGraph, None, at));
+            return Err(fail(meter, Code::InvalidSemanticGraph, None, at));
         }
         let task_at = binding_at(&at, 4);
         let Some(tasks) = members(admitted_bound(body, 4)).filter(|tasks| !tasks.is_empty()) else {
-            return Err(fail(Code::InvalidSemanticGraph, None, task_at));
+            return Err(fail(meter, Code::InvalidSemanticGraph, None, task_at));
         };
         for (i, task) in tasks.iter().enumerate() {
             if !shape(task, TASK_FIELDS) {
                 return Err(fail(
+                    meter,
                     Code::InvalidSemanticGraph,
                     None,
-                    task_at.clone().key("value").key("members").index(i),
+                    task_at.key("value").key("members").index(i),
                 ));
             }
         }
@@ -606,6 +671,7 @@ pub(super) fn validate_bodies(
         ] {
             if !text(admitted_bound(body, i)).is_some_and(|s| allowed.contains(&s)) {
                 return Err(fail(
+                    meter,
                     Code::InvalidPackage,
                     Some(Cause::InvalidValue),
                     binding_at(&at, i),
@@ -613,7 +679,7 @@ pub(super) fn validate_bodies(
             }
         }
         for (i, task) in tasks.iter().enumerate() {
-            let task_at = task_at.clone().key("value").key("members").index(i);
+            let task_at = task_at.key("value").key("members").index(i);
             for (j, allowed) in [
                 (0, &[][..]),
                 (1, &["periodic", "sporadic"][..]),
@@ -623,6 +689,7 @@ pub(super) fn validate_bodies(
                     .is_some_and(|s| !s.is_empty() && (allowed.is_empty() || allowed.contains(&s)))
                 {
                     return Err(fail(
+                        meter,
                         Code::InvalidPackage,
                         Some(Cause::InvalidValue),
                         binding_at(&task_at, j),
@@ -632,6 +699,7 @@ pub(super) fn validate_bodies(
             let priority = admitted_bound(task, 8);
             if kind(priority, LiteralKind::Integer) && !nonnegative(priority) {
                 return Err(fail(
+                    meter,
                     Code::InvalidPackage,
                     Some(Cause::InvalidValue),
                     binding_at(&task_at, 8),
@@ -641,7 +709,12 @@ pub(super) fn validate_bodies(
         let response = text(admitted_bound(body, 0)) == Some("response");
         let policy = admitted_text(admitted_bound(body, 1));
         if response && policy != "fixed-priority" {
-            return Err(fail(Code::InvalidSemanticGraph, None, binding_at(&at, 1)));
+            return Err(fail(
+                meter,
+                Code::InvalidSemanticGraph,
+                None,
+                binding_at(&at, 1),
+            ));
         }
         for i in [2, 3] {
             let term = admitted_bound(body, i);
@@ -658,11 +731,16 @@ pub(super) fn validate_bodies(
                 empty(term)
             };
             if !fits {
-                return Err(fail(Code::InvalidSemanticGraph, None, binding_at(&at, i)));
+                return Err(fail(
+                    meter,
+                    Code::InvalidSemanticGraph,
+                    None,
+                    binding_at(&at, i),
+                ));
             }
         }
         for (i, task) in tasks.iter().enumerate() {
-            let task_at = task_at.clone().key("value").key("members").index(i);
+            let task_at = task_at.key("value").key("members").index(i);
             for j in [2, 3, 4, 5, 6, 8, 9, 10] {
                 let term = admitted_bound(task, j);
                 let fits = match j {
@@ -672,6 +750,7 @@ pub(super) fn validate_bodies(
                 };
                 if !fits {
                     return Err(fail(
+                        meter,
                         Code::InvalidSemanticGraph,
                         None,
                         binding_at(&task_at, j),
@@ -683,7 +762,7 @@ pub(super) fn validate_bodies(
         for task in tasks {
             let name = admitted_text(admitted_bound(task, 0));
             if previous.is_some_and(|prev| prev >= name) {
-                return Err(fail(Code::InvalidSemanticGraph, None, task_at.clone()));
+                return Err(fail(meter, Code::InvalidSemanticGraph, None, task_at));
             }
             previous = Some(name);
         }
@@ -692,13 +771,18 @@ pub(super) fn validate_bodies(
                 .iter()
                 .any(|task| text(admitted_bound(task, 0)) == text(admitted_bound(body, 2)))
         {
-            return Err(fail(Code::InvalidSemanticGraph, None, binding_at(&at, 2)));
+            return Err(fail(
+                meter,
+                Code::InvalidSemanticGraph,
+                None,
+                binding_at(&at, 2),
+            ));
         }
         let mut common_unit = None;
         let times = (response.then(|| (admitted_bound(body, 3), binding_at(&at, 3).key("value"))))
             .into_iter()
             .chain(tasks.iter().enumerate().flat_map(|(i, task)| {
-                let task_at = task_at.clone().key("value").key("members").index(i);
+                let task_at = task_at.key("value").key("members").index(i);
                 [2, 3, 4, 5, 6, 9, 10].into_iter().filter_map(move |j| {
                     let term = admitted_bound(task, j);
                     kind(term, LiteralKind::Quantity)
@@ -707,7 +791,12 @@ pub(super) fn validate_bodies(
             }));
         for (time, time_at) in times {
             let CheckedTerm::Literal { type_id, .. } = time else {
-                return Err(fail(Code::IllTyped, Some(Cause::TypeMismatch), time_at));
+                return Err(fail(
+                    meter,
+                    Code::IllTyped,
+                    Some(Cause::TypeMismatch),
+                    time_at,
+                ));
             };
             let valid = index.get(type_id).is_some_and(|&u| {
                 kinds[u] == CheckedNodeKind::ScalarType(ScalarTypeForm::Unit)
@@ -721,13 +810,18 @@ pub(super) fn validate_bodies(
                     })
             });
             if !valid || common_unit.is_some_and(|unit| unit != type_id) {
-                return Err(fail(Code::IllTyped, Some(Cause::TypeMismatch), time_at));
+                return Err(fail(
+                    meter,
+                    Code::IllTyped,
+                    Some(Cause::TypeMismatch),
+                    time_at,
+                ));
             }
             common_unit = Some(type_id);
         }
         let mut priorities: Vec<quire_exact::Integer> = Vec::new();
         for (i, task) in tasks.iter().enumerate() {
-            let task_at = task_at.clone().key("value").key("members").index(i);
+            let task_at = task_at.key("value").key("members").index(i);
             let b = |j| admitted_bound(task, j);
             let hi = text(b(7)) == Some("hi");
             let positive = [2, 3, 5]
@@ -750,6 +844,7 @@ pub(super) fn validate_bodies(
             }
             if !valid {
                 return Err(fail(
+                    meter,
                     Code::InvalidTimedModel,
                     Some(Cause::InvalidTaskSet),
                     task_at,
@@ -762,8 +857,8 @@ pub(super) fn validate_bodies(
 }
 
 /// Graph premises precede body and carrier validation.
-pub(super) fn validate_graph(
-    nodes: &[RawSemanticNodeV2],
+pub(super) fn validate_graph<Body>(
+    nodes: &[CheckedSemanticNodeV2<Body>],
     kinds: &[CheckedNodeKind],
     terms: &[Option<CheckedTerm>],
     index: &GraphIndex<'_>,
@@ -774,6 +869,7 @@ pub(super) fn validate_graph(
             continue;
         }
         let node = &nodes[p];
+        meter.at_node(p, "claim");
         for (bad, field) in [
             (!node.dependencies.is_empty(), "dependencies"),
             (node.owner.is_some(), "owner"),
@@ -788,13 +884,24 @@ pub(super) fn validate_graph(
                 return Err(invalid(
                     Code::InvalidSemanticGraph,
                     None,
-                    node_pointer(p).key(field),
+                    Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(p)
+                        .key(field),
                     &node.node_id,
+                    meter,
                 ));
             }
         }
         if let Some(body) = terms[p].as_ref() {
-            validate_literal_values(body, node_pointer(p).key("body"), &node.node_id, meter)?;
+            let at = [
+                Step::Key("semantic_graph"),
+                Step::Key("nodes"),
+                Step::Index(p),
+                Step::Key("body"),
+            ];
+            validate_literal_values(body, &at, &node.node_id, meter)?;
         }
     }
     Ok(())
@@ -802,76 +909,81 @@ pub(super) fn validate_graph(
 
 fn validate_literal_values(
     body: &CheckedTerm,
-    at: JsonPointer,
+    at: &[Step<'_>],
     id: &CheckedNodeId,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let mut pending = vec![(body, at)];
-    while let Some((term, at)) = pending.pop() {
-        match term {
-            CheckedTerm::Literal {
-                value_kind: LiteralKind::Quantity,
-                value,
-                ..
-            } => {
-                let at = at.key("value");
-                let bad = || {
+    // One paid path and a DFS frame list preserve arbitrary admitted depth.
+    // No pointer is materialized on the successful path.
+    let mut path = meter.vec(at.len())?;
+    path.extend_from_slice(at);
+    let mut frames = meter.vec(1)?;
+    frames.push((body, 0usize, path.len(), false));
+    while let Some((term, child, parent_len, entered)) = frames.last_mut() {
+        if !*entered {
+            *entered = true;
+            if let CheckedTerm::Literal {
+                value_kind, value, ..
+            } = term
+            {
+                let trail = Trail::Base(&path);
+                let value_at = trail.key("value");
+                let bad = |meter: &mut WorkMeter| {
                     invalid(
                         Code::InvalidPackage,
                         Some(Cause::InvalidValue),
-                        at.clone(),
+                        value_at,
                         id,
+                        meter,
                     )
                 };
-                let spelling = value.as_str().ok_or_else(bad)?;
-                let (numerator, denominator) = spelling.split_once('/').unwrap_or((spelling, "1"));
-                if let Err(failure) =
-                    super::identity::validate_rational_parts(numerator, denominator, meter, &|| {
-                        at.clone()
-                    })
-                {
-                    return Err(match failure {
-                        ValidationFailure::Refused(_) => bad(),
-                        incomplete => incomplete,
-                    });
-                }
-            }
-            CheckedTerm::Literal {
-                value_kind: LiteralKind::Integer,
-                value,
-                ..
-            } => {
-                let at = at.key("value");
-                let bad = || {
-                    invalid(
-                        Code::InvalidPackage,
-                        Some(Cause::InvalidValue),
-                        at.clone(),
-                        id,
-                    )
-                };
-                if let Some(spelling) = value.as_str() {
-                    if let Err(failure) =
-                        super::identity::validate_rational_parts(spelling, "1", meter, &|| {
-                            at.clone()
-                        })
-                    {
-                        return Err(match failure {
-                            ValidationFailure::Refused(_) => bad(),
-                            incomplete => incomplete,
-                        });
+                let spelling = match value_kind {
+                    LiteralKind::Quantity => Some(value.as_str().ok_or_else(|| bad(meter))?),
+                    LiteralKind::Integer => {
+                        if let Some(text) = value.as_str() {
+                            Some(text)
+                        } else if value.as_i64().is_none() && value.as_u64().is_none() {
+                            return Err(bad(meter));
+                        } else {
+                            None
+                        }
                     }
-                } else if value.as_i64().is_none() && value.as_u64().is_none() {
-                    return Err(bad());
+                    _ => None,
+                };
+                if let Some(spelling) = spelling {
+                    let (numerator, denominator) = if *value_kind == LiteralKind::Quantity {
+                        spelling.split_once('/').unwrap_or((spelling, "1"))
+                    } else {
+                        (spelling, "1")
+                    };
+                    if !rational_parts_are_canonical(numerator, denominator, meter, &|| {
+                        value_at.pointer()
+                    })? {
+                        return Err(bad(meter));
+                    }
                 }
             }
+        }
+        let next = match term {
             CheckedTerm::Aggregate { members } => {
-                for (i, term) in members.iter().enumerate().rev() {
-                    pending.push((term, at.clone().key("members").index(i)));
-                }
+                members.get(*child).map(|member| (member, Some(*child)))
             }
-            CheckedTerm::Binding { value, .. } => pending.push((value, at.key("value"))),
-            _ => {}
+            CheckedTerm::Binding { value, .. } if *child == 0 => Some((value.as_ref(), None)),
+            _ => None,
+        };
+        *child += 1;
+        if let Some((next, index)) = next {
+            let parent = path.len();
+            meter.room(&mut path, if index.is_some() { 2 } else { 1 })?;
+            path.push(Step::Key(if index.is_some() { "members" } else { "value" }));
+            if let Some(index) = index {
+                path.push(Step::Index(index));
+            }
+            meter.push(&mut frames, (next, 0, parent, false))?;
+        } else {
+            let parent = *parent_len;
+            frames.pop();
+            path.truncate(parent);
         }
     }
     Ok(())
@@ -974,7 +1086,8 @@ mod tests {
         };
         let unit_refs = std::sync::Arc::new(Default::default());
         let read = |identity: &str| {
-            let selected = crate::CheckedJson::from_value(&document(identity)).expect("a document");
+            let selected =
+                crate::CheckedJson::from_serializable(&document(identity)).expect("a document");
             let mut meter = WorkMeter::new(u64::MAX);
             let mut budget = super::super::model_members::Budget::new(&mut meter, 0, 1 << 20);
             super::super::model_members::read_semantic_ir_of(
@@ -992,7 +1105,7 @@ mod tests {
             let mut outcome = None;
             let measured = allocation_counter::measure(|| {
                 let mut meter = WorkMeter::over(&mut budget);
-                outcome = Some(validate_bodies(
+                outcome = Some(validate_bodies::<CheckedTerm>(
                     &[],
                     &[],
                     &[],
@@ -1105,7 +1218,7 @@ mod tests {
                 ordinal: 0,
             },
             value_kind: LiteralKind::Integer,
-            value: crate::CheckedJson::from_value(&value).expect("a canonical literal"),
+            value: crate::CheckedJson::from_serializable(&value).expect("a canonical literal"),
         };
         let huge = format!("1{}", "0".repeat(60));
         let mut terms: Vec<CheckedTerm> = (0..40_u64)
@@ -1166,5 +1279,136 @@ mod tests {
             NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 3)
         );
         assert!(matches!(locus.form, "claim" | "exact_number"));
+    }
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn deep_claim_numeric_walk_preserves_exact_values_and_prepays_frames() {
+        let id = super::super::test_support::node_id('a');
+        let integer = |value: &str| CheckedTerm::Literal {
+            type_id: id.clone(),
+            value_kind: LiteralKind::Integer,
+            value: super::super::CheckedJson::scalar(&json!(value)),
+        };
+        let mut term = integer("170141183460469231731687303715884105728");
+        for _ in 0..40 {
+            term = CheckedTerm::Aggregate {
+                members: vec![term],
+            };
+        }
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(7, "claim");
+                result = Some(validate_literal_values(
+                    &term,
+                    &[Step::Key("body")],
+                    &id,
+                    &mut meter,
+                ));
+            });
+            (
+                result.expect("the numeric walk ran"),
+                measured.bytes_total,
+                budget,
+            )
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        assert!(result.is_ok());
+        let required = budget.read_storage_consumed();
+        assert!(required > 0);
+        assert_eq!(allocated, required);
+        assert!(run(required).0.is_ok());
+        let (short, allocated, budget) = run(required - 1);
+        assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+        assert!(
+            allocated <= budget.read_storage_consumed(),
+            "denial cannot allocate unpaid material"
+        );
+        let (zero, allocated, _) = run(0);
+        assert!(matches!(zero, Err(ValidationFailure::Budget(_))));
+        assert_eq!(allocated, 0);
+        let mut meter = WorkMeter::new(u64::MAX);
+        let at = || crate::checked_package::shared::JsonPointer::root();
+        assert!(!rational_parts_are_canonical(
+            "170141183460469231731687303715884105728",
+            "2",
+            &mut meter,
+            &at
+        )
+        .expect("exact gcd"));
+        assert!(rational_parts_are_canonical(
+            "170141183460469231731687303715884105729",
+            "2",
+            &mut meter,
+            &at
+        )
+        .expect("exact gcd"));
+        assert!(rational_parts_are_canonical(
+            "-170141183460469231731687303715884105729",
+            "1",
+            &mut meter,
+            &at
+        )
+        .expect("signed exact integer"));
+    }
+    #[trace("TC-472", "FR-038-AC-510")]
+    #[test]
+    fn deep_numeric_fault_keeps_the_first_leaf_and_charges_its_full_path() {
+        let id = super::super::test_support::node_id('a');
+        let literal = |spelling: &str| CheckedTerm::Literal {
+            type_id: id.clone(),
+            value_kind: LiteralKind::Integer,
+            value: super::super::CheckedJson::scalar(&json!(spelling)),
+        };
+        let mut body = CheckedTerm::Aggregate {
+            members: vec![literal("01"), literal("-0")],
+        };
+        for _ in 0..40 {
+            body = CheckedTerm::Aggregate {
+                members: vec![body],
+            };
+        }
+        let expected = format!("/body{}/members/0/value", "/members/0".repeat(40));
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let observed = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut budget);
+                meter.at_node(7, "claim");
+                result = Some(validate_literal_values(
+                    &body,
+                    &[Step::Key("body")],
+                    &id,
+                    &mut meter,
+                ));
+            });
+            (
+                result.expect("numeric validation ran"),
+                observed.bytes_total,
+                budget,
+            )
+        };
+        let check = |result| {
+            let Err(ValidationFailure::Refused(refusal)) = result else {
+                panic!("first invalid leaf refuses");
+            };
+            assert_eq!(refusal.code, Code::InvalidPackage);
+            assert_eq!(refusal.cause, Some(Cause::InvalidValue));
+            assert_eq!(refusal.locus.as_ref(), Some(&id));
+            assert_eq!(
+                refusal.loci[0].path.as_ref().expect("path").as_str(),
+                expected
+            );
+        };
+        let (result, allocated, budget) = run(u64::MAX);
+        check(result);
+        let required = budget.read_storage_consumed();
+        assert_eq!(allocated, required);
+        check(run(required).0);
+        let (short, allocated, budget) = run(required - 1);
+        assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+        assert!(allocated <= budget.read_storage_consumed());
     }
 }

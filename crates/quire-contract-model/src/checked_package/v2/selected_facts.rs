@@ -421,7 +421,7 @@ impl CheckedPackageV2 {
                             SelectedFactsErrorCode::UnsupportedForm,
                             &id.record,
                             meter.used,
-                        ))
+                        ));
                     }
                 }
             } else {

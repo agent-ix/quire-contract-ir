@@ -5,8 +5,6 @@
 //! canonical form identically regardless of which closed schema is decoded
 //! from the resulting value.
 
-mod closed_members;
-
 use super::shared::{push_index, push_key};
 use super::shared::{
     CheckedArtifactRef, CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit,
@@ -16,7 +14,6 @@ use super::shared::{
 use super::terms::{At, Cursor, TermSource};
 use super::v2::read_charge::{ReadStorage, Site};
 use super::v2::{ApplicationOperator, BodyTerm, LiteralKind, NodeIdRead};
-use closed_members::ClosedMemberProvenance;
 use quire_walk::{Children, Walk};
 use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
@@ -593,31 +590,35 @@ pub(super) fn canonical_value(
 /// Decode a closed package from the reader's document: the closed wire is
 /// decoded in place, charging each string and sequence it requests to the
 /// budget's read storage, with the same member-fault pointers.
+#[cfg(test)]
 pub(super) fn decode_closed_document<'d, T: Deserialize<'d>>(
     document: &'d std::sync::Arc<quire_canonical::Document>,
     budget: &mut crate::checked_package::v2::NativeJoinBudget,
+) -> Result<T, ValidationFailure> {
+    decode_closed_document_with_classifier(
+        document,
+        budget,
+        crate::checked_package::v2::DecodeContext::materialize_schema_failure,
+    )
+}
+
+/// Classify the decoder's borrowed first fault before its one prepaid
+/// diagnostic is materialized. The policy must use the actual caller meter.
+pub(super) fn decode_closed_document_with_classifier<'d, T: Deserialize<'d>>(
+    document: &'d std::sync::Arc<quire_canonical::Document>,
+    budget: &mut crate::checked_package::v2::NativeJoinBudget,
+    classify: impl FnOnce(
+        CheckedPackageRefusalCode,
+        &[Step<'d>],
+        &mut crate::checked_package::v2::WorkMeter,
+    ) -> ValidationFailure,
 ) -> Result<T, ValidationFailure> {
     use crate::checked_package::v2::DecodeContext;
     let context = DecodeContext::new(document, budget);
     let outcome = match T::deserialize(context.root()) {
         Ok(decoded) => Ok(decoded),
         Err(_) if context.denied() => Err(None),
-        Err(_) => {
-            context.pause_charging();
-            let provenance = ClosedMemberProvenance::new();
-            Err(Some(
-                serde_path_to_error::deserialize::<_, T>(provenance.trace(context.root()))
-                    .err()
-                    .map_or_else(
-                        || {
-                            ValidationFailure::refused_bytes(
-                                CheckedPackageRefusalCode::MalformedWire,
-                            )
-                        },
-                        |error| classify_closed_error(error, provenance.unknown_member()),
-                    ),
-            ))
-        }
+        Err(_) => Err(Some(context.schema_failure_with_classifier(classify))),
     };
     let at = context.denied_at();
     *budget = context.finish();
@@ -632,18 +633,6 @@ pub(super) fn decode_closed_document<'d, T: Deserialize<'d>>(
             other => other,
         }),
     }
-}
-
-fn classify_closed_error<E>(
-    error: serde_path_to_error::Error<E>,
-    unknown_member: bool,
-) -> ValidationFailure {
-    let code = if unknown_member {
-        CheckedPackageRefusalCode::UnknownMember
-    } else {
-        CheckedPackageRefusalCode::MalformedWire
-    };
-    ValidationFailure::refused(code, decoder_pointer(JsonPointer::root(), error.path()))
 }
 
 /// The decoder's position below `base` (the value it decoded) as a pointer.
@@ -790,7 +779,14 @@ pub(super) struct ReferenceSite {
 
 /// Receives each reference target a walk finds, the site that carried it and
 /// the walk's position at that target.
-pub(super) type ReferenceVisitor<'v> = dyn FnMut(&CheckedNodeId, ReferenceSite, &Trail<'_>) + 'v;
+pub(super) type ReferenceVisitor<'v> = dyn FnMut(
+        CheckedNodeId,
+        ReferenceSite,
+        &Trail<'_>,
+        &mut dyn ReadStorage,
+        Site,
+    ) -> Result<(), ValidationFailure>
+    + 'v;
 
 /// The literal-value grammar a semantic term is validated against.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -880,12 +876,18 @@ impl<'s, 'r> Ids<'s, 'r> {
 /// validation, which moves to the node views; the V1 reader's `Value` callers
 /// then use an unlimited budget of their own.
 pub(super) fn with_unmetered_ids<R>(body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
+    with_unmetered_ids_row(&[], body)
+}
+
+/// Runs an ID-aware validator without a read ceiling while preserving the
+/// node's document operand row.
+pub(super) fn with_unmetered_ids_row<R>(row: &[u64], body: impl FnOnce(Ids<'_, '_>) -> R) -> R {
     let mut budget = super::v2::NativeJoinBudget::unlimited();
     let site = Site::new(super::v2::PackageReadStage::Graph, 0, "reference");
     body(Ids {
         sink: &mut budget,
         site,
-        row: &[],
+        row,
     })
 }
 
@@ -897,10 +899,12 @@ struct SharedReservation<'r, 's> {
 
 impl quire_walk::Reservation for SharedReservation<'_, '_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
-        self.sink
-            .borrow_mut()
-            .reserve(bytes as u128, self.site)
-            .map_err(|_| quire_walk::Denied)
+        super::v2::observe_allocation_class("walker_growth", || {
+            self.sink
+                .borrow_mut()
+                .reserve(bytes as u128, self.site)
+                .map_err(|_| quire_walk::Denied)
+        })
     }
 }
 
@@ -1090,7 +1094,7 @@ fn validate_one<'a, V: TermSource<'a>>(
                 Some(Ok(NodeIdRead::Id(_))) => {}
                 Some(Err(failure)) => return Err(failure),
                 Some(Ok(NodeIdRead::Invalid(_) | NodeIdRead::Malformed)) | None => {
-                    return Err(invalid(&at.key("node")))
+                    return Err(invalid(&at.key("node")));
                 }
             }
             Ok(1)
@@ -1267,8 +1271,8 @@ impl<'a> WireTerm<'a> {
 
 /// The `term` tag of a semantic term or frame body, decoded; `None` when the
 /// member is absent, not a string, or outside the vocabulary.
-pub(super) fn body_term(value: &Value) -> Option<BodyTerm> {
-    WireTerm::decode(value).kind()
+pub(super) fn body_term<'a, V: TermSource<'a>>(value: V) -> Option<BodyTerm> {
+    value.kind()
 }
 
 /// Reports the node reference held in `term[key]` (the term at `at`).
@@ -1314,14 +1318,17 @@ fn visit_reference_with<'a, V: TermSource<'a>>(
             at.pointer(),
         )),
         NodeIdRead::Id(target) => {
+            let mut sink = ids.0.borrow_mut();
             visit(
-                &target,
+                target,
                 ReferenceSite {
                     member,
                     is_body_root,
                 },
                 at,
-            );
+                &mut **sink,
+                ids.1,
+            )?;
             Ok(1)
         }
     }
@@ -1944,8 +1951,9 @@ mod tests {
                         TermGrammar::V2,
                         true,
                         &Trail::Base(&[]),
-                        &mut |target, site, _| {
+                        &mut |target, site, _, _, _| {
                             reported.push((target.path.len(), site.is_body_root));
+                            Ok(())
                         },
                         ids,
                     )

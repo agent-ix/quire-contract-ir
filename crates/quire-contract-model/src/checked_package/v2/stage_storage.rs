@@ -41,13 +41,26 @@ pub(super) struct Path<'a> {
 
 impl<'a> Path<'a> {
     /// The deepest position a stage names.
-    const CAPACITY: usize = 8;
+    // A schedulability task value reaches twelve closed-shape steps.
+    // Arbitrary-depth expressions use Position::Trail instead.
+    const CAPACITY: usize = 12;
 
     /// The document root.
     pub(super) const fn root() -> Self {
         Self {
             steps: [Step::Index(0); Self::CAPACITY],
             len: 0,
+        }
+    }
+
+    /// The holder of a graph path, inspected as typed steps without building
+    /// or parsing an owned diagnostic pointer.
+    pub(super) fn graph_node_index(&self) -> Option<usize> {
+        match self.steps() {
+            [Step::Key("semantic_graph"), Step::Key("nodes"), Step::Index(index), ..] => {
+                Some(*index)
+            }
+            _ => None,
         }
     }
 
@@ -65,7 +78,7 @@ impl<'a> Path<'a> {
         self
     }
 
-    fn steps(&self) -> &[Step<'a>] {
+    pub(super) fn steps(&self) -> &[Step<'a>] {
         &self.steps[..self.len]
     }
 
@@ -204,6 +217,8 @@ fn build_trail_pointer(trail: &Trail<'_>) -> JsonPointer {
 pub(super) enum Position<'a> {
     Path(Path<'a>),
     Trail(Trail<'a>),
+    /// A path already recorded during the charged reference walk.
+    Recorded(&'a JsonPointer),
 }
 
 impl<'a> From<Path<'a>> for Position<'a> {
@@ -224,6 +239,7 @@ impl Position<'_> {
         match self {
             Self::Path(path) => path.pointer_len(),
             Self::Trail(trail) => trail_pointer_len(trail),
+            Self::Recorded(pointer) => pointer.as_str().len(),
         }
     }
 
@@ -233,6 +249,7 @@ impl Position<'_> {
         match self {
             Self::Path(path) => path.build(),
             Self::Trail(trail) => build_trail_pointer(trail),
+            Self::Recorded(pointer) => (*pointer).clone(),
         }
     }
 }
@@ -640,6 +657,67 @@ mod tests {
         NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit)
     }
 
+    #[trace("TC-472", "FR-038-AC-510")]
+    #[test]
+    fn graph_holder_prefix_uses_typed_steps_without_pointer_escaping() {
+        let graph = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(17)
+            .key("body")
+            .key("/~é");
+        let measured =
+            allocation_counter::measure(|| assert_eq!(graph.graph_node_index(), Some(17)));
+        assert_eq!(measured.bytes_total, 0);
+        assert_eq!(
+            Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .graph_node_index(),
+            None
+        );
+        assert_eq!(
+            Path::root()
+                .key("semantic_graph/nodes")
+                .index(17)
+                .graph_node_index(),
+            None
+        );
+        assert_eq!(
+            Path::root()
+                .key("semantic_graph")
+                .key("nodes/~")
+                .index(17)
+                .graph_node_index(),
+            None
+        );
+        assert_eq!(
+            Path::root().key("diagnostics").index(17).graph_node_index(),
+            None
+        );
+    }
+
+    #[trace("TC-472", "FR-038-AC-510")]
+    #[test]
+    fn closed_task_value_path_preserves_all_twelve_steps() {
+        let at = Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(17)
+            .key("body")
+            .key("members")
+            .index(4)
+            .key("value")
+            .key("members")
+            .index(2)
+            .key("members")
+            .index(5)
+            .key("value");
+        let expected = "/semantic_graph/nodes/17/body/members/4/value/members/2/members/5/value";
+        assert_eq!(at.pointer_len(), expected.len());
+        assert_eq!(at.build().as_str(), expected);
+    }
+
     #[trace("TC-472", "FR-038-AC-505")]
     #[test]
     fn pointer_length_counts_escapes_and_digits_and_the_block_has_exactly_that_length() {
@@ -911,4 +989,21 @@ mod tests {
         });
         assert_eq!(measured.bytes_total, budget.read_storage_consumed());
     }
+}
+
+/// Pays the boxed byte-stream refusal before constructing it, without a path.
+pub(super) fn refuse_bytes(
+    meter: &mut WorkMeter<'_>,
+    site: &Site<'_>,
+    code: CheckedPackageRefusalCode,
+) -> ValidationFailure {
+    if let Err(stop) = diagnostic(
+        meter,
+        site,
+        size_of::<CheckedPackageRefusal>() + size_of::<CheckedPackageRefusalLocation>(),
+        CheckedPackagePendingOutcome::Refused(code),
+    ) {
+        return stop;
+    }
+    ValidationFailure::refused_bytes(code)
 }

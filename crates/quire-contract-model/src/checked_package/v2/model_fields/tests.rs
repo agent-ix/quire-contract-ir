@@ -1162,8 +1162,8 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             .nodes
             .into_iter()
             .map(|node| {
-                let body =
-                    super::super::CheckedTerm::decode_admitted(&node.body).expect("fixture body");
+                let body = super::super::CheckedTerm::decode_admitted(&node.body.to_value())
+                    .expect("fixture body");
                 node.into_typed(body)
             })
             .collect(),
@@ -1211,6 +1211,7 @@ fn build_fixture(document: &Value, declared: &[(&str, DeclarationForm)]) -> Fixt
             closure_index: Default::default(),
             catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
+            body_documents: Vec::new(),
         }
         .retain_original_admission(),
         range,
@@ -1391,7 +1392,6 @@ fn tc_227_the_accessor_does_not_read_a_node_body_it_was_not_passed() {
     }
 }
 
-
 /// `UnknownNode` and `NotModelObjectType` are distinct; the passed node's own
 /// fixed members decide the second, by the one rule of step 2, so an unread
 /// model node whose body is not `aggregate{[]}` returns the error and not the
@@ -1447,7 +1447,10 @@ fn tc_227_the_accessor_names_what_is_wrong_with_the_node() {
     // object type: a non-empty retained term, a `declaration`, a recursion
     // group, a `semantic_type` that is not itself.
     let mut wrong_term = fixture.package.clone();
-    std::sync::Arc::make_mut(&mut wrong_term.wire).semantic_graph.nodes[1].body = super::super::CheckedTerm::Reference {
+    std::sync::Arc::make_mut(&mut wrong_term.wire)
+        .semantic_graph
+        .nodes[1]
+        .body = super::super::CheckedTerm::Reference {
         target: base.clone(),
     };
     assert_eq!(

@@ -50,12 +50,10 @@ impl ClosureIndex {
             return Ok(Self::default());
         }
         let site = Site::new(PackageReadStage::Retained, 0, "closure_index");
-        let candidates = packages
-            .iter()
-            .fold(0usize, |sum, package| {
-                sum.saturating_add(1)
-                    .saturating_add(package.closure_index.len())
-            });
+        let candidates = packages.iter().fold(0usize, |sum, package| {
+            sum.saturating_add(1)
+                .saturating_add(package.closure_index.len())
+        });
         let mut unique: Vec<&Arc<CheckedPackageV2>> =
             read_charge::with_capacity(budget, site, candidates)?;
         for package in packages {
@@ -64,7 +62,11 @@ impl ClosureIndex {
         }
         unique.sort_unstable_by(|left, right| left.name().cmp(right.name()));
         unique.dedup_by(|left, right| left.name() == right.name());
-        read_charge::charge(budget, site, arc_slice_bytes::<Arc<CheckedPackageV2>>(unique.len()))?;
+        read_charge::charge(
+            budget,
+            site,
+            arc_slice_bytes::<Arc<CheckedPackageV2>>(unique.len()),
+        )?;
         let packages: Arc<[Arc<CheckedPackageV2>]> = unique.iter().copied().cloned().collect();
         Ok(Self {
             packages: Some(packages),

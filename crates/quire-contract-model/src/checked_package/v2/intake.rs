@@ -1,44 +1,44 @@
 //! The closed-schema decode of the package document, without native recursion
 //! following the nesting of a term.
 //!
-//! A node `body` and a diagnostic's `details`
-//! entry may nest as deep as the strict parser's limit of 128. The outer typed
-//! decode borrows each such term as a raw source slice, then decodes it into a
-//! `Value` only after that outer frame has returned. A `NodeId.path` contains
-//! fixed-depth string or graph-index segments, so a derived chain does not
-//! increase JSON nesting depth. Deep terms stay within the reader stack budget.
+//! A node `body` and a diagnostic's `details` entry may nest as deep as the
+//! strict parser's limit of 128. The outer typed decode retains handles into
+//! the shared document and decodes admitted terms after the outer frame has
+//! returned. A `NodeId.path` contains fixed-depth string or graph-index
+//! segments, so a derived chain does not increase JSON nesting depth.
 //!
 //! The lossless-decode check (no member defaulted, nulled or dropped) compares
-//! borrowed source array items against their typed serialization one at a
-//! time, except structural node identities, which compare from raw slices.
+//! document nodes against their typed serialization one at a time, including
+//! structural node identities.
 
 use super::NativeJoinBudget;
+use super::TermNode;
 use super::{
     CheckedDeclaration, CheckedDiagnosticCause, CheckedDiagnosticCode, CheckedDiagnosticStage,
     CheckedDiagnosticV2, CheckedDiagnosticsV2, CheckedJson, CheckedNodeOwner,
     CheckedPackageEnvelope, CheckedPackageLockV2, RawCheckedPackageWireV2, RawSemanticGraphV2,
     RawSemanticNodeV2, ValidationFailure,
 };
-use crate::checked_package::common::{decode_closed_document, node_pointer};
+use crate::checked_package::common::{
+    decode_closed_document_with_classifier, node_pointer, Step, Trail,
+};
+use crate::checked_package::shared::CheckedPackageRefusalCode;
 use crate::checked_package::shared::{
     CheckedArtifactRef, CheckedCapability, CheckedNodeId, CheckedOccurrence, CheckedSourceMapEntry,
     CheckedSourceRegion,
 };
-use crate::checked_package::shared::{CheckedPackageRefusalCode, JsonPointer};
 use quire_canonical::Document;
 use serde::{Deserialize, Deserializer};
-use serde_json::value::RawValue;
-use serde_json::Value;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// QSpec's KeyOrdinal admits a JSON integer through 2^53-1, or a canonical
-/// decimal string strictly above that bound.
-#[ix_trace_rs::string_edge]
-fn key_ordinal(value: &Value) -> bool {
+/// Check a present position ordinal before semantic graph validation.
+fn key_ordinal_node(value: TermNode<'_>) -> bool {
     const MAX_SAFE: &str = "9007199254740991";
-    if let Some(number) = value.as_u64() {
-        return number <= 9_007_199_254_740_991;
+    if value
+        .as_u64()
+        .is_some_and(|number| number <= 9_007_199_254_740_991)
+    {
+        return true;
     }
     let Some(text) = value.as_str() else {
         return false;
@@ -49,33 +49,28 @@ fn key_ordinal(value: &Value) -> bool {
         && (text.len() > MAX_SAFE.len() || (text.len() == MAX_SAFE.len() && text > MAX_SAFE))
 }
 
-/// Check a present position ordinal before semantic graph validation.
-fn position_member_shape(body: &Value) -> bool {
-    let mut pending = vec![body];
-    while let Some(value) = pending.pop() {
-        match value {
-            Value::Array(items) => pending.extend(items),
-            Value::Object(map) => {
-                if map.get("term").and_then(Value::as_str) == Some("application") {
-                    if let Some(member) = map.get("operation").and_then(|op| op.get("member")) {
-                        if member.get("kind").and_then(Value::as_str) == Some("position") {
-                            let Some(fields) = member.as_object() else {
-                                return false;
-                            };
-                            if fields.contains_key("position")
-                                && !fields.get("position").is_some_and(key_ordinal)
-                            {
-                                return false;
-                            }
-                        }
+fn position_member_shape(body: TermNode<'_>) -> bool {
+    if body.get("term").and_then(TermNode::as_str) == Some("application") {
+        if let Some(member) = body
+            .get("operation")
+            .and_then(|operation| operation.get("member"))
+        {
+            if member.get("kind").and_then(TermNode::as_str) == Some("position") {
+                if let Some(position) = member.get("position") {
+                    if !key_ordinal_node(position) {
+                        return false;
                     }
                 }
-                pending.extend(map.values());
             }
-            _ => {}
         }
     }
-    true
+    body.items()
+        .is_none_or(|items| items.into_iter().all(position_member_shape))
+        && body.members().is_none_or(|members| {
+            members
+                .into_iter()
+                .all(|(_, value)| position_member_shape(value))
+        })
 }
 
 // The borrowed intake mirrors only the closed containers that contain an
@@ -207,92 +202,36 @@ struct BorrowedDiagnostic {
 
 #[ix_trace_rs::string_edge]
 pub(super) fn decode_borrowed_wire(
-    bytes: &[u8],
     document: &Arc<Document>,
     budget: &mut NativeJoinBudget,
 ) -> Result<(RawCheckedPackageWireV2, Vec<CheckedJson>), ValidationFailure> {
-    let wire: BorrowedWire = decode_closed_document(document, budget).map_err(|mut failure| {
-        if let ValidationFailure::Refused(ref mut refusal) = failure {
-            if refusal.code == CheckedPackageRefusalCode::UnknownMember {
-                if let Some(index) = refusal
-                    .primary_path()
-                    .and_then(|at| at.as_str().strip_prefix("/temporal_clause_names/"))
-                    .and_then(|suffix| suffix.split('/').next())
-                    .and_then(|index| index.parse::<usize>().ok())
-                {
-                    refusal.code = CheckedPackageRefusalCode::MalformedWire;
-                    refusal.set_primary_path(Some(
-                        JsonPointer::root()
-                            .key("temporal_clause_names")
-                            .index(index),
-                    ));
-                }
-            }
-            if refusal.code == CheckedPackageRefusalCode::UnknownMember {
-                if let Some(index) = refusal
-                    .primary_path()
-                    .and_then(|at| at.as_str().strip_prefix("/schedulability_claims/"))
-                    .and_then(|suffix| suffix.split('/').next())
-                    .and_then(|index| index.parse::<usize>().ok())
-                {
-                    refusal.code = CheckedPackageRefusalCode::MalformedWire;
-                    refusal.set_primary_path(Some(
-                        JsonPointer::root()
-                            .key("schedulability_claims")
-                            .index(index),
-                    ));
-                }
-            }
-            if refusal.code == CheckedPackageRefusalCode::UnknownMember
-                && refusal
-                    .primary_path()
-                    .is_some_and(|path| path.as_str().starts_with("/checked_term_data"))
-            {
-                if let Some(row) = refusal
-                    .primary_path()
-                    .and_then(probabilistic_row_unknown_member_path)
-                {
-                    refusal.set_primary_path(Some(row));
-                }
-                refusal.code = CheckedPackageRefusalCode::MalformedWire;
-            }
-            if refusal.code == CheckedPackageRefusalCode::UnknownMember
-                && refusal.primary_path().is_some_and(|path| {
-                    path.as_str() == "/operation_effects"
-                        || path.as_str().starts_with("/operation_effects/")
-                })
-            {
-                refusal.code = CheckedPackageRefusalCode::MalformedWire;
-            }
-            if refusal.code == CheckedPackageRefusalCode::MalformedWire {
-                if let Some(at) = refusal.primary_path().cloned() {
-                    if let Some(member) = invalid_node_id_field(bytes, &at) {
-                        refusal.set_primary_path(Some(member));
-                    } else if let Some(member) = invalid_clock_field(bytes, &at) {
-                        refusal.set_primary_path(Some(member));
-                    } else if let Some(member) = missing_probabilistic_occurrence(bytes, &at) {
-                        refusal.set_primary_path(Some(member));
-                    } else if let Some(parent) = operation_effect_schema_parent_path(&at) {
-                        refusal.set_primary_path(Some(parent));
-                    }
-                }
-            }
-        }
-        failure
-    })?;
+    let wire: BorrowedWire =
+        decode_closed_document_with_classifier(document, budget, |code, steps, meter| {
+            classify_wire_fault(document, code, steps, meter)
+        })?;
     if wire
         .schedulability_claims
         .as_ref()
         .is_some_and(Vec::is_empty)
     {
-        return Err(malformed(JsonPointer::root().key("schedulability_claims")));
+        return Err(malformed(
+            super::stage_storage::Path::root().key("schedulability_claims"),
+            &mut super::WorkMeter::over(budget),
+        ));
     }
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
-    let mut nodes = Vec::with_capacity(graph.nodes.len());
-    // The node bodies as handles into the retained document: the node views
-    // read these, and the `Value` beside them is the bridge for validators
-    // that have not moved to the views.
+    let mut nodes = super::read_charge::with_capacity(
+        budget,
+        super::read_charge::Site::new(
+            super::PackageReadStage::WireDecode,
+            0,
+            "semantic_graph.nodes",
+        ),
+        graph.nodes.len(),
+    )?;
+    // The node bodies as handles into the retained document; validators read
+    // these directly through TermNode.
     let mut bodies = super::read_charge::with_capacity(
         budget,
         super::read_charge::Site::new(
@@ -313,26 +252,54 @@ pub(super) fn decode_borrowed_wire(
             ));
         }
         bodies.push(node.body.clone());
-        let body = node.body.to_value();
-        if !position_member_shape(&body) {
+        let body = node.body;
+        if !position_member_shape(TermNode::of(&body)) {
             return Err(ValidationFailure::refused(
                 CheckedPackageRefusalCode::MalformedWire,
                 node_pointer(position),
             ));
         }
+        let mut dependencies = super::read_charge::with_capacity(
+            budget,
+            super::read_charge::Site::new(
+                super::PackageReadStage::WireDecode,
+                position,
+                "dependencies",
+            ),
+            node.dependencies.len(),
+        )?;
+        dependencies.extend(node.dependencies.into_iter().map(|id| id.0));
         nodes.push(RawSemanticNodeV2 {
             node_id: node.node_id.0,
             schema_version: node.schema_version,
             node_tag: node.node_tag,
             semantic_form: node.semantic_form,
             semantic_type: node.semantic_type.0,
-            dependencies: node.dependencies.into_iter().map(|id| id.0).collect(),
+            dependencies,
             occurrences: node.occurrences,
             recursion_group: node.recursion_group,
             declaration: node.declaration.flatten(),
             owner: node.owner,
             owner_model: node.owner_model.map(|id| id.0),
             body,
+        });
+    }
+    let mut diagnostic_entries = super::read_charge::with_capacity(
+        budget,
+        super::read_charge::Site::new(
+            super::PackageReadStage::WireDecode,
+            0,
+            "diagnostics.entries",
+        ),
+        diagnostics.entries.len(),
+    )?;
+    for entry in diagnostics.entries {
+        diagnostic_entries.push(CheckedDiagnosticV2 {
+            stage: entry.stage,
+            code: entry.code,
+            cause_tag: entry.cause_tag,
+            details: entry.details,
+            loci: entry.loci,
         });
     }
     let envelope = CheckedPackageEnvelope {
@@ -354,103 +321,134 @@ pub(super) fn decode_borrowed_wire(
         capability_report: wire.capability_report,
         diagnostics: CheckedDiagnosticsV2 {
             catalog: diagnostics.catalog,
-            entries: diagnostics
-                .entries
-                .into_iter()
-                .map(|entry| {
-                    Ok(CheckedDiagnosticV2 {
-                        stage: entry.stage,
-                        code: entry.code,
-                        cause_tag: entry.cause_tag,
-                        details: entry.details.into_iter().collect(),
-                        loci: entry.loci,
-                    })
-                })
-                .collect::<Result<Vec<_>, ValidationFailure>>()?,
+            entries: diagnostic_entries,
         },
     };
     Ok((envelope, bodies))
 }
 
-#[ix_trace_rs::string_edge]
-fn operation_effect_schema_parent_path(at: &JsonPointer) -> Option<JsonPointer> {
-    let path = at.as_str().strip_prefix("/operation_effects/")?;
-    if let Some((index, member)) = path.split_once('/') {
-        if !member.contains('/')
-            && !matches!(
-                member,
-                "document" | "declaring" | "operation" | "effect" | "provenance"
-            )
-        {
-            let index: usize = index.parse().ok()?;
-            return Some(JsonPointer::root().key("operation_effects").index(index));
+/// Select the existing intake-specific code and position before paying for
+/// the one final diagnostic. The decoder supplies at most TRACKED_DEPTH steps;
+/// the longest refinement appends the two steps `path` and its bad segment.
+fn classify_wire_fault(
+    document: &Document,
+    mut code: CheckedPackageRefusalCode,
+    original: &[Step<'_>],
+    meter: &mut super::WorkMeter,
+) -> ValidationFailure {
+    use CheckedPackageRefusalCode::{MalformedWire, UnknownMember};
+    const EXTRA: usize = 2;
+    let mut steps = [Step::Index(0); super::document_de::TRACKED_DEPTH + EXTRA];
+    steps[..original.len()].copy_from_slice(original);
+    let mut length = original.len();
+    let index = original
+        .iter()
+        .filter_map(|step| match step {
+            Step::Index(index) => Some(*index),
+            _ => None,
+        })
+        .next_back()
+        .unwrap_or(0);
+    if code == UnknownMember {
+        match original {
+            [Step::Key("temporal_clause_names" | "schedulability_claims"), Step::Index(_), ..] => {
+                code = MalformedWire;
+                length = 2;
+            }
+            [Step::Key(key), ..] if key.starts_with("checked_term_data") => {
+                if matches!(
+                    original,
+                    [
+                        Step::Key("checked_term_data"),
+                        Step::Key("probabilistic_claims"),
+                        Step::Index(_),
+                        Step::Key(_)
+                    ]
+                ) {
+                    length = 3;
+                }
+                code = MalformedWire;
+            }
+            [Step::Key("operation_effects"), ..] => code = MalformedWire,
+            _ => {}
         }
     }
-    let (index, path) = path.split_once("/effect/")?;
-    let index: usize = index.parse().ok()?;
-    if let Some(entry) = path
-        .strip_prefix("modifies/")
-        .and_then(|entry| entry.strip_suffix("/kind"))
-    {
-        let entry: usize = entry.parse().ok()?;
-        return Some(
-            JsonPointer::root()
-                .key("operation_effects")
-                .index(index)
-                .key("effect")
-                .key("modifies")
-                .index(entry),
-        );
+    if code == MalformedWire {
+        let at = &steps[..length];
+        if let Some((first, second)) = invalid_node_id_suffix(document, at) {
+            steps[length] = first;
+            length += 1;
+            if let Some(second) = second {
+                steps[length] = second;
+                length += 1;
+            }
+        } else if let Some(field) = invalid_clock_field(document, at) {
+            steps[length] = Step::Key(field);
+            length += 1;
+        } else if missing_probabilistic_occurrence(document, at) {
+            steps[length] = Step::Key("occurrence");
+            length += 1;
+        } else if let Some(parent) = operation_effect_schema_parent_length(at) {
+            length = parent;
+        }
     }
-    if path.is_empty()
-        || path.contains('/')
-        || matches!(path, "modifies" | "creates" | "deletes" | "deletes_scoped")
-    {
-        return None;
-    }
-    Some(
-        JsonPointer::root()
-            .key("operation_effects")
-            .index(index)
-            .key("effect"),
+    super::stage_storage::refuse(
+        meter,
+        &super::stage_storage::Site::new(
+            super::PackageReadStage::WireDecode,
+            index,
+            "wire",
+            super::stage_storage::Path::root(),
+        ),
+        super::stage_storage::Refusal::new(code, Trail::Base(&steps[..length])),
     )
 }
 
-#[ix_trace_rs::string_edge]
-fn probabilistic_row_unknown_member_path(at: &JsonPointer) -> Option<JsonPointer> {
-    let remainder = at
-        .as_str()
-        .strip_prefix("/checked_term_data/probabilistic_claims/")?;
-    let (index, member) = remainder.split_once('/')?;
-    if member.is_empty() || member.contains('/') {
-        return None;
+fn operation_effect_schema_parent_length(at: &[Step<'_>]) -> Option<usize> {
+    match at {
+        [Step::Key("operation_effects"), Step::Index(_), Step::Key(member)]
+            if !matches!(
+                *member,
+                "document" | "declaring" | "operation" | "effect" | "provenance"
+            ) =>
+        {
+            Some(2)
+        }
+        [Step::Key("operation_effects"), Step::Index(_), Step::Key("effect"), Step::Key("modifies"), Step::Index(_), Step::Key("kind")] => {
+            Some(5)
+        }
+        [Step::Key("operation_effects"), Step::Index(_), Step::Key("effect"), Step::Key(member)]
+            if !matches!(
+                *member,
+                "modifies" | "creates" | "deletes" | "deletes_scoped"
+            ) =>
+        {
+            Some(3)
+        }
+        _ => None,
     }
-    let index: usize = index.parse().ok()?;
-    Some(
-        JsonPointer::root()
-            .key("checked_term_data")
-            .key("probabilistic_claims")
-            .index(index),
-    )
 }
 
-fn missing_probabilistic_occurrence(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
-    let prefix = "/checked_term_data/probabilistic_claims/";
-    let index = at.as_str().strip_prefix(prefix)?;
-    if index.is_empty() || !index.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    let row: BTreeMap<&str, &RawValue> = serde_json::from_str(source_raw(bytes, at)?).ok()?;
-    (row.contains_key("declaration") && !row.contains_key("occurrence"))
-        .then(|| at.clone().key("occurrence"))
+fn missing_probabilistic_occurrence(document: &Document, at: &[Step<'_>]) -> bool {
+    matches!(
+        at,
+        [
+            Step::Key("checked_term_data"),
+            Step::Key("probabilistic_claims"),
+            Step::Index(_)
+        ]
+    ) && term_at_steps(document, at)
+        .is_some_and(|row| row.get("declaration").is_some() && row.get("occurrence").is_none())
 }
 
-#[ix_trace_rs::string_edge]
-fn invalid_clock_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
-    if !at.as_str().starts_with("/temporal_bindings/") || !at.as_str().ends_with("/clock") {
+fn invalid_clock_field(document: &Document, at: &[Step<'_>]) -> Option<&'static str> {
+    if !matches!(at.first(), Some(Step::Key("temporal_bindings")))
+        || !matches!(at.last(), Some(Step::Key("clock")))
+        || at.len() < 2
+    {
         return None;
     }
-    let clock: Value = serde_json::from_str(source_raw(bytes, at)?).ok()?;
+    let clock = term_at_steps(document, at)?;
     let field = match clock.get("kind")?.as_str()? {
         "event_position" => "sequence_authority",
         "timestamped_event" => "timestamp_unit",
@@ -459,217 +457,123 @@ fn invalid_clock_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
     };
     clock
         .get(field)
-        .filter(|value| !value.is_string())
-        .map(|_| at.clone().key(field))
+        .filter(|value| value.as_str().is_none())
+        .map(|_| field)
 }
 
-/// Refine a buffered node-ID decode error to an ordinal or path segment.
 /// V2 path objects are closed graph-local indices; nested IDs are refused at
 /// the segment itself, before semantic-graph admission.
-#[ix_trace_rs::string_edge]
-fn invalid_node_id_field(bytes: &[u8], at: &JsonPointer) -> Option<JsonPointer> {
+fn invalid_node_id_suffix(
+    document: &Document,
+    at: &[Step<'_>],
+) -> Option<(Step<'static>, Option<Step<'static>>)> {
     const MAX_SAFE: u64 = 9_007_199_254_740_991;
-    let members: BTreeMap<&str, &RawValue> = serde_json::from_str(source_raw(bytes, at)?).ok()?;
-    if !members.contains_key("package") || !members.contains_key("path") {
+    let id = term_at_steps(document, at)?;
+    if id.get("package").is_none() || id.get("path").is_none() {
         return None;
     }
-    if let Some(ordinal) = members.get("ordinal") {
-        if serde_json::from_str::<u64>(ordinal.get())
-            .ok()
-            .is_none_or(|value| value > MAX_SAFE)
+    if id
+        .get("ordinal")
+        .is_some_and(|ordinal| ordinal.as_u64().is_none_or(|value| value > MAX_SAFE))
+    {
+        return Some((Step::Key("ordinal"), None));
+    }
+    for (index, segment) in id.get("path")?.items()?.enumerate() {
+        if segment.as_str().is_some()
+            || (segment.exact_members(&["node"])
+                && segment
+                    .get("node")
+                    .and_then(TermNode::as_u64)
+                    .is_some_and(|value| value <= MAX_SAFE))
         {
-            return Some(at.clone().key("ordinal"));
-        }
-    }
-    let segments: Vec<&RawValue> = serde_json::from_str(members.get("path")?.get()).ok()?;
-    for (index, segment) in segments.into_iter().enumerate() {
-        let raw = segment.get();
-        if raw.starts_with('"') {
             continue;
         }
-        if raw.starts_with('{') {
-            let object: BTreeMap<&str, &RawValue> = serde_json::from_str(raw).ok()?;
-            if object.len() == 1
-                && object.get("node").is_some_and(|value| {
-                    serde_json::from_str::<u64>(value.get())
-                        .ok()
-                        .is_some_and(|value| value <= MAX_SAFE)
-                })
-            {
-                continue;
-            }
-        }
-        return Some(at.clone().key("path").index(index));
+        return Some((Step::Key("path"), Some(Step::Index(index))));
     }
     None
 }
 
-/// Read only the JSON value named by `pointer`. Borrowed raw subtrees retain
-/// slices of the caller's bytes; no ancestor is decoded into a `Value`.
-pub(super) fn source_value(bytes: &[u8], pointer: &JsonPointer) -> Option<Value> {
-    serde_json::from_str(source_raw(bytes, pointer)?).ok()
-}
-
-/// Locate a source value without deserializing its ancestors. A package can
-/// contain a valid term near serde_json's depth limit even when the requested
-/// member is shallow; deserializing the root as RawValue would reject it.
-fn source_raw<'a>(bytes: &'a [u8], pointer: &JsonPointer) -> Option<&'a str> {
-    let mut current = bytes;
-    let path = pointer.as_str();
-    if !path.is_empty() {
-        for token in path.strip_prefix('/')?.split('/') {
-            let key = token.replace("~1", "/").replace("~0", "~");
-            current = match current.first()? {
-                b'{' => object_member(current, &key)?,
-                b'[' => array_item(current, key.parse::<usize>().ok()?)?,
-                _ => return None,
-            };
-        }
+fn term_at_steps<'d>(document: &'d Document, steps: &[Step<'_>]) -> Option<TermNode<'d>> {
+    let mut current = TermNode::from_ref(document.root());
+    for step in steps {
+        current = match *step {
+            Step::Key(key) => current.get(key)?,
+            Step::Index(index) => current.items()?.nth(index)?,
+        };
     }
-    std::str::from_utf8(current).ok()
-}
-
-/// The strict and canonical scans precede every source lookup. These local
-/// scans only delimit a child span and do not materialize skipped subtrees.
-fn object_member<'a>(object: &'a [u8], key: &str) -> Option<&'a [u8]> {
-    let mut at = 1;
-    while object.get(at) != Some(&b'}') {
-        let end = value_end(object, at)?;
-        let member: &str = serde_json::from_slice(object.get(at..end)?).ok()?;
-        at = end;
-        if object.get(at) != Some(&b':') {
-            return None;
-        }
-        at += 1;
-        let end = value_end(object, at)?;
-        if member == key {
-            return object.get(at..end);
-        }
-        at = end;
-        match object.get(at)? {
-            b',' => at += 1,
-            b'}' => return None,
-            _ => return None,
-        }
-    }
-    None
-}
-
-fn array_item(array: &[u8], target: usize) -> Option<&[u8]> {
-    let mut at = 1;
-    let mut index = 0;
-    while array.get(at) != Some(&b']') {
-        let end = value_end(array, at)?;
-        if index == target {
-            return array.get(at..end);
-        }
-        at = end;
-        if array.get(at) != Some(&b',') {
-            return None;
-        }
-        at += 1;
-        index += 1;
-    }
-    None
-}
-
-/// End of one already validated JSON value, found with a heap stack.
-pub(super) fn value_end(bytes: &[u8], start: usize) -> Option<usize> {
-    let first = *bytes.get(start)?;
-    if !matches!(first, b'{' | b'[' | b'"') {
-        let mut at = start;
-        while !matches!(bytes.get(at), None | Some(b',' | b'}' | b']')) {
-            at += 1;
-        }
-        return Some(at);
-    }
-    let mut at = start;
-    let mut closers = Vec::new();
-    let mut in_string = false;
-    let mut escaped = false;
-    loop {
-        let byte = *bytes.get(at)?;
-        at += 1;
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-                if closers.is_empty() {
-                    return Some(at);
-                }
-            }
-            continue;
-        }
-        match byte {
-            b'"' => in_string = true,
-            b'{' => closers.push(b'}'),
-            b'[' => closers.push(b']'),
-            b'}' | b']' => {
-                if closers.pop() != Some(byte) {
-                    return None;
-                }
-                if closers.is_empty() {
-                    return Some(at);
-                }
-            }
-            _ => {}
-        }
-    }
+    Some(current)
 }
 
 /// `malformed_wire` at `at`.
-fn malformed(at: JsonPointer) -> ValidationFailure {
-    ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
+fn malformed(
+    at: super::stage_storage::Path<'static>,
+    meter: &mut super::WorkMeter,
+) -> ValidationFailure {
+    super::stage_storage::refuse(
+        meter,
+        &super::stage_storage::Site::new(
+            super::PackageReadStage::WireDecode,
+            at.steps()
+                .iter()
+                .filter_map(|step| match step {
+                    crate::checked_package::common::Step::Index(index) => Some(*index),
+                    _ => None,
+                })
+                .next_back()
+                .unwrap_or(0),
+            "wire",
+            at,
+        ),
+        super::stage_storage::Refusal::new(CheckedPackageRefusalCode::MalformedWire, at),
+    )
 }
 
-/// Check the lossless closed decode against borrowed slices of the source.
-/// The comparator walks borrowed object members and array items as the typed
-/// serializer visits them. Neither a root field nor one large array element
-/// becomes a second `Value` tree. Arbitrary terms already came directly from
-/// their raw source slices and are skipped by this closed-member check.
+/// Check the lossless closed decode against the retained source document.
+/// The comparator follows document nodes as the typed serializer visits them;
+/// it does not reparse a source slice or build a second JSON tree.
 pub(super) fn check_lossless_source(
-    bytes: &[u8],
+    document: &Document,
     wire: &RawCheckedPackageWireV2,
+    budget: &mut NativeJoinBudget,
 ) -> Result<(), ValidationFailure> {
-    let root: BTreeMap<String, &RawValue> =
-        serde_json::from_slice(bytes).map_err(|_| malformed(JsonPointer::root()))?;
-    let nodes = raw_array(
-        raw_member(root.get("semantic_graph").copied(), "nodes"),
-        &["semantic_graph", "nodes"],
+    let mut meter = super::WorkMeter::over(budget);
+    let meter = &mut meter;
+    let root = TermNode::from_ref(document.root());
+    let root_at = super::stage_storage::Path::root();
+    compare_root(
+        root,
+        "capability_report",
+        &wire.capability_report,
+        &[],
+        meter,
     )?;
-    let source_map = raw_array(root.get("source_map").copied(), &["source_map"])?;
-    let diagnostic_entries = raw_array(
-        raw_member(root.get("diagnostics").copied(), "entries"),
-        &["diagnostics", "entries"],
+    compare_root(root, "contract_version", &wire.contract_version, &[], meter)?;
+    compare_root(root, "diagnostics", &wire.diagnostics, &["entries"], meter)?;
+    compare_root(root, "lock", &wire.lock, &[], meter)?;
+    compare_root(root, "name", &wire.name, &[], meter)?;
+    compare_root(
+        root,
+        "semantic_graph",
+        &wire.semantic_graph,
+        &["nodes"],
+        meter,
     )?;
 
-    // Root member order matches `serde_json::Value`'s BTreeMap order used by
-    // the prior first-difference check. Within each object, the comparator
-    // likewise chooses the first differing source member rather than the
-    // serializer's declaration order.
-    compare_root(&root, "capability_report", &wire.capability_report, &[])?;
-    compare_root(&root, "contract_version", &wire.contract_version, &[])?;
-    compare_root(&root, "diagnostics", &wire.diagnostics, &["entries"])?;
-    compare_root(&root, "lock", &wire.lock, &[])?;
-    compare_root(&root, "name", &wire.name, &[])?;
-    compare_root(&root, "semantic_graph", &wire.semantic_graph, &["nodes"])?;
+    let nodes_at = root_at.key("semantic_graph").key("nodes");
+    let nodes = root
+        .get("semantic_graph")
+        .and_then(|graph| graph.get("nodes"))
+        .and_then(TermNode::items)
+        .ok_or_else(|| malformed(nodes_at, meter))?;
     if nodes.len() != wire.semantic_graph.nodes.len() {
-        return Err(malformed(
-            JsonPointer::root().key("semantic_graph").key("nodes"),
-        ));
+        return Err(malformed(nodes_at, meter));
     }
-    for (index, (original, node)) in nodes.iter().zip(&wire.semantic_graph.nodes).enumerate() {
-        let at = JsonPointer::root()
-            .key("semantic_graph")
-            .key("nodes")
-            .index(index);
+    for (index, (original, node)) in nodes.zip(&wire.semantic_graph.nodes).enumerate() {
+        let at = root_at.key("semantic_graph").key("nodes").index(index);
         super::lossless::compare(
             original,
             node,
-            at.clone(),
+            at,
             &[
                 "body",
                 "node_id",
@@ -677,189 +581,147 @@ pub(super) fn check_lossless_source(
                 "dependencies",
                 "owner_model",
             ],
+            meter,
         )?;
-        compare_id_member(original, "node_id", &node.node_id, at.clone())?;
-        compare_id_member(original, "semantic_type", &node.semantic_type, at.clone())?;
-        let dependencies: Vec<&RawValue> = serde_json::from_str(
-            raw_member(Some(original), "dependencies")
-                .ok_or_else(|| malformed(at.clone().key("dependencies")))?
-                .get(),
-        )
-        .map_err(|_| malformed(at.clone().key("dependencies")))?;
+        for key in ["node_id", "semantic_type"] {
+            let locus = at.key(key);
+            let source = original.get(key).ok_or_else(|| malformed(locus, meter))?;
+            let typed = if key == "node_id" {
+                &node.node_id
+            } else {
+                &node.semantic_type
+            };
+            super::lossless::compare(source, typed, locus, &[], meter)?;
+        }
+        let dependencies_at = at.key("dependencies");
+        let dependencies = original
+            .get("dependencies")
+            .and_then(TermNode::items)
+            .ok_or_else(|| malformed(dependencies_at, meter))?;
         if dependencies.len() != node.dependencies.len() {
-            return Err(malformed(at.clone().key("dependencies")));
+            return Err(malformed(dependencies_at, meter));
         }
-        for (item, (raw, id)) in dependencies.iter().zip(&node.dependencies).enumerate() {
-            compare_id(raw, id, at.clone().key("dependencies").index(item))?;
+        for (index, (source, id)) in dependencies.zip(&node.dependencies).enumerate() {
+            super::lossless::compare(source, id, at.key("dependencies").index(index), &[], meter)?;
         }
-        match (&node.owner_model, raw_member(Some(original), "owner_model")) {
-            (Some(id), Some(raw)) => compare_id(raw, id, at.key("owner_model"))?,
+        match (&node.owner_model, original.get("owner_model")) {
+            (Some(id), Some(source)) => {
+                super::lossless::compare(source, id, at.key("owner_model"), &[], meter)?
+            }
             (None, None) => {}
-            _ => return Err(malformed(at.key("owner_model"))),
+            _ => return Err(malformed(at.key("owner_model"), meter)),
         }
     }
-    if source_map.len() != wire.source_map.len() {
-        return Err(malformed(JsonPointer::root().key("source_map")));
-    }
-    for (index, (original, entry)) in source_map.iter().zip(&wire.source_map).enumerate() {
-        let at = JsonPointer::root().key("source_map").index(index);
-        super::lossless::compare(original, entry, at.clone(), &["node_id"])?;
-        compare_id_member(original, "node_id", &entry.node_id, at)?;
-    }
+
+    compare_row_collection(root, "source_map", &wire.source_map, &[], meter)?;
     if let Some(rows) = &wire.refinement_step_rows {
-        let originals = raw_array(
-            root.get("refinement_step_rows").copied(),
-            &["refinement_step_rows"],
-        )?;
-        if originals.len() != rows.len() {
-            return Err(malformed(JsonPointer::root().key("refinement_step_rows")));
-        }
-        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
-            let at = JsonPointer::root().key("refinement_step_rows").index(index);
-            super::lossless::compare(original, row, at.clone(), &["node_id"])?;
-            compare_id_member(original, "node_id", &row.node_id, at)?;
-        }
-    } else if root.contains_key("refinement_step_rows") {
-        return Err(malformed(JsonPointer::root().key("refinement_step_rows")));
+        compare_row_collection(root, "refinement_step_rows", rows, &[], meter)?;
+    } else if root.get("refinement_step_rows").is_some() {
+        return Err(malformed(root_at.key("refinement_step_rows"), meter));
     }
     if let Some(data) = &wire.checked_term_data {
-        compare_root(&root, "checked_term_data", data, &[])?;
-    } else if root.contains_key("checked_term_data") {
-        return Err(malformed(JsonPointer::root().key("checked_term_data")));
+        compare_root(root, "checked_term_data", data, &[], meter)?;
+    } else if root.get("checked_term_data").is_some() {
+        return Err(malformed(root_at.key("checked_term_data"), meter));
     }
-    if let Some(rows) = &wire.temporal_bindings {
-        let originals = raw_array(
-            root.get("temporal_bindings").copied(),
-            &["temporal_bindings"],
-        )?;
-        if rows.is_empty() || originals.len() != rows.len() {
-            return Err(malformed(JsonPointer::root().key("temporal_bindings")));
-        }
-        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
-            let at = JsonPointer::root().key("temporal_bindings").index(index);
-            super::lossless::compare(original, row, at.clone(), &["declaration"])?;
-            compare_id_member(original, "declaration", &row.declaration, at)?;
-        }
-    } else if root.contains_key("temporal_bindings") {
-        return Err(malformed(JsonPointer::root().key("temporal_bindings")));
-    }
-    if let Some(rows) = &wire.temporal_clause_names {
-        let originals = raw_array(
-            root.get("temporal_clause_names").copied(),
-            &["temporal_clause_names"],
-        )?;
-        if rows.is_empty() || originals.len() != rows.len() {
-            return Err(malformed(JsonPointer::root().key("temporal_clause_names")));
-        }
-        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
-            let at = JsonPointer::root()
-                .key("temporal_clause_names")
-                .index(index);
-            super::lossless::compare(original, row, at.clone(), &["declaration"])?;
-            compare_id_member(original, "declaration", &row.declaration, at)?;
-        }
-    } else if root.contains_key("temporal_clause_names") {
-        return Err(malformed(JsonPointer::root().key("temporal_clause_names")));
-    }
-    if let Some(rows) = &wire.schedulability_claims {
-        let originals = raw_array(
-            root.get("schedulability_claims").copied(),
-            &["schedulability_claims"],
-        )?;
-        if rows.is_empty() || originals.len() != rows.len() {
-            return Err(malformed(JsonPointer::root().key("schedulability_claims")));
-        }
-        for (index, (original, row)) in originals.iter().zip(rows).enumerate() {
-            let at = JsonPointer::root()
-                .key("schedulability_claims")
-                .index(index);
-            super::lossless::compare(original, row, at.clone(), &["declaration"])?;
-            compare_id_member(original, "declaration", &row.declaration, at)?;
-        }
-    } else if root.contains_key("schedulability_claims") {
-        return Err(malformed(JsonPointer::root().key("schedulability_claims")));
-    }
-    compare_items(
-        &["diagnostics", "entries"],
-        &diagnostic_entries,
+    compare_optional_rows(
+        root,
+        "temporal_bindings",
+        wire.temporal_bindings.as_deref(),
+        meter,
+    )?;
+    compare_optional_rows(
+        root,
+        "temporal_clause_names",
+        wire.temporal_clause_names.as_deref(),
+        meter,
+    )?;
+    compare_optional_rows(
+        root,
+        "schedulability_claims",
+        wire.schedulability_claims.as_deref(),
+        meter,
+    )?;
+    let entries = root
+        .get("diagnostics")
+        .and_then(|value| value.get("entries"))
+        .and_then(TermNode::items)
+        .ok_or_else(|| malformed(root_at.key("diagnostics").key("entries"), meter))?;
+    compare_terms(
+        root_at.key("diagnostics").key("entries"),
+        entries,
         &wire.diagnostics.entries,
         &["details"],
+        meter,
     )
 }
 
-fn compare_id(
-    raw: &RawValue,
-    typed: &CheckedNodeId,
-    at: JsonPointer,
+fn compare_row_collection<T: serde::Serialize>(
+    root: TermNode<'_>,
+    key: &'static str,
+    typed: &[T],
+    skipped: &'static [&'static str],
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let decoded: CheckedNodeId =
-        serde_json::from_str(raw.get()).map_err(|_| malformed(at.clone()))?;
-    if decoded == *typed {
-        Ok(())
-    } else {
-        Err(malformed(at))
-    }
-}
-
-fn compare_id_member(
-    raw: &RawValue,
-    key: &str,
-    typed: &CheckedNodeId,
-    parent: JsonPointer,
-) -> Result<(), ValidationFailure> {
-    let at = parent.key(key);
-    let value = raw_member(Some(raw), key).ok_or_else(|| malformed(at.clone()))?;
-    compare_id(value, typed, at)
+    let at = super::stage_storage::Path::root().key(key);
+    let rows = root
+        .get(key)
+        .and_then(TermNode::items)
+        .ok_or_else(|| malformed(at, meter))?;
+    compare_terms(at, rows, typed, skipped, meter)
 }
 
 fn compare_root<T: serde::Serialize>(
-    root: &BTreeMap<String, &RawValue>,
-    key: &str,
+    root: TermNode<'_>,
+    key: &'static str,
     typed: &T,
-    skipped_members: &'static [&'static str],
+    skipped: &'static [&'static str],
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let at = JsonPointer::root().key(key);
-    let raw = root.get(key).ok_or_else(|| malformed(at.clone()))?;
-    super::lossless::compare(raw, typed, at, skipped_members)
+    let at = super::stage_storage::Path::root().key(key);
+    let raw = root.get(key).ok_or_else(|| malformed(at, meter))?;
+    super::lossless::compare(raw, typed, at, skipped, meter)
 }
 
-fn compare_items<T: serde::Serialize>(
-    path: &[&str],
-    originals: &[&RawValue],
-    typed: &[T],
-    skipped_members: &'static [&'static str],
+fn compare_optional_rows<T: serde::Serialize>(
+    root: TermNode<'_>,
+    key: &'static str,
+    typed: Option<&[T]>,
+    meter: &mut super::WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    let pointer = path
-        .iter()
-        .fold(JsonPointer::root(), |pointer, key| pointer.key(key));
-    if originals.len() != typed.len() {
-        return Err(malformed(pointer));
+    let Some(typed) = typed else {
+        return if root.get(key).is_some() {
+            Err(malformed(
+                super::stage_storage::Path::root().key(key),
+                meter,
+            ))
+        } else {
+            Ok(())
+        };
+    };
+    if typed.is_empty() {
+        return Err(malformed(
+            super::stage_storage::Path::root().key(key),
+            meter,
+        ));
     }
-    for (index, (original, typed)) in originals.iter().zip(typed).enumerate() {
-        super::lossless::compare(
-            original,
-            typed,
-            pointer.clone().index(index),
-            skipped_members,
-        )?;
+    compare_row_collection(root, key, typed, &[], meter)
+}
+
+fn compare_terms<T: serde::Serialize>(
+    at: super::stage_storage::Path<'static>,
+    terms: super::TermItems<'_>,
+    typed: &[T],
+    skipped: &'static [&'static str],
+    meter: &mut super::WorkMeter,
+) -> Result<(), ValidationFailure> {
+    if terms.len() != typed.len() {
+        return Err(malformed(at, meter));
+    }
+    for (index, (source, value)) in terms.zip(typed).enumerate() {
+        super::lossless::compare(source, value, at.index(index), skipped, meter)?;
     }
     Ok(())
-}
-
-fn raw_member<'a>(parent: Option<&'a RawValue>, key: &str) -> Option<&'a RawValue> {
-    let members: BTreeMap<String, &'a RawValue> = serde_json::from_str(parent?.get()).ok()?;
-    members.get(key).copied()
-}
-
-fn raw_array<'a>(
-    raw: Option<&'a RawValue>,
-    path: &[&str],
-) -> Result<Vec<&'a RawValue>, ValidationFailure> {
-    let pointer = path
-        .iter()
-        .fold(JsonPointer::root(), |pointer, key| pointer.key(key));
-    serde_json::from_str(raw.ok_or_else(|| malformed(pointer.clone()))?.get())
-        .map_err(|_| malformed(pointer))
 }
 
 #[cfg(test)]
@@ -872,44 +734,458 @@ mod ordinal_locus_tests {
         let bytes = format!(
             "{{\"semantic_graph\":{{\"nodes\":[{{\"body\":{deep},\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":0}}}}]}}}}"
         );
-        let pointer = JsonPointer::parse("/semantic_graph/nodes/0/node_id/ordinal").unwrap();
+        let document = quire_canonical::read(bytes.as_bytes(), u64::MAX).expect("document");
+        let pointer = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(0),
+            Step::Key("node_id"),
+            Step::Key("ordinal"),
+        ];
         assert_eq!(
-            source_value(bytes.as_bytes(), &pointer),
-            Some(Value::from(0))
+            term_at_steps(&document, &pointer).and_then(TermNode::as_u64),
+            Some(0)
         );
     }
 
     #[test]
     fn source_lookup_handles_escaped_member_and_string_contents() {
         let bytes = br#"{"a/b":{"~name":["quoted \" { [ }",{"node":3}]}}"#;
-        let pointer = JsonPointer::parse("/a~1b/~0name/1/node").unwrap();
-        assert_eq!(source_value(bytes, &pointer), Some(Value::from(3)));
+        let document = quire_canonical::read(bytes, u64::MAX).expect("document");
+        let pointer = [
+            Step::Key("a/b"),
+            Step::Key("~name"),
+            Step::Index(1),
+            Step::Key("node"),
+        ];
+        assert_eq!(
+            term_at_steps(&document, &pointer).and_then(TermNode::as_u64),
+            Some(3)
+        );
     }
 
     #[test]
     fn malformed_node_id_members_keep_their_exact_pointer() {
-        let node = JsonPointer::parse("/semantic_graph/nodes/1/node_id").unwrap();
+        let node = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(1),
+            Step::Key("node_id"),
+        ];
         for ordinal in ["9007199254740992", "1.5", "-1", "\"one\""] {
             let bytes = format!(
                 "{{\"semantic_graph\":{{\"nodes\":[null,{{\"node_id\":{{\"package\":\"p\",\"path\":[\"x\"],\"ordinal\":{ordinal}}}}}]}}}}"
             );
+            let document = quire_canonical::read(bytes.as_bytes(), u64::MAX).expect("document");
             assert_eq!(
-                invalid_node_id_field(bytes.as_bytes(), &node),
-                Some(node.clone().key("ordinal"))
+                invalid_node_id_suffix(&document, &node),
+                Some((Step::Key("ordinal"), None))
             );
         }
 
         let nested = br#"{"semantic_graph":{"nodes":[null,{"node_id":{"package":"p","path":[{"package":"p","path":["x"],"ordinal":1.5}],"ordinal":0}}]}}"#;
+        let document = quire_canonical::read(nested, u64::MAX).expect("document");
         assert_eq!(
-            invalid_node_id_field(nested, &node),
-            Some(node.key("path").index(0))
+            invalid_node_id_suffix(&document, &node),
+            Some((Step::Key("path"), Some(Step::Index(0))))
         );
 
         let dependency = br#"{"semantic_graph":{"nodes":[{"dependencies":[{"package":"p","path":["x"],"ordinal":"one"}]}]}}"#;
-        let reference = JsonPointer::parse("/semantic_graph/nodes/0/dependencies/0").unwrap();
+        let reference = [
+            Step::Key("semantic_graph"),
+            Step::Key("nodes"),
+            Step::Index(0),
+            Step::Key("dependencies"),
+            Step::Index(0),
+        ];
+        let document = quire_canonical::read(dependency, u64::MAX).expect("document");
         assert_eq!(
-            invalid_node_id_field(dependency, &reference),
-            Some(reference.key("ordinal"))
+            invalid_node_id_suffix(&document, &reference),
+            Some((Step::Key("ordinal"), None))
+        );
+    }
+}
+
+#[cfg(test)]
+mod lossless_budget_tests {
+    use super::*;
+    use crate::checked_package::v2::monitor_plan::model_document_test_fixture as fixture;
+
+    /// The actual intake comparison borrows healthy paths, and pays its sole
+    /// malformed-field diagnostic before requesting any owned pointer bytes.
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn lossless_intake_borrows_healthy_paths_and_prepays_first_fault() {
+        let value = fixture::v2_all_families();
+        let bytes = fixture::canonical(&value);
+        let document = Arc::new(quire_canonical::read(&bytes, u64::MAX).unwrap());
+        let mut decode_budget =
+            NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let (mut wire, _bodies) = decode_borrowed_wire(&document, &mut decode_budget).unwrap();
+        let run = |wire: &RawCheckedPackageWireV2, limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                result = Some(check_lossless_source(&document, wire, &mut budget));
+            });
+            (
+                result.unwrap(),
+                measured.bytes_total,
+                budget.read_storage_consumed(),
+            )
+        };
+        let (healthy, allocated, charged) = run(&wire, 0);
+        healthy.expect("healthy original document agrees with its typed wire");
+        assert_eq!((allocated, charged), (0, 0));
+        wire.name = format!("{}-different", wire.name).into_boxed_str();
+        let (failure, allocated, required) = run(&wire, u64::MAX);
+        let ValidationFailure::Refused(refusal) = failure.unwrap_err() else {
+            panic!("the first changed name is malformed wire");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(refusal.primary_path().unwrap().as_str(), "/name");
+        assert_eq!(allocated, required);
+        assert_eq!(
+            required as usize,
+            std::mem::size_of::<crate::checked_package::shared::CheckedPackageRefusal>()
+                + std::mem::size_of::<crate::checked_package::shared::CheckedPackageRefusalLocation>(
+                )
+                + "/name".len()
+        );
+        let (exact, allocated, charged) = run(&wire, required);
+        assert!(matches!(exact, Err(ValidationFailure::Refused(_))));
+        assert_eq!((allocated, charged), (required, required));
+        for limit in [0, required - 1] {
+            let (short, allocated, charged) = run(&wire, limit);
+            assert!(matches!(short, Err(ValidationFailure::Budget(_))));
+            assert_eq!((allocated, charged), (0, 0));
+        }
+    }
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn lossless_public_reader_preserves_dropped_null_first_fault() {
+        use crate::checked_package::shared::CheckedPackageReadLimits;
+        use crate::checked_package::v2::{CheckedPackageV2, CheckedPackageV2BudgetedReadResult};
+        let mut value = fixture::v2_all_families();
+        let evidence = fixture::evidence_for(&value);
+        let nodes = value["semantic_graph"]["nodes"].as_array_mut().unwrap();
+        let (index, node) = nodes
+            .iter_mut()
+            .enumerate()
+            .find(|(_, node)| node.get("owner").is_none() && node.get("recursion_group").is_none())
+            .expect("the complete fixture includes an unowned node");
+        node["owner"] = serde_json::Value::Null;
+        node["recursion_group"] = serde_json::Value::Null;
+        let bytes = fixture::canonical(&value);
+        let limits = CheckedPackageReadLimits {
+            bytes: 1 << 30,
+            nodes: 1 << 24,
+            edges: 1 << 26,
+            occurrences: 1 << 26,
+            diagnostics: 1 << 24,
+            work: u64::MAX,
+        };
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let result = CheckedPackageV2::read_with_budget(&bytes, limits, &evidence, &mut budget);
+        let CheckedPackageV2BudgetedReadResult::Refused(refusal) = result else {
+            panic!("the original null owner is not silently dropped: {result:?}");
+        };
+        assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+        assert_eq!(
+            refusal.primary_path().unwrap().as_str(),
+            format!("/semantic_graph/nodes/{index}/owner")
+        );
+    }
+}
+
+#[cfg(test)]
+mod schema_policy_tests {
+    use super::*;
+    use CheckedPackageRefusalCode::{MalformedWire, UnknownMember};
+
+    fn verify(
+        document: &Document,
+        code: CheckedPackageRefusalCode,
+        steps: &[Step<'_>],
+        expected_code: CheckedPackageRefusalCode,
+        expected_path: &str,
+    ) {
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                result = Some(classify_wire_fault(
+                    document,
+                    code,
+                    steps,
+                    &mut super::super::WorkMeter::over(&mut budget),
+                ));
+            });
+            (result.unwrap(), measured.bytes_total, budget)
+        };
+        let (failure, allocated, budget) = run(u64::MAX);
+        let ValidationFailure::Refused(refusal) = failure else {
+            panic!("schema refusal")
+        };
+        assert_eq!(refusal.code, expected_code);
+        assert_eq!(refusal.primary_path().unwrap().as_str(), expected_path);
+        let required = budget.read_storage_consumed();
+        assert_eq!(allocated, required);
+        assert_eq!(
+            required as usize,
+            std::mem::size_of::<crate::checked_package::shared::CheckedPackageRefusal>()
+                + std::mem::size_of::<crate::checked_package::shared::CheckedPackageRefusalLocation>(
+                )
+                + expected_path.len()
+        );
+        let (exact, allocated, budget) = run(required);
+        assert!(matches!(exact, ValidationFailure::Refused(_)));
+        assert_eq!(allocated, required);
+        assert_eq!(budget.read_storage_consumed(), required);
+        for limit in [0, required - 1] {
+            let (short, allocated, budget) = run(limit);
+            assert!(matches!(short, ValidationFailure::Budget(_)));
+            assert_eq!((allocated, budget.read_storage_consumed()), (0, 0));
+            assert_eq!(
+                budget.first_unpaid_read_storage(),
+                Some(u128::from(required))
+            );
+        }
+    }
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn schema_policy_prepays_only_the_final_classified_path() {
+        let empty = quire_canonical::read(b"{}", u64::MAX).unwrap();
+        for (code, steps, expected_code, expected_path) in [
+            (
+                UnknownMember,
+                vec![
+                    Step::Key("temporal_clause_names"),
+                    Step::Index(3),
+                    Step::Key("unknown"),
+                ],
+                MalformedWire,
+                "/temporal_clause_names/3",
+            ),
+            (
+                UnknownMember,
+                vec![
+                    Step::Key("schedulability_claims"),
+                    Step::Index(2),
+                    Step::Key("unknown"),
+                ],
+                MalformedWire,
+                "/schedulability_claims/2",
+            ),
+            (
+                UnknownMember,
+                vec![
+                    Step::Key("checked_term_data"),
+                    Step::Key("probabilistic_claims"),
+                    Step::Index(0),
+                    Step::Key("/~é"),
+                ],
+                MalformedWire,
+                "/checked_term_data/probabilistic_claims/0",
+            ),
+            (
+                UnknownMember,
+                vec![
+                    Step::Key("operation_effects"),
+                    Step::Index(0),
+                    Step::Key("unknown"),
+                ],
+                MalformedWire,
+                "/operation_effects/0",
+            ),
+            (
+                MalformedWire,
+                vec![
+                    Step::Key("operation_effects"),
+                    Step::Index(0),
+                    Step::Key("effect"),
+                    Step::Key("modifies"),
+                    Step::Index(4),
+                    Step::Key("kind"),
+                ],
+                MalformedWire,
+                "/operation_effects/0/effect/modifies/4",
+            ),
+            (
+                MalformedWire,
+                vec![
+                    Step::Key("operation_effects"),
+                    Step::Index(0),
+                    Step::Key("effect"),
+                    Step::Key("unknown"),
+                ],
+                MalformedWire,
+                "/operation_effects/0/effect",
+            ),
+            (
+                UnknownMember,
+                vec![Step::Key("/~é")],
+                UnknownMember,
+                "/~1~0é",
+            ),
+        ] {
+            verify(&empty, code, &steps, expected_code, expected_path);
+        }
+        let id =
+            quire_canonical::read(br#"{"package":"p","path":[false],"ordinal":1.5}"#, u64::MAX)
+                .unwrap();
+        verify(&id, MalformedWire, &[], MalformedWire, "/ordinal");
+        let clock = quire_canonical::read(br#"{"temporal_bindings":[{"clock":{"kind":"event_position","sequence_authority":false}}]}"#, u64::MAX).unwrap();
+        verify(
+            &clock,
+            MalformedWire,
+            &[
+                Step::Key("temporal_bindings"),
+                Step::Index(0),
+                Step::Key("clock"),
+            ],
+            MalformedWire,
+            "/temporal_bindings/0/clock/sequence_authority",
+        );
+        let row = quire_canonical::read(
+            br#"{"checked_term_data":{"probabilistic_claims":[{"declaration":null}]}}"#,
+            u64::MAX,
+        )
+        .unwrap();
+        verify(
+            &row,
+            MalformedWire,
+            &[
+                Step::Key("checked_term_data"),
+                Step::Key("probabilistic_claims"),
+                Step::Index(0),
+            ],
+            MalformedWire,
+            "/checked_term_data/probabilistic_claims/0/occurrence",
+        );
+    }
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn schema_policy_maximum_snapshot_plus_two_steps_and_deep_siblings_are_exact() {
+        let depth = super::super::document_de::TRACKED_DEPTH;
+        let mut bytes = r#"{"package":"p","path":[false],"ordinal":0}"#.to_owned();
+        for _ in 0..depth {
+            bytes = format!(r#"{{"a/~é":{bytes}}}"#);
+        }
+        let document = quire_canonical::read(bytes.as_bytes(), u64::MAX).unwrap();
+        let steps = vec![Step::Key("a/~é"); depth];
+        let expected = format!("{}/path/0", "/a~1~0é".repeat(depth));
+        verify(&document, MalformedWire, &steps, MalformedWire, &expected);
+        let deep = format!("{}false{}", "[".repeat(120), "]".repeat(120));
+        let document = quire_canonical::read(deep.as_bytes(), u64::MAX).unwrap();
+        let steps = vec![Step::Index(0); depth];
+        verify(
+            &document,
+            MalformedWire,
+            &steps,
+            MalformedWire,
+            &"/0".repeat(depth),
+        );
+    }
+
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn schema_intake_actual_decode_pays_final_temporal_row_diagnostic_once() {
+        use crate::checked_package::v2::monitor_plan::model_document_test_fixture as fixture;
+        let mut wire = fixture::v2_all_families();
+        wire["temporal_clause_names"] = serde_json::json!([{"unknown":false}]);
+        let bytes = fixture::canonical(&wire);
+        let document = Arc::new(quire_canonical::read(&bytes, u64::MAX).unwrap());
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+        let mut result = None;
+        let measured = allocation_counter::measure(|| {
+            result = Some(decode_borrowed_wire(&document, &mut budget));
+        });
+        let ValidationFailure::Refused(refusal) = result.unwrap().unwrap_err() else {
+            panic!("temporal row schema refusal")
+        };
+        assert_eq!(refusal.code, MalformedWire);
+        assert_eq!(
+            refusal.primary_path().unwrap().as_str(),
+            "/temporal_clause_names/0"
+        );
+        assert_eq!(measured.bytes_total, budget.read_storage_consumed());
+    }
+
+    /// Paired identical public reads cancel unrelated earlier reader storage:
+    /// only the final classified diagnostic fits in the first allowance.
+    #[ix_trace_rs::trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn schema_public_reader_final_diagnostic_is_paid_once_or_exhausted() {
+        use crate::checked_package::shared::CheckedPackageReadLimits;
+        use crate::checked_package::v2::monitor_plan::model_document_test_fixture as fixture;
+        use crate::checked_package::v2::{
+            CheckedPackagePendingOutcome, CheckedPackageV2, CheckedPackageV2BudgetedReadResult,
+        };
+        let mut wire = fixture::v2_all_families();
+        let evidence = fixture::evidence_for(&wire);
+        wire["temporal_clause_names"] = serde_json::json!([{"unknown":false}]);
+        let bytes = fixture::canonical(&wire);
+        let limits = CheckedPackageReadLimits {
+            bytes: 1 << 30,
+            nodes: 1 << 24,
+            edges: 1 << 26,
+            occurrences: 1 << 26,
+            diagnostics: 1 << 24,
+            work: u64::MAX,
+        };
+        let run = |storage| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(storage);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                result = Some(CheckedPackageV2::read_with_budget(
+                    &bytes,
+                    limits,
+                    &evidence,
+                    &mut budget,
+                ));
+            });
+            (result.unwrap(), measured.bytes_total, budget)
+        };
+        let (unlimited, _, budget) = run(u64::MAX);
+        let CheckedPackageV2BudgetedReadResult::Refused(refusal) = unlimited else {
+            panic!("classified temporal refusal")
+        };
+        assert_eq!(refusal.code, MalformedWire);
+        assert_eq!(
+            refusal.primary_path().unwrap().as_str(),
+            "/temporal_clause_names/0"
+        );
+        let required = budget.read_storage_consumed();
+        let diagnostic = (std::mem::size_of::<crate::checked_package::shared::CheckedPackageRefusal>(
+        ) + std::mem::size_of::<
+            crate::checked_package::shared::CheckedPackageRefusalLocation,
+        >() + "/temporal_clause_names/0".len()) as u64;
+        let (exact, exact_allocated, exact_budget) = run(required);
+        assert!(matches!(
+            exact,
+            CheckedPackageV2BudgetedReadResult::Refused(_)
+        ));
+        assert_eq!(exact_budget.read_storage_consumed(), required);
+        let (short, short_allocated, short_budget) = run(required - 1);
+        let CheckedPackageV2BudgetedReadResult::Exhausted(exhausted) = short else {
+            panic!("the final schema diagnostic cannot fit")
+        };
+        assert_eq!(
+            exhausted.pending,
+            Some(CheckedPackagePendingOutcome::Refused(MalformedWire))
+        );
+        assert_eq!(
+            short_budget.first_unpaid_read_storage(),
+            Some(u128::from(diagnostic))
+        );
+        assert_eq!(exact_allocated - short_allocated, diagnostic);
+        assert_eq!(
+            exact_budget.read_storage_consumed() - short_budget.read_storage_consumed(),
+            diagnostic
         );
     }
 }

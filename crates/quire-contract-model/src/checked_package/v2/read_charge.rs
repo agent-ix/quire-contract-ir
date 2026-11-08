@@ -10,6 +10,7 @@ use super::native_join_budget::{
     NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
 };
 use crate::checked_package::common::ValidationFailure;
+use crate::checked_package::shared::{CheckedNodeId, CheckedNodePathSegment};
 use std::cell::{RefCell, RefMut};
 use std::sync::Arc;
 
@@ -135,6 +136,51 @@ pub(super) fn push<T>(
     reserve(budget, site, list, 1)?;
     list.push(item);
     Ok(())
+}
+
+/// Pushes one item after charging the full capacity requested by a growth.
+pub(super) fn push_charged<T>(
+    sink: &mut dyn ReadStorage,
+    site: Site,
+    list: &mut Vec<T>,
+    item: T,
+) -> Result<(), ValidationFailure> {
+    let needed = list.len().saturating_add(1);
+    if needed > list.capacity() {
+        let capacity = needed
+            .max(list.capacity().saturating_mul(2))
+            .max(MINIMUM_CAPACITY);
+        sink.reserve(
+            (capacity as u128).saturating_mul(std::mem::size_of::<T>() as u128),
+            site,
+        )
+        .map_err(|_| sink.denial())?;
+        list.try_reserve_exact(capacity - list.len())
+            .map_err(|_| sink.denial())?;
+    }
+    list.push(item);
+    Ok(())
+}
+
+/// Charges the owned buffers a `CheckedNodeId::clone` requests.
+pub(super) fn charge_node_id_clone(
+    sink: &mut dyn ReadStorage,
+    site: Site,
+    id: &CheckedNodeId,
+) -> Result<(), ValidationFailure> {
+    let names = id.path.iter().fold(0_u128, |total, segment| match segment {
+        CheckedNodePathSegment::Name(name) => total.saturating_add(name.len() as u128),
+        CheckedNodePathSegment::Node(_)
+        | CheckedNodePathSegment::Index(_)
+        | CheckedNodePathSegment::Operand(_) => total,
+    });
+    let bytes = (id.package.len() as u128)
+        .saturating_add(
+            (id.path.len() as u128)
+                .saturating_mul(std::mem::size_of::<CheckedNodePathSegment>() as u128),
+        )
+        .saturating_add(names);
+    sink.reserve(bytes, site).map_err(|_| sink.denial())
 }
 
 /// Makes room for `additional` more items, charging the full new capacity
@@ -278,9 +324,11 @@ pub(super) struct WalkReservation<'m> {
 
 impl quire_walk::Reservation for WalkReservation<'_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
-        self.meter
-            .charge(self.check.form("walk"), bytes as u128)
-            .map_err(|_| quire_walk::Denied)
+        super::observe_allocation_class("walker_growth", || {
+            self.meter
+                .charge(self.check.form("walk"), bytes as u128)
+                .map_err(|_| quire_walk::Denied)
+        })
     }
 }
 

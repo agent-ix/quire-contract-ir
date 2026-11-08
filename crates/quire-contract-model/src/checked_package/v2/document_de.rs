@@ -23,26 +23,29 @@ use serde::Deserialize;
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
-/// Decode errors preserve schema diagnostics while a reservation denial owns
-/// no message or other allocation.
-#[derive(Debug)]
+/// Closed schema failures and reservation denials own no message allocation.
+#[derive(Clone, Copy, Debug)]
 pub(in crate::checked_package) enum Error {
     Denied,
-    Decode(serde::de::value::Error),
+    Invalid,
+    UnknownMember,
 }
-
 impl std::fmt::Display for Error {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Denied => formatter.write_str("the read-storage budget refused a request"),
-            Self::Decode(error) => error.fmt(formatter),
-        }
+        formatter.write_str(match self {
+            Self::Denied => "the read-storage budget refused a request",
+            Self::Invalid => "the document value does not match its closed schema",
+            Self::UnknownMember => "the closed schema has an unknown member",
+        })
     }
 }
 impl std::error::Error for Error {}
 impl de::Error for Error {
-    fn custom<T: std::fmt::Display>(message: T) -> Self {
-        Self::Decode(de::Error::custom(message))
+    fn custom<T: std::fmt::Display>(_message: T) -> Self {
+        Self::Invalid
+    }
+    fn unknown_field(_field: &str, _expected: &'static [&'static str]) -> Self {
+        Self::UnknownMember
     }
 }
 
@@ -64,6 +67,9 @@ const BOX_TOKEN: &str = "$quire::Box";
 
 /// The name under which an exact vector announces its allocation.
 const SEQUENCE_TOKEN: &str = "$quire::Sequence";
+
+/// A closed internally tagged record decoded without serde content buffering.
+pub(in crate::checked_package) const CLOSED_ENUM_TOKEN: &str = "$quire::ClosedEnum";
 
 thread_local! {
     static BOX_BYTES: Cell<usize> = const { Cell::new(0) };
@@ -117,15 +123,38 @@ pub(in crate::checked_package) fn exact_rows<'de, D>(
 where
     D: de::Deserializer<'de>,
 {
-    struct Row(Vec<u64>);
-    impl<'de> serde::Deserialize<'de> for Row {
-        fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            exact_vec(deserializer).map(Self)
+    struct RowSeed;
+    impl<'de> de::DeserializeSeed<'de> for RowSeed {
+        type Value = Vec<u64>;
+        fn deserialize<D: de::Deserializer<'de>>(
+            self,
+            deserializer: D,
+        ) -> Result<Self::Value, D::Error> {
+            exact_vec(deserializer)
         }
     }
-    // `Row` and `Vec<u64>` have one layout, so collecting back into rows
-    // reuses the vector's allocation.
-    exact_vec::<D, Row>(deserializer).map(|rows| rows.into_iter().map(|row| row.0).collect())
+    struct Rows;
+    impl<'de> Visitor<'de> for Rows {
+        type Value = Vec<Vec<u64>>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("operand rows")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            let mut rows = Vec::with_capacity(sequence.size_hint().unwrap_or(0));
+            while let Some(row) = sequence.next_element_seed(RowSeed)? {
+                rows.push(row);
+            }
+            Ok(rows)
+        }
+        fn visit_newtype_struct<D: de::Deserializer<'de>>(
+            self,
+            inner: D,
+        ) -> Result<Self::Value, D::Error> {
+            inner.deserialize_seq(self)
+        }
+    }
+    ELEMENT_BYTES.with(|bytes| bytes.set(std::mem::size_of::<Vec<u64>>()));
+    deserializer.deserialize_newtype_struct(SEQUENCE_TOKEN, Rows)
 }
 
 /// [`exact_vec`] for an optional member: absent stays `None`.
@@ -181,7 +210,7 @@ where
 
 /// How many path segments the decode tracks for its locus. The closed wire is
 /// shallower than this; a deeper position keeps its enclosing locus.
-const TRACKED_DEPTH: usize = 12;
+pub(super) const TRACKED_DEPTH: usize = 12;
 
 #[derive(Clone, Copy)]
 enum Segment<'d> {
@@ -231,7 +260,8 @@ pub(in crate::checked_package) struct DecodeContext<'d> {
     budget: RefCell<NativeJoinBudget>,
     denied: Cell<bool>,
     denied_at: RefCell<Option<([Option<Segment<'d>>; TRACKED_DEPTH], usize)>>,
-    charging: Cell<bool>,
+    schema_at: RefCell<Option<([Option<Segment<'d>>; TRACKED_DEPTH], usize)>>,
+    schema_error: Cell<Option<Error>>,
     path: RefCell<([Option<Segment<'d>>; TRACKED_DEPTH], usize)>,
     /// A locus every charge is made at, for a decode of one term below the
     /// wire's root rather than of the wire itself.
@@ -254,7 +284,8 @@ impl<'d> DecodeContext<'d> {
             budget: RefCell::new(std::mem::replace(budget, NativeJoinBudget::new(0, 0))),
             denied: Cell::new(false),
             denied_at: RefCell::new(None),
-            charging: Cell::new(true),
+            schema_at: RefCell::new(None),
+            schema_error: Cell::new(None),
             path: RefCell::new(([None; TRACKED_DEPTH], 0)),
             fixed_locus: None,
             operand_row: None,
@@ -308,9 +339,77 @@ impl<'d> DecodeContext<'d> {
         self.budget.into_inner()
     }
 
-    /// Stops charging, for a second pass that only locates a fault.
-    pub(in crate::checked_package) fn pause_charging(&self) {
-        self.charging.set(false);
+    fn record_error(&self, error: &Error) {
+        if matches!(error, Error::Denied) || self.schema_error.get().is_some() {
+            return;
+        }
+        self.schema_error.set(Some(*error));
+        *self.schema_at.borrow_mut() = Some(*self.path.borrow());
+    }
+
+    /// The default policy preserves the decoder's first code and path.
+    #[cfg(test)]
+    pub(in crate::checked_package) fn materialize_schema_failure(
+        code: crate::checked_package::shared::CheckedPackageRefusalCode,
+        steps: &[crate::checked_package::common::Step<'_>],
+        meter: &mut super::WorkMeter,
+    ) -> crate::checked_package::common::ValidationFailure {
+        use super::stage_storage::{self, Path, Refusal, Site};
+        use crate::checked_package::common::{Step, Trail};
+        let index = steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Index(index) => Some(*index),
+                _ => None,
+            })
+            .next_back()
+            .unwrap_or(0);
+        stage_storage::refuse(
+            meter,
+            &Site::new(
+                super::PackageReadStage::WireDecode,
+                index,
+                "wire",
+                Path::root(),
+            ),
+            Refusal::new(code, Trail::Base(steps)),
+        )
+    }
+
+    /// Materialize the first closed-schema fault after its diagnostic is paid.
+    pub(in crate::checked_package) fn schema_failure_with_classifier(
+        &self,
+        classify: impl FnOnce(
+            crate::checked_package::shared::CheckedPackageRefusalCode,
+            &[crate::checked_package::common::Step<'d>],
+            &mut super::WorkMeter,
+        ) -> crate::checked_package::common::ValidationFailure,
+    ) -> crate::checked_package::common::ValidationFailure {
+        use crate::checked_package::common::Step;
+        use crate::checked_package::shared::CheckedPackageRefusalCode;
+        let (snapshot, count) = self
+            .schema_at
+            .borrow()
+            .as_ref()
+            .copied()
+            .unwrap_or(([None; TRACKED_DEPTH], 0));
+        let mut steps = [Step::Index(0); TRACKED_DEPTH];
+        let mut length = 0;
+        for segment in snapshot.iter().take(count).flatten() {
+            steps[length] = match segment {
+                Segment::Key(key) => Step::Key(key),
+                Segment::Index(i) => Step::Index(*i),
+            };
+            length += 1;
+        }
+        let code = if matches!(self.schema_error.get(), Some(Error::UnknownMember)) {
+            CheckedPackageRefusalCode::UnknownMember
+        } else {
+            CheckedPackageRefusalCode::MalformedWire
+        };
+        let mut budget = self.budget.borrow_mut();
+        let mut meter = super::WorkMeter::over(&mut budget);
+        classify(code, &steps[..length], &mut meter)
     }
 
     /// The pointer of the value being decoded when the budget refused.
@@ -418,7 +517,7 @@ impl<'d> DecodeContext<'d> {
     }
 
     fn charge_amount(&self, bytes: u128) -> Result<(), Error> {
-        if bytes == 0 || !self.charging.get() {
+        if bytes == 0 {
             return Ok(());
         }
         let locus = self.locus();
@@ -487,7 +586,8 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
     type Error = Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        match self.node.node() {
+        let context = self.context;
+        let outcome = match self.node.node() {
             Node::Null => visitor.visit_unit(),
             Node::Bool(flag) => visitor.visit_bool(flag),
             Node::Number(number) => {
@@ -543,9 +643,14 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
                     parent: self,
                     path_slots,
                     name: "",
+                    skip_kind: false,
                 })
             }
+        };
+        if let Err(error) = &outcome {
+            context.record_error(error);
         }
+        outcome
     }
 
     fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
@@ -570,6 +675,14 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
         name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Error> {
+        if name == CLOSED_ENUM_TOKEN {
+            let node = super::TermNode::from_ref(self.node);
+            let tag = node
+                .get("kind")
+                .and_then(super::TermNode::as_str)
+                .ok_or(Error::Invalid)?;
+            return visitor.visit_enum(ClosedEnum { parent: self, tag });
+        }
         if name == super::typed_terms::OPERATION_TOKEN {
             let context = self.context;
             let mut record = if super::typed_terms::CheckedApplicationOperationRecord::wire_shape(
@@ -716,6 +829,9 @@ impl<'de, 'c> SeqAccess<'de> for Sequence<'c, 'de> {
         context.push(Segment::Index(self.position));
         self.position += 1;
         let decoded = seed.deserialize(self.parent.child(item));
+        if let Err(error) = &decoded {
+            context.record_error(error);
+        }
         context.pop();
         decoded.map(Some)
     }
@@ -725,6 +841,78 @@ impl<'de, 'c> SeqAccess<'de> for Sequence<'c, 'de> {
     }
 }
 
+struct ClosedEnum<'c, 'd> {
+    parent: ValueDe<'c, 'd>,
+    tag: &'d str,
+}
+impl<'c, 'de> de::EnumAccess<'de> for ClosedEnum<'c, 'de> {
+    type Error = Error;
+    type Variant = ClosedFields<'c, 'de>;
+    fn variant_seed<V: DeserializeSeed<'de>>(
+        self,
+        seed: V,
+    ) -> Result<(V::Value, Self::Variant), Error> {
+        self.parent.context.push(Segment::Key("kind"));
+        let tag = seed.deserialize(serde::de::value::BorrowedStrDeserializer::<Error>::new(
+            self.tag,
+        ));
+        if let Err(error) = &tag {
+            self.parent.context.record_error(error);
+        }
+        self.parent.context.pop();
+        let tag = tag?;
+        Ok((
+            tag,
+            ClosedFields {
+                parent: self.parent,
+            },
+        ))
+    }
+}
+struct ClosedFields<'c, 'd> {
+    parent: ValueDe<'c, 'd>,
+}
+impl<'c, 'de> de::VariantAccess<'de> for ClosedFields<'c, 'de> {
+    type Error = Error;
+    fn unit_variant(self) -> Result<(), Error> {
+        Err(Error::Invalid)
+    }
+    fn newtype_variant_seed<T: DeserializeSeed<'de>>(self, seed: T) -> Result<T::Value, Error> {
+        seed.deserialize(self)
+    }
+    fn tuple_variant<V: Visitor<'de>>(
+        self,
+        _length: usize,
+        _visitor: V,
+    ) -> Result<V::Value, Error> {
+        Err(Error::Invalid)
+    }
+    fn struct_variant<V: Visitor<'de>>(
+        self,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Error> {
+        de::Deserializer::deserialize_any(self, visitor)
+    }
+}
+impl<'c, 'de> de::Deserializer<'de> for ClosedFields<'c, 'de> {
+    type Error = Error;
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        let Node::Object(members) = self.parent.node.node() else {
+            return Err(Error::Invalid);
+        };
+        visitor.visit_map(Mapping {
+            members,
+            value: None,
+            parent: self.parent,
+            path_slots: false,
+            name: "",
+            skip_kind: true,
+        })
+    }
+    serde::forward_to_deserialize_any! {bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf option unit unit_struct newtype_struct seq tuple tuple_struct map struct enum identifier ignored_any}
+}
+
 struct Mapping<'c, 'd> {
     members: Members<'d>,
     value: Option<NodeRef<'d>>,
@@ -732,6 +920,7 @@ struct Mapping<'c, 'd> {
     /// This object is a node ID read through an operand row: its `path`
     /// resolves operand slots.
     path_slots: bool,
+    skip_kind: bool,
     /// The name of the member whose value is next.
     name: &'d str,
 }
@@ -776,13 +965,21 @@ impl<'de, 'c> MapAccess<'de> for Mapping<'c, 'de> {
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, Error> {
-        let Some((name, value)) = self.members.next() else {
+        let Some((name, value)) = self
+            .members
+            .by_ref()
+            .find(|(name, _)| !(self.skip_kind && *name == "kind"))
+        else {
             return Ok(None);
         };
         self.value = Some(value);
         self.name = name;
         self.parent.context.push(Segment::Key(name));
-        seed.deserialize(KeyDe { name }).map(Some)
+        let decoded = seed.deserialize(KeyDe { name });
+        if let Err(error) = &decoded {
+            self.parent.context.record_error(error);
+        }
+        decoded.map(Some)
     }
 
     fn next_value_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<T::Value, Error> {
@@ -795,6 +992,9 @@ impl<'de, 'c> MapAccess<'de> for Mapping<'c, 'de> {
             slots,
             ..self.parent.child_with(value, false)
         });
+        if let Err(error) = &decoded {
+            self.parent.context.record_error(error);
+        }
         self.parent.context.pop();
         decoded
     }
@@ -919,11 +1119,10 @@ mod tests {
     }
 
     fn decode(
-        bytes: &[u8],
         document: &Arc<quire_canonical::Document>,
         budget: &mut NativeJoinBudget,
     ) -> Result<(), ValidationFailure> {
-        decode_borrowed_wire(bytes, document, budget).map(drop)
+        decode_borrowed_wire(document, budget).map(drop)
     }
 
     /// The bytes the decode allocates equal the bytes it charged, including a
@@ -937,7 +1136,7 @@ mod tests {
         let mut measured = NativeJoinBudget::unlimited();
         let mut outcome = None;
         let info = allocation_counter::measure(|| {
-            outcome = Some(decode(&bytes, &document, &mut measured));
+            outcome = Some(decode(&document, &mut measured));
         });
         assert!(outcome.expect("decoded").is_ok());
         let charged = measured.read_storage_consumed();
@@ -945,10 +1144,10 @@ mod tests {
         assert_eq!(info.bytes_total, charged);
 
         let mut exact = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(charged);
-        assert!(decode(&bytes, &document, &mut exact).is_ok());
+        assert!(decode(&document, &mut exact).is_ok());
         let mut short = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(charged - 1);
         assert!(matches!(
-            decode(&bytes, &document, &mut short),
+            decode(&document, &mut short),
             Err(ValidationFailure::Budget(_))
         ));
     }
@@ -1020,6 +1219,72 @@ mod tests {
                 affordable.then_some(expected.as_str())
             );
             assert_eq!(budget.take_prepaid_diagnostic(), Some(affordable));
+        }
+    }
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn schema_faults_keep_the_first_path_without_unpaid_replay_or_messages() {
+        #[derive(Debug, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Row {
+            #[serde(rename = "value")]
+            _value: u64,
+        }
+        #[derive(Debug, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Root {
+            #[serde(rename = "record")]
+            _record: Row,
+        }
+        use crate::checked_package::common::decode_closed_document;
+        use crate::checked_package::shared::CheckedPackageRefusalCode as Code;
+        for (bytes, code, path) in [
+            (
+                br#"{"record":{"value":true}}"#.as_slice(),
+                Code::MalformedWire,
+                "/record/value",
+            ),
+            (
+                br#"{"record":{"extra":0,"value":true}}"#.as_slice(),
+                Code::UnknownMember,
+                "/record/extra",
+            ),
+            (
+                br#"{"record":{}}"#.as_slice(),
+                Code::MalformedWire,
+                "/record",
+            ),
+        ] {
+            let document = Arc::new(quire_canonical::read(bytes, u64::MAX).unwrap());
+            let run = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    result = Some(decode_closed_document::<Root>(&document, &mut budget))
+                })
+                .bytes_total;
+                (result.unwrap(), allocated, budget)
+            };
+            let (result, allocated, budget) = run(u64::MAX);
+            let Err(ValidationFailure::Refused(refusal)) = result else {
+                panic!("closed schema refuses");
+            };
+            assert_eq!(refusal.code, code);
+            assert_eq!(refusal.primary_path().map(|p| p.as_str()), Some(path));
+            let required = budget.read_storage_consumed();
+            assert!(required > 0);
+            assert_eq!(allocated, required);
+            let (result, allocated, budget) = run(required);
+            assert!(matches!(result, Err(ValidationFailure::Refused(_))));
+            assert_eq!(allocated, budget.read_storage_consumed());
+            let (result, allocated, budget) = run(required - 1);
+            assert!(matches!(result, Err(ValidationFailure::Budget(_))));
+            assert_eq!(allocated, 0);
+            assert_eq!(budget.read_storage_consumed(), 0);
+            assert_eq!(
+                budget.first_unpaid_read_storage(),
+                Some(u128::from(required))
+            );
         }
     }
 }

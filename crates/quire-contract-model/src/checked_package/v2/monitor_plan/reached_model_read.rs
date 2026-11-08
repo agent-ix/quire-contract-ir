@@ -804,7 +804,7 @@ impl CheckedMonitorPlanRef<'_> {
 #[cfg(test)]
 #[allow(unused_imports)]
 #[path = "../../../../../../tests/it/support/checked_package.rs"]
-mod fixture_support;
+pub(in crate::checked_package::v2) mod fixture_support;
 
 #[cfg(test)]
 fn fixture_read(

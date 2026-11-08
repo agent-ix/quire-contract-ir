@@ -606,11 +606,13 @@ mod tests {
         let entries = supplied["law_roles"]["integer_division"]
             .as_array()
             .expect("integer_division is catalogued");
-        assert!(entries.iter().all(|entry| entry
-            .as_object()
-            .is_some_and(|members| members.len() == 2
-                && members.contains_key("authority")
-                && members.contains_key("identity"))));
+        assert!(entries.iter().all(|entry| {
+            entry.as_object().is_some_and(|members| {
+                members.len() == 2
+                    && members.contains_key("authority")
+                    && members.contains_key("identity")
+            })
+        }));
         for (member, value) in [
             (
                 "revision",

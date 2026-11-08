@@ -23,6 +23,7 @@ use crate::checked_package::shared::{
 };
 use quire_exact::Integer;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
 use std::cmp::Ordering;
 
@@ -261,6 +262,7 @@ impl CheckedDimensionOperand {
         }
     }
 
+    #[cfg(test)]
     fn from_value(value: &Value) -> Option<Self> {
         use crate::checked_package::common::exact_members;
         let object = value.as_object()?;
@@ -579,16 +581,10 @@ impl NominalBody {
     }
 
     /// Borrow the nominal body already retained by the typed term decode.
-    pub(super) fn from_term(
-        term: &super::CheckedTerm,
-        at: JsonPointer,
-    ) -> Result<&Self, ValidationFailure> {
+    pub(super) fn from_term(term: &super::CheckedTerm) -> Option<&Self> {
         match term {
-            super::CheckedTerm::NominalBody(body) => Ok(body),
-            _ => Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                at,
-            )),
+            super::CheckedTerm::NominalBody(body) => Some(body),
+            _ => None,
         }
     }
 
@@ -682,6 +678,7 @@ impl NominalBody {
     /// Decode without cloning a caller-authored nested NodeId path. The
     /// NodeId decoder itself walks those paths on the heap.
     #[ix_trace_rs::string_edge]
+    #[cfg(test)]
     pub(super) fn from_value(body: &Value, at: JsonPointer) -> Result<Self, ValidationFailure> {
         use crate::checked_package::common::exact_members;
         let malformed =
@@ -1479,7 +1476,29 @@ impl<'a> BodyInput<'a> {
                 CheckedPackageRefusalCode::MalformedWire,
                 at(),
             )),
-            Self::Typed(term) => NominalBody::from_term(term, at())?.duplicate(meter),
+            Self::Typed(term) => match NominalBody::from_term(term) {
+                Some(body) => body.duplicate(meter),
+                None => {
+                    let path = super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(position)
+                        .key("body");
+                    Err(super::stage_storage::refuse(
+                        meter,
+                        &super::stage_storage::Site::new(
+                            super::PackageReadStage::Graph,
+                            position,
+                            "nominal_body",
+                            path,
+                        ),
+                        super::stage_storage::Refusal::new(
+                            CheckedPackageRefusalCode::MalformedWire,
+                            path,
+                        ),
+                    ))
+                }
+            },
         }
     }
 }
@@ -1815,7 +1834,7 @@ pub(super) fn validate_nominal_nodes<B>(
             // Required and absent: the node lacks the member.
             (Some(_), None) => return Err(invalid(node_pointer(position))),
             (Some(NominalKind::DimensionEquivalence), Some(_)) => {
-                return Err(invalid(site.pointer()))
+                return Err(invalid(site.pointer()));
             }
             _ => return Err(invalid(site.nominal_member(&[]))),
         };
@@ -3414,7 +3433,11 @@ mod tests {
         );
 
         let mut malformed = unit.clone();
-        malformed.body = json!({"term":"aggregate","members":[{"term":"literal","kind":"text","value":"extra"}]});
+        malformed.body = CheckedJson::from_serializable(&json!({
+            "term":"aggregate",
+            "members":[{"term":"literal","kind":"text","value":"extra"}]
+        }))
+        .expect("canonical malformed body");
         let malformed_bodies = super::super::graph_storage::OwnedBodies::of([&malformed])
             .expect("canonical malformed body");
         let mut malformed_meter = WorkMeter::new(u64::MAX);
@@ -3456,7 +3479,7 @@ mod tests {
             .map(|(position, node)| (&node.node_id, position))
             .collect::<GraphIndex<'_>>();
         assert!(matches!(
-            super::super::validate_declaration_names(&declarations, &kinds, &index),
+            super::super::validate_declaration_names(&declarations, &kinds, &index, &mut WorkMeter::new(u64::MAX)),
             Err(ValidationFailure::Refused(refusal))
                 if refusal.code == CheckedPackageRefusalCode::AmbiguousDeclaration
                     && refusal.cause == Some(crate::CheckedPackageRefusalCause::AmbiguousName)
@@ -3738,7 +3761,7 @@ mod tests {
         let at = || JsonPointer::root().key("body");
         let mut closed = 0;
         for (slotted, resolved) in &bodies {
-            let handle = CheckedJson::from_value(slotted).expect("canonical");
+            let handle = CheckedJson::from_serializable(slotted).expect("canonical");
             let mut meter = WorkMeter::new(u64::MAX);
             let read = NominalBody::from_document(TermNode::of(&handle), &row, &at, &mut meter);
             let expected = NominalBody::from_value(resolved, at());
@@ -3780,7 +3803,7 @@ mod tests {
         ];
         let handles: Vec<CheckedJson> = bodies
             .iter()
-            .map(|body| CheckedJson::from_value(body).expect("canonical"))
+            .map(|body| CheckedJson::from_serializable(body).expect("canonical"))
             .collect();
         let row = [4_u64];
         let at = || JsonPointer::root().key("body");

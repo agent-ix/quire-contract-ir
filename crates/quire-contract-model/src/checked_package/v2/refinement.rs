@@ -15,8 +15,10 @@ use crate::checked_package::shared::{
 };
 use crate::checked_package::terms::TermSource;
 use quire_canonical::{Encode, Error, FixedShape, Sink, Writer};
+#[cfg(test)]
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
 
 /// Source region of one canonical refinement step row, outside package identity.
@@ -760,17 +762,13 @@ fn class_kind(class: &str) -> Option<RefinementClassKind> {
     }
 }
 
-#[ix_trace_rs::string_edge]
-fn memory_class_kind(class: &str) -> bool {
-    matches!(class, "memory drain" | "memory flush")
-}
-
 /// Convert the untrusted argument-only special term before row admission.
 #[ix_trace_rs::string_edge]
 fn open_term_kind(term: &str) -> Option<RefinementOpenTerm> {
     (term == "open").then_some(RefinementOpenTerm::Open)
 }
 
+#[cfg(test)]
 fn member<'a>(
     value: &'a Value,
     name: &str,
@@ -779,6 +777,7 @@ fn member<'a>(
     value.get(name).ok_or_else(|| invalid(&at.key(name)))
 }
 
+#[cfg(test)]
 fn array<'a>(
     value: &'a Value,
     name: &str,
@@ -790,10 +789,12 @@ fn array<'a>(
         .ok_or_else(|| invalid(&at.key(name)))
 }
 
+#[cfg(test)]
 fn typed<T: DeserializeOwned>(value: &Value, at: &Trail<'_>) -> Result<T, ValidationFailure> {
     serde_json::from_value(value.clone()).map_err(|_| invalid(at))
 }
 
+#[cfg(test)]
 fn shape(
     value: &Value,
     required: &[&str],
@@ -815,14 +816,17 @@ fn shape(
     Ok(())
 }
 
+#[cfg(test)]
 fn text(value: &Value, at: &Trail<'_>) -> Result<Box<str>, ValidationFailure> {
     value.as_str().map(Into::into).ok_or_else(|| invalid(at))
 }
 
+#[cfg(test)]
 fn node(value: &Value, at: &Trail<'_>) -> Result<CheckedNodeId, ValidationFailure> {
     CheckedNodeId::from_value(value).ok_or_else(|| invalid(at))
 }
 
+#[cfg(test)]
 fn key(value: &Value, at: &Trail<'_>) -> Result<RefinementKey, ValidationFailure> {
     if value.get("node").is_some() {
         shape(value, &["package", "node"], &[], at)?;
@@ -837,6 +841,7 @@ fn key(value: &Value, at: &Trail<'_>) -> Result<RefinementKey, ValidationFailure
     }
 }
 
+#[cfg(test)]
 fn term(value: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure> {
     super::read_charge::with_unmetered_walk(|walk| {
         super::flat_wire::check_refinement_term(value, at, walk)
@@ -844,6 +849,7 @@ fn term(value: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure>
     CheckedTerm::decode_admitted(value).map_err(|_| invalid(at))
 }
 
+#[cfg(test)]
 fn rows<T>(
     value: &Value,
     name: &str,
@@ -857,6 +863,7 @@ fn rows<T>(
         .collect()
 }
 
+#[cfg(test)]
 fn parse_argument(
     value: &Value,
     at: &Trail<'_>,
@@ -871,6 +878,7 @@ fn parse_argument(
     }
 }
 
+#[cfg(test)]
 #[ix_trace_rs::string_edge]
 fn parse_target(value: &Value, at: &Trail<'_>) -> Result<RefinementStepTarget, ValidationFailure> {
     let kind = member(value, "kind", at)?
@@ -913,6 +921,7 @@ fn parse_target(value: &Value, at: &Trail<'_>) -> Result<RefinementStepTarget, V
     }
 }
 
+#[cfg(test)]
 fn parse_concrete_class(
     value: &Value,
     at: &Trail<'_>,
@@ -928,6 +937,7 @@ fn parse_concrete_class(
     })
 }
 
+#[cfg(test)]
 fn parse_abstract_class(
     value: &Value,
     at: &Trail<'_>,
@@ -945,6 +955,7 @@ fn parse_abstract_class(
 
 /// Decode a refinement after the closed wire checks, without passing a
 /// structural node path through serde's recursive Value deserializer.
+#[cfg(test)]
 pub(super) fn decode_body(body: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure> {
     check_body_header(body, at)?;
     let populations = rows(body, "populations", at, |value, at| {
@@ -1143,19 +1154,18 @@ fn row_terms<'a, V: TermSource<'a>>(
 
 /// Check the complete closed body before graph admission, including the
 /// nested flat-term rule that applies to each row expression independently.
-pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
-    check_body_header(body, at)?;
-    if let Some(catalog) = body.get("class_catalog") {
-        check_catalog_wire(catalog, &at.key("class_catalog"))?;
-    }
-    let typed = decode_body(body, at)?;
-    let CheckedTerm::Refinement {
+pub(super) fn check_wire<'a, V: TermSource<'a>>(
+    body: V,
+    typed: Option<&CheckedTerm>,
+    at: &Trail<'_>,
+) -> Result<(), ValidationFailure> {
+    let Some(CheckedTerm::Refinement {
         steps,
         histories,
         abstract_internal,
         protocol,
         ..
-    } = typed
+    }) = typed
     else {
         return Err(invalid(at));
     };
@@ -1207,6 +1217,7 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
 
 /// Convert the outer raw object shape before typed semantic checks.
 #[ix_trace_rs::string_edge]
+#[cfg(test)]
 fn check_body_header(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
     let Some(object) = body.as_object() else {
         return Err(invalid(at));
@@ -1232,70 +1243,6 @@ fn check_body_header(body: &Value, at: &Trail<'_>) -> Result<(), ValidationFailu
         })
     {
         return Err(invalid(at));
-    }
-    Ok(())
-}
-
-#[ix_trace_rs::string_edge]
-fn check_catalog_wire(value: &Value, at: &Trail<'_>) -> Result<(), ValidationFailure> {
-    let Some(object) = value.as_object() else {
-        return Err(invalid(at));
-    };
-    if object.len() != 2 || !object.contains_key("concrete") || !object.contains_key("abstract") {
-        return Err(invalid(at));
-    }
-    for side in ["concrete", "abstract"] {
-        let side_at = at.key(side);
-        for (index, entry) in array(value, side, at)?.iter().enumerate() {
-            let entry_at = side_at.index(index);
-            let Some(entry) = entry.as_object() else {
-                return Err(invalid(&entry_at));
-            };
-            let Some(class) = entry.get("class").and_then(Value::as_str) else {
-                return Err(invalid(&entry_at.key("class")));
-            };
-            let memory = class_kind(class) == Some(RefinementClassKind::Memory);
-            if memory {
-                let malformed = |at: Trail<'_>| {
-                    ValidationFailure::refused(
-                        CheckedPackageRefusalCode::MalformedWire,
-                        at.pointer(),
-                    )
-                };
-                if !memory_class_kind(class) {
-                    return Err(malformed(entry_at.key("class")));
-                }
-                let Some(model) = entry.get("memory_model") else {
-                    return Err(malformed(entry_at.key("memory_model")));
-                };
-                let Ok(model) = serde_json::from_value::<RefinementMemoryModel>(model.clone())
-                else {
-                    return Err(malformed(entry_at.key("memory_model")));
-                };
-                if class == "memory flush" && model != RefinementMemoryModel::Tso {
-                    return Err(malformed(entry_at.key("memory_model")));
-                }
-                if class == "memory drain"
-                    && entry.get("drain").and_then(Value::as_str) != Some("store-buffer-flush")
-                {
-                    return Err(malformed(entry_at.key("drain")));
-                }
-                let allowed: &[&str] = if class == "memory drain" {
-                    &["class", "memory_model", "drain"]
-                } else {
-                    &["class", "memory_model"]
-                };
-                if let Some(extra) = entry.keys().find(|key| !allowed.contains(&key.as_str())) {
-                    return Err(malformed(entry_at.key(extra)));
-                }
-            } else if class.is_empty()
-                || entry.len() != 3
-                || !entry.contains_key("node")
-                || !entry.contains_key("binder_types")
-            {
-                return Err(invalid(&entry_at));
-            }
-        }
     }
     Ok(())
 }

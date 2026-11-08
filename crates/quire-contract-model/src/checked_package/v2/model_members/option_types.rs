@@ -56,7 +56,7 @@ pub(super) fn read(
                 root.key("kind"),
                 budget,
             )?
-            .into())
+            .into());
         }
     };
     if kind == meaning::Kind::OptionType {

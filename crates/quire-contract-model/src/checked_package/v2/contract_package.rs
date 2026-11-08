@@ -606,6 +606,18 @@ fn json_value_count(root: &Value) -> Option<u64> {
     Some(count)
 }
 
+fn decode_admitted_body(
+    _kind: CheckedNodeKind,
+    body: &super::CheckedJson,
+) -> Result<super::CheckedTerm, ()> {
+    let mut budget = super::NativeJoinBudget::unlimited();
+    let site = super::read_charge::Site::new(super::PackageReadStage::Graph, 0, "body");
+    super::TermNode::of(body)
+        .decode(body.document(), &mut budget, site)
+        .map_err(|_| ())?
+        .map_err(|_| ())
+}
+
 impl<'a> ContractPackageTraversalIndex<'a> {
     pub(super) fn build(
         package: &'a ContractPackageV1,
@@ -744,7 +756,7 @@ impl ContractSourceKeyV1 {
                     CheckedNodePathSegment::Name(_) => {}
                     CheckedNodePathSegment::Node(operand) => pending.push(operand),
                     CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
-                        return None
+                        return None;
                     }
                 }
             }
@@ -855,15 +867,23 @@ impl ContractPackageV1 {
                 Step::Index(position),
                 Step::Key("body"),
             ];
-            let body_units = json_value_count(&node.body).unwrap_or(u64::MAX);
-            work.charge(body_units.saturating_mul(4))
+            let body = super::TermNode::of(&node.body);
+            let body_work = crate::checked_package::common::with_unmetered_ids_row(&[], |ids| {
+                super::validate_body(
+                    kind,
+                    body,
+                    body,
+                    &Trail::Base(&steps),
+                    &mut |target, _site, _at, _sink, _charge_site| {
+                        pending.push_back(target);
+                        Ok(())
+                    },
+                    ids,
+                    None,
+                )
+            })?;
+            work.charge(body_work.saturating_mul(4))
                 .map_err(ContractRootViewError::Incomplete)?;
-            super::validate_value_body(
-                kind,
-                &node.body,
-                &Trail::Base(&steps),
-                &mut |target, _site, _at| pending.push_back(target.clone()),
-            )?;
             let body = self
                 .terms
                 .get(position)
@@ -1019,7 +1039,7 @@ impl ContractPackageV1 {
         else {
             return false;
         };
-        node.body = Value::Null;
+        node.body = super::CheckedJson::from_serializable(&()).expect("null is canonical");
         true
     }
 
@@ -1561,7 +1581,7 @@ impl ContractPackageWireV1 {
                 {
                     return Ok(Some(source_term));
                 }
-                let mut term = decode_v1_body(
+                let mut term = decode_admitted_body(
                     node_kinds[position],
                     &wire.semantic_graph.nodes[position].body,
                 )
@@ -1864,13 +1884,13 @@ impl ContractPackageWireV1 {
             Some(Value::String(version))
                 if ContractWireTag::from_wire(version) == Some(ContractWireTag::Version) => {}
             Some(Value::String(version)) => {
-                return Err(ValidationFailure::unknown_contract_version(version))
+                return Err(ValidationFailure::unknown_contract_version(version));
             }
             Some(_) => {
                 return Err(malformed(
                     root.key("contract_version"),
                     CheckedPackageRefusalCause::WrongValueKind,
-                ))
+                ));
             }
             None => return Err(malformed(root, CheckedPackageRefusalCause::MissingMember)),
         }
@@ -2241,7 +2261,7 @@ fn id_shape(value: &Value, at: JsonPointer) -> Result<(), ValidationFailure> {
                 return Err(malformed(
                     segment_at,
                     CheckedPackageRefusalCause::InvalidValue,
-                ))
+                ));
             }
         }
     }
@@ -2902,12 +2922,18 @@ impl ContractPackageWireV1 {
                 Step::Index(index),
                 Step::Key("body"),
             ];
-            let work = super::validate_value_body(
-                kind,
-                &node.body,
-                &Trail::Base(&steps),
-                &mut |_, _, _| {},
-            )?;
+            let body = super::TermNode::of(&node.body);
+            let work = crate::checked_package::common::with_unmetered_ids_row(&[], |ids| {
+                super::validate_body(
+                    kind,
+                    body,
+                    body,
+                    &Trail::Base(&steps),
+                    &mut |_, _, _, _, _| Ok(()),
+                    ids,
+                    None,
+                )
+            })?;
             work_meter.charge(work, || at.clone().key("body"))?;
             edges =
                 edges.saturating_add(u64::try_from(node.dependencies.len()).unwrap_or(u64::MAX));
@@ -3355,22 +3381,31 @@ impl ContractPackageWireV1 {
             let mut body_references = Vec::new();
             let mut edges = node.dependencies.clone();
             edges.push(node.semantic_type.clone());
-            super::validate_value_body(
-                kind,
-                &node.body,
-                &Trail::Base(&steps),
-                &mut |target, site, pointer| {
-                    edges.push(target.clone());
-                    body_references.push((target.clone(), site));
-                    if missing.is_none() && !nodes.contains_key(target) {
-                        missing = Some(pointer.pointer());
-                    }
-                },
-            )?;
+            let body = super::TermNode::of(&node.body);
+            crate::checked_package::common::with_unmetered_ids_row(&[], |ids| {
+                super::validate_body(
+                    kind,
+                    body,
+                    body,
+                    &Trail::Base(&steps),
+                    &mut |target, site, pointer, _sink, _charge_site| {
+                        edges.push(target.clone());
+                        body_references.push((target, site));
+                        if missing.is_none()
+                            && !nodes.contains_key(edges.last().expect("just pushed"))
+                        {
+                            missing = Some(pointer.pointer());
+                        }
+                        Ok(())
+                    },
+                    ids,
+                    None,
+                )
+            })?;
             if let Some(pointer) = missing {
                 return Err(malformed(pointer, CheckedPackageRefusalCause::InvalidValue));
             }
-            terms.push(match decode_v1_body(kind, &node.body) {
+            terms.push(match decode_admitted_body(kind, &node.body) {
                 Ok(term) => Some(term),
                 Err(_)
                     if matches!(
@@ -3410,7 +3445,7 @@ impl ContractPackageWireV1 {
             for (reference_index, (target, site)) in body_references.iter().enumerate() {
                 let Some(&target) = positions.get(target) else {
                     return Err(malformed(
-                        super::body_reference_pointer(node, kind, index, reference_index),
+                        body_reference_pointer(node, kind, index, reference_index, &[]),
                         CheckedPackageRefusalCause::InvalidValue,
                     ));
                 };
@@ -3437,7 +3472,11 @@ impl ContractPackageWireV1 {
         // because the scalar key exists in this graph.
         for (position, (node, kind)) in self.semantic_graph.nodes.iter().zip(&kinds).enumerate() {
             if *kind == super::CheckedNodeKind::CompositeType(super::CompositeTypeForm::Reference) {
-                let target = super::structural::reference_type_target(node)
+                let target = terms
+                    .get(position)
+                    .and_then(Option::as_ref)
+                    .and_then(super::structural::reference_type_target_ref)
+                    .cloned()
                     .and_then(|key| positions.get(&key).copied())
                     .and_then(|target| kinds.get(target));
                 if !matches!(
@@ -3481,7 +3520,7 @@ impl ContractPackageWireV1 {
             kinds.get(position),
         ) {
             (Some(node), Some(kind)) => {
-                super::body_reference_pointer(node, *kind, position, reference)
+                body_reference_pointer(node, *kind, position, reference, &[])
             }
             _ => JsonPointer::root()
                 .key("semantic_graph")
@@ -3489,19 +3528,41 @@ impl ContractPackageWireV1 {
                 .index(position)
                 .key("body"),
         };
+        let recorded_paths: Vec<Vec<JsonPointer>> = self
+            .semantic_graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(position, _)| {
+                (0..adjacency[position]
+                    .iter()
+                    .filter_map(|(_, site)| match site {
+                        super::EdgeSite::Reference(reference) => Some(reference + 1),
+                        _ => None,
+                    })
+                    .max()
+                    .unwrap_or(0))
+                    .map(|reference| reference_pointer(position, reference))
+                    .collect()
+            })
+            .collect();
         let edge_pointer = |vertex: usize, site: super::EdgeSite| match site {
-            super::EdgeSite::SemanticType => JsonPointer::root()
+            super::EdgeSite::SemanticType => super::stage_storage::Path::root()
                 .key("semantic_graph")
                 .key("nodes")
                 .index(vertex)
-                .key("semantic_type"),
-            super::EdgeSite::Dependency(dependency) => JsonPointer::root()
+                .key("semantic_type")
+                .into(),
+            super::EdgeSite::Dependency(dependency) => super::stage_storage::Path::root()
                 .key("semantic_graph")
                 .key("nodes")
                 .index(vertex)
                 .key("dependencies")
-                .index(dependency),
-            super::EdgeSite::Reference(reference) => reference_pointer(vertex, reference),
+                .index(dependency)
+                .into(),
+            super::EdgeSite::Reference(reference) => {
+                super::stage_storage::Position::Recorded(&recorded_paths[vertex][reference])
+            }
         };
         super::validate_recursion(
             &self.semantic_graph.nodes,
@@ -3551,33 +3612,40 @@ impl ContractPackageWireV1 {
     }
 }
 
-/// The V1 reader and writer's existing special-body decoder. Strict V2 reads
-/// use the retained document decoder in the parent module.
-fn decode_v1_body(
-    kind: super::CheckedNodeKind,
-    body: &Value,
-) -> Result<CheckedTerm, super::typed_terms::TermConversionCause> {
-    if super::source_nominal_body(kind, body.get("term").and_then(Value::as_str)) {
-        super::identity::NominalBody::from_value(body, JsonPointer::root())
-            .map(|body| CheckedTerm::NominalBody(Box::new(body)))
-            .map_err(
-                |_| super::typed_terms::TermConversionCause::MalformedMember {
-                    member: "body",
-                    category: serde_json::error::Category::Data,
-                },
-            )
-    } else if kind == super::CheckedNodeKind::State(super::StateForm::Frame) {
-        super::frame::read_frame_body(body, &Trail::Base(&[]))
-            .map(|(frame, _)| frame.into_checked_term())
-            .map_err(
-                |_| super::typed_terms::TermConversionCause::MalformedMember {
-                    member: "body",
-                    category: serde_json::error::Category::Data,
-                },
-            )
-    } else if kind == super::CheckedNodeKind::State(super::StateForm::OperationAnchor) {
-        super::execution_point::decode_anchor_body(body)
-    } else {
-        CheckedTerm::decode_admitted(body)
-    }
+// V1 retains its existing diagnostic replay; V2 records paths during intake.
+fn body_reference_pointer(
+    node: &CheckedSemanticNodeV2,
+    kind: CheckedNodeKind,
+    position: usize,
+    reference: usize,
+    row: &[u64],
+) -> JsonPointer {
+    let body_steps = [
+        Step::Key("semantic_graph"),
+        Step::Key("nodes"),
+        Step::Index(position),
+        Step::Key("body"),
+    ];
+    let mut seen = 0_usize;
+    let mut found = None;
+    // The walk already succeeded once; a failure here only means no pointer.
+    let body = super::TermNode::of(&node.body);
+    let _ = crate::checked_package::common::with_unmetered_ids_row(row, |ids| {
+        super::validate_body(
+            kind,
+            body,
+            body,
+            &Trail::Base(&body_steps),
+            &mut |_target, _site, target_at, _sink, _charge_site| {
+                if seen == reference && found.is_none() {
+                    found = Some(target_at.pointer());
+                }
+                seen = seen.saturating_add(1);
+                Ok(())
+            },
+            ids,
+            None,
+        )
+    });
+    found.unwrap_or_else(|| super::node_pointer(position).key("body"))
 }

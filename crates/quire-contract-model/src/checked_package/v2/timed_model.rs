@@ -8,17 +8,17 @@ use super::model_members::{
     Budget, CollectionKind, DomainModel, FieldDecl, MemberKind, ModelFailure, ModelOwners,
     Resolved, SelectedTypeRef,
 };
+use super::native_join_budget::NativeJoinBudget;
+use super::read_charge::{self, Site};
+use super::TermNode;
 use super::{
-    CheckedNodeId, CheckedNodeOwner, CheckedTerm, CheckedTermView, LiteralKind,
+    CheckedNodeId, CheckedNodeOwner, CheckedTerm, LiteralKind,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, TimedModelForm,
 };
-use crate::checked_package::common::{
-    body_term, exact_members, node_pointer, TermField, ValidationFailure, WireTerm,
-};
+use crate::checked_package::common::{node_pointer, ValidationFailure};
 use crate::checked_package::shared::{
     CheckedOccurrenceRole, CheckedPackageRefusalCode, CheckedSourceMapEntry, JsonPointer,
 };
-use serde_json::Value;
 
 fn malformed(at: JsonPointer) -> ValidationFailure {
     ValidationFailure::refused(CheckedPackageRefusalCode::MalformedWire, at)
@@ -69,92 +69,86 @@ pub(super) fn is_base_time_dimension<Body>(
     }
 }
 
-fn aggregate<'a>(value: &'a Value, at: &JsonPointer) -> Result<&'a [Value], ValidationFailure> {
-    let Some(object) = value.as_object() else {
-        return Err(malformed(at.clone()));
-    };
-    if !exact_members(object, &["term", "members"])
-        || body_term(value) != Some(super::BodyTerm::Aggregate)
+fn aggregate<'a>(
+    value: TermNode<'a>,
+    at: &JsonPointer,
+    budget: &mut NativeJoinBudget,
+    site: Site,
+) -> Result<Vec<TermNode<'a>>, ValidationFailure> {
+    if !value.exact_members(&["term", "members"])
+        || value.kind() != Some(super::BodyTerm::Aggregate)
     {
         return Err(malformed(at.clone()));
     }
-    match CheckedTerm::view(value) {
-        Some(CheckedTermView::Aggregate { members }) => Ok(members),
-        _ => Err(malformed(at.clone().key("members"))),
-    }
+    let items = value
+        .get("members")
+        .and_then(TermNode::items)
+        .ok_or_else(|| malformed(at.clone().key("members")))?;
+    let mut members = Vec::new();
+    read_charge::reserve(budget, site, &mut members, items.len())?;
+    members.extend(items);
+    Ok(members)
 }
 
 fn bindings<'a>(
-    value: &'a Value,
+    value: TermNode<'a>,
     names: &[&str],
     at: &JsonPointer,
-) -> Result<Vec<(&'a Value, JsonPointer)>, ValidationFailure> {
-    let members = aggregate(value, at)?;
+    budget: &mut NativeJoinBudget,
+    site: Site,
+) -> Result<Vec<(TermNode<'a>, JsonPointer)>, ValidationFailure> {
+    let members = aggregate(value, at, budget, site)?;
     if members.len() != names.len() {
         return Err(malformed(at.clone().key("members")));
     }
-    members
-        .iter()
-        .zip(names)
-        .enumerate()
-        .map(|(index, (member, name))| {
-            let member_at = at.clone().key("members").index(index);
-            match CheckedTerm::view(member) {
-                Some(CheckedTermView::Binding {
-                    name: actual,
-                    value,
-                }) if actual == *name => Ok((value, member_at.key("value"))),
-                _ => Err(malformed(member_at)),
-            }
-        })
-        .collect()
+    let mut result = Vec::new();
+    read_charge::reserve(budget, site, &mut result, names.len())?;
+    for (index, (member, name)) in members.into_iter().zip(names).enumerate() {
+        let member_at = at.clone().key("members").index(index);
+        let binding = match member.view() {
+            Some(super::TermView::Binding {
+                name: actual,
+                value,
+            }) if actual == *name => (value, member_at.key("value")),
+            _ => return Err(malformed(member_at)),
+        };
+        result.push(binding);
+    }
+    Ok(result)
 }
 
-fn possible_binding_value(value: &Value) -> Option<&Value> {
-    if let Some(CheckedTermView::Binding { value, .. }) = CheckedTerm::view(value) {
-        return Some(value);
-    }
-    // The containing record may be malformed. Keep the original refusal
-    // order by probing this member before the binding shape is diagnosed.
-    WireTerm::decode(value).field(TermField::Value)
+fn possible_binding_value<'a>(value: &TermNode<'a>) -> Option<TermNode<'a>> {
+    value.get("value")
 }
 
 #[ix_trace_rs::string_edge]
-fn node_key(value: &Value) -> Option<CheckedNodeId> {
-    CheckedNodeId::from_value(value).filter(CheckedNodeId::is_well_formed)
-}
-
-fn reference(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
-    match CheckedTerm::view(value) {
-        Some(CheckedTermView::Reference { target }) if node_key(target).is_some() => Ok(()),
+fn reference(value: TermNode<'_>, at: &JsonPointer) -> Result<(), ValidationFailure> {
+    match value.view() {
+        Some(super::TermView::Reference { .. }) => Ok(()),
         _ => Err(malformed(at.clone())),
     }
 }
 
 fn literal<'a>(
-    value: &'a Value,
+    value: TermNode<'a>,
     kind: &str,
     at: &JsonPointer,
-) -> Result<&'a Value, ValidationFailure> {
-    match CheckedTerm::view(value) {
-        Some(CheckedTermView::Literal {
-            type_id,
-            value_kind,
-            value,
-        }) if Some(value_kind) == LiteralKind::from_wire(kind) && node_key(type_id).is_some() => {
-            Ok(value)
-        }
+) -> Result<TermNode<'a>, ValidationFailure> {
+    match value.view() {
+        Some(super::TermView::Literal {
+            value_kind, value, ..
+        }) if Some(value_kind) == LiteralKind::from_wire(kind) => Ok(value),
         _ => Err(malformed(at.clone())),
     }
 }
 
-fn text<'a>(value: &'a Value, at: &JsonPointer) -> Result<&'a str, ValidationFailure> {
+fn text<'a>(value: TermNode<'a>, at: &JsonPointer) -> Result<&'a str, ValidationFailure> {
     literal(value, "text", at)?
         .as_str()
         .ok_or_else(|| malformed(at.clone().key("value")))
 }
 
-fn word(value: &Value, words: &[&str], at: &JsonPointer) -> Result<(), ValidationFailure> {
+fn word(value: TermNode<'_>, words: &[&str], at: &JsonPointer) -> Result<(), ValidationFailure> {
     if words.contains(&text(value, at)?) {
         Ok(())
     } else {
@@ -162,7 +156,7 @@ fn word(value: &Value, words: &[&str], at: &JsonPointer) -> Result<(), Validatio
     }
 }
 
-fn integer(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
+fn integer(value: TermNode<'_>, at: &JsonPointer) -> Result<(), ValidationFailure> {
     if literal(value, "integer", at)?.as_u64().is_some() {
         Ok(())
     } else {
@@ -195,7 +189,7 @@ impl<'a> ExactMagnitude<'a> {
     }
 }
 
-fn magnitude(value: &Value, kind: &str, at: &JsonPointer) -> Result<(), ValidationFailure> {
+fn magnitude(value: TermNode<'_>, kind: &str, at: &JsonPointer) -> Result<(), ValidationFailure> {
     let Some(spelling) = literal(value, kind, at)?.as_str() else {
         return Err(malformed(at.clone().key("value")));
     };
@@ -206,21 +200,31 @@ fn magnitude(value: &Value, kind: &str, at: &JsonPointer) -> Result<(), Validati
     }
 }
 
-fn references(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
-    for (index, member) in aggregate(value, at)?.iter().enumerate() {
+fn references(
+    value: TermNode<'_>,
+    at: &JsonPointer,
+    budget: &mut NativeJoinBudget,
+    site: Site,
+) -> Result<(), ValidationFailure> {
+    for (index, member) in aggregate(value, at, budget, site)?.into_iter().enumerate() {
         reference(member, &at.clone().key("members").index(index))?;
     }
     Ok(())
 }
 
-fn path(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
-    let steps = aggregate(value, at)?;
-    if steps.is_empty() {
+fn path(
+    value: TermNode<'_>,
+    at: &JsonPointer,
+    budget: &mut NativeJoinBudget,
+    site: Site,
+) -> Result<(), ValidationFailure> {
+    let steps = aggregate(value, at, budget, site)?;
+    if steps.len() == 0 {
         return Err(malformed(at.clone().key("members")));
     }
-    for (index, step) in steps.iter().enumerate() {
+    for (index, step) in steps.iter().copied().enumerate() {
         let step_at = at.clone().key("members").index(index);
-        let members = aggregate(step, &step_at)?;
+        let members = aggregate(step, &step_at, budget, site)?;
         let kind_at = step_at.clone().key("members").index(0).key("value");
         let kind = members
             .first()
@@ -228,15 +232,15 @@ fn path(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
             .ok_or_else(|| malformed(step_at.clone()))?;
         match PathStepKind::from_wire(text(kind, &kind_at)?) {
             Some(PathStepKind::Field) => {
-                let b = bindings(step, &["kind", "name"], &step_at)?;
+                let b = bindings(step, &["kind", "name"], &step_at, budget, site)?;
                 text(b[1].0, &b[1].1)?;
             }
             Some(PathStepKind::Tuple) => {
-                let b = bindings(step, &["kind", "index"], &step_at)?;
+                let b = bindings(step, &["kind", "index"], &step_at, budget, site)?;
                 integer(b[1].0, &b[1].1)?;
             }
             Some(PathStepKind::Union) => {
-                let b = bindings(step, &["kind", "case"], &step_at)?;
+                let b = bindings(step, &["kind", "case"], &step_at, budget, site)?;
                 text(b[1].0, &b[1].1)?;
             }
             Some(PathStepKind::Slot) => {
@@ -244,24 +248,23 @@ fn path(value: &Value, at: &JsonPointer) -> Result<(), ValidationFailure> {
                     step,
                     &["kind", "collection", "selector", "minimum", "maximum"],
                     &step_at,
+                    budget,
+                    site,
                 )?;
                 word(
                     b[1].0,
                     &["sequence", "map", "set", "bag", "ordered_set"],
                     &b[1].1,
                 )?;
-                if matches!(
-                    CheckedTerm::view(b[2].0),
-                    Some(CheckedTermView::Reference { .. })
-                ) {
+                if matches!(b[2].0.view(), Some(super::TermView::Reference { .. })) {
                     reference(b[2].0, &b[2].1)?;
                 } else {
                     integer(b[2].0, &b[2].1)?;
                 }
                 integer(b[3].0, &b[3].1)?;
                 if matches!(
-                    CheckedTerm::view(b[4].0),
-                    Some(CheckedTermView::Literal {
+                    b[4].0.view(),
+                    Some(super::TermView::Literal {
                         value_kind: LiteralKind::Text,
                         ..
                     })
@@ -283,7 +286,9 @@ pub(super) fn check_wire(
     node: &CheckedSemanticNodeV2,
     form: TimedModelForm,
     position: usize,
+    budget: &mut NativeJoinBudget,
 ) -> Result<(), ValidationFailure> {
+    let site = Site::new(super::PackageReadStage::WireChecks, position, "timed_model");
     let at = node_pointer(position);
     if node.recursion_group.is_some() {
         return Err(malformed(at.clone().key("recursion_group")));
@@ -320,10 +325,11 @@ pub(super) fn check_wire(
         }
     }
     let body_at = at.key("body");
+    let body = TermNode::of(&node.body);
     match form {
         TimedModelForm::Model => {
             let b = bindings(
-                &node.body,
+                body,
                 &[
                     "model",
                     "time_dimension",
@@ -336,16 +342,18 @@ pub(super) fn check_wire(
                     "constraints",
                 ],
                 &body_at,
+                budget,
+                site,
             )?;
             reference(b[0].0, &b[0].1)?;
             reference(b[1].0, &b[1].1)?;
             reference(b[2].0, &b[2].1)?;
             for (value, at) in &b[3..] {
-                references(value, at)?;
+                references(*value, at, budget, site)?;
             }
         }
         TimedModelForm::Source => {
-            let members = aggregate(&node.body, &body_at)?;
+            let members = aggregate(body, &body_at, budget, site)?;
             let kind_at = body_at.clone().key("members").index(0).key("value");
             let kind = members
                 .first()
@@ -353,14 +361,16 @@ pub(super) fn check_wire(
                 .ok_or_else(|| malformed(body_at.clone()))?;
             match TimeSourceKind::from_wire(text(kind, &kind_at)?) {
                 Some(TimeSourceKind::Dense) => {
-                    let b = bindings(&node.body, &["kind", "unit"], &body_at)?;
+                    let b = bindings(body, &["kind", "unit"], &body_at, budget, site)?;
                     reference(b[1].0, &b[1].1)?;
                 }
                 Some(TimeSourceKind::Tick) => {
                     let b = bindings(
-                        &node.body,
+                        body,
                         &["kind", "unit", "model", "operation", "period"],
                         &body_at,
+                        budget,
+                        site,
                     )?;
                     reference(b[1].0, &b[1].1)?;
                     reference(b[2].0, &b[2].1)?;
@@ -371,12 +381,18 @@ pub(super) fn check_wire(
             }
         }
         TimedModelForm::Place => {
-            let b = bindings(&node.body, &["model", "path", "resolved_path"], &body_at)
-                .map_err(|_| malformed(body_at.clone()))?;
+            let b = bindings(
+                body,
+                &["model", "path", "resolved_path"],
+                &body_at,
+                budget,
+                site,
+            )
+            .map_err(|_| malformed(body_at.clone()))?;
             reference(b[0].0, &b[0].1)?;
-            path(b[1].0, &b[1].1)?;
-            let rows = aggregate(b[2].0, &b[2].1)?;
-            for (index, row) in rows.iter().enumerate() {
+            path(b[1].0, &b[1].1, budget, site)?;
+            let rows = aggregate(b[2].0, &b[2].1, budget, site)?;
+            for (index, row) in rows.iter().copied().enumerate() {
                 let row_at = b[2].1.clone().key("members").index(index);
                 let fields = bindings(
                     row,
@@ -390,15 +406,17 @@ pub(super) fn check_wire(
                         "maximum",
                     ],
                     &row_at,
+                    budget,
+                    site,
                 )?;
                 integer(fields[0].0, &fields[0].1)?;
                 for (value, at) in &fields[1..] {
-                    text(value, at)?;
+                    text(*value, at)?;
                 }
             }
         }
         TimedModelForm::Reset => {
-            let members = aggregate(&node.body, &body_at)?;
+            let members = aggregate(body, &body_at, budget, site)?;
             let kind_at = body_at.clone().key("members").index(0).key("value");
             let kind = members
                 .first()
@@ -407,7 +425,7 @@ pub(super) fn check_wire(
             match text(kind, &kind_at)? {
                 "place" => {
                     let b = bindings(
-                        &node.body,
+                        body,
                         &[
                             "kind",
                             "operation",
@@ -419,21 +437,25 @@ pub(super) fn check_wire(
                             "value",
                         ],
                         &body_at,
+                        budget,
+                        site,
                     )
                     .map_err(|_| malformed(body_at.clone()))?;
                     reference(b[1].0, &b[1].1)?;
                     reference(b[2].0, &b[2].1)?;
                     reference(b[3].0, &b[3].1)?;
-                    references(b[4].0, &b[4].1)?;
-                    references(b[5].0, &b[5].1)?;
+                    references(b[4].0, &b[4].1, budget, site)?;
+                    references(b[5].0, &b[5].1, budget, site)?;
                     reference(b[6].0, &b[6].1)?;
                     magnitude(b[7].0, "quantity", &b[7].1)?;
                 }
                 "parameter" => {
                     let b = bindings(
-                        &node.body,
+                        body,
                         &["kind", "operation", "parameter", "value"],
                         &body_at,
+                        budget,
+                        site,
                     )
                     .map_err(|_| malformed(body_at.clone()))?;
                     reference(b[1].0, &b[1].1)?;
@@ -444,38 +466,38 @@ pub(super) fn check_wire(
             }
         }
         TimedModelForm::Guard => {
-            let b = bindings(&node.body, &["operation", "parts"], &body_at)?;
+            let b = bindings(body, &["operation", "parts"], &body_at, budget, site)?;
             reference(b[0].0, &b[0].1)?;
-            let parts = aggregate(b[1].0, &b[1].1)?;
+            let parts = aggregate(b[1].0, &b[1].1, budget, site)?;
             if parts.is_empty() {
                 return Err(malformed(body_at));
             }
             for (index, part) in parts.iter().enumerate() {
                 let at = b[1].1.clone().key("members").index(index);
-                let members = aggregate(part, &at)?;
+                let members = aggregate(*part, &at, budget, site)?;
                 if members.len() < 2 {
                     return Err(malformed(body_at));
                 }
                 // A part starts with its predicate, may bind quantified slots, then names constraints.
                 let first_at = at.clone().key("members").index(0);
-                let predicate = match CheckedTerm::view(&members[0]) {
-                    Some(CheckedTermView::Binding {
+                let predicate = match members[0].view() {
+                    Some(super::TermView::Binding {
                         name: "predicate",
                         value,
                     }) => value,
                     _ => return Err(malformed(first_at)),
                 };
                 reference(predicate, &first_at.key("value"))?;
-                let first_constraint = match members.get(1).and_then(CheckedTerm::view) {
-                    Some(CheckedTermView::Binding {
+                let first_constraint = match members.get(1).and_then(|member| member.view()) {
+                    Some(super::TermView::Binding {
                         name: "binders",
                         value,
                     }) => {
                         let binders_at = at.clone().key("members").index(1).key("value");
-                        if aggregate(value, &binders_at)?.is_empty() {
+                        if aggregate(value, &binders_at, budget, site)?.is_empty() {
                             return Err(malformed(binders_at.key("members")));
                         }
-                        references(value, &binders_at)?;
+                        references(value, &binders_at, budget, site)?;
                         2
                     }
                     _ => 1,
@@ -484,45 +506,51 @@ pub(super) fn check_wire(
                     return Err(malformed(body_at));
                 }
                 for (reference_index, member) in members.iter().enumerate().skip(first_constraint) {
-                    reference(member, &at.clone().key("members").index(reference_index))?;
+                    reference(*member, &at.clone().key("members").index(reference_index))?;
                 }
             }
         }
         TimedModelForm::Invariant => {
-            let members = aggregate(&node.body, &body_at)?;
+            let members = aggregate(body, &body_at, budget, site)?;
             let quantified = matches!(
-                members.get(1).and_then(CheckedTerm::view),
-                Some(CheckedTermView::Binding {
+                members.get(1).and_then(|member| member.view()),
+                Some(super::TermView::Binding {
                     name: "binders",
                     ..
                 })
             );
             let b = if quantified {
-                bindings(&node.body, &["predicate", "binders", "bounds"], &body_at)?
+                bindings(
+                    body,
+                    &["predicate", "binders", "bounds"],
+                    &body_at,
+                    budget,
+                    site,
+                )?
             } else {
-                bindings(&node.body, &["predicate", "bounds"], &body_at)?
+                bindings(body, &["predicate", "bounds"], &body_at, budget, site)?
             };
             reference(b[0].0, &b[0].1)?;
             if quantified {
-                if aggregate(b[1].0, &b[1].1)?.is_empty() {
+                if aggregate(b[1].0, &b[1].1, budget, site)?.is_empty() {
                     return Err(malformed(b[1].1.clone().key("members")));
                 }
-                references(b[1].0, &b[1].1)?;
+                references(b[1].0, &b[1].1, budget, site)?;
             }
             let bounds_index = if quantified { 2 } else { 1 };
-            let bounds = aggregate(b[bounds_index].0, &b[bounds_index].1)?;
+            let bounds = aggregate(b[bounds_index].0, &b[bounds_index].1, budget, site)?;
             if bounds.is_empty() {
                 return Err(malformed(body_at));
             }
             for (index, member) in bounds.iter().enumerate() {
                 reference(
-                    member,
+                    *member,
                     &b[bounds_index].1.clone().key("members").index(index),
                 )?;
             }
         }
         TimedModelForm::Urgency => {
-            let members = aggregate(&node.body, &body_at)?;
+            let members = aggregate(body, &body_at, budget, site)?;
             let kind_at = body_at.clone().key("members").index(0).key("value");
             let kind = members
                 .first()
@@ -530,11 +558,17 @@ pub(super) fn check_wire(
                 .ok_or_else(|| malformed(body_at.clone()))?;
             match UrgencyKind::from_wire(text(kind, &kind_at)?) {
                 Some(UrgencyKind::When) => {
-                    let b = bindings(&node.body, &["kind", "predicate"], &body_at)?;
+                    let b = bindings(body, &["kind", "predicate"], &body_at, budget, site)?;
                     reference(b[1].0, &b[1].1)?;
                 }
                 Some(UrgencyKind::Operation) => {
-                    let b = bindings(&node.body, &["kind", "model", "operation_name"], &body_at)?;
+                    let b = bindings(
+                        body,
+                        &["kind", "model", "operation_name"],
+                        &body_at,
+                        budget,
+                        site,
+                    )?;
                     reference(b[1].0, &b[1].1)?;
                     text(b[2].0, &b[2].1)?;
                 }
@@ -542,7 +576,7 @@ pub(super) fn check_wire(
             }
         }
         TimedModelForm::Constraint => {
-            let members = aggregate(&node.body, &body_at)?;
+            let members = aggregate(body, &body_at, budget, site)?;
             let kind_at = body_at.clone().key("members").index(0).key("value");
             let kind = members
                 .first()
@@ -551,22 +585,26 @@ pub(super) fn check_wire(
             match text(kind, &kind_at)? {
                 "place" => {
                     let b = bindings(
-                        &node.body,
+                        body,
                         &["kind", "place", "owner", "slots", "comparison", "bound"],
                         &body_at,
+                        budget,
+                        site,
                     )?;
                     reference(b[1].0, &b[1].1)?;
                     reference(b[2].0, &b[2].1)?;
-                    references(b[3].0, &b[3].1)?;
+                    references(b[3].0, &b[3].1, budget, site)?;
                     word(b[4].0, &["lt", "le", "eq", "ge", "gt"], &b[4].1)
                         .map_err(|_| malformed(body_at.clone()))?;
                     magnitude(b[5].0, "quantity", &b[5].1)?;
                 }
                 "parameter" => {
                     let b = bindings(
-                        &node.body,
+                        body,
                         &["kind", "operation", "parameter", "comparison", "bound"],
                         &body_at,
+                        budget,
+                        site,
                     )?;
                     reference(b[1].0, &b[1].1)?;
                     text(b[2].0, &b[2].1)?;
@@ -3083,7 +3121,7 @@ mod tests {
     use super::*;
     use crate::NativeJoinBudget;
     use ix_trace_rs::trace;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::collections::BTreeSet;
     use std::path::Path;
 
@@ -3305,13 +3343,13 @@ mod tests {
                         value: Box::new(CheckedTerm::Literal {
                             type_id: a.clone(),
                             value_kind: LiteralKind::Text,
-                            value: crate::CheckedJson::from_value(&json!("on")).unwrap(),
+                            value: crate::CheckedJson::from_serializable(&json!("on")).unwrap(),
                         }),
                     },
                     CheckedTerm::Literal {
                         type_id: a.clone(),
                         value_kind: LiteralKind::Text,
-                        value: crate::CheckedJson::from_value(&json!(7)).unwrap(),
+                        value: crate::CheckedJson::from_serializable(&json!(7)).unwrap(),
                     },
                 ],
             }),
@@ -3476,7 +3514,7 @@ mod tests {
         let integer = |value| CheckedTerm::Literal {
             type_id: node("t"),
             value_kind: LiteralKind::Integer,
-            value: crate::CheckedJson::from_value(&value).unwrap(),
+            value: crate::CheckedJson::from_serializable(&value).unwrap(),
         };
         assert!(scalar_matches(Some(&integer(json!(12))), Some("12")));
         assert!(!scalar_matches(Some(&integer(json!(12))), Some("012")));

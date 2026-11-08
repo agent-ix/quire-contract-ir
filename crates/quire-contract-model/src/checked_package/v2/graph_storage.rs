@@ -11,12 +11,15 @@
 
 use super::budgeted_read::{BudgetStop, PackageReadResource};
 use super::checked_json::CheckedJson;
-use super::native_join_budget::{NativeJoinLocus, NativeJoinLocusSource, PackageReadStage};
+use super::native_join_budget::{
+    NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+};
 use super::read_charge::{Denied, ReadStorage, Site};
+use super::stage_storage::Path;
 use super::term_view::{NodeIdRead, TermNode};
 use super::{WorkMeter, WorkSource};
 use crate::checked_package::common::{node_pointer, ValidationFailure};
-use crate::checked_package::shared::{CheckedNodeId, JsonPointer};
+use crate::checked_package::shared::CheckedNodeId;
 use std::cmp::Ordering;
 
 /// The value of the package being validated when a request is made.
@@ -47,11 +50,16 @@ impl ReadSite {
         }
     }
 
-    fn pointer(self) -> Option<JsonPointer> {
+    fn path(self) -> Option<Path<'static>> {
         match self.value {
             SiteValue::Package => None,
-            SiteValue::Node(position) => Some(node_pointer(position)),
-            SiteValue::Row(member, row) => Some(JsonPointer::root().key(member).index(row)),
+            SiteValue::Node(position) => Some(
+                Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position),
+            ),
+            SiteValue::Row(member, row) => Some(Path::root().key(member).index(row)),
         }
     }
 }
@@ -99,6 +107,38 @@ impl<'b> WorkMeter<'b> {
         Some((TermNode::of(handle), row))
     }
 
+    /// Decodes a node body from its retained document, charging every owned
+    /// term allocation through the active package budget when present.
+    pub(super) fn decode_body(
+        &mut self,
+        position: usize,
+    ) -> Result<
+        Result<super::CheckedTerm, super::typed_terms::TermConversionCause>,
+        ValidationFailure,
+    > {
+        let table = self.bodies.ok_or_else(|| {
+            ValidationFailure::refused(
+                super::CheckedPackageRefusalCode::InvalidSemanticGraph,
+                node_pointer(position).key("body"),
+            )
+        })?;
+        let handle = table.handles.get(position).ok_or_else(|| {
+            ValidationFailure::refused(
+                super::CheckedPackageRefusalCode::InvalidSemanticGraph,
+                node_pointer(position).key("body"),
+            )
+        })?;
+        let row = table.rows.get(position).map_or(&[][..], Vec::as_slice);
+        let node = TermNode::of(handle);
+        if let Some((budget, site)) = self.budget_and_site() {
+            node.decode_in(handle.document(), budget, site, row)
+        } else {
+            let mut budget = NativeJoinBudget::unlimited();
+            let site = Site::new(PackageReadStage::Graph, position, "body");
+            node.decode_in(handle.document(), &mut budget, site, row)
+        }
+    }
+
     /// The node ID `term` spells, its operand slots read through `row`; the
     /// package, path and names are charged at the site now charged before
     /// each is allocated.
@@ -119,10 +159,9 @@ impl<'b> WorkMeter<'b> {
     }
 }
 
-/// Node bodies built outside the strict read, from the `Value` bodies of
-/// nodes: a V1 contract package being expanded and a unit test that calls a
-/// validator directly. The handles come from a canonical encoding of each
-/// body, with empty operand rows, and are not charged.
+/// Node body handles attached to a package walk. V2's strict read retains
+/// each body in its shared document; V1 and test-only callers construct their
+/// handles outside that read.
 pub(super) struct OwnedBodies {
     handles: Vec<CheckedJson>,
     rows: Vec<Vec<u64>>,
@@ -133,10 +172,7 @@ impl OwnedBodies {
     pub(super) fn of<'a>(
         nodes: impl IntoIterator<Item = &'a super::RawSemanticNodeV2>,
     ) -> Option<Self> {
-        let handles: Vec<CheckedJson> = nodes
-            .into_iter()
-            .map(|node| CheckedJson::from_value(&node.body).ok())
-            .collect::<Option<_>>()?;
+        let handles: Vec<CheckedJson> = nodes.into_iter().map(|node| node.body.clone()).collect();
         let rows = vec![Vec::new(); handles.len()];
         Some(Self { handles, rows })
     }
@@ -146,7 +182,7 @@ impl OwnedBodies {
     pub(super) fn of_values(values: &[serde_json::Value], rows: Vec<Vec<u64>>) -> Self {
         let handles = values
             .iter()
-            .map(|value| CheckedJson::from_value(value).expect("a canonical body"))
+            .map(|value| CheckedJson::from_serializable(value).expect("a canonical body"))
             .collect();
         Self { handles, rows }
     }
@@ -244,7 +280,15 @@ impl<'b> WorkMeter<'b> {
                 amount: bytes,
                 // A request made for a library's own heap belongs to no one
                 // value.
-                path: if form.is_some() { None } else { site.pointer() },
+                path: if form.is_some() {
+                    None
+                } else {
+                    site.path().and_then(|path| {
+                        budget
+                            .prepay_diagnostic(path.pointer_len() as u128)
+                            .then(|| path.build())
+                    })
+                },
             }))
         }
     }
@@ -653,13 +697,17 @@ impl<'m, 'b> MeterReservation<'m, 'b> {
 
 impl quire_walk::Reservation for MeterReservation<'_, '_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
-        self.ask(bytes).map_err(|()| quire_walk::Denied)
+        super::observe_allocation_class("walker_growth", || {
+            self.ask(bytes).map_err(|()| quire_walk::Denied)
+        })
     }
 }
 
 impl quire_exact::Reservation for MeterReservation<'_, '_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_exact::ReservationDenied> {
-        self.ask(bytes).map_err(|()| quire_exact::ReservationDenied)
+        super::observe_allocation_class("exact_reservation", || {
+            self.ask(bytes).map_err(|()| quire_exact::ReservationDenied)
+        })
     }
 }
 
@@ -1323,5 +1371,64 @@ mod rank_tests {
             }));
         }
         assert!(ranks_of(&keys).iter().copied().eq(0..keys.len()));
+    }
+}
+
+#[cfg(test)]
+mod denial_pointer_tests {
+    use super::super::native_join_budget::NativeJoinBudget;
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-510")]
+    #[test]
+    fn graph_denial_pointer_is_prepaid_once_and_never_replaces_the_first_request() {
+        for (value, expected) in [
+            (SiteValue::Package, None),
+            (SiteValue::Node(12345), Some("/semantic_graph/nodes/12345")),
+            (SiteValue::Row("rows/~é", 41), Some("/rows~1~0é/41")),
+        ] {
+            for limit in [0, expected.map_or(0, str::len) as u64] {
+                let request = u128::from(limit) + 1;
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let observed = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut budget);
+                    meter.restore_site(Some(ReadSite {
+                        index: 7,
+                        form: "claim",
+                        value,
+                    }));
+                    result = Some(meter.reserve_as(request, None));
+                });
+                let Err(ValidationFailure::Budget(stop)) = result.expect("ran") else {
+                    panic!("oversized request must refuse");
+                };
+                assert_eq!(stop.amount, request);
+                assert_eq!(budget.first_unpaid_read_storage(), Some(request));
+                let locus = budget.first_unpaid_locus().expect("first locus");
+                assert_eq!(
+                    locus.source,
+                    NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 7)
+                );
+                assert_eq!(locus.form, "claim");
+                let expected = expected.filter(|text| text.len() as u64 <= limit);
+                assert_eq!(stop.path.as_ref().map(|path| path.as_str()), expected);
+                let bytes = expected.map_or(0, str::len) as u64;
+                assert_eq!(observed.bytes_total, bytes);
+                assert_eq!(budget.read_storage_consumed(), bytes);
+            }
+        }
+        let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(0);
+        let mut meter = WorkMeter::over(&mut budget);
+        meter.at_node(8, "claim");
+        let Err(ValidationFailure::Budget(stop)) = meter.reserve_as(1, Some("exact_number")) else {
+            panic!("library request refuses");
+        };
+        assert_eq!(stop.path, None);
+        assert_eq!(
+            budget.first_unpaid_locus().expect("library locus").form,
+            "exact_number"
+        );
     }
 }

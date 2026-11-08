@@ -125,7 +125,7 @@ impl DomainModel {
                         return Ok(self.unit_refs.get(key.as_str()).map(Leaf::Quantity));
                     }
                     NativeTypeRef::Rational | NativeTypeRef::Decimal | NativeTypeRef::Text => {
-                        return Ok(None)
+                        return Ok(None);
                     }
                 };
                 return Ok(Some(Leaf::Plain(plain)));

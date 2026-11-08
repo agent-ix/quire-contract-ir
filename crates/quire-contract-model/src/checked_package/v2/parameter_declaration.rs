@@ -154,6 +154,7 @@ mod tests {
             closure_index: Default::default(),
             catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(),
             admission_binding: Default::default(),
+            body_documents: Vec::new(),
         }
         .retain_original_admission()
     }
@@ -185,7 +186,10 @@ mod tests {
     #[test]
     fn admitted_parameter_lookup_reads_the_retained_typed_body() {
         let mut package = fixture_package();
-        std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[2].body = CheckedTerm::Reference {
+        std::sync::Arc::make_mut(&mut package.wire)
+            .semantic_graph
+            .nodes[2]
+            .body = CheckedTerm::Reference {
             target: node_id('4'),
         };
         assert_eq!(
@@ -281,9 +285,13 @@ mod tests {
         ];
         for (label, mutate) in mutations {
             let mut package = fixture_package();
-            let mut body = serde_json::to_value(&package.wire.semantic_graph.nodes[2].body).expect("fixture body");
+            let mut body = serde_json::to_value(&package.wire.semantic_graph.nodes[2].body)
+                .expect("fixture body");
             mutate(&mut body);
-            std::sync::Arc::make_mut(&mut package.wire).semantic_graph.nodes[2].body = CheckedTerm::decode_admitted(&body)
+            std::sync::Arc::make_mut(&mut package.wire)
+                .semantic_graph
+                .nodes[2]
+                .body = CheckedTerm::decode_admitted(&body)
                 .expect("mutated fixture retains a grammar-admitted term");
             std::sync::Arc::make_mut(&mut package.wire)
                 .semantic_graph
