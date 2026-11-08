@@ -236,7 +236,6 @@ fn number_value(number: quire_canonical::Number<'_>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ix_trace_rs::trace;
     use serde_json::json;
 
     #[test]

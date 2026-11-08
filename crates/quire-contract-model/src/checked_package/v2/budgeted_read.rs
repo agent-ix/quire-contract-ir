@@ -449,6 +449,9 @@ struct PackageDocument<'d> {
 }
 
 impl quire_canonical::Encode for PackageDocument<'_> {
+    // The one string comparison is a closed-vocabulary guard on a serde_json
+    // private member name, not an open key.
+    #[ix_trace_rs::string_edge]
     fn encode_into<S: quire_canonical::Sink + ?Sized>(
         &self,
         writer: &mut quire_canonical::Writer<'_, S>,
