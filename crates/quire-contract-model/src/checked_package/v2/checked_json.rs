@@ -69,6 +69,20 @@ impl CheckedJson {
         Self { document, node }
     }
 
+    /// A handle for a scalar literal payload, read as written: a number the
+    /// canonical encoder cannot write (an integer past 2^53) is held and is
+    /// the encoder's refusal when the package is written, as it always was.
+    pub(in crate::checked_package) fn scalar(value: &Value) -> Self {
+        let read = |text: &[u8]| quire_canonical::read(text, u64::MAX).ok();
+        // A scalar's JSON text always reads; `null` is the fallback and is
+        // valid JSON, so the final read cannot fail.
+        let document = read(value.to_string().as_bytes())
+            .or_else(|| read(b"null"))
+            .expect("`null` is valid JSON");
+        let node = document.root().id();
+        Self::new(Arc::new(document), node)
+    }
+
     /// Leaves `handle` for the `Deserialize` call the document deserializer
     /// is answering on this thread.
     pub(super) fn offer(handle: Self) {
@@ -120,6 +134,75 @@ impl CheckedJson {
             .unwrap_or_else(|| self.document.root())
     }
 
+    /// The string the value is, borrowed from the document.
+    #[must_use]
+    pub fn as_str(&self) -> Option<&str> {
+        match self.node().node() {
+            Node::String(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// The boolean the value is.
+    #[must_use]
+    pub fn as_bool(&self) -> Option<bool> {
+        match self.node().node() {
+            Node::Bool(flag) => Some(flag),
+            _ => None,
+        }
+    }
+
+    /// The unsigned integer the value spells, as `serde_json` reads one.
+    #[must_use]
+    pub fn as_u64(&self) -> Option<u64> {
+        match self.node().node() {
+            Node::Number(number) => number.text().parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// The signed integer the value spells, as `serde_json` reads one.
+    #[must_use]
+    pub fn as_i64(&self) -> Option<i64> {
+        match self.node().node() {
+            Node::Number(number) => number.text().parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// The source text of the number the value is.
+    #[must_use]
+    pub fn number_text(&self) -> Option<&str> {
+        match self.node().node() {
+            Node::Number(number) => Some(number.text()),
+            _ => None,
+        }
+    }
+
+    /// Whether the value is `null`.
+    #[must_use]
+    pub fn is_null(&self) -> bool {
+        matches!(self.node().node(), Node::Null)
+    }
+
+    /// Whether the value is a string.
+    #[must_use]
+    pub fn is_string(&self) -> bool {
+        matches!(self.node().node(), Node::String(_))
+    }
+
+    /// Whether the value is an array.
+    #[must_use]
+    pub fn is_array(&self) -> bool {
+        matches!(self.node().node(), Node::Array(_))
+    }
+
+    /// Whether the value is an object.
+    #[must_use]
+    pub fn is_object(&self) -> bool {
+        matches!(self.node().node(), Node::Object(_))
+    }
+
     /// Copies the value into a `serde_json::Value`. Not on the read path.
     #[must_use]
     pub fn to_value(&self) -> Value {
@@ -137,8 +220,92 @@ impl Encode for CheckedJson {
         &self,
         writer: &mut Writer<'_, S>,
     ) -> Result<(), CanonicalError> {
-        self.node().encode_into(writer)
+        encode_node(self.node(), writer)
     }
+}
+
+/// Writes one document value from an explicit heap stack, kept on the
+/// writer's reservation. An integer past 2^53 is the encoder's refusal, as it
+/// is for a `serde_json` number: the document holds the number's text, so a
+/// double would otherwise silently round it.
+const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
+
+pub(super) fn encode_node<S: Sink + ?Sized>(
+    root: NodeRef<'_>,
+    writer: &mut Writer<'_, S>,
+) -> Result<(), CanonicalError> {
+    const MAXIMUM_INTEGER: u128 = 1 << 53;
+    enum Task<'d> {
+        Value(NodeRef<'d>),
+        Name(&'d str),
+        EndArray,
+        EndObject,
+    }
+    let mut tasks = Vec::new();
+    writer.reserve_list(&mut tasks, 1)?;
+    tasks.push(Task::Value(root));
+    while let Some(task) = tasks.pop() {
+        match task {
+            Task::Value(value) => match value.node() {
+                Node::Null => writer.null()?,
+                Node::Bool(flag) => writer.bool(flag)?,
+                Node::Number(number) => match number.text().parse::<i128>() {
+                    Ok(integer) if integer.unsigned_abs() > MAXIMUM_INTEGER => {
+                        return Err(CanonicalError::IntegerMagnitudeAboveMaximum(integer));
+                    }
+                    Ok(integer) => writer.integer(integer)?,
+                    Err(_) => {
+                        let float = number.value();
+                        if float.fract() == 0.0 && float.abs() > MAXIMUM_INTEGER as f64 {
+                            return Err(CanonicalError::Internal {
+                                invariant: "an integer past 2^53 is not canonical",
+                            });
+                        }
+                        writer.number(float)?;
+                    }
+                },
+                Node::String(text) => writer.string(text)?,
+                Node::Array(items) => {
+                    writer.begin_array()?;
+                    let start = tasks.len();
+                    writer.reserve_list(&mut tasks, items.len().saturating_add(1))?;
+                    tasks.push(Task::EndArray);
+                    tasks.extend(items.map(Task::Value));
+                    tasks.get_mut(start + 1..).unwrap_or_default().reverse();
+                }
+                Node::Object(members) => {
+                    // serde_json reads an object whose first member is this
+                    // private name as a number, so two byte strings would
+                    // decode to one package: the spelling is not canonical.
+                    let mut members = members.peekable();
+                    if members
+                        .peek()
+                        .is_some_and(|(name, _)| *name == SERDE_JSON_NUMBER_TOKEN)
+                    {
+                        return Err(CanonicalError::Internal {
+                            invariant: "serde_json's number token is not canonical",
+                        });
+                    }
+                    writer.begin_object()?;
+                    let start = tasks.len();
+                    writer.reserve_list(
+                        &mut tasks,
+                        members.len().saturating_mul(2).saturating_add(1),
+                    )?;
+                    tasks.push(Task::EndObject);
+                    for (name, member) in members {
+                        tasks.push(Task::Name(name));
+                        tasks.push(Task::Value(member));
+                    }
+                    tasks.get_mut(start + 1..).unwrap_or_default().reverse();
+                }
+            },
+            Task::Name(name) => writer.name(name)?,
+            Task::EndArray => writer.end_array()?,
+            Task::EndObject => writer.end_object()?,
+        }
+    }
+    Ok(())
 }
 
 impl PartialEq for CheckedJson {

@@ -672,12 +672,14 @@ fn literal_range(term: &Value) -> Result<CheckedScalarOperandRange, CheckedCompa
     if term.get("value_kind").and_then(Value::as_str) != Some("integer") {
         return Err(Refusal::IneligibleOperand);
     }
-    integer_value_range(term.get("value").ok_or(Refusal::IneligibleOperand)?)
+    integer_value_range(&super::CheckedJson::scalar(
+        term.get("value").ok_or(Refusal::IneligibleOperand)?,
+    ))
 }
 
 fn typed_literal_range(
     kind: LiteralKind,
-    value: &Value,
+    value: &super::CheckedJson,
 ) -> Result<CheckedScalarOperandRange, CheckedComparisonRefusal> {
     if kind != LiteralKind::Integer {
         return Err(CheckedComparisonRefusal::IneligibleOperand);
@@ -686,7 +688,7 @@ fn typed_literal_range(
 }
 
 fn integer_value_range(
-    value: &Value,
+    value: &super::CheckedJson,
 ) -> Result<CheckedScalarOperandRange, CheckedComparisonRefusal> {
     use CheckedComparisonRefusal as Refusal;
     let text = value.as_str().ok_or(Refusal::IneligibleOperand)?;

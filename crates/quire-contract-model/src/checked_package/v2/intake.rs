@@ -82,27 +82,39 @@ fn position_member_shape(body: &Value) -> bool {
 // arbitrary JSON term. Those terms are decoded after the outer typed wire
 // frame has returned, keeping their recursion off its call stack. Every other
 // member is decoded by the same public type as the admitted wire.
-type BorrowedWire = CheckedPackageEnvelope<
-    Box<str>,
-    Box<str>,
-    CheckedPackageLockV2,
-    BorrowedGraph,
-    Vec<CheckedSourceMapEntry>,
-    Vec<super::refinement::CheckedRefinementStepRowRegion>,
-    super::checked_term_data::CheckedTermDataV2,
-    Vec<super::temporal_binding::TemporalBinding>,
-    Vec<super::TemporalClauseName>,
-    Vec<super::CheckedSchedulabilityClaimRow>,
-    Vec<super::CheckedOperationEffectRow>,
-    Vec<CheckedCapability>,
-    BorrowedDiagnostics,
->;
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BorrowedWire {
+    contract_version: Box<str>,
+    name: Box<str>,
+    lock: CheckedPackageLockV2,
+    semantic_graph: BorrowedGraph,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    source_map: Vec<CheckedSourceMapEntry>,
+    #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
+    refinement_step_rows: Option<Vec<super::refinement::CheckedRefinementStepRowRegion>>,
+    #[serde(default)]
+    checked_term_data: Option<super::checked_term_data::CheckedTermDataV2>,
+    #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
+    temporal_bindings: Option<Vec<super::temporal_binding::TemporalBinding>>,
+    #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
+    temporal_clause_names: Option<Vec<super::TemporalClauseName>>,
+    #[serde(default, deserialize_with = "super::document_de::exact_optional_vec")]
+    schedulability_claims: Option<Vec<super::CheckedSchedulabilityClaimRow>>,
+    #[serde(default, deserialize_with = "super::operation_effects::present_rows")]
+    operation_effects: Option<Vec<super::CheckedOperationEffectRow>>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
+    capability_report: Vec<CheckedCapability>,
+    diagnostics: BorrowedDiagnostics,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BorrowedGraph {
     graph_version: Box<str>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     nodes: Vec<BorrowedNode>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     operand_rows: Vec<Vec<u64>>,
 }
 
@@ -149,7 +161,9 @@ struct BorrowedNode {
     node_tag: Box<str>,
     semantic_form: Box<str>,
     semantic_type: WireNodeId,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     dependencies: Vec<WireNodeId>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     occurrences: Vec<CheckedOccurrence>,
     #[serde(default)]
     recursion_group: Option<Box<str>>,
@@ -175,6 +189,7 @@ where
 #[serde(deny_unknown_fields)]
 struct BorrowedDiagnostics {
     catalog: CheckedArtifactRef,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     entries: Vec<BorrowedDiagnostic>,
 }
 
@@ -184,7 +199,9 @@ struct BorrowedDiagnostic {
     stage: CheckedDiagnosticStage,
     code: CheckedDiagnosticCode,
     cause_tag: CheckedDiagnosticCause,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     details: Vec<CheckedJson>,
+    #[serde(deserialize_with = "super::document_de::exact_vec")]
     loci: Vec<CheckedSourceRegion>,
 }
 

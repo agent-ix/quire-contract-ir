@@ -293,7 +293,7 @@ pub struct CheckedDispatchCandidate {
 #[serde(deny_unknown_fields)]
 pub struct CheckedEffectiveId {
     /// Owning effective type, absent for an effective type declaration.
-    #[serde(deserialize_with = "super::required_nullable")]
+    #[serde(deserialize_with = "super::document_de::charged_nullable_box")]
     pub owner_effective_type: Option<Box<CheckedEffectiveId>>,
     /// Exact original declaration key.
     pub original: CheckedOriginalDeclarationId,
