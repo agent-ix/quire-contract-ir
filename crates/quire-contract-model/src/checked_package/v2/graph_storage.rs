@@ -697,13 +697,17 @@ impl<'m, 'b> MeterReservation<'m, 'b> {
 
 impl quire_walk::Reservation for MeterReservation<'_, '_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_walk::Denied> {
-        self.ask(bytes).map_err(|()| quire_walk::Denied)
+        super::observe_allocation_class("walker_growth", || {
+            self.ask(bytes).map_err(|()| quire_walk::Denied)
+        })
     }
 }
 
 impl quire_exact::Reservation for MeterReservation<'_, '_> {
     fn reserve(&mut self, bytes: usize) -> Result<(), quire_exact::ReservationDenied> {
-        self.ask(bytes).map_err(|()| quire_exact::ReservationDenied)
+        super::observe_allocation_class("exact_reservation", || {
+            self.ask(bytes).map_err(|()| quire_exact::ReservationDenied)
+        })
     }
 }
 

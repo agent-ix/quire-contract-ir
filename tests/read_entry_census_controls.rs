@@ -106,3 +106,41 @@ fn unwrapped_shared_helper_after_trusted_read_must_fail_census() {
     ));
     unwrapped_shared_helper(&evidence);
 }
+
+fn unwrapped_budgeted_function_item(evidence: &CheckedPackageEvidence) {
+    let entry = CheckedPackageV2::read_with_budget;
+    let mut budget =
+        quire_contract_model::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(u64::MAX);
+    let result = entry(
+        b"not json",
+        CheckedPackageReadLimits::bounded(),
+        evidence,
+        &mut budget,
+    );
+    let quire_contract_model::CheckedPackageV2BudgetedReadResult::Refused(refusal) = result else {
+        panic!("the original malformed budgeted-input oracle must refuse");
+    };
+    assert_eq!(refusal.code, CheckedPackageRefusalCode::MalformedWire);
+}
+
+#[test]
+fn unwrapped_budgeted_function_item_before_trusted_read_must_fail_census() {
+    let evidence = CheckedPackageEvidence::new();
+    unwrapped_budgeted_function_item(&evidence);
+    malformed(read_and_account(
+        b"not json",
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ));
+}
+
+#[test]
+fn unwrapped_budgeted_function_item_after_trusted_read_must_fail_census() {
+    let evidence = CheckedPackageEvidence::new();
+    malformed(read_and_account(
+        b"not json",
+        CheckedPackageReadLimits::bounded(),
+        &evidence,
+    ));
+    unwrapped_budgeted_function_item(&evidence);
+}

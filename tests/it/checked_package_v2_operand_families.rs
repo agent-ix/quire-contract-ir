@@ -11,7 +11,7 @@ use crate::support::checked_package::{
 use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedLiteralValue, CheckedPackageLimit, CheckedPackageReadLimits, CheckedPackageRefusalCause,
-    CheckedPackageRefusalCode, CheckedPackageV2, CheckedPackageV2ReadResult,
+    CheckedPackageRefusalCode, CheckedPackageV2ReadResult,
 };
 use serde_json::{json, Value};
 
@@ -298,7 +298,7 @@ fn change_literal_type(package: &mut Value, position: usize, ty: &str) {
 }
 
 fn read(package: &Value) -> CheckedPackageV2ReadResult {
-    CheckedPackageV2::read(
+    crate::read_and_account(
         &canonical(package),
         CheckedPackageReadLimits::bounded(),
         &evidence_for(package),
@@ -678,7 +678,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
         let middle = lower + (upper - lower) / 2;
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = middle;
-        match CheckedPackageV2::read(&canonical(&package), limits, &evidence_for(&package)) {
+        match crate::read_and_account(&canonical(&package), limits, &evidence_for(&package)) {
             CheckedPackageV2ReadResult::Admitted(_) => upper = middle,
             CheckedPackageV2ReadResult::Incomplete(_) => lower = middle,
             other => panic!("valid native package refused: {other:?}"),
@@ -698,7 +698,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
         let middle = low + (high - low) / 2;
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = middle;
-        match CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed)) {
+        match crate::read_and_account(&canonical(&malformed), limits, &evidence_for(&malformed)) {
             CheckedPackageV2ReadResult::Incomplete(_) => low = middle,
             CheckedPackageV2ReadResult::Refused(_) => high = middle,
             other => panic!("malformed native package admitted: {other:?}"),
@@ -712,7 +712,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high - 1;
     let CheckedPackageV2ReadResult::Incomplete(incomplete) =
-        CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed))
+        crate::read_and_account(&canonical(&malformed), limits, &evidence_for(&malformed))
     else {
         panic!("malformed native package must exhaust work before its payload refusal");
     };
@@ -722,7 +722,7 @@ fn native_literal_work_limit_precedes_later_payload_defect() {
     let mut limits = CheckedPackageReadLimits::bounded();
     limits.work = high;
     let CheckedPackageV2ReadResult::Refused(actual) =
-        CheckedPackageV2::read(&canonical(&malformed), limits, &evidence_for(&malformed))
+        crate::read_and_account(&canonical(&malformed), limits, &evidence_for(&malformed))
     else {
         panic!("malformed native package did not refuse at its payload threshold");
     };
@@ -1560,7 +1560,7 @@ fn genuine_integer_fold_with_both_authored_binders_is_admitted() {
     let mut evidence = quire_contract_model::CheckedPackageEvidence::new();
     evidence.support_feature("quire.value.complete/v1");
     let CheckedPackageV2ReadResult::Admitted(package) =
-        CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), &evidence)
+        crate::read_and_account(bytes, CheckedPackageReadLimits::bounded(), &evidence)
     else {
         panic!("genuine Integer fold with accumulator and element binders must admit");
     };
@@ -1622,7 +1622,7 @@ fn genuine_monitor_base_fold_is_admitted_without_removing_semantics() {
         diagnostics: 10_000,
         work: 1_000_000_000,
     };
-    let package = match CheckedPackageV2::read(bytes, limits, &evidence) {
+    let package = match crate::read_and_account(bytes, limits, &evidence) {
         CheckedPackageV2ReadResult::Admitted(package) => package,
         other => panic!("complete genuine monitor-base fold must admit: {other:?}"),
     };

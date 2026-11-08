@@ -135,7 +135,7 @@ pub(super) fn package(policy: &str, response: bool, high: bool, occurrences: u64
 }
 
 fn admitted(package: &Value) -> Box<CheckedPackageV2> {
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &fixtures::canonical(package),
         CheckedPackageReadLimits::bounded(),
         &fixtures::evidence_for(package),
@@ -300,7 +300,7 @@ fn absent_index_stays_absent_and_raw_rows_do_not_authenticate_claims() {
         .unwrap()
         .remove("schedulability_claims");
     fixtures::refresh_identity(&mut missing);
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &fixtures::canonical(&missing),
         CheckedPackageReadLimits::bounded(),
         &fixtures::evidence_for(&missing),
@@ -355,7 +355,7 @@ fn complete_writer_preserves_supplied_index_order_without_repair() {
     let encoded: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(encoded["schedulability_claims"][0]["occurrence"], 1);
     assert_eq!(encoded["schedulability_claims"][1]["occurrence"], 0);
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &bytes,
         CheckedPackageReadLimits::bounded(),
         &fixtures::evidence_for(&encoded),
@@ -383,7 +383,7 @@ fn explicit_empty_identity_index_is_malformed_even_without_claim_nodes() {
     let mut wire = fixtures::v2_all_families();
     wire["schedulability_claims"] = json!([]);
     fixtures::refresh_identity(&mut wire);
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &fixtures::canonical(&wire),
         CheckedPackageReadLimits::bounded(),
         &fixtures::evidence_for(&wire),
@@ -413,7 +413,7 @@ fn carrier_work_is_charged_before_a_row_is_resolved() {
     let read = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
-        CheckedPackageV2::read(&bytes, limits, &evidence)
+        crate::read_and_account(&bytes, limits, &evidence)
     };
     let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
     while low + 1 < high {
@@ -458,7 +458,7 @@ fn refuses(
     cause: Option<quire_contract_model::CheckedPackageRefusalCause>,
     path: &str,
 ) {
-    let result = CheckedPackageV2::read(
+    let result = crate::read_and_account(
         &fixtures::canonical(wire),
         CheckedPackageReadLimits::bounded(),
         &fixtures::evidence_for(wire),
@@ -608,7 +608,7 @@ fn exact_measured_work_admits_and_one_less_has_no_admitted_view() {
     let read = |work| {
         let mut limits = CheckedPackageReadLimits::bounded();
         limits.work = work;
-        CheckedPackageV2::read(&bytes, limits, &evidence)
+        crate::read_and_account(&bytes, limits, &evidence)
     };
     let (mut low, mut high) = (0, CheckedPackageReadLimits::bounded().work);
     while low + 1 < high {
@@ -760,7 +760,7 @@ fn claim_carrier_tables_and_order_are_charged_exactly() {
         let bytes = fixtures::canonical(wire);
         let evidence = fixtures::evidence_for(wire);
         let read = move |budget: &mut NativeJoinBudget| {
-            CheckedPackageV2::read_with_budget(
+            crate::qspec_read_proof::read_budget_and_account(
                 &bytes,
                 CheckedPackageReadLimits::bounded(),
                 &evidence,

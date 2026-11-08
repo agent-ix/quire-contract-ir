@@ -879,6 +879,7 @@ impl ContractPackageV1 {
                         Ok(())
                     },
                     ids,
+                    None,
                 )
             })?;
             work.charge(body_work.saturating_mul(4))
@@ -2930,6 +2931,7 @@ impl ContractPackageWireV1 {
                     &Trail::Base(&steps),
                     &mut |_, _, _, _, _| Ok(()),
                     ids,
+                    None,
                 )
             })?;
             work_meter.charge(work, || at.clone().key("body"))?;
@@ -3398,6 +3400,7 @@ impl ContractPackageWireV1 {
                         Ok(())
                     },
                     ids,
+                    None,
                 )
             })?;
             if let Some(pointer) = missing {
@@ -3642,6 +3645,7 @@ fn body_reference_pointer(
                 Ok(())
             },
             ids,
+            None,
         )
     });
     found.unwrap_or_else(|| super::node_pointer(position).key("body"))

@@ -123,9 +123,38 @@ pub(in crate::checked_package) fn exact_rows<'de, D>(
 where
     D: de::Deserializer<'de>,
 {
-    // Decode directly into the final outer vector. The document sequence
-    // access charges each row's `Vec<u64>` allocation as it is decoded.
-    exact_vec::<D, Vec<u64>>(deserializer)
+    struct RowSeed;
+    impl<'de> de::DeserializeSeed<'de> for RowSeed {
+        type Value = Vec<u64>;
+        fn deserialize<D: de::Deserializer<'de>>(
+            self,
+            deserializer: D,
+        ) -> Result<Self::Value, D::Error> {
+            exact_vec(deserializer)
+        }
+    }
+    struct Rows;
+    impl<'de> Visitor<'de> for Rows {
+        type Value = Vec<Vec<u64>>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("operand rows")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            let mut rows = Vec::with_capacity(sequence.size_hint().unwrap_or(0));
+            while let Some(row) = sequence.next_element_seed(RowSeed)? {
+                rows.push(row);
+            }
+            Ok(rows)
+        }
+        fn visit_newtype_struct<D: de::Deserializer<'de>>(
+            self,
+            inner: D,
+        ) -> Result<Self::Value, D::Error> {
+            inner.deserialize_seq(self)
+        }
+    }
+    ELEMENT_BYTES.with(|bytes| bytes.set(std::mem::size_of::<Vec<u64>>()));
+    deserializer.deserialize_newtype_struct(SEQUENCE_TOKEN, Rows)
 }
 
 /// [`exact_vec`] for an optional member: absent stays `None`.
@@ -706,8 +735,7 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
         }
         if name == BOX_TOKEN {
             let bytes = BOX_BYTES.with(Cell::get);
-            self.context.charge(bytes)?;
-            return visitor.visit_newtype_struct(self);
+            return visitor.visit_newtype_struct(AfterBoxValue { value: self, bytes });
         }
         if name == NODE_ID_TOKEN {
             let locus = self.context.locus();
@@ -765,6 +793,60 @@ impl<'de, 'c> de::Deserializer<'de> for ValueDe<'c, 'de> {
         }
     }
 
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str bytes byte_buf unit
+        unit_struct seq tuple tuple_struct map struct identifier ignored_any
+    }
+}
+
+/// Decode the value before asking for its enclosing Box. A child failure
+/// never requested that box; a successful value is charged immediately before
+/// the enclosing visitor constructs it. Capture bytes before nested metadata changes.
+struct AfterBoxValue<'c, 'd> {
+    value: ValueDe<'c, 'd>,
+    bytes: usize,
+}
+impl<'de, 'c> de::Deserializer<'de> for AfterBoxValue<'c, 'de> {
+    type Error = Error;
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        let context = self.value.context;
+        let value = self.value.deserialize_any(visitor)?;
+        context.charge(self.bytes)?;
+        Ok(value)
+    }
+    fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        let context = self.value.context;
+        let value = self.value.deserialize_string(visitor)?;
+        context.charge(self.bytes)?;
+        Ok(value)
+    }
+    fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        let context = self.value.context;
+        let value = self.value.deserialize_option(visitor)?;
+        context.charge(self.bytes)?;
+        Ok(value)
+    }
+    fn deserialize_newtype_struct<V: Visitor<'de>>(
+        self,
+        name: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, Error> {
+        let context = self.value.context;
+        let value = self.value.deserialize_newtype_struct(name, visitor)?;
+        context.charge(self.bytes)?;
+        Ok(value)
+    }
+    fn deserialize_enum<V: Visitor<'de>>(
+        self,
+        name: &'static str,
+        variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Error> {
+        let context = self.value.context;
+        let value = self.value.deserialize_enum(name, variants, visitor)?;
+        context.charge(self.bytes)?;
+        Ok(value)
+    }
     serde::forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str bytes byte_buf unit
         unit_struct seq tuple tuple_struct map struct identifier ignored_any
@@ -1257,5 +1339,87 @@ mod tests {
                 Some(u128::from(required))
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod nested_box_storage_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Leaf {
+        label: Box<str>,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Payload {
+        #[serde(deserialize_with = "charged_nullable_box")]
+        child: Option<Box<Leaf>>,
+        tag: u64,
+        spare: u64,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Envelope {
+        #[serde(deserialize_with = "charged_nullable_box")]
+        owner: Option<Box<Payload>>,
+    }
+    #[test]
+    #[trace("TC-472", "FR-038-AC-511")]
+    fn nested_boxes_capture_outer_size_and_charge_only_after_successful_children() {
+        let wire = serde_json::json!({"owner":{"child":{"label":"abc"},"tag":7,"spare":11}});
+        let healthy = CheckedJson::from_value(&wire).expect("document");
+        let malformed = CheckedJson::from_value(
+            &serde_json::json!({"owner":{"child":{"label":false},"tag":7,"spare":11}}),
+        )
+        .expect("document");
+        let run = |body: &CheckedJson, limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let allocated = allocation_counter::measure(|| {
+                let context = DecodeContext::new(body.document(), &mut budget);
+                result = Some(Envelope::deserialize(context.value_at(body.node())));
+                budget = context.finish();
+            });
+            (result.expect("decode"), budget, allocated.bytes_total)
+        };
+        let exact = (std::mem::size_of::<Payload>() + std::mem::size_of::<Leaf>() + 3) as u64;
+        assert_ne!(std::mem::size_of::<Payload>(), std::mem::size_of::<Leaf>());
+        let (result, budget, allocated) = run(&healthy, exact);
+        let owner = result.expect("typed").owner.expect("owner");
+        assert_eq!(owner.child.as_ref().expect("child").label.as_ref(), "abc");
+        assert_eq!((owner.tag, owner.spare), (7, 11));
+        assert_eq!(allocated, exact);
+        assert_eq!(budget.read_storage_consumed(), exact);
+        let (result, budget, allocated) = run(&healthy, exact - 1);
+        assert!(result.is_err());
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some(std::mem::size_of::<Payload>() as u128)
+        );
+        assert_eq!(allocated, 3 + std::mem::size_of::<Leaf>() as u64);
+        assert_eq!(allocated, budget.read_storage_consumed());
+        let (result, budget, allocated) = run(&healthy, 0);
+        assert!(result.is_err());
+        assert_eq!(allocated, 0);
+        assert_eq!(budget.read_storage_consumed(), 0);
+        assert_eq!(budget.first_unpaid_read_storage(), Some(3));
+        let (result, budget, allocated) = run(&malformed, u64::MAX);
+        assert!(result.is_err());
+        assert_eq!(allocated, 0);
+        assert_eq!(budget.read_storage_consumed(), 0);
+        assert!(budget.first_unpaid_read_storage().is_none());
+        let ordinary: Envelope = serde_json::from_value(wire).expect("ordinary serde");
+        assert_eq!(
+            ordinary
+                .owner
+                .expect("owner")
+                .child
+                .expect("child")
+                .label
+                .as_ref(),
+            "abc"
+        );
     }
 }

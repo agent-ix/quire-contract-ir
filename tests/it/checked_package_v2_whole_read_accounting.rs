@@ -902,17 +902,41 @@ fn every_registered_positive_and_refusal_is_a_genuine_public_input() {
     );
 }
 
+fn registered_cases() -> Vec<Case> {
+    let (published, _) = qspec_cases();
+    positive_cases()
+        .into_iter()
+        .chain(published)
+        .chain(refusal_cases())
+        .collect()
+}
+
+/// A fast core tier over the very same real registry. Full boundary discovery
+/// remains a separate test; this tier does not claim normative sweep coverage.
+#[trace("TC-472", "FR-038-AC-511", "FR-038-AC-512")]
+#[test]
+fn every_registered_input_has_exact_accounting_at_core_bounds() {
+    initialize_operation_catalog().expect("catalog gate");
+    let cases = registered_cases();
+    assert!(!cases.is_empty(), "the real registered corpus is nonempty");
+    eprintln!("Registry core tier: {} actual inputs; ample/exact/last-short/repeat; full-boundary proof=false", cases.len());
+    for input in cases {
+        eprintln!("Registry core actual input: {}", input.label);
+        proof::assert_read::<IntegrationCounter>(
+            &input.label,
+            &input.bytes,
+            &input.evidence,
+            input.expected,
+        );
+    }
+}
+
 #[trace("TC-472", "FR-038-AC-511")]
 #[test]
 fn the_actual_tc048_catalogue_and_refusal_corpus_is_exactly_accounted() {
     initialize_operation_catalog().expect("catalog gate");
-    let (published, _) = qspec_cases();
-    let cases = positive_cases()
-        .into_iter()
-        .chain(published)
-        .chain(refusal_cases())
-        .collect::<Vec<_>>();
-    for input in cases {
+    for input in registered_cases() {
+        eprintln!("Registry full actual input: {}", input.label);
         proof::assert_read::<IntegrationCounter>(
             &input.label,
             &input.bytes,

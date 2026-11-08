@@ -49,7 +49,7 @@ impl PartialEq for CheckedApplicationOperation {
         self.record.identity == other.record.identity
             && self.record.laws == other.record.laws
             && self.record.mode == other.record.mode
-            && self.record.member == other.record.member
+            && self.record.member_equal(&other.record)
             && self.record.leaves == other.record.leaves
             && self.record.malformed == other.record.malformed
             && self.execution_point == other.execution_point
@@ -92,7 +92,181 @@ pub(super) struct CheckedOperationMemberIds {
     pub(super) target_parallel: Option<CheckedNodeId>,
 }
 
+/// Canonical member content with node-valued fields borrowed from the typed
+/// IDs decoded with the operation's operand row. Other fields remain exact.
+#[derive(Clone, Copy)]
+struct MemberProjection<'a> {
+    node: quire_canonical::NodeRef<'a>,
+    ids: &'a CheckedOperationMemberIds,
+    scope: MemberScope,
+    remapped: Option<&'a [(CheckedNodeId, CheckedNodeId)]>,
+}
+#[derive(Clone, Copy)]
+enum MemberScope {
+    Root,
+    Target,
+    Raw,
+}
+impl<'a> MemberProjection<'a> {
+    fn mapped(&self, id: &'a CheckedNodeId) -> &'a CheckedNodeId {
+        self.remapped
+            .and_then(|rows| rows.iter().find(|(old, _)| old == id).map(|(_, new)| new))
+            .unwrap_or(id)
+    }
+
+    fn id(&self, name: &str) -> Option<&'a CheckedNodeId> {
+        match (self.scope, name) {
+            (MemberScope::Root, "declaration") => self.ids.declaration.as_ref(),
+            (MemberScope::Root, "context") => self.ids.context.as_ref(),
+            (MemberScope::Root, "destination_type") => self.ids.destination_type.as_ref(),
+            (MemberScope::Root, "population") => self.ids.population.as_ref(),
+            (MemberScope::Target, "declaration") => self.ids.target_declaration.as_ref(),
+            (MemberScope::Target, "node") => self.ids.target_node.as_ref(),
+            (MemberScope::Target, "parallel") => self.ids.target_parallel.as_ref(),
+            _ => None,
+        }
+    }
+    fn child(self, name: &str, node: quire_canonical::NodeRef<'a>) -> Self {
+        Self {
+            node,
+            ids: self.ids,
+            remapped: self.remapped,
+            scope: if matches!(self.scope, MemberScope::Root) && name == "target" {
+                MemberScope::Target
+            } else {
+                MemberScope::Raw
+            },
+        }
+    }
+}
+impl Serialize for MemberProjection<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if let Some(remapped) = self.remapped {
+            if let Some(id) = structural_member_id(super::TermNode::from_ref(self.node)) {
+                if let Some((_, mapped)) = remapped.iter().find(|(old, _)| old == &id) {
+                    return mapped.serialize(serializer);
+                }
+            }
+        }
+        if matches!(self.scope, MemberScope::Raw) && self.remapped.is_none() {
+            return super::checked_json::serialize_node(self.node, serializer);
+        }
+        let quire_canonical::Node::Object(members) = self.node.node() else {
+            return super::checked_json::serialize_node(self.node, serializer);
+        };
+        let mut map = serializer.serialize_map(Some(members.len()))?;
+        for (name, node) in members {
+            if let Some(id) = self.id(name) {
+                map.serialize_entry(name, self.mapped(id))?;
+            } else {
+                map.serialize_entry(name, &self.child(name, node))?;
+            }
+        }
+        map.end()
+    }
+}
+impl Encode for MemberProjection<'_> {
+    fn encode_into<S: Sink + ?Sized>(&self, writer: &mut Writer<'_, S>) -> Result<(), Error> {
+        if matches!(self.scope, MemberScope::Raw) {
+            return super::checked_json::encode_node(self.node, writer);
+        }
+        let quire_canonical::Node::Object(members) = self.node.node() else {
+            return super::checked_json::encode_node(self.node, writer);
+        };
+        writer.begin_object()?;
+        for (name, node) in members {
+            writer.name(name)?;
+            if let Some(id) = self.id(name) {
+                self.mapped(id).encode_into(writer)?;
+            } else {
+                self.child(name, node).encode_into(writer)?;
+            }
+        }
+        writer.end_object()
+    }
+}
+
+/// Closed member shapes fit this inline stack. Arbitrary outside-reader
+/// payloads spill safely rather than recursing with their document depth.
+struct MemberPairs<'a, 'b> {
+    inline: [Option<(MemberProjection<'a>, MemberProjection<'b>)>; 16],
+    used: usize,
+    spill: Vec<(MemberProjection<'a>, MemberProjection<'b>)>,
+}
+impl<'a, 'b> MemberPairs<'a, 'b> {
+    fn new() -> Self {
+        Self {
+            inline: [None; 16],
+            used: 0,
+            spill: Vec::new(),
+        }
+    }
+    fn push(&mut self, pair: (MemberProjection<'a>, MemberProjection<'b>)) {
+        if self.used < self.inline.len() && self.spill.is_empty() {
+            self.inline[self.used] = Some(pair);
+            self.used += 1;
+        } else {
+            self.spill.push(pair);
+        }
+    }
+    fn pop(&mut self) -> Option<(MemberProjection<'a>, MemberProjection<'b>)> {
+        if let Some(pair) = self.spill.pop() {
+            return Some(pair);
+        }
+        self.used = self.used.checked_sub(1)?;
+        self.inline[self.used].take()
+    }
+}
+fn projected_members_equal(left: MemberProjection<'_>, right: MemberProjection<'_>) -> bool {
+    use quire_canonical::Node;
+    let mut pending = MemberPairs::new();
+    pending.push((left, right));
+    while let Some((left, right)) = pending.pop() {
+        match (left.node.node(), right.node.node()) {
+            (Node::Null, Node::Null) => {}
+            (Node::Bool(a), Node::Bool(b)) if a == b => {}
+            (Node::String(a), Node::String(b)) if a == b => {}
+            (Node::Number(a), Node::Number(b)) if a.text() == b.text() => {}
+            (Node::Array(a), Node::Array(b)) if a.len() == b.len() => {
+                for (a, b) in a.zip(b) {
+                    pending.push((left.child("", a), right.child("", b)));
+                }
+            }
+            (Node::Object(a), Node::Object(b)) if a.len() == b.len() => {
+                for ((name, a), (other, b)) in a.zip(b) {
+                    if name != other {
+                        return false;
+                    }
+                    match (left.id(name), right.id(name)) {
+                        (Some(a), Some(b)) if a == b => {}
+                        (None, None) => pending.push((left.child(name, a), right.child(name, b))),
+                        _ => return false,
+                    }
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
 impl CheckedApplicationOperationRecord {
+    fn projected_member(&self) -> Option<MemberProjection<'_>> {
+        self.member.as_ref().map(|member| MemberProjection {
+            node: member.node(),
+            ids: &self.member_ids,
+            scope: MemberScope::Root,
+            remapped: None,
+        })
+    }
+    fn member_equal(&self, other: &Self) -> bool {
+        match (self.projected_member(), other.projected_member()) {
+            (Some(left), Some(right)) => projected_members_equal(left, right),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+
     pub(super) fn malformed(raw: CheckedJson) -> Self {
         Self {
             identity: None,
@@ -264,7 +438,7 @@ impl Encode for CheckedApplicationOperationRecord {
         super::encode::member(writer, "laws", &self.laws)?;
         super::encode::member(writer, "leaves", &self.leaves)?;
         writer.name("member")?;
-        match &self.member {
+        match self.projected_member() {
             Some(member) => member.encode_into(writer)?,
             None => writer.null()?,
         }
@@ -284,7 +458,7 @@ impl Serialize for CheckedApplicationOperationRecord {
         }
         map.serialize_entry("laws", &self.laws)?;
         map.serialize_entry("mode", &self.mode)?;
-        map.serialize_entry("member", &self.member)?;
+        map.serialize_entry("member", &self.projected_member())?;
         map.serialize_entry("leaves", &self.leaves)?;
         map.end()
     }
@@ -676,18 +850,6 @@ impl CheckedFairnessTarget {
     }
 
     pub(super) fn node_mut(&mut self) -> &mut CheckedNodeId {
-        match self {
-            Self::Operation { declaration, .. } | Self::HybridTransition { declaration, .. } => {
-                declaration
-            }
-            Self::ProtocolRoot { node }
-            | Self::AttemptNode { node }
-            | Self::CompensationTemplate { node } => node,
-            Self::ParallelBranch { parallel, .. } => parallel,
-        }
-    }
-
-    pub(super) fn node(&self) -> &CheckedNodeId {
         match self {
             Self::Operation { declaration, .. } | Self::HybridTransition { declaration, .. } => {
                 declaration
@@ -1273,10 +1435,13 @@ impl CheckedApplicationOperation {
             record: Box::new(CheckedApplicationOperationRecord {
                 identity: fixture.identity.map(Into::into),
                 laws,
-                mode: fixture.mode.map(|(kind, value)| CheckedOperationModeWire {
-                    kind: kind.as_wire().into(),
-                    value,
-                }),
+                mode: fixture
+                    .mode
+                    .as_ref()
+                    .map(|(kind, value)| CheckedOperationModeWire {
+                        kind: kind.as_wire().into(),
+                        value: value.clone(),
+                    }),
                 member,
                 leaves: Vec::new(),
                 member_ids: CheckedOperationMemberIds::default(),
@@ -2135,26 +2300,40 @@ fn map_operation_ids(
     let Some(member_handle) = operation.record.member.as_ref() else {
         return;
     };
-    let root = super::TermNode::of(member_handle);
+    let root = MemberProjection {
+        node: member_handle.node(),
+        ids: &operation.record.member_ids,
+        scope: MemberScope::Root,
+        remapped: None,
+    };
     let mut remapped_ids = Vec::new();
-    let mut pending = vec![root];
-    while let Some(node) = pending.pop() {
-        if let Some(id) = structural_member_id(node) {
+    let mut pending = vec![(root, None)];
+    while let Some((node, typed_id)) = pending.pop() {
+        if let Some(id) = typed_id {
+            if let Some(replacement) = map(id) {
+                remapped_ids.push((id.clone(), replacement));
+            }
+            continue;
+        }
+        if let Some(id) = structural_member_id(super::TermNode::from_ref(node.node)) {
             if let Some(replacement) = map(&id) {
                 remapped_ids.push((id, replacement));
                 continue;
             }
         }
-        if let Some(items) = node.items() {
-            pending.extend(items);
-        } else if let Some(members) = node.members() {
-            pending.extend(members.map(|(_, value)| value));
+        match node.node.node() {
+            quire_canonical::Node::Array(items) => {
+                pending.extend(items.map(|item| (node.child("", item), None)))
+            }
+            quire_canonical::Node::Object(members) => pending
+                .extend(members.map(|(name, value)| (node.child(name, value), node.id(name)))),
+            _ => {}
         }
     }
     operation.record.member = Some(
-        CheckedJson::from_serializable(&RemapNode {
-            node: root,
-            remapped: &remapped_ids,
+        CheckedJson::from_serializable(&MemberProjection {
+            remapped: Some(&remapped_ids),
+            ..root
         })
         .expect("remapped member remains canonical"),
     );
@@ -2171,67 +2350,47 @@ fn map_operation_ids(
     let Some(views) = &mut operation.views else {
         return;
     };
-    for (old, new) in &remapped_ids {
-        views.replace_node_id(old, new);
-    }
-    if let Some(record) = &mut views.record {
-        if let Some(member) = &mut record.member {
-            match member {
-                CheckedOperationMember::Field { declaration, .. }
-                | CheckedOperationMember::Position { declaration, .. }
-                | CheckedOperationMember::Element { declaration }
-                | CheckedOperationMember::Operation { declaration, .. }
-                | CheckedOperationMember::TypeArgument { declaration } => {
-                    for (old, new) in &remapped_ids {
-                        if *declaration == *old {
-                            *declaration = new.clone();
-                        }
-                    }
+    // Apply the simultaneous map once per original field. Sequential old/new
+    // substitution can otherwise remap a destination again when IDs permute.
+    let replace = |id: &mut CheckedNodeId| {
+        if let Some((_, new)) = remapped_ids.iter().find(|(old, _)| old == id) {
+            *id = new.clone();
+        }
+    };
+    if let Some(member) = views
+        .record
+        .as_mut()
+        .and_then(|record| record.member.as_mut())
+    {
+        match member {
+            CheckedOperationMember::Field { declaration, .. }
+            | CheckedOperationMember::Position { declaration, .. }
+            | CheckedOperationMember::Element { declaration }
+            | CheckedOperationMember::Operation { declaration, .. }
+            | CheckedOperationMember::TypeArgument { declaration } => replace(declaration),
+            CheckedOperationMember::Fairness { target, .. } => replace(target.node_mut()),
+            CheckedOperationMember::RelationshipEnd {
+                declaration,
+                destination_type,
+                population,
+                ..
+            } => {
+                replace(declaration);
+                replace(destination_type);
+                if let Some(population) = population {
+                    replace(population);
                 }
-                CheckedOperationMember::Fairness { target, .. } => {
-                    for (old, new) in &remapped_ids {
-                        if target.node() == old {
-                            *target.node_mut() = new.clone();
-                        }
-                    }
-                }
-                CheckedOperationMember::RelationshipEnd {
-                    declaration,
-                    destination_type,
-                    population,
-                    ..
-                } => {
-                    for (old, new) in &remapped_ids {
-                        if *declaration == *old {
-                            *declaration = new.clone();
-                        }
-                        if *destination_type == *old {
-                            *destination_type = new.clone();
-                        }
-                        if population.as_ref() == Some(old) {
-                            *population = Some(new.clone());
-                        }
-                    }
-                }
-                CheckedOperationMember::ProfileOperator { .. }
-                | CheckedOperationMember::StateClause { .. }
-                | CheckedOperationMember::TemporalInterval { .. } => {}
             }
+            CheckedOperationMember::ProfileOperator { .. }
+            | CheckedOperationMember::StateClause { .. }
+            | CheckedOperationMember::TemporalInterval { .. } => {}
         }
     }
     if let Some((declaration, _)) = &mut views.projection_field {
-        for (old, new) in &remapped_ids {
-            if *declaration == *old {
-                *declaration = new.clone();
-            }
-        }
+        replace(declaration);
     }
     if let Some(declaration) = &mut views.member_declaration {
-        for (old, new) in &remapped_ids {
-            if *declaration == *old {
-                *declaration = new.clone();
-            }
-        }
+        replace(declaration);
     }
 }
 
@@ -4406,5 +4565,56 @@ mod selected_edge_budget_tests {
         })
         .unwrap();
         assert_eq!(legacy_terms, 65);
+    }
+}
+
+#[cfg(test)]
+mod member_projection_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    fn id(index: u64) -> CheckedNodeId {
+        CheckedNodeId {
+            package: "p".into(),
+            path: vec![CheckedNodePathSegment::Index(index)],
+            ordinal: 0,
+        }
+    }
+    fn operation(path: serde_json::Value) -> CheckedApplicationOperation {
+        serde_json::from_value(serde_json::json!({"identity":"quire.op.numeric.convert","laws":[],"mode":null,"member":{"kind":"type_argument","declaration":{"package":"p","path":[path],"ordinal":0}},"leaves":[]})).expect("operation")
+    }
+    #[test]
+    #[trace("TC-472", "FR-038-AC-512")]
+    fn operation_member_equality_and_encoding_use_typed_row_resolved_ids() {
+        let mut wire = operation(serde_json::json!({"operand":0}));
+        wire.record.member_ids.declaration = Some(id(2));
+        let indexed = operation(serde_json::json!({"node":2}));
+        assert!(wire.views.is_none() && indexed.views.is_none());
+        let measured = allocation_counter::measure(|| assert_eq!(wire, indexed));
+        assert_eq!(measured.bytes_total, 0);
+        let expected = serde_json::to_value(&indexed).expect("serialize indexed");
+        assert_eq!(
+            serde_json::to_value(&wire).expect("serialize wire"),
+            expected
+        );
+        assert_eq!(
+            quire_canonical::to_vec(&wire, quire_canonical::Limits::new(4096)).expect("encode"),
+            quire_canonical::to_vec(&indexed, quire_canonical::Limits::new(4096))
+                .expect("encode indexed")
+        );
+        let other = operation(serde_json::json!({"node":3}));
+        assert_ne!(wire, other);
+        let mut other_mode = indexed.clone();
+        other_mode.record.mode = Some(CheckedOperationModeWire {
+            kind: "rounding".into(),
+            value: "exact".into(),
+        });
+        assert_ne!(wire, other_mode);
+        map_operation_ids(&mut wire, &mut |old| (old == &id(2)).then(|| id(7)));
+        let projected = operation(serde_json::json!({"node":7}));
+        assert_eq!(wire, projected);
+        assert_eq!(
+            serde_json::to_value(&wire).expect("serialize mapped"),
+            serde_json::to_value(&projected).expect("serialize projected")
+        );
     }
 }

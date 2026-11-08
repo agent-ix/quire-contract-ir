@@ -26,6 +26,21 @@ pub(crate) fn measure_at<C: Counter>(
     work: u64,
     read_storage: u64,
 ) -> Observation {
+    let observation = measure_at_unchecked::<C>(bytes, evidence, limits, work, read_storage);
+    accounted("checked measured public reader", &observation);
+    observation
+}
+
+/// Diagnostic primitive, deliberately not a trusted census boundary. Any
+/// direct use adds a production reader entry without a checked measure_at
+/// entry and therefore fails normative compiler-census arithmetic.
+pub(crate) fn measure_at_unchecked<C: Counter>(
+    bytes: &[u8],
+    evidence: &CheckedPackageEvidence,
+    limits: CheckedPackageReadLimits,
+    work: u64,
+    read_storage: u64,
+) -> Observation {
     let mut budget = NativeJoinBudget::new(work, 0).with_read_storage_limit(read_storage);
 
     let mut result = None;

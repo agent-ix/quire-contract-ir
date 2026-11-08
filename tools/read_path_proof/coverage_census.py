@@ -25,6 +25,7 @@ class CensusError(ValueError):
 BOUNDARIES = {
     ("tests/it/support/qspec_read_proof.rs", "read_and_account"): "plain",
     ("tests/it/support/read_observation.rs", "measure_at"): "budgeted",
+    ("tests/it/support/qspec_read_proof.rs", "measure_seeded"): "budgeted",
     ("tests/it/support/qspec_read_proof.rs", "read_budget_and_account"): "budgeted",
     ("tests/it/support/qspec_read_proof.rs",
      "caller_budget_observation_preserves_prior_charges_and_outer_capture"): "budgeted-calibration",
@@ -118,21 +119,124 @@ def check(export, root):
     budgeted = count(production, "read_with_budget")
     measured_plain = count(wrapper, "read_and_account")
     probes = count("tests/it/support/read_observation.rs", "measure_at")
+    seeded_probes = count(wrapper, "measure_seeded")
     caller_budget = count(wrapper, "read_budget_and_account")
     calibration = count(wrapper, "caller_budget_observation_preserves_prior_charges_and_outer_capture")
-    if measured_plain == 0 or probes == 0:
+    if measured_plain + caller_budget == 0 or probes + seeded_probes == 0:
         raise CensusError("the original-driver corpus did not execute measured read boundaries")
     if plain != measured_plain:
         raise CensusError(f"unaccounted plain entries: production {plain}, measured boundaries {measured_plain}")
-    expected_budgeted = plain + probes + caller_budget + calibration
+    if seeded_probes < 6 * caller_budget:
+        raise CensusError("caller-budget entries lack first/repeated checked OFF/count/record snapshot reads")
+    expected_budgeted = plain + probes + seeded_probes + caller_budget + calibration
     if budgeted != expected_budgeted:
         raise CensusError(f"unaccounted budgeted entries: production {budgeted}, expected {expected_budgeted} "
-                          f"(plain {plain} + probes {probes} + caller-budget {caller_budget} + calibration {calibration})")
-    return {"scope": "executed QSpec original-driver corpus only",
+                          f"(plain {plain} + probes {probes} + seeded-probes {seeded_probes} + caller-budget {caller_budget} + calibration {calibration})")
+    return {"scope": "executed source-snapshot reader invocation census only",
             "plain": plain, "budgeted": budgeted, "measured_plain": measured_plain,
-            "measured_probes": probes, "caller_budget": caller_budget,
+            "measured_probes": probes, "seeded_probes": seeded_probes, "caller_budget": caller_budget,
             "private_counter_calibration": calibration,
             "static_ac513_proven": False}
+
+
+def validate_provenance(export, root, intended, records):
+    for record in records:
+        if record.get("test") not in intended:
+            raise CensusError("runtime record names a test outside the exact intended original set")
+        file = Path(record.get("driver", ""))
+        file = (file if file.is_absolute() else root / file).resolve()
+        if not file.is_relative_to(root):
+            raise CensusError("external runtime callsite needs its own compiled source evidence")
+        line, column = record.get("line"), record.get("column")
+        if not isinstance(line, int) or not isinstance(column, int) or line <= 0 or column <= 0:
+            raise CensusError("invalid captured callsite coordinates")
+        source = file.read_text().splitlines()
+        if line > len(source):
+            raise CensusError("captured callsite is outside the frozen source")
+        spelling = source[line - 1]
+        names = ("read_budget_and_account",) if record.get("entry") == "caller-budget" else ("read_and_account", "fixture_read")
+        if re.search(r"\bfn\s+", spelling) or not any(re.search(r"\b" + name + r"\s*\(", spelling) for name in names):
+            raise CensusError("captured location is not an actual instrumented invocation (function-item shim is unresolved)")
+        executed = False
+        for unit in export["data"]:
+            for function in unit.get("functions", []):
+                indices = {i for i, filename in enumerate(function.get("filenames", []))
+                           if Path(filename).resolve() == file}
+                for region in function.get("regions", []):
+                    if (len(region) >= 8 and region[5] in indices and region[4] > 0
+                            and (region[0], region[1]) <= (line, column) <= (region[2], region[3])):
+                        executed = True
+        if not executed:
+            raise CensusError("runtime callsite has no executed compiler source region")
+
+
+def validate_normative_boundaries(record):
+    events = record.get("native_budget_events")
+    results = record.get("boundary_results")
+    if (record.get("proof_schema") != "native-budget-events/v1"
+            or not isinstance(events, list) or not isinstance(results, list)):
+        raise CensusError("full proof requires actual passive-event normative boundary results")
+    selected = set()
+    stage_last, class_first, class_last = {}, {}, {}
+    designated = record.get("designated_growth_case")
+    exhaustive = {}
+    if designated is not None:
+        if (designated.get("test") != record.get("test")
+                or designated.get("driver") != record.get("driver")
+                or designated.get("line") != record.get("line")
+                or not designated.get("provider")
+                or not isinstance(designated.get("classes"), dict)):
+            raise CensusError("designated growth case lacks exact original-provider provenance")
+        exhaustive = designated["classes"]
+        if not exhaustive or any(kind not in {"walker_growth", "exact_reservation", "exact_limb"}
+                                 for kind in exhaustive.values()):
+            raise CensusError("designated growth classes require source-derived walker/limb roles")
+    seen_exhaustive = set()
+    for index, event in enumerate(events):
+        if not event.get("admitted") or event.get("amount", 0) == 0:
+            continue
+        resource = event.get("resource")
+        if resource == "LogicalStorage":
+            raise CensusError("a read admitted native logical-storage consumption")
+        if resource not in {"Work", "ReadStorage"}:
+            raise CensusError("unknown native observer resource")
+        locus = event.get("locus") or {}
+        match = re.fullmatch(r"PackageRead\(([A-Za-z]+), [0-9]+\)", locus.get("source", ""))
+        if not match or not locus.get("form"):
+            raise CensusError("native event lacks a genuine package-read stage/form")
+        allocation_class = event.get("allocation_class")
+        if resource == "ReadStorage" and not allocation_class:
+            raise CensusError("native reservation has no source-derived allocation class")
+        if resource == "ReadStorage" and allocation_class in exhaustive:
+            selected.add(index)
+            seen_exhaustive.add(allocation_class)
+        stage_last[(resource, match[1])] = index
+        key = (resource, match[1], locus["form"], allocation_class)
+        class_first.setdefault(key, index)
+        class_last[key] = index
+    if seen_exhaustive != set(exhaustive):
+        raise CensusError("designated growth class has no actual native reservation")
+    selected.update(stage_last.values())
+    selected.update(class_first.values())
+    selected.update(class_last.values())
+    if record.get("read_storage", 0) > 0 and not selected:
+        raise CensusError("nonempty read has no actual event-selected boundaries")
+    observed = set()
+    for result in results:
+        index = result.get("event_index")
+        if index not in selected or index in observed:
+            raise CensusError("duplicate or unselected normative boundary result")
+        observed.add(index)
+        event = events[index]
+        next_bound = event["consumed_before"] + event["amount"]
+        if (result.get("exact_bound") != next_bound or result.get("one_below_bound") != next_bound - 1
+                or not result.get("exact_event_admitted") or not result.get("one_below_event_denied")
+                or not result.get("full_repeat_equal") or not result.get("accounting_equal")
+                or result.get("amount") != event["amount"] or result.get("locus") != event["locus"]
+                or result.get("allocation_class") != event.get("allocation_class")):
+            raise CensusError("normative boundary outcome does not match its actual typed event")
+    if observed != selected:
+        raise CensusError("missing normative stage/class/walker/exact boundary results")
 
 
 def check_run(export, root, report, records, mode):
@@ -144,18 +248,23 @@ def check_run(export, root, report, records, mode):
             or set(intended) != set(passed) or len(passed) != len(intended)
             or report.get("failed_tests") or report.get("ignored_tests")):
         raise CensusError("not every intended original-driver test executed successfully once")
+    validate_provenance(export, root, set(intended), records)
     plain = [record for record in records if record.get("entry", "plain") == "plain"]
     caller = [record for record in records if record.get("entry") == "caller-budget"]
     if len(plain) != result["measured_plain"] or len(caller) != result["caller_budget"]:
         raise CensusError("temporary original-site records do not match compiler boundary counts")
+    if any(record.get("snapshot_replay") != "exact-entire-caller-state" for record in caller):
+        raise CensusError("caller-budget capture lacks exact entire-state replay evidence")
     if any(record.get("mode") != mode for record in plain):
         raise CensusError("mixed or missing proof modes in original-driver records")
     if any(not record.get("driver") or not record.get("line") or not record.get("test")
            for record in records):
         raise CensusError("missing original driver/test/callsite provenance")
-    if mode == "full" and any(record.get("proof_schema") != "native-budget-events/v1"
-                              for record in plain):
-        raise CensusError("full proof requires the implemented passive-event normative boundary oracle")
+    if mode == "full":
+        # A caller-budget original entry is not a probe exemption. It must
+        # carry actual full-boundary evidence too; core-only captures stay RED.
+        for record in records:
+            validate_normative_boundaries(record)
     result.update({"original_tests_passed": len(passed), "mode": mode,
                    "normative_boundary_proof": mode == "full"})
     return result

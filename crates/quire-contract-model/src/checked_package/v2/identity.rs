@@ -581,16 +581,10 @@ impl NominalBody {
     }
 
     /// Borrow the nominal body already retained by the typed term decode.
-    pub(super) fn from_term(
-        term: &super::CheckedTerm,
-        at: JsonPointer,
-    ) -> Result<&Self, ValidationFailure> {
+    pub(super) fn from_term(term: &super::CheckedTerm) -> Option<&Self> {
         match term {
-            super::CheckedTerm::NominalBody(body) => Ok(body),
-            _ => Err(ValidationFailure::refused(
-                CheckedPackageRefusalCode::MalformedWire,
-                at,
-            )),
+            super::CheckedTerm::NominalBody(body) => Some(body),
+            _ => None,
         }
     }
 
@@ -1482,7 +1476,29 @@ impl<'a> BodyInput<'a> {
                 CheckedPackageRefusalCode::MalformedWire,
                 at(),
             )),
-            Self::Typed(term) => NominalBody::from_term(term, at())?.duplicate(meter),
+            Self::Typed(term) => match NominalBody::from_term(term) {
+                Some(body) => body.duplicate(meter),
+                None => {
+                    let path = super::stage_storage::Path::root()
+                        .key("semantic_graph")
+                        .key("nodes")
+                        .index(position)
+                        .key("body");
+                    Err(super::stage_storage::refuse(
+                        meter,
+                        &super::stage_storage::Site::new(
+                            super::PackageReadStage::Graph,
+                            position,
+                            "nominal_body",
+                            path,
+                        ),
+                        super::stage_storage::Refusal::new(
+                            CheckedPackageRefusalCode::MalformedWire,
+                            path,
+                        ),
+                    ))
+                }
+            },
         }
     }
 }
@@ -1871,7 +1887,7 @@ fn imported_nominals<'e>(
     // Requests made here are charged to the imported nominal, by its position
     // in its own package, and the caller's site returns when the walk ends.
     let caller_site = meter.site();
-    let mut pending = dependencies.packages();
+    let mut pending = dependencies.packages(meter)?;
     let mut seen: Vec<&str> = Vec::new();
     let mut records: Vec<(&CheckedNodeId, NominalRecord)> = Vec::new();
     while let Some(package) = pending.pop() {
@@ -1932,7 +1948,7 @@ fn validate_dimension_equivalence(
     let ids = &equivalence.dimension_node_ids;
     for (position, operand) in equivalence.operands.iter().enumerate() {
         let id = operand.node_id();
-        let at = site.nominal_member(&["dimension_node_ids"]).index(position);
+        let at = || site.nominal_member(&["dimension_node_ids"]).index(position);
         meter.charge(1, || {
             site.nominal_member(&["dimension_node_ids"]).index(position)
         })?;
@@ -1940,7 +1956,7 @@ fn validate_dimension_equivalence(
             CheckedDimensionOperand::Local(_) => {
                 require(
                     id.package == site.node.node_id.package && graph.index.contains_key(id),
-                    || at.clone(),
+                    &at,
                 )?;
             }
             CheckedDimensionOperand::Package(reference) => {
@@ -1949,14 +1965,14 @@ fn validate_dimension_equivalence(
                     .ok_or_else(|| {
                         ValidationFailure::refused_because(
                             CheckedPackageRefusalCode::MissingDeclaration,
-                            at.clone().key("package"),
+                            at().key("package"),
                             CheckedPackageRefusalCause::MissingSelection,
                         )
                     })?;
                 if selected.node(id).is_none() {
                     return Err(ValidationFailure::refused_because(
                         CheckedPackageRefusalCode::MissingDeclaration,
-                        at.clone().key("node"),
+                        at().key("node"),
                         CheckedPackageRefusalCause::MissingName,
                     ));
                 }
@@ -1964,7 +1980,7 @@ fn validate_dimension_equivalence(
         }
         require(
             matches!(graph.nominal(id), Some(NominalRecord::Dimension(_))),
-            || at,
+            &at,
         )?;
     }
     require(ids[0] < ids[1], || site.pointer())?;

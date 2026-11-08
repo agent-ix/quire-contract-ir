@@ -173,6 +173,29 @@ pub use monitor_plan::{
     CheckedMonitorPlanRef, SelectedMonitorClosureRows, SelectedMonitorTypeClosure,
     SelectedMonitorTypeClosureError, SelectedMonitorTypeClosureErrorCode,
 };
+#[cfg(feature = "test-support")]
+mod native_budget_observer;
+#[cfg(feature = "test-support")]
+pub use native_budget_observer::{
+    with_native_allocation_class, with_native_budget_observer, NativeBudgetEvent,
+    NativeBudgetResource,
+};
+/// Classifies an actual reservation callback without changing its budget.
+pub(in crate::checked_package) fn observe_allocation_class<R>(
+    class: &'static str,
+    request: impl FnOnce() -> R,
+) -> R {
+    #[cfg(feature = "test-support")]
+    {
+        with_native_allocation_class(class, request)
+    }
+    #[cfg(not(feature = "test-support"))]
+    {
+        let _ = class;
+        request()
+    }
+}
+
 pub use native_join_budget::{
     NativeJoinBudget, NativeJoinCharge, NativeJoinChargeKind, NativeJoinDeniedCharge,
     NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
@@ -984,6 +1007,8 @@ pub struct CheckedPackageV2 {
     /// Private admission capability; clones preserve it, independent reads do not.
     admission_binding: Option<AdmissionBinding>,
     wire: Arc<CheckedPackageWireV2>,
+    /// Original body views, moved from the charged intake table for imported joins.
+    body_documents: Vec<CheckedJson>,
     kinds: Arc<Vec<CheckedNodeKind>>,
     schedulability_claim_index: Vec<(usize, usize)>,
     monitor_plan_index: Vec<monitor_plan::Plan>,
@@ -1179,6 +1204,18 @@ impl read_charge::ReadStorage for WorkMeter<'_> {
         match &mut self.source {
             WorkSource::Own { .. } => Ok(()),
             WorkSource::Budget(budget) => budget.reserve(bytes, site),
+        }
+    }
+
+    fn reserve_diagnostic(
+        &mut self,
+        bytes: u128,
+        site: read_charge::Site,
+        pending: CheckedPackagePendingOutcome,
+    ) -> Result<(), read_charge::Denied> {
+        match &mut self.source {
+            WorkSource::Own { .. } => Ok(()),
+            WorkSource::Budget(budget) => budget.reserve_diagnostic(bytes, site, pending),
         }
     }
 
@@ -1648,6 +1685,7 @@ impl CheckedPackageV2 {
         let slot_graph = read_charge::new_arc(budget, package, std::sync::OnceLock::new())?;
         let package = Self {
             admission_binding: None,
+            body_documents: bodies,
             wire,
             kinds,
             schedulability_claim_index,
@@ -2081,7 +2119,7 @@ fn validate_lock<'a>(
     let dependencies = admit_dependencies(&lock.dependency_selections, evidence, meter)?;
     check_derived_closure(
         &lock.dependency_selections,
-        &dependencies.packages(),
+        &dependencies.packages(meter)?,
         JsonPointer::root(),
         meter,
     )?;
@@ -2264,17 +2302,36 @@ fn validate_node_id_charged(
 /// anonymous derived member uses that path only when the label has exactly one
 /// declared member. With zero or several declarations its path is authored;
 /// the ordinary ID shape, uniqueness and reference rules still apply.
-fn validate_recursion_group_paths(nodes: &[RawSemanticNodeV2]) -> Result<(), ValidationFailure> {
-    let mut declarations = Vec::<(&str, Option<&CheckedNodeId>)>::new();
-    for node in nodes {
-        if let (Some(label), Some(_)) = (node.recursion_group.as_deref(), &node.declaration) {
-            if let Some((_, anchor)) = declarations.iter_mut().find(|(prior, _)| *prior == label) {
-                *anchor = None;
-            } else {
-                declarations.push((label, Some(&node.node_id)));
-            }
+fn validate_recursion_group_paths(
+    nodes: &[RawSemanticNodeV2],
+    meter: &mut WorkMeter,
+) -> Result<(), ValidationFailure> {
+    meter.at_node(0, "recursion_groups");
+    let count = nodes
+        .iter()
+        .filter(|node| node.recursion_group.is_some() && node.declaration.is_some())
+        .count();
+    let mut declarations = meter.vec::<(&str, Option<&CheckedNodeId>)>(count)?;
+    declarations.extend(
+        nodes
+            .iter()
+            .filter_map(|node| {
+                Some((
+                    node.recursion_group.as_deref()?,
+                    node.declaration.as_ref().map(|_| &node.node_id)?,
+                ))
+            })
+            .map(|(label, id)| (label, Some(id))),
+    );
+    declarations.sort_unstable_by_key(|row| row.0);
+    declarations.dedup_by(|later, prior| {
+        if later.0 == prior.0 {
+            prior.1 = None;
+            true
+        } else {
+            false
         }
-    }
+    });
     for (position, node) in nodes.iter().enumerate() {
         let Some(label) = node.recursion_group.as_deref() else {
             continue;
@@ -2283,16 +2340,28 @@ fn validate_recursion_group_paths(nodes: &[RawSemanticNodeV2]) -> Result<(), Val
             continue;
         }
         let Some(anchor) = declarations
-            .iter()
-            .find(|(prior, _)| *prior == label)
-            .and_then(|(_, anchor)| *anchor)
+            .binary_search_by_key(&label, |row| row.0)
+            .ok()
+            .and_then(|at| declarations[at].1)
         else {
             continue;
         };
         if node.node_id.path != anchor.path {
-            return Err(refuse(
-                CheckedPackageRefusalCode::InvalidSemanticGraph,
-                node_pointer(position).key("node_id").key("path"),
+            let path = stage_storage::Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position)
+                .key("node_id")
+                .key("path");
+            return Err(stage_storage::refuse(
+                meter,
+                &stage_storage::Site::new(
+                    PackageReadStage::Graph,
+                    position,
+                    "recursion_groups",
+                    path,
+                ),
+                stage_storage::Refusal::new(CheckedPackageRefusalCode::InvalidSemanticGraph, path),
             ));
         }
     }
@@ -2566,6 +2635,7 @@ fn validate_body<'a, V: TermSource<'a>>(
     at: &Trail<'a>,
     visit: &mut ReferenceVisitor<'_>,
     ids: Ids<'_, '_>,
+    nominal: Option<&identity::NominalBody>,
 ) -> Result<u64, ValidationFailure> {
     #[cfg(test)]
     lower::BODY_WALKS.with(|walks| walks.set(walks.get() + 1));
@@ -2600,10 +2670,52 @@ fn validate_body<'a, V: TermSource<'a>>(
             ));
         }
     }
-    if source_nominal_body(kind, body.member("term").and_then(TermSource::text)) {
-        // The identity stage reads and validates source nominal bodies from
-        // the retained Document; no duplicate body tree is built here.
-        return Ok(1);
+    if let Some(nominal) = nominal {
+        let mut visit = |id: &CheckedNodeId, site, at: &Trail<'_>| {
+            read_charge::charge_node_id_clone(ids.sink, ids.site, id)?;
+            visit(id.clone(), site, at, ids.sink, ids.site)
+        };
+        let site = ReferenceSite {
+            member: ReferenceMember::Target,
+            is_body_root: false,
+        };
+        match nominal.kind() {
+            identity::NominalBodyKind::Enum { .. } => {}
+            identity::NominalBodyKind::Dimension { terms, .. } => {
+                for (index, term) in terms.iter().enumerate() {
+                    visit(
+                        &term.dimension_node_id,
+                        site,
+                        &at.key("terms").index(index).key("dimension_node_id"),
+                    )?;
+                }
+            }
+            identity::NominalBodyKind::Unit {
+                dimension_node_id,
+                target_unit_node_id,
+                ..
+            } => {
+                visit(dimension_node_id, site, &at.key("dimension_node_id"))?;
+                if let Some(target) = target_unit_node_id {
+                    visit(target, site, &at.key("target_unit_node_id"))?;
+                }
+            }
+            identity::NominalBodyKind::DimensionEquivalence {
+                dimension_node_ids, ..
+            } => {
+                for (index, operand) in dimension_node_ids.iter().enumerate() {
+                    if let identity::CheckedDimensionOperand::Local(id) = operand {
+                        visit(id, site, &at.key("dimension_node_ids").index(index))?;
+                    }
+                }
+            }
+        }
+        return Ok(1 + match nominal.kind() {
+            identity::NominalBodyKind::Dimension { terms, .. } => terms.len() as u64,
+            identity::NominalBodyKind::DimensionEquivalence { .. } => 2,
+            identity::NominalBodyKind::Unit { .. } => 2,
+            identity::NominalBodyKind::Enum { members, .. } => members.len() as u64,
+        });
     }
     if kind == CheckedNodeKind::Protocol(ProtocolForm::ProtocolReference)
         && !(body.exact_members(&["term", "target"]) && body.kind() == Some(BodyTerm::Reference))
@@ -2622,7 +2734,8 @@ fn validate_body<'a, V: TermSource<'a>>(
             execution_point::validate_anchor_body(node, at, visit, ids)
         }
         BodyGrammar::Extension => {
-            extension::read_body(node, at.pointer(), ids).map(|body| extension::body_work(&body))
+            extension::read_body(node, stage_storage::Position::Trail(*at), ids)
+                .map(|body| extension::body_work(&body))
         }
         BodyGrammar::Frame => {
             let count = ["modifies", "creates", "deletes", "deletes_scoped"]
@@ -2657,7 +2770,14 @@ fn validate_value_body(
     at: &Trail<'_>,
     visit: &mut ReferenceVisitor<'_>,
 ) -> Result<u64, ValidationFailure> {
-    super::common::with_unmetered_ids(|ids| validate_body(kind, body, body, at, visit, ids))
+    let nominal = if source_nominal_body(kind, body.get("term").and_then(Value::as_str)) {
+        Some(identity::NominalBody::from_value(body, at.pointer())?)
+    } else {
+        None
+    };
+    super::common::with_unmetered_ids(|ids| {
+        validate_body(kind, body, body, at, visit, ids, nominal.as_ref())
+    })
 }
 
 /// The grammar a node's `body` is validated against (QSpec FR-322
@@ -3085,49 +3205,63 @@ fn decode_node_kind<Body>(
 /// Compare a selected import's complete content after resolving each graph-
 /// local operand in its own document. Both packages may choose different node
 /// order and thus different wire index spellings for the same structural key.
-fn imported_node_matches(
+fn imported_node_matches<B>(
     importer: &RawSemanticNodeV2,
-    selected: &RawSemanticNodeV2,
-    importer_keys: &[std::sync::Arc<CheckedNodeId>],
-    selected_keys: &[std::sync::Arc<CheckedNodeId>],
+    selected: &CheckedSemanticNodeV2<B>,
+    selected_body: TermNode<'_>,
+    importer_keys: &[Arc<CheckedNodeId>],
+    selected_keys: &[Arc<CheckedNodeId>],
     importer_row: &[u64],
     selected_row: &[u64],
-) -> bool {
-    let same_id = |left: &CheckedNodeId, right: &CheckedNodeId| match (
-        node_index::resolve_id(left, importer_keys),
-        node_index::resolve_id(right, selected_keys),
-    ) {
-        (Some(left), Some(right)) => left == right,
-        _ => false,
-    };
-    same_id(&importer.node_id, &selected.node_id)
-        && importer.schema_version == selected.schema_version
-        && importer.node_tag == selected.node_tag
-        && importer.semantic_form == selected.semantic_form
-        && same_id(&importer.semantic_type, &selected.semantic_type)
-        && importer.dependencies.len() == selected.dependencies.len()
-        && importer
-            .dependencies
-            .iter()
-            .zip(&selected.dependencies)
-            .all(|(left, right)| same_id(left, right))
-        && importer.occurrences == selected.occurrences
-        && importer.recursion_group == selected.recursion_group
-        && importer.declaration == selected.declaration
-        && importer.owner == selected.owner
-        && match (&importer.owner_model, &selected.owner_model) {
-            (Some(left), Some(right)) => same_id(left, right),
-            (None, None) => true,
-            _ => false,
+    meter: &mut WorkMeter,
+) -> Result<bool, ValidationFailure> {
+    let mut same_id =
+        |left: &CheckedNodeId, right: &CheckedNodeId| -> Result<bool, ValidationFailure> {
+            Ok(
+                match (
+                    node_index::resolve_id_charged(left, importer_keys, meter)?,
+                    node_index::resolve_id_charged(right, selected_keys, meter)?,
+                ) {
+                    (Some(left), Some(right)) => meter.compare_ids(&left, &right)?.is_eq(),
+                    _ => false,
+                },
+            )
+        };
+    if !same_id(&importer.node_id, &selected.node_id)?
+        || importer.schema_version != selected.schema_version
+        || importer.node_tag != selected.node_tag
+        || importer.semantic_form != selected.semantic_form
+        || !same_id(&importer.semantic_type, &selected.semantic_type)?
+        || importer.dependencies.len() != selected.dependencies.len()
+    {
+        return Ok(false);
+    }
+    for (left, right) in importer.dependencies.iter().zip(&selected.dependencies) {
+        if !same_id(left, right)? {
+            return Ok(false);
         }
-        && node_index::equivalent_values(
-            &importer.body,
-            &selected.body,
-            importer_keys,
-            selected_keys,
-            importer_row,
-            selected_row,
-        )
+    }
+    if importer.occurrences != selected.occurrences
+        || importer.recursion_group != selected.recursion_group
+        || importer.declaration != selected.declaration
+        || importer.owner != selected.owner
+    {
+        return Ok(false);
+    }
+    match (&importer.owner_model, &selected.owner_model) {
+        (Some(left), Some(right)) if !same_id(left, right)? => return Ok(false),
+        (None, None) | (Some(_), Some(_)) => {}
+        _ => return Ok(false),
+    }
+    node_index::equivalent_values(
+        TermNode::of(&importer.body),
+        selected_body,
+        importer_keys,
+        selected_keys,
+        importer_row,
+        selected_row,
+        meter,
+    )
 }
 
 fn structural_key<'a>(
@@ -3144,9 +3278,8 @@ fn structural_key<'a>(
 // `bodies` is the node-view table: `TermNode::of(&bodies[position])` is the
 // body of graph node `position`, read from the retained document with the
 // node's operand slots resolved through `wire.semantic_graph.operand_rows`
-// (`TermNode::node_id_in`, `TermNode::decode_in`). The `Value` in
-// `wire.semantic_graph.nodes[position].body` is the uncharged bridge for a
-// validator that has not moved to the views.
+// (`TermNode::node_id_in`, `TermNode::decode_in`). Imported bodies borrow the
+// selected package's original views and its own operand row.
 #[allow(unused_variables)]
 #[allow(clippy::too_many_arguments)] // the catalog and the node bodies are two inputs of one graph check
 fn validate_graph(
@@ -3223,30 +3356,36 @@ fn validate_graph(
                     import_index =
                         Some(dependencies.structural_import_index(structural_keys, meter)?);
                 }
-                import_index
-                    .as_ref()
-                    .and_then(
-                        |lookup: &dependency_references::StructuralImportIndex<'_>| {
-                            lookup.lookup(&node.node_id.package, position)
-                        },
-                    )
-                    .is_some_and(|(selected_position, selected_package)| {
+                match import_index.as_ref().and_then(
+                    |lookup: &dependency_references::StructuralImportIndex<'_>| {
+                        lookup.lookup(&node.node_id.package, position)
+                    },
+                ) {
+                    Some((selected_position, selected_package)) => {
                         let selected_graph = selected_package.resolved_graph();
-                        selected_graph
+                        match selected_graph
                             .nodes
                             .get(selected_position)
                             .zip(selected_graph.operand_rows.get(selected_position))
-                            .is_some_and(|(selected_node, selected_row)| {
+                            .zip(selected_package.body_documents.get(selected_position))
+                        {
+                            Some(((selected_node, selected_row), selected_body)) => {
                                 imported_node_matches(
                                     node,
-                                    &selected_node.to_raw(),
+                                    selected_node,
+                                    TermNode::of(selected_body),
                                     structural_keys,
                                     &selected_package.structural_keys,
                                     &wire.semantic_graph.operand_rows[position],
                                     selected_row,
-                                )
-                            })
-                    })
+                                    meter,
+                                )?
+                            }
+                            None => false,
+                        }
+                    }
+                    None => false,
+                }
             } else {
                 false
             };
@@ -3349,11 +3488,25 @@ fn validate_graph(
             Step::Key("body"),
         ];
         let mut frame_term = None;
+        let view = TermNode::of(&bodies[position]);
+        let nominal = if source_nominal_body(kind, view.get("term").and_then(TermNode::as_str)) {
+            Some(
+                identity::NominalBody::from_document(
+                    view,
+                    &wire.semantic_graph.operand_rows[position],
+                    &|| at("body"),
+                    meter,
+                )
+                .map_err(|failure| with_node_locus(failure, &node.node_id))?,
+            )
+        } else {
+            None
+        };
         let work = match body_grammar(kind) {
             BodyGrammar::Extension => {
                 let body = extension::read_body(
                     TermNode::of(&bodies[position]),
-                    at("body"),
+                    stage_storage::Position::Trail(Trail::Base(&body_steps)),
                     read_charge::ids(
                         &mut *meter,
                         PackageReadStage::Graph,
@@ -3446,6 +3599,7 @@ fn validate_graph(
                         .map_or("node", CheckedNodeTag::as_wire),
                     &wire.semantic_graph.operand_rows[position],
                 ),
+                nominal.as_ref(),
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
@@ -3483,45 +3637,31 @@ fn validate_graph(
         // step deliberately reports as InvalidSemanticGraph, so a failed
         // typed decode cannot preempt that step.
         let typed_term = match frame_term {
-            Some(term) => Ok(Ok(term)),
-            None if kind == CheckedNodeKind::State(StateForm::OperationAnchor) => {
-                let Some(budget) = meter.budget_mut() else {
-                    return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
-                };
-                let body = &bodies[position];
-                TermNode::of(body).decode_anchor_in(
-                    body.document(),
-                    budget,
-                    read_charge::Site::new(PackageReadStage::Graph, position, "term"),
-                    &wire.semantic_graph.operand_rows[position],
-                )
-            }
+            Some(term) => Ok(term),
             None => {
-                let body = &bodies[position];
-                let row = &wire.semantic_graph.operand_rows[position];
-                let Some(budget) = meter.budget_mut() else {
-                    return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
-                };
-                TermNode::of(body).decode_in(
-                    body.document(),
-                    budget,
-                    read_charge::Site::new(PackageReadStage::Graph, position, "term"),
-                    row,
-                )
+                if let Some(nominal) = nominal {
+                    meter.reserve(std::mem::size_of::<identity::NominalBody>())?;
+                    Ok(CheckedTerm::NominalBody(Box::new(nominal)))
+                } else {
+                    decode_admitted_body(
+                        kind,
+                        &bodies[position],
+                        &wire.semantic_graph.operand_rows[position],
+                        position,
+                        meter,
+                    )
+                }
             }
         };
         terms.push(match typed_term {
-            Ok(Ok(term)) => Some(term),
-            Ok(Err(_))
+            Ok(term) => Some(term),
+            Err(ValidationFailure::Refused(_))
                 if matches!(
                     body_grammar(kind),
                     BodyGrammar::AbstractionRelation | BodyGrammar::FlatCorrespondence
                 ) =>
             {
                 None
-            }
-            Ok(Err(_)) => {
-                return Err(refuse(CheckedPackageRefusalCode::MalformedWire, at("body")));
             }
             Err(failure) => return Err(failure),
         });
@@ -3652,7 +3792,7 @@ fn validate_graph(
         meter,
     )?;
     validate_declaration_names(&graph.nodes, &kinds, &index, meter)?;
-    validate_recursion_group_paths(&graph.nodes)?;
+    validate_recursion_group_paths(&graph.nodes, meter)?;
     // FR-038 "The timed interval form" stage 2: the last graph check of the
     // nodes before the frame step.
     validate_timed_bounds_reduced(&graph.nodes, &index, meter)?;
@@ -3663,7 +3803,17 @@ fn validate_graph(
         models,
         &graph.nodes,
         &mut Budget::node(meter, 0),
-        |budget, root| budget.charge_at(1, "model", || node_pointer(root).key("owner")),
+        |budget, root| {
+            budget.charge_at_position(
+                1,
+                "model",
+                stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(root)
+                    .key("owner"),
+            )
+        },
     )?;
     extension::validate(wire, &kinds, &terms, &index, evidence, &owners, meter)?;
     let declarations = owners.index_charged(&mut Budget::node(meter, 0))?;
@@ -4805,9 +4955,16 @@ mod tests {
 
         let declared = member('a', "A", true);
         let anonymous = member('b', "A", false);
-        assert!(validate_recursion_group_paths(&[declared.clone(), anonymous.clone()]).is_ok());
+        assert!(validate_recursion_group_paths(
+            &[declared.clone(), anonymous.clone()],
+            &mut super::WorkMeter::new(u64::MAX)
+        )
+        .is_ok());
         assert_recursion_refusal(
-            validate_recursion_group_paths(&[declared.clone(), member('b', "other", false)]),
+            validate_recursion_group_paths(
+                &[declared.clone(), member('b', "other", false)],
+                &mut super::WorkMeter::new(u64::MAX),
+            ),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_pointer(1).key("node_id").key("path").to_string(),
         );
@@ -4819,25 +4976,72 @@ mod tests {
             identity: "equivalence".into(),
         });
         assert_recursion_refusal(
-            validate_recursion_group_paths(&[declared.clone(), owned_anonymous]),
+            validate_recursion_group_paths(
+                &[declared.clone(), owned_anonymous],
+                &mut super::WorkMeter::new(u64::MAX),
+            ),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_pointer(1).key("node_id").key("path").to_string(),
         );
 
         // With no declared member the reader has no path anchor to invent.
-        assert!(validate_recursion_group_paths(&[
-            member('a', "first", false),
-            member('b', "second", false),
-        ])
+        assert!(validate_recursion_group_paths(
+            &[member('a', "first", false), member('b', "second", false),],
+            &mut super::WorkMeter::new(u64::MAX)
+        )
         .is_ok());
         // Several declared nodes each retain their own path, and an anonymous
         // member has no unique declared path to inherit.
-        assert!(validate_recursion_group_paths(&[
-            declared,
-            member('c', "C", true),
-            member('b', "chosen", false),
-        ])
+        assert!(validate_recursion_group_paths(
+            &[
+                declared,
+                member('c', "C", true),
+                member('b', "chosen", false),
+            ],
+            &mut super::WorkMeter::new(u64::MAX)
+        )
         .is_ok());
+    }
+
+    #[trace("TC-472", "FR-038-AC-511")]
+    #[test]
+    fn recursion_group_join_prepays_its_table_and_refusal() {
+        let mut declared = recursion_test_node('a', Some("group"));
+        declared.declaration = Some(super::CheckedDeclaration {
+            qualified_name: vec!["group".into()],
+        });
+        let mut anonymous = recursion_test_node('b', Some("group"));
+        anonymous.node_id.path = declared.node_id.path.clone();
+        let mut nodes = vec![declared, anonymous];
+        for malformed in [false, true] {
+            if malformed {
+                nodes[1].node_id.path = vec![super::CheckedNodePathSegment::Name("other".into())];
+            }
+            let run = |limit| {
+                let mut budget =
+                    super::NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut result = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = super::WorkMeter::over(&mut budget);
+                    result = Some(validate_recursion_group_paths(&nodes, &mut meter));
+                });
+                (
+                    result.expect("ran"),
+                    measured.bytes_total,
+                    budget.read_storage_consumed(),
+                )
+            };
+            let (result, allocated, charged) = run(u64::MAX);
+            assert_eq!(allocated, charged);
+            assert_eq!(result.is_err(), malformed);
+            assert!(charged > 0);
+            let (exact, allocated, consumed) = run(charged);
+            assert_eq!(allocated, consumed);
+            assert_eq!(exact, result);
+            let (short, allocated, consumed) = run(charged - 1);
+            assert_eq!(allocated, consumed);
+            assert!(short.is_err());
+        }
     }
 
     fn assert_recursion_refusal(
@@ -5036,6 +5240,7 @@ mod tests {
                     catalog: crate::checked_package::v2::operation_catalog::owned_operation_catalog(
                     ),
                     admission_binding: Default::default(),
+                    body_documents: Vec::new(),
                 }
                 .retain_original_admission();
                 let package_debug = format!("{package:?}");
@@ -5443,6 +5648,205 @@ mod tests {
             [CheckedNodeKind::Correspondence(
                 CorrespondenceForm::AbstractionRelation
             )]
+        );
+    }
+}
+
+#[cfg(test)]
+mod admitted_document_bridge_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use serde_json::json;
+
+    #[trace("TC-472", "FR-038-AC-504")]
+    #[test]
+    fn admitted_document_bridge_prepays_retention_and_preserves_operand_rows() {
+        let cases = [
+            (
+                CheckedNodeKind::Expression(ExpressionForm::Reference),
+                json!({"term":"reference","target":{"package":"fixture","path":[{"operand":0}],"ordinal":0}}),
+            ),
+            (
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension),
+                json!({"term":"dimension","base":true,"terms":[]}),
+            ),
+            (
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+                json!({"term":"unit",
+                "dimension_node_id":{"package":"fixture","path":[{"operand":0}],"ordinal":0},
+                "target_unit_node_id":null,"scale":{"numerator":"1","denominator":"1"},
+                "offset":{"numerator":"0","denominator":"1"}}),
+            ),
+            (
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ImplementationGuarantee),
+                json!({"term":"implementation_guarantee",
+                "clause":{"package":"fixture","path":[{"operand":0}],"ordinal":0},
+                "relation":{"package":"fixture","path":[{"operand":0}],"ordinal":0},
+                "initial":["begin"],"progress":[],"environment":[]}),
+            ),
+            (
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ComponentComposition),
+                json!({"term":"component_composition",
+                "rule":"interface","components":[],"guarantees":[],"relies":[],"liveness_dependencies":[],"supplies":[],"environment":[]}),
+            ),
+        ];
+        for (kind, wire) in cases {
+            let body = CheckedJson::from_value(&wire).expect("fixture document");
+            let run = |limit| {
+                let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+                let mut outcome = None;
+                let measured = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(&mut budget);
+                    meter.at_node(7, "body");
+                    outcome = Some(decode_admitted_body(kind, &body, &[19], 7, &mut meter));
+                });
+                (
+                    outcome.expect("ran"),
+                    measured.bytes_total,
+                    budget.read_storage_consumed(),
+                )
+            };
+            let (term, allocated, charged) = run(u64::MAX);
+            let term = term.expect("closed body");
+            assert!(charged > 0);
+            assert_eq!(allocated, charged, "{kind:?}");
+            match kind {
+                CheckedNodeKind::Expression(ExpressionForm::Reference) => {
+                    let CheckedTerm::Reference { target } = &term else {
+                        panic!("retained reference");
+                    };
+                    assert_eq!(target.path, [CheckedNodePathSegment::Index(19)]);
+                }
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Dimension) => {
+                    let CheckedTerm::NominalBody(body) = &term else {
+                        panic!("retained dimension");
+                    };
+                    let identity::NominalBodyKind::Dimension { base, terms } = body.kind() else {
+                        panic!("dimension body");
+                    };
+                    assert!(*base);
+                    assert!(terms.is_empty());
+                }
+                CheckedNodeKind::ScalarType(ScalarTypeForm::Unit) => {
+                    let CheckedTerm::NominalBody(body) = &term else {
+                        panic!("retained unit");
+                    };
+                    let identity::NominalBodyKind::Unit {
+                        dimension_node_id,
+                        target_unit_node_id,
+                        ..
+                    } = body.kind()
+                    else {
+                        panic!("unit body");
+                    };
+                    assert_eq!(dimension_node_id.path, [CheckedNodePathSegment::Index(19)]);
+                    assert!(target_unit_node_id.is_none());
+                }
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ImplementationGuarantee) => {
+                    let CheckedTerm::ImplementationGuarantee {
+                        clause,
+                        relation,
+                        initial,
+                        progress,
+                        environment,
+                    } = &term
+                    else {
+                        panic!("typed guarantee");
+                    };
+                    assert_eq!(clause.path, [CheckedNodePathSegment::Index(19)]);
+                    assert_eq!(relation.path, [CheckedNodePathSegment::Index(19)]);
+                    assert_eq!(
+                        initial.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
+                        ["begin"]
+                    );
+                    assert!(progress.is_empty() && environment.is_empty());
+                }
+                CheckedNodeKind::Correspondence(CorrespondenceForm::ComponentComposition) => {
+                    let CheckedTerm::ComponentComposition {
+                        rule,
+                        components,
+                        guarantees,
+                        relies,
+                        liveness_dependencies,
+                        supplies,
+                        environment,
+                    } = &term
+                    else {
+                        panic!("typed composition");
+                    };
+                    assert_eq!(rule.as_ref(), "interface");
+                    assert!(
+                        components.is_empty()
+                            && guarantees.is_empty()
+                            && relies.is_empty()
+                            && liveness_dependencies.is_empty()
+                            && supplies.is_empty()
+                            && environment.is_empty()
+                    );
+                }
+                _ => panic!("unexpected test kind"),
+            }
+            assert_eq!(run(charged).0.expect("exact allowance"), term);
+            assert!(
+                matches!(run(charged - 1).0, Err(ValidationFailure::Budget(_))),
+                "one short: {kind:?}"
+            );
+        }
+    }
+
+    #[trace("TC-472", "FR-038-AC-512")]
+    #[test]
+    fn malformed_nominal_bridge_preserves_the_body_member_refusal() {
+        let body = CheckedJson::from_value(&json!({"term":"unit",
+            "dimension_node_id":{"package":"fixture","path":["Time"],"ordinal":0},
+            "target_unit_node_id":null,"scale":{"numerator":1,"denominator":"1"},
+            "offset":{"numerator":"0","denominator":"1"}}))
+        .expect("document");
+        let failure = decode_admitted_body(
+            CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),
+            &body,
+            &[],
+            3,
+            &mut WorkMeter::new(u64::MAX),
+        )
+        .expect_err("malformed scalar");
+        assert!(matches!(failure,ValidationFailure::Refused(refusal)
+            if refusal.code==CheckedPackageRefusalCode::MalformedWire && refusal.primary_path().is_some_and(|path|path.as_str()=="/semantic_graph/nodes/3/body/scale/numerator")));
+    }
+    #[trace("TC-472", "FR-038-AC-512")]
+    #[test]
+    fn lock_duration_partial_defers_shape_refusal_but_propagates_reservation_denial() {
+        let malformed = serde_json::json!({"term":"unit","dimension_node_id":{},"target_unit_node_id":null,
+            "scale":{"numerator":"1","denominator":"1"},"offset":{"numerator":"0","denominator":"1"}});
+        let id = test_support::node_id('1');
+        let nodes = [CheckedSemanticNodeV2 {
+            node_id: id.clone(),
+            schema_version: "test".into(),
+            node_tag: "scalar_type".into(),
+            semantic_form: "unit".into(),
+            semantic_type: id,
+            dependencies: vec![],
+            occurrences: vec![],
+            recursion_group: None,
+            declaration: None,
+            owner: None,
+            owner_model: None,
+            body: (),
+        }];
+        let bodies =
+            graph_storage::OwnedBodies::of_values(std::slice::from_ref(&malformed), vec![vec![]]);
+        let run = |limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut meter = WorkMeter::over(&mut budget);
+            bodies.attach(&mut meter);
+            identity::duration_terms(&nodes, &mut meter)
+        };
+        assert!(run(u64::MAX).expect("shape is deferred")[0].is_none());
+        assert!(matches!(run(0), Err(ValidationFailure::Budget(_))));
+        let handle = CheckedJson::from_value(&malformed).expect("document");
+        assert!(
+            matches!(decode_admitted_body(CheckedNodeKind::ScalarType(ScalarTypeForm::Unit),&handle,&[],0,&mut WorkMeter::new(u64::MAX)),
+            Err(ValidationFailure::Refused(refusal)) if refusal.code==CheckedPackageRefusalCode::MalformedWire)
         );
     }
 }

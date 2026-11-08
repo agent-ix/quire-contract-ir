@@ -710,10 +710,11 @@ impl<'d> RefinementDocument<'_, 'd> {
         &self,
         parse: impl FnOnce() -> Result<T, TermConversionCause>,
     ) -> Result<Box<T>, TermConversionCause> {
+        let parsed = parse()?;
         if !self.context.charge_bytes(std::mem::size_of::<T>()) {
             return Err(Self::malformed());
         }
-        Ok(Box::new(parse()?))
+        Ok(Box::new(parsed))
     }
     fn key(
         &self,
@@ -1090,12 +1091,13 @@ fn decode_term<'d>(
                 member: "value",
                 category: Category::Data,
             };
+            let value = decode_term(context, document, value)?;
             if !context.charge_bytes(std::mem::size_of::<CheckedTerm>()) {
                 return Err(refused);
             }
             Ok(CheckedTerm::Binding {
                 name,
-                value: Box::new(decode_term(context, document, value)?),
+                value: Box::new(value),
             })
         }
         TermTag::Known(BodyTerm::DependencyReference) => Ok(CheckedTerm::DependencyReference {
@@ -1811,5 +1813,58 @@ mod flat_document_allocation_tests {
             assert_eq!(measured.bytes_total, 0);
             assert_eq!(budget.read_storage_consumed(), 0);
         }
+    }
+}
+
+#[cfg(test)]
+mod binding_box_storage_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    #[test]
+    #[trace("TC-472", "FR-038-AC-511")]
+    fn binding_boxes_follow_successful_children_and_never_survive_failed_decode() {
+        let healthy = super::super::CheckedJson::from_value(&serde_json::json!({"term":"binding","name":"outer","value":{"term":"binding","name":"inner","value":{"term":"reference","target":{"package":"p","path":["x"],"ordinal":0}}}})).expect("document");
+        let malformed = super::super::CheckedJson::from_value(&serde_json::json!({"term":"binding","name":"outer","value":{"term":"binding","name":false,"value":{"term":"aggregate","members":[]}}})).expect("document");
+        let run = |body: &super::super::CheckedJson, limit| {
+            let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut result = None;
+            let measured = allocation_counter::measure(|| {
+                result = Some(TermNode::of(body).decode_in(
+                    body.document(),
+                    &mut budget,
+                    Site::new(super::super::PackageReadStage::Graph, 4, "binding"),
+                    &[],
+                ));
+            });
+            (result.expect("decode"), budget, measured.bytes_total)
+        };
+        let (result, budget, allocated) = run(&healthy, u64::MAX);
+        assert!(matches!(result, Ok(Ok(_))));
+        assert_eq!(allocated, budget.read_storage_consumed());
+        let exact = budget.read_storage_consumed();
+        let (result, budget, allocated) = run(&healthy, exact);
+        assert!(matches!(result, Ok(Ok(_))));
+        assert_eq!(allocated, exact);
+        assert_eq!(budget.read_storage_consumed(), exact);
+        let (result, budget, allocated) = run(&healthy, exact - 1);
+        assert!(result.is_err());
+        assert_eq!(
+            budget.first_unpaid_read_storage(),
+            Some(std::mem::size_of::<CheckedTerm>() as u128)
+        );
+        assert_eq!(allocated, budget.read_storage_consumed());
+        let (result, budget, allocated) = run(&healthy, 10);
+        assert!(result.is_err());
+        assert_eq!(allocated, 10);
+        assert_eq!(budget.read_storage_consumed(), 10);
+        assert_ne!(
+            budget.first_unpaid_read_storage(),
+            Some(std::mem::size_of::<CheckedTerm>() as u128)
+        );
+        let (result, budget, allocated) = run(&malformed, u64::MAX);
+        assert!(matches!(result, Ok(Err(_))));
+        assert_eq!(allocated, 5);
+        assert_eq!(budget.read_storage_consumed(), 5);
+        assert!(budget.first_unpaid_read_storage().is_none());
     }
 }
