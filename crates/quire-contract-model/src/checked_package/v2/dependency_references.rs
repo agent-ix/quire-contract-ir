@@ -36,6 +36,8 @@
 //! package-independent.
 
 use super::model_members::{Budget, SortedMap};
+use super::native_join_budget::PackageReadStage;
+use super::stage_storage::{self, Path, Refusal, Site};
 use super::{
     CheckedDependencySelection, CheckedNodeKind, CheckedNodeTag, CheckedPackageV2, CheckedTerm,
     RawSemanticNodeV2 as CheckedSemanticNodeV2, ValueForm, WorkMeter,
@@ -358,31 +360,29 @@ pub(super) fn admit_dependencies<'e>(
     meter: &mut WorkMeter,
 ) -> Result<SuppliedDependencies<'e>, ValidationFailure> {
     let at = |index: usize| {
-        JsonPointer::root()
+        Path::root()
             .key("lock")
             .key("dependency_selections")
             .index(index)
     };
-    let mut budget = Budget::lock(meter, "dependency_selections");
-    let mut packages = budget.vec(selections.len(), F)?;
+    let mut packages = Budget::lock(meter, "dependency_selections").vec(selections.len(), F)?;
     for (index, entry) in selections.iter().enumerate() {
-        let Some(package) = evidence.dependency_package(&entry.identity) else {
-            return Err(ValidationFailure::refused_because(
-                CheckedPackageRefusalCode::MissingImport,
-                at(index),
-                CheckedPackageRefusalCause::MissingSelection,
-            ));
+        let package = match evidence.dependency_package(&entry.identity) {
+            Some(package) if package.name() == entry.identity.as_ref() => package,
+            _ => {
+                let path = at(index);
+                return Err(stage_storage::refuse(
+                    meter,
+                    &Site::new(PackageReadStage::Lock, index, F, path),
+                    Refusal::new(CheckedPackageRefusalCode::MissingImport, path)
+                        .because(CheckedPackageRefusalCause::MissingSelection),
+                ));
+            }
         };
-        if package.name() != entry.identity.as_ref() {
-            return Err(ValidationFailure::refused_because(
-                CheckedPackageRefusalCode::MissingImport,
-                at(index),
-                CheckedPackageRefusalCause::MissingSelection,
-            ));
-        }
+        let mut budget = Budget::lock(meter, "dependency_selections");
         let nodes = &package.resolved_graph().nodes;
         budget.set_index(index);
-        budget.charge_at(count(nodes.len()), F, || at(index))?;
+        budget.charge_at_position(count(nodes.len()), F, at(index))?;
         let table = budget.vec(nodes.len(), F)?;
         packages.push(SuppliedDependency {
             identity: &entry.identity,
