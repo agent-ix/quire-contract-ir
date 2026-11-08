@@ -1424,7 +1424,7 @@ impl CheckedPackageV2 {
                 member_pointer(&["name"]),
             ));
         }
-        let mut wire = intake::decode_borrowed_wire(bytes, &document, budget)
+        let (mut wire, bodies) = intake::decode_borrowed_wire(bytes, &document, budget)
             .map_err(|failure| classify_dependency_entry_shape_bytes(failure, bytes))
             .map_err(classify_owner_shape)?;
         intake::check_lossless_source(bytes, &wire)?;
@@ -1441,7 +1441,7 @@ impl CheckedPackageV2 {
             selected_documents,
             lowering_facts,
             structural_keys,
-        } = validate(catalog, &wire, &document, limits, evidence, budget)?;
+        } = validate(catalog, &wire, &bodies, &document, limits, evidence, budget)?;
         let direct_dependencies = wire
             .lock
             .dependency_selections
@@ -1775,6 +1775,7 @@ struct ValidatedGraph {
 fn validate(
     catalog: &operation_catalog::OperationCatalog,
     wire: &RawCheckedPackageWireV2,
+    bodies: &[CheckedJson],
     document: &quire_canonical::Document,
     limits: CheckedPackageReadLimits,
     evidence: &CheckedPackageEvidence,
@@ -1783,7 +1784,7 @@ fn validate(
     check_package_header(wire)?;
     // The body grammar is strict wire validation: a body outside it refuses
     // here, before any identity is recomputed (FR-038-AC-116).
-    let flat_kinds = flat_wire::check(wire, budget)?;
+    let flat_kinds = flat_wire::check(wire, bodies, budget)?;
     let structural_keys = node_index::check(document, wire, evidence, budget)?;
     flat_wire::check_interval_bounds(wire, &flat_kinds, budget)?;
     let mut meter = WorkMeter::over(budget);
@@ -4855,7 +4856,7 @@ mod tests {
             {
                 let document =
                     std::sync::Arc::new(quire_canonical::read(&bytes, u64::MAX).expect("reads"));
-                let decoded = super::intake::decode_borrowed_wire(
+                let (decoded, _) = super::intake::decode_borrowed_wire(
                     &bytes,
                     &document,
                     &mut super::NativeJoinBudget::unlimited(),

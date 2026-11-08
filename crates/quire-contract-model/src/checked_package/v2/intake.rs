@@ -193,7 +193,7 @@ pub(super) fn decode_borrowed_wire(
     bytes: &[u8],
     document: &Arc<Document>,
     budget: &mut NativeJoinBudget,
-) -> Result<RawCheckedPackageWireV2, ValidationFailure> {
+) -> Result<(RawCheckedPackageWireV2, Vec<CheckedJson>), ValidationFailure> {
     let wire: BorrowedWire = decode_closed_document(document, budget).map_err(|mut failure| {
         if let ValidationFailure::Refused(ref mut refusal) = failure {
             if refusal.code == CheckedPackageRefusalCode::UnknownMember {
@@ -273,6 +273,18 @@ pub(super) fn decode_borrowed_wire(
     let graph = wire.semantic_graph;
     let diagnostics = wire.diagnostics;
     let mut nodes = Vec::with_capacity(graph.nodes.len());
+    // The node bodies as handles into the retained document: the node views
+    // read these, and the `Value` beside them is the bridge for validators
+    // that have not moved to the views.
+    let mut bodies = super::read_charge::with_capacity(
+        budget,
+        super::read_charge::Site::new(
+            super::PackageReadStage::WireDecode,
+            0,
+            "semantic_graph.nodes",
+        ),
+        graph.nodes.len(),
+    )?;
     for (position, node) in graph.nodes.into_iter().enumerate() {
         if node.node_tag.as_ref() == "scalar_type"
             && node.semantic_form.as_ref() == "dimension_equivalence"
@@ -283,6 +295,7 @@ pub(super) fn decode_borrowed_wire(
                 node_pointer(position),
             ));
         }
+        bodies.push(node.body.clone());
         let body = node.body.to_value();
         if !position_member_shape(&body) {
             return Err(ValidationFailure::refused(
@@ -305,7 +318,7 @@ pub(super) fn decode_borrowed_wire(
             body,
         });
     }
-    Ok(CheckedPackageEnvelope {
+    let envelope = CheckedPackageEnvelope {
         contract_version: wire.contract_version,
         name: wire.name,
         lock: wire.lock,
@@ -338,7 +351,8 @@ pub(super) fn decode_borrowed_wire(
                 })
                 .collect::<Result<Vec<_>, ValidationFailure>>()?,
         },
-    })
+    };
+    Ok((envelope, bodies))
 }
 
 #[ix_trace_rs::string_edge]
