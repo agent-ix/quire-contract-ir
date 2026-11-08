@@ -3055,8 +3055,8 @@ enum EdgeSite {
     Reference(usize),
 }
 
-/// One body reference target and the site that carried it. Its pointer is
-/// built only on refusal, by [`body_reference_pointer`].
+/// One body reference target and the site that carried it. Its charged pointer
+/// is recorded separately during the original body walk.
 type BodyReference = (CheckedNodeId, ReferenceSite);
 
 /// Locates the two cause-bearing refusals of strict wire validation at the node
@@ -3090,43 +3090,6 @@ fn with_node_locus(failure: ValidationFailure, node_id: &CheckedNodeId) -> Valid
 /// found by re-running that same walk and materializing the trail only at
 /// that target. The body was admitted by the first walk, so the walk is
 /// deterministic and reaches it; the body pointer is the fallback.
-fn body_reference_pointer(
-    node: &RawSemanticNodeV2,
-    kind: CheckedNodeKind,
-    position: usize,
-    reference: usize,
-    row: &[u64],
-) -> JsonPointer {
-    let body_steps = [
-        Step::Key("semantic_graph"),
-        Step::Key("nodes"),
-        Step::Index(position),
-        Step::Key("body"),
-    ];
-    let mut seen = 0_usize;
-    let mut found = None;
-    // The walk already succeeded once; a failure here only means no pointer.
-    let body = TermNode::of(&node.body);
-    let _ = super::common::with_unmetered_ids_row(row, |ids| {
-        validate_body(
-            kind,
-            body,
-            body,
-            &Trail::Base(&body_steps),
-            &mut |_target, _site, target_at, _sink, _charge_site| {
-                if seen == reference && found.is_none() {
-                    found = Some(target_at.pointer());
-                }
-                seen = seen.saturating_add(1);
-                Ok(())
-            },
-            ids,
-            None,
-        )
-    });
-    found.unwrap_or_else(|| node_pointer(position).key("body"))
-}
-
 /// Checks the graph's fixed version tag.
 // Intake: checks the fixed graph version tag.
 fn check_graph_version(graph: &RawSemanticGraphV2) -> Result<(), ValidationFailure> {
@@ -3270,6 +3233,7 @@ fn validate_graph(
     let repeated_id = index.first_repeat();
     let mut kinds = meter.vec(graph.nodes.len())?;
     let mut references: Vec<Vec<BodyReference>> = meter.vec(graph.nodes.len())?;
+    let mut reference_paths: Vec<Vec<JsonPointer>> = meter.vec(graph.nodes.len())?;
     let mut body_terms = meter.vec(graph.nodes.len())?;
     let mut terms = meter.vec(graph.nodes.len())?;
     // Each frame node's typed body, read once here and joined by the frame step.
@@ -3342,7 +3306,20 @@ fn validate_graph(
         }
         // Charge the graph-node visit before checking identity uniqueness so
         // a denied visit cannot proceed to the duplicate-id refusal.
-        meter.charge(1, || at("node_id"))?;
+        stage_storage::work(
+            meter,
+            &stage_storage::Site::new(
+                PackageReadStage::Graph,
+                position,
+                graph_storage::node_form(&node.node_tag),
+                stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position)
+                    .key("node_id"),
+            ),
+            1,
+        )?;
         if repeated_id == Some(position) {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSemanticGraph,
@@ -3411,6 +3388,7 @@ fn validate_graph(
             ));
         }
         let mut targets = Vec::new();
+        let mut target_paths = Vec::new();
         let body_steps = [
             Step::Key("semantic_graph"),
             Step::Key("nodes"),
@@ -3478,7 +3456,12 @@ fn validate_graph(
             BodyGrammar::Refinement => refinement::validate_body(
                 TermNode::of(&bodies[position]),
                 &Trail::Base(&body_steps),
-                &mut |target, reference_site, _target_at, sink, charge_site| {
+                &mut |target, reference_site, target_at, sink, charge_site| {
+                    let position = stage_storage::Position::Trail(*target_at);
+                    sink.reserve(position.pointer_len() as u128, charge_site)
+                        .map_err(|_| sink.denial())?;
+                    let pointer = position.build();
+                    read_charge::push_charged(sink, charge_site, &mut target_paths, pointer)?;
                     read_charge::push_charged(
                         sink,
                         charge_site,
@@ -3506,7 +3489,12 @@ fn validate_graph(
                 TermNode::of(&bodies[position]),
                 TermNode::of(&bodies[position]),
                 &Trail::Base(&body_steps),
-                &mut |target, reference_site, _target_at, sink, charge_site| {
+                &mut |target, reference_site, target_at, sink, charge_site| {
+                    let position = stage_storage::Position::Trail(*target_at);
+                    sink.reserve(position.pointer_len() as u128, charge_site)
+                        .map_err(|_| sink.denial())?;
+                    let pointer = position.build();
+                    read_charge::push_charged(sink, charge_site, &mut target_paths, pointer)?;
                     read_charge::push_charged(
                         sink,
                         charge_site,
@@ -3526,9 +3514,23 @@ fn validate_graph(
             )
             .map_err(|failure| with_node_locus(failure, &node.node_id))?,
         };
-        meter.charge(work, || at("body"))?;
+        stage_storage::work(
+            meter,
+            &stage_storage::Site::new(
+                PackageReadStage::Graph,
+                position,
+                graph_storage::node_form(&node.node_tag),
+                stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(position)
+                    .key("body"),
+            ),
+            work,
+        )?;
         body_terms.push(work);
         references.push(targets);
+        reference_paths.push(target_paths);
         if node.occurrences.is_empty() {
             return Err(refuse(
                 CheckedPackageRefusalCode::InvalidSourceMap,
@@ -3976,18 +3978,17 @@ fn validate_graph(
     }
     let mut adjacency = meter.vec(graph.nodes.len())?;
     let mut lowering_facts = meter.vec(graph.nodes.len())?;
-    let reference_pointer = |position: usize, reference: usize| match (
-        graph.nodes.get(position),
-        kinds.get(position),
-    ) {
-        (Some(node), Some(kind)) => body_reference_pointer(
-            node,
-            *kind,
-            position,
-            reference,
-            graph.operand_rows.get(position).map_or(&[], Vec::as_slice),
-        ),
-        _ => node_pointer(position).key("body"),
+    let reference_position = |position: usize, reference: usize| match reference_paths
+        .get(position)
+        .and_then(|paths| paths.get(reference))
+    {
+        Some(path) => stage_storage::Position::Recorded(path),
+        None => stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position)
+            .key("body")
+            .into(),
     };
     for (position, (node, targets)) in graph.nodes.iter().zip(&references).enumerate() {
         let resolve = |id: &CheckedNodeId, path: &dyn Fn() -> JsonPointer| {
@@ -4060,7 +4061,25 @@ fn validate_graph(
                 // recursion and lowering vertex set.
                 continue;
             }
-            let target = resolve(target, &|| reference_pointer(position, reference_index))?;
+            let target = match index.get(target).copied() {
+                Some(target) => target,
+                None => {
+                    let at = reference_position(position, reference_index);
+                    return Err(stage_storage::refuse(
+                        meter,
+                        &stage_storage::Site::new(
+                            PackageReadStage::Graph,
+                            position,
+                            "references",
+                            at,
+                        ),
+                        stage_storage::Refusal::new(
+                            CheckedPackageRefusalCode::InvalidSemanticGraph,
+                            at,
+                        ),
+                    ));
+                }
+            };
             let role = match site.member {
                 ReferenceMember::Type => lower::EdgeRole::Annotation,
                 ReferenceMember::Target
@@ -4108,14 +4127,18 @@ fn validate_graph(
             },
         )?;
     }
-    let edge_pointer = |vertex: usize, site: EdgeSite| match site {
-        EdgeSite::SemanticType => node_pointer(vertex).key("semantic_type"),
-        EdgeSite::Dependency(dependency) => {
-            node_pointer(vertex).key("dependencies").index(dependency)
+    let edge_position = |vertex: usize, site: EdgeSite| {
+        let at = stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(vertex);
+        match site {
+            EdgeSite::SemanticType => at.key("semantic_type").into(),
+            EdgeSite::Dependency(index) => at.key("dependencies").index(index).into(),
+            EdgeSite::Reference(reference) => reference_position(vertex, reference),
         }
-        EdgeSite::Reference(reference) => reference_pointer(vertex, reference),
     };
-    validate_recursion(&graph.nodes, &adjacency, meter, &edge_pointer)?;
+    validate_recursion(&graph.nodes, &adjacency, meter, &edge_position)?;
     lower::assign_components_charged(&mut lowering_facts, meter)?;
     let mut admitted_terms = meter.vec(terms.len())?;
     for (position, term) in terms.into_iter().enumerate() {
@@ -4210,11 +4233,11 @@ fn reference_requires_cycle_edge(
 /// Every strongly connected component that forms a cycle must share one
 /// explicit `recursion_group`. Iterative Tarjan; each edge costs one work,
 /// charged at the member that carried the edge (`edge_pointer`).
-fn validate_recursion(
+fn validate_recursion<'p>(
     nodes: &[RawSemanticNodeV2],
     adjacency: &[Vec<(usize, EdgeSite)>],
     meter: &mut WorkMeter,
-    edge_pointer: &dyn Fn(usize, EdgeSite) -> JsonPointer,
+    edge_position: &dyn Fn(usize, EdgeSite) -> stage_storage::Position<'p>,
 ) -> Result<(), ValidationFailure> {
     const UNVISITED: usize = usize::MAX;
     let size = adjacency.len();
@@ -4244,7 +4267,16 @@ fn validate_recursion(
                 .and_then(|edges| edges.get(edge))
                 .copied();
             if let Some((successor, site)) = successor {
-                let charged = meter.charge(1, || edge_pointer(vertex, site));
+                let charged = stage_storage::work(
+                    meter,
+                    &stage_storage::Site::new(
+                        PackageReadStage::Graph,
+                        vertex,
+                        graph_storage::node_form(&nodes[vertex].node_tag),
+                        edge_position(vertex, site),
+                    ),
+                    1,
+                );
                 #[cfg(test)]
                 if work_probe::mutant_enabled() {
                     // Test-only mutation: continue the actual Tarjan walk
@@ -4887,7 +4919,12 @@ mod tests {
         let mut meter = WorkMeter::new(u64::MAX);
         assert_recursion_refusal(
             validate_recursion(&mismatch, &cycle, &mut meter, &|_, _| {
-                node_pointer(1).key("recursion_group")
+                super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(1)
+                    .key("recursion_group")
+                    .into()
             }),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_pointer(1).key("recursion_group").to_string(),
@@ -4900,7 +4937,12 @@ mod tests {
         let mut meter = WorkMeter::new(u64::MAX);
         assert_recursion_refusal(
             validate_recursion(&missing, &cycle, &mut meter, &|_, _| {
-                node_pointer(1).key("recursion_group")
+                super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(1)
+                    .key("recursion_group")
+                    .into()
             }),
             CheckedPackageRefusalCode::InvalidSemanticGraph,
             node_pointer(1).to_string(),
@@ -4910,7 +4952,12 @@ mod tests {
         let mut meter = WorkMeter::new(u64::MAX);
         assert_recursion_refusal(
             validate_recursion(&orphan, &[vec![]], &mut meter, &|_, _| {
-                node_pointer(0).key("recursion_group")
+                super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(0)
+                    .key("recursion_group")
+                    .into()
             }),
             CheckedPackageRefusalCode::MalformedWire,
             node_pointer(0).key("recursion_group").to_string(),
@@ -4930,7 +4977,15 @@ mod tests {
         let adjacency = (0..MEMBERS)
             .map(|position| vec![((position + 1) % MEMBERS, EdgeSite::Reference(0))])
             .collect::<Vec<_>>();
-        let at = |vertex: usize, _: EdgeSite| node_pointer(vertex).key("body");
+        let at = |vertex: usize, _: EdgeSite| {
+            super::stage_storage::Position::from(
+                super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(vertex)
+                    .key("body"),
+            )
+        };
 
         super::work_probe::reset();
         let mut exact = WorkMeter::new(u64::MAX);
@@ -4951,7 +5006,7 @@ mod tests {
         assert_eq!(incomplete.consumed, minimum);
         assert_eq!(
             incomplete.path,
-            Some(at(MEMBERS - 1, EdgeSite::Reference(0)))
+            Some(at(MEMBERS - 1, EdgeSite::Reference(0)).build())
         );
         assert_eq!(super::work_probe::visits_after_denial(), 0);
 
@@ -5348,7 +5403,12 @@ mod tests {
             };
             let mut meter = WorkMeter::new(u64::MAX);
             let result = validate_recursion(&[node], &adjacency, &mut meter, &|_, _| {
-                node_pointer(0).key("body")
+                super::stage_storage::Path::root()
+                    .key("semantic_graph")
+                    .key("nodes")
+                    .index(0)
+                    .key("body")
+                    .into()
             });
             if requires_edge {
                 let Err(ValidationFailure::Refused(refusal)) = result else {

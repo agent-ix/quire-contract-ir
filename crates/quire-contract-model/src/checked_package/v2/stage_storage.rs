@@ -217,6 +217,8 @@ fn build_trail_pointer(trail: &Trail<'_>) -> JsonPointer {
 pub(super) enum Position<'a> {
     Path(Path<'a>),
     Trail(Trail<'a>),
+    /// A path already recorded during the charged reference walk.
+    Recorded(&'a JsonPointer),
 }
 
 impl<'a> From<Path<'a>> for Position<'a> {
@@ -237,6 +239,7 @@ impl Position<'_> {
         match self {
             Self::Path(path) => path.pointer_len(),
             Self::Trail(trail) => trail_pointer_len(trail),
+            Self::Recorded(pointer) => pointer.as_str().len(),
         }
     }
 
@@ -246,6 +249,7 @@ impl Position<'_> {
         match self {
             Self::Path(path) => path.build(),
             Self::Trail(trail) => build_trail_pointer(trail),
+            Self::Recorded(pointer) => (*pointer).clone(),
         }
     }
 }
