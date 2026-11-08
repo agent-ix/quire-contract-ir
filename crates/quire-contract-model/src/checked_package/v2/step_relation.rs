@@ -813,7 +813,12 @@ pub(super) fn validate_step_relations(
                         .chain(&operation.parameters)
                         .nth(j - 1)
                     {
-                        if let Some(kind) = owner.package.slot_type_in(slot, &mut budget)? {
+                        if let Some(kind) = owner.package.slot_type_charged(
+                            slot,
+                            false,
+                            &mut budget,
+                            "member_type",
+                        )? {
                             kind.node_id_in(&parameter.node_id.package, &mut budget)?
                         } else {
                             None

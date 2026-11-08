@@ -1381,13 +1381,8 @@ pub(super) fn validate_selected_type_bounds(
             else {
                 continue;
             };
-            // The bounds, the id and the `Arc` block holding it.
-            meter.reserve(
-                std::mem::size_of::<ValueBounds>()
-                    .saturating_add(std::mem::size_of::<CheckedNodeId>())
-                    .saturating_add(2 * std::mem::size_of::<usize>()),
-            )?;
-            meter.push(&mut selected, (bounds.clone(), std::sync::Arc::new(id)))?;
+            meter.reserve(super::budgeted_read::arc_bytes::<CheckedNodeId>())?;
+            meter.push(&mut selected, (bounds, std::sync::Arc::new(id)))?;
         }
     }
     if selected.is_empty() {
@@ -1402,8 +1397,9 @@ pub(super) fn validate_selected_type_bounds(
     // keys' own operands follow them, each allocation once.
     let mut listed: Vec<*const CheckedNodeId> = Vec::new();
     let mut pending: Vec<std::sync::Arc<CheckedNodeId>> = Vec::new();
-    for key in selected_keys.clone().iter() {
-        meter.push(&mut pending, std::sync::Arc::clone(key))?;
+    for initial in 0..selected.len() {
+        let key = std::sync::Arc::clone(&selected_keys[initial]);
+        meter.push(&mut pending, key)?;
         while let Some(key) = pending.pop() {
             if !meter.insert_sorted(&mut listed, std::sync::Arc::as_ptr(&key))? {
                 continue;
@@ -1448,25 +1444,31 @@ pub(super) fn validate_selected_type_bounds(
                 };
                 match (&expected, members) {
                     (ValueBounds::Integer(_), [minimum, maximum]) => {
-                        Some(vec![bound(minimum, "min")?, bound(maximum, "max")?])
+                        Some(([bound(minimum, "min")?, bound(maximum, "max")?, 0, 0], 2))
                     }
-                    (ValueBounds::Rational(..), [nmin, nmax, dmin, dmax]) => Some(vec![
-                        bound(nmin, "numerator_min")?,
-                        bound(nmax, "numerator_max")?,
-                        bound(dmin, "denominator_min")?,
-                        bound(dmax, "denominator_max")?,
-                    ]),
+                    (ValueBounds::Rational(..), [nmin, nmax, dmin, dmax]) => Some((
+                        [
+                            bound(nmin, "numerator_min")?,
+                            bound(nmax, "numerator_max")?,
+                            bound(dmin, "denominator_min")?,
+                            bound(dmax, "denominator_max")?,
+                        ],
+                        4,
+                    )),
                     _ => None,
                 }
             });
         let expected_values = match expected {
-            ValueBounds::Integer(bounds) => vec![bounds.lower, bounds.upper],
-            ValueBounds::Rational(bounds, _) => vec![
-                bounds.numerator_min,
-                bounds.numerator_max,
-                bounds.denominator_min,
-                bounds.denominator_max,
-            ],
+            ValueBounds::Integer(bounds) => ([bounds.lower, bounds.upper, 0, 0], 2),
+            ValueBounds::Rational(bounds, _) => (
+                [
+                    bounds.numerator_min,
+                    bounds.numerator_max,
+                    bounds.denominator_min,
+                    bounds.denominator_max,
+                ],
+                4,
+            ),
             ValueBounds::Text(_) => continue,
         };
         if actual != Some(expected_values) {

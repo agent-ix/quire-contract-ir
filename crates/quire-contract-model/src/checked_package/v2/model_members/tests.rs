@@ -1985,8 +1985,8 @@ fn selected_member_type_parsers_reserve_every_owned_byte() {
                 let mut budget = Budget::new(&mut meter, 0, u64::MAX);
                 result = Some(match case {
                     0 | 1 => model.element_type_in(&references[case], &mut budget),
-                    2 => model.slot_type_in(&field.slot, &mut budget),
-                    _ => model.field_type_in(&field, &mut budget),
+                    2 => model.slot_type_charged(&field.slot, false, &mut budget, "member_type"),
+                    _ => model.field_type_charged(&field, &mut budget, "member_type"),
                 });
             });
             (
@@ -2000,6 +2000,121 @@ fn selected_member_type_parsers_reserve_every_owned_byte() {
         assert!(charged > 0);
         assert_eq!(allocated, charged, "case {case}");
         assert_eq!(run(charged).0.expect("exact limit admits"), expected);
+        assert!(run(charged - 1).0.is_err(), "one short: {case}");
+    }
+}
+
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn selected_type_bounds_allocate_only_reserved_storage() {
+    let digit = json!({
+        "identity":"ix://acme/orders/Digit", "displayName":"Digit",
+        "kind":{"module":"acme/orders","name":"digit"}, "roles":[],"extensions":[],
+        "unknownPolicy":"reject","scalar":"integer",
+        "constraints":[{"keyword":"min","operands":{"value":0}},
+                       {"keyword":"max","operands":{"value":"9"}}]
+    });
+    let model = read(&document(vec![digit])).expect("model");
+    let id = MemberType::IntRange(IntegerBounds { lower: 0, upper: 9 })
+        .node_id(&model.checked_package)
+        .expect("range ID");
+    use super::super::{CheckedTerm, LiteralKind};
+    let members = [("min", "0"), ("max", "9")]
+        .into_iter()
+        .map(|(name, value)| CheckedTerm::Binding {
+            name: name.into(),
+            value: Box::new(CheckedTerm::Literal {
+                type_id: id.clone(),
+                value_kind: LiteralKind::Integer,
+                value: crate::CheckedJson::from_value(&json!(value)).expect("integer payload"),
+            }),
+        })
+        .collect();
+    let terms = [Some(CheckedTerm::Aggregate { members }), None];
+    let mut keys = vec![std::sync::Arc::new(id)];
+    let CheckedNodePathSegment::Node(integer) = &keys[0].path[3] else {
+        panic!("integer operand");
+    };
+    keys.push(std::sync::Arc::clone(integer));
+    let run = |limit| {
+        let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+        let mut result = None;
+        let measured = allocation_counter::measure(|| {
+            let mut meter = WorkMeter::over(&mut native);
+            result = Some(super::super::structural::validate_selected_type_bounds(
+                std::slice::from_ref(&model),
+                &terms,
+                &keys,
+                &mut meter,
+            ));
+        });
+        (
+            result.expect("ran"),
+            measured.bytes_total,
+            native.read_storage_consumed(),
+        )
+    };
+    let (actual, allocated, charged) = run(u64::MAX);
+    actual.expect("valid selected bounds");
+    assert!(charged > 0);
+    assert_eq!(allocated, charged);
+    run(charged).0.expect("exact limit");
+    assert!(run(charged - 1).0.is_err(), "one short");
+}
+
+#[trace("TC-472", "FR-038-AC-504")]
+#[test]
+fn selected_clock_rendering_and_duration_lookup_reserve_owned_storage() {
+    #[derive(Debug, PartialEq)]
+    enum Output {
+        Clock(Option<String>),
+        DurationAbsent(bool),
+    }
+    let model=read(&document(vec![
+        object_type(WIDGET,&[],vec![]),
+        json!({"identity":"ix://acme/orders/Items","kind":"sequence","items":WIDGET}),
+        json!({"identity":"ix://acme/orders/MaybeItems","kind":"option","inner":"ix://acme/orders/Items"}),
+    ])).expect("selected model");
+    let refs = [
+        SelectedTypeRef::Declared("ix://acme/orders/Items".into()),
+        SelectedTypeRef::Native(NativeTypeRef::Clock),
+        SelectedTypeRef::Native(NativeTypeRef::Duration),
+        SelectedTypeRef::Declared("ix://acme/orders/MaybeItems".into()),
+    ];
+    let expected = [
+        Output::Clock(Some(format!("Sequence<{WIDGET}>"))),
+        Output::Clock(Some("ix://quire/native/Clock".into())),
+        Output::DurationAbsent(true),
+        Output::Clock(None),
+    ];
+    for (case, expected) in expected.into_iter().enumerate() {
+        let run = |limit| {
+            let mut native = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
+            let mut outcome = None;
+            let measured = allocation_counter::measure(|| {
+                let mut meter = WorkMeter::over(&mut native);
+                let mut budget = Budget::new(&mut meter, 0, BYTES);
+                outcome = Some(if case == 2 {
+                    model
+                        .duration_unit_absent(&refs[case], &mut budget)
+                        .map(Output::DurationAbsent)
+                } else {
+                    model
+                        .clock_type_name_in(&refs[case], &mut budget)
+                        .map(Output::Clock)
+                });
+            });
+            (
+                outcome.expect("ran"),
+                measured.bytes_total,
+                native.read_storage_consumed(),
+            )
+        };
+        let (actual, allocated, charged) = run(u64::MAX);
+        assert_eq!(actual.expect("unlimited"), expected);
+        assert!(charged > 0);
+        assert_eq!(allocated, charged, "case {case}");
+        assert_eq!(run(charged).0.expect("exact limit"), expected);
         assert!(run(charged - 1).0.is_err(), "one short: {case}");
     }
 }

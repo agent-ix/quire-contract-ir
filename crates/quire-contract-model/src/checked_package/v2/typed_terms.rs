@@ -96,6 +96,7 @@ impl CheckedApplicationOperationRecord {
     }
 
     /// Check wire shape by borrowing the retained document, before decoding fields.
+    #[ix_trace_rs::string_edge]
     pub(super) fn wire_shape(node: super::TermNode<'_>) -> bool {
         fn text(node: Option<super::TermNode<'_>>) -> bool {
             node.and_then(super::TermNode::as_str).is_some()
@@ -287,6 +288,7 @@ impl TryFrom<Value> for Box<CheckedApplicationOperationRecord> {
 }
 
 /// Read a closed execution point without serde's internally-tagged scratch map.
+#[ix_trace_rs::string_edge]
 pub(super) fn point_from_node(
     value: super::TermNode<'_>,
     context: &super::document_de::DecodeContext<'_>,
@@ -1381,6 +1383,7 @@ impl CheckedApplicationOperation {
         }
     }
 
+    #[ix_trace_rs::string_edge]
     pub(super) fn fairness_target_syntax(
         &self,
         meter: &mut super::WorkMeter,
@@ -1402,6 +1405,7 @@ impl CheckedApplicationOperation {
         CheckedFairnessTarget::from_validated_node(target, &self.record.member_ids, meter)
     }
 
+    #[ix_trace_rs::string_edge]
     pub(super) fn hybrid_target_for_join(
         &self,
         meter: &mut super::WorkMeter,

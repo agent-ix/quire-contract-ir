@@ -386,13 +386,15 @@ fn check_anchor(
                     meter.charge(1, || node_pointer(frame_position).key("body"))?;
                     if slot.name.as_deref() == Some(name.as_ref())
                         && matches!(
-                            owner.package.slot_type_in(
+                            owner.package.slot_type_charged(
                                 slot,
+                                false,
                                 &mut super::model_members::Budget::new(
                                     meter,
                                     owner.package.root,
                                     owner.package.bytes
-                                )
+                                ),
+                                "member_type"
                             )?,
                             Some(MemberType::Reference(_))
                         )
@@ -556,9 +558,11 @@ fn check_clause(
         return Err(signature_refusal());
     }
     for (parameter, slot) in bound.iter().zip(expected) {
-        let Some(slot_type) = owner.package.slot_type_in(
+        let Some(slot_type) = owner.package.slot_type_charged(
             slot,
+            false,
             &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
+            "member_type",
         )?
         else {
             return Err(signature_refusal());
@@ -804,13 +808,14 @@ fn check_transition(
                 if !declared {
                     return Err(malformed_subject());
                 }
-                field_owner.package.field_type_in(
+                field_owner.package.field_type_charged(
                     field,
                     &mut super::model_members::Budget::new(
                         meter,
                         field_owner.package.root,
                         field_owner.package.bytes,
                     ),
+                    "member_type",
                 )?
             }
             _ => return Err(malformed_subject()),
@@ -898,13 +903,15 @@ fn check_transition(
             })
             .map(|(name, _)| name);
         if name != slot.name.as_deref()
-            || owner.package.slot_type_in(
+            || owner.package.slot_type_charged(
                 slot,
+                false,
                 &mut super::model_members::Budget::new(
                     meter,
                     owner.package.root,
                     owner.package.bytes,
                 ),
+                "member_type",
             )? != Some(MemberType::Boolean)
             || graph.node(&parameter.semantic_type).map(|(_, kind)| kind)
                 != Some(CheckedNodeKind::ScalarType(ScalarTypeForm::Boolean))

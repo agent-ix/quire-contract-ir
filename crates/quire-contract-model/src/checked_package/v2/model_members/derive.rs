@@ -9,8 +9,8 @@
 use super::charged::{declaration_id_bytes, node_id_bytes};
 use super::{
     declaration_id, Budget, CollectionKind, DeclarationForm, DomainModel, FieldDecl, MemberType,
-    NativeTypeRef, RationalBounds, SelectedTypeDefinition, SelectedTypeRef, TextBounds, TypedSlot,
-    ValueBounds, DURATION_RESOLVED_PREFIX,
+    Multiplicity, NativeTypeRef, RationalBounds, SelectedTypeDefinition, SelectedTypeRef,
+    TextBounds, TypedSlot, ValueBounds, DURATION_RESOLVED_PREFIX,
 };
 use crate::checked_package::shared::CheckedNodeId;
 use crate::checked_package::v2::ValidationFailure;
@@ -190,13 +190,42 @@ impl DomainModel {
         let Some(type_ref) = slot.type_ref.as_ref() else {
             return Ok(None);
         };
+        self.derive_type_charged(type_ref, slot.multiplicity, optional, budget, form)
+    }
+
+    pub(in crate::checked_package::v2) fn element_type_in(
+        &self,
+        type_ref: &SelectedTypeRef,
+        budget: &mut Budget<'_, '_>,
+    ) -> Result<Option<MemberType>, ValidationFailure> {
+        self.derive_type_charged(
+            type_ref,
+            Multiplicity {
+                lower: 1,
+                upper: Some(1),
+                ordered: false,
+                unique: false,
+            },
+            false,
+            budget,
+            "member_type",
+        )
+    }
+
+    fn derive_type_charged(
+        &self,
+        type_ref: &SelectedTypeRef,
+        multiplicity: Multiplicity,
+        optional: bool,
+        budget: &mut Budget<'_, '_>,
+        form: &'static str,
+    ) -> Result<Option<MemberType>, ValidationFailure> {
         let Some((bottom, layers)) = self.bottom(type_ref) else {
             return Ok(None);
         };
         let Some(leaf) = self.leaf(bottom, budget, form)? else {
             return Ok(None);
         };
-        let multiplicity = slot.multiplicity;
         let collection = if (multiplicity.lower, multiplicity.upper) == (1, Some(1)) {
             None
         } else {

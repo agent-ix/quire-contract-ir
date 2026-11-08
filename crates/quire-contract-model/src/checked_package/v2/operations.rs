@@ -3380,9 +3380,10 @@ fn check_reference_edge(
         return ineligible(member_at("name"));
     };
     let edge = MemberType::Reference(edge_id.clone());
-    let is_edge = match owner.package.field_type_in(
+    let is_edge = match owner.package.field_type_charged(
         field,
         &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
+        "member_type",
     )? {
         Some(MemberType::Option(inner)) => *inner == edge,
         Some(MemberType::Collection {
@@ -4128,9 +4129,10 @@ fn check_model_member(
         Err(ModelFailure::Limit(failure)) => return Err(failure),
     };
     let member_type = match resolved {
-        Resolved::Field(field) => owner.package.field_type_in(
+        Resolved::Field(field) => owner.package.field_type_charged(
             field,
             &mut super::model_members::Budget::new(meter, owner.package.root, owner.package.bytes),
+            "member_type",
         )?,
         Resolved::Operation(resolved) => {
             if object.interface {
@@ -4156,13 +4158,15 @@ fn check_model_member(
             }
             for (offset, parameter) in resolved.parameters.iter().enumerate() {
                 let position = offset.saturating_add(1);
-                let Some(expected) = owner.package.slot_type_in(
+                let Some(expected) = owner.package.slot_type_charged(
                     parameter,
+                    false,
                     &mut super::model_members::Budget::new(
                         meter,
                         owner.package.root,
                         owner.package.bytes,
                     ),
+                    "member_type",
                 )?
                 else {
                     return ineligible(member_at("name"));
@@ -4185,9 +4189,11 @@ fn check_model_member(
                 }
             }
             if let Some(result) = resolved.result.as_ref() {
-                owner.package.slot_type_in(
+                owner.package.slot_type_charged(
                     result,
+                    false,
                     &mut Budget::new(meter, owner.package.root, owner.package.bytes),
+                    "member_type",
                 )?
             } else {
                 None
