@@ -2307,7 +2307,7 @@ impl CheckedTerm {
                 if exact_members(
                     object,
                     &["term", "operator", "operation", "result_type", "arguments"],
-                ) =>
+                ) && wire.operator().is_some() =>
             {
                 Some(CheckedTermView::Application {
                     arguments: wire.array(TermField::Arguments)?,
@@ -2319,7 +2319,11 @@ impl CheckedTerm {
                 })
             }
             TermTag::Known(BodyTerm::Binding)
-                if exact_members(object, &["term", "name", "value"]) =>
+                if exact_members(object, &["term", "name", "value"])
+                    && wire
+                        .field(TermField::Name)
+                        .and_then(Value::as_str)
+                        .is_some() =>
             {
                 Some(CheckedTermView::Binding {
                     value: wire.field(TermField::Value)?,
@@ -2329,7 +2333,8 @@ impl CheckedTerm {
                 Some(CheckedTermView::Reference)
             }
             TermTag::Known(BodyTerm::Literal)
-                if exact_members(object, &["term", "type", "value_kind", "value"]) =>
+                if exact_members(object, &["term", "type", "value_kind", "value"])
+                    && wire.literal_kind().is_some() =>
             {
                 Some(CheckedTermView::Literal)
             }
