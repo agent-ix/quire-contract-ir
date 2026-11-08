@@ -68,11 +68,13 @@ class PersistedEvidence(unittest.TestCase):
         proof = runner.persisted_class_proof({
             "schema": "s", "qualified": True, "scope": "c", "configuration": "config.json",
             "static_ac513_proven": False, "canonical_source": "/src",
-            "classes": [{"class": "text", "qualified": True, "kernel_allow": entry, "whole_deny": None}],
+            "classes": [{"class": "text", "qualified": True, "kernel_allow": entry, "whole_deny": None,
+                         "source_binding": {"line": 3, "before_denial_counts": {"value": 1}}, "kernel_bound": True}],
             "negative_controls": [], "runs": [{"test": "canonical_class_denial::x", "directory": "/d",
                                                "rust_oracle_passed": True}]})
         self.assertEqual(proof["classes"][0]["kernel_allow"], {"counts": {"value": 1}})
         self.assertIsNone(proof["classes"][0]["whole_deny"])
+        self.assertEqual(proof["classes"][0]["source_binding"]["line"], 3)
         self.assertEqual(proof["runs"], [{"test": "canonical_class_denial::x", "rust_oracle_passed": True}])
         self.assertNotIn("facts", json.dumps(proof))
 

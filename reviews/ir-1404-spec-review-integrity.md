@@ -25,3 +25,16 @@ Ticket: IR-1404. PR quire-contract-ir#999 at 53410c466a2db86d2e26a9cd995adfcd13e
 ## Coverage
 
 Examined units: tests-matrix-rows, FR-038-AC-503, FR-038-AC-507, FR-038-AC-512.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | The AC-507 row says each retained request is denied and admitted, but only the AC's seven forms are | spec/checked_package/matrix/tests.md:21 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
+| FND-002 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |

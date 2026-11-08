@@ -460,7 +460,7 @@ def persisted_class_proof(result):
     kept = {key: result[key] for key in ("schema","qualified","scope","configuration","static_ac513_proven")}
     kept["canonical_source"] = result["canonical_source"]
     kept["classes"] = [
-        {key: (value if not isinstance(value, dict) else {"counts": value["counts"]})
+        {key: ({"counts": value["counts"]} if key in ("kernel_allow", "kernel_deny", "whole_allow", "whole_deny", "whole_exact") and value else value)
          for key, value in item.items()}
         for item in result["classes"]]
     kept["negative_controls"] = result["negative_controls"]
@@ -547,7 +547,7 @@ def run_class_controls(args,binary,config,env,compiled_tests):
             (Path(case["directory"])/name).unlink(missing_ok=True)
     write_json(args.out/"class-proof.json",persisted_class_proof(result))
     if not qualified: raise RunError("class denial proof incomplete/RED; preserve individual run and binding results")
-    return [result]
+    return [persisted_class_proof(result)]
 
 
 def main():

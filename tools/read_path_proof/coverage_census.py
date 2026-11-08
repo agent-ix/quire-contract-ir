@@ -340,31 +340,6 @@ def check_run(export, root, report, records, mode):
     return result
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--export", type=Path, required=True)
-    parser.add_argument("--source-root", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--test-report", type=Path, required=True)
-    parser.add_argument("--driver-log", type=Path, required=True)
-    parser.add_argument("--mode", choices=["sample", "full"], required=True)
-    args = parser.parse_args()
-    try:
-        result = check_run(
-            json.loads(args.export.read_text()), args.source_root.resolve(),
-            json.loads(args.test_report.read_text()),
-            [json.loads(line) for line in args.driver_log.read_text().splitlines() if line.strip()],
-            args.mode,
-        )
-    except (CensusError, OSError, ValueError, KeyError) as error:
-        args.output.write_text(json.dumps({"passed": False, "error": str(error)}, indent=2) + "\n")
-        raise SystemExit(str(error)) from error
-    args.output.write_text(json.dumps({"passed": True, **result}, indent=2) + "\n")
-
-
-if __name__ == "__main__":
-    main()
-
 # This is an execution-path binding for minimal class-denial controls, not a
 # reader reachability proof or a per-callback class inference from byte sizes.
 CANONICAL_CLASS_SITES = {

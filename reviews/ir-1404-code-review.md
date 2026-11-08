@@ -27,3 +27,19 @@ Ticket: IR-1404. PR quire-contract-ir#999 at 53410c466a2db86d2e26a9cd995adfcd13e
 ## Coverage
 
 Examined units: FR-038-AC-503, FR-038-AC-507, tools/read_path_proof/run_coverage_census.py, tools/read_path_proof/compiler_reachability.py, tools/read_path_proof/coverage_census.py.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | high | persisted_class_proof raises KeyError on every bound class, so class-control runs crash | tools/read_path_proof/run_coverage_census.py:461-465 |
+| FND-006 | low | The standalone census CLI still requires artifacts the runner no longer leaves | tools/read_path_proof/coverage_census.py:343-362 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
+| FND-002 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
+| FND-003 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
+| FND-004 | fixed | Verified in fix commit b4c684ec47e638bcf13bfc87ee38c9214de56a3c |
