@@ -1182,3 +1182,46 @@ fn original_read_boundary_preserves_structural_and_work_limits() {
     };
     assert_eq!(malformed.code, Code::MalformedWire);
 }
+
+/// The proof's extra reads and logging must not change an original driver's
+/// enclosing allocation oracle: it still observes precisely one public read.
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn original_enclosing_allocator_observes_only_its_original_read() {
+    let wire = v2_all_families();
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let limits = quire_contract_model::CheckedPackageReadLimits::bounded();
+    let mut wrapped = None;
+    let accounted = allocation_counter::measure(|| {
+        wrapped = Some(crate::read_and_account(&bytes, limits, &evidence));
+    });
+    let mut original = None;
+    let ordinary = allocation_counter::measure(|| {
+        original = Some(CheckedPackageV2::read(&bytes, limits, &evidence));
+    });
+    assert_eq!(
+        wrapped, original,
+        "the original semantic oracle sees the same result"
+    );
+    assert_eq!(
+        accounted.count_total, ordinary.count_total,
+        "no extra caller allocations"
+    );
+    assert_eq!(
+        accounted.bytes_total, ordinary.bytes_total,
+        "no extra caller requested bytes"
+    );
+    assert_eq!(
+        accounted.count_current, ordinary.count_current,
+        "no cross-thread proof drops charged to caller"
+    );
+    assert_eq!(
+        accounted.bytes_current, ordinary.bytes_current,
+        "only original returned storage remains"
+    );
+    assert_eq!(
+        accounted.bytes_max, ordinary.bytes_max,
+        "the original peak oracle is preserved"
+    );
+}

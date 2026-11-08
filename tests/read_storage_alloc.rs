@@ -407,3 +407,32 @@ use qspec_read_proof::read_and_account;
 fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
     <ThreadCounter as Counter>::measure(read)
 }
+
+fn without_qspec_instrumentation<T>(operation: impl FnOnce() -> T) -> T {
+    let previous = REQUESTED.with(|counter| counter.replace(None));
+    let result = operation();
+    REQUESTED.with(|counter| counter.set(previous));
+    result
+}
+
+#[trace("TC-472", "FR-038-AC-511")]
+#[test]
+fn original_dedicated_counter_observes_only_its_original_read() {
+    let wire = v2_all_families();
+    let bytes = canonical(&wire);
+    let evidence = evidence_for(&wire);
+    let limits = quire_contract_model::CheckedPackageReadLimits::bounded();
+    let mut wrapped = None;
+    let measured = <ThreadCounter as Counter>::measure(|| {
+        wrapped = Some(read_and_account(&bytes, limits, &evidence));
+    });
+    let mut original = None;
+    let expected = <ThreadCounter as Counter>::measure(|| {
+        original = Some(CheckedPackageV2::read(&bytes, limits, &evidence));
+    });
+    assert_eq!(wrapped, original);
+    assert_eq!(
+        measured, expected,
+        "proof instrumentation does not alter the original allocator oracle"
+    );
+}

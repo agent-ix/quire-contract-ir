@@ -169,9 +169,9 @@ fn full_work_boundaries(
     boundaries
 }
 
-/// Run the real read before returning the exact original public result to its
-/// original oracle. `full` additionally denies every observed reservation and
-/// work charge; `sample` checks exact, one-below and repeated limits.
+/// Run proof probes serially on scoped workers so an enclosing original
+/// allocation oracle observes exactly its one original read, without probe,
+/// logging, thread startup or cross-thread-drop instrumentation overhead.
 #[track_caller]
 pub(crate) fn read_and_account(
     bytes: &[u8],
@@ -179,16 +179,59 @@ pub(crate) fn read_and_account(
     evidence: &CheckedPackageEvidence,
 ) -> Plain {
     let location = std::panic::Location::caller();
-    let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
-    assert!(
-        matches!(mode.as_str(), "sample" | "full"),
-        "unknown read-proof mode {mode}"
-    );
-    // This is the first read at this boundary. No catalogue initializer or
-    // unmeasured public read may warm it before the allocator is armed.
-    let reference = observe(bytes, limits, evidence, limits.work, u64::MAX);
+    let (mode, test_name) = crate::without_qspec_instrumentation(|| {
+        let mode = std::env::var("IR1404_READ_PROOF_MODE").unwrap_or_else(|_| "sample".into());
+        assert!(
+            matches!(mode.as_str(), "sample" | "full"),
+            "unknown read-proof mode {mode}"
+        );
+        (
+            mode,
+            std::thread::current()
+                .name()
+                .unwrap_or("unnamed")
+                .to_owned(),
+        )
+    });
+    // The first public read is measured on a fresh worker. Only worker
+    // startup/join is outside the caller's enclosing allocation measurement;
+    // the worker's own thread-local allocator counter remains fully armed.
+    let reference = crate::without_qspec_instrumentation(|| {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| observe(bytes, limits, evidence, limits.work, u64::MAX))
+                .join()
+                .expect("first measured driver read")
+        })
+    });
     let plain = CheckedPackageV2::read(bytes, limits, evidence);
-    same_public_result(&plain, &reference, limits);
+    crate::without_qspec_instrumentation(|| {
+        std::thread::scope(|scope| {
+            let plain = &plain;
+            scope
+                .spawn(move || {
+                    finish_proof(
+                        bytes, limits, evidence, reference, plain, mode, test_name, location,
+                    )
+                })
+                .join()
+                .expect("driver accounting proof")
+        })
+    });
+    plain
+}
+
+fn finish_proof(
+    bytes: &[u8],
+    limits: CheckedPackageReadLimits,
+    evidence: &CheckedPackageEvidence,
+    reference: Observation,
+    plain: &Plain,
+    mode: String,
+    test_name: String,
+    location: &'static std::panic::Location<'static>,
+) {
+    same_public_result(plain, &reference, limits);
     let storage = reference.budget.read_storage_consumed();
     let work = if reference.budget.first_unpaid().is_some() {
         limits.work
@@ -246,7 +289,7 @@ pub(crate) fn read_and_account(
             std::env::temp_dir().join(format!("ir1404-read-sites-{}.jsonl", std::process::id()))
         });
     let row = serde_json::json!({"driver":location.file(),"line":location.line(),
-        "test":std::thread::current().name(),"sequence":sequence,"mode":mode,"outcome":kind,
+        "test":test_name,"sequence":sequence,"mode":mode,"outcome":kind,
         "input_bytes":bytes.len(),"work_limit":limits.work,"work":reference.budget.consumed().work,
         "read_storage":storage,"storage_boundaries":storage_boundaries,"work_boundaries":work_boundaries});
     let mut output = std::fs::OpenOptions::new()
@@ -256,5 +299,4 @@ pub(crate) fn read_and_account(
         .expect("temporary read proof log");
     writeln!(output, "{row}").expect("temporary read proof record");
     drop_without_request::<DriverCounter>(reference);
-    plain
 }
