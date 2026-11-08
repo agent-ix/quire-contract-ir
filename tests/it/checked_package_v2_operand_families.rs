@@ -1613,8 +1613,17 @@ fn genuine_monitor_base_fold_is_admitted_without_removing_semantics() {
             include_bytes!("../fixtures/fold-binders/monitor-model.json").to_vec(),
         )
         .expect("selected ConfigVersion model evidence");
+    // Match the producing monitor fixture's finite caller ceilings.
+    let limits = CheckedPackageReadLimits {
+        bytes: 1 << 26,
+        nodes: 1_000_000,
+        edges: 10_000_000,
+        occurrences: 10_000_000,
+        diagnostics: 10_000,
+        work: 1_000_000_000,
+    };
     let package =
-        match CheckedPackageV2::read(bytes, CheckedPackageReadLimits::bounded(), &evidence) {
+        match CheckedPackageV2::read(bytes, limits, &evidence) {
             CheckedPackageV2ReadResult::Admitted(package) => package,
             other => panic!("complete genuine monitor-base fold must admit: {other:?}"),
         };
