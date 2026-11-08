@@ -420,9 +420,12 @@ fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
 
 fn without_qspec_instrumentation<T>(operation: impl FnOnce() -> T) -> T {
     let previous = REQUESTED.with(|counter| counter.replace(None));
-    let result = operation();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation));
     REQUESTED.with(|counter| counter.set(previous));
-    result
+    match result {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }
 
 #[trace("TC-472", "FR-038-AC-511")]

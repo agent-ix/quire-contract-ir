@@ -1832,6 +1832,13 @@ fn measure_qspec_read_requests(read: impl FnOnce()) -> u64 {
 
 fn without_qspec_instrumentation<T>(operation: impl FnOnce() -> T) -> T {
     let mut result = None;
-    allocation_counter::opt_out(|| result = Some(operation()));
-    result.expect("instrumentation runs once")
+    allocation_counter::opt_out(|| {
+        result = Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            operation,
+        )));
+    });
+    match result.expect("instrumentation runs once") {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }
