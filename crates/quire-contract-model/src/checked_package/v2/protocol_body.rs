@@ -21,6 +21,15 @@ use ix_trace_rs::string_edge;
 #[cfg(test)]
 use serde_json::Value;
 
+fn node_work(meter: &mut WorkMeter, position: usize) -> Result<(), ValidationFailure> {
+    let path = super::stage_storage::Path::root()
+        .key("semantic_graph")
+        .key("nodes")
+        .index(position);
+    let site = super::natural::site(meter, path);
+    super::natural::work_at(meter, site, 1)
+}
+
 /// The activation selected by an admitted protocol clause.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckedProtocolActivation {
@@ -1616,7 +1625,7 @@ impl MemberCheck<'_> {
         pending.push(type_id);
         let mut visited: Vec<usize> = Vec::new();
         while let Some(type_id) = pending.pop() {
-            meter.charge(1, || node_pointer(self.position))?;
+            node_work(meter, self.position)?;
             let Some(&position) = self.index.get(type_id) else {
                 return Ok(false);
             };
@@ -1677,7 +1686,7 @@ impl MemberCheck<'_> {
         };
         let mut clause: Option<&[Box<str>]> = None;
         for &position in self.index.values() {
-            meter.charge(1, || node_pointer(self.position))?;
+            node_work(meter, self.position)?;
             if !self.is(
                 position,
                 CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
@@ -1720,7 +1729,7 @@ impl MemberCheck<'_> {
             return Ok(false);
         };
         for &clause in self.index.values() {
-            meter.charge(1, || node_pointer(self.position))?;
+            node_work(meter, self.position)?;
             if !self.is(
                 clause,
                 CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause),
@@ -2600,7 +2609,7 @@ fn check_compensation(
     for ordinal in [5, 7] {
         let captures = members(check.at(arguments, ordinal)).expect("validated captures");
         for (position, record) in captures.iter().enumerate() {
-            meter.charge(1, || node_pointer(check.position))?;
+            node_work(meter, check.position)?;
             let binder = group_value(record, "binder").expect("validated capture binder");
             check.check_target(
                 binder,
@@ -2806,7 +2815,7 @@ fn check_role_member(
     let Some(member) = argument(arguments, 2) else {
         return Ok(());
     };
-    meter.charge(1, || node_pointer(check.position))?;
+    node_work(meter, check.position)?;
     let texts = role_member_texts(member);
     let invalid = || {
         let mut failure = check.refuse(
@@ -2865,7 +2874,7 @@ fn check_member(
         ProtocolForm::Role => {
             let replication = check.at(arguments, 1);
             if let Some(identity) = text_value(check.at(arguments, 0)) {
-                meter.charge(1, || node_pointer(check.position))?;
+                node_work(meter, check.position)?;
                 if !owners.selects(identity) {
                     return Err(check.refuse(
                         Code::MissingDeclaration,
@@ -3220,7 +3229,7 @@ fn collect_protocol_membership(
         if kinds.get(clause) != Some(&CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause)) {
             continue;
         }
-        meter.charge(1, || node_pointer(clause))?;
+        node_work(meter, clause)?;
         let Some((_, arguments)) = validated[clause] else {
             continue;
         };
@@ -3232,7 +3241,7 @@ fn collect_protocol_membership(
         ] {
             if let Some(value) = binding_value(arguments, field) {
                 for target in listed_targets(value) {
-                    meter.charge(1, || node_pointer(clause))?;
+                    node_work(meter, clause)?;
                     if let Some(&position) = index.get(target) {
                         if kinds.get(position) == Some(&CheckedNodeKind::Protocol(form)) {
                             record_member_owner(&mut owners, &mut repeated, position, clause);
@@ -3244,7 +3253,7 @@ fn collect_protocol_membership(
         for field in ["finish", "terminal"] {
             if let Some(value) = binding_value(arguments, field) {
                 for target in listed_targets(value).chain(reference_target(value)) {
-                    meter.charge(1, || node_pointer(clause))?;
+                    node_work(meter, clause)?;
                     if let Some(&position) = index.get(target) {
                         if kinds.get(position)
                             == Some(&CheckedNodeKind::Protocol(ProtocolForm::Obligation))
@@ -3267,7 +3276,7 @@ fn collect_protocol_membership(
 
     let mut visited = meter.filled(nodes.len(), false)?;
     while let Some((position, clause)) = pending.pop() {
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         record_member_owner(&mut owners, &mut repeated, position, clause);
         if std::mem::replace(&mut visited[position], true) {
             continue;
@@ -3276,7 +3285,7 @@ fn collect_protocol_membership(
             continue;
         };
         for child in control_positions(operator, arguments, index, meter)? {
-            meter.charge(1, || node_pointer(position))?;
+            node_work(meter, position)?;
             if kinds.get(child) == Some(&CheckedNodeKind::Protocol(ProtocolForm::Control)) {
                 meter.push(&mut pending, (child, clause))?;
             }
@@ -3308,7 +3317,7 @@ pub(super) fn validate_temporal_fairness(
         let Some(CheckedNodeKind::Protocol(form)) = graph.kinds.get(position).copied() else {
             continue;
         };
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         let Some(term) = terms.get(position).and_then(Option::as_ref) else {
             continue;
         };
@@ -3338,7 +3347,7 @@ pub(super) fn validate_temporal_fairness(
         if graph.kinds[clause] != CheckedNodeKind::Protocol(ProtocolForm::ProtocolClause) {
             continue;
         }
-        meter.charge(1, || node_pointer(clause))?;
+        node_work(meter, clause)?;
         let Some((_, arguments)) = validated[clause] else {
             continue;
         };
@@ -3346,7 +3355,7 @@ pub(super) fn validate_temporal_fairness(
             continue;
         };
         for key in listed_targets(requirements) {
-            meter.charge(1, || node_pointer(clause))?;
+            node_work(meter, clause)?;
             if key == &graph.nodes[requirement].node_id {
                 matched = true;
                 validate_protocol_fairness_target(&context, target, fair, clause, meter)?;
@@ -3402,7 +3411,7 @@ fn validate_protocol_membership(
         if kinds.get(position) != Some(&CheckedNodeKind::Protocol(ProtocolForm::Queue)) {
             continue;
         }
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         let Some((_, arguments)) = validated[position] else {
             continue;
         };
@@ -3434,7 +3443,7 @@ fn validate_protocol_membership(
         ) {
             continue;
         }
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         if owners[position].is_none()
             || repeated[position]
             || (*form == ProtocolForm::Channel && queue_count[position] != 1)
@@ -3480,7 +3489,7 @@ fn validate_protocol_fairness(
             continue;
         };
         for requirement in listed_targets(requirements) {
-            meter.charge(1, || node_pointer(clause))?;
+            node_work(meter, clause)?;
             let Some(&requirement) = index.get(requirement) else {
                 continue;
             };
@@ -3492,7 +3501,7 @@ fn validate_protocol_fairness(
                 continue;
             };
             for fair in listed_targets(fairness) {
-                meter.charge(1, || node_pointer(requirement))?;
+                node_work(meter, requirement)?;
                 let Some(&fair) = index.get(fair) else {
                     continue;
                 };
@@ -3536,7 +3545,7 @@ fn validate_protocol_fairness(
                 continue;
             }
         }
-        meter.charge(1, || node_pointer(fair))?;
+        node_work(meter, fair)?;
         return Err(fairness_defect(
             fair,
             nodes,
@@ -3581,9 +3590,9 @@ fn external_temporal_fairness_references(
         let Some(fairness) = arguments.get(4) else {
             continue;
         };
-        meter.charge(1, || node_pointer(clause))?;
+        node_work(meter, clause)?;
         for key in listed_targets(fairness) {
-            meter.charge(1, || node_pointer(clause))?;
+            node_work(meter, clause)?;
             if let Some(&fair) = context.index.get(key) {
                 references[fair] = true;
             }
@@ -3659,7 +3668,7 @@ fn validate_protocol_fairness_target(
         ..
     } = context;
     let (identity, field) = target_identity(target);
-    meter.charge(1, || node_pointer(fair))?;
+    node_work(meter, fair)?;
     if identity.package != nodes[clause].node_id.package {
         return Err(fairness_defect(fair, nodes, field, false));
     }
@@ -3693,7 +3702,7 @@ fn validate_protocol_fairness_target(
         if let Some((_, arguments)) = validated[position] {
             if let Some(branches) = binding_value(arguments, "branches").and_then(members) {
                 for record in branches {
-                    meter.charge(1, || node_pointer(fair))?;
+                    node_work(meter, fair)?;
                     found |=
                         group_value(record, "label").and_then(text_value) == Some(branch.as_ref());
                 }
@@ -3743,7 +3752,7 @@ fn commit_is_taken(
     let mut pending = meter.vec(1)?;
     pending.push((root, false));
     while let Some((position, expanded)) = pending.pop() {
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         if !expanded && std::mem::replace(&mut scratch.seen[position], generation) == generation {
             continue;
         }
@@ -3810,12 +3819,12 @@ fn validate_compensation_commit_position(
         if check.kinds[position] != CheckedNodeKind::Protocol(ProtocolForm::Control) {
             continue;
         }
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         let Some((operator, arguments)) = validated[position] else {
             continue;
         };
         for child in control_positions(operator, arguments, check.index, meter)? {
-            meter.charge(1, || node_pointer(position))?;
+            node_work(meter, position)?;
             parents[child] = Some(position);
         }
     }
@@ -3826,7 +3835,7 @@ fn validate_compensation_commit_position(
         if std::mem::replace(&mut seen[parent], true) {
             break;
         }
-        meter.charge(1, || node_pointer(parent))?;
+        node_work(meter, parent)?;
         let Some(("sequence", parent_arguments)) = validated[parent] else {
             child = parent;
             continue;
@@ -3890,7 +3899,7 @@ fn check_clause(
     let captures = members(check.at(arguments, 2)).expect("validated captures");
     let mut capture_positions = meter.vec(captures.len())?;
     for (entry, record) in captures.iter().enumerate() {
-        meter.charge(1, || node_pointer(check.position))?;
+        node_work(meter, check.position)?;
         let binder = group_value(record, "binder").expect("validated capture binder");
         capture_positions.push(check.check_target(
             binder,
@@ -3956,7 +3965,7 @@ fn check_clause(
             .iter()
             .enumerate()
         {
-            meter.charge(1, || node_pointer(check.position))?;
+            node_work(meter, check.position)?;
             let path = check.argument_path(ordinal).key("members").index(entry);
             let position = check.check_target(target, || path.clone(), |_| true)?;
             if !check.is(position, expected) {
@@ -4005,7 +4014,7 @@ fn check_clause(
     }
 
     for (entry, &binder_position) in capture_positions.iter().enumerate() {
-        meter.charge(1, || node_pointer(check.position))?;
+        node_work(meter, check.position)?;
         introduce(binder_position, 1 + usize::from(each) + entry, meter)?;
     }
     Ok(())
@@ -4041,7 +4050,7 @@ fn check_clause_slots(
     }
     let captures = members(check.at(arguments, 2)).expect("validated captures");
     for (entry, record) in captures.iter().enumerate() {
-        meter.charge(1, || node_pointer(check.position))?;
+        node_work(meter, check.position)?;
         let initializer = group_value(record, "initializer").expect("validated initializer");
         let path = check
             .argument_path(2)
@@ -4138,7 +4147,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         let mut known: Vec<Vec<ProtocolBinderOrigin>> =
             meter.filled(check.nodes.len(), Vec::new())?;
         for (index, &position) in c0.iter().enumerate() {
-            meter.charge(1, || node_pointer(check.position))?;
+            node_work(meter, check.position)?;
             let capture = if index > usize::from(activation.is_some()) {
                 Some((
                     "protocol-capture",
@@ -4167,7 +4176,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         };
         for field in ["roles", "channels", "compensations"] {
             for target in listed_targets(binding_value(arguments, field).expect("validated list")) {
-                meter.charge(1, || node_pointer(check.position))?;
+                node_work(meter, check.position)?;
                 let position = *check.index.get(target).expect("validated member");
                 let (_, args) = scope.node_arguments(position);
                 match field {
@@ -4211,7 +4220,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                         for (ordinal, binder) in
                             compensation_binders(args, meter)?.into_iter().enumerate()
                         {
-                            meter.charge(1, || node_pointer(position))?;
+                            node_work(meter, position)?;
                             let capture = if ordinal > 0 && ordinal <= registration_count {
                                 Some(("registration-capture", ordinal - 1))
                             } else if ordinal > registration_count + 1
@@ -4236,7 +4245,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             }
         }
         for &position in check.index.values() {
-            meter.charge(1, || node_pointer(check.position))?;
+            node_work(meter, check.position)?;
             if !check.is(
                 position,
                 CheckedNodeKind::Protocol(ProtocolForm::Compensation),
@@ -4245,7 +4254,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             }
             let (_, args) = scope.node_arguments(position);
             for binder in compensation_binders(args, meter)? {
-                meter.charge(1, || node_pointer(position))?;
+                node_work(meter, position)?;
                 let binder = scope.target(binder);
                 if !scope.known[binder]
                     .iter()
@@ -4276,7 +4285,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         pending.push(root);
         let mut visited = meter.filled(check.nodes.len(), false)?;
         while let Some(position) = pending.pop() {
-            meter.charge(1, || node_pointer(position))?;
+            node_work(meter, position)?;
             if std::mem::replace(&mut visited[position], true) {
                 continue;
             }
@@ -4306,7 +4315,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 )?;
             }
             for child in control_positions(operator, args, check.index, meter)? {
-                meter.charge(1, || node_pointer(position))?;
+                node_work(meter, position)?;
                 meter.push(&mut pending, child)?;
             }
         }
@@ -4333,7 +4342,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         let mut reads: Vec<usize> = Vec::new();
         let mut state_read = None;
         while let Some(item) = pending.pop() {
-            meter.charge(1, || node_pointer(owner))?;
+            node_work(meter, owner)?;
             match item {
                 SlotWalk::Node(position, scope) => {
                     if !meter.insert_sorted(&mut visited, (position, scope))? {
@@ -4390,7 +4399,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                     let mut scoped_arms = meter.vec(arms.len())?;
                                     let mut valid = true;
                                     'arms: for (ordinal, arm) in arms.iter().enumerate() {
-                                        meter.charge(1, || node_pointer(owner))?;
+                                        node_work(meter, owner)?;
                                         let CheckedTerm::Binding { value, .. } = arm else {
                                             valid = false;
                                             break;
@@ -4408,7 +4417,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                                         };
                                         let mut binder_positions = meter.vec(binders.len())?;
                                         for binder in binders {
-                                            meter.charge(1, || node_pointer(owner))?;
+                                            node_work(meter, owner)?;
                                             let CheckedTerm::Reference { target } = binder else {
                                                 valid = false;
                                                 break 'arms;
@@ -4619,7 +4628,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         pending.push(root);
         let mut visited: Vec<usize> = Vec::new();
         while let Some(position) = pending.pop() {
-            meter.charge(1, || node_pointer(owner))?;
+            node_work(meter, owner)?;
             if !meter.insert_sorted(&mut visited, position)?
                 || (matches!(use_at, DecisionFactUse::Guard) && listed.contains(position))
             {
@@ -4691,7 +4700,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 }
             }
             for target in self.check.nodes[position].dependencies.iter().rev() {
-                meter.charge(1, || node_pointer(owner))?;
+                node_work(meter, owner)?;
                 if let Some(&next) = self.check.index.get(target) {
                     meter.push(&mut pending, next)?;
                 }
@@ -4720,7 +4729,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         pending.push(root);
         let mut visited: Vec<usize> = Vec::new();
         while let Some(position) = pending.pop() {
-            meter.charge(1, || node_pointer(owner))?;
+            node_work(meter, owner)?;
             if !meter.insert_sorted(&mut visited, position)?
                 || (matches!(use_at, DecisionFactUse::Guard) && listed.contains(position))
                 || matches!(self.check.kinds[position], CheckedNodeKind::Function(_))
@@ -4768,7 +4777,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                 continue;
             }
             for target in self.check.nodes[position].dependencies.iter().rev() {
-                meter.charge(1, || node_pointer(owner))?;
+                node_work(meter, owner)?;
                 if let Some(&next) = self.check.index.get(target) {
                     meter.push(&mut pending, next)?;
                 }
@@ -4799,7 +4808,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         input: &PositionSet,
         meter: &mut WorkMeter,
     ) -> Result<PositionSet, ValidationFailure> {
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         let actual = self.check.terms[position]
             .as_ref()
             .and_then(|body| group_value(body, "level"))
@@ -4818,7 +4827,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             .and_then(text_value)
             .expect("validated binder name");
         for other in input.iter() {
-            meter.charge(1, || node_pointer(position))?;
+            node_work(meter, position)?;
             let other_name = self.check.terms[other]
                 .as_ref()
                 .and_then(|body| group_value(body, "name"))
@@ -4839,7 +4848,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
     fn check_declaration_slots(&self, meter: &mut WorkMeter) -> Result<(), ValidationFailure> {
         let base = PositionSet::of(&[&self.c0], meter)?;
         for target in listed_targets(binding_value(self.arguments, "roles").expect("roles")) {
-            meter.charge(1, || node_pointer(self.check.position))?;
+            node_work(meter, self.check.position)?;
             let role = *self.check.index.get(target).expect("validated role");
             let (_, args) = self.node_arguments(role);
             let replication = argument(args, 1).expect("replication");
@@ -4859,7 +4868,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
             }
         }
         for target in listed_targets(binding_value(self.arguments, "channels").expect("channels")) {
-            meter.charge(1, || node_pointer(self.check.position))?;
+            node_work(meter, self.check.position)?;
             let channel = *self.check.index.get(target).expect("validated channel");
             let (_, args) = self.node_arguments(channel);
             let ordering = argument(args, 3).expect("ordering");
@@ -4889,10 +4898,10 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         input: PositionSet,
         meter: &mut WorkMeter,
     ) -> Result<ControlScopeFrame, ValidationFailure> {
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         let (operator, args) = self.node_arguments(position);
         for _ in input.iter() {
-            meter.charge(1, || node_pointer(position))?;
+            node_work(meter, position)?;
         }
         let output = if let Some(binder) = control_binder(operator, args) {
             self.introduce(self.target(binder), &input, meter)?
@@ -5092,7 +5101,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
                             .expect("validated binder name");
                         let mut duplicate = parent.output.contains(*binder);
                         for previous in parent.output.difference(&parent.input) {
-                            meter.charge(1, || node_pointer(*binder))?;
+                            node_work(meter, *binder)?;
                             let previous_name = self.check.terms[previous]
                                 .as_ref()
                                 .and_then(|body| group_value(body, "name"))
@@ -5171,7 +5180,7 @@ impl<'a, 'b> ProtocolScope<'a, 'b> {
         for target in
             listed_targets(binding_value(self.arguments, "compensations").expect("compensations"))
         {
-            meter.charge(1, || node_pointer(self.check.position))?;
+            node_work(meter, self.check.position)?;
             let template = *self.check.index.get(target).expect("validated template");
             let (_, args) = self.node_arguments(template);
             let forward = self.target(argument(args, 1).expect("forward binder"));
@@ -5418,7 +5427,7 @@ impl<'a> SlotLocals<'a> {
         owner: usize,
     ) -> Result<bool, ValidationFailure> {
         while let Some(id) = scope {
-            meter.charge(1, || node_pointer(owner))?;
+            node_work(meter, owner)?;
             let (parent, local) = &self.nodes[id];
             let found = match local {
                 SlotLocal::Name(local) => {
@@ -5509,7 +5518,7 @@ fn causal_edge(
     position: usize,
     meter: &mut WorkMeter,
 ) -> Result<(), ValidationFailure> {
-    meter.charge(1, || node_pointer(position))?;
+    node_work(meter, position)?;
     meter.push(&mut edges[from], to)
 }
 
@@ -5665,7 +5674,7 @@ fn guard_never_exits(
     let mut values = meter.vec(program.len())?;
     let mut cache = meter.filled(compiled.len(), false)?;
     loop {
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         values.clear();
         for op in &program {
             match op {
@@ -5719,7 +5728,7 @@ fn check_clause_causality(
     let mut pending = meter.vec(1)?;
     pending.push(root);
     while let Some(position) = pending.pop() {
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         if order[position].is_some() {
             continue;
         }
@@ -5747,7 +5756,7 @@ fn check_clause_causality(
         })
     };
     for &position in &preorder {
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         let (operator, args) = validated[position].expect("validated control");
         let enter = port(position, false).expect("tree member");
         let exit = enter + 1;
@@ -5942,7 +5951,7 @@ fn check_clause_causality(
         colors[start] = 1;
         meter.push(&mut stack, (start, 0_usize))?;
         while let Some((vertex, next)) = stack.last_mut() {
-            meter.charge(1, || node_pointer(preorder[*vertex / 2]))?;
+            node_work(meter, preorder[*vertex / 2])?;
             if let Some(&successor) = edges[*vertex].get(*next) {
                 *next += 1;
                 if colors[successor] == 1 {
@@ -6014,7 +6023,7 @@ fn check_clause_causality(
     }
     let mut steps = meter.filled(check.nodes.len(), false)?;
     for &position in preorder.iter().rev() {
-        meter.charge(1, || node_pointer(position))?;
+        node_work(meter, position)?;
         let (operator, args) = validated[position].expect("validated control");
         let children = control_positions(operator, args, check.index, meter)?;
         steps[position] = match operator {
@@ -6205,7 +6214,13 @@ pub(super) fn validate_protocol_nodes(
         }
         let node = &nodes[position];
         meter.at_node(position, super::graph_storage::node_form(&node.node_tag));
-        meter.charge(1, || node_pointer(position).key("body"))?;
+        let work_path = super::stage_storage::Path::root()
+            .key("semantic_graph")
+            .key("nodes")
+            .index(position)
+            .key("body");
+        let work_site = super::natural::site(meter, work_path);
+        super::natural::work_at(meter, work_site, 1)?;
         let Some(body) = terms.get(position).and_then(Option::as_ref) else {
             return Err(body_defect(
                 position,
@@ -7255,5 +7270,84 @@ mod tests {
             .expect("within")
             .swap(0, 1);
         assert_eq!(check(&awaited), Err(ProtocolBodyDefect::MalformedLayout));
+    }
+}
+
+#[cfg(test)]
+mod work_storage_tests {
+    use super::super::stage_storage::Path;
+    use super::super::{
+        NativeJoinBudget, NativeJoinLocus, NativeJoinLocusSource, PackageReadStage,
+    };
+    use super::*;
+    use ix_trace_rs::trace;
+
+    #[trace("TC-472", "FR-038-AC-508", "FR-038-AC-511")]
+    #[test]
+    fn protocol_work_denial_prepays_exact_pointer_and_retains_prior_locus() {
+        for (position, body) in [(0, false), (23, false), (1000, false), (23, true)] {
+            let path = Path::root()
+                .key("semantic_graph")
+                .key("nodes")
+                .index(position);
+            let path = if body { path.key("body") } else { path };
+            let expected_path = path.build();
+            // at_node must not overwrite the budget's inherited active locus.
+            let locus = NativeJoinLocus {
+                source: NativeJoinLocusSource::PackageRead(PackageReadStage::Graph, 25),
+                form: "declarations",
+            };
+            let run = |budget: &mut NativeJoinBudget| {
+                budget.set_active_locus(Some(locus));
+                let mut result = None;
+                let allocated = allocation_counter::measure(|| {
+                    let mut meter = WorkMeter::over(budget);
+                    meter.at_node(position, "protocol");
+                    result = Some(if body {
+                        let site = super::super::natural::site(&meter, path);
+                        super::super::natural::work_at(&mut meter, site, 1)
+                    } else {
+                        node_work(&mut meter, position)
+                    });
+                })
+                .bytes_total;
+                (result.unwrap(), allocated)
+            };
+            let mut admitted = NativeJoinBudget::new(1, 0);
+            assert_eq!(run(&mut admitted), (Ok(()), 0));
+            assert_eq!(admitted.consumed().work, 1);
+            let mut ample = NativeJoinBudget::new(0, 0).with_read_storage_limit(u64::MAX);
+            let (expected, allocated) = run(&mut ample);
+            let Err(ValidationFailure::Budget(stop)) = &expected else {
+                panic!("Work denial")
+            };
+            assert_eq!(stop.resource, super::super::PackageReadResource::Work);
+            assert_eq!(stop.amount, 1);
+            assert_eq!(stop.path.as_ref(), Some(&expected_path));
+            let required = ample.read_storage_consumed();
+            assert_eq!(required, expected_path.as_str().len() as u64);
+            assert_eq!(allocated, required);
+            assert_eq!(ample.first_unpaid_locus(), Some(locus));
+            let mut exact = NativeJoinBudget::new(0, 0).with_read_storage_limit(required);
+            assert_eq!(run(&mut exact), (expected.clone(), required));
+            for limit in [0, required - 1] {
+                let mut short = NativeJoinBudget::new(0, 0).with_read_storage_limit(limit);
+                let (result, allocated) = run(&mut short);
+                let Err(ValidationFailure::Budget(stop)) = result else {
+                    panic!("Work denial")
+                };
+                assert_eq!(stop.path, None);
+                assert_eq!(allocated, 0);
+                assert_eq!(short.read_storage_consumed(), 0);
+                assert_eq!(short.first_unpaid_locus(), Some(locus));
+                assert_eq!(short.consumed(), ample.consumed());
+            }
+            let mut repeated = NativeJoinBudget::new(0, 0).with_read_storage_limit(2 * required);
+            assert_eq!(run(&mut repeated), (expected.clone(), required));
+            assert_eq!(run(&mut repeated), (expected, required));
+            assert_eq!(repeated.read_storage_consumed(), 2 * required);
+            assert_eq!(repeated.first_unpaid_locus(), Some(locus));
+            assert_eq!(repeated.consumed(), ample.consumed());
+        }
     }
 }
