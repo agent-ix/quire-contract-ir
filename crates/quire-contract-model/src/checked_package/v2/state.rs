@@ -1055,19 +1055,27 @@ mod placement_budget_tests {
     use ix_trace_rs::trace;
     use serde_json::json;
 
-    #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-495")]
+    #[trace("TC-472", "FR-038-AC-511", "FR-038-AC-504")]
     #[test]
     fn placement_cursor_growth_is_paid_before_allocation() {
         let wire = json!({"term":"aggregate","members":[
             {"term":"aggregate","members":[{"term":"literal","value":null}]}
         ]});
         let body = CheckedJson::from_value(&wire).expect("document");
-        let node: CheckedSemanticNodeV2 = serde_json::from_value(json!({
-            "node_id":{"package":"fixture","path":[],"ordinal":0},
-            "node_tag":"value", "node_kind":"literal", "semantic_type":null,
-            "owner":null,"declaration":null,"occurrences":[],"body":null
-        }))
-        .expect("node");
+        let node = CheckedSemanticNodeV2 {
+            node_id: super::super::test_support::node_id('a'),
+            schema_version: "quire.checked-semantic-graph/v2".into(),
+            node_tag: "value".into(),
+            semantic_form: "literal".into(),
+            semantic_type: super::super::test_support::node_id('b'),
+            dependencies: Vec::new(),
+            occurrences: Vec::new(),
+            recursion_group: None,
+            declaration: None,
+            owner: None,
+            owner_model: None,
+            body: body.clone(),
+        };
         let run = |limit| {
             let mut budget = NativeJoinBudget::new(u64::MAX, 0).with_read_storage_limit(limit);
             let mut outcome = None;
