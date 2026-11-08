@@ -231,21 +231,50 @@ impl<'a> Trail<'a> {
         Trail::Child(self, Step::Index(index))
     }
 
-    /// The steps from the document root to this position, in order. Walks the
+    /// How many steps lead from the document root to this position. Walks the
     /// chain iteratively.
-    pub(super) fn steps(&self) -> Vec<Step<'a>> {
-        let mut below = Vec::new();
+    pub(super) fn step_count(&self) -> usize {
+        let mut count = 0usize;
         let mut current = self;
-        let base = loop {
+        loop {
             match current {
-                Trail::Base(steps) => break *steps,
-                Trail::Child(parent, step) => {
-                    below.push(*step);
+                Trail::Base(steps) => return count.saturating_add(steps.len()),
+                Trail::Child(parent, _) => {
+                    count = count.saturating_add(1);
                     current = parent;
                 }
             }
-        };
-        base.iter().chain(below.iter().rev()).copied().collect()
+        }
+    }
+
+    /// The steps from the document root to this position, in order, in one
+    /// vector of exactly [`Self::step_count`] entries. Walks the chain
+    /// iteratively.
+    pub(super) fn steps(&self) -> Vec<Step<'a>> {
+        self.steps_with_capacity(self.step_count())
+    }
+
+    /// [`Self::steps`] in a vector of `capacity` (at least the step count)
+    /// entries: a walk's cursor reserves room for the steps below.
+    pub(super) fn steps_with_capacity(&self, capacity: usize) -> Vec<Step<'a>> {
+        let count = self.step_count();
+        let mut steps = Vec::with_capacity(capacity.max(count));
+        steps.resize(count, Step::Index(0));
+        let mut at = count;
+        let mut current = self;
+        loop {
+            match current {
+                Trail::Base(base) => {
+                    steps[..base.len()].copy_from_slice(base);
+                    return steps;
+                }
+                Trail::Child(parent, step) => {
+                    at -= 1;
+                    steps[at] = *step;
+                    current = parent;
+                }
+            }
+        }
     }
 
     /// The RFC 6901 pointer of this position. Walks the chain iteratively.

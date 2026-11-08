@@ -838,7 +838,9 @@ fn key(value: &Value, at: &Trail<'_>) -> Result<RefinementKey, ValidationFailure
 }
 
 fn term(value: &Value, at: &Trail<'_>) -> Result<CheckedTerm, ValidationFailure> {
-    super::flat_wire::check_refinement_term(value, at)?;
+    super::read_charge::with_unmetered_walk(|walk| {
+        super::flat_wire::check_refinement_term(value, at, walk)
+    })?;
     CheckedTerm::decode_admitted(value).map_err(|_| invalid(at))
 }
 
@@ -1177,7 +1179,9 @@ pub(super) fn check_wire(body: &Value, at: &Trail<'_>) -> Result<(), ValidationF
         }
     }
     row_terms(body, at, |term, term_at| {
-        super::flat_wire::check_refinement_term(term, term_at)
+        super::read_charge::with_unmetered_walk(|walk| {
+            super::flat_wire::check_refinement_term(term, term_at, walk)
+        })
     })
 }
 

@@ -92,9 +92,9 @@ fn one_below_the_work_requirement_is_a_work_budget_incomplete_matching_the_plain
     assert_eq!(budget.last_success_read_storage_delta(), None);
 }
 
-/// The envelope's and the canonical comparison's reservations are exact: the
-/// measured requirement admits, one byte below is denied at the last request,
-/// at its locus, with the bytes asked.
+/// The charged stages' reservations are exact: the measured requirement
+/// admits, one byte below is denied at the last request (today the node-index
+/// key table), at its locus, with the bytes asked.
 #[trace("TC-472", "FR-038-AC-497", "FR-038-AC-498", "FR-358-AC-13")]
 #[test]
 fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
@@ -118,7 +118,6 @@ fn read_storage_one_below_the_requirement_is_denied_at_the_last_request() {
         .expect("a denial is recorded");
     assert!(asked > 0);
     assert_eq!(short.first_unpaid(), None);
-    // The capability table is the last request the read makes.
     assert_eq!(
         short.first_unpaid_locus(),
         Some(envelope_locus(

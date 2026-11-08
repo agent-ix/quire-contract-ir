@@ -15,9 +15,9 @@
 //! with `str::parse`, which requests no heap.
 
 use super::stage_storage::{self, Position, Refusal, Site};
-use super::{ApplicationOperator, BodyTerm, LiteralKind, WorkMeter};
+use super::{BodyTerm, TermItems, TermNode, WorkMeter};
 use crate::checked_package::common::{
-    ReferenceMember, ReferenceSite, Step, Trail, ValidationFailure,
+    ReferenceMember, ReferenceSite, Step, TermField, TermTag, Trail, ValidationFailure,
 };
 use crate::checked_package::shared::{
     CheckedNodeId, CheckedNodePathSegment, CheckedPackageRefusalCode,
@@ -308,12 +308,12 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
     fn push_children(
         &self,
         children: &mut Children<'_, Item<'s>>,
-        elements: Items<'s>,
+        elements: TermItems<'s>,
         key: &'static str,
     ) {
         for (index, node) in elements.enumerate() {
             let item = Item {
-                node,
+                node: node.node_ref(),
                 keep: self.steps.len(),
                 key: Some(key),
                 index: Some(index),
@@ -334,61 +334,56 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
         is_body_root: bool,
         children: &mut Children<'_, Item<'s>>,
     ) -> Result<u64, ValidationFailure> {
-        let Node::Object(members) = term.node() else {
+        let term = TermNode::from_ref(term);
+        if !term.is_object() {
             return Err(self.invalid(None));
+        }
+        let kind = match term.tag() {
+            TermTag::NonString => return Err(self.invalid(Some("term"))),
+            TermTag::Missing | TermTag::ExtensionForm | TermTag::Unknown => {
+                return Err(self.invalid(None));
+            }
+            TermTag::Known(kind) => kind,
         };
-        let count = members.len();
-        let Some(tag) = term.get("term") else {
-            return Err(self.invalid(None));
-        };
-        let Node::String(tag) = tag.node() else {
-            return Err(self.invalid(Some("term")));
-        };
-        let kind = if tag == "extension_form" {
-            None
-        } else {
-            BodyTerm::from_wire(tag)
-        };
-        let Some(kind) = kind else {
-            return Err(self.invalid(None));
-        };
-        let exact = |expected: &[&str]| {
-            count == expected.len() && expected.iter().all(|member| term.get(member).is_some())
-        };
+        let exact = |expected: &[&str]| term.exact_members(expected);
         match kind {
             BodyTerm::Literal => {
                 if exact(&["term", "type", "value_kind", "value"])
-                    && string_of(term, "value_kind")
-                        .is_some_and(|kind| LiteralKind::from_wire(kind).is_some())
-                    && term.get("value").is_some_and(is_literal_value)
+                    && term.literal_kind().is_some()
+                    && term
+                        .get("value")
+                        .is_some_and(|value| is_literal_value(value.node_ref()))
                 {
-                    self.visit_member(term, "type", ReferenceMember::Type, is_body_root)
+                    self.visit_member(term.node_ref(), "type", ReferenceMember::Type, is_body_root)
                 } else {
                     Err(self.invalid(None))
                 }
             }
             BodyTerm::Reference => {
                 if exact(&["term", "target"]) {
-                    self.visit_member(term, "target", ReferenceMember::Target, is_body_root)
+                    self.visit_member(
+                        term.node_ref(),
+                        "target",
+                        ReferenceMember::Target,
+                        is_body_root,
+                    )
                 } else {
                     Err(self.invalid(None))
                 }
             }
             BodyTerm::Application => {
                 if !(exact(&["term", "operator", "operation", "result_type", "arguments"])
-                    && string_of(term, "operator")
-                        .is_some_and(|operator| ApplicationOperator::from_wire(operator).is_some()))
+                    && term.operator().is_some())
                 {
                     return Err(self.invalid(None));
                 }
                 let result_type = self.visit_member(
-                    term,
+                    term.node_ref(),
                     "result_type",
                     ReferenceMember::ResultType,
                     is_body_root,
                 )?;
-                let Some(Node::Array(arguments)) = term.get("arguments").map(|node| node.node())
-                else {
+                let Some(arguments) = term.array(TermField::Arguments) else {
                     return Err(self.invalid(Some("arguments")));
                 };
                 self.push_children(children, arguments, "arguments");
@@ -398,8 +393,7 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
                 if !exact(&["term", "members"]) {
                     return Err(self.invalid(None));
                 }
-                let Some(Node::Array(elements)) = term.get("members").map(|node| node.node())
-                else {
+                let Some(elements) = term.array(TermField::Members) else {
                     return Err(self.invalid(Some("members")));
                 };
                 self.push_children(children, elements, "members");
@@ -407,13 +401,16 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
             }
             BodyTerm::Binding => {
                 if !(exact(&["term", "name", "value"])
-                    && string_of(term, "name").is_some_and(|name| !name.is_empty()))
+                    && term
+                        .field(TermField::Name)
+                        .and_then(TermNode::as_str)
+                        .is_some_and(|name| !name.is_empty()))
                 {
                     return Err(self.invalid(None));
                 }
                 if let Some(value) = term.get("value") {
                     let item = Item {
-                        node: value,
+                        node: value.node_ref(),
                         keep: self.steps.len(),
                         key: Some("value"),
                         index: None,
@@ -430,12 +427,16 @@ impl<'s> TermWalk<'_, '_, '_, 's, '_> {
                 if !exact(&["term", "package", "node"]) {
                     return Err(self.invalid(None));
                 }
-                if !string_of(term, "package").is_some_and(|package| !package.is_empty()) {
+                if !term
+                    .field(TermField::Package)
+                    .and_then(TermNode::as_str)
+                    .is_some_and(|package| !package.is_empty())
+                {
                     return Err(self.invalid(Some("package")));
                 }
                 if !term
                     .get("node")
-                    .is_some_and(|node| IdSpec::read(node).is_ok())
+                    .is_some_and(|node| IdSpec::read(node.node_ref()).is_ok())
                 {
                     return Err(self.invalid(Some("node")));
                 }
@@ -470,14 +471,6 @@ impl<'s> Walk for TermWalk<'_, '_, '_, 's, '_> {
 
     fn exit(&mut self, (): ()) -> ControlFlow<ValidationFailure> {
         ControlFlow::Continue(())
-    }
-}
-
-/// The string member `key` of `object`.
-fn string_of<'d>(object: NodeRef<'d>, key: &str) -> Option<&'d str> {
-    match object.get(key)?.node() {
-        Node::String(text) => Some(text),
-        _ => None,
     }
 }
 

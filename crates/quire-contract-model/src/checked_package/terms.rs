@@ -9,7 +9,7 @@
 //! entered node ([`Cursor`], [`At`]), and the plain pre-order visit
 //! ([`visit_terms`]).
 
-use super::common::{Step, TermField, Trail, WireTerm};
+use super::common::{Step, TermField, Trail, ValidationFailure, WireTerm};
 use super::v2::{BodyTerm, CheckedTerm, CheckedTermView};
 use quire_walk::{walk, Children, Walk};
 use serde_json::Value;
@@ -103,6 +103,9 @@ pub(super) struct At<'a, X> {
 /// only when an outcome needs one.
 pub(super) struct Cursor<'a> {
     steps: Vec<Step<'a>>,
+    /// Charges the bytes of a growth of `steps` before it is made, when the
+    /// walk meters its heap.
+    charge: Option<&'a dyn Fn(usize) -> Result<(), ValidationFailure>>,
 }
 
 impl<'a> Cursor<'a> {
@@ -110,7 +113,24 @@ impl<'a> Cursor<'a> {
     pub(super) fn at(base: &Trail<'a>) -> Self {
         Self {
             steps: base.steps(),
+            charge: None,
         }
+    }
+
+    /// A cursor at `base` whose every allocation, now and when a deeper node
+    /// is entered, is first charged through `charge` as a count of bytes.
+    pub(super) fn charged(
+        base: &Trail<'a>,
+        charge: &'a dyn Fn(usize) -> Result<(), ValidationFailure>,
+    ) -> Result<Self, ValidationFailure> {
+        charge(
+            base.step_count()
+                .saturating_mul(std::mem::size_of::<Step<'a>>()),
+        )?;
+        Ok(Self {
+            steps: base.steps(),
+            charge: Some(charge),
+        })
     }
 
     /// The walk's root node, `value` at the cursor's base, with `extra`.
@@ -152,6 +172,24 @@ impl<'a> Cursor<'a> {
         self.steps.truncate(node.keep);
         self.steps.extend(node.key.map(Step::Key));
         self.steps.extend(node.index.map(Step::Index));
+    }
+
+    /// [`Self::enter`], first charging and reserving the steps the node adds
+    /// beyond the cursor's capacity (doubling from four, reserved exactly).
+    pub(super) fn enter_charged<X>(&mut self, node: &At<'a, X>) -> Result<(), ValidationFailure> {
+        if let Some(charge) = self.charge {
+            self.steps.truncate(node.keep);
+            let needed =
+                node.keep + usize::from(node.key.is_some()) + usize::from(node.index.is_some());
+            let capacity = self.steps.capacity();
+            if needed > capacity {
+                let target = needed.max(capacity.saturating_mul(2)).max(4);
+                charge(target.saturating_mul(std::mem::size_of::<Step<'a>>()))?;
+                self.steps.reserve_exact(target - self.steps.len());
+            }
+        }
+        self.enter(node);
+        Ok(())
     }
 
     /// The entered node's position.
