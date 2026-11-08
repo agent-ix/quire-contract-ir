@@ -42,6 +42,19 @@ def export_counts(plain=3, probes=20, caller=2, calibration=1):
     return {"type": "llvm.coverage.json.export", "data": [{"functions": functions}]}
 
 
+class ExactNativeAmounts(unittest.TestCase):
+    def test_native_and_overflow_amounts_are_exact(self):
+        for value in (0, 2**64 - 1, str(2**64), str(2**128 - 1)):
+            self.assertEqual(census.native_amount(value), int(value))
+
+    def test_rounded_noncanonical_and_out_of_range_amounts_fail(self):
+        for value in (True, -1, 1.0, 2**64, None, "1", "0", "01", "+18446744073709551616",
+                      " 18446744073709551616", "1e30", str(2**128), "9" * 5000):
+            with self.subTest(value=repr(value)[:60]):
+                with self.assertRaises(census.CensusError):
+                    census.native_amount(value)
+
+
 class ActualEntryCensus(unittest.TestCase):
     def test_accounted_invocations_match(self):
         result = census.check(export_counts(), ROOT)

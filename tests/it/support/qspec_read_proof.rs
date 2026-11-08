@@ -515,9 +515,17 @@ fn budgeted_kind(result: &Budgeted) -> &'static str {
 }
 
 #[cfg(feature = "test-support")]
+fn native_amount_json(amount: u128) -> serde_json::Value {
+    match u64::try_from(amount) {
+        Ok(amount) => amount.into(),
+        Err(_) => amount.to_string().into(),
+    }
+}
+
+#[cfg(feature = "test-support")]
 fn native_event_json(event: &quire_contract_model::NativeBudgetEvent) -> serde_json::Value {
     serde_json::json!({
-        "resource": format!("{:?}", event.resource), "amount": event.amount,
+        "resource": format!("{:?}", event.resource), "amount": native_amount_json(event.amount),
         "consumed_before": event.consumed_before, "admitted": event.admitted,
         "allocation_class": event.allocation_class,
         "locus": event.locus.map(|locus| serde_json::json!({
@@ -594,7 +602,7 @@ fn assert_native_denial(
         }
         _ => panic!("a denied native charge must return a typed budget outcome"),
     };
-    serde_json::json!({"outcome":outcome,"resource":format!("{resource:?}"),"amount":event.amount,
+    serde_json::json!({"outcome":outcome,"resource":format!("{resource:?}"),"amount":native_amount_json(event.amount),
         "configured_bound":bound,"locus":native_event_json(&event)["locus"],"entire_repeat_budget_equal":true})
 }
 

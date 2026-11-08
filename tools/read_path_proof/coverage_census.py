@@ -170,12 +170,29 @@ def validate_provenance(export, root, intended, records):
             raise CensusError("runtime callsite has no executed compiler source region")
 
 
+def native_amount(value):
+    """Rust emits u64 JSON numbers and overflow u128 canonical decimal strings."""
+    if type(value) is int and 0 <= value < 2**64:
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[1-9][0-9]*", value):
+        # Bound the decimal length before conversion as well as the value.
+        if len(value) <= 39:
+            amount = int(value, 10)
+            if 2**64 <= amount < 2**128:
+                return amount
+    raise CensusError("native amount is not an exact canonical u64/u128 representation")
+
+
 def validate_normative_boundaries(record):
     events = record.get("native_budget_events")
     results = record.get("boundary_results")
     if (record.get("proof_schema") != "native-budget-events/v1"
             or not isinstance(events, list) or not isinstance(results, list)):
         raise CensusError("full proof requires actual passive-event normative boundary results")
+    events = [dict(event, amount=native_amount(event.get("amount"))) for event in events]
+    results = [dict(result, amount=native_amount(result.get("amount")),
+                    denial=dict(result.get("denial", {}), amount=native_amount(result.get("denial", {}).get("amount"))))
+               for result in results]
     complete=record.get("complete_reference",{})
     counters=("prior_work","prior_read_storage","work","read_storage","requested")
     if (complete.get("native_budget")!="unlimited"
@@ -187,8 +204,6 @@ def validate_normative_boundaries(record):
             or not complete.get("above_outcome_equal") or not complete.get("above_counts_equal")
             or not complete.get("above_budget_equal")):
         raise CensusError("full proof lacks measured unlimited complete-reference/exact-repeat evidence")
-    if any(type(event.get("amount")) is not int or not 0 <= event["amount"] < 2**128 for event in events):
-        raise CensusError("invalid full native event amount")
     if any(not event.get("admitted") for event in events):
         raise CensusError("complete-reference events contain an early native-budget denial")
     work=sum(event["amount"] for event in events if event.get("resource")=="Work")
